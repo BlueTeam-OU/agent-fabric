@@ -26,6 +26,8 @@ own_instance_tree()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+import isolated_state  # noqa: E402,F401 — a throwaway AGENT_FABRIC_STATE_DIR for every subprocess
 ASSEMBLE = os.path.join(ROOT, "tools", "fabric", "assemble.py")
 LINT = os.path.join(ROOT, "tools", "fabric", "lint.py")
 SCHEMA_DIR = os.path.join(ROOT, "identities", "schemas")
@@ -1299,6 +1301,42 @@ def test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the
     assert flags and flags[0].report_key == key, (flags, key)
     address, how = memory_flags.route(flags[0], writers, {"alpha": ["hostA/python-dev-07", "hostA/python-dev-03"]}, set())
     assert (address, how) == ("hostA/python-dev-03", "last-writer"), (address, how)
+
+
+def test_the_report_lists_review_horizons_from_the_drains_own_read_dates(tmp: str) -> None:
+    """ADR-050 rule 8: the drain keeps when each section was last returned by a memory_read in its own state file, lists
+    solution sections past 30 days and sections unread for 8 weeks, and says nothing about the unread until it has
+    watched that long. A state it cannot write leaves the unread list empty and says so."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "First", "body": "B1.", "evidence": ["h1"], "observed_at": "2025-12-01"},
+        {"class": "solution", "topic": "one", "title": "Second", "body": "B2.", "evidence": ["h1"], "observed_at": "2025-12-28"}])})
+    state = os.path.join(tmp, "state", "memory-drain-reads.json")
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"host": "boxA", "agent": "dev-01", "since_watermark": 0, "next_watermark": 5,
+                   "memory_use": {"since_ms": 0, "until_ms": 5, "calls": {"memory_read": 1}, "ids_read": {"p:alpha/solution#2": 1}},
+                   "counts": {"provisional_agent": 0, "in_scope": 2}}, fh)
+    assert run_assemble(drain, claims_dir, out, "--reads-state", state).returncode == 0
+    first = json.loads(read(report_path(out)))["review_horizons"]
+    assert first["reads_state"] == "new" and first["unread"] == [] and first["unread_from"] == "2026-02-26", first
+    assert [a["key"].partition("#")[2] for a in first["aged"]] == ["First"] and first["aged"][0]["days"] == 31, first["aged"]
+    kept = json.loads(read(state))
+    assert kept["since"] == "2026-01-01" and list(kept["reads"].values()) == ["2026-01-01"] and next(iter(kept["reads"])).endswith("#Second"), kept
+    assert os.stat(state).st_mode & 0o777 == 0o600
+    os.remove(os.path.join(drain, "harvest-report.json"))
+    assert run_assemble(drain, claims_dir, out, "--reads-state", state, "--stamp", "2026-03-01").returncode == 0
+    later = json.loads(read(report_path(out)))["review_horizons"]
+    assert later["reads_state"] == "ok" and later["unread_from"] is None, later
+    assert {u["key"].partition("#")[2]: u["last_read"] for u in later["unread"]} == {"First": None, "Second": "2026-01-01"}, later["unread"]
+    # A state that reads but cannot be rewritten: the unread list is not trusted this drain, the aged list still is.
+    os.chmod(os.path.dirname(state), 0o500)
+    try:
+        if not os.access(os.path.dirname(state), os.W_OK):
+            proc = run_assemble(drain, claims_dir, out, "--reads-state", state, "--stamp", "2026-03-01")
+            assert proc.returncode == 0 and "could not be written" in proc.stderr, proc.stderr
+            unwritable = json.loads(read(report_path(out)))["review_horizons"]
+            assert unwritable["reads_state"] == "unwritable" and unwritable["unread"] == [] and unwritable["aged"], unwritable
+    finally:
+        os.chmod(os.path.dirname(state), 0o700)
 
 
 def test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drains(tmp: str) -> None:
@@ -3361,6 +3399,7 @@ def main() -> int:
         test_a_claim_with_a_merge_target_and_no_body_retires_the_section_and_nothing_is_written_for_it,
         test_retiring_the_only_section_removes_the_file_and_its_index_line,
         test_a_retire_finds_its_section_in_another_topic_and_leaves_a_sibling_that_only_looks_like_it,
+        test_the_report_lists_review_horizons_from_the_drains_own_read_dates,
         test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report,
         test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
         test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section,

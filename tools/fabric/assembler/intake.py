@@ -34,6 +34,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--collision-decisions", default=None, metavar="FILE",
                     help="the owner's decision per collision the previous run refused on: "
                          "{\"<role>/<class>:<topic>#<heading>\": \"supersede\"|\"keep-both\"|\"drop\"}")
+    ap.add_argument("--reads-state", default=None, metavar="FILE",
+                    help="where the drain keeps when each section was last read (ADR-050 rule 8); "
+                         "default: memory-drain-reads.json in this login's agent state directory")
     args = ap.parse_args()
     if args.bundle:
         if args.claims or args.drain:
