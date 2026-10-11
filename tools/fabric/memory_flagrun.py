@@ -127,7 +127,7 @@ def run_ctl(argv: list[str], timeout: float = CTL_TIMEOUT_S) -> list[dict]:
     for line in r.stdout.splitlines():
         try:
             row = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):      # a line nested past the parser's depth is as unreadable as one that is not JSON
             continue
         if isinstance(row, dict) and isinstance(row.get("account"), str) and isinstance(row.get("host"), str):
             rows.append(row)
@@ -141,7 +141,8 @@ def job_objects(jobs: Any) -> bool:
     reads in their types. An account on older code, or one whose answer carries an error text in the list, is unknown."""
     return isinstance(jobs, list) and all(
         isinstance(j, dict) and isinstance(j.get("state"), str) and isinstance(j.get("title", ""), str)
-        and isinstance(j.get("source") or {}, dict) for j in jobs)
+        and (j.get("source") is None or (isinstance(j["source"], dict) and isinstance(j["source"].get("message_id", ""), (str, type(None)))))
+        for j in jobs)
 
 
 def read_fleet(ctl: list[str], run: Callable[..., list[dict]] = run_ctl) -> Fleet:

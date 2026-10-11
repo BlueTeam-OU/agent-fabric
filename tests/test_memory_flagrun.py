@@ -214,7 +214,11 @@ class Phase(FlagRun):
         self.go(send=True)
         good = {"state": "queued", "title": "t"}
         for bad in (["an error text"], [good, "x"], "text", {"a": 1}, [{"state": ["queued"], "title": "t"}], [{"state": "queued", "source": "self"}],
-                    [{"state": "queued", "title": 3}], None):
+                    [{"state": "queued", "title": 3}], None,
+                    [{"state": "queued", "source": {"message_id": ["x"]}}], [{"state": "queued", "source": {"message_id": {"a": 1}}}],
+                    [{"state": "queued", "source": {"message_id": 7}}],
+                    [{"state": "queued", "source": ""}], [{"state": "queued", "source": 0}], [{"state": "queued", "source": []}],
+                    [{"state": "queued", "source": False}]):
             with self.subTest(bad=bad):
                 row = {"account": "python-dev-01", "host": HOST, "status": "ok", "op": "jobs", "jobs": {"status": "ok", "jobs": bad}}
                 self.fleet_files(jobs=[row, jobs("python-dev-02", []), jobs("rust-dev-01", [])])
@@ -229,7 +233,13 @@ class Phase(FlagRun):
     def test_a_presence_role_that_is_not_a_string_is_no_role_not_a_crash(self):
         self.fleet_files(presence=[presence("python-dev-01", ["python-dev"], True), presence("rust-dev-01", "rust-dev", False)])
         fleet = fr.read_fleet([sys.executable, os.path.join(self.work, "ctl.py")])
-        self.assertEqual(fleet.holders, {"rust-dev": [f"{HOST}/rust-dev-01"]})
+        self.assertEqual((fleet.holders, fleet.silent), ({"rust-dev": [f"{HOST}/rust-dev-01"]}, set()), "no role is not silent")
+
+    def test_a_line_nested_past_the_parser_is_a_line_that_is_not_read(self):
+        with open(os.path.join(self.work, "presence.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write("[" * 300000 + "\n" + json.dumps(presence("python-dev-01", "python-dev", True)) + "\n")
+        fleet = fr.read_fleet([sys.executable, os.path.join(self.work, "ctl.py")])
+        self.assertEqual(fleet.holders, {"python-dev": [f"{HOST}/python-dev-01"]})
 
     def test_a_request_that_went_out_but_could_not_be_recorded_says_so_with_its_id(self):
         real = fr.memory_flags.append_ledger
