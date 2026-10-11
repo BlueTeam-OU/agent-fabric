@@ -73,7 +73,7 @@ findings on its hunks there. The caller arms, never with an unanswered
 `REQUEST` of its own; person-facing copy is never self-authored (a
 caller's draft ships as a marked placeholder).
 
-**A contributor's agent-fabric checkout stays on its default branch, current**: the launcher, hooks and prompt run from it, and a relaunch and a fleet upgrade refuse it otherwise. Branch work goes in a worktree: `git worktree add ../af-<what> -b <branch> origin/main`.
+**A contributor's agent-fabric checkout stays on its default branch, current**: the launcher, hooks and prompt run from it, a fleet upgrade refuses an off-main checkout and a relaunch runs whatever is checked out. Branch work goes in a worktree: `git worktree add ../af-<what> -b <branch> origin/main`.
 
 **A code PR is armed by its work-commit count**: the commits of work as opened, review fixes excluded.
 Eight or more, a security boundary too: arm once the review gate is met
