@@ -86,7 +86,8 @@ The protocol is the contract; the relay is only how it travels:
   `SEMANTICS.md` and `CONFORMANCE.md` are the wire contract.
 - `gzmsg` — parser, validator, paste
   `normalize` and the `new-id` UUIDv7 minter — is
-  tested (`node --test communication/gzcoord/tests/*.test.mjs`). What the
+  tested (`python3 tests/test_gzcoord_protocol.py` and the other
+  `tests/test_gzcoord_*.py`). What the
   validator rejects and what it merely warns about is the protocol's
   business: `protocol/SPEC.md` §18 and `CONFORMANCE.md` carry the list.
 - `communication/gzcoord/docs/TRANSPORT-ADAPTER-CONTRACT.md` is the

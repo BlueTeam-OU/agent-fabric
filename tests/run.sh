@@ -3,7 +3,6 @@
 #
 #   tests/run.sh            # all
 #   tests/run.sh python     # only the python suites
-#   tests/run.sh gzcoord    # only the GZCoord protocol/runtime suite
 #   tests/run.sh bash       # only the bash suites (launcher, guards, hooks)
 #   tests/run.sh static     # only the static checks (bash -n, shellcheck, ruff)
 set -uo pipefail
@@ -12,7 +11,7 @@ cd "$ROOT" || exit 1
 what="${1:-all}"
 # CI runs one section a leg: a misspelt one ran nothing and said "all
 # suites passed" (review of #68). An unknown section is an invocation error.
-case "$what" in all|static|python|gzcoord|bash) ;; *) echo "tests/run.sh: no section '$what' (all, static, python, gzcoord, bash)" >&2; exit 2 ;; esac
+case "$what" in all|static|python|bash) ;; *) echo "tests/run.sh: no section '$what' (all, static, python, bash)" >&2; exit 2 ;; esac
 fail=0
 run() { echo; echo "== $1"; shift; "$@" || fail=$((fail+1)); }
 
@@ -22,7 +21,7 @@ run() { echo; echo "== $1"; shift; "$@" || fail=$((fail+1)); }
 # os.tmpdir(), Python's tempfile — writes there and nowhere else. At the
 # end, every entry in it is a failure named by path: seventy such
 # directories per run had accumulated to 120 MB before anyone looked
-# (tests/scratch.mjs). The directory itself goes when the run ends,
+# (ADR-021). The directory itself goes when the run ends,
 # however it ends; and because it is this run's alone, a second run, a
 # pip install or an editor writing into the account's directory at the
 # same time is never mistaken for a leak. tests/leak-check.sh is the
@@ -60,9 +59,6 @@ if [[ "$what" == all || "$what" == python ]]; then
     for t in tests/test_*.py; do run "$t" python3 "$t"; done
     run "corpus lint" python3 tools/fabric/lint.py
     run "routing check" python3 tools/fabric/routing.py check
-fi
-if [[ "$what" == all || "$what" == gzcoord ]]; then
-    run "gzcoord" bash -c 'cd communication/gzcoord && node --test tests/*.test.mjs 2>&1 | grep -E -A14 "^not ok|^# (tests|pass|fail)"; [[ ${PIPESTATUS[0]} -eq 0 ]]'
 fi
 if [[ "$what" == all || "$what" == bash ]]; then
     # The branch's authority, from the branch's own copy of the guards: the

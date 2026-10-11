@@ -40,9 +40,9 @@ jobs:
     # Each suite on the interpreters it depends on, and no more: the Python
     # suites on every Python an agent host runs (3.13, the pinned
     # fabric-python and Debian 13's system python3, up to Fedora's 3.14;
-    # ADR-040 rule 1), the Node suites (GZCoord's) on the Node they are developed
-    # on and the oldest they must start on, and the bash suites and the
-    # guards on the oldest and newest interpreters. Every leg of the old
+    # ADR-040 rule 1), and the bash suites and the guards on the oldest and
+    # newest interpreters. GZCoord's suites are Python now and run in the
+    # python section. Every leg of the old
     # matrix ran all 78 suites, ~49 runner-minutes a push; split, less, with
     # each section still on every interpreter pairing it needs (devex-
     # tooling's measurement, 2026-09-29). Static checks are their own job.
@@ -52,19 +52,15 @@ jobs:
       matrix:
         include:
           # Two legs, not four (the owner, 2026-10-09): every interpreter a host
-          # runs is 3.13 or 3.14, and the oldest Node GZCoord's .mjs tests
-          # must run on (20) rides the 3.13 leg.
+          # runs is 3.13 or 3.14.
           - { section: python, python: '3.13', node: '20' }
           - { section: python, python: '3.14', node: '22' }
-          - { section: gzcoord, python: '3.13', node: '20' }
-          - { section: gzcoord, python: '3.13', node: '22' }
           # The bash suites run on the oldest interpreters the hosts promise
           # and on the newest (review of #68: the newest alone lost the oldest
           # and Node 20). The shims of ported scripts run the pinned fabric-python
           # whatever this matrix sets up (ADR-040 rule 4, installed below);
           # what the matrix decides here is the python3 of the scripts that
-          # keep the host's (the git and Claude Code hooks, bootstrap, the
-          # Node callers rule 4 names) and the Node the bash suites drive.
+          # keep the host's (the git and Claude Code hooks, bootstrap).
           # The python section's suites import the modules on each
           # interpreter.
           - { section: bash, python: '3.13', node: '20' }
@@ -100,7 +96,8 @@ jobs:
       # matrix's interpreters still run the Python suites themselves.
       - name: the fleet's pinned Python, as a host installs it
         run: sudo /usr/bin/python3 tools/fabric/python_pin.py install && /usr/bin/python3 tools/fabric/python_pin.py check
-      # Node in every leg: the GZCoord and locale-search .mjs tests need it.
+      # Node in every leg: two python-section suites run the Node control plane
+      # as an oracle (tests/test_control_js.py, tests/test_control_sessions.py).
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}

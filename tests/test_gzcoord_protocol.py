@@ -2,8 +2,10 @@
 """The GZCOORD/1 protocol suite's function cases, ported case for case from
 communication/gzcoord/tests/protocol.test.mjs to the Python tools
 (tools/fabric/gzcoord/, agent-fabric ADR-040 §7, Wave 7). The suite's
-command cases stay in that file and run unchanged against the shims; a
-case that both calls a function and runs a command is ported whole. Each
+command cases were that file's too and are ported at the end of this one
+(they run bin/gzmsg, bin/gzcoord-send and bin/gzcoord-inbox as processes
+against a stub relay); a case that both calls a function and runs a
+command is ported whole. Each
 case keeps its name and its reason; where the Node's name for a function
 differs (camelCase), the Python one is used. Plain script: prints ok/FAIL,
 exit 1 on any failure."""
@@ -253,10 +255,20 @@ def _():
     eq(validate("﻿" + HEAD + "BROADCAST: true\n")["errors"], [])
 
 
+def gzmsg_env() -> dict:
+    """What bin/gzmsg runs under: a scratch HOME and state directory, never the runner's."""
+    home = tempfile.mkdtemp(prefix="gzmsg-home-")
+    SCRATCH.append(home)
+    env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(home, "state")}
+    env.pop("XDG_STATE_HOME", None)
+    return env
+
+
 def gzmsg_cli(*args: str) -> "subprocess.CompletedProcess[str]":
     """The command at its contract's path: bin/gzmsg, the name everything inside the fabric uses."""
+    env = gzmsg_env()
     return subprocess.run([os.path.join(os.path.dirname(os.path.dirname(GZCOORD)), "bin", "gzmsg"), *args], capture_output=True,
-                          text=True, timeout=120, stdin=subprocess.DEVNULL)
+                          text=True, timeout=120, stdin=subprocess.DEVNULL, env=env)
 
 
 def scratch_file(text: str) -> str:
@@ -1277,7 +1289,46 @@ def _():
         raise Failed("a failing fetch did not raise")
 
 
-# The notification cap: what one --follow event carries.
+@case("waitLoop: the late error of an abandoned slice is not the next slice's own")
+def _():
+    """A hold that begins mid-slice abandons the fetch; its worker finishes later, after the loop has made the next
+    slice's box. The worker used to look `box` up when it ran, so a late error landed in the NEXT slice's box and was
+    raised as that fetch's own (found as a flaky 'aborted' under load). Here the next slice answers only after the
+    abandoned worker is dead, which is the bad order every time."""
+    me = DB_ADMIN
+    state = {"served": 0, "hold": False, "checks": 0}
+    first: list = []
+    second_started = threading.Event()
+    acked: list = []
+
+    def rec(rid: str) -> dict:
+        return {"id": rid, "sender": "develop-qzapp/x", "timestamp": "t",
+                "content": f"[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: architect-cto\nPROJECT: gzapp\nMESSAGE-ID: x-{rid}\nBROADCAST: true\n"}
+
+    def fetch(_slice, abort):
+        state["served"] += 1
+        if state["served"] == 1:
+            first.append(threading.current_thread())
+            state["hold"] = True
+            abort.wait(30)
+            second_started.wait(10)       # the loop has made the next slice's box by now: the bad order, every time
+            raise RuntimeError("the abandoned slice's own error")
+        second_started.set()
+        first[0].join(10)
+        eq(first[0].is_alive(), False, "the abandoned worker has finished, its error written")
+        return {"messages": [rec("m9")]}
+
+    def held() -> bool:
+        if state["hold"]:
+            state["checks"] += 1
+            if state["checks"] > 3:
+                state["hold"] = False
+        return state["hold"]
+    r = inbox.wait_loop(fetch, acked.append, 1800, mine_of(me), held=held, hold_poll_ms=1)
+    eq(r["delivered"], True)
+    eq(state["served"], 2)
+    eq(acked, ["m9"])
+
 @case("render under a cap: metadata whole, body cut at a line, the replay command last")
 def _():
     me = {"address": "develop-qzapp/user", "slug": "fabric-coordinator"}
@@ -1372,6 +1423,9 @@ def _():
     ok(length(fifty) <= cap)
     ok(re.search(r"\n  … and \d+ more for you \(seq 7\d\d–749\), each read with --replay <seq>$", fifty),
        f"a listing that dropped lines says so: {fifty[-200:]}")
+
+
+# The notification cap: what one --follow event carries.
 
 
 # agent-fabric ADR-037 rule 5: the automatic request intake is built and off.
@@ -1522,8 +1576,47 @@ def cmd_env(**extra: str) -> dict:
     # workspace whose agent-fabric is the checkout, by a link.
     ws = scratch("ws-")
     os.symlink(HERE, os.path.join(ws, "agent-fabric"))
-    return {**os.environ, "HOME": scratch("home-"), "AGENT_FABRIC_SECRET_STORE": id_store(),
-            "AGENT_FABRIC_ROOT": os.path.join(ws, "agent-fabric"), **extra}
+    env = {**os.environ, "HOME": scratch("home-"), "AGENT_FABRIC_SECRET_STORE": id_store(),
+           "AGENT_FABRIC_STATE_DIR": os.path.join(scratch("state-"), "state"), "AGENT_FABRIC_ROOT": os.path.join(ws, "agent-fabric"), **extra}
+    # The inbox journals what it prints (episodic.db under the state directory): a case run with the
+    # runner's AGENT_FABRIC_STATE_DIR or XDG_STATE_HOME wrote its row into the runner's own.
+    env.pop("XDG_STATE_HOME", None)
+    return env
+
+
+@case("a command case owns its state directory: the runner's AGENT_FABRIC_STATE_DIR and XDG_STATE_HOME are not the case's")
+def _():
+    # The inbox journals what it prints (episodic.db under the state directory); a case that kept the
+    # runner's wrote its rows there (review of #181, F1). The case holds the environment, not a run.
+    saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "XDG_STATE_HOME")}
+    os.environ["AGENT_FABRIC_STATE_DIR"] = "/runner/state"
+    os.environ["XDG_STATE_HOME"] = "/runner/xdg"
+    try:
+        env = cmd_env()
+        ok(env["AGENT_FABRIC_STATE_DIR"] != "/runner/state" and os.path.isdir(os.path.dirname(env["AGENT_FABRIC_STATE_DIR"])), env["AGENT_FABRIC_STATE_DIR"])
+        ok("XDG_STATE_HOME" not in env)
+        eq(cmd_env(AGENT_FABRIC_STATE_DIR="/case/state")["AGENT_FABRIC_STATE_DIR"], "/case/state", "a case that names its own keeps it")
+        # and so does bin/gzmsg: the environment gzmsg_cli really hands the process is observed, not assumed
+        seen: dict = {}
+        real_run = subprocess.run
+
+        def spy(argv, **kw):
+            seen["env"] = kw.get("env")
+            return real_run(argv, **kw)
+        subprocess.run = spy
+        try:
+            ok(gzmsg_cli("new-id").returncode == 0)
+        finally:
+            subprocess.run = real_run
+        g = seen["env"]
+        ok(g is not None and g["HOME"] != os.environ.get("HOME") and g["AGENT_FABRIC_STATE_DIR"].startswith(g["HOME"])
+           and g["AGENT_FABRIC_STATE_DIR"] != "/runner/state" and "XDG_STATE_HOME" not in g, g)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 @case("normalize CLI prints the normalised message for validate to read")
@@ -1820,6 +1913,826 @@ def _():
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+
+
+# ── the command cases of the deleted communication/gzcoord/tests/protocol.test.mjs ──
+# They ran bin/gzmsg, bin/gzcoord-send and bin/gzcoord-inbox as processes against
+# a stub relay and had no twin here; the Node file went with the last Node
+# (ADR-040 Wave 8, step s8 and after), each case ported with its asserts.
+
+ME = gzmsg.whoami()
+MY_ADDRESS = f"{ME['host']}/{ME['agent']}"
+VALID = (f"[GZCOORD/1] INFO\nFROM: {MY_ADDRESS}\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
+         "MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000001\nSUBJECT: fixture\n\nNOTES:\nhello\n")
+VALID_ID = "01a09fc1-0000-7000-8000-000000000001"
+UUID7 = r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+GZMSG_CMD = os.path.join(BIN, "gzmsg")
+TOOLS = os.path.join(HERE, "tools", "fabric")
+
+
+class Ran:
+    def __init__(self, code: int, out: str, err: str):
+        self.code, self.out, self.err = code, out, err
+
+
+def run_cmd(cmd: str, args: list[str], env: dict, stdin: str | None = None, cwd: str | None = None) -> Ran:
+    r = subprocess.run([cmd, *args], env=env, capture_output=True, text=True, timeout=120, cwd=cwd,
+                       input=stdin, stdin=None if stdin is not None else subprocess.DEVNULL)
+    return Ran(r.returncode, r.stdout, r.stderr)
+
+
+class Relay:
+    """A relay stub that records every post and answers {"seq": 42, ...}."""
+
+    def __init__(self, status: int = 200):
+        self.posts: list[dict] = []
+        self.hits: list[str] = []
+        self.status = status
+
+        def answer(h, method, path, body):
+            self.hits.append(f"{method} {path.split('?')[0]}")
+            if self.status != 200:
+                return self.status, "{}"
+            # Every request, whatever the method, as the Node stub counted them: a send that asked
+            # the relay anything else first (a /status probe) is not "one post".
+            self.posts.append({"url": path, "auth": h.headers.get("authorization"), "body": json.loads(body or "{}")})
+            return 200, json.dumps({"seq": 42, "id": "relay-id", "deduplicated": False})
+        self.stub = Stub(answer)
+        self.url = self.stub.url
+
+    def close(self) -> None:
+        self.stub.close()
+
+
+def send_env(relay_url: str, home: str, **extra: str) -> dict:
+    """HOME is a scratch dir (the runner's synced secrets.env must not be the token), and so is
+    the state dir: send records every id it sends, and a test never writes that into the runner's."""
+    env = cmd_env(HOME=home, AGENT_FABRIC_STATE_DIR=os.path.join(home, "state"), CLAUDE_BRIDGE_URL=relay_url,
+                  CLAUDE_BRIDGE_AUTH_TOKEN="tok-fixture", GZCOORD_CHANNEL="fixture:chan")
+    env.update(extra)
+    return env
+
+
+def send_with(relay_url: str, text: str, extra: list[str] | None = None, **more_env: str) -> Ran:
+    d = scratch("send-")
+    f = os.path.join(d, "m.txt")
+    with open(f, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+    return run_cmd(SEND_CMD, [f, *(extra or [])], send_env(relay_url, d, **more_env))
+
+
+def send_file(relay_url: str, f: str, extra: list[str] | None = None, state: str | None = None) -> Ran:
+    d = os.path.dirname(f)
+    env = send_env(relay_url, d)
+    if state:
+        env["AGENT_FABRIC_STATE_DIR"] = state
+    return run_cmd(SEND_CMD, [f, *(extra or [])], env)
+
+
+def journal_rows(state: str, store: str) -> list:
+    code = ("import sqlite3,json,sys\nsys.path.insert(0, sys.argv[1]); import episodic\n"
+            "c = sqlite3.connect(episodic.db_path())\n"
+            "print(json.dumps(c.execute('SELECT direction, state, message_id, carrier_seq, content FROM episodes ORDER BY recorded_at').fetchall()))")
+    r = subprocess.run([sys.executable, "-c", code, TOOLS], capture_output=True, text=True, timeout=60,
+                       env={**os.environ, "AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_SECRET_STORE": store})
+    eq(r.returncode, 0, r.stderr)
+    return json.loads(r.stdout)
+
+
+def journaled_send(relay_url: str, text: str = VALID) -> tuple[Ran, str, str]:
+    base = scratch("send-journal-")
+    state, store = os.path.join(base, "state"), id_store()
+    return send_with(relay_url, text, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store), state, store
+
+
+def starts(pattern: str, text: str, msg: str = "") -> None:
+    """Node's /^…/ without the m flag: the start of the whole output, not of any line."""
+    ok(re.match(pattern, text), msg or f"{pattern!r} does not start {text!r}")
+
+
+def has(pattern: str, text: str, msg: str = "") -> None:
+    ok(re.search(pattern, text, re.M), msg or f"{pattern!r} not in {text!r}")
+
+
+def hasnt(pattern: str, text: str, msg: str = "") -> None:
+    ok(not re.search(pattern, text, re.M), msg or f"{pattern!r} found in {text!r}")
+
+
+@case("validate CLI reports a bad first line on one line and exits 1")
+def _():
+    f = scratch_file("GZCOORD/1 INFO\nFROM: develop-gzapp/gzapp\nROLE: Tester\nPROJECT: gzapp\nMESSAGE-ID: test-0001\nBROADCAST: true\n")
+    bad = gzmsg_cli("validate", f)
+    eq(bad.returncode, 1)
+    # The LAST line: a tool may say something else first (a login whose locale is pinned away is
+    # told so), and forbidding any other line would test the absence of diagnostics, not this.
+    eq(bad.stderr.strip().split("\n")[-1], "invalid GZCOORD/1 first line")
+    eq(bad.stdout, "")
+
+
+@case("validate prints the line-length warning on stderr and still passes the message")
+def _():
+    f = scratch_file("[GZCOORD/1] INFO\nFROM: develop-gzapp/gzapp\nROLE: Tester\nPROJECT: gzapp\nMESSAGE-ID: test-0001\n"
+                     f"BROADCAST: true\nSPECIALTIES: {'z' * 80}\n")
+    r = gzmsg_cli("validate", "--no-taxonomy", f)
+    eq(r.returncode, 0, r.stderr)
+    has(r"^warning: line 7 is 93 columns wide", r.stderr)
+    eq(r.stdout, "valid GZCOORD/1 message\n")
+
+
+@case("new-id CLI mints; next-id is gone; --seed is refused")
+def _():
+    a = gzmsg_cli("new-id")
+    eq(a.returncode, 0, a.stderr)
+    ok(re.fullmatch(UUID7, a.stdout.strip()), a.stdout)
+    b = gzmsg_cli("next-id")
+    eq(b.returncode, 2, "the counter-era name is an unknown command, not an alias")
+    has(r"usage:", b.stderr)
+    # new-id declares no flags at all, so the generic unknown-flag refusal fires before the
+    # retired-flag message is reachable.
+    r = gzmsg_cli("new-id", "--seed", "9")
+    eq(r.returncode, 2)
+    has(r"unknown flag --seed", r.stderr)
+
+
+@case("CLI: an unknown flag is refused before any side effect")
+def _():
+    typo = gzmsg_cli("new-id", "--seeed", "9")
+    eq(typo.returncode, 2)
+    has(r"unknown flag --seeed", typo.stderr)
+    eq(typo.stdout, "")
+    peek = gzmsg_cli("new-id", "--peek")
+    eq(peek.returncode, 2, "the counter-era flag is unknown on new-id")
+    has(r"unknown flag --peek", peek.stderr)
+    eq(peek.stdout, "")
+    retired = gzmsg_cli("hello", "--no-taxonomy", "--from", "develop-gzapp/web", "--role", "R", "--project", "p")
+    eq(retired.returncode, 2, "hello is no longer a command")
+    ok(retired.stderr.startswith("usage: gzmsg validate"), retired.stderr)
+    eq(retired.stdout, "")
+    f = scratch_file("[GZCOORD/1] INFO\nFROM: a/b\nROLE: R\nPROJECT: p\nMESSAGE-ID: b-0001\nBROADCAST: true\n")
+    v = gzmsg_cli("validate", f, "--nope")
+    eq(v.returncode, 2)
+    has(r"unknown flag --nope", v.stderr)
+    eq(gzmsg_cli("validate", f, "--no-taxonomy").returncode, 0, "the declared paths are untouched")
+    ok(re.match(UUID7, gzmsg_cli("new-id").stdout.strip()), "the declared path mints")
+
+
+@case("send posts a valid message as this login, to the configured channel")
+def _():
+    relay = Relay()
+    try:
+        r = send_with(relay.url, VALID)
+        eq(r.code, 0, r.err)
+        starts(r"sent seq 42 INFO 01a09fc1-0000-7000-8000-000000000001", r.out)
+        eq(len(relay.posts), 1)
+        p = relay.posts[0]
+        eq(p["url"], "/api/send")
+        eq(p["auth"], "Bearer tok-fixture")
+        eq(sorted(p["body"]), ["channel", "content", "sender"])
+        eq(p["body"]["sender"], MY_ADDRESS)
+        eq(p["body"]["channel"], "fixture:chan")
+        eq(p["body"]["content"], VALID)
+    finally:
+        relay.close()
+
+
+@case("send keeps the message in its journal before posting, and marks it accepted with the relay seq")
+def _():
+    relay = Relay()
+    try:
+        r, state, store = journaled_send(relay.url)
+        eq(r.code, 0, r.err)
+        eq(journal_rows(state, store), [["outbound", "accepted", VALID_ID, 42, VALID]])
+        eq(len(relay.posts), 1)
+    finally:
+        relay.close()
+
+
+@case("a journal that cannot take the message stops the send: nothing posted, exit 2, said")
+def _():
+    relay = Relay()
+    try:
+        r = send_with(relay.url, VALID, AGENT_FABRIC_SECRET_STORE=scratch("send-no-id-"))
+        eq(r.code, 2, r.err)
+        has(r"no agent id", r.err)
+        has(r"not sent: a message is kept before it leaves", r.err)
+        eq(len(relay.posts), 0, "the carrier never saw it")
+        off = send_with(relay.url, VALID, AGENT_FABRIC_SECRET_STORE=scratch("send-no-id-"), GZCOORD_JOURNAL="off")
+        eq(off.code, 0, off.err)
+        has(r"GZCOORD_JOURNAL=off — this message is sent without being kept", off.err)
+        eq(len(relay.posts), 1, "the explicit bypass sends, and says so")
+    finally:
+        relay.close()
+
+
+@case("a post the relay refuses leaves the journal row failed, not accepted, and says it was refused, not unreachable")
+def _():
+    relay = Relay(status=409)
+    try:
+        r, state, store = journaled_send(relay.url)
+        eq(r.code, 3, r.err)
+        has(r"answered and refused it .* not sent", r.err)
+        hasnt(r"unreachable", r.err)
+        eq([x[:3] for x in journal_rows(state, store)], [["outbound", "failed", VALID_ID]])
+    finally:
+        relay.close()
+
+
+@case("a post whose answer cannot be read (a 5xx) leaves the row pending and says it may have been delivered; a refused connection is not sent")
+def _():
+    relay = Relay(status=503)
+    try:
+        r, state, store = journaled_send(relay.url)
+        eq(r.code, 3, r.err)
+        has(r"may have been delivered", r.err)
+        hasnt(r"not sent", r.err)
+        eq([x[:3] for x in journal_rows(state, store)], [["outbound", "pending", VALID_ID]])
+    finally:
+        relay.close()
+    # A port nothing listens on: the connection is refused, the relay never saw it.
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    r, state, store = journaled_send(f"http://127.0.0.1:{port}")
+    eq(r.code, 3, r.err)
+    has(r"relay unreachable .* not sent", r.err)
+    eq([x[:3] for x in journal_rows(state, store)], [["outbound", "failed", VALID_ID]])
+
+
+@case("a failed retransmission leaves a row pending whose earlier outcome was never written (review of #78)")
+def _():
+    relay = Relay(status=500)
+    try:
+        base = scratch("send-journal-unknown-")
+        state, store = os.path.join(base, "state"), id_store()
+        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_SECRET_STORE": store}
+        # An earlier send that died after its post: a pending row and no outcome.
+        first = subprocess.run([sys.executable, os.path.join(TOOLS, "episodic.py"), "gzcoord-out-pending"], env=env, input=VALID,
+                               capture_output=True, text=True, timeout=60)
+        eq([first.returncode, first.stdout.strip()], [0, "pending"], first.stderr)
+        r = send_with(relay.url, VALID, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store)
+        eq(r.code, 3, r.err)
+        has(r"may have reached the relay; its row stays pending", r.err)
+        eq([x[:3] for x in journal_rows(state, store)], [["outbound", "pending", VALID_ID]])
+    finally:
+        relay.close()
+
+
+NO_ID = re.sub(r"^MESSAGE-ID: .*\n", "", VALID, flags=re.M)
+
+
+def id_of(text: str) -> str | None:
+    m = re.search(r"^MESSAGE-ID: (.+)$", text, re.M)
+    return m.group(1) if m else None
+
+
+def write_file(f: str, text: str) -> None:
+    with open(f, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+
+
+def read_file(f: str) -> str:
+    with open(f, encoding="utf-8", newline="") as fh:
+        return fh.read()
+
+
+@case("send mints a missing MESSAGE-ID, writes it into the file, and a retry of the file sends the same id")
+def _():
+    relay = Relay()
+    try:
+        f = os.path.join(scratch("send-mint-"), "m.txt")
+        write_file(f, NO_ID)
+        r = send_file(relay.url, f)
+        eq(r.code, 0, r.err)
+        mid = id_of(read_file(f))
+        ok(mid and re.fullmatch(UUID7, mid), f"a UUIDv7, the deployment's own shape: {mid}")
+        starts(rf"sent seq 42 INFO {mid}", r.out)
+        has(r"minted .* and wrote it into", r.err)
+        eq(id_of(relay.posts[0]["body"]["content"]), mid, "the posted message carries the id the file now holds")
+        content = relay.posts[0]["body"]["content"]
+        ok(re.search(r"^SUBJECT: fixture$", content, re.M) and content.index("MESSAGE-ID:") < content.index("\n\n"), "the id sits in the metadata block")
+        again = send_file(relay.url, f)
+        eq(again.code, 0, again.err)
+        eq(id_of(relay.posts[1]["body"]["content"]), mid, "the retry sends the same id")
+        hasnt(r"minted", again.err, "nothing is minted the second time")
+    finally:
+        relay.close()
+
+
+@case("a dry run mints in memory only; stdin is said to keep nothing; a present id is kept; a placeholder is still refused")
+def _():
+    relay = Relay()
+    try:
+        f = os.path.join(scratch("send-mint-dry-"), "m.txt")
+        write_file(f, NO_ID)
+        dry = send_file(relay.url, f, ["--dry-run"])
+        eq(dry.code, 0, dry.err)
+        eq(read_file(f), NO_ID, "the dry run changed nothing")
+        has(r"would mint one \(dry run", dry.err)
+        piped = run_cmd(SEND_CMD, ["-"], send_env(relay.url, os.path.dirname(f)), stdin=NO_ID)
+        eq(piped.code, 0, piped.err)
+        has(r"from stdin it is kept nowhere", piped.err)
+        kept = send_with(relay.url, VALID)
+        has(VALID_ID, kept.out)
+        hasnt(r"minted", kept.err)
+        placeholder = send_with(relay.url, re.sub(r"^MESSAGE-ID: .*$", "MESSAGE-ID: MSGID", VALID, flags=re.M))
+        eq(placeholder.code, 2)
+        has(r"MSGID.*not sent", placeholder.err)
+    finally:
+        relay.close()
+
+
+@case("an id that already went out with another message is refused — a reused file does not send its new message under the old id")
+def _():
+    relay = Relay()
+    try:
+        d = scratch("send-reuse-")
+        f, state = os.path.join(d, "m.txt"), os.path.join(d, "state")
+        write_file(f, NO_ID)
+        first = send_file(relay.url, f, state=state)
+        eq(first.code, 0, first.err)
+        again = send_file(relay.url, f, state=state)
+        eq(again.code, 0, "the same message again is a retry, and passes")
+        write_file(f, read_file(f).replace("hello", "a different message"))
+        reused = send_file(relay.url, f, state=state)
+        eq(reused.code, 2)
+        has(r"already went out with a different message \(seq 42\).*delete the MESSAGE-ID line", reused.err)
+        eq(len(relay.posts), 2, "the reused-id message was not posted")
+        write_file(f, re.sub(r"^MESSAGE-ID: .*\n", "", read_file(f), flags=re.M))
+        fresh = send_file(relay.url, f, state=state)
+        eq(fresh.code, 0, fresh.err)
+        ok(id_of(read_file(f)) != id_of(relay.posts[0]["body"]["content"]), "deleting the line mints a new id")
+    finally:
+        relay.close()
+
+
+@case("a header send cannot parse is refused by the validator (exit 2), never a crash; a file that cannot be rewritten is refused unchanged and not posted")
+def _():
+    relay = Relay()
+    try:
+        bad = send_with(relay.url, "GZCOORD INFO\nFROM: a/b\n\nNOTES:\nx\n")
+        eq(bad.code, 2, bad.err)
+        has(r"does not validate", bad.err)
+        if os.geteuid() == 0:
+            return   # root writes anywhere: nothing to show
+        d = scratch("send-ro-")
+        f = os.path.join(d, "m.txt")
+        write_file(f, NO_ID)
+        os.chmod(d, 0o555)
+        try:
+            r = send_file(relay.url, f, state=os.path.join(scratch("send-ro-state-"), "state"))
+            eq(r.code, 1, r.err)
+            has(r"could not write the minted MESSAGE-ID", r.err)
+            eq(read_file(f), NO_ID, "the file is unchanged")
+            eq(os.listdir(d), ["m.txt"], "no temporary left")
+            eq(len(relay.posts), 0)
+        finally:
+            os.chmod(d, 0o755)
+    finally:
+        relay.close()
+
+
+# Presence before sending (tools/fabric/control/presence.py): a relay stub that answers
+# `presence` requests on the control channel from a fixture table, and a registry that
+# places the addressees.
+class PresenceRelay:
+    def __init__(self, answers: dict, placement: dict | None = None):
+        import urllib.parse
+        self.posts: list[dict] = []
+        self.asked: list[dict] = []
+        self.hits: list[str] = []
+
+        def answer(h, method, path, body):
+            self.hits.append(f"{method} {path.split('?')[0]}")
+            if method == "GET":
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(path).query)
+                msgs = []
+                if q.get("channel", [""])[0] == "fabric:control":
+                    for r in self.asked:
+                        to = list(answers) if r["to"] == "*" else r["to"]
+                        for i, a in enumerate([x for x in to if answers.get(x)]):
+                            msgs.append({"id": f"{r['id']}-{i}", "content": json.dumps(
+                                {"kind": "reply", "in_reply_to": r["id"], "from": a, "data": {"presence": answers[a]}})})
+                return 200, json.dumps({"messages": msgs})
+            b = json.loads(body or "{}")
+            if b.get("channel") == "fabric:control":
+                self.asked.append(json.loads(b["content"]))
+                return 200, json.dumps({"id": "ctl", "seq": 1})
+            self.posts.append({"url": path, "body": b})
+            return 200, json.dumps({"seq": 42, "id": "relay-id", "deduplicated": False})
+        self.stub = Stub(answer)
+        self.url = self.stub.url
+        reg = os.path.join(scratch("presence-reg-"), "hosts.json")
+        write_file(reg, json.dumps({"version": 1, "hosts": {"h": {"operator": "user"}},
+                                    "placement": placement or {"alpha": "h", "beta": "h", "gamma": "h"}}))
+        self.env = {"AGENT_FABRIC_HOSTS_REGISTRY": reg, "GZCOORD_PRESENCE_WAIT_MS": "1200"}
+
+    def close(self) -> None:
+        self.stub.close()
+
+
+def addressed(field: str) -> str:
+    return VALID.replace("BROADCAST: true", field).replace("[GZCOORD/1] INFO", "[GZCOORD/1] OBSERVATION")
+
+
+FAILED_READ = {"status": "failed", "error": "pgrep: spawn pgrep ENOENT"}
+
+
+def up(role: str) -> dict:
+    return {"status": "ok", "online": True, "sessions": 1, "since": "2026-09-25T09:00:00.000Z", "role": role, "project": "gzapp"}
+
+
+def down(role: str) -> dict:
+    return {"status": "ok", "online": False, "sessions": 0, "since": None, "role": role, "project": "gzapp"}
+
+
+@case("an addressee that is planning: sent, and the sender told its inbox is held until the plan is approved")
+def _():
+    pr = PresenceRelay({"h/alpha": {**up("web-dev"), "planning": True}})
+    try:
+        r = send_with(pr.url, addressed("TO: h/alpha"), **pr.env)
+        eq(r.code, 0, r.err)
+        has(r"h/alpha is planning — its inbox is held until the plan is approved; the message waits in the relay, and no answer comes before then", r.err)
+        eq(len(pr.posts), 1, "planning never blocks the send")
+    finally:
+        pr.close()
+
+
+@case("send checks presence first: a running addressee is sent to; one with no session, a silent agent or an unplaced address is refused, named, unless --force")
+def _():
+    pr = PresenceRelay({"h/alpha": up("web-dev"), "h/beta": down("web-dev")})
+    try:
+        good = send_with(pr.url, addressed("TO: h/alpha"), **pr.env)
+        eq(good.code, 0, good.err)
+        eq(len(pr.posts), 1, "sent")
+        eq([pr.asked[0]["op"], pr.asked[0]["to"], pr.asked[0]["from"]], ["presence", ["h/alpha"], MY_ADDRESS])
+        offline = send_with(pr.url, addressed("TO: h/beta"), **pr.env)
+        eq(offline.code, 4, offline.err)
+        has(r"h/beta has no session running[\s\S]*not sent — --force sends it anyway", offline.err)
+        eq(len(pr.posts), 1, "nothing posted for an addressee with no session")
+        silent = send_with(pr.url, addressed("TO: h/gamma"), **pr.env)
+        eq(silent.code, 4)
+        has(r"h/gamma's control agent did not answer within 1\.2 s", silent.err)
+        stranger = send_with(pr.url, addressed("TO: other/nobody"), **pr.env)
+        eq(stranger.code, 4)
+        has(r"other/nobody is not an account any host places", stranger.err)
+        forced = send_with(pr.url, addressed("TO: h/beta"), ["--force"], **pr.env)
+        eq(forced.code, 0, forced.err)
+        has(r"sending anyway \(--force\)", forced.err)
+        eq(len(pr.posts), 2, "--force sends it")
+    finally:
+        pr.close()
+
+
+@case("a dry run posts nothing, not even a presence request; a refused token is the post's to report")
+def _():
+    pr = PresenceRelay({"h/beta": down("web-dev")})
+    try:
+        dry = send_with(pr.url, addressed("TO: h/beta"), ["--dry-run"], **pr.env)
+        eq(dry.code, 0, dry.err)
+        has(r"would post", dry.err)
+        eq([len(pr.posts), len(pr.asked)], [0, 0], "no record of any kind (review of #38)")
+    finally:
+        pr.close()
+    relay = Relay(status=401)
+    try:
+        reg = os.path.join(scratch("presence-reg-"), "hosts.json")
+        write_file(reg, json.dumps({"version": 1, "hosts": {"h": {"operator": "user"}}, "placement": {"alpha": "h"}}))
+        r = send_with(relay.url, addressed("TO: h/alpha"), AGENT_FABRIC_HOSTS_REGISTRY=reg, GZCOORD_PRESENCE_WAIT_MS="800")
+        eq(r.code, 3, r.err)
+        has(r"refused", r.err)
+        hasnt(r"presence is unknown", r.err)
+        has(r"presence not asked — the relay refused the token in hand", r.err)
+        eq(len([h for h in relay.hits if h == "POST /api/send"]), 2, "the presence request, then the post itself — which owns the token refusal")
+    finally:
+        relay.close()
+
+
+@case("an addressee whose control agent could not tell is named as unknown, never as having no session")
+def _():
+    pr = PresenceRelay({"h/alpha": FAILED_READ})
+    try:
+        r = send_with(pr.url, addressed("TO: h/alpha"), **pr.env)
+        eq(r.code, 4, r.err)
+        has(r"presence is unknown \(h/alpha: pgrep: spawn pgrep ENOENT\)", r.err)
+        hasnt(r"has no session running", r.err)
+        eq(len(pr.posts), 0)
+    finally:
+        pr.close()
+
+
+@case("send to a role: reached when any holder runs; a broadcast asks nothing")
+def _():
+    pr = PresenceRelay({"h/alpha": down("web-dev"), "h/beta": up("web-dev"), "h/gamma": up("db-admin")})
+    try:
+        r = send_with(pr.url, addressed("TO-ROLE: web-dev"), **pr.env)
+        eq(r.code, 0, r.err)
+        eq(pr.asked[0]["to"], "*")
+        none = send_with(pr.url, addressed("TO-ROLE: flutter-dev"), **pr.env)
+        eq(none.code, 4)
+        has(r"no account holds flutter-dev", none.err)
+        n = len(pr.asked)
+        b = send_with(pr.url, VALID, **pr.env)
+        eq(b.code, 0, b.err)
+        eq(len(pr.asked), n, "a broadcast is not checked")
+    finally:
+        pr.close()
+
+
+@case("send stops, named, when no integration is configured — nothing is posted anywhere")
+def _():
+    relay = Relay()
+    try:
+        d = scratch("send-")
+        f = os.path.join(d, "m.txt")
+        write_file(f, VALID)
+        # Outside any working copy, with no channel in the environment: whoami() reports whatever
+        # project the runner's binding names, so the fabric is an empty root no project file is in.
+        empty = scratch("fabric-")
+        env = cmd_env(HOME=d, CLAUDE_BRIDGE_URL=relay.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", AGENT_FABRIC_ROOT=empty)
+        env.pop("GZCOORD_CHANNEL", None)
+        r = run_cmd(SEND_CMD, [f], env, cwd=empty)
+        eq(r.code, 3, r.err)
+        has(r"no GZCoord integration configured", r.err)
+        has(r"not sent", r.err)
+        eq(len(relay.posts), 0)
+    finally:
+        relay.close()
+
+
+@case("send refuses a message that does not validate, and posts nothing")
+def _():
+    relay = Relay()
+    try:
+        # Two addresses at once (SPEC §7.1).
+        r = send_with(relay.url, VALID.replace("BROADCAST: true", "BROADCAST: true\nTO-ROLE: backend-dev"))
+        eq(r.code, 2)
+        has(r"not sent", r.err)
+        eq(len(relay.posts), 0)
+    finally:
+        relay.close()
+
+
+@case("send refuses an id the deployment did not mint — the literal $ID reached the channel once")
+def _():
+    relay = Relay()
+    try:
+        r = send_with(relay.url, VALID.replace(f"MESSAGE-ID: {VALID_ID}", "MESSAGE-ID: $ID"))
+        eq(r.code, 2)
+        has(r"MESSAGE-ID is the literal \$ID — the shell variable was not expanded", r.err)
+        has(r"not sent", r.err)
+        eq(len(relay.posts), 0)
+        # ONCE: the complaint is also the refusal, and send suppresses the duplicate warning. That
+        # suppression matched its own English until a translated warning silently stopped matching,
+        # and nothing counted — so this counts (blind review, PR #28).
+        eq(len(re.findall(r"is the literal \$ID", r.err)), 1, r.err)
+        reply = send_with(relay.url, VALID.replace("SUBJECT: fixture", "IN-REPLY-TO: ${PREV}\nSUBJECT: fixture"))
+        eq(reply.code, 2)
+        has(r"IN-REPLY-TO is the literal \$\{PREV\}", reply.err)
+        eq(len(relay.posts), 0)
+        # The retired counter shape is still an id: older traffic is answered by it.
+        old = send_with(relay.url, VALID.replace("SUBJECT: fixture", "IN-REPLY-TO: db-admin-0007\nSUBJECT: fixture"))
+        eq(old.code, 0, old.err)
+        eq(len(relay.posts), 1)
+    finally:
+        relay.close()
+
+
+@case("send refuses a FROM that is not this session")
+def _():
+    relay = Relay()
+    try:
+        r = send_with(relay.url, VALID.replace(f"FROM: {MY_ADDRESS}", "FROM: other-host/someone"))
+        eq(r.code, 2)
+        has(r"FROM is other-host/someone but this session is", r.err)
+        eq(len(relay.posts), 0)
+    finally:
+        relay.close()
+
+
+@case("send --dry-run validates and resolves but posts nothing")
+def _():
+    relay = Relay()
+    try:
+        r = send_with(relay.url, VALID, ["--dry-run"])
+        eq(r.code, 0)
+        eq(len(relay.posts), 0)
+    finally:
+        relay.close()
+
+
+@case("send carries a long line as written, with no width warning (the bridge does not re-break)")
+def _():
+    relay = Relay()
+    try:
+        wide = VALID.rstrip("\n") + "\n" + "a path or an id that is longer than seventy-two columns: /home/x/projects/agent-fabric/runtime/claude-code/hooks/plan-hold.sh\n"
+        r = send_with(relay.url, wide)
+        eq(r.code, 0, r.err)
+        hasnt(r"columns wide", r.err, f"no width warning on the send path: {r.err}")
+        eq(relay.posts[0]["body"]["content"], wide, "the line is posted as written")
+    finally:
+        relay.close()
+
+
+@case("send reminds a session that fell back that the flagged text must not travel")
+def _():
+    relay = Relay()
+    try:
+        d = scratch("fallback-")
+        marker = os.path.join(d, f"{os.getpid()}.json")
+        write_file(marker, json.dumps({"session_id": "s", "pid": os.getpid(), "from_model": "claude-opus-5[1m]", "to_model": "claude-opus-4-8",
+                                       "at": "2026-09-16T11:46:21Z", "category": "cyber", "topic": "a cybersecurity issue"}))
+        r = send_with(relay.url, VALID, AGENT_FABRIC_FALLBACK_DIR=d, CLAUDE_PID=str(os.getpid()))
+        eq(r.code, 0, r.err)
+        has(r"send: reminder — this session fell back from claude-opus-5\[1m\] to claude-opus-4-8 at 2026-09-16T11:46:21Z", r.err, "the reminder names the switch")
+        has(r"flagged a request as a cybersecurity issue; filter anything that could be read as a cybersecurity issue out of this message", r.err)
+        eq(len(relay.posts), 1, "a reminder, not a refusal: the message is posted")
+        # a marker whose session is gone is not a fallback
+        write_file(marker, json.dumps({"session_id": "s", "pid": 4194304000, "from_model": "a", "to_model": "b"}))
+        r2 = send_with(relay.url, VALID, AGENT_FABRIC_FALLBACK_DIR=d, CLAUDE_PID=str(os.getpid()))
+        eq(r2.code, 0)
+        hasnt(r"reminder", r2.err)
+    finally:
+        relay.close()
+
+
+@case("send normalizes a pasted, indented message before validating")
+def _():
+    relay = Relay()
+    try:
+        r = send_with(relay.url, "\n".join("    " + line if line else line for line in VALID.split("\n")))
+        eq(r.code, 0, r.err)
+        eq(relay.posts[0]["body"]["content"], VALID)
+    finally:
+        relay.close()
+
+
+def inbox_env(relay_url: str, token: str = "tok", **extra: str) -> dict:
+    return cmd_env(CLAUDE_BRIDGE_URL=relay_url, CLAUDE_BRIDGE_AUTH_TOKEN=token, GZCOORD_CHANNEL="fixture:chan", **extra)
+
+
+# A refused token is not "unreachable": the relay answered. The inbox says the token was
+# rotated and exits 4, so a watch loop can stop.
+@case("inbox reports a refused token as a rotation, exit 4")
+def _():
+    relay = Relay(status=401)
+    try:
+        r = run_cmd(INBOX_CMD, ["--wait", "1"], inbox_env(relay.url, "dead"))
+        eq(r.code, 4, r.err)
+        has(r"refused this token \(HTTP 401\) — it was rotated; run fabric-secrets sync", r.err)
+    finally:
+        relay.close()
+
+
+def listing_stub(messages: list[dict]) -> tuple[Stub, list[str]]:
+    hits: list[str] = []
+
+    def answer(_h, _method, path, _body):
+        hits.append(path)
+        return 200, json.dumps({"channel": "fixture:chan", "messages": messages})
+    return Stub(answer), hits
+
+
+def only_reads(hits: list[str]) -> bool:
+    """/status is ensureRelay's liveness probe; nothing names a consumer and nothing acks or waits."""
+    return (all(u == "/status" or (u.startswith("/api/messages?") and "consumer_id" not in u) for u in hits)
+            and not any("/api/ack" in u or "/api/wait" in u for u in hits))
+
+
+# --replay re-reads one message without a consumer id (the cursor does not move) and shows a
+# body only when the message is addressed to me.
+@case("inbox --replay shows a broadcast, withholds a body not for me, moves no cursor, and says so in --json")
+def _():
+    mine = ("[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
+            "MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000a\nSUBJECT: for all\n\nNOTES:\nBODY-FOR-ALL\n")
+    theirs = ("[GZCOORD/1] REPLY\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nTO: other-host/someone\n"
+              "MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000b\nSUBJECT: private\n\nNOTES:\nBODY-PRIVATE\n")
+    stub, hits = listing_stub([{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": mine},
+                               {"seq": 8, "id": "r8", "ts": "T8", "sender": "x/y", "content": theirs}])
+    try:
+        env = inbox_env(stub.url)
+        a = run_cmd(INBOX_CMD, ["--replay", "7"], env)
+        b = run_cmd(INBOX_CMD, ["--replay", "01a09fc1-0000-7000-8000-00000000000b"], env)
+        c = run_cmd(INBOX_CMD, ["--replay", "99"], env)
+        aj = run_cmd(INBOX_CMD, ["--replay", "7", "--json"], env)
+        bj = run_cmd(INBOX_CMD, ["--replay", "8", "--json"], env)
+    finally:
+        stub.close()
+    # --json, for fabric-jobs add --request: the same read, the same withholding.
+    eq(aj.code, 0, aj.err)
+    doc = json.loads(aj.out)
+    eq([doc["addressed"], doc["seq"], doc["type"], doc["metadata"]["SUBJECT"]], [True, 7, "INFO", "for all"])
+    has(r"BODY-FOR-ALL", doc["text"])
+    eq(bj.code, 2)
+    eq(json.loads(bj.out), {"addressed": False, "seq": 8})
+    eq(a.code, 0, a.err)
+    has(r"BODY-FOR-ALL", a.out)
+    has(r"cursor unchanged", a.out)
+    eq(b.code, 2)
+    hasnt(r"BODY-PRIVATE", b.out)
+    has(r"not addressed to", b.out)
+    eq(c.code, 1)
+    has(r"no message 99", c.err)
+    ok(only_reads(hits), hits)
+
+
+# --history lists what is addressed to me in one call, from a seq on, withholding what is
+# not, reading no body into the listing and moving no cursor.
+@case("inbox --history lists the messages addressed to me, from a seq, and moves no cursor")
+def _():
+    def msg(n: int, to: str, subject: str) -> str:
+        return (f"[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\n{to}\n"
+                f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{n}\nSUBJECT: {subject}\n\nNOTES:\nBODY-{n}\n")
+    stub, hits = listing_stub([
+        {"seq": 5, "id": "r5", "ts": "T5", "sender": "x/y", "content": msg(5, "BROADCAST: true", "early")},
+        {"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": msg(7, "BROADCAST: true", "for all")},
+        {"seq": 8, "id": "r8", "ts": "T8", "sender": "x/y", "content": msg(8, "TO: other-host/someone", "private")}])
+    try:
+        env = inbox_env(stub.url)
+        everything = run_cmd(INBOX_CMD, ["--history"], env)
+        from_6 = run_cmd(INBOX_CMD, ["--history", "6"], env)
+        bad = run_cmd(INBOX_CMD, ["--history", "x"], env)
+    finally:
+        stub.close()
+    eq(everything.code, 0, everything.err)
+    has(r"2 addressed to you in the relay's last 3", everything.out)
+    has(r" 5 .*early", everything.out)
+    has(r" 7 .*for all", everything.out)
+    hasnt(r"private|BODY-", everything.out)
+    has(r"gzcoord-inbox --replay <seq>", everything.out)
+    eq(from_6.code, 0, from_6.err)
+    has(r"1 addressed to you", from_6.out)
+    hasnt(r"early", from_6.out)
+    eq(bad.code, 1)
+    has(r"usage: gzcoord-inbox --history", bad.err)
+    ok(only_reads(hits), hits)
+
+
+# The environment is a snapshot; the synced file is current. A refused token is retried once
+# with the file's value, and that is what recovers a watch re-armed from a pre-rotation shell.
+@case("the synced file is the token; the environment snapshot is not consulted while it exists")
+def _():
+    seen: list[str | None] = []
+
+    def answer(h, _method, path, _body):
+        seen.append(h.headers.get("authorization"))
+        if path == "/status":
+            return 200, "{}"
+        if h.headers.get("authorization") != "Bearer fresh-token":
+            return 401, "{}"
+        return 200, json.dumps({"messages": [], "next_cursor": None})
+    stub = Stub(answer)
+    try:
+        home = scratch("home-")
+        os.makedirs(os.path.join(home, ".config", "agent-fabric"))
+        write_file(os.path.join(home, ".config", "agent-fabric", "secrets.env"), "# x\nexport CLAUDE_BRIDGE_AUTH_TOKEN='fresh-token'\n")
+        r = run_cmd(INBOX_CMD, ["--wait", "1"], inbox_env(stub.url, "dead", HOME=home))
+    finally:
+        stub.close()
+    eq(r.code, 0, r.err)
+    ok("Bearer fresh-token" in seen and "Bearer dead" not in seen, seen)
+    hasnt(r"retrying", r.err)
+    has(r"nothing for you", r.out + r.err)
+
+
+# --follow is the watch: it blocks, prints a delivery as it lands, and does not return on a
+# quiet spell. A stub relay returns one message then stalls; the child is killed after the
+# message is observed.
+@case("inbox --follow prints a delivery and keeps running")
+def _():
+    import time
+    mine = ("[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
+            "MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000f\nSUBJECT: live\n\nNOTES:\nFOLLOW-BODY\n")
+    served = [False]
+
+    def answer(_h, _method, path, _body):
+        if path == "/status":
+            return 200, "{}"
+        if path.startswith("/api/wait"):
+            if not served[0]:
+                served[0] = True
+                return 200, json.dumps({"messages": [{"seq": 5, "id": "r5", "ts": "T", "sender": "x/y", "content": mine}], "next_cursor": "c"})
+            return None   # stall: --follow keeps waiting
+        return 200, "{}"   # ack
+    stub = Stub(answer)
+    child = subprocess.Popen([INBOX_CMD, "--follow"], env=inbox_env(stub.url), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             stdin=subprocess.DEVNULL)
+    os.set_blocking(child.stdout.fileno(), False)
+    out = b""
+    try:
+        end = time.time() + 8
+        while time.time() < end and b"FOLLOW-BODY" not in out:
+            out += child.stdout.read() or b""
+            time.sleep(0.05)
+        still_running = child.poll() is None
+    finally:
+        child.kill()
+        child.wait(10)
+        stub.close()
+    ok(b"FOLLOW-BODY" in out, "the delivery was printed")
+    ok(still_running, "--follow did not exit after the delivery")
+
 
 
 def main() -> int:

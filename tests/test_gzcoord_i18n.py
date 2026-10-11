@@ -4,7 +4,8 @@ communication/gzcoord/tests/i18n.test.mjs to the Python tools
 (tools/fabric/gzcoord/, agent-fabric ADR-040 §7, Wave 7). The lines the
 tools print are in the language of the login that reads them; a locale
 reaches the fabric's own lines and stops at the wire's. The command cases
-stay in that file and run unchanged against the shims. Two cases read the
+(a damaged default dictionary degrades loudly and the tool still runs) were
+that file's too and are ported at the end of this one. Two cases read the
 source, and read the modules now (ADR-040's 2026-10-01 amendment: a case
 reading the source reads the module). Plain script: prints ok/FAIL, exit 1
 on any failure."""
@@ -471,6 +472,50 @@ def _():
     ok(re.search(f"^{re.escape(i18n.default_dictionary()['replay.usage'])}$", r.stderr, re.M), r.stderr)
     ok(re.search(r"GZCOORD_DEFAULT_LOCALE_ONLY=1 — printing the default locale, not ", r.stderr), r.stderr)
     ok(USAGE_KA not in r.stderr, r.stderr)
+
+
+def broken_tree(contents: str | None) -> str:
+    """A copy of the checkout's shape: the Python modules, every top-level module of tools/fabric
+    (they import each other as siblings: a list of the ones imported today went stale the day
+    relay.py took httpsafe, and the case failed on a missing module, never on the dictionary), and
+    bin/gzcoord-inbox, with the default dictionary replaced. Copying the tools and i18n/ is what
+    makes a damaged en-US.json reachable at all: the default is resolved from the MODULE,
+    deliberately, so nothing in the environment can point it elsewhere (blind review F1 on PR #28).
+    Returns the entry. contents None: no en-US.json at all."""
+    d = tempfile.mkdtemp(prefix="i18n-broken-")
+    SCRATCH.append(d)
+    src = os.path.join(HERE, "tools", "fabric")
+    shutil.copytree(src, os.path.join(d, "tools", "fabric"), ignore=shutil.ignore_patterns("__pycache__"))
+    i18n_dir = os.path.join(d, "communication", "gzcoord", "i18n")
+    os.makedirs(i18n_dir)
+    if contents is not None:
+        with open(os.path.join(i18n_dir, "en-US.json"), "w", encoding="utf-8") as fh:
+            fh.write(contents)
+    os.makedirs(os.path.join(d, "bin"))
+    entry = os.path.join(d, "bin", "gzcoord-inbox")
+    shutil.copy(os.path.join(HERE, "bin", "gzcoord-inbox"), entry)
+    os.chmod(entry, 0o755)
+    return entry
+
+
+for _what, _contents in (("unparsable", "{ not json"), ("absent", None)):
+    def _degrades(what: str = _what, contents: str | None = _contents) -> None:
+        entry = broken_tree(contents)
+        home = scratch("i18n-home-")
+        env = {**os.environ, "AGENT_FABRIC_ROOT": HERE, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(home, "state"),
+               "AGENT_FABRIC_SECRET_STORE": scratch("i18n-store-")}
+        env.pop("XDG_STATE_HOME", None)
+        r = subprocess.run([entry, "--held"], env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+        # Never a stack trace, and never silence: the tool says which file it could not read and
+        # what that costs, then finishes its job with every line printed as its own key.
+        ok(not re.search(r"^\s+at ", r.stderr, re.M) and "Traceback" not in r.stderr, f"a stack trace reached the session:\n{r.stderr}")
+        ok(re.search(r"could not be read .*every line will print as its own key", r.stderr), r.stderr)
+        ok(re.search(r"^held\.(not-)?held", r.stdout, re.M), f"the tool did not finish: {r.stdout}|{r.stderr}")
+        # Constrained, not unconstrained: --held answers 0 held / 1 not held, and an uncaught throw
+        # also exits 1, so the stdout assertion above is what separates them — but an exit outside
+        # that pair is a new failure mode and this says so (re-review risk).
+        ok(r.returncode in (0, 1), f"exited {r.returncode}: {r.stderr}")
+    CASES.append((f"a {_what} default dictionary degrades loudly and the tool still runs", _degrades))
 
 
 def main() -> int:

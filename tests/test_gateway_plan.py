@@ -183,7 +183,9 @@ def main() -> int:
         path = gp.write(anth, os.path.join(t, "plan.json"))
         check("write: the bytes, 0600, no temporary left", open(path, "rb").read() == anth.bytes and stat.S_IMODE(os.stat(path).st_mode) == 0o600
               and os.listdir(t) == ["plan.json"])
-        env = {"PATH": os.environ.get("PATH", ""), "HOME": t}
+        # A minimal PATH, not the session's: ~/.local/bin holds the real gateway binary on an account
+        # where gateway-install ran, and "no binary on PATH" must not depend on that.
+        env = {"PATH": "/usr/bin:/bin", "HOME": t}
         r = subprocess.run([sys.executable, "-I", TOOL, "--login", ME, "--role", "python-dev"], env=env, capture_output=True, text=True, timeout=60)
         check("the command prints the plan on stdout", r.returncode == 0 and r.stdout.encode() == gp.build(ME, "python-dev").bytes, r.stderr)
         out = os.path.join(t, "o.json")
