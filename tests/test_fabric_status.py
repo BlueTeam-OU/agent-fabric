@@ -300,9 +300,33 @@ def main() -> int:
         with open(os.path.join(store, ".agent-id"), "w") as fh:
             fh.write("01a0f7ea-15b0-7ed9-a176-6eb006592db1\n")
         foreign = journal_state(jenv)
+        # Another agent's journal is `unknown` with the reason, as any journal that cannot be read is (the coordinator,
+        # REQUEST 01a12b87-9348-7811-ab67-ff6721f931cf): it was `foreign` while status.py counted before it checked.
         check("the journal is reported: none yet, then counted, and another agent's named",
               before["status"] == "none" and after["status"] == "ok" and after["detail"].startswith("1 episode(s)")
-              and foreign["status"] == "foreign")
+              and foreign["status"] == "unknown" and "belongs to agent 01a0f782-7e06-7dee-811f-0a860ed93bf3" in foreign["detail"])
+        check("…its episode count is not in what is said of another agent's journal",
+              "episode(s)" not in foreign["detail"] and "last " not in foreign["detail"])
+        import sqlite3 as _sq
+        with open(os.path.join(store, ".agent-id"), "w") as fh:
+            fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
+        db = os.path.join(sb, "journal-state", "agents")
+        db_files = [os.path.join(d, "episodic.db") for d, _, fs in os.walk(db) if "episodic.db" in fs]
+        stamp = os.stat(db_files[0]).st_mtime_ns if db_files else None
+        c = _sq.connect(db_files[0]); c.execute("UPDATE meta SET schema_version=99"); c.commit(); c.close()
+        newer = journal_state(jenv)
+        check("a journal of newer code is `unknown` with the reason, and is left as it is",
+              newer["status"] == "unknown" and "newer than this code" in newer["detail"])
+        c = _sq.connect(db_files[0]); c.execute("UPDATE meta SET schema_version=2"); c.commit(); c.close()
+        # A state directory with a ? and a # in its name: the path is the file it names, not the start of a URI's query.
+        odd = os.path.join(sb, "journal?state#1")
+        oenv = {**jenv, "AGENT_FABRIC_STATE_DIR": odd}
+        subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "episodic.py"), "gzcoord-in"], env=oenv,
+                       input=json.dumps({"content": "[GZCOORD/1] INFO\nFROM: h/x\nMESSAGE-ID: j-2\n\nINFO:\nx\n", "seq": 1}) + "\n",
+                       capture_output=True, text=True, timeout=60, check=True)
+        odd_state = journal_state(oenv)
+        check("a journal under a path with ? and # in it is counted", odd_state["status"] == "ok"
+              and odd_state["detail"].startswith("1 episode(s)"))
         # The control agent: read from the installed unit, against a fixture
         # tree whose pinned interpreter is a file the case makes or does not.
         fx = os.path.join(sb, "agentd-fabric")
