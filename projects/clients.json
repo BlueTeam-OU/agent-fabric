@@ -5,13 +5,13 @@
     "blueteam": {
       "title": "Blueteam — the company that runs the agents, a client of itself",
       "engagement": null,
-      "secrets_store": "BlueTeam-OU/blueteam-secrets",
+      "secrets_store": "BlueTeam-OU/agent-fabric-secrets",
       "channel": "gzapp:gzcoord"
     },
     "gzapi": {
       "title": "Gzapi — client #1",
       "engagement": null,
-      "secrets_store": "gzapi-org/gzapi-secrets",
+      "secrets_store": "gzapi-org/agent-fabric-secrets",
       "channel": "gzapp:gzcoord"
     },
     "personal": {
