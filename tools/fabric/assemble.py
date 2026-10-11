@@ -6,6 +6,7 @@ Turn distiller claims into the knowledge corpus, filed by scope.
 
     tools/fabric/assemble.py --claims DIR --drain DIR --project <project> --stamp DATE
     tools/fabric/assemble.py --bundle FILE|- --project <project> --stamp DATE
+    tools/fabric/assemble.py … --flags [--send]      # then the flag phase (memory_flagrun.py): dry run, or --send
 
 A BUNDLE is the drain as one tar with a manifest (harvest_memory.py
 --bundle; bin/fabric-host <host> drain <login> streams one from the
@@ -66,7 +67,7 @@ import sys
 # this was one file (tests/test_assemble_seams.py runs it under -I).
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
-from assembler.core import Run  # noqa: E402
+from assembler.core import Run, layout  # noqa: E402
 from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, load_decisions  # noqa: E402
 from assembler.targets import plan_classes, held_files, resolve_all_targets  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
@@ -101,7 +102,12 @@ def main() -> int:
     for role in run.owning_roles:
         write_role(run, role)
         index_role(run, role)
-    return report(run)
+    rc = report(run)
+    if rc == 0 and args.flags:
+        # After the report, which it reads for who wrote each section; a failed drain routes nothing.
+        import memory_flagrun
+        return memory_flagrun.phase(run.project, send=args.send, record_in_report=True, where=layout)
+    return rc
 
 
 if __name__ == "__main__":

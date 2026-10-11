@@ -7,6 +7,7 @@ section was observed, so the section is corrected where it lives instead of
 misleading the next session (ADR-050 rule 2). It judges nothing: it sorts.
 
     fabric-memory-check [CORPUS] [--tree DIR] [--project ID] [--known-dir NAME]… [--all] [--json]
+    fabric-memory-check --flags [--project ID] [--send]     # the drain's flag phase: tools/fabric/memory_flagrun.py
 
 CONTRACT
   CORPUS   a corpus root: the fabric's memory/ (default: the operator's, roots.memory_dir())
@@ -502,6 +503,11 @@ def lines(rows: list[dict], show_all: bool) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    if "--flags" in argv:
+        # The drain's flag phase (ADR-050 rules 3 and 6): it sends, which the check itself never does, so it is a
+        # mode of its own with its own options, loaded only when asked for.
+        import memory_flagrun
+        return memory_flagrun.main(argv)
     ap = _Parser(prog="fabric-memory-check", add_help=False)
     ap.add_argument("corpus", nargs="?")
     ap.add_argument("--tree")

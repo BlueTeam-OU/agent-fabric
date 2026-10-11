@@ -4,6 +4,7 @@ goes to, the one REQUEST per agent, and the ledger that keeps an open flag from 
 its own corpus in a scratch directory; nothing is sent and nothing reads the checkout's memory/."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -137,7 +138,7 @@ class Planning(unittest.TestCase):
         holders = {"python-dev": [ADDR[1]]}
         first = mf.plan(fl, {}, holders, {ADDR[1]}, {}, lambda a, m: False)
         self.assertEqual({a: [f.heading for f in v] for a, v in first.requests.items()}, {ADDR[1]: ["H00", "H01", "H02"]})
-        sent = mf.record({}, ADDR[1], fl, "m-1", "2026-10-11")
+        sent = {f.key: {"to": ADDR[1], "message_id": "m-1", "at": "2026-10-11"} for f in fl}
         again = mf.plan(fl, {}, holders, {ADDR[1]}, sent, lambda a, m: (a, m) == (ADDR[1], "m-1"))
         self.assertEqual((again.requests, len(again.open)), ({}, 3))
         self.assertEqual(again.open[0][1:], (ADDR[1], "m-1"))
@@ -283,23 +284,28 @@ class Ledger(unittest.TestCase):
         self.assertEqual(mf.open_message_ids(delivered), {"e" * 8 + "-0000-0000-0000-" + "0" * 12}, "delivered is not done: the job is still on the list")
         self.assertEqual(mf.open_message_ids({}), set())
 
-    def test_the_ledger_round_trips_whole_private_and_leaves_no_temporary_file(self):
+    def test_the_ledger_is_appended_per_flag_private_and_read_back_as_the_last_line_per_flag(self):
         with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, "memory-flags-sent.json")
+            path = os.path.join(d, "memory-flags.jsonl")
             self.assertEqual(mf.load_ledger(path), {})
-            doc = mf.record({}, ADDR[1], [_flag("c", "s.md", "H", "r")], "m-1", "2026-10-11")
-            mf.save_ledger(path, doc)
-            self.assertEqual(mf.load_ledger(path), doc)
+            one, two = _flag("c", "s.md", "H", "r"), _flag("c", "s.md", "G", "r")
+            mf.append_ledger(path, [one, two], ADDR[1], "m-1", "2026-10-11")
+            mf.append_ledger(path, [one], ADDR[2], "m-2", "2026-10-12")
+            self.assertEqual(mf.load_ledger(path), {one.key: {"to": ADDR[2], "message_id": "m-2", "at": "2026-10-12"},
+                                                    two.key: {"to": ADDR[1], "message_id": "m-1", "at": "2026-10-11"}})
+            self.assertEqual(len(rd(path).splitlines()), 3, "one line per flag sent")
             self.assertEqual(oct(os.stat(path).st_mode & 0o777), "0o600")
-            self.assertEqual(os.listdir(d), ["memory-flags-sent.json"])
-            before = rd(path)
-            with self.assertRaises(TypeError):
-                mf.save_ledger(path, {"k": object()})            # not JSON: the old ledger stays whole
-            self.assertEqual((rd(path), os.listdir(d)), (before, ["memory-flags-sent.json"]))
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write("[]")
-            with self.assertRaises(ValueError):
-                mf.load_ledger(path)
+            self.assertEqual(os.listdir(d), ["memory-flags.jsonl"])
+
+    def test_a_ledger_line_that_is_not_one_refuses_the_whole_ledger(self):
+        good = json.dumps({"key": "k", "to": "a", "message_id": "m", "at": "t"})
+        for bad in ("{not json", "[]", json.dumps({"key": "k", "to": "a", "message_id": "m"}), json.dumps({"key": "k", "to": 3, "message_id": "m", "at": "t"})):
+            with tempfile.TemporaryDirectory() as d:
+                path = os.path.join(d, "l.jsonl")
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(good + "\n" + bad + "\n")
+                with self.assertRaisesRegex(ValueError, "line 2"):
+                    mf.load_ledger(path)
 
 
 class EndToEnd(unittest.TestCase):

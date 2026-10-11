@@ -1,7 +1,7 @@
 """tools/fabric/memory_flags.py — from what memory_check.py sorted and what readers marked, to one REQUEST per
 agent that owns the sections (agent-fabric ADR-050 rules 3 and 5). The drain calls this; it reads no relay, no
 jobs list and no other account's state, so everything it needs is passed in (rule 14: nothing crosses hosts by
-a local read) and nothing is sent: it returns the REQUESTs and the ledger entries that say they were.
+a local read) and nothing is sent: it returns the plan, and renders the REQUESTs. The ledger is memory_flagrun's.
 
 THE FLAG   one per SECTION, however many of its anchors failed or readers marked it: key
            `<corpus>:<slice>#<heading>` (the corpus a label the caller gives: the project the
@@ -30,7 +30,9 @@ THE REQUEST  one per agent, addressed TO that agent's own address (an assignment
 DEDUP      `sent` is the drain's ledger, flag key -> {to, message_id, at}; a flag whose last REQUEST is
            still an open job of that agent (`is_open(address, message_id)`) is not sent again and is
            listed `open`. `open_message_ids` reads that from a jobs list. A flag whose job is done or
-           dropped and which is still flagged is sent again: the tree still disagrees.
+           dropped and which is still flagged is sent again: the tree still disagrees. (The runner that
+           calls `plan` answers `is_open` also for a REQUEST too young to have become a job, and for an
+           agent that did not answer: memory_flagrun.is_open_in.)
 
 WHAT IT DOES NOT DO  send, read the corpus's git history (memory_check did), decide whether a section is
            true (the owning agent does), or edit a slice.
@@ -307,39 +309,33 @@ def render_request(address: str, flags: list[Flag], sender: str, sender_role: st
     return text, mid
 
 
-def record(sent: dict[str, dict], address: str, flags: list[Flag], message_id: str, at: str) -> dict[str, dict]:
-    """The ledger after `flags` were sent to `address` as `message_id`."""
-    out = dict(sent)
-    for f in flags:
-        out[f.key] = {"to": address, "message_id": message_id, "at": at}
+def load_ledger(path: str) -> dict[str, dict]:
+    """The ledger: one JSON line per flag sent, {"key", "to", "message_id", "at"}; a flag sent again is its last line.
+    A line that is not so is a refusal, never skipped: a ledger read short would send those flags twice."""
+    out: dict[str, dict] = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for n, line in enumerate(fh, 1):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    row = None
+                if not (isinstance(row, dict) and all(isinstance(row.get(k), str) and row[k] for k in ("key", "to", "message_id", "at"))):
+                    raise ValueError(f"{path} line {n} is not a ledger line: a JSON object with key, to, message_id and at")
+                out[row["key"]] = {k: row[k] for k in ("to", "message_id", "at")}
+    except FileNotFoundError:
+        return {}
     return out
 
 
-def load_ledger(path: str) -> dict[str, dict]:
-    try:
-        with open(path, encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except FileNotFoundError:
-        return {}
-    if not isinstance(doc, dict):
-        raise ValueError(f"{path} is not a ledger: a JSON object of flag key to {{to, message_id, at}}")
-    return doc
-
-
-def save_ledger(path: str, doc: dict[str, dict]) -> None:
-    """Whole, by rename, mode 0600: a ledger half-written would send every flag twice."""
-    tmp = f"{path}.{os.getpid()}.tmp"
-    try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(doc, fh, indent=1, sort_keys=True, ensure_ascii=False)
-            fh.write("\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+def append_ledger(path: str, flags: list[Flag], address: str, message_id: str, at: str) -> None:
+    """One line per flag of a REQUEST that went out, in one write and synced before the next REQUEST is sent. A crash
+    between the send and this write resends those flags; a write that stopped halfway leaves a line load_ledger refuses."""
+    data = "".join(json.dumps({"key": f.key, "to": address, "message_id": message_id, "at": at}, ensure_ascii=False) + "\n" for f in flags)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(data)
+        fh.flush()
+        os.fsync(fh.fileno())

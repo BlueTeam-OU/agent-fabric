@@ -38,7 +38,13 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--reads-state", default=None, metavar="FILE",
                     help="where the drain keeps when each section was last read (ADR-050 rule 8); "
                          "default: memory-drain-reads.json in this login's agent state directory")
+    ap.add_argument("--flags", action="store_true",
+                    help="after the drain, route the sections a check or a reader flagged to the agents that own them "
+                         "(ADR-050 rules 3 and 6; tools/fabric/memory_flagrun.py): a dry run that prints the plan")
+    ap.add_argument("--send", action="store_true", help="with --flags: send the REQUESTs, and ask the model for hints")
     args = ap.parse_args()
+    if args.send and not args.flags:
+        ap.error("--send goes with --flags")
     if memory_horizons.day(args.stamp) is None:
         ap.error(f"--stamp {args.stamp!r} is no YYYY-MM-DD date")       # before anything is written: the horizons need it
     if args.bundle:
