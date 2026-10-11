@@ -169,7 +169,44 @@ echo "fabric-secrets: OK"
 '''
 
 
+# The sections are independent (each case makes its own login and resets the fakes), so they run as GROUPS, each in a
+# process of its own with its own sandbox: the cases are the same, the wall time is the longest group's. 0 is the refusals,
+# the dry run and the human logins; 1 and 2 are the whole sequence on the local and on the ssh backend, the long ones.
+NGROUPS = 3
+
+
+def drive() -> int:
+    """Run every group, print each one's output in the order of the sections, and fail if any group did."""
+    import concurrent.futures
+    jobs = int(os.environ.get("NEW_AGENT_CLI_JOBS") or min(NGROUPS, os.cpu_count() or 1))
+
+    def one(group: int) -> tuple[int, str]:
+        try:
+            r = subprocess.run([sys.executable, os.path.abspath(__file__), "--group", str(group)], stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", timeout=1500)
+        except subprocess.TimeoutExpired:
+            return 1, f"group {group}: FAILED — it did not finish in 25 minutes\n"
+        return r.returncode, r.stdout
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        futures = {g: pool.submit(one, g) for g in (1, 2, 0)}
+        results = [futures[g].result() for g in range(NGROUPS)]
+    failed = 0
+    for rc, out in results:
+        sys.stdout.write(out)
+        failed += rc != 0
+    print(f"\ntest_new_agent_cli: {'OK' if not failed else f'FAILED — {failed} group(s)'}")
+    return 1 if failed else 0
+
+
 def main() -> int:
+    if len(sys.argv) < 3 or sys.argv[1] != "--group":
+        return drive()
+    selected = int(sys.argv[2])
+
+    def _want(group: int) -> bool:
+        return group == selected
+
     fails = 0
 
     def ok(label: str, good: bool, detail: str = "") -> None:
@@ -237,110 +274,111 @@ def main() -> int:
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
             return r.returncode, r.stdout
 
-        print("new-agent: refusals")
-        rc, out = run()
-        ok("no arguments: usage, exit 2", rc == 2 and has(r"^usage:", out), out)
-        rc, out = run("some-login", "no-such-role", "--dry-run")
-        ok("an unknown role is refused before anything runs", rc == 1 and "no role 'no-such-role'" in out
-                                                                       and "(fabric-role list)" in out and "bin/fabric-role" not in out, out)
-        rc, out = run("some-login", "backend-dev", "--project", "not-registered", "--dry-run")
-        ok("an unregistered project is refused", rc == 1 and "not in projects/registry.json" in out, out)
-        rc, out = run("some-login", "backend-dev", "--bogus", "--dry-run")
-        ok("an unknown flag is a usage error", rc == 2, out)
-        rc, out = run("placed-elsewhere", "backend-dev", "--host", local, "--dry-run")
-        ok("an account placed on another host is not made again here", rc == 1 and "is placed on far-host" in out, out)
-        rc, out = run("some-login", "backend-dev", "--host", "nowhere", "--dry-run")
-        ok("an unregistered host is refused", rc == 1 and "unknown host 'nowhere'" in out, out)
-        rc, out = run("some-login", "backend-dev", "--dry-run", "--no-account-flag")
-        ok("no Claude account named: exit 2, both flags named, before anything runs",
-           rc == 2 and "--claude-account <slug>" in out and "--no-claude-account" in out and "host" not in out, out)
-        rc, out = run("some-login", "backend-dev", "--claude-account", "acct-one", "--no-claude-account", "--dry-run")
-        ok("…both named: exit 2", rc == 2 and "--claude-account <slug>" in out, out)
-        rc, out = run("some-login", "backend-dev", "--claude-account=Acct;x", "--dry-run")
-        ok("…a slug that is not one: exit 2, and the refusal names fabric-accounts bare",
-           rc == 2 and "is not an account slug" in out and "; fabric-accounts templates)" in out and "bin/fabric-" not in out, out)
-        rc, out = run("some-login", "backend-dev", "--claude-account=", "--dry-run")
-        ok("…an empty one is named, not taken for none: exit 2", rc == 2 and "is not an account slug" in out, out)
+        if _want(0):
+            print("new-agent: refusals")
+            rc, out = run()
+            ok("no arguments: usage, exit 2", rc == 2 and has(r"^usage:", out), out)
+            rc, out = run("some-login", "no-such-role", "--dry-run")
+            ok("an unknown role is refused before anything runs", rc == 1 and "no role 'no-such-role'" in out
+                                                                           and "(fabric-role list)" in out and "bin/fabric-role" not in out, out)
+            rc, out = run("some-login", "backend-dev", "--project", "not-registered", "--dry-run")
+            ok("an unregistered project is refused", rc == 1 and "not in projects/registry.json" in out, out)
+            rc, out = run("some-login", "backend-dev", "--bogus", "--dry-run")
+            ok("an unknown flag is a usage error", rc == 2, out)
+            rc, out = run("placed-elsewhere", "backend-dev", "--host", local, "--dry-run")
+            ok("an account placed on another host is not made again here", rc == 1 and "is placed on far-host" in out, out)
+            rc, out = run("some-login", "backend-dev", "--host", "nowhere", "--dry-run")
+            ok("an unregistered host is refused", rc == 1 and "unknown host 'nowhere'" in out, out)
+            rc, out = run("some-login", "backend-dev", "--dry-run", "--no-account-flag")
+            ok("no Claude account named: exit 2, both flags named, before anything runs",
+               rc == 2 and "--claude-account <slug>" in out and "--no-claude-account" in out and "host" not in out, out)
+            rc, out = run("some-login", "backend-dev", "--claude-account", "acct-one", "--no-claude-account", "--dry-run")
+            ok("…both named: exit 2", rc == 2 and "--claude-account <slug>" in out, out)
+            rc, out = run("some-login", "backend-dev", "--claude-account=Acct;x", "--dry-run")
+            ok("…a slug that is not one: exit 2, and the refusal names fabric-accounts bare",
+               rc == 2 and "is not an account slug" in out and "; fabric-accounts templates)" in out and "bin/fabric-" not in out, out)
+            rc, out = run("some-login", "backend-dev", "--claude-account=", "--dry-run")
+            ok("…an empty one is named, not taken for none: exit 2", rc == 2 and "is not an account slug" in out, out)
 
-        print("new-agent: the dry run names every step and touches nothing")
-        rc, out = run("zz-fixture-login", "backend-dev", "--project", "gzapp", "--project", "agent-fabric", "--dry-run")
-        ok("exits 0", rc == 0, f"rc={rc}\n{out}")
-        for step in ("useradd", "chmod 700", "mkdir -p", "curl -fsSL https://claude.ai/install.sh | bash -s -- ",
-                     "curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash", "append GitHub's published host keys",
-                     "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'", "store-enroll.sh zz-fixture-login --host",
-                     "provision identity, share, issue-key openrouter and openai",
-                     "git clone -q 'git@github.com:fixture-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
-            ok(f"plans: {step}", step in out, out)
-        ok("…and verifies nothing", "dry run: nothing verified" in out, out)
-        ok("no account was created", subprocess.run(["getent", "passwd", "zz-fixture-login"], stdout=subprocess.DEVNULL,
-                                                     timeout=30).returncode != 0)
-        ok("a project clone uses the registry's SSH remote", "git@github.com" in out, out)
-        ok("no binary is ever copied from another account", not re.search(r"copied|copy from", out, re.I), out)
-        ok("the host audit runs first, naming the platform",
-           has(r"^new-agent: 0\. [a-z-]*: host tools present", out) or has(r"^new-agent: 0\. [a-z-]*: this", out), out)
-        # A PATH with everything the dry run needs except gh: the audit must
-        # name gh's Debian package and apt-get.
-        nogh = f"{sandbox}/nogh"
-        os.makedirs(nogh)
-        for tool in ("bash", "python3", "getent", "id", "sudo", "hostname", "readlink", "dirname", "basename", "cut", "grep",
-                     "sed", "head", "tail", "tr", "sort", "uniq", "mktemp", "cat", "env", "cp", "mkdir", "rm", "ls", "ln",
-                     "chmod", "tee", "wc", "awk", "xargs", "curl", "ssh", "git", "jq", "gpg", "node", "npm", "sha256sum",
-                     "stat", "pgrep", "timeout", "flock", "useradd", "usermod", "shred", "install"):
-            src = shutil.which(tool, path=base.get("PATH"))
-            if src:
-                os.symlink(src, f"{nogh}/{tool}")
-        rc, out_deb = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=nogh)
-        ok("the Debian profile names the missing tool's package and apt-get",
-           has(r"^new-agent: 0\. debian: this host lacks .*gh.*: sudo apt-get install", out_deb), out_deb)
-        # The same PATH with gh, and a python3 that answers the floor check
-        # as 3.11 does: the run stops at the host audit, before any account.
-        oldpy = f"{sandbox}/oldpy"
-        os.makedirs(oldpy)
-        for entry in os.listdir(nogh):
-            if entry != "python3":
-                os.symlink(os.readlink(f"{nogh}/{entry}"), f"{oldpy}/{entry}")
-        for tool in ("gh", "paperkey", "openssl"):
-            src = shutil.which(tool, path=base.get("PATH"))
-            if src and not os.path.exists(f"{oldpy}/{tool}"):
-                os.symlink(src, f"{oldpy}/{tool}")
-        real_py = shutil.which("python3", path=base.get("PATH"))
-        with open(f"{oldpy}/python3", "w") as fh:
-            fh.write("#!/bin/bash\n"
-                     'if [[ "$1" == -c && "$2" == *version_info* ]]; then exit 1; fi\n'
-                     'if [[ "$1" == -V ]]; then echo "Python 3.11.2"; exit 0; fi\n'
-                     f'exec {real_py} "$@"\n')
-        os.chmod(f"{oldpy}/python3", 0o755)
-        rc, out_old = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=oldpy)
-        ok("a host python3 below the floor stops the run at the audit, naming the floor",
-           rc != 0 and "older than 3.13" in out_old and "Python 3.11.2" in out_old
-           and not has(r"^new-agent: 1\. ", out_old), out_old)
-        ok("the host is named, and a missing placement is asked for",
-           has(rf"^new-agent: host {re.escape(local)} \(this host\)", out) and 'placement: add "zz-fixture-login"' in out
-           and "(fabric-status on the" in out and "bin/fabric-status" not in out,
-           out)
-        rc, out = run("some-login", "backend-dev", "--claude", "9.9", "--dry-run")
-        ok("--claude takes stable, latest or a full version", rc == 2, out)
-        rc, out = run("some-login", "backend-dev", "--claude", "1.2.3-x';id;'", "--dry-run")
-        ok("--claude with shell characters in its suffix is refused", rc == 2, out)
-        rc, out = run("zz-fixture-login", "backend-dev", "--claude", "2.1.282-beta.1", "--dry-run")
-        ok("…while a real pre-release suffix still passes", "install.sh | bash -s -- 2.1.282-beta.1" in out, out)
-        rc, out = run("zz-fixture-login", "backend-dev", "--claude", "latest", "--dry-run")
-        ok("--claude latest reaches the installer", "install.sh | bash -s -- latest" in out, out)
-        with open(f"{ROOT}/runtime/claude-code/harness.json", encoding="utf-8") as fh:
-            pin = json.load(fh)["claude"]
-        rc, out = run("zz-fixture-login", "backend-dev", "--dry-run")
-        ok(f"no --claude: the fleet's pinned version ({pin}) reaches the installer",
-           has(rf"install\.sh \| bash -s -- {re.escape(pin)}$", out),
-           "\n".join(ln for ln in out.split("\n") if "install.sh" in ln))
-        put(f"{fab}/runtime/claude-code/harness.json", '{"claude": "2.1.282\'; touch /tmp/pwned; \'"}')
-        rc, out = run("zz-fixture-login", "backend-dev", "--dry-run")
-        ok("a pin that is not a version is refused before it reaches the installer's command line",
-           rc != 0 and "is not a version; nothing installed" in out and "install.sh | bash" not in out, f"rc={rc}\n{out}")
-        os.remove(f"{fab}/runtime/claude-code/harness.json")
-        rc, out = run("zz-fixture-login", "backend-dev", "--dry-run")
-        ok("no pin: latest, and that is said",
-           has(r"no readable pin .* the vendor's latest instead", out) and "install.sh | bash -s -- latest" in out, out)
-        shutil.copy(f"{ROOT}/runtime/claude-code/harness.json", f"{fab}/runtime/claude-code/")
+            print("new-agent: the dry run names every step and touches nothing")
+            rc, out = run("zz-fixture-login", "backend-dev", "--project", "gzapp", "--project", "agent-fabric", "--dry-run")
+            ok("exits 0", rc == 0, f"rc={rc}\n{out}")
+            for step in ("useradd", "chmod 700", "mkdir -p", "curl -fsSL https://claude.ai/install.sh | bash -s -- ",
+                         "curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash", "append GitHub's published host keys",
+                         "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'", "store-enroll.sh zz-fixture-login --host",
+                         "provision identity, share, issue-key openrouter and openai",
+                         "git clone -q 'git@github.com:fixture-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
+                ok(f"plans: {step}", step in out, out)
+            ok("…and verifies nothing", "dry run: nothing verified" in out, out)
+            ok("no account was created", subprocess.run(["getent", "passwd", "zz-fixture-login"], stdout=subprocess.DEVNULL,
+                                                         timeout=30).returncode != 0)
+            ok("a project clone uses the registry's SSH remote", "git@github.com" in out, out)
+            ok("no binary is ever copied from another account", not re.search(r"copied|copy from", out, re.I), out)
+            ok("the host audit runs first, naming the platform",
+               has(r"^new-agent: 0\. [a-z-]*: host tools present", out) or has(r"^new-agent: 0\. [a-z-]*: this", out), out)
+            # A PATH with everything the dry run needs except gh: the audit must
+            # name gh's Debian package and apt-get.
+            nogh = f"{sandbox}/nogh"
+            os.makedirs(nogh)
+            for tool in ("bash", "python3", "getent", "id", "sudo", "hostname", "readlink", "dirname", "basename", "cut", "grep",
+                         "sed", "head", "tail", "tr", "sort", "uniq", "mktemp", "cat", "env", "cp", "mkdir", "rm", "ls", "ln",
+                         "chmod", "tee", "wc", "awk", "xargs", "curl", "ssh", "git", "jq", "gpg", "node", "npm", "sha256sum",
+                         "stat", "pgrep", "timeout", "flock", "useradd", "usermod", "shred", "install"):
+                src = shutil.which(tool, path=base.get("PATH"))
+                if src:
+                    os.symlink(src, f"{nogh}/{tool}")
+            rc, out_deb = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=nogh)
+            ok("the Debian profile names the missing tool's package and apt-get",
+               has(r"^new-agent: 0\. debian: this host lacks .*gh.*: sudo apt-get install", out_deb), out_deb)
+            # The same PATH with gh, and a python3 that answers the floor check
+            # as 3.11 does: the run stops at the host audit, before any account.
+            oldpy = f"{sandbox}/oldpy"
+            os.makedirs(oldpy)
+            for entry in os.listdir(nogh):
+                if entry != "python3":
+                    os.symlink(os.readlink(f"{nogh}/{entry}"), f"{oldpy}/{entry}")
+            for tool in ("gh", "paperkey", "openssl"):
+                src = shutil.which(tool, path=base.get("PATH"))
+                if src and not os.path.exists(f"{oldpy}/{tool}"):
+                    os.symlink(src, f"{oldpy}/{tool}")
+            real_py = shutil.which("python3", path=base.get("PATH"))
+            with open(f"{oldpy}/python3", "w") as fh:
+                fh.write("#!/bin/bash\n"
+                         'if [[ "$1" == -c && "$2" == *version_info* ]]; then exit 1; fi\n'
+                         'if [[ "$1" == -V ]]; then echo "Python 3.11.2"; exit 0; fi\n'
+                         f'exec {real_py} "$@"\n')
+            os.chmod(f"{oldpy}/python3", 0o755)
+            rc, out_old = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=oldpy)
+            ok("a host python3 below the floor stops the run at the audit, naming the floor",
+               rc != 0 and "older than 3.13" in out_old and "Python 3.11.2" in out_old
+               and not has(r"^new-agent: 1\. ", out_old), out_old)
+            ok("the host is named, and a missing placement is asked for",
+               has(rf"^new-agent: host {re.escape(local)} \(this host\)", out) and 'placement: add "zz-fixture-login"' in out
+               and "(fabric-status on the" in out and "bin/fabric-status" not in out,
+               out)
+            rc, out = run("some-login", "backend-dev", "--claude", "9.9", "--dry-run")
+            ok("--claude takes stable, latest or a full version", rc == 2, out)
+            rc, out = run("some-login", "backend-dev", "--claude", "1.2.3-x';id;'", "--dry-run")
+            ok("--claude with shell characters in its suffix is refused", rc == 2, out)
+            rc, out = run("zz-fixture-login", "backend-dev", "--claude", "2.1.282-beta.1", "--dry-run")
+            ok("…while a real pre-release suffix still passes", "install.sh | bash -s -- 2.1.282-beta.1" in out, out)
+            rc, out = run("zz-fixture-login", "backend-dev", "--claude", "latest", "--dry-run")
+            ok("--claude latest reaches the installer", "install.sh | bash -s -- latest" in out, out)
+            with open(f"{ROOT}/runtime/claude-code/harness.json", encoding="utf-8") as fh:
+                pin = json.load(fh)["claude"]
+            rc, out = run("zz-fixture-login", "backend-dev", "--dry-run")
+            ok(f"no --claude: the fleet's pinned version ({pin}) reaches the installer",
+               has(rf"install\.sh \| bash -s -- {re.escape(pin)}$", out),
+               "\n".join(ln for ln in out.split("\n") if "install.sh" in ln))
+            put(f"{fab}/runtime/claude-code/harness.json", '{"claude": "2.1.282\'; touch /tmp/pwned; \'"}')
+            rc, out = run("zz-fixture-login", "backend-dev", "--dry-run")
+            ok("a pin that is not a version is refused before it reaches the installer's command line",
+               rc != 0 and "is not a version; nothing installed" in out and "install.sh | bash" not in out, f"rc={rc}\n{out}")
+            os.remove(f"{fab}/runtime/claude-code/harness.json")
+            rc, out = run("zz-fixture-login", "backend-dev", "--dry-run")
+            ok("no pin: latest, and that is said",
+               has(r"no readable pin .* the vendor's latest instead", out) and "install.sh | bash -s -- latest" in out, out)
+            shutil.copy(f"{ROOT}/runtime/claude-code/harness.json", f"{fab}/runtime/claude-code/")
 
         # ---- the real sequence, against fakes, with a failure injected at
         # each must. useradd makes a sandbox home; getent answers for it;
@@ -351,6 +389,8 @@ def main() -> int:
         # holds in $SEQ/enrolled. A fault file names one command the fakes
         # must fail.
         print("new-agent: the real sequence, then a failure at each step")
+        with open(f"{ROOT}/runtime/claude-code/harness.json", encoding="utf-8") as fh:
+            pin = json.load(fh)["claude"]   # the dry-run section reads it too; the sequence below names it in the closing
         seq = f"{sandbox}/seq"
         bin_, homes, fault, calls = f"{seq}/bin", f"{seq}/home", f"{seq}/fault", f"{seq}/calls"
         os.makedirs(bin_)
@@ -438,6 +478,8 @@ def main() -> int:
 
         h = f"{homes}/seq-login"
         for backend in ("local", "ssh"):
+            if not _want(1 if backend == "local" else 2):
+                continue
             print(f"new-agent: the real sequence on the {backend} backend")
             put(ssh_log, "")
             reset_seq()
@@ -623,17 +665,20 @@ def main() -> int:
 
         # ---- a human login (ADR-044): the account, its key, store and relay
         # credential, its fabric clone; nothing of a session, on both backends.
-        rc, out = run("human-here", "--human", "--dry-run")
-        ok("a human's dry run: the account and the fabric clone, no installer, no bootstrap, no role",
-           rc == 0 and "useradd" in out and "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'" in out
-           and "install.sh" not in out and "bootstrap.sh" not in out and "fabric-role bind" not in out
-           and "8. role" not in out, f"rc={rc}\n{out}")
-        rc, out = run("human-here", "backend-dev", "--no-claude-account", "--dry-run")
-        ok("an agent's run on a login placed as a human is refused", rc == 1 and "human-here is a human login" in out, out)
-        rc, out = run("zz-fixture-login", "--human", "--dry-run")
-        ok("--human for a login not placed as one is refused, nothing made",
-           rc == 1 and "is not placed as a human" in out and "useradd" not in out, out)
+        if _want(0):
+            rc, out = run("human-here", "--human", "--dry-run")
+            ok("a human's dry run: the account and the fabric clone, no installer, no bootstrap, no role",
+               rc == 0 and "useradd" in out and "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'" in out
+               and "install.sh" not in out and "bootstrap.sh" not in out and "fabric-role bind" not in out
+               and "8. role" not in out, f"rc={rc}\n{out}")
+            rc, out = run("human-here", "backend-dev", "--no-claude-account", "--dry-run")
+            ok("an agent's run on a login placed as a human is refused", rc == 1 and "human-here is a human login" in out, out)
+            rc, out = run("zz-fixture-login", "--human", "--dry-run")
+            ok("--human for a login not placed as one is refused, nothing made",
+               rc == 1 and "is not placed as a human" in out and "useradd" not in out, out)
         for backend, login in (("local", "human-here"), ("ssh", "human-far")):
+            if not _want(0):
+                continue
             print(f"new-agent: a human login on the {backend} backend")
             put(ssh_log, "")
             reset_seq()
@@ -676,7 +721,7 @@ def main() -> int:
                and "new-agent: done" not in out, f"rc={rc}\n{out}")
             os.remove(fault)
 
-    print(f"\ntest_new_agent_cli: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
+    print(f"group {selected}: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 
 
