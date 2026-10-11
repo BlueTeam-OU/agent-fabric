@@ -13,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(HERE, "tools", "fabric", "episodic.py")
@@ -345,6 +346,90 @@ def main() -> int:
         check("two writers at once: every row, no error",
               all(p.returncode == 0 for p in procs)
               and conn.execute("SELECT count(*) FROM episodes WHERE message_id LIKE 'w%'").fetchone()[0] == 100, outs)
+
+        print("open_readonly — a reader that cannot block a writer, change the journal or create one")
+        path = ep.db_path()
+        before = (conn.execute("SELECT count(*) FROM episodes").fetchone()[0], os.stat(path).st_size, os.stat(path).st_mtime_ns)
+        writer = ep.connect()
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("INSERT INTO episodes (id, source, direction, state, happened_at, recorded_at, content, content_hash, metadata_json) "
+                       "VALUES ('held', 'gzcoord', 'inbound', 'received', ?, ?, 'x', 'h', '{}')", (ep.now(), ep.now()))
+        t0 = time.monotonic()
+        try:
+            ro = ep.open_readonly()
+            seen = ro.execute("SELECT count(*) FROM episodes").fetchone()[0]
+            said = None
+        except Exception as e:  # noqa: BLE001 — the case reports what a reader did under a writer
+            seen, said = None, repr(e)
+        took = time.monotonic() - t0
+        check("a reader opens and reads while a writer holds BEGIN IMMEDIATE, without waiting for it",
+              said is None and seen == before[0] and took < 2.0, (said, seen, before[0], took))
+        try:
+            ro.execute("INSERT INTO episodes (id, source, state, happened_at, recorded_at, content, content_hash, metadata_json) "
+                       "VALUES ('x', 'gzcoord', 'received', 't', 't', 'x', 'h', '{}')")
+            wrote = True
+        except sqlite3.OperationalError as e:
+            wrote = str(e)
+        check("…and cannot write through the connection it got", "readonly" in str(wrote), wrote)
+        ro.execute("PRAGMA query_only=OFF")      # the pragma is a belt: the read-only URI alone must still refuse
+        try:
+            ro.execute("INSERT INTO episodes (id, source, state, happened_at, recorded_at, content, content_hash, metadata_json) "
+                       "VALUES ('x', 'gzcoord', 'received', 't', 't', 'x', 'h', '{}')")
+            wrote = True
+        except sqlite3.OperationalError as e:
+            wrote = str(e)
+        check("…the read-only URI refuses a write even with query_only off", "readonly" in str(wrote), wrote)
+        ro.close()
+        writer.execute("ROLLBACK")
+        writer.close()
+        after = (conn.execute("SELECT count(*) FROM episodes").fetchone()[0], os.stat(path).st_size, os.stat(path).st_mtime_ns)
+        check("the journal's rows, size and modification time are those it had before any reader opened it", after == before, (before, after))
+
+        ro = ep.open_readonly()
+        check("a reader of an idle journal sees every row", ro.execute("SELECT count(*) FROM episodes").fetchone()[0] == before[0])
+        ro.close()
+        empty = os.path.join(tmp, "nowhere", "episodic.db")
+        try:
+            ep.open_readonly(empty)
+            msg_ = None
+        except ep.JournalError as e:
+            msg_ = str(e)
+        check("no journal: said as a JournalError, and none is created", bool(msg_) and "no journal yet" in msg_ and not os.path.exists(os.path.dirname(empty)), msg_)
+        try:
+            ep.open_readonly(agent_id=AGENT_B)
+            msg_ = None
+        except ep.JournalError as e:
+            msg_ = str(e)
+        check("another agent's journal is refused, as connect() refuses it", bool(msg_) and "belongs to agent" in msg_, msg_)
+        old = os.path.join(tmp, "old", "episodic.db")
+        os.makedirs(os.path.dirname(old))
+        shutil.copy(path, old)
+        o = sqlite3.connect(old)
+        o.execute("UPDATE meta SET schema_version=1")
+        o.commit()
+        o.execute("PRAGMA journal_mode=DELETE")
+        o.close()
+        r1 = ep.open_readonly(old)
+        check("an older journal is read as it is: not migrated", r1.execute("SELECT schema_version FROM meta").fetchone()[0] == 1)
+        r1.close()
+        o = sqlite3.connect(old)
+        check("…and still at the version it had after the reader closed",
+              o.execute("SELECT schema_version FROM meta").fetchone()[0] == 1, o.execute("SELECT schema_version FROM meta").fetchone())
+        o.execute("UPDATE meta SET schema_version=?", (ep.SCHEMA_VERSION + 1,))
+        o.commit()
+        o.close()
+        try:
+            ep.open_readonly(old)
+            msg_ = None
+        except ep.JournalError as e:
+            msg_ = str(e)
+        check("a journal of newer code is refused, left as it is", bool(msg_) and "newer than this code" in msg_, msg_)
+        odd = os.path.join(tmp, "odd?name#1", "episodic.db")
+        os.makedirs(os.path.dirname(odd))
+        shutil.copy(path, odd)
+        r2 = ep.open_readonly(odd)
+        check("a path with a ? or # in it is the file it names", r2.execute("SELECT count(*) FROM episodes").fetchone()[0] == before[0])
+        r2.close()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
