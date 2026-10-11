@@ -204,19 +204,37 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
         for rel in filter(None, untracked):
             os.makedirs(os.path.dirname(os.path.join(tmp, rel)), exist_ok=True)
             shutil.copy2(os.path.join(ROOT, rel), os.path.join(tmp, rel), follow_symlinks=False)
-        run = lambda env: subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "lint.py"),  # noqa: E731
-                                          "--no-siblings"], capture_output=True, text=True, env=env, timeout=300)
-        plain, over = run(base), run({**base, "AGENT_FABRIC_OPERATOR": tmp})
+        def run_together(*envs: dict) -> list:
+            """One lint per env, started together: each takes ~25 s alone and they read, never write; the order of the
+            answers is the order of the envs."""
+            procs = [subprocess.Popen([sys.executable, os.path.join(ROOT, "tools", "fabric", "lint.py"), "--no-siblings"],
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env) for env in envs]
+            done = []
+            try:
+                for proc in procs:
+                    out, err = proc.communicate(timeout=300)
+                    done.append(subprocess.CompletedProcess(proc.args, proc.returncode, out, err))
+            finally:
+                for proc in procs:
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait()
+            return done
+        # Positive control for the equality below, which also holds when lint ignores the operator: a second operator tree
+        # with a slice that exists only there, citing a path no tree holds, is one more staleness warning when lint reads it.
+        probed_tree = tmp + "-probe"
+        shutil.copytree(tmp, probed_tree, symlinks=True)
+        try:
+            probe = os.path.join(probed_tree, "memory", "domains", "python-dev", "domain", "dead-pid-fixture-must-exceed-pid-max.md")
+            with open(probe, "a", encoding="utf-8") as fh:
+                fh.write("\n## A section only the operator tree has\n\nSee `tools/fabric/no_such_module_for_the_probe.py`.\n\n"
+                         "*Observed 2026-10-01 (python-dev)*\n")
+            plain, over, probed, again = run_together(base, {**base, "AGENT_FABRIC_OPERATOR": tmp},
+                                                      {**base, "AGENT_FABRIC_OPERATOR": probed_tree}, base)
+        finally:
+            shutil.rmtree(probed_tree, ignore_errors=True)
         assert (over.returncode, over.stdout) == (plain.returncode, plain.stdout), \
             f"with the operator: rc {over.returncode}\n{over.stdout[-600:]}\nwithout: rc {plain.returncode}\n{plain.stdout[-300:]}"
-        # Positive control: the equality above also holds when lint ignores the operator, so show it reads the operator's
-        # corpus — a slice that exists only there, citing a path no tree holds, is one more staleness warning.
-        probe = os.path.join(tmp, "memory", "domains", "python-dev", "domain", "dead-pid-fixture-must-exceed-pid-max.md")
-        with open(probe, "a", encoding="utf-8") as fh:
-            fh.write("\n## A section only the operator tree has\n\nSee `tools/fabric/no_such_module_for_the_probe.py`.\n\n"
-                     "*Observed 2026-10-01 (python-dev)*\n")
-        probed = run({**base, "AGENT_FABRIC_OPERATOR": tmp})
-        again = run(base)
         count = lambda r: int(re.findall(r"(\d+) warning", r.stdout)[-1])  # noqa: E731
         assert probed.returncode == 0 and again.stdout == plain.stdout and count(probed) == count(plain) + 1, \
             f"lint did not follow the operator's memory: {probed.stdout[-300:]!r} vs {plain.stdout[-300:]!r}"
