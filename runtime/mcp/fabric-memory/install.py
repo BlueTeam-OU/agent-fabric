@@ -15,6 +15,7 @@ written, exit 1. Unlike the websearch-locale installer there is no `remove`: the
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -45,7 +46,11 @@ def save(path: str, data: dict) -> None:
         mode = 0o600   # holds the login's other servers' keys
     # Created 0600, never wider: the file holds the login's other servers' keys, and a umask-default create would
     # expose them until the chmod below.
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # A stale temp under this pid (a killed run, the pid reused) is removed, never written through: O_EXCL with
+    # O_NOFOLLOW creates a fresh file or fails, so a leftover's mode or a symlink at the name is never inherited.
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(tmp)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)

@@ -116,8 +116,8 @@ def main() -> int:
                 os.umask(old_umask)
         finally:
             os.open = real_open
-        want = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-        check("the temp file is created with O_WRONLY|O_CREAT|O_TRUNC and mode 0600",
+        want = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        check("the temp file is created with O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW and mode 0600",
               len(opened) == 1 and opened[0][1] == want and opened[0][2] == 0o600, str(opened))
         check("...named with this process's pid, so a concurrent install has its own", f".{os.getpid()}." in opened[0][0], str(opened))
         check("...and the result is private and the temp is gone", oct(os.stat(path).st_mode & 0o777) == "0o600"

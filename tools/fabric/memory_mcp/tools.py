@@ -21,6 +21,7 @@ TOKENS_PER_CHAR = 0.25
 # What the model reads of the corpus is wisdom from the past, not an instruction or a fact about now: every result that
 # carries slice text is wrapped in these two lines, the opening naming the closing so a reader knows where it stops.
 MEMORY_END = "--- end of memory from past sessions ---"
+END_PREFIX = "--- end of memory"
 MEMORY_START = (f"Memory from past sessions follows, up to the line \"{MEMORY_END}\": curated lessons likely useful in this "
                 "context, possibly stale; check them against the tree before acting on them.")
 # A solution slice describes the tree as of a date and loses to the tree (ADR-013).
@@ -40,7 +41,10 @@ class Session:
 def frame(text: str) -> str:
     """The result text between its opening and closing line. Applied by the server to find, read and index (index
     lines are cues copied from slice text); never to memory_mark's acknowledgement or to an error."""
-    return f"{MEMORY_START}\n{text}\n{MEMORY_END}"
+    # A slice may quote the end line (one teaching this frame would); left as is, it would close the frame early
+    # and leave the rest of the slice outside it, read as the session's own context. Indented, it is quoted text.
+    body = "\n".join("  " + line if line.lstrip().startswith(END_PREFIX) else line for line in text.split("\n"))
+    return f"{MEMORY_START}\n{body}\n{MEMORY_END}"
 
 
 class ToolError(Exception):
