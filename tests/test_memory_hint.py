@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -195,12 +196,33 @@ class Hints(Tree):
         report = memory_hint.attach_hints(self.flags, {}, argv=self.argv, say=lambda m: None)
         self.assertEqual((report["skipped"], report["failed"]), (2, None), "a flag whose corpus the caller did not give is skipped")
 
-    def test_the_call_runs_in_a_neutral_directory(self):
+    def test_the_call_runs_in_a_fresh_private_directory_that_is_gone_afterwards(self):
+        state = tempfile.mkdtemp(prefix="memhint-state-")
+        self.addCleanup(__import__("shutil").rmtree, state, True)
+        old = os.environ.get("AGENT_FABRIC_STATE_DIR")
+        os.environ["AGENT_FABRIC_STATE_DIR"] = state
+        self.addCleanup(lambda: os.environ.pop("AGENT_FABRIC_STATE_DIR", None) if old is None else os.environ.update(AGENT_FABRIC_STATE_DIR=old))
+        agent_dir = os.path.join(state, "agents")
+        os.makedirs(agent_dir)
+        import identity
+        os.makedirs(identity.agent_state_dir())
         self.mode("ok")
         self.hinted()
         for c in self.calls():
-            self.assertNotIn(os.path.realpath(c["cwd"]), (os.path.realpath(self.tree), os.path.realpath(self.corpus), os.path.realpath(os.getcwd())))
-            self.assertEqual(os.path.realpath(c["cwd"]), os.path.realpath(tempfile.gettempdir()))
+            cwd = os.path.realpath(c["cwd"])
+            self.assertEqual(os.path.dirname(cwd), os.path.realpath(identity.agent_state_dir()), "under the agent's own state directory")
+            self.assertTrue(os.path.basename(cwd).startswith("memory-hint."))
+            self.assertNotIn(cwd, (os.path.realpath(self.tree), os.path.realpath(self.corpus), os.path.realpath(os.getcwd())))
+            self.assertFalse(os.path.exists(cwd), "removed once the call is over")
+        self.assertEqual(len({c["cwd"] for c in self.calls()}), 2, "a fresh one for each call")
+
+    def test_without_a_state_directory_it_is_still_a_fresh_directory_of_the_temporary_one(self):
+        self.mode("ok")
+        with unittest.mock.patch.object(memory_hint.identity, "agent_state_dir", side_effect=RuntimeError("no identity")):
+            self.hinted()
+        for c in self.calls():
+            self.assertEqual(os.path.dirname(os.path.realpath(c["cwd"])), os.path.realpath(tempfile.gettempdir()))
+            self.assertTrue(os.path.basename(c["cwd"]).startswith("memory-hint."))
 
     def test_an_anchor_is_read_in_the_checkout_that_holds_its_symbol(self):
         other = os.path.join(self.base, "other-checkout")
@@ -218,6 +240,21 @@ class Hints(Tree):
         self.assertGreaterEqual(report["hinted"], 1)
         self.assertIn("+    return 2", self.calls()[0]["stdin"], "the history shown is that of the file that holds the symbol")
         self.assertNotIn("something_else", self.calls()[0]["stdin"])
+
+    def test_holder_tree_follows_judge_anchor_for_a_fifo_and_for_a_file_past_the_size_limit(self):
+        fifo_tree = os.path.join(self.base, "fifo-checkout")
+        os.makedirs(os.path.join(fifo_tree, "tools", "fabric"))
+        os.mkfifo(os.path.join(fifo_tree, "tools", "fabric", "runner.py"))
+        big = os.path.join(self.base, "big-checkout")
+        self.write("tools/fabric/runner.py", "def run_it():\n" + "#" * 64, root=big)
+        old = memory_check.ANCHOR_FILE_MAX
+        memory_check.ANCHOR_FILE_MAX = 40
+        self.addCleanup(setattr, memory_check, "ANCHOR_FILE_MAX", old)
+        done = []
+        t = __import__("threading").Thread(target=lambda: done.append(memory_hint.holder_tree("tools/fabric/runner.py::run_it", [fifo_tree, big, self.tree])), daemon=True)
+        t.start()
+        t.join(10)
+        self.assertEqual(done, [self.tree], "a FIFO is never opened and a file past the limit is no holder: the checkout memory_check judges it in")
 
     def test_no_call_is_made_when_no_anchor_file_shows_a_change(self):
         self.mode("ok")

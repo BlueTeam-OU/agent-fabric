@@ -9,7 +9,7 @@ THE CONTRACT
              already known wrong; a mark, an age or an unread horizon has no changed anchor to show). One call
              per such flag, never more.
   the call   `claude -p --tools "" --strict-mcp-config --permission-mode dontAsk --no-session-persistence`, run
-             in a neutral directory: print mode, no built-in tool, none of the account's MCP servers, nothing
+             in a fresh private directory (under the agent's state directory): print mode, no built-in tool, none of the account's MCP servers, nothing
              asked, nothing saved, no CLAUDE.md of a working copy. The account's own settings hooks still load.
              The section and the diff are the BODY, on stdin, never in argv.
              The argument list, the timeout (HINT_TIMEOUT_S) and the checked exit status are this module's;
@@ -39,6 +39,8 @@ from typing import Any, Callable
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "runtime"))
+import identity  # noqa: E402
 import memory_check  # noqa: E402
 import memory_flags  # noqa: E402
 
@@ -57,6 +59,18 @@ _NONE = re.compile(r"\W*(none|no sentence|nothing)\W*", re.IGNORECASE)   # used 
 
 class HintUnavailable(Exception):
     """The harness CLI gave no answer; the reason is one line."""
+
+
+def scratch_dir() -> "tempfile.TemporaryDirectory[str]":
+    """A fresh private directory to run the call in, under this agent's own state directory when it exists, else the
+    temporary one (TMPDIR, which a launched session points at a directory of its own). Never a shared /tmp itself:
+    a CLAUDE.md or a .claude/settings.json planted there by another login would reach the call."""
+    try:
+        base = identity.agent_state_dir()
+        base = base if os.path.isdir(base) else None
+    except Exception:  # noqa: BLE001 — no identity (a test, a bare shell): the temporary directory
+        base = None
+    return tempfile.TemporaryDirectory(prefix="memory-hint.", dir=base)
 
 
 def one_line(text: str, limit: int) -> str:
@@ -87,9 +101,10 @@ def ask(body: str, *, run: Callable[..., Any] = subprocess.run, argv: list[str] 
     hands in a fake of it; the body goes on stdin."""
     argv = argv or ARGV
     try:
-        # cwd: a neutral directory, so no CLAUDE.md or project setting of the drain's working copy loads.
-        r = run(argv, input=body, capture_output=True, text=True, timeout=timeout, check=False, errors="replace",
-                cwd=tempfile.gettempdir())
+        # cwd: a fresh private directory, so no CLAUDE.md or project setting of the drain's working copy (or of a
+        # shared /tmp) loads.
+        with scratch_dir() as cwd:
+            r = run(argv, input=body, capture_output=True, text=True, timeout=timeout, check=False, errors="replace", cwd=cwd)
     except FileNotFoundError:
         raise HintUnavailable(f"the harness CLI ({argv[0]}) is not installed") from None
     except subprocess.TimeoutExpired:
@@ -117,12 +132,16 @@ def holder_tree(anchor: str, trees: list[str]) -> str | None:
     present = [t for t in trees if memory_check._in_tree(t, path) == "ok"]
     if symbol:
         for t in present:
+            full = os.path.normpath(os.path.join(t, path))
+            if not os.path.isfile(full):          # judge_anchor's rule: a FIFO or a directory is no holder, and is never opened
+                continue
             try:
-                with open(os.path.normpath(os.path.join(t, path)), "rb") as fh:
-                    if symbol in fh.read(memory_check.ANCHOR_FILE_MAX + 1).decode("utf-8", errors="replace"):
-                        return t
+                with open(full, "rb") as fh:
+                    data = fh.read(memory_check.ANCHOR_FILE_MAX + 1)
             except OSError:
                 continue
+            if len(data) <= memory_check.ANCHOR_FILE_MAX and symbol in data.decode("utf-8", errors="replace"):
+                return t
     return present[0] if present else None
 
 
