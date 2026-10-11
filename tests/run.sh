@@ -42,8 +42,6 @@ run_python_suites() {
         for n in "${ordered[@]}"; do [[ "$n" == "$t" ]] && continue 2; done
         ordered+=("$t")
     done
-    # Own process group per suite, so cleanup can end a suite's children too.
-    set -m
     for t in "${ordered[@]}"; do
         if (( running >= slots )); then wait -n; running=$((running-1)); flush_python_suites; fi
         n="$OUT_DIR/$(basename "$t")"
@@ -53,7 +51,6 @@ run_python_suites() {
         running=$((running+1))
     done
     while (( running > 0 )); do wait -n; running=$((running-1)); flush_python_suites; done
-    set +m
 }
 # Print and account every finished suite not yet printed.
 flush_python_suites() {
@@ -69,7 +66,7 @@ flush_python_suites() {
 
 # A test run leaves behind nothing it did not find (the owner,
 # 2026-09-19). The run owns its temporary directory: a fresh one under
-# the account's, exported as TMPDIR so every suite — mktemp, Node's
+# short_dir (below), exported as TMPDIR so every suite — mktemp, Node's
 # os.tmpdir(), Python's tempfile — writes there and nowhere else. At the
 # end, every entry in it is a failure named by path: seventy such
 # directories per run had accumulated to 120 MB before anyone looked
@@ -118,14 +115,34 @@ export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=fal
 # and a harness that follows TERM with KILL got no cleanup at all. Bash
 # runs the EXIT trap when it dies of an untrapped signal, so the three
 # traps below only make the status conventional (128+signal).
-# The parallel suites run as background process groups (set -m in
-# run_python_suites): a run that dies takes them with it, or they would go on
-# writing into a deleted TMPDIR.
+# The parallel suites stay in run.sh's own process group, so a signal to the
+# group reaches them. Cleanup ends them and their children by walking the
+# process tree (not a group of their own: a KILL sent to run.sh's group must
+# keep reaching them), waits until they are gone, and only then removes the
+# directories, or a suite still writing would recreate them or fail in them.
+descendants() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do descendants "$c"; echo "$c"; done; }
 cleanup() {
-    local pid
-    for pid in $(jobs -p); do kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null; done
+    local pid p i live
+    local -a all=()
+    for pid in $(jobs -p); do
+        all+=("$pid"); while read -r p; do [[ -n "$p" ]] && all+=("$p"); done < <(descendants "$pid")
+    done
+    (( ${#all[@]} )) && kill -TERM "${all[@]}" 2>/dev/null
+    for i in $(seq 100); do
+        live=0; for p in "${all[@]}"; do kill -0 "$p" 2>/dev/null && live=1; done
+        (( live )) || break
+        (( i == 50 )) && kill -KILL "${all[@]}" 2>/dev/null
+        sleep 0.1
+    done
     rm -rf "$SCRATCH_DIR" "$OUT_DIR"
+    [[ -n "${WATCHER_PID:-}" ]] && kill "$WATCHER_PID" 2>/dev/null
 }
+# KILL cannot be trapped, and a group KILL (timeout -s KILL, a harness killing
+# by group) ends the suites with run.sh but runs no cleanup. A watcher in its
+# own session, so that group KILL misses it, removes the directories once
+# run.sh is gone; cleanup stops it on every other ending.
+setsid bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; rm -rf "$2" "$3"' _ "$$" "$SCRATCH_DIR" "$OUT_DIR" </dev/null >/dev/null 2>&1 &
+WATCHER_PID=$!
 trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
 scratch_before="$(leak_snapshot "$SCRATCH_DIR")"
