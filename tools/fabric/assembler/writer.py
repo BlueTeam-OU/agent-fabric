@@ -9,7 +9,7 @@ import re
 from collections import defaultdict
 from typing import Callable, Any
 from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
-from assembler.slices import retire_in_siblings, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block
+from assembler.slices import retire_in_siblings, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, is_retire
 from assembler.targets import existing_sections, is_budget_part, slice_candidates, is_carried
 
 
@@ -29,10 +29,12 @@ def clip_description(run: Run, description: str, where: str) -> str:
 def write_slice(
     run: Run, directory: str, filename: str, role: str, klass: str, claims: list[dict[str, Any]],
     description: str, shared_with: list[str] | None = None, topic: str | None = None,
-) -> None:
+) -> str | None:
     """`topic` is recorded in the frontmatter of every file that is one
     topic's (is_budget_part reads it); the flat class file, which holds
-    several memories, is written without one."""
+    several memories, is written without one. Returns the description the
+    file was written with, or None when it was not written: every section
+    it held was retired (ADR-050 rule 7) and the file is gone."""
     os.makedirs(directory, exist_ok=True)
     description = clip_description(run, description, os.path.join(directory, filename))
     evidence = sorted({h for c in claims for h in c.get("evidence", [])})
@@ -106,7 +108,22 @@ def write_slice(
                 run.index_entries[role] = [e for e in run.index_entries[role] if e["path"] != rel]
         return bool(touched)
 
+    retired_here = False
     for claim in claims:
+        if is_retire(claim):
+            # A claim with a merge_target and no body retires that section and renders nothing: the section
+            # leaves the corpus, its text stays in git. Its kept-both siblings "X (n)" go with it.
+            target = claim["merge_target"].strip()
+            if target in blocks:
+                for gone in [target] + [k for k in blocks if re.fullmatch(re.escape(target) + r" \(\d+\)", k)]:
+                    del blocks[gone]
+                    order.remove(gone)
+                resolved.append(target)
+                retired_here = True
+                run.retired_in.append(f"{in_report(run, path)}: '{target}' retired by its owner")
+            # Not in this part: the claim is filed with the part that holds its section (resolve_targets moves it
+            # there, a split topic's parts included), which retires it; a target no part holds was said there.
+            continue
         heading = claim_heading(claim)
         legacy = absorbed(blocks, claim)
         if legacy:
@@ -210,6 +227,19 @@ def write_slice(
                 "agent": origin["agent"], **({"host": origin["host"]} if origin.get("host") else {}),
                 **({"observed": claim["observed_at"]} if claim.get("observed_at") else {})}
 
+    if not blocks:
+        # Every section of the file was retired: the file goes, and its callers list nothing for it.
+        if os.path.exists(path):
+            os.remove(path)
+        if path in run.written:
+            run.written.remove(path)
+        return None
+    if retired_here:
+        # The cue of a file is its first section's heading (remove_sections does the same): the retired claim's
+        # own description named a section that is gone.
+        description = clip_description(run, order[0], path)
+        meta["description"] = description
+
     # SCOPE UNIONS WITH WHAT IS CARRIED, and `full` wins.
     #
     # `scope` above is computed from THIS drain's claims alone, because
@@ -263,6 +293,7 @@ def write_slice(
     if path not in run.written:   # a retire may have rewritten this part earlier in the run
         run.written.append(path)
     run.problems.extend(hygiene_check(body, in_report(run, path), patterns_for(klass)))
+    return description
 
 
 def carried_chars(claims: list[dict[str, Any]], *candidates: str) -> int:
@@ -442,11 +473,13 @@ def write_shared(run: Run) -> None:
                 (group[0].get("title") if group else None)
                 or f"{topic.replace('-', ' ')} ({klass})",
                 os.path.join(shared_dir, filename))
-            write_slice(run, shared_dir, filename, "shared", klass, group, description, owners, topic=topic)
+            written = write_slice(run, shared_dir, filename, "shared", klass, group, description, owners, topic=topic)
+            if written is None:
+                continue          # every section of it was retired: nothing to list
             for owner in owners:
                 run.shared_index[owner].append(
                     {"path": layout.link_rel(os.path.join(shared_dir, filename), run.project),
-                     "description": description, "class": klass}
+                     "description": written, "class": klass}
                 )
         restore_part_one(run, shared_dir, f"{klass}-{topic}", topic, "shared", lambda p: p in run.written)
 
@@ -543,11 +576,13 @@ def write_role(run: Run, role: str) -> None:
                                and (c.get("merge_target") or "").strip() in sections]
                     description = clip_description(run, claim_heading(retitle[0]), os.path.join(directory, filename)) \
                         if retitle else described(os.path.join(directory, filename), description)
-                write_slice(run, directory, filename, role, klass, group, description,
-                            topic=topic if directory != base else None)
+                written = write_slice(run, directory, filename, role, klass, group, description,
+                                      topic=topic if directory != base else None)
+                if written is None:
+                    continue      # every section of it was retired: nothing to list
                 run.index_entries[role].append(
                     {"path": layout.link_rel(os.path.join(directory, filename), run.project),
-                     "description": description, "class": klass}
+                     "description": written, "class": klass}
                 )
             restore_part_one(run, os.path.join(base, CLASS_FILES[klass]), topic, topic, role, lambda p: p in run.written)
             if multi and not is_carried(klass, topic):

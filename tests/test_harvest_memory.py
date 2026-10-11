@@ -202,12 +202,33 @@ def test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_th
     got = {c["topic"]: c.get("anchors") for c in claims_of(out)}
     assert got["wrong-class"] is None and got["bad-ones"] == ["tools/ok.py::fine"] and got["not-a-list"] is None, got
     assert len(got["too-many"]) == 20, got["too-many"]
-    for needle in ("wrong-class: anchors dropped, roles_class 'domain'", "bad-ones: anchor '/etc/passwd::x'", "bad-ones: anchor '../up.py::x'",
-                   "bad-ones: anchor 'tools/e.py::': nothing follows", "not-a-list: anchors is no inline list", "too-many: 5 anchor(s) past"):
+    for needle in ("wrong-class.md: anchors dropped, roles_class 'domain'", "bad-ones.md: anchor '/etc/passwd::x'", "bad-ones.md: anchor '../up.py::x'",
+                   "bad-ones.md: anchor 'tools/e.py::': nothing follows", "not-a-list.md: anchors is no inline list", "too-many.md: 5 anchor(s) past"):
         assert needle in r.stderr, (needle, r.stderr)
     with open(os.path.join(out, "harvest-report.json"), encoding="utf-8") as fh:
         report = json.load(fh)
     assert len(report["anchor_warnings"]) >= 7, report.get("anchor_warnings")
+
+
+def test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused(tmp: str) -> None:
+    """ADR-050 rule 7: the claim of an empty memory that names a section in merge_target has an empty body and
+    that target, and the assembler retires the section; an empty memory that names none files nothing and
+    refuses the drain, as any memory the harvest cannot file does."""
+    mem, out = os.path.join(tmp, "rt"), os.path.join(tmp, "ort")
+    os.makedirs(mem)
+    with open(os.path.join(mem, "retire-it.md"), "w", encoding="utf-8") as fh:
+        fh.write("---\nname: retire-it\ndescription: gone\nmetadata:\n  type: project\n  roles_class: solution\n"
+                 "  merge_target: \"A record of an event\"\n---\n\n")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    (claim,) = claims_of(out)
+    assert (claim["body"], claim["merge_target"], claim["class"]) == ("", "A record of an event", "solution"), claim
+    nothing = os.path.join(tmp, "rt2")
+    os.makedirs(nothing)
+    with open(os.path.join(nothing, "empty.md"), "w", encoding="utf-8") as fh:
+        fh.write("---\nname: empty\ndescription: d\nmetadata:\n  type: project\n  roles_class: solution\n---\n\n")
+    r = run(nothing, os.path.join(tmp, "ort2"))
+    assert r.returncode == 1 and "empty.md: has no body and names no merge_target" in r.stderr, (r.returncode, r.stderr)
 
 
 def test_role_knowledge_is_opt_in(tmp: str) -> None:
@@ -914,6 +935,9 @@ def main() -> int:
         test_a_note_with_a_credential_is_withheld_and_a_query_is_never_carried,
         test_a_second_store_of_the_login_carries_no_marks,
         test_the_marks_reach_the_committed_report_through_the_assembler,
+        test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim,
+        test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays,
+        test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused,
     ]
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:

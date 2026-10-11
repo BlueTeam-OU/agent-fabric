@@ -1237,8 +1237,17 @@ def test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drai
     with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
         for row in ({"content_hash": "h1", "agent": "python-dev-03", "host": "hostA"}, {"content_hash": "h2", "agent": "web-dev-01", "host": "hostB"}):
             fh.write(json.dumps(row) + "\n")
+    with open(os.path.join(drain, "observations.jsonl"), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"content_hash": "h4"}) + "\n")       # no agent, no clone: an origin "unresolved"
+    claims_path = os.path.join(claims_dir, "alpha.json")
+    first = json.loads(read(claims_path))
+    first["claims"].append({"class": "solution", "topic": "three", "title": "V", "body": "Unattributed.", "evidence": ["h4"]})
+    with open(claims_path, "w", encoding="utf-8") as fh:
+        json.dump(first, fh)
     assert run_assemble(drain, claims_dir, out).returncode == 0
     writers = json.loads(read(report_path(out)))["section_writers"]
+    assert not any(k.endswith("#V") for k in writers), "a section whose origin is unresolved names no writer"
+    writers = {k: v for k, v in writers.items() if not k.endswith("#V")}
     assert {k.partition("#")[2]: v for k, v in writers.items()} == {
         "T": {"agent": "python-dev-03", "host": "hostA", "observed": "2026-09-18"},
         "U": {"agent": "web-dev-01", "host": "hostB", "observed": "2026-09-19"}}, writers
@@ -1259,6 +1268,127 @@ def test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drai
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-02-02").returncode == 0
     gone = {k.partition("#")[2] for k in json.loads(read(report_path(out)))["section_writers"]}
     assert gone == {"U"}, gone
+
+
+def alpha_slices(out: str) -> dict[str, str]:
+    """alpha's slice files, relative to its project directory, without the generated indexes."""
+    base = proj(out, "alpha")
+    return {os.path.relpath(os.path.join(d, n), base): read(os.path.join(d, n))
+            for d, _ds, fs in os.walk(base) for n in fs if n.endswith(".md") and n != "INDEX.md"}
+
+
+def retire(heading: str, topic: str = "retire-it", evidence: str = "h3", klass: str = "solution") -> dict:
+    """A memory with a merge_target and no body (ADR-050 rule 7)."""
+    return {"class": klass, "topic": topic, "title": f"Retire {heading}", "body": "", "merge_target": heading, "evidence": [evidence]}
+
+
+def test_a_claim_with_a_merge_target_and_no_body_retires_the_section_and_nothing_is_written_for_it(tmp: str) -> None:
+    """ADR-050 rule 7: the section leaves the corpus (its text stays in git), the file's cue is its first remaining
+    section's heading, the index lists the file by that cue, and the retire claim itself renders nothing."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "Keep me", "body": "Stays.", "evidence": ["h1"]},
+        {"class": "solution", "topic": "one", "title": "Retire me", "body": "Goes.", "evidence": ["h2"]}])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert any("Retire me" in x for x in alpha_slices(out).values())
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [retire("Retire me", topic="one")]), fh)
+    proc = run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02")
+    assert proc.returncode == 0, proc.stderr
+    texts = alpha_slices(out)
+    assert len(texts) == 1 and "Keep me" in next(iter(texts.values())) and "Retire me" not in next(iter(texts.values())), texts
+    assert "description: Keep me" in next(iter(texts.values())), "the cue is the first remaining section's heading"
+    index = read(proj(out, "alpha", "INDEX.md"))
+    assert "Keep me" in index and "Retire me" not in index, index
+    assert any("'Retire me' retired by its owner" in n for n in json.loads(read(report_path(out)))["retired_in_siblings"])
+
+
+def test_retiring_the_only_section_removes_the_file_and_its_index_line(tmp: str) -> None:
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "Only", "body": "Alone.", "evidence": ["h1"]}])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    (path,) = alpha_slices(out)
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [retire("Only", topic="one")]), fh)
+    proc = run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02")
+    assert proc.returncode == 0, proc.stderr
+    assert alpha_slices(out) == {} and not os.path.exists(proj(out, "alpha", path))
+    index = read(proj(out, "alpha", "INDEX.md"))
+    assert "Only" not in index and path not in index, index
+    rep = json.loads(read(report_path(out)))
+    assert not any(f.endswith(os.path.basename(path)) for f in rep["files"]) and not any(k.startswith(".agent-fabric/memory/alpha/") and k.endswith("#Only") for k in rep["section_writers"])
+
+
+def test_a_retire_finds_its_section_in_another_topic_and_takes_its_kept_both_siblings_with_it(tmp: str) -> None:
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "Home", "body": "First.", "evidence": ["h1"]},
+        {"class": "solution", "topic": "two", "title": "Elsewhere", "body": "Second.", "evidence": ["h2"]}])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [retire("Elsewhere", topic="a-memory-of-its-own")]), fh)
+    proc = run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02")
+    assert proc.returncode == 0, proc.stderr
+    joined = "".join(alpha_slices(out).values())
+    assert "Home" in joined and "Elsewhere" not in joined and "a-memory-of-its-own" not in "".join(alpha_slices(out)), \
+        "the retire is not filed as a topic of its own"
+    # kept-both siblings "X (2)" go with X
+    drain2, claims2, out2 = build(os.path.join(tmp, "b"), {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "t", "title": "X", "body": "One.", "evidence": ["h1"]},
+        {"class": "solution", "topic": "t", "title": "Y", "body": "Keep.", "evidence": ["h1"]}])})
+    assert run_assemble(drain2, claims2, out2).returncode == 0
+    (path,) = alpha_slices(out2)
+    full = proj(out2, "alpha", path)
+    with open(full, encoding="utf-8") as fh:
+        text = fh.read()
+    with open(full, "w", encoding="utf-8") as fh:
+        fh.write(text.rstrip() + "\n\n## X (2)\n\nA kept-both sibling.\n")
+    with open(os.path.join(claims2, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [retire("X", topic="t")]), fh)
+    assert run_assemble(drain2, claims2, out2, "--stamp", "2026-01-02").returncode == 0
+    left = next(iter(alpha_slices(out2).values()))
+    assert "## Y" in left and "## X" not in left, left
+
+
+def test_a_retire_reaches_a_section_in_another_part_of_a_split_topic(tmp: str) -> None:
+    """A topic that outgrew its budget lives in several parts; the retire claim of that topic is filed with the
+    first, and the section it names may be in a later one: that part is rewritten without it."""
+    big = "x " * 3000
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "big", "title": "A", "body": big, "evidence": ["h1"]},
+        {"class": "solution", "topic": "big", "title": "B", "body": big, "evidence": ["h2"]}])})
+    assert run_assemble(drain, claims_dir, out, "--budget", "500").returncode == 0
+    parts = {k: v for k, v in alpha_slices(out).items()}
+    assert len(parts) >= 2 and sum("## B" in v for v in parts.values()) == 1, sorted(parts)
+    holder = next(k for k, v in parts.items() if "## B" in v)
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [retire("B", topic="big")]), fh)
+    proc = run_assemble(drain, claims_dir, out, "--budget", "500", "--stamp", "2026-01-02")
+    assert proc.returncode == 0, proc.stderr
+    after = alpha_slices(out)
+    assert not any("## B" in v for v in after.values()) and any("## A" in v for v in after.values()), sorted(after)
+    assert holder not in after or "## B" not in after[holder]
+
+
+def test_an_empty_body_without_a_merge_target_is_no_retire(tmp: str) -> None:
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from assembler import slices
+    assert slices.is_retire({"body": "", "merge_target": "H"}) and slices.is_retire({"body": " \n", "merge_target": " H "})
+    assert not slices.is_retire({"body": "", "merge_target": ""}) and not slices.is_retire({"body": "", "merge_target": None})
+    assert not slices.is_retire({"body": "text", "merge_target": "H"}), "a correction is not a retire"
+    assert not slices.is_retire({"body": ""})
+
+
+def test_retiring_a_section_nobody_holds_is_said_and_writes_nothing_on_every_drain(tmp: str) -> None:
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "Stays", "body": "Here.", "evidence": ["h1"]}])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    before = alpha_slices(out)
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [retire("Never there")]), fh)
+    for stamp in ("2026-01-02", "2026-01-03"):
+        proc = run_assemble(drain, claims_dir, out, "--stamp", stamp)
+        assert proc.returncode == 0, proc.stderr
+        assert "retire of 'Never there'" in proc.stdout + proc.stderr, proc.stdout + proc.stderr
+        assert alpha_slices(out) == before, "no topic is made of an empty claim"
 
 
 def test_keep_both_is_remembered_on_the_next_drain(tmp: str) -> None:
@@ -3111,6 +3241,12 @@ def main() -> int:
         test_the_same_claim_again_is_never_a_collision_whatever_its_date,
         test_a_section_carries_its_anchors_above_its_observed_tail,
         test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drains,
+        test_a_claim_with_a_merge_target_and_no_body_retires_the_section_and_nothing_is_written_for_it,
+        test_retiring_the_only_section_removes_the_file_and_its_index_line,
+        test_a_retire_finds_its_section_in_another_topic_and_takes_its_kept_both_siblings_with_it,
+        test_retiring_a_section_nobody_holds_is_said_and_writes_nothing_on_every_drain,
+        test_a_retire_reaches_a_section_in_another_part_of_a_split_topic,
+        test_an_empty_body_without_a_merge_target_is_no_retire,
         test_keep_both_is_remembered_on_the_next_drain,
         test_another_topic_in_the_flat_class_file_is_not_this_topic_s_rival,
         test_a_collision_inside_a_two_topic_flat_file_is_still_stopped,

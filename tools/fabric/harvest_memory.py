@@ -398,6 +398,9 @@ def judge_memory(parsed: dict[str, Any]) -> dict[str, Any]:
     hits = credential_hits(parsed["body"])
     if hits:
         return {"verdict": "refused", "reason": f"carries a {hits[0]} by shape; nothing of it leaves the account"}
+    if not parsed["body"].strip() and not parsed["merge_target"]:
+        return {"verdict": "refused", "reason": "has no body and names no merge_target: nothing to file (a memory with "
+                "a merge_target and no body retires that section, ADR-050 rule 7)"}
     # A memory in another language drains through its English rendering.
     text, language = parsed["body"], None
     original, rendering = split_rendering(parsed["body"])

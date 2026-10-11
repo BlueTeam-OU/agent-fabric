@@ -340,6 +340,12 @@ def undated(text: str) -> str:
     return OBSERVED_RE.sub("", text).strip()
 
 
+def is_retire(claim: dict[str, Any]) -> bool:
+    """ADR-050 rule 7: a claim that names a section in `merge_target` and has no body retires that section. The
+    section leaves the corpus; its text stays in git."""
+    return not str(claim.get("body") or "").strip() and bool((claim.get("merge_target") or "").strip())
+
+
 def claim_heading(claim: dict[str, Any]) -> str:
     """The section heading a claim renders under — one rule, used by the
     writer, the budget and the collision pre-pass alike."""
