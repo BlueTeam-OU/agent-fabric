@@ -21,6 +21,13 @@ import fleet_proc as fp  # noqa: E402
 TOOL = os.path.join(HERE, "tools", "fabric", "fleet_proc.py")
 
 
+MOUNTS_OPEN = "proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n"
+
+
+def mounts_with(options: str) -> str:
+    return f"tmpfs /tmp tmpfs rw 0 0\nproc /proc proc rw,nosuid,nodev,noexec,relatime,{options} 0 0\n"
+
+
 def stat_line(pid: int, comm: str, utime: int, stime: int) -> str:
     # fields 3..13 are 11 values; utime is field 14, stime 15
     return f"{pid} ({comm}) S 1 {pid} {pid} 0 -1 4194560 10 0 0 0 {utime} {stime} 0 0 20 0 1 0 100 1000 50\n"
@@ -36,9 +43,12 @@ def status_text(ruid: int, euid: int, rss: int | None, swap: int | None = None) 
 
 
 class Tree:
-    def __init__(self, test: unittest.TestCase):
+    def __init__(self, test: unittest.TestCase, mounts: str | None = MOUNTS_OPEN):
         self.dir = tempfile.mkdtemp(prefix="fleet-proc-")
         test.addCleanup(self.cleanup)
+        if mounts is not None:
+            with open(os.path.join(self.dir, "mounts"), "w") as fh:
+                fh.write(mounts)
 
     def cleanup(self) -> None:
         import shutil
@@ -55,6 +65,10 @@ class Tree:
         for secret in ("environ", "cmdline"):
             with open(os.path.join(d, secret), "w") as fh:
                 fh.write("SECRET=1\0")
+
+    def cmdline(self, pid: int, *argv: str) -> None:
+        with open(os.path.join(self.dir, str(pid), "cmdline"), "wb") as fh:
+            fh.write(b"\0".join(a.encode() for a in argv) + b"\0")
 
     def gone(self, pid: int) -> None:
         import shutil
@@ -123,14 +137,183 @@ class Sampling(unittest.TestCase):
         ticks = iter([0.0, 2.0])
         doc = fp.collect(["a", "ghost"], 2.0, proc=t.dir, uid_of=lambda login: {"a": 1000}[login], clk_tck=100,
                          clock=lambda: next(ticks), sleep=between, host="h1")
-        self.assertEqual(doc["agents"]["a"], {"uid": 1000, "cpu_pct": 50.0, "rss_kb": 130, "swap_kb": 0, "procs": 2})
+        self.assertEqual(doc["agents"]["a"], {"uid": 1000, "cpu_pct": 50.0, "rss_kb": 130, "swap_kb": 0, "procs": 2, "inbox_watch": False})
         self.assertEqual((doc["unknown"], doc["host"], doc["interval_s"]), (["ghost"], "h1", 2.0))
         self.assertNotIn("ghost", doc["agents"])
 
     def test_a_login_with_no_process_is_present_with_zeros(self):
         t = Tree(self)
         doc = fp.collect(["a"], 0, proc=t.dir, uid_of=lambda _l: 1000, clk_tck=100, sleep=lambda _s: None, host="h")
-        self.assertEqual(doc["agents"]["a"], {"uid": 1000, "cpu_pct": 0.0, "rss_kb": 0, "swap_kb": 0, "procs": 0})
+        self.assertEqual(doc["agents"]["a"], {"uid": 1000, "cpu_pct": 0.0, "rss_kb": 0, "swap_kb": 0, "procs": 0, "inbox_watch": False})
+
+
+WATCH = ("/usr/local/bin/fabric-python", "-I", "/home/a/.local/bin/gzcoord-inbox", "--until-delivery")
+
+
+class Watch(unittest.TestCase):
+    """inbox_watch: true, false and null, from a fake /proc; the command line read for that and nothing else."""
+
+    def cmd(self, *argv: str) -> bool:
+        return fp.runs_inbox_watch(b"\0".join(a.encode() for a in argv) + b"\0")
+
+    def test_a_command_that_runs_gzcoord_inbox_with_until_delivery_or_wait_is_a_watch(self):
+        for argv in (WATCH, ("python3", "/x/gzcoord-inbox", "--wait"), ("/usr/bin/gzcoord-inbox", "--until-delivery"),
+                     ("gzcoord-inbox", "--wait", "--json"), ("fabric-python", "-I", "-u", "/b/gzcoord-inbox", "--until-delivery"),
+                     ("python3", "-X", "dev", "-u", "/b/gzcoord-inbox", "--wait"), ("gzcoord-inbox", "-v", "--json", "--wait"),
+                     ("a", "b", "c", "d", "e", "gzcoord-inbox", "--wait"), ("gzcoord-inbox", "a", "b", "c", "d", "e", "f", "g", "--wait")):
+            self.assertTrue(self.cmd(*argv), argv)
+
+    def test_a_command_that_only_mentions_the_words_is_not(self):
+        prompt = "Session start: run gzcoord-inbox --until-delivery now"
+        for argv in (("code", "--wait", "/home/a/.local/bin/gzcoord-inbox"), ("tool", "--until-delivery", "gzcoord-inbox"),
+                     ("claude", "--resume", "id", "--", prompt), ("/bin/bash", "-c", "eval 'gzcoord-inbox --until-delivery'"),
+                     ("gzcoord-inbox",), ("gzcoord-inbox", "--replay", "7"), ("gzcoord-inbox", "--history"),
+                     ("gzcoord-inbox", "--wait=5"), ("gzcoord-inbox", "--until-delivery-x"), ("vim", "gzcoord-inbox"),
+                     ("a", "b", "c", "d", "e", "f", "gzcoord-inbox", "--wait"), ("gzcoord-inbox", "a", "b", "c", "d", "e", "f", "g", "h", "--wait"), ("tail", "--wait", "gzcoord-inbox-log"), ("--until-delivery",), ()):
+            self.assertFalse(self.cmd(*argv), argv)
+        self.assertFalse(fp.runs_inbox_watch(b""))
+
+    def sample(self, t: Tree, uids: set[int] = frozenset({1000})) -> fp.Sample:
+        return fp.sample(set(uids), t.dir, cmdlines=True)
+
+    def test_true_when_a_process_of_the_login_runs_a_watch(self):
+        t = Tree(self)
+        t.proc(10, 1000, 100)
+        t.proc(11, 1000, 50)
+        t.cmdline(11, *WATCH)
+        s = self.sample(t)
+        self.assertEqual((s.watching, s.unreadable, fp.watch_state(1000, s, 1000)), ({1000}, set(), True))
+
+    def test_false_when_the_processes_were_read_and_none_is_one(self):
+        t = Tree(self)
+        t.proc(10, 1000, 100)
+        t.cmdline(10, "claude", "--", "run gzcoord-inbox --until-delivery")
+        t.proc(11, 2000, 50)
+        t.cmdline(11, *WATCH)                                  # another login's watch is not this login's
+        s = self.sample(t)
+        self.assertEqual(fp.watch_state(1000, s, 1000), False)
+        self.assertEqual(fp.watch_state(1000, s, 5), False, "a reader that is another uid sees it too: nothing hides /proc here")
+
+    def test_null_when_a_command_line_of_the_login_could_not_be_read(self):
+        t = Tree(self)
+        t.proc(10, 1000, 100)
+        t.proc(11, 1000, 50)
+        os.remove(os.path.join(t.dir, "11", "cmdline"))
+        os.mkdir(os.path.join(t.dir, "11", "cmdline"))       # a read that fails with something other than "gone"
+        s = self.sample(t)
+        self.assertEqual((s.unreadable, fp.watch_state(1000, s, 1000)), ({1000}, None))
+
+    def test_a_watch_seen_wins_over_a_command_line_that_could_not_be_read(self):
+        t = Tree(self)
+        t.proc(10, 1000, 100)
+        t.cmdline(10, *WATCH)
+        t.proc(11, 1000, 50)
+        os.remove(os.path.join(t.dir, "11", "cmdline"))
+        os.mkdir(os.path.join(t.dir, "11", "cmdline"))
+        self.assertTrue(fp.watch_state(1000, self.sample(t), 1000))
+
+    def test_a_process_that_exited_between_the_listing_and_the_read_is_not_unknown(self):
+        t = Tree(self)
+        t.proc(10, 1000, 100)
+        t.proc(11, 1000, 50)
+        os.remove(os.path.join(t.dir, "11", "cmdline"))        # gone: ENOENT
+        s = self.sample(t)
+        self.assertEqual((s.procs, s.unreadable, fp.watch_state(1000, s, 1000)), ({1000: 2}, set(), False),
+                         "counted as before: its status was read, and its command line has nothing to say")
+
+    def test_a_login_with_no_process_is_false_for_a_reader_that_sees_every_process(self):
+        t = Tree(self)
+        self.assertEqual(fp.watch_state(2000, self.sample(t, {2000}), 1000), False)
+
+    def test_null_for_a_login_whose_processes_could_be_hidden_from_this_reader(self):
+        for mounts, hidden in ((mounts_with("hidepid=2"), True), (mounts_with("hidepid=invisible"), True), (mounts_with("hidepid=1"), True),
+                               (mounts_with("hidepid=4"), True), (mounts_with("hidepid=0"), False), (MOUNTS_OPEN, False), (None, None)):
+            t = Tree(self, mounts)
+            s = self.sample(t, {2000})
+            self.assertEqual(s.hidden, hidden, mounts)
+            self.assertEqual(fp.watch_state(2000, s, 1000), False if hidden is False else None, mounts)
+            self.assertEqual(fp.watch_state(1000, self.sample(t), 1000), False, "a reader sees its own account's processes whatever hides the rest")
+
+    def test_the_mount_in_effect_is_the_last_proc_line_a_hidepid_over_mount_is_not_missed(self):
+        stacked = "x /proc proc rw 0 0\nproc /proc proc rw,hidepid=invisible 0 0\n"
+        t = Tree(self, stacked)
+        self.assertTrue(fp.proc_hides_others(t.dir, euid=1000, groups=[1000]))
+        self.assertIsNone(fp.watch_state(2000, self.sample(t, {2000}), 1000))
+        t = Tree(self, "proc /proc proc rw,hidepid=2 0 0\nproc /proc proc rw 0 0\n")
+        self.assertFalse(fp.proc_hides_others(t.dir, euid=1000, groups=[1000]), "the later, open mount is the one in effect")
+
+    def test_hidepid_does_not_hide_from_root_or_a_member_of_the_gid_group(self):
+        hide = mounts_with("hidepid=2,gid=999")
+        t = Tree(self, hide)
+        self.assertTrue(fp.proc_hides_others(t.dir, euid=1000, groups=[1000]))
+        self.assertFalse(fp.proc_hides_others(t.dir, euid=0, groups=[]))
+        self.assertFalse(fp.proc_hides_others(t.dir, euid=1000, groups=[1000, 999]))
+
+    def test_only_the_asked_logins_command_lines_are_opened_and_environ_never(self):
+        t = Tree(self)
+        t.proc(10, 1000, 100)
+        t.proc(11, 3000, 100)
+        opened: list[str] = []
+        real = builtins.open
+
+        def spy(path, *a, **k):
+            opened.append(str(path))
+            return real(path, *a, **k)
+        builtins.open = spy
+        try:
+            self.sample(t)
+        finally:
+            builtins.open = real
+        self.assertEqual([p for p in opened if p.endswith("cmdline")], [os.path.join(t.dir, "10", "cmdline")], "positive control: the asked login's")
+        self.assertEqual([p for p in opened if p.endswith("environ")], [])
+
+    def test_what_a_command_line_said_is_never_in_the_answer(self):
+        t = Tree(self)
+        t.proc(10, 1000, 100)
+        t.cmdline(10, "claude", "--token", "SECRET-VALUE-9", "gzcoord-inbox", "--wait")
+        doc = fp.collect(["a"], 0, proc=t.dir, uid_of=lambda _l: 1000, clk_tck=100, sleep=lambda _s: None, host="h", own_uid=1000)
+        self.assertNotIn("SECRET", json.dumps(doc))
+        self.assertIs(doc["agents"]["a"]["inbox_watch"], True)
+
+    def test_the_command_line_is_read_in_the_second_sample_only_and_only_its_start(self):
+        t = Tree(self)
+        t.proc(10, 1000, 100)
+        self.assertEqual(fp.sample({1000}, t.dir).watching, set(), "without cmdlines=True nothing is read for it")
+        t.cmdline(10, *WATCH)
+        with open(os.path.join(t.dir, "10", "cmdline"), "ab") as fh:
+            fh.write(b"y" * 10000)
+        self.assertEqual(self.sample(t).watching, {1000}, "a long tail after the watch's own words does not matter")
+        t.cmdline(10, "x" * (fp.CMDLINE_BYTES + 10), "gzcoord-inbox", "--wait")
+        self.assertEqual(self.sample(t).watching, set(), "words past the bytes looked at are not looked at")
+
+    def test_a_process_command_line_is_opened_once_per_collect_not_once_per_sample(self):
+        t = Tree(self)
+        t.proc(10, 1000, 100)
+        t.proc(11, 1000, 100)
+        opened: list[str] = []
+        real = builtins.open
+
+        def spy(path, *a, **k):
+            opened.append(str(path))
+            return real(path, *a, **k)
+        builtins.open = spy
+        try:
+            fp.collect(["a"], 0, proc=t.dir, uid_of=lambda _l: 1000, clk_tck=100, sleep=lambda _s: None, host="h", own_uid=1000)
+        finally:
+            builtins.open = real
+        self.assertEqual(sorted(p for p in opened if p.endswith("cmdline")), [os.path.join(t.dir, "10", "cmdline"), os.path.join(t.dir, "11", "cmdline")])
+
+    def test_collect_says_true_false_and_null_per_login(self):
+        t = Tree(self)
+        t.proc(10, 1000, 100)
+        t.cmdline(10, *WATCH)
+        t.proc(11, 2000, 100)
+        t.proc(12, 3000, 100)
+        os.remove(os.path.join(t.dir, "12", "cmdline"))
+        os.mkdir(os.path.join(t.dir, "12", "cmdline"))
+        doc = fp.collect(["a", "b", "c", "d"], 0, proc=t.dir, uid_of=lambda l: {"a": 1000, "b": 2000, "c": 3000, "d": 4000}[l],
+                         clk_tck=100, sleep=lambda _s: None, host="h", own_uid=1000)
+        self.assertEqual({l: doc["agents"][l]["inbox_watch"] for l in "abcd"}, {"a": True, "b": False, "c": None, "d": False})
 
 
 class Command(unittest.TestCase):
@@ -148,12 +331,19 @@ class Command(unittest.TestCase):
             self.assertEqual(len(p.stderr.strip().splitlines()), 1, args)
             self.assertIn(word, p.stderr)
 
+    def test_the_help_says_what_is_read(self):
+        p = self.run_tool("-h")
+        self.assertEqual(p.returncode, 0)
+        for word in ("inbox_watch", "/proc/mounts", "cmdline", "Never environ"):
+            self.assertIn(word, p.stdout)
+
     def test_a_live_read_of_this_login_finds_this_process(self):
         import pwd
         me = pwd.getpwuid(os.geteuid()).pw_name
         p = self.run_tool("--json", "--login", me, "--interval", "0")
         self.assertEqual(p.returncode, 0, p.stderr)
         a = json.loads(p.stdout)["agents"][me]
+        self.assertIn(a["inbox_watch"], (True, False), "this login's own processes are readable by it")
         self.assertGreaterEqual(a["procs"], 1)
         self.assertGreater(a["rss_kb"], 0)
 

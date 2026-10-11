@@ -11,18 +11,28 @@ CONTRACT
             this host, from the hosts registry); --interval is the gap
             between the two CPU samples (default 1.0, 0 to 30).
   stdout    one JSON object: {"host", "at", "interval_s", "agents": {login:
-            {"uid", "cpu_pct", "rss_kb", "swap_kb", "procs"}}} — a login
-            with no process is present with zeros (cpu_pct is null when no time
-            passed between the samples), a login the host has no
+            {"uid", "cpu_pct", "rss_kb", "swap_kb", "procs", "inbox_watch"}}}
+            — a login with no process is present with zeros (cpu_pct is null
+            when no time passed between the samples), a login the host has no
             account for is absent from "agents" and listed in "unknown".
+            inbox_watch is true when a process of the login runs
+            gzcoord-inbox with --until-delivery or --wait; false when its
+            processes were read and none does; null when that could not be
+            told (a process's command line unreadable, or /proc hides other
+            accounts' processes from this reader): never false for unknown.
   stderr    one `fleet_proc: ` line on a refusal.
   exit      0 read; 2 usage or an unreadable registry.
 
 WHAT IT READS, AND NEVER
   /proc/<pid>/stat (CPU ticks) and /proc/<pid>/status (Uid, VmRSS,
-  VmSwap), and /proc itself to list the pids. Never environ, cmdline,
-  maps or fd: an agent's environment holds its credentials, and the deck
-  has no use for what a process was asked to do.
+  VmSwap), and /proc itself to list the pids, and /proc/mounts for the
+  hidepid option. Never environ, maps or fd: an agent's environment holds
+  its credentials. A process's command line is read once, in the second
+  sample, for the first CMDLINE_BYTES bytes of the processes of the logins
+  asked about, and only to answer one question — does it run gzcoord-inbox
+  with --until-delivery or --wait — by whole arguments (a prompt or a shell
+  string that merely contains the words is not a watch). What it said is
+  never kept, printed or returned: the answer is a boolean.
 
   A process is attributed to its EFFECTIVE uid, the one `ps -u` selects by,
   so a login's total here and `ps -o rss= -u <login>` summed are the same
@@ -48,11 +58,19 @@ import roots  # noqa: E402
 
 DEFAULT_INTERVAL_S = 1.0
 MAX_INTERVAL_S = 30.0
+# The words of a watch are in the first few arguments; the rest of a command line (a session's prompt) is not looked at.
+CMDLINE_BYTES = 4096
+WATCH_COMMAND = "gzcoord-inbox"
+# The command is among the first arguments (after an interpreter and its flags), the option among the next few.
+COMMAND_WINDOW = 6
+OPTION_WINDOW = 8
+WATCH_OPTIONS = ("--until-delivery", "--wait")
 
 HELP = """usage: fleet_proc.py --json [--login L]... [--interval S]
 
-Per-login CPU%, RSS, swap and process count for this host, from /proc.
-Reads /proc/<pid>/stat and /proc/<pid>/status only."""
+Per-login CPU%, RSS, swap, process count and inbox_watch (is a gzcoord-inbox --until-delivery or --wait
+running) for this host, from /proc. Reads /proc/<pid>/stat and /proc/<pid>/status, /proc/mounts, and for
+inbox_watch the start of /proc/<pid>/cmdline, of which only the yes or no is kept. Never environ."""
 
 
 class Sample:
@@ -64,6 +82,11 @@ class Sample:
         self.rss_kb: dict[int, int] = {}
         self.swap_kb: dict[int, int] = {}
         self.procs: dict[int, int] = {}
+        # Only when the command lines were asked for (sample(..., cmdlines=True)): the uids with a watch, and the
+        # uids with a process whose command line could not be read.
+        self.watching: set[int] = set()
+        self.unreadable: set[int] = set()
+        self.hidden: bool | None = None   # whether /proc hides other accounts' processes from this reader
 
 
 def parse_stat_ticks(text: str) -> int:
@@ -92,8 +115,48 @@ def parse_status(text: str) -> dict[str, int]:
     return out
 
 
-def sample(uids: set[int], proc: str = "/proc") -> Sample:
+def runs_inbox_watch(raw: bytes) -> bool:
+    """Whether a command line (NUL-separated, as /proc gives it) is `gzcoord-inbox` run with --until-delivery or --wait:
+    the command among its first COMMAND_WINDOW arguments (after an interpreter and its flags: `fabric-python -I
+    <path>/gzcoord-inbox --until-delivery`) and the option, as a whole argument, after it. A longer argument that contains the words is not one."""
+    argv = [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
+    for i, a in enumerate(argv[:COMMAND_WINDOW]):
+        if os.path.basename(a) == WATCH_COMMAND:
+            # The option follows the command: `tool --wait …/gzcoord-inbox` names the script, it does not run it.
+            return any(o in WATCH_OPTIONS for o in argv[i + 1:i + 1 + OPTION_WINDOW])
+    return False
+
+
+def proc_hides_others(proc: str, euid: int | None = None, groups: list[int] | None = None) -> bool | None:
+    """Whether this reader cannot see other accounts' processes: /proc mounted with hidepid hiding them (1 or noaccess,
+    2 or invisible, 4 or ptraceable) from a reader that is neither root nor in the `gid=` group. None when the mount
+    options cannot be read — unknown, which a caller does not read as "sees all"."""
+    try:
+        with open(os.path.join(proc, "mounts"), encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return None
+    # The mount in effect is the LAST one listed for /proc: a unit or a container mounts a hidepid procfs over the
+    # original, and the original's line comes first.
+    options = None
+    for line in lines:
+        parts = line.split()
+        if len(parts) >= 4 and parts[1] == "/proc":
+            options = dict(o.partition("=")[::2] for o in parts[3].split(","))
+    if options is None:
+        return None
+    if options.get("hidepid", "0") in ("0", "off", ""):
+        return False
+    gid = options.get("gid")
+    if (os.geteuid() if euid is None else euid) == 0 or (gid and gid.isdigit() and int(gid) in (os.getgroups() if groups is None else groups)):
+        return False
+    return True
+
+
+def sample(uids: set[int], proc: str = "/proc", cmdlines: bool = False) -> Sample:
     s = Sample()
+    if cmdlines:
+        s.hidden = proc_hides_others(proc)
     for name in os.listdir(proc):
         if not name.isdigit():
             continue
@@ -108,6 +171,15 @@ def sample(uids: set[int], proc: str = "/proc") -> Sample:
         except (OSError, ValueError, IndexError):
             continue   # gone since the listing, or not ours to read: not a process to count
         uid = st["euid"]
+        if cmdlines:
+            try:
+                with open(os.path.join(proc, name, "cmdline"), "rb") as fh:
+                    if runs_inbox_watch(fh.read(CMDLINE_BYTES)):
+                        s.watching.add(uid)
+            except (FileNotFoundError, ProcessLookupError):
+                pass   # exited since its status was read: counted as before, and no command line to tell anything by
+            except OSError:
+                s.unreadable.add(uid)
         s.ticks.setdefault(uid, {})[pid] = ticks
         s.rss_kb[uid] = s.rss_kb.get(uid, 0) + st["rss_kb"]
         s.swap_kb[uid] = s.swap_kb.get(uid, 0) + st["swap_kb"]
@@ -124,10 +196,23 @@ def cpu_pct(first: dict[int, int], second: dict[int, int], seconds: float, clk_t
     return round(100.0 * used / clk_tck / seconds, 1)
 
 
+def watch_state(uid: int, s: Sample, own_uid: int) -> bool | None:
+    """True with a watch seen; None when the processes could not all be read (a command line refused, or /proc hiding
+    or not saying whether it hides other accounts' processes: an account that may be invisible is not one with none);
+    False only for processes that were read and are not one."""
+    if uid in s.watching:
+        return True
+    if uid in s.unreadable:
+        return None
+    if uid != own_uid and s.hidden is not False:
+        return None
+    return False
+
+
 def collect(logins: list[str], interval: float = DEFAULT_INTERVAL_S, *, proc: str = "/proc",
             uid_of: Callable[[str], int] | None = None, clk_tck: int | None = None,
             clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
-            host: str | None = None, now: Callable[[], dt.datetime] | None = None) -> dict:
+            host: str | None = None, now: Callable[[], dt.datetime] | None = None, own_uid: int | None = None) -> dict:
     lookup = uid_of or (lambda login: pwd.getpwnam(login).pw_uid)
     uids: dict[str, int] = {}
     unknown: list[str] = []
@@ -138,10 +223,11 @@ def collect(logins: list[str], interval: float = DEFAULT_INTERVAL_S, *, proc: st
             unknown.append(login)
     wanted = set(uids.values())
     tck = clk_tck or os.sysconf("SC_CLK_TCK")
+    own = os.geteuid() if own_uid is None else own_uid
     t0 = clock()
     first = sample(wanted, proc)
     sleep(interval)
-    second = sample(wanted, proc)
+    second = sample(wanted, proc, cmdlines=True)
     seconds = clock() - t0
     agents = {}
     for login, uid in uids.items():
@@ -151,6 +237,7 @@ def collect(logins: list[str], interval: float = DEFAULT_INTERVAL_S, *, proc: st
             "rss_kb": second.rss_kb.get(uid, 0),
             "swap_kb": second.swap_kb.get(uid, 0),
             "procs": second.procs.get(uid, 0),
+            "inbox_watch": watch_state(uid, second, own),
         }
     stamp = (now or (lambda: dt.datetime.now(dt.UTC)))().strftime("%Y-%m-%dT%H:%M:%SZ")
     return {"host": host if host is not None else roots_host(), "at": stamp, "interval_s": interval,
