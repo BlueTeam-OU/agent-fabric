@@ -21,9 +21,14 @@ CONTRACT
             by the next run; any other exit is reported and the run exits 1. The other agents are still tried.
   hints     with `--send`, a maybe-stale flag about to be sent gets memory_hint.attach_hints' guess, rendered as
             a model's guess. No CLI or a failed call: no hint and one line, the REQUESTs go anyway.
-  ledger    `<agent state dir>/memory-flags.jsonl`: one line per flag sent, {key, to, message_id, at}. A flag whose
-            last REQUEST is an open job of the same agent is not sent again; neither is one sent less than
-            INTAKE_GRACE_S ago, since an agent's session turns the REQUEST into a job only when it reads it.
+  ledger    `<agent state dir>/memory-flags.jsonl`: one line per flag sent, {key, to, message_id, at (UTC)}. A flag
+            whose last REQUEST is an open job of the same agent is not sent again; neither is one sent less than
+            INTAKE_GRACE_S ago, since an agent's session turns the REQUEST into a job only when it reads it. A job
+            that is already done is not told from one never made (fabric-ctl lists open jobs only), so the grace
+            also holds a flag whose job finished: it is sent again once the grace has passed and it still stands.
+  silent    an account that did not answer the presence or jobs query is unknown, never absent: a flag whose last
+            writer or last REQUEST addressee is silent is held, listed, and sent by none; a role no answering account
+            holds is reported "no holder" with the number of silent accounts, any of which may hold it.
   report    `flags: N routed to M agents (hints: k, none: j)` and the per-agent list on stdout; from assemble also
             the report's `memory_flags`. Nothing in a slice, the corpus or the tree changes by a hint or a send.
   exit      0; 1 a send failed or the phase could not run after a drain; 2 usage, as the check's.
@@ -31,6 +36,7 @@ CONTRACT
 from __future__ import annotations
 
 import argparse
+import calendar
 import json
 import os
 import subprocess
@@ -55,6 +61,7 @@ SEND_TIMEOUT_S = 180
 NO_SESSION_EXIT = 4        # gzcoord-send: the addressee has no session running; nothing was sent
 INTAKE_GRACE_S = 7 * 86400
 LEDGER_NAME = "memory-flags.jsonl"
+STAMP = "%Y-%m-%dT%H:%M:%SZ"
 
 
 class FlagRunError(Exception):
@@ -75,6 +82,7 @@ class Fleet:
     holders: dict[str, list[str]]           # role -> addresses, running or not
     running: set[str]
     open_jobs: dict[str, "set[str] | None"]  # address -> MESSAGE-IDs of its open REQUEST jobs; None: it did not answer
+    silent: set[str]                        # accounts whose presence did not answer: their role is unknown
 
 
 def corpora_of(project: str, fabric_root: str, working_copy: str | None) -> list[Corpus]:
@@ -130,11 +138,15 @@ def run_ctl(argv: list[str], timeout: float = CTL_TIMEOUT_S) -> list[dict]:
 def read_fleet(ctl: list[str], run: Callable[..., list[dict]] = run_ctl) -> Fleet:
     holders: dict[str, list[str]] = {}
     running: set[str] = set()
+    silent: set[str] = set()
     for row in run([*ctl, "all", "presence", "--json"]):
         p = row.get("presence")
-        if row.get("status") != "ok" or not isinstance(p, dict) or p.get("status") != "ok" or not p.get("role"):
-            continue
         address = f"{row['host']}/{row['account']}"
+        if row.get("status") != "ok" or not isinstance(p, dict) or p.get("status") != "ok":
+            silent.add(address)
+            continue
+        if not p.get("role"):
+            continue
         holders.setdefault(p["role"], []).append(address)
         if p.get("online") is True:
             running.add(address)
@@ -143,12 +155,13 @@ def read_fleet(ctl: list[str], run: Callable[..., list[dict]] = run_ctl) -> Flee
         j = row.get("jobs")
         ok = row.get("status") == "ok" and isinstance(j, dict) and j.get("status") == "ok"
         open_jobs[f"{row['host']}/{row['account']}"] = memory_flags.open_message_ids(j) if ok else None
-    return Fleet(holders, running, open_jobs)
+    return Fleet(holders, running, open_jobs, silent)
 
 
 def seconds_of(stamp: str) -> float | None:
+    """Epoch seconds of a ledger's UTC stamp."""
     try:
-        return time.mktime(time.strptime(stamp[:10], "%Y-%m-%d"))
+        return calendar.timegm(time.strptime(stamp, STAMP))
     except ValueError:
         return None
 
@@ -183,8 +196,9 @@ def send_request(send: list[str], text: str, timeout: float = SEND_TIMEOUT_S) ->
             return 124, f"gzcoord-send did not answer within {timeout:g} s"
         except OSError as e:
             return 127, f"gzcoord-send could not run ({e.strerror or e})"
+    # The last line: gzcoord-send's warnings and presence lines come before the refusal itself.
     said = (r.stderr or r.stdout or "").strip().splitlines()
-    return r.returncode, memory_flags.one_line(said[0] if said else "", 200)
+    return r.returncode, memory_flags.one_line(said[-1] if said else "", 200)
 
 
 def _scratch_base() -> str | None:
@@ -201,6 +215,7 @@ class Outcome:
     hints: dict
     sent: dict[str, str]            # address -> MESSAGE-ID
     unsent: dict[str, str]          # address -> why not
+    held: list[tuple[memory_flags.Flag, str]]   # (flag, why): its owner is unknown, so it is sent by none
     failed: bool = False
 
 
@@ -213,24 +228,44 @@ def execute(flags: list[memory_flags.Flag], sources: dict, writers: dict, fleet:
     a model, sent or written."""
     now = time.time() if now is None else now
     sent = memory_flags.load_ledger(ledger)
-    plan = memory_flags.plan(flags, writers, fleet.holders, fleet.running, sent, is_open_in(fleet, sent, now))
-    out = Outcome(plan, {"eligible": 0, "hinted": 0, "skipped": 0, "failed": None}, {}, {})
+    silent_logins = {memory_flags.login_of(a) for a in fleet.silent}
+    held: list[tuple[memory_flags.Flag, str]] = []
+    routable = []
+    for f in flags:
+        writer = (writers.get(f.report_key) or {}).get("agent")
+        prior = sent.get(f.key, {}).get("to")
+        if writer in silent_logins or (prior and prior in fleet.silent):
+            held.append((f, "the account that last wrote it or was last asked about it did not answer"))
+        else:
+            routable.append(f)
+    plan = memory_flags.plan(routable, writers, fleet.holders, fleet.running, sent, is_open_in(fleet, sent, now))
+    if fleet.silent:
+        plan.unrouted = [(f, why + f" (any of the {len(fleet.silent)} account(s) that did not answer may hold it)" if why.endswith("has no holder") else why)
+                         for f, why in plan.unrouted]
+    out = Outcome(plan, {"eligible": 0, "hinted": 0, "skipped": 0, "failed": None}, {}, {}, held)
     if send is None:
         return out
     queued = [f for fl in plan.requests.values() for f in fl]
     out.hints = memory_hint.attach_hints(queued, sources, run=run_hint, say=say, history=history, argv=hint_argv, timeout=hint_timeout)
-    today = time.strftime("%Y-%m-%d", time.localtime(now))
+    at = time.strftime(STAMP, time.gmtime(now))
     for address in sorted(plan.requests):
         batch = plan.requests[address]
-        text, mid = memory_flags.render_request(address, batch, sender, sender_role, project, taxonomy=taxonomy)
-        rc, why = send_request(send, text)
-        if rc == 0:
-            memory_flags.append_ledger(ledger, batch, address, mid, today)
-            out.sent[address] = mid
-        elif rc == NO_SESSION_EXIT:
+        try:
+            text, mid = memory_flags.render_request(address, batch, sender, sender_role, project, taxonomy=taxonomy)
+            rc, why = send_request(send, text)
+            if rc == 0:
+                memory_flags.append_ledger(ledger, batch, address, mid, at)
+                out.sent[address] = mid
+                continue
+        except (ValueError, OSError) as e:      # one agent's REQUEST that cannot be made or recorded does not stop the others
+            out.unsent[address] = f"{type(e).__name__}: {memory_flags.one_line(e, 200)}"
+            out.failed = True
+            continue
+        if rc == NO_SESSION_EXIT:
             out.unsent[address] = "no session running; tried again by the next run"
         else:
-            out.unsent[address] = f"gzcoord-send exited {rc}" + (f": {why}" if why else "")
+            # Exit 3 includes a post whose outcome is unknown: it may have been delivered, and the next run sends again.
+            out.unsent[address] = f"gzcoord-send exited {rc}" + (f": {why}" if why else "") + (" (it may have been delivered)" if rc == 3 else "")
             out.failed = True
     return out
 
@@ -240,6 +275,7 @@ def summary(o: Outcome, dry: bool) -> dict:
     return {"routed": routed, "agents": {a: len(v) for a, v in sorted(o.plan.requests.items())},
             "hints": o.hints["hinted"], "none": o.hints["eligible"] - o.hints["hinted"],
             "open": len(o.plan.open), "deferred": len(o.plan.deferred),
+            "held": [{"flag": f.key, "why": why} for f, why in o.held],
             "unrouted": [{"flag": f.key, "why": why} for f, why in o.plan.unrouted],
             "sent": sorted(o.sent), "unsent": o.unsent, "hint_failed": o.hints["failed"], "dry_run": dry}
 
@@ -255,6 +291,8 @@ def lines(o: Outcome, dry: bool) -> list[str]:
         out.append(f"  open: {s['open']} flag(s) whose REQUEST is still open, not sent again")
     if s["deferred"]:
         out.append(f"  deferred: {s['deferred']} flag(s) past {memory_flags.MAX_FLAGS} for one agent, for the next run")
+    for item in s["held"]:
+        out.append(f"  held: {item['flag']} — {item['why']}")
     for item in s["unrouted"]:
         out.append(f"  unrouted: {item['flag']} — {item['why']}")
     if dry:

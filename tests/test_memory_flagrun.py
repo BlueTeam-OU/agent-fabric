@@ -39,6 +39,7 @@ try:
 except FileNotFoundError:
     pass
 if rc:
+    print("send: a warning that comes first", file=sys.stderr)
     print(f"send: pretend refusal {rc}", file=sys.stderr)
 sys.exit(rc)
 """
@@ -163,18 +164,64 @@ class Phase(FlagRun):
 
     def test_a_second_run_sends_nothing_new_until_the_grace_has_passed_and_its_job_is_gone(self):
         self.go(send=True)
+        calls = len(self.claude_calls())
         again = self.go(send=True, now=NOW + 60)
+        self.assertEqual(len(self.claude_calls()), calls, "no model is asked about a flag that is not sent")
         self.assertEqual((again.sent, len(again.plan.open), len(self.sent())), ({}, 2, 2), "inside the grace the REQUEST stands")
         late = self.go(send=True, now=NOW + 8 * DAY)
         self.assertEqual(sorted(late.sent), [f"{HOST}/python-dev-01", f"{HOST}/rust-dev-01"], "a week on, with no job for it: sent again")
-        mids = [r["message_id"] for r in self.ledger_rows()][:2]
-        self.fleet_files(jobs=[jobs("python-dev-01", [f"memory: 1 (REQUEST {mids[0]})", f"x (REQUEST {mids[1]})"]), jobs("python-dev-02", []), jobs("rust-dev-01", [])])
         # the ledger now holds the late run's ids; an open job under the latest id keeps its flag from going again
         last = {r["to"]: r["message_id"] for r in self.ledger_rows()}
         self.fleet_files(jobs=[jobs("python-dev-01", [f"m (REQUEST {last[f'{HOST}/python-dev-01']})"]), jobs("python-dev-02", []),
                                jobs("rust-dev-01", [f"m (REQUEST {last[f'{HOST}/rust-dev-01']})"])])
         held = self.go(send=True, now=NOW + 20 * DAY)
         self.assertEqual((held.sent, len(held.plan.open)), ({}, 2), "its job is still open: never sent again")
+
+    def test_the_grace_runs_from_the_second_the_request_went_not_from_a_midnight(self):
+        self.go(send=True, now=NOW)
+        self.assertEqual(self.go(send=True, now=NOW + 7 * DAY - 2).sent, {})
+        self.assertEqual(len(self.go(send=True, now=NOW + 7 * DAY + 2).sent), 2)
+
+    def test_a_flag_whose_last_writer_did_not_answer_is_held_not_given_to_another_holder(self):
+        self.fleet_files(presence=[presence("python-dev-01", "python-dev", True), {"account": "python-dev-02", "host": HOST, "status": "failed"},
+                                   presence("rust-dev-01", "rust-dev", False)])
+        self.report["section_writers"] = {"memory/domains/d/domain/a.md#moved": {"agent": "python-dev-02"}}
+        o = self.go(send=True)
+        self.assertEqual([f.heading for f, _ in o.held], ["moved"])
+        self.assertEqual(sorted(o.sent), [f"{HOST}/rust-dev-01"])
+        self.assertIn("  held: agent-fabric:domains/d/domain/a.md#moved", "\n".join(fr.lines(o, False)))
+
+    def test_a_flag_whose_open_request_sits_with_a_silent_account_is_not_sent_to_its_neighbour(self):
+        self.go(send=True)                      # no writer recorded: the running holder, python-dev-01, was asked
+        self.fleet_files(presence=[{"account": "python-dev-01", "host": HOST, "status": "failed"}, presence("python-dev-02", "python-dev", True),
+                                   presence("rust-dev-01", "rust-dev", False)])
+        o = self.go(send=True, now=NOW + 30 * DAY)
+        self.assertEqual([f.heading for f, _ in o.held], ["moved"])
+        self.assertEqual(o.sent.keys() & {f"{HOST}/python-dev-02"}, set(), "the neighbour is not asked in its place")
+
+    def test_a_role_with_no_answering_holder_is_unknown_when_an_account_was_silent(self):
+        self.fleet_files(presence=[presence("python-dev-01", "python-dev", True), {"account": "rust-dev-01", "host": HOST, "status": "failed"}])
+        o = self.go(send=False)
+        why = dict((f.heading, w) for f, w in o.plan.unrouted)["gone"]
+        self.assertIn("has no holder (any of the 1 account(s) that did not answer may hold it)", why)
+        self.fleet_files(presence=[presence("python-dev-01", "python-dev", True)])
+        self.assertTrue(dict((f.heading, w) for f, w in self.go(send=False).plan.unrouted)["gone"].endswith("has no holder"))
+
+    def test_a_request_that_cannot_be_made_does_not_stop_the_others_and_fails_the_run(self):
+        real = fr.memory_flags.render_request
+        def boom(address, *a, **k):
+            if address.endswith("python-dev-01"):
+                raise ValueError("does not validate")
+            return real(address, *a, **k)
+        fr.memory_flags.render_request = boom
+        self.addCleanup(setattr, fr.memory_flags, "render_request", real)
+        o = self.go(send=True)
+        self.assertEqual((sorted(o.sent), o.failed, o.unsent[f"{HOST}/python-dev-01"]), ([f"{HOST}/rust-dev-01"], True, "ValueError: does not validate"))
+
+    def test_a_refusal_shows_the_last_line_and_an_unknown_outcome_says_it_may_have_been_delivered(self):
+        self.exit_of("python-dev-01", 3)
+        o = self.go(send=True)
+        self.assertEqual(o.unsent[f"{HOST}/python-dev-01"], "gzcoord-send exited 3: send: pretend refusal 3 (it may have been delivered)")
 
     def test_an_account_that_did_not_answer_for_its_jobs_is_never_sent_to_again(self):
         self.go(send=True)
@@ -236,13 +283,14 @@ class Phase(FlagRun):
         flags = {f.heading: sorted(r["kind"] for r in f.reasons) for fl in o.plan.requests.values() for f in fl}
         self.assertEqual(flags["fresh"], ["mark-stale"])
 
-    def test_the_holders_are_every_account_of_the_role_and_a_silent_account_is_not_one(self):
+    def test_the_holders_are_every_account_of_the_role_and_a_silent_account_is_unknown_not_absent(self):
         self.fleet_files(presence=[presence("python-dev-01", "python-dev", True), {"account": "python-dev-02", "host": HOST, "status": "failed",
                                                                   "presence": {"status": "ok", "online": True, "role": "python-dev"}},
                                    {**presence("python-dev-03", "python-dev", True), "presence": {"status": "failed", "online": True, "role": "python-dev"}},
                                    presence("rust-dev-01", None, False)])
         fleet = fr.read_fleet([sys.executable, os.path.join(self.work, "ctl.py")])
         self.assertEqual((fleet.holders, fleet.running), ({"python-dev": [f"{HOST}/python-dev-01"]}, {f"{HOST}/python-dev-01"}))
+        self.assertEqual(fleet.silent, {f"{HOST}/python-dev-02", f"{HOST}/python-dev-03"}, "unknown, kept apart from 'holds none'")
 
     def test_a_fleet_that_gave_no_account_is_a_refusal_not_a_guess(self):
         self.fleet_files(presence=[])

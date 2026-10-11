@@ -1,7 +1,7 @@
 """tools/fabric/memory_flags.py — from what memory_check.py sorted and what readers marked, to one REQUEST per
 agent that owns the sections (agent-fabric ADR-050 rules 3 and 5). The drain calls this; it reads no relay, no
 jobs list and no other account's state, so everything it needs is passed in (rule 14: nothing crosses hosts by
-a local read) and nothing is sent: it returns the REQUESTs and the ledger entries that say they were.
+a local read) and nothing is sent: it returns the plan, and renders the REQUESTs. The ledger is memory_flagrun's.
 
 THE FLAG   one per SECTION, however many of its anchors failed or readers marked it: key
            `<corpus>:<slice>#<heading>` (the corpus a label the caller gives: the project the
@@ -30,7 +30,9 @@ THE REQUEST  one per agent, addressed TO that agent's own address (an assignment
 DEDUP      `sent` is the drain's ledger, flag key -> {to, message_id, at}; a flag whose last REQUEST is
            still an open job of that agent (`is_open(address, message_id)`) is not sent again and is
            listed `open`. `open_message_ids` reads that from a jobs list. A flag whose job is done or
-           dropped and which is still flagged is sent again: the tree still disagrees.
+           dropped and which is still flagged is sent again: the tree still disagrees. (The runner that
+           calls `plan` answers `is_open` also for a REQUEST too young to have become a job, and for an
+           agent that did not answer: memory_flagrun.is_open_in.)
 
 WHAT IT DOES NOT DO  send, read the corpus's git history (memory_check did), decide whether a section is
            true (the owning agent does), or edit a slice.
@@ -305,14 +307,6 @@ def render_request(address: str, flags: list[Flag], sender: str, sender_role: st
     if check["errors"]:
         raise ValueError("the flag REQUEST does not validate: " + "; ".join(check["errors"][:3]))
     return text, mid
-
-
-def record(sent: dict[str, dict], address: str, flags: list[Flag], message_id: str, at: str) -> dict[str, dict]:
-    """The ledger after `flags` were sent to `address` as `message_id`."""
-    out = dict(sent)
-    for f in flags:
-        out[f.key] = {"to": address, "message_id": message_id, "at": at}
-    return out
 
 
 def load_ledger(path: str) -> dict[str, dict]:

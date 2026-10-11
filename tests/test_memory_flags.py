@@ -138,7 +138,7 @@ class Planning(unittest.TestCase):
         holders = {"python-dev": [ADDR[1]]}
         first = mf.plan(fl, {}, holders, {ADDR[1]}, {}, lambda a, m: False)
         self.assertEqual({a: [f.heading for f in v] for a, v in first.requests.items()}, {ADDR[1]: ["H00", "H01", "H02"]})
-        sent = mf.record({}, ADDR[1], fl, "m-1", "2026-10-11")
+        sent = {f.key: {"to": ADDR[1], "message_id": "m-1", "at": "2026-10-11"} for f in fl}
         again = mf.plan(fl, {}, holders, {ADDR[1]}, sent, lambda a, m: (a, m) == (ADDR[1], "m-1"))
         self.assertEqual((again.requests, len(again.open)), ({}, 3))
         self.assertEqual(again.open[0][1:], (ADDR[1], "m-1"))
