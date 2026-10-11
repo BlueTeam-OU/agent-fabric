@@ -428,6 +428,39 @@ def client_findings(root: str) -> list[str]:
     return findings
 
 
+def settings_repos_findings(root: str) -> list[str]:
+    """Every project's remote organisation maps to a settings repository in
+    projects/registry.json `settings_repos` (an organisation to
+    <owner>/<repo>): fabric-pr arm reads a repository's arming policy from
+    its organisation's agent-fabric-settings, so a project whose
+    organisation maps to none would be armed under no policy at all. GitHub
+    organisation names are case-insensitive, so the match is."""
+    reg_path = roots.projects_registry(engine=root)
+    if not os.path.exists(reg_path):
+        return []
+    try:
+        registry = json.load(open(reg_path, encoding="utf-8"))
+    except (OSError, ValueError):
+        return []  # the registry's own parse is reported elsewhere
+    where = "projects/registry.json"
+    remotes = []  # (project, remote, organisation)
+    for pid, entry in sorted((registry.get("projects") or {}).items()):
+        for remote in (entry.get("remotes") or []) if isinstance(entry, dict) else []:
+            m = re.search(r"github\.com[:/]([^/\s]+)/", remote) if isinstance(remote, str) else None
+            if m:
+                remotes.append((pid, remote, m.group(1)))
+    if not remotes:
+        return []  # nothing to arm, so no policy to find
+    settings = registry.get("settings_repos")
+    if not isinstance(settings, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) and re.fullmatch(r"[^/\s]+/[^/\s]+", v)
+            for k, v in settings.items()):
+        return [f"{where}: settings_repos must map an organisation to <owner>/<repo>"]
+    known = {k.casefold() for k in settings}
+    return [f"{where}: project {pid!r} has remote {remote!r}, whose organisation {org!r} has no settings_repos entry"
+            for pid, remote, org in remotes if org.casefold() not in known]
+
+
 def license_findings(root: str) -> list[str]:
     """This repository is one license, Apache-2.0, throughout — REUSE.toml
     assigns nothing else, and every identifier it does use has its text

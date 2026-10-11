@@ -452,7 +452,7 @@ def case_a_sibling_working_copy_is_linted_unasked() -> None:
         write(proj(fabric, "INDEX.md"), index_for(
             "- [`../agent-fabric/memory/domains/web-dev/domain/good.md`](../agent-fabric/memory/domains/web-dev/domain/good.md) — STALE WORDING\n"))
         # a git working copy whose remote the fixture registry maps to the demo project
-        _write_license_layout(fabric, {"version": 1, "projects": {
+        _write_license_layout(fabric, {"version": 1, "settings_repos": SETTINGS_FIXTURE, "projects": {
             "agent-fabric": {"license": "Apache-2.0", "remotes": ["git@github.com:gzapi-org/agent-fabric.git"]},
             "demo": {"license": "Apache-2.0", "remotes": ["git@example.com:org/demo.git"]}}}, REUSE_OK)
         subprocess.run(["git", "-C", wc, "init", "-q"], check=True, env=git_env())
@@ -1191,6 +1191,32 @@ def case_the_repository_is_one_license() -> None:
         assert code == 1 and "lives in the project's repository" in out, f"project knowledge here passed:\n{out}"
 
 
+SETTINGS_FIXTURE = {"gzapi-org": "gzapi-org/agent-fabric-settings", "acme": "acme/agent-fabric-settings"}
+
+
+def case_every_remote_organisation_maps_to_a_settings_repository() -> None:
+    """A project whose remote's organisation has no settings_repos entry
+    would be armed under no policy; the match ignores case, and a registry
+    with a GitHub remote and no settings_repos at all is refused."""
+    def projects(org: str) -> dict:
+        return {"agent-fabric": {"license": "Apache-2.0", "remotes": ["git@github.com:gzapi-org/agent-fabric.git"]},
+                PROJECT: {"license": "Apache-2.0", "remotes": [f"https://github.com/{org}/demo"]}}
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        _write_license_layout(fabric, {"settings_repos": SETTINGS_FIXTURE, "projects": projects("ACME")}, REUSE_OK)
+        code, out = run_lint(fabric)
+        assert code == 0, f"a mapped organisation, in another case, was refused:\n{out}"
+        _write_license_layout(fabric, {"settings_repos": SETTINGS_FIXTURE, "projects": projects("stranger")}, REUSE_OK)
+        code, out = run_lint(fabric)
+        assert code == 1 and "organisation 'stranger' has no settings_repos entry" in out, out
+        _write_license_layout(fabric, {"projects": projects("acme")}, REUSE_OK)
+        code, out = run_lint(fabric)
+        assert code == 1 and "settings_repos must map an organisation" in out, out
+        _write_license_layout(fabric, {"settings_repos": {"acme": "not-a-repo"}, "projects": projects("acme")}, REUSE_OK)
+        code, out = run_lint(fabric)
+        assert code == 1 and "settings_repos must map an organisation" in out, out
+
+
 def case_every_project_names_a_defined_client() -> None:
     """ADR-045 §5 rule 5: a working copy resolves remote -> project ->
     client, so a project's client must be one projects/clients.json
@@ -1384,7 +1410,7 @@ def case_a_managed_projects_name_stays_out_of_generic_files() -> None:
     tests, READMEs and history are not."""
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        _write_license_layout(fabric, {"projects": {
+        _write_license_layout(fabric, {"settings_repos": SETTINGS_FIXTURE, "projects": {
             "agent-fabric": {"license": "Apache-2.0", "remotes": ["git@github.com:gzapi-org/agent-fabric.git"]},
             "acme.shop": {"license": "Apache-2.0", "remotes": ["git@github.com:acme/acme.shop.git"]}}}, REUSE_OK)
         code, out = run_lint(fabric)
@@ -2438,6 +2464,7 @@ def main() -> int:
         case_model_profiles_unknown_role_is_refused,
         case_model_profiles_schema_is_enforced,
         case_the_repository_is_one_license,
+        case_every_remote_organisation_maps_to_a_settings_repository,
         case_every_project_names_a_defined_client,
         case_a_registry_with_projects_and_no_clients_is_a_finding,
         case_the_class_list_a_reader_sees_is_the_real_one,
