@@ -112,6 +112,13 @@ class Document(unittest.TestCase):
             with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
                 arm_policy.validate(bad)
 
+    def test_the_boundary_authority_is_a_role_slug_absent_by_default_and_a_repositorys_to_set(self):
+        self.assertNotIn("boundary_authority", arm_policy.default()["commits"])
+        self.assertEqual(arm_policy.validate({"commits": {"boundary_authority": "architect-cto"}})["commits"]["boundary_authority"], "architect-cto")
+        for bad in ("Architect", "", 3, ["architect-cto"], "a b", None):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
+                arm_policy.validate({"commits": {"boundary_authority": bad}})
+
     def test_every_mode_and_method_the_schema_allows_is_allowed(self):
         for mode in ("queue", "auto", "direct", "owner-only"):
             arm_policy.validate({"mode": mode})
@@ -181,13 +188,13 @@ class RealFiles(unittest.TestCase):
         queue = {"mode": "queue", "method": "squash", "queue": {"grouping": "headgreen", "build": 5, "merge_max": 5, "merge_min": 1,
                                                                 "wait_minutes": 2, "check_timeout_minutes": 60}}
         valid = [{}, FABRIC_POLICY, queue, {"commits": {"min": 4, "roles": {"devex-tooling": {"min": 2}}, "classes": {"docs": {"paths": "^docs/", "min": 1}}}},
-                 {"commits": {"boundary_min": 12}},
+                 {"commits": {"boundary_min": 12}}, {"commits": {"boundary_authority": "architect-cto"}},
                  {"bots": {"dependabot": {"arm": ["patch", "minor"], "ecosystems": ["npm_and_yarn", "pip"]}}},
                  {"github": {"ruleset": "r", "branch": "main"}}, {"mode": "owner-only"}, {"mode": "direct"}, {"commits": {"below_min": "refuse"}},
                  {"commits": {"min": 20}}, {"queue": {"merge_min": 6}}, {"required_checks": [{"context": "c", "app": "Foo"}]},
                  {"github": {"ruleset": " "}}, {"commits": {"min": 1.0}}, {"description": "why"}]
         invalid = [{"mode": "auto", "autoo": True}, {"queue": {"depth": 3}}, {"mode": "squash"}, {"method": "fast-forward"},
-                   {"commits": {"below_min": "warn"}}, {"commits": {"min": 0}}, {"commits": {"boundary_min": 0}}, {"commits": {"boundary_min": 2.5}}, {"commits": {"roles": {"devex-tooling": {"min": 0}}}},
+                   {"commits": {"below_min": "warn"}}, {"commits": {"min": 0}}, {"commits": {"boundary_min": 0}}, {"commits": {"boundary_min": 2.5}}, {"commits": {"boundary_authority": "Architect"}}, {"commits": {"roles": {"devex-tooling": {"min": 0}}}},
                    {"commits": {"roles": {"Devex Tooling": {"min": 2}}}}, {"commits": {"classes": {"docs": {"min": 1}}}},
                    {"queue": {"grouping": "some"}}, {"queue": {"build": 2.5}}, {"required_checks": [{"app": "github-actions"}]},
                    {"bots": {"renovate": {"arm": ["patch"]}}}, {"bots": {"dependabot": {"arm": ["breaking"]}}}, {"signatures": "yes"},
@@ -561,21 +568,41 @@ class PrGateRun(unittest.TestCase):
         self.assertIn("unknown key(s) colour", self.rows(bad)[0]["verdict"])
 
 
+def grant(sender="h/arch", to="h/me", kind="DECISION", field="AUTHORIZES", target=None, mid="01a12-grant", addressed=True, frm=None):
+    """What `gzcoord-inbox --replay --json` prints for a message, as (rc, text)."""
+    target = target or f"O/R#7@{ArmRun.HEAD[:12]}"
+    meta = {"MESSAGE-ID": mid, "TO": to, "FROM": frm or sender, field: target}
+    return (0 if addressed else 2), json.dumps({"addressed": addressed, "type": kind, "sender": sender, "metadata": meta})
+
+
+def presence_of(role="architect-cto", login="arch", host="h", status="ok"):
+    return 0, json.dumps({"account": login, "host": host, "status": status, "presence": {"status": "ok", "role": role}})
+
+
 class ArmRun(unittest.TestCase):
     """arm.arm() in process, with everything it reads replaced: the rules are the policy's."""
     HEAD = "abcdef1234567890abcdef1234567890abcdef12"
 
     def run_arm(self, policy, work, files=("docs/a.md",), basis="reviewed", body="", boundary_re=r"^policies/", classes=None,
-                load_error=None, extra=(), load_fn=None, drift=(), drift_error=None, role_trailers=None, checks="green", live=None):
+                load_error=None, extra=(), load_fn=None, drift=(), drift_error=None, role_trailers=None, checks="green", live=None,
+                replay=None, presence=None, unresolved=0, reviewed=True):
         pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": "h/me/feat/x", "headRefOid": self.HEAD, "body": body, "title": "t"}
         gate = [{"commits_known": True, "work_commits": work, "checks": checks}]
-        review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}]}, "unresolved_threads": 0}
+        review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}] if reviewed else []}, "unresolved_threads": unresolved}
+        self.reads = reads = []
         commits = [{"parents": [{}, {}], "commit": {"message": "Merge branch main"}} if r == "MERGE" else
                    {"parents": [{}], "commit": {"message": "c" + (f"\n\nFabric-Role: {r}" if r else "")}} for r in (role_trailers or [None])]
         ran = []
 
         def reader(head, args, timeout=600):
-            return (0, json.dumps(review if "review-status" in " ".join(head) else gate))
+            what = " ".join(head)
+            if "gzcoord-inbox" in what:
+                reads.append(("replay", list(args)))
+                return replay if replay is not None else (1, "")
+            if "fabric-ctl" in what:
+                reads.append(("presence", list(args)))
+                return presence if presence is not None else (1, "")
+            return (0, json.dumps(review if "review-status" in what else gate))
 
         def api(path, **kw):
             return commits if "/commits" in path else [{"filename": f} for f in files]
@@ -702,6 +729,97 @@ class ArmRun(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("count rule: 9 work commits — under 10, on the owner's word", out)
         self.assertNotIn("arms at the review gate", out)
+
+    AUTH = ("--authorization", "ref-1")
+
+    def authorized(self, files=("policies/x.json",), work=3, policy=None, **kw):
+        policy = policy or arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
+        kw.setdefault("replay", grant())
+        kw.setdefault("presence", presence_of())
+        return self.run_arm(policy, work, files=files, extra=(*self.AUTH, "--dry-run"), **kw)
+
+    def test_the_holder_of_the_boundary_authority_role_arms_a_three_commit_boundary_change_in_the_owners_place(self):
+        rc, out = self.authorized()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("count gate AUTHORIZED by arch, architect-cto (01a12-grant), in the owner's place", out)
+        self.assertIn("count rule: 3 work commits — under 8, authorized in the owner's place", out)
+        self.assertIn("Boundary count gate authorized by arch, architect-cto (01a12-grant).", out)
+        self.assertEqual([r[0] for r in self.reads], ["replay", "presence"])
+        self.assertEqual(self.reads[0][1], ["--replay", "ref-1", "--json"])
+
+    def test_an_authorization_from_another_role_a_stale_head_a_broadcast_or_the_wrong_pr_is_refused(self):
+        for label, kw, words in (
+                ("another role", {"presence": presence_of(role="web-dev")}, "who holds web-dev, not architect-cto"),
+                ("a stale head", {"replay": grant(target="O/R#7@0123456789ab")}, "head 0123456789ab"),
+                ("a broadcast", {"replay": grant(to="")}, "a broadcast or a role address"),
+                ("a role address", {"replay": grant(to="role:architect-cto")}, "not sent TO h/me"),
+                ("another pr", {"replay": grant(target=f"O/R#8@{self.HEAD[:12]}")}, "AUTHORIZES O/R#8"),
+                ("another repository", {"replay": grant(target=f"O/X#7@{self.HEAD[:12]}")}, "AUTHORIZES O/X#7"),
+                ("no AUTHORIZES line", {"replay": grant(field="WAIVES")}, "has no AUTHORIZES"),
+                ("a message that is not a decision", {"replay": grant(kind="INFO")}, "not a DECISION or REPLY"),
+                ("the arming login itself", {"replay": grant(sender="h/me")}, "the login arming"),
+                ("a sender that is not the FROM", {"replay": grant(frm="h/other")}, "but says FROM"),
+                ("a message not addressed", {"replay": grant(addressed=False)}, "not addressed to this session")):
+            rc, _ = self.authorized(**kw)
+            self.assertTrue(str(rc).startswith("refused"), (label, rc))
+            self.assertIn(words, str(rc), label)
+
+    def test_what_cannot_be_read_is_unanswered_never_a_pass(self):
+        for label, kw, words in (("the relay", {"replay": (1, "")}, "could not be read from the relay"),
+                                 ("presence", {"presence": (1, "")}, "could not say which role")):
+            rc, _ = self.authorized(**kw)
+            self.assertTrue(str(rc).startswith("unanswered"), (label, rc))
+            self.assertIn(words, str(rc))
+
+    def test_an_authority_the_policy_does_not_name_or_the_catalogue_does_not_hold_stops_the_arming(self):
+        rc, _ = self.authorized(policy=arm_policy.validate({"commits": {"min": 1}}))
+        self.assertIn("names no boundary_authority", str(rc))
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertEqual(self.reads, [])
+        rc, _ = self.authorized(policy=arm_policy.validate({"commits": {"min": 1, "boundary_authority": "no-such-role"}}))
+        self.assertTrue(str(rc).startswith("unanswered"), rc)
+        self.assertIn("not a role of identities/roles/catalog.json", str(rc))
+
+    def test_the_review_gate_still_applies_whatever_the_authorization_says(self):
+        for kw in ({"unresolved": 1}, {"reviewed": False}):
+            rc, _ = self.authorized(**kw)
+            self.assertTrue(str(rc).startswith("refused"), (kw, rc))
+            self.assertEqual(self.reads, [], "the authorization is not even read")
+
+    def test_an_authorization_is_not_read_where_the_owners_word_is_not_needed(self):
+        for kw in ({"work": 9}, {"files": ("docs/a.md",)}):
+            rc, out = self.authorized(**kw)
+            self.assertEqual(rc, 0, out)
+            self.assertIn("no authorization is needed: the authorization ref-1 is not read, and not recorded", out)
+            self.assertNotIn("authorized by", out)
+            self.assertEqual(self.reads, [])
+        rc, out = self.authorized(basis="the owner's word")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.reads, [])
+
+    def test_below_min_refuse_is_not_lifted_by_an_authorization(self):
+        p = arm_policy.validate({"commits": {"min": 1, "below_min": "refuse", "boundary_authority": "architect-cto"}})
+        rc, _ = self.authorized(policy=p, work=3)
+        self.assertIn("refuses below the minimum", str(rc))
+        self.assertEqual(self.reads, [])
+
+    def test_an_authorization_stands_in_for_the_owners_word_wherever_it_is_asked_on_a_boundary_change(self):
+        p = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto", "classes": {"docs": {"paths": r"\.md$", "min": 1}}}})
+        rc, out = self.authorized(policy=p, files=("policies/a.md",), body="Class: docs", classes={"docs": r"\.md$"})
+        self.assertEqual(rc, 0, out)
+
+    def test_the_authorization_is_for_the_boundary_the_waiver_stays_the_waivers(self):
+        rc, out = self.run_arm(arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}}), 3,
+                               files=("policies/x.json",), extra=("--authorization", "ref-1", "--dry-run"))
+        self.assertTrue(str(rc).startswith("unanswered"), rc)
+        rc, _ = self.run_arm(arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}}), 3,
+                             files=("policies/x.json",), extra=("--dry-run",))
+        self.assertIn("arms only on the owner's word", str(rc), "without --authorization the owner's word is still asked")
+
+    def test_authorization_needs_its_reference(self):
+        for argv in (["7", "--basis", "b", "--authorization"], ["7", "--basis", "b", "--authorization", "--dry-run"]):
+            with self.assertRaises(arm.Unanswered):
+                arm.arm(argv)
 
     def test_the_authors_role_minimum_applies_when_every_commit_is_stamped_with_it(self):
         p = arm_policy.validate({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})

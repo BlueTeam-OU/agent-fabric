@@ -21,6 +21,9 @@ Objects merge recursively, scalars and lists replace. The fetched file is cached
 (`cache=`), never between runs. validate() holds the schema's shape and refuses what it does not allow: a typo must
 not fall to the default.
 
+commits.boundary_authority (a role slug; absent: none) names the role whose holder may authorize arming a
+security-boundary change under boundary_min in the owner's place (arm.py --authorization); the review gate still applies.
+
 commits.boundary_min. A security-boundary change not waived is judged against max(commits.min, commits.boundary_min):
 the owner's word it needs under that many work commits is about the security boundary, not about the count of
 commits (the owner, 2026-10-11, through fabric-coordinator's REPLY 01a12ab1). The fleet's value is the floor: a
@@ -191,7 +194,9 @@ def validate(doc: Any, where: str = "the policy") -> dict:
             if not _int(q[k]):
                 raise PolicyError(f"{where}: queue.{k} is not a whole number of at least 1")
             _whole(q, k)
-    c = _only_keys(p["commits"], tuple(DEFAULT["commits"]), f"{where}: commits")
+    c = _only_keys(p["commits"], (*DEFAULT["commits"], "boundary_authority"), f"{where}: commits")
+    if "boundary_authority" in c and not (isinstance(c["boundary_authority"], str) and ROLE_SLUG.fullmatch(c["boundary_authority"])):
+        raise PolicyError(f"{where}: commits.boundary_authority is not a role slug")
     for k in ("min", "advice_over", "boundary_min"):
         if not _int(c[k]):
             raise PolicyError(f"{where}: commits.{k} is not a whole number of at least 1")

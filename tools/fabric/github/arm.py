@@ -13,6 +13,7 @@ usage error, on a PR with no boundary file too, where a waiver of
 nothing wrote a false record.
   argv      <pr-number> --basis "<one line>"
             [--boundary | --no-boundary "<why>" --waiver <message-id|seq>]
+            [--authorization <message-id|seq>]
             [--any-owner] [--dry-run] [-h|--help]
             --no-boundary and --waiver come together; either alone is
             usage (exit 2)
@@ -74,6 +75,16 @@ Fabric-Role trailer every commit of the PR carries, when they agree), else commi
 max(commits.min, commits.boundary_min) whatever role or class; commits.below_min "refuse" is a refusal the owner's
 word does not lift; the merge method is the policy's; a repository with no required check is armed only with every
 check on the head green.
+
+AUTHORIZATION (commits.boundary_authority, a role slug the policy may name): a security-boundary change under its
+minimum arms without the owner's word on `--authorization <MESSAGE-ID|seq>`: a DECISION or REPLY sent TO this session
+(never a broadcast or a role address), from another login whose presence (fabric-ctl, never the ROLE line) reports
+that role, carrying
+        AUTHORIZES: <owner>/<repo>#<n>@<head sha, 8 or more hex>
+for this repository, PR and current head. The same checks and exit codes as a waiver; unlike a waiver it drops no
+gate: the head's review and the open threads are judged first, whatever it says, and a policy with no
+boundary_authority refuses it. The comment records who authorized it and the message. arm.json's waiver_role
+stays the waiver's.
 
 WHAT THIS DOES NOT PROVE: the relay does not authenticate a sender
 (BRIDGE-RELAY-SETUP.md) — FROM and the relay's sender are both the
@@ -207,6 +218,7 @@ Options:
   --boundary            treat as a security-boundary change regardless of paths
   --no-boundary "<why>" waive the boundary gate, with --waiver; the reason goes in the comment
   --waiver <id|seq>     the waiver role holder's message (MESSAGE-ID or relay seq)
+  --authorization <id|seq>  the boundary authority's message (see THE ARMING POLICY), for a boundary change under its minimum
   --any-owner           arm a PR whose branch is not this session's
   --dry-run             evaluate every gate, arm nothing, post nothing
 
@@ -293,6 +305,15 @@ WAIVES = re.compile(r"([\w.-]+/[\w.-]+)#(\d+)@([0-9a-fA-F]{8,40})")
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
+def catalogue_roles(what: str) -> set:
+    """The role slugs of identities/roles/catalog.json; Unanswered when it cannot be read (`what` is what asked)."""
+    try:
+        with open(roots.role_catalog(), encoding="utf-8") as fh:
+            return {r.get("id") for r in json.load(fh).get("roles", []) if isinstance(r, dict)}
+    except (OSError, ValueError, AttributeError) as e:
+        raise Unanswered(f"the role catalogue could not be read to check {what} ({type(e).__name__}: {e})") from None
+
+
 def waiver_role_checked(role: str | None) -> str:
     """arm.json's waiver_role, a slug the catalogue holds; anything else is
     unanswerable — a misspelt role would refuse every waiver as the
@@ -300,28 +321,32 @@ def waiver_role_checked(role: str | None) -> str:
     if not role:
         raise Unanswered("a boundary waiver was asked, and this project's arm.json names no waiver_role — nobody"
                          " can be checked as holding it")
-    catalog = roots.role_catalog()
-    try:
-        with open(catalog, encoding="utf-8") as fh:
-            roles = {r.get("id") for r in json.load(fh).get("roles", []) if isinstance(r, dict)}
-    except (OSError, ValueError, AttributeError) as e:
-        raise Unanswered(f"the role catalogue could not be read to check waiver_role ({type(e).__name__}: {e})") from None
+    roles = catalogue_roles("waiver_role")
     if not SLUG.fullmatch(role) or role not in roles:
         raise Unanswered(f"arm.json's waiver_role {role!r} is not a role of identities/roles/catalog.json")
     return role
 
 
-def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, role: str | None,
-                  refuse) -> tuple[str, str]:
-    """(login, message-id) of a waiver that holds, or Refused / Unanswered.
-    Every refusal is a fact of the message or of the fabric's record; a
-    question neither could answer is never read as a refusal or a pass.
-    The relay does not authenticate a sender (BRIDGE-RELAY-SETUP.md): this
-    stops a mistake, not a forger (review of 0c2498a, F4)."""
-    role = waiver_role_checked(role)
+def authority_role_checked(role: str | None, repo: str) -> str:
+    """The policy's commits.boundary_authority, a slug the catalogue holds. None is a refusal's business (the
+    caller says the policy names none); one the catalogue lacks is unanswerable, as a misspelt waiver_role is."""
+    if not role:
+        raise Unanswered(f"{repo}'s arming policy names no boundary_authority")
+    roles = catalogue_roles("boundary_authority")
+    if not SLUG.fullmatch(role) or role not in roles:
+        raise Unanswered(f"{repo}'s arming policy names the boundary_authority {role!r}, which is not a role of identities/roles/catalog.json")
+    return role
+
+
+def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: str, refuse, *, word: str, field: str) -> tuple[str, str]:
+    """(login, message-id) of a message that grants what `word` is (a "waiver" carrying WAIVES, an "authorization"
+    carrying AUTHORIZES) for this repository, PR and head, from another login whose presence reports `role`, or
+    Refused / Unanswered. Every refusal is a fact of the message or of the fabric's record; a question neither
+    could answer is never read as a refusal or a pass. The relay does not authenticate a sender
+    (BRIDGE-RELAY-SETUP.md): this stops a mistake, not a forger (review of 0c2498a, F4)."""
     rc, out = run_reader(program("AGENT_FABRIC_GZCOORD_INBOX",
                                  os.path.join(FABRIC, "bin", "gzcoord-inbox")),
-                         ["--replay", waiver, "--json"], timeout=120)
+                         ["--replay", ref, "--json"], timeout=120)
     try:
         msg = json.loads(out)
     except ValueError:
@@ -332,37 +357,37 @@ def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, rol
     # not answer, a refused token) prints no JSON object. A status and an
     # object that disagree are an answer of a shape it never gave.
     if not isinstance(msg, dict) or (rc, msg.get("addressed")) not in ((0, True), (2, False)):
-        raise Unanswered(f"the waiver {waiver} could not be read from the relay (gzcoord-inbox --replay exit {rc})")
+        raise Unanswered(f"the {word} {ref} could not be read from the relay (gzcoord-inbox --replay exit {rc})")
     if not msg["addressed"]:
-        raise refuse(f"the waiver {waiver} is not addressed to this session")
+        raise refuse(f"the {word} {ref} is not addressed to this session")
     meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
     mid = meta.get("MESSAGE-ID")
     if not isinstance(mid, str) or not mid:
         # The comment names the message by its id; a seq is the relay's
         # position, not the message (review of 0c2498a, F6).
-        raise Unanswered(f"the waiver {waiver} carries no MESSAGE-ID — the arming comment could not name it")
-    # A broadcast or a role address is "addressed" to every holder; a
-    # waiver is given to the session that arms (review of 0c2498a, F3).
+        raise Unanswered(f"the {word} {ref} carries no MESSAGE-ID — the arming comment could not name it")
+    # A broadcast or a role address is "addressed" to every holder; the message
+    # is given to the session that arms (review of 0c2498a, F3).
     if meta.get("TO") != session:
-        raise refuse(f"the waiver {waiver} is not sent TO {session} "
+        raise refuse(f"the {word} {ref} is not sent TO {session} "
                      f"({'TO ' + meta['TO'] if meta.get('TO') else 'a broadcast or a role address'})")
     if msg.get("type") not in ("DECISION", "REPLY"):
-        raise refuse(f"the waiver {waiver} is a {msg.get('type')}, not a DECISION or REPLY")
+        raise refuse(f"the {word} {ref} is a {msg.get('type')}, not a DECISION or REPLY")
     sender = str(msg.get("sender") or "")
     if not ADDRESS.fullmatch(sender) or meta.get("FROM") != sender:
-        raise refuse(f"the waiver {waiver} was relayed from {sender or 'nobody'} but says FROM {meta.get('FROM')}")
+        raise refuse(f"the {word} {ref} was relayed from {sender or 'nobody'} but says FROM {meta.get('FROM')}")
     # The login, not the address: the same login on another host is the
-    # same agent, and a waiver is another agent's (re-review of b1a8e41).
+    # same agent, and the message is another agent's (re-review of b1a8e41).
     if sender.split("/", 1)[1] == session.split("/", 1)[-1]:
-        raise refuse(f"the waiver {waiver} is from {sender}, the login arming: a waiver is another login's")
-    m = WAIVES.fullmatch(str(meta.get("WAIVES") or "").strip())
+        raise refuse(f"the {word} {ref} is from {sender}, the login arming: a {word} is another login's")
+    m = WAIVES.fullmatch(str(meta.get(field) or "").strip())
     if not m:
-        raise refuse(f"the waiver {waiver} has no WAIVES: {repo}#{num}@<head sha> line — a message that mentions"
-                     f" the PR waives nothing")
+        raise refuse(f"the {word} {ref} has no {field}: {repo}#{num}@<head sha> line — a message that mentions"
+                     f" the PR {'waives' if field == 'WAIVES' else 'authorizes'} nothing")
     if m.group(1).lower() != repo.lower() or m.group(2) != num:
-        raise refuse(f"the waiver {waiver} WAIVES {m.group(1)}#{m.group(2)}, not {repo}#{num}")
+        raise refuse(f"the {word} {ref} {field} {m.group(1)}#{m.group(2)}, not {repo}#{num}")
     if not head.lower().startswith(m.group(3).lower()):
-        raise refuse(f"the waiver {waiver} WAIVES head {m.group(3)}, and #{num}'s head is now {head[:12]}"
+        raise refuse(f"the {word} {ref} {field} head {m.group(3)}, and #{num}'s head is now {head[:12]}"
                      f" — an approval of one head arms no other")
     host, login = sender.split("/", 1)
     rc, out = run_reader(program("AGENT_FABRIC_CTL", os.path.join(FABRIC, "bin", "fabric-ctl")),
@@ -374,15 +399,21 @@ def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, rol
     p = row.get("presence") if isinstance(row, dict) else None
     if (not isinstance(p, dict) or row.get("status") != "ok" or p.get("status") != "ok"
             or row.get("account") != login or row.get("host") != host):
-        raise Unanswered(f"fabric-ctl could not say which role {login} holds (presence, exit {rc}) — the waiver"
+        raise Unanswered(f"fabric-ctl could not say which role {login} holds (presence, exit {rc}) — the {word}"
                          f" cannot be checked")
     if p.get("role") != role:
-        raise refuse(f"the waiver {waiver} is from {login}, who holds {p.get('role') or 'no role'}, not {role}")
+        raise refuse(f"the {word} {ref} is from {login}, who holds {p.get('role') or 'no role'}, not {role}")
     return login, mid
 
 
+def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, role: str | None,
+                  refuse) -> tuple[str, str]:
+    """(login, message-id) of a waiver that holds, or Refused / Unanswered (verify_grant, for WAIVES)."""
+    return verify_grant(waiver, num, repo, head, session, waiver_role_checked(role), refuse, word="waiver", field="WAIVES")
+
+
 def arm(argv: list[str]) -> int:
-    num = basis = no_boundary = waiver = ""
+    num = basis = no_boundary = waiver = authorization = ""
     boundary = any_owner = dry = False
     i = 0
     while i < len(argv):
@@ -403,6 +434,12 @@ def arm(argv: list[str]) -> int:
             waiver = argv[i + 1] if i + 1 < len(argv) else ""
             if not waiver or waiver.startswith("-"):
                 raise Unanswered("--waiver needs the waiver's MESSAGE-ID or relay seq")
+            i += 2
+            continue
+        elif a == "--authorization":
+            authorization = argv[i + 1] if i + 1 < len(argv) else ""
+            if not authorization or authorization.startswith("-"):
+                raise Unanswered("--authorization needs the authorization's MESSAGE-ID or relay seq")
             i += 2
             continue
         elif a == "--any-owner":
@@ -610,13 +647,28 @@ def arm(argv: list[str]) -> int:
     if under and policy["commits"]["below_min"] == "refuse":
         raise refuse(f"{work} work commits — under {floor}; this repository's arming policy refuses below the minimum"
                      f" (commits.below_min: refuse), the owner's word does not change that")
+    authorized_by = ""
     if under and boundary_unwaived and not has_owner_word(basis):
-        raise refuse(f"{work} work commits — a security-boundary change under {floor} arms only on the owner's word as well"
-                     f" as the review, whatever class is stated; the basis does not carry the phrase \"owner's word\"")
-    if under and cls and not has_owner_word(basis):
+        if not authorization:
+            raise refuse(f"{work} work commits — a security-boundary change under {floor} arms only on the owner's word as well"
+                         f" as the review, whatever class is stated; the basis does not carry the phrase \"owner's word\"")
+        # The owner's word, in the owner's place: the holder of the policy's boundary_authority role says so, for this
+        # PR and this head, to this session. The review gate above still stood; it is not this message's to lift.
+        authority = policy["commits"].get("boundary_authority")
+        if not authority:
+            raise refuse(f"{repo}'s arming policy names no boundary_authority: only the owner's word arms a security-boundary"
+                         f" change under {floor}, and the authorization {authorization} is nobody's to give")
+        login, mid = verify_grant(authorization, num, repo, head, session, authority_role_checked(authority, repo), refuse,
+                                  word="authorization", field="AUTHORIZES")
+        authorized_by = f"Boundary count gate authorized by {login}, {authority} ({mid})."
+        say(f"count gate AUTHORIZED by {login}, {authority} ({mid}), in the owner's place")
+    elif authorization:
+        say(f"no authorization is needed: the authorization {authorization} is not read, and not recorded")
+    word = has_owner_word(basis) or bool(authorized_by)
+    if under and cls and not word:
         raise refuse(f"{work} work commits — the class {cls} arms at {floor} or more; under that only on the owner's word,"
                      f" and the basis does not carry the phrase \"owner's word\"")
-    if under and not cls and not has_owner_word(basis):
+    if under and not cls and not word:
         gate_classes = " / ".join(f"Class: {c}" for c in classes) or "none in this project"
         raise refuse(f"{work} work commits — under {floor} arms only on the owner's word, unless the body states a class"
                      f" that arms at the gate ({gate_classes}) and the files agree; the basis does not carry the"
@@ -624,7 +676,9 @@ def arm(argv: list[str]) -> int:
     # The role's minimum decided it only where it is below the repository's and nothing more specific stands.
     by_role = (bool(role) and not cls and not boundary_unwaived and role in policy["commits"]["roles"] and floor < min_work
                and work < min_work)
-    if under:
+    if under and authorized_by:
+        say(f"count rule: {work} work commits — under {floor}, authorized in the owner's place")
+    elif under:
         say(f"count rule: {work} work commits — under {floor}, on the owner's word")
     elif by_role:
         say(f"count rule: {work} work commits — the role {role}'s minimum is {floor}, arms at the review gate")
@@ -646,6 +700,8 @@ def arm(argv: list[str]) -> int:
     comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}{f', role: {role}' if by_role else ''}, head {head[:8]}."
     if waived_by:
         comment += f" {waived_by}"
+    if authorized_by:
+        comment += f" {authorized_by}"
     # A boundary armed at the repository's minimum or more needs no owner's word (gate 5), so the
     # record says that is what happened: a reader of the PR would
     # otherwise take an unmarked boundary arming for an oversight. Gate 5
