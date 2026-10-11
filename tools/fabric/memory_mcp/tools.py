@@ -3,6 +3,7 @@ memory_mark writes, and only to the login's own state."""
 from __future__ import annotations
 
 import difflib
+import unicodedata
 from dataclasses import dataclass, field
 
 import memory_index as mi
@@ -42,8 +43,18 @@ def frame(text: str) -> str:
     """The result text between its opening and closing line. Applied by the server to find, read and index (index
     lines are cues copied from slice text); never to memory_mark's acknowledgement or to an error."""
     # A slice may quote the end line (one teaching this frame would); left as is, it would close the frame early
-    # and leave the rest of the slice outside it, read as the session's own context. Indented, it is quoted text.
-    body = "\n".join("  " + line if line.lstrip().startswith(END_PREFIX) else line for line in text.split("\n"))
+    # and leave the rest of the slice outside it, read as the session's own context. In backticks it is quoted text.
+    # Split on every line break a reader may take for one (\r, \x0b, \x0c, \x1c-\x1e, \x85, U+2028/2029 as well as
+    # \n), so an end line cannot hide behind a break that "\n" alone does not see; the frame is joined with \n.
+    # The test ignores whitespace and format characters (category Cf: zero-width space, BOM, soft hyphen, bidi marks).
+    # It does not close the rest of what a reader might take for the end line: other default-ignorable characters
+    # (a combining grapheme joiner, a variation selector, a Hangul filler), confusable dashes or letters, a Markdown
+    # prefix. No list of characters closes that class; the structural fix is an end line a slice cannot know in advance
+    # (a per-call token named in the start line), which is the owner of this frame's call, not a longer list.
+    def is_end_line(line: str) -> bool:
+        return "".join(c for c in line if unicodedata.category(c) != "Cf").lstrip().startswith(END_PREFIX)
+
+    body = "\n".join(f"`{line.strip()}`" if is_end_line(line) else line for line in text.splitlines())
     return f"{MEMORY_START}\n{body}\n{MEMORY_END}"
 
 
