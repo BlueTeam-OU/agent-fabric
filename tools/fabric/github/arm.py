@@ -792,8 +792,7 @@ def arm(argv: list[str]) -> int:
     if policy["mode"] == "direct" or not policy["required_checks"]:
         checks = str(row.get("checks"))
         held = "is direct" if policy["mode"] == "direct" else "has no required check"
-        # The owner's rule for a direct repository with no CI at all (blueteam.ee, gzapi.ge, gzapp.decks,
-        # gzapi.brand): a head with no check merges on the review of its head and no open thread, both gated
+        # The owner's rule for a direct repository with no CI at all: a head with no check merges on the review of its head and no open thread, both gated
         # above for every direct PR; a check that exists must still be green, and a policy that names a
         # required check says CI exists, so its "none-yet" is a check not reported yet, never no CI.
         if policy["mode"] == "direct" and not policy["required_checks"] and checks == "none-yet":
