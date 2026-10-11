@@ -477,6 +477,15 @@
       "date": "2026-10-11",
       "pillar": "P7",
       "amendments": 0
+    },
+    {
+      "number": "053",
+      "file": "ADR-053-second-review-engine.md",
+      "title": "A second review engine: Codex reviews beside the review class, one-shot, through the gateway",
+      "status": "Proposed",
+      "date": "2026-10-11",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }
