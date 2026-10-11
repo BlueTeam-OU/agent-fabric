@@ -80,9 +80,8 @@
             "description": "A one-line statement of the finding, not a topic label. Distillers naturally write these as claims ('X causes Y, and the cost is Z'), which is exactly what makes a useful retrieval cue in the index."
           },
           "body": {
-            "description": "Prose, with inline citations where the source carried them. Written to be read by whoever holds the role.",
-            "type": "string",
-            "minLength": 1
+            "description": "Prose, with inline citations where the source carried them. Written to be read by whoever holds the role. Empty only on a claim that names a section in merge_target: that claim retires the section (ADR-050 rule 7).",
+            "type": "string"
           },
           "evidence": {
             "description": "Observation content hashes supporting the claim. The rubric asks for at least two independent observations, or one decision-type observation.",
@@ -113,6 +112,17 @@
             "description": "Existing slice/section this claim strengthens rather than adds to. Preferring a merge over an addition is what keeps a long-lived role file dense instead of merely long.",
             "type": "string"
           },
+          "anchors": {
+            "description": "The paths and symbols a solution or workflow claim rests on (ADR-050 rule 1): a repository path, and after `::` a symbol name or a literal string that file must contain. A mechanical check (memory_check.py) sorts the section stale-hard when one is gone and maybe-stale when its file changed since the section was observed. Rendered into the section's provenance as a line of its own above the *Observed* tail.",
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "maxLength": 300,
+              "pattern": "^[^\\s`\\\\:/][^\\s`\\\\:]*(::[^`\\r\\n]*[^\\s`\\r\\n])?$"
+            }
+          },
           "shared_with": {
             "description": "Other roles that own this claim. Two or more owners route it to a shared slice, so the knowledge lives once and cannot drift between copies.",
             "type": "array",
@@ -129,6 +139,29 @@
           }
         },
         "allOf": [
+          {
+            "$comment": "An empty body is a retire claim (ADR-050 rule 7): it must name the section it retires, or it files nothing. tools/fabric/harvest_memory.py refuses an empty memory without a merge_target; the assembler's is_retire is the same test.",
+            "if": {
+              "properties": {
+                "body": {
+                  "maxLength": 0
+                }
+              },
+              "required": [
+                "body"
+              ]
+            },
+            "then": {
+              "required": [
+                "merge_target"
+              ],
+              "properties": {
+                "merge_target": {
+                  "minLength": 1
+                }
+              }
+            }
+          },
           {
             "$comment": "Domain-only evidence comes from a sibling project: it is transferable knowledge about a FIELD, never a statement about this repository. Filed as `solution` it asserts what this system implements; as `workflow` or `rationale` it asserts how this team works. tools/fabric/assembler/intake.py enforces this in code as well, because lint's fallback validator cannot evaluate a conditional when jsonschema is absent.",
             "if": {
