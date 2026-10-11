@@ -356,7 +356,7 @@ class Anchors(Tree):
         out = [ln.split("\t") for ln in self.run_cli(self.corpus).stdout.splitlines()]
         self.assertIn(["stale-hard", "domains/d/domain/a.md", "symbol", "tools/fabric/runner.py::renamed_it",
                        "the file no longer holds 'renamed_it'"], out)
-        self.assertIn(["stale-hard", "domains/d/domain/a.md", "path", "tools/fabric/deleted.py::run_it"], out)
+        self.assertIn(["stale-hard", "domains/d/domain/a.md", "path", "tools/fabric/deleted.py::run_it", "the path is gone"], out)
 
     def test_a_file_changed_after_the_observed_day_is_maybe_stale_and_names_the_commit(self):
         self.write("tools/fabric/runner.py", "def run_it():\n    return 2\n")
@@ -429,6 +429,38 @@ class Anchors(Tree):
         self.slice("a", ("far", anchored("B.", ["src/engine.py::Engine"])), origins=(("other", "other"),))
         row = self.verdicts("--project", "agent-fabric")["far"]
         self.assertEqual((row["verdict"], row["anchors"][0]["subject"]), ("maybe-stale", "engine v2"))
+
+    def test_an_anchor_is_judged_in_its_origins_checkout_never_by_a_same_named_file_of_another_project(self):
+        self.write("README.md", "the fabric's own readme, without the literal\n")
+        self.slice("a", ("far", anchored("B.", ["README.md::only-in-the-other-readme"], observed=None)), origins=(("other", "other"),))
+        row = self.verdicts("--project", "agent-fabric")["far"]
+        self.assertEqual(row["verdict"], "unchecked", "the other project's checkout is not here: unknown, never stale")
+        self.assertIn("no checkout 'other' beside the tree", row["anchors"][0]["why"])
+        other = os.path.join(self.base, "other")
+        self.write("README.md", "# other\nonly-in-the-other-readme\n", root=other)
+        self.assertEqual(self.verdicts("--project", "agent-fabric")["far"]["anchors"][0]["status"], "exists",
+                         "present, it is the origin's file that is searched, not the tree's")
+        self.write("README.md", "# other, changed\n", root=other)
+        row = self.verdicts("--project", "agent-fabric")["far"]
+        self.assertEqual((row["verdict"], row["anchors"][0]["status"]), ("stale-hard", "stale-hard"))
+        # the corpus's own project, and a slice with no origin, are judged in the tree
+        self.slice("b", ("own", anchored("B.", ["README.md::a literal the readme lacks"], observed=None)), origins=(("agent-fabric", "agent-fabric"),))
+        self.assertEqual(self.verdicts("--project", "agent-fabric")["own"]["anchors"][0]["status"], "stale-hard")
+
+    def test_an_anchor_that_is_not_one_is_never_opened_and_a_link_out_of_the_tree_is_not_followed(self):
+        outside = os.path.join(self.base, "outside.txt")
+        with open(outside, "w", encoding="utf-8") as fh:
+            fh.write("MARKER-ONLY-OUTSIDE\n")
+        os.symlink(outside, os.path.join(self.tree, "tools", "fabric", "link.py"))
+        # a forged line in a slice: absolute and climbing anchors are not anchors; the link is one, and is refused
+        self.slice("a", ("forged", anchored("B.", [f"{outside}::MARKER-ONLY-OUTSIDE", "../outside.txt::MARKER-ONLY-OUTSIDE",
+                                                   "../../x::y"], observed=None)),
+                   ("link", anchored("B.", ["tools/fabric/link.py::MARKER-ONLY-OUTSIDE"], observed=None)))
+        v = self.verdicts()
+        self.assertEqual(v["forged"]["anchors"], [], "nothing is read for them")
+        self.assertEqual(v["forged"]["verdict"], "no-anchor")
+        self.assertEqual((v["link"]["verdict"], v["link"]["anchors"][0]["status"]), ("unchecked", "unchecked"))
+        self.assertIn("leaves its tree through a link", v["link"]["anchors"][0]["why"])
 
     def test_a_file_too_large_to_search_is_unchecked_not_stale(self):
         self.slice("a", ("big", anchored("B.", ["tools/fabric/runner.py::run_it"])))

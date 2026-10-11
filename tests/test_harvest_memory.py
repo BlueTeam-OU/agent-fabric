@@ -231,6 +231,23 @@ def test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with
     assert r.returncode == 1 and "empty.md: has no body and names no merge_target" in r.stderr, (r.returncode, r.stderr)
 
 
+def test_an_anchor_that_carries_a_credential_refuses_the_drain_and_a_doubled_single_quote_is_one_quote(tmp: str) -> None:
+    """An anchor is text that leaves the account like the body: a credential in it refuses the drain, as in a body.
+    YAML's doubled single quote inside a single-quoted item is one quote."""
+    mem, out = os.path.join(tmp, "ac"), os.path.join(tmp, "oac")
+    os.makedirs(mem)
+    write_anchored(mem, "leaky", "solution", "[cfg/a.py::ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8]")
+    r = run(mem, out)
+    assert r.returncode == 1 and "leaky.md: an anchor carries a" in r.stderr and "nothing of it leaves the account" in r.stderr, (r.returncode, r.stderr)
+    mem2, out2 = os.path.join(tmp, "ac2"), os.path.join(tmp, "oac2")
+    os.makedirs(mem2)
+    write_anchored(mem2, "quoted", "solution", "['tools/a.py::it''s', 'b.py']")
+    r = run(mem2, out2)
+    assert r.returncode == 0, r.stderr
+    (claim,) = claims_of(out2)
+    assert claim["anchors"] == ["tools/a.py::it's", "b.py"], claim["anchors"]
+
+
 def test_role_knowledge_is_opt_in(tmp: str) -> None:
     """A memory reaches the shared corpus only if it says so. Nothing is
     inferred from `type`: memory has four types, .roles/ has nine classes,
@@ -938,6 +955,7 @@ def main() -> int:
         test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim,
         test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays,
         test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused,
+        test_an_anchor_that_carries_a_credential_refuses_the_drain_and_a_doubled_single_quote_is_one_quote,
     ]
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:

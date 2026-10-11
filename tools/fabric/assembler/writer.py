@@ -112,12 +112,12 @@ def write_slice(
     for claim in claims:
         if is_retire(claim):
             # A claim with a merge_target and no body retires that section and renders nothing: the section
-            # leaves the corpus, its text stays in git. Its kept-both siblings "X (n)" go with it.
+            # leaves the corpus, its text stays in git. Only the heading it names: a kept-both sibling "X (2)" may be
+            # another agent's, and is retired by naming it.
             target = claim["merge_target"].strip()
             if target in blocks:
-                for gone in [target] + [k for k in blocks if re.fullmatch(re.escape(target) + r" \(\d+\)", k)]:
-                    del blocks[gone]
-                    order.remove(gone)
+                del blocks[target]
+                order.remove(target)
                 resolved.append(target)
                 retired_here = True
                 run.retired_in.append(f"{in_report(run, path)}: '{target}' retired by its owner")
@@ -227,7 +227,7 @@ def write_slice(
                 "agent": origin["agent"], **({"host": origin["host"]} if origin.get("host") else {}),
                 **({"observed": claim["observed_at"]} if claim.get("observed_at") else {})}
 
-    if not blocks:
+    if not blocks and retired_here:
         # Every section of the file was retired: the file goes, and its callers list nothing for it.
         if os.path.exists(path):
             os.remove(path)
@@ -278,6 +278,8 @@ def write_slice(
     if outstanding:
         meta["collisions"] = sorted(outstanding)
 
+    # A heading the slice had and no longer has (retired, retitled, replaced) takes its recorded writer with it.
+    run.section_writers_gone.extend(f"{in_report(run, path)}#{h}" for h in previous_sections if h not in blocks)
     body = "\n\n".join(f"## {h}\n\n{blocks[h]}" for h in order) + "\n"
     # Carried text (a slice written before a pattern existed) is
     # substituted the same way, and named.

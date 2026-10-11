@@ -47,10 +47,13 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 from assembler import slices  # noqa: E402
 from gzcoord import gzmsg  # noqa: E402
+from jobsparts.base import OPEN as OPEN_STATES  # noqa: E402 — the one list of the states in which a job is still open
 
 MAX_FLAGS = 20
 NOTE_CLIP = 200
-OPEN_STATES = ("queued", "active", "blocked")
+# Where a section's last writer is recorded in the drain report (assembler `section_writers`): the report names a
+# slice by its path from the fabric root or the working copy, which the id letter of a mark (f: / p:) also says.
+REPORT_PREFIX = {"f": "memory/", "p": ".agent-fabric/memory/"}
 MARK_VERDICTS = {"stale": "mark-stale", "wrong": "mark-wrong"}
 KIND_ORDER = ("stale-hard", "maybe-stale", "mark-wrong", "mark-stale")
 
@@ -63,10 +66,17 @@ class Flag:
     role: str | None
     reasons: list[dict] = field(default_factory=list)   # {"kind", "what", "detail"?}
     hint: str | None = None
+    report_prefix: str = ""     # what the drain report puts before the slice's path: "memory/" or ".agent-fabric/memory/"
 
     @property
     def key(self) -> str:
+        """The flag's identity in the ledger: the corpus label, the slice from its corpus, the heading."""
         return f"{self.corpus}:{self.slice}#{self.heading}"
+
+    @property
+    def report_key(self) -> str:
+        """The section as the drain report's `section_writers` names it."""
+        return f"{self.report_prefix}{self.slice}#{self.heading}"
 
 
 @dataclass
@@ -87,14 +97,15 @@ def section_role(slice_rel: str, observed_role: str | None) -> str | None:
     return None if first in ("domains", "shared", "") or "/" not in slice_rel else first
 
 
-def flags_from_rows(corpus: str, rows: Iterable[dict]) -> list[Flag]:
+def flags_from_rows(corpus: str, rows: Iterable[dict], report_prefix: str) -> list[Flag]:
     """The flags of memory_check's rows: one per section whose verdict is stale-hard or maybe-stale, with a
-    reason for each failing path and anchor."""
+    reason for each failing path and anchor. `report_prefix` is what the drain report puts before this corpus's
+    slices ("memory/" for the fabric's, ".agent-fabric/memory/" for a project's): the key of its last writer."""
     out: list[Flag] = []
     for r in rows:
         if r.get("verdict") not in ("stale-hard", "maybe-stale"):
             continue
-        flag = Flag(corpus, r["slice"], r["heading"], section_role(r["slice"], r.get("role")))
+        flag = Flag(corpus, r["slice"], r["heading"], section_role(r["slice"], r.get("role")), report_prefix=report_prefix)
         for p in r.get("paths", []):
             if p["status"] == "stale-hard":
                 flag.reasons.append({"kind": "stale-hard", "what": p["path"], "detail": "a path the section cites is gone"})
@@ -114,15 +125,25 @@ def clip_note(note: Any) -> str:
     return text[:NOTE_CLIP] + ("…" if len(text) > NOTE_CLIP else "")
 
 
+def one_line(text: Any, limit: int) -> str:
+    """Text from a slice, a commit or a reader as one line of at most `limit` characters, no control or line-break
+    characters: it reaches a REQUEST as data to read, never as lines of the request itself."""
+    flat = " ".join(re.sub(r"[\x00-\x1f\x7f]", " ", str(text if text is not None else "")).split())
+    return flat[:limit] + ("…" if len(flat) > limit else "")
+
+
 def resolve_mark(ident: str, corpora: dict[str, str]) -> tuple[str, str, str] | None:
     """(corpus label, slice relative to its corpus, heading) of a mark's section id `f:<path>#<n>` or
     `p:<path>#<n>`, n counted from 1 in the slice's file order (memory_index.section_id), or None when the id
     names no section of a corpus given. `corpora` maps `f` and `p` to the corpus root's directory."""
     m = re.fullmatch(r"([fp]):([A-Za-z0-9._/-]+)#([0-9]+)", ident)
-    if not m or m.group(1) not in corpora or ".." in m.group(2).split("/"):
+    if not m or m.group(1) not in corpora or m.group(2).startswith("/") or ".." in m.group(2).split("/"):
         return None
     rel = m.group(2) + ".md"
     path = os.path.join(corpora[m.group(1)], rel)
+    top = os.path.realpath(corpora[m.group(1)])
+    if not os.path.realpath(path).startswith(top + os.sep):
+        return None           # an id is text a reader wrote: it names a slice of the corpus or nothing
     try:
         _meta, sections = slices.read_existing_slice(path)
     except (OSError, UnicodeDecodeError):
@@ -155,7 +176,7 @@ def flags_from_marks(marks: "Iterable[dict] | dict[str, list[dict]]", corpora: d
         if flag is None:
             _meta, sections = slices.read_existing_slice(os.path.join(corpora[prefix], rel))
             _date, role = _observed(sections.get(heading, ""))
-            flag = by_key[key] = Flag(corpus, rel, heading, section_role(rel, role))
+            flag = by_key[key] = Flag(corpus, rel, heading, section_role(rel, role), report_prefix=REPORT_PREFIX[prefix])
             flags.append(flag)
         note = clip_note(mk.get("note"))
         flag.reasons.append({"kind": kind, "what": "a reader's mark" + (f" of {mk['t']}" if mk.get("t") else ""),
@@ -186,7 +207,7 @@ def route(flag: Flag, writers: dict[str, dict], holders: dict[str, list[str]], r
     held = sorted(holders.get(flag.role, []), key=lambda a: number_of(login_of(a)))
     if not held:
         return None, f"role {flag.role!r} has no holder"
-    writer = (writers.get(flag.key) or {}).get("agent")
+    writer = (writers.get(flag.report_key) or {}).get("agent")
     if writer:
         for a in held:
             if login_of(a) == writer:
@@ -243,13 +264,14 @@ def render_request(address: str, flags: list[Flag], sender: str, sender_role: st
         "[GZCOORD/1] REQUEST", f"FROM: {sender}", f"ROLE: {sender_role}", f"PROJECT: {project}", f"TO: {address}",
         "REPLY-EXPECTED: no", f"MESSAGE-ID: {mid}", f"SUBJECT: {subject}", "",
         "REQUEST:",
-        f"The curated memory of {', '.join(roles) or 'your role'} holds {len(flags)} section(s) a mechanical check or a reader",
+        f"The curated memory of {', '.join(one_line(r, 40) for r in roles) or 'your role'} holds {len(flags)} section(s) a mechanical check or a reader",
         "marked. You hold the code they describe: check each against the tree, as it is now.", "",
     ]
     for i, f in enumerate(flags, 1):
-        lines.append(f"{i}. {f.slice} — {f.heading!r}" + (f" ({f.role})" if f.role else "") + f"  [{f.corpus}]")
+        lines.append(f"{i}. {one_line(f.slice, 200)} — {one_line(f.heading, 120)!r}" + (f" ({one_line(f.role, 40)})" if f.role else "")
+                     + f"  [{one_line(f.corpus, 60)}]")
         for r in sorted(f.reasons, key=lambda r: KIND_ORDER.index(r["kind"])):
-            lines.append(f"   - {r['kind']}: {r['what']} — {r['detail']}")
+            lines.append(f"   - {r['kind']}: {one_line(r['what'], 200)} — {one_line(r['detail'], 240)}")
         if f.hint:
             lines.append(f"   - a model's guess, advisory, not a finding: {clip_note(f.hint)}")
         lines.append("")

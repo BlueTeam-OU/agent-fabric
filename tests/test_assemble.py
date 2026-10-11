@@ -1226,6 +1226,57 @@ def test_a_section_carries_its_anchors_above_its_observed_tail(tmp: str) -> None
     assert {os.path.join(d, n): read(os.path.join(d, n)) for d, _ds, fs in walk_role(out, "alpha") for n in fs} == before, "and nothing was written"
 
 
+def test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped(tmp: str) -> None:
+    """A claims file is untrusted text: an anchor that is no anchor, of the wrong class, not a list, or more than
+    ANCHORS_MAX refuses the run before anything is written; one that hygiene would substitute is dropped, never
+    written with a substitution that points nowhere."""
+    base = {"class": "solution", "topic": "one", "title": "T", "body": "B.", "evidence": ["h1"]}
+    cases = {
+        "injection": {**base, "anchors": ["a.py::x`\n## Injected"]},
+        "path leaves the tree": {**base, "anchors": ["../x.py"]},
+        "wrong class": {**base, "class": "domain", "anchors": ["a.py"]},
+        "not a list": {**base, "anchors": "a.py"},
+        "too many": {**base, "anchors": [f"f{i}.py" for i in range(21)]},
+    }
+    for name, claim in cases.items():
+        drain, claims_dir, out = build(os.path.join(tmp, name.replace(" ", "-")), {"alpha": claims("alpha", [claim])})
+        proc = run_assemble(drain, claims_dir, out)
+        assert proc.returncode == 1 and "CLAIM ANCHOR VIOLATIONS" in proc.stderr, (name, proc.returncode, proc.stderr)
+        assert alpha_slices(out) == {}, (name, "nothing was written")
+    ok = {**base, "anchors": ["a.py::fine"]}
+    drain, claims_dir, out = build(os.path.join(tmp, "control"), {"alpha": claims("alpha", [ok])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0, "positive control: a valid anchor is accepted"
+    banned = {**base, "anchors": ["docs/Springfield.md::heading", "a.py"]}
+    drain, claims_dir, out = build(os.path.join(tmp, "banned"), {"alpha": claims("alpha", [banned])})
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    text = "".join(alpha_slices(out).values())
+    assert "Springfield" not in text and "`a.py`" in text and "docs/" not in text, text
+    assert "the anchor was dropped" in proc.stderr + read(report_path(out)), "the redaction is reported"
+
+
+def test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section(tmp: str) -> None:
+    """The key the assembler writes and the key memory_flags looks up are one string: a flag of a drained
+    section finds its writer through the real report, not through a hand-made dict."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "T", "body": "Body.", "evidence": ["h1"], "observed_at": "2026-09-18"}])})
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"content_hash": "h1", "agent": "python-dev-03", "host": "hostA"}) + "\n")
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import memory_flags
+    writers = json.loads(read(report_path(out)))["section_writers"]
+    (key,) = writers
+    prefix = ".agent-fabric/memory/"
+    assert key.startswith(prefix)
+    flags = memory_flags.flags_from_rows("project", [{
+        "slice": key[len(prefix):].partition("#")[0], "heading": "T", "role": "alpha", "verdict": "stale-hard",
+        "paths": [], "anchors": [{"status": "stale-hard", "anchor": "a.py"}]}], prefix)
+    assert flags and flags[0].report_key == key, (flags, key)
+    address, how = memory_flags.route(flags[0], writers, {"alpha": ["hostA/python-dev-07", "hostA/python-dev-03"]}, set())
+    assert (address, how) == ("hostA/python-dev-03", "last-writer"), (address, how)
+
+
 def test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drains(tmp: str) -> None:
     """ADR-050 rule 3: `section_writers` maps "<slice as the report names it>#<heading>" to the agent, host and
     Observed date of the claim that last rendered the section: what routes a flag to the agent that knows the
@@ -1318,7 +1369,7 @@ def test_retiring_the_only_section_removes_the_file_and_its_index_line(tmp: str)
     assert not any(f.endswith(os.path.basename(path)) for f in rep["files"]) and not any(k.startswith(".agent-fabric/memory/alpha/") and k.endswith("#Only") for k in rep["section_writers"])
 
 
-def test_a_retire_finds_its_section_in_another_topic_and_takes_its_kept_both_siblings_with_it(tmp: str) -> None:
+def test_a_retire_finds_its_section_in_another_topic_and_leaves_a_sibling_that_only_looks_like_it(tmp: str) -> None:
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "solution", "topic": "one", "title": "Home", "body": "First.", "evidence": ["h1"]},
         {"class": "solution", "topic": "two", "title": "Elsewhere", "body": "Second.", "evidence": ["h2"]}])})
@@ -1330,7 +1381,7 @@ def test_a_retire_finds_its_section_in_another_topic_and_takes_its_kept_both_sib
     joined = "".join(alpha_slices(out).values())
     assert "Home" in joined and "Elsewhere" not in joined and "a-memory-of-its-own" not in "".join(alpha_slices(out)), \
         "the retire is not filed as a topic of its own"
-    # kept-both siblings "X (2)" go with X
+    # a retire names one heading: "X (2)" is another section (it may be a kept-both sibling of some other claim) and stays
     drain2, claims2, out2 = build(os.path.join(tmp, "b"), {"alpha": claims("alpha", [
         {"class": "solution", "topic": "t", "title": "X", "body": "One.", "evidence": ["h1"]},
         {"class": "solution", "topic": "t", "title": "Y", "body": "Keep.", "evidence": ["h1"]}])})
@@ -1345,7 +1396,7 @@ def test_a_retire_finds_its_section_in_another_topic_and_takes_its_kept_both_sib
         json.dump(claims("alpha", [retire("X", topic="t")]), fh)
     assert run_assemble(drain2, claims2, out2, "--stamp", "2026-01-02").returncode == 0
     left = next(iter(alpha_slices(out2).values()))
-    assert "## Y" in left and "## X" not in left, left
+    assert "## Y" in left and "## X (2)" in left and "## X\n" not in left, left
 
 
 def test_a_retire_reaches_a_section_in_another_part_of_a_split_topic(tmp: str) -> None:
@@ -3283,7 +3334,9 @@ def main() -> int:
         test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drains,
         test_a_claim_with_a_merge_target_and_no_body_retires_the_section_and_nothing_is_written_for_it,
         test_retiring_the_only_section_removes_the_file_and_its_index_line,
-        test_a_retire_finds_its_section_in_another_topic_and_takes_its_kept_both_siblings_with_it,
+        test_a_retire_finds_its_section_in_another_topic_and_leaves_a_sibling_that_only_looks_like_it,
+        test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
+        test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section,
         test_retiring_a_section_nobody_holds_is_said_and_writes_nothing_on_every_drain,
         test_a_retire_reaches_a_section_in_another_part_of_a_split_topic,
         test_a_retitle_replaces_only_the_sections_that_share_its_cue,

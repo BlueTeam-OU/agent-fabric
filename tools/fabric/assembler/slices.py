@@ -6,6 +6,7 @@ import json
 import os
 import re
 from typing import Callable, Any
+import anchors
 from assembler.core import layout, yaml_scalar
 
 
@@ -71,8 +72,11 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
         marks[host] = mark
     # Who last wrote each section accumulates across drains (ADR-050 rule 3): a section written by an earlier drain
     # keeps its writer until it is written again, and a slice that is gone takes its sections' writers with it.
-    writers = {k: v for k, v in (previous.get("section_writers") or {}).items() if isinstance(v, dict) and exists(k.partition("#")[0])}
+    gone = set(current.get("section_writers_gone") or [])
+    writers = {k: v for k, v in (previous.get("section_writers") or {}).items()
+               if isinstance(v, dict) and k not in gone and exists(k.partition("#")[0])}
     writers.update(current.get("section_writers") or {})
+    current = {k: v for k, v in current.items() if k != "section_writers_gone"}     # a hand-off to this merge, not a record
     if previous.get("stamp") != current["stamp"]:
         merged = dict(current, watermarks=marks, section_writers=writers)
         merged["files"] = [f for f in current["files"] if exists(f)]
@@ -319,11 +323,14 @@ ANCHORS_LINE = re.compile(r"(?m)^\*Anchors: (.+)\*[ \t]*$")
 
 
 def anchors_of(section: str) -> list[str]:
-    """The anchors a section's text names, in order, once each."""
+    """The anchors a section's text names, in order, once each. A line of a slice is text any memory's body may
+    carry, which no harvest validated: an anchor that is not one (absolute, leaving the tree, over the bounds) is
+    not read, so nothing outside the tree is ever opened for it."""
     found: dict[str, None] = {}
     for line in ANCHORS_LINE.findall(section):
         for a in re.findall(r"`([^`]+)`", line):
-            found.setdefault(a, None)
+            if anchors.problem(a) is None:
+                found.setdefault(a, None)
     return list(found)
 
 
@@ -341,8 +348,8 @@ def undated(text: str) -> str:
 
 
 def cue_tokens(heading: str) -> set[str]:
-    """A heading's cue: its lower-case alphanumeric tokens."""
-    return set(re.findall(r"[a-z0-9]+", heading.lower()))
+    """A heading's cue: its lower-case alphanumeric tokens (letters and digits of any script)."""
+    return set(re.findall(r"[^\W_]+", heading.lower()))
 
 
 def shares_cue(new_heading: str, old_heading: str) -> bool:

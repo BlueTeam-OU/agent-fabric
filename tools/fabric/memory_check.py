@@ -307,28 +307,59 @@ class History:
         return {"commit": commit, "date": date, "subject": subject[:100]}
 
 
-def judge_anchor(anchor: str, tree: str, trees: list[str], missing: list[str], observed: str | None, history: History) -> dict:
+def _in_tree(root: str, path: str) -> str:
+    """"ok", "absent" or "escape": whether `path` exists under `root` and, once links are followed, stays inside it.
+    An anchor is text from a slice; what it names is opened only inside the tree it belongs to."""
+    full = os.path.normpath(os.path.join(root, path))
+    if not os.path.lexists(full):
+        return "absent"
+    real, top = os.path.realpath(full), os.path.realpath(root)
+    return "ok" if real == top or real.startswith(top + os.sep) else "escape"
+
+
+def judge_anchor(anchor: str, trees: list[str], missing: list[str], observed: str | None, history: History) -> dict:
     """One anchor `<path>[::<symbol or literal>]` of a section, sorted: stale-hard when its path or its string is
     gone, maybe-stale when its file has a commit after the section's Observed day, unchecked when that cannot be
-    looked at, exists otherwise."""
+    looked at, exists otherwise. It is judged where the slice's origin says it lives, in `trees` (the checkouts the
+    slice's origin names, the corpus's own tree when it names none): a file of the same name in another project's
+    tree says nothing, and a checkout that is not here makes what it would have held unknown, never gone."""
     path, _, symbol = anchor.partition("::")
     row: dict = {"anchor": anchor, "path": path}
-    where = next((t for t in [tree, *trees] if os.path.lexists(os.path.normpath(os.path.join(t, path)))), None)
-    if where is None:
-        state, why = status(path, tree, trees, missing)
-        return {**row, "status": state, **({"why": why} if why else {})}
-    full = os.path.normpath(os.path.join(where, path))
+    found = {t: _in_tree(t, path) for t in trees}
+    present = [t for t in trees if found[t] == "ok"]
+    if not present:
+        if any(v == "escape" for v in found.values()):
+            return {**row, "status": "unchecked", "why": "the path leaves its tree through a link"}
+        if missing:
+            return {**row, "status": "unchecked", "why": "; ".join(missing)}
+        return {**row, "status": "stale-hard", "why": "the path is gone"}
+    where = present[0]
     if symbol:
-        if not os.path.isfile(full):
+        unknown: list[str] = []
+        holders: list[str] = []
+        for t in present:
+            full = os.path.normpath(os.path.join(t, path))
+            if not os.path.isfile(full):
+                continue
+            try:
+                with open(full, "rb") as fh:
+                    data = fh.read(ANCHOR_FILE_MAX + 1)
+            except OSError as e:
+                unknown.append(f"cannot read the file: {e.strerror or e}")
+                continue
+            if len(data) > ANCHOR_FILE_MAX:
+                unknown.append(f"the file is larger than {ANCHOR_FILE_MAX} bytes")
+            elif symbol in data.decode("utf-8", errors="replace"):
+                holders.append(t)
+        if holders:
+            where = holders[0]
+        elif unknown:
+            return {**row, "status": "unchecked", "why": unknown[0]}
+        elif missing:
+            return {**row, "status": "unchecked", "why": "the file lacks it here, and " + "; ".join(missing)}
+        elif not any(os.path.isfile(os.path.normpath(os.path.join(t, path))) for t in present):
             return {**row, "status": "stale-hard", "why": "the path is not a file, so it holds no symbol"}
-        try:
-            with open(full, "rb") as fh:
-                data = fh.read(ANCHOR_FILE_MAX + 1)
-        except OSError as e:
-            return {**row, "status": "unchecked", "why": f"cannot read the file: {e.strerror or e}"}
-        if len(data) > ANCHOR_FILE_MAX:
-            return {**row, "status": "unchecked", "why": f"the file is larger than {ANCHOR_FILE_MAX} bytes"}
-        if symbol not in data.decode("utf-8", errors="replace"):
+        else:
             return {**row, "status": "stale-hard", "why": f"the file no longer holds {symbol!r}"}
     if observed is None:
         return {**row, "status": "exists"}
@@ -384,7 +415,7 @@ def check(corpus: str, tree: str, extra_dirs: list[str] | None = None, project: 
                 state, why = status(p, tree, trees, missing)
                 paths.append({"path": p, "status": state, **({"why": why} if why else {})})
             observed, role = observed_of(text)
-            anchors = [judge_anchor(a, tree, trees, missing, observed, history) for a in slices.anchors_of(text)]
+            anchors = [judge_anchor(a, trees, missing, observed, history) for a in slices.anchors_of(text)]
             row = {"slice": sl["rel"], "heading": heading, "verdict": verdict_of(paths, anchors, observed), "paths": paths, "anchors": anchors,
                    **({"observed": observed} if observed else {}), **({"role": role} if role else {})}
             if anchors and observed is None and row["verdict"] == "unchecked" and not any(a["status"] == "unchecked" for a in anchors):

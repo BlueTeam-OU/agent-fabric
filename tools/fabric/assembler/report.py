@@ -149,6 +149,7 @@ def report(run: Run) -> int:
         "redactions": run.redactions,
         "retired_in_siblings": run.retired_in,
         "section_writers": run.section_writers,
+        "section_writers_gone": run.section_writers_gone,
         "oversized_claims": run.oversized,
         "clipped_descriptions": run.clipped_descriptions,
         "migrated": run.migrated,

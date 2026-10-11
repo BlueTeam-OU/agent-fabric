@@ -102,6 +102,9 @@ def _load(name: str, path: str):
 layout = _load("fabric_layout", os.path.join(HERE, "layout.py"))
 identity = _load("fabric_identity", os.path.join(layout.FABRIC_ROOT, "runtime", "identity.py"))
 memory_use = _load("fabric_memory_use", os.path.join(HERE, "memory_use.py"))
+# ADR-050 rule 1: what an anchor is, the one definition (the assembler and the staleness check read the same).
+anchors_mod = _load("fabric_anchors", os.path.join(HERE, "anchors.py"))
+ANCHOR_CLASSES, ANCHORS_MAX = anchors_mod.ANCHOR_CLASSES, anchors_mod.ANCHORS_MAX
 
 # THE SECRET FENCE, at the harvester. The assembler substitutes a person's
 # name and redacts a secret when it files a claim — but a bundle travels
@@ -240,64 +243,6 @@ def scalar(value: str) -> str:
     return v
 
 
-# ADR-050 rule 1: the paths and symbols a `solution` or `workflow` claim rests on, `<path>::<symbol or
-# literal>` in the metadata block, as one inline list: `anchors: [tools/fabric/harvest_memory.py::parse_memory, "memory/README.md::a literal, with a comma"]`.
-ANCHOR_CLASSES = frozenset({"solution", "workflow"})
-ANCHORS_MAX = 20
-ANCHOR_MAX_LEN = 300
-
-
-def split_inline_list(value: str) -> list[str] | None:
-    """The items of a YAML inline list `[a, "b, c", 'd']`, unquoted; None when the value is no list.
-    A comma splits only outside quotes, because a literal an anchor names may contain one."""
-    v = value.strip()
-    if not (v.startswith("[") and v.endswith("]")):
-        return None
-    items: list[str] = []
-    cur: list[str] = []
-    quote = ""
-    i, inner = 0, v[1:-1]
-    while i < len(inner):
-        ch = inner[i]
-        if quote:
-            if ch == "\\" and quote == '"' and i + 1 < len(inner):
-                cur.append(inner[i + 1])
-                i += 2
-                continue
-            if ch == quote:
-                quote = ""
-            else:
-                cur.append(ch)
-        elif ch in "\"'":
-            quote = ch
-        elif ch == ",":
-            items.append("".join(cur).strip())
-            cur = []
-        else:
-            cur.append(ch)
-        i += 1
-    items.append("".join(cur).strip())
-    return [x for x in items if x]
-
-
-def anchor_problem(anchor: str) -> str | None:
-    """Why `anchor` is not `<repository path>` or `<repository path>::<symbol or literal>`, or None. The path
-    is relative and stays inside its tree; the part after `::` is non-empty; and nothing in it is a backtick
-    or a line break, which the slice's rendering of the anchor could not carry."""
-    path, sep, rest = anchor.partition("::")
-    if len(anchor) > ANCHOR_MAX_LEN:
-        return f"longer than {ANCHOR_MAX_LEN} characters"
-    if any(c in anchor for c in "`\r\n\x00"):
-        return "holds a backtick or a line break"
-    if not path or path.startswith("/") or "\\" in path or any(c.isspace() for c in path):
-        return "its path is empty, absolute, or holds a backslash or a space"
-    if any(part in ("", ".", "..") for part in path.rstrip("/").split("/")):
-        return "its path leaves the tree or is not normal"
-    if sep and not rest.strip():
-        return "nothing follows `::`"
-    return None
-
-
 def parse_memory(path: str) -> dict[str, Any] | None:
     """Parse one memory file. Returns None for a file that is not one."""
     with open(path, encoding="utf-8") as fh:
@@ -328,12 +273,12 @@ def parse_memory(path: str) -> dict[str, Any] | None:
     anchor_problems: list[str] = []
     raw_anchors = meta.get("metadata.anchors") or meta.get("anchors")
     if raw_anchors is not None:
-        listed = split_inline_list(raw_anchors)
+        listed = anchors_mod.split_inline_list(raw_anchors)
         if listed is None:
             anchor_problems.append(f"anchors is no inline list: {raw_anchors[:60]!r}")
         else:
             for a in listed:
-                bad = anchor_problem(a)
+                bad = anchors_mod.problem(a)
                 if bad:
                     anchor_problems.append(f"anchor {a[:60]!r}: {bad}")
                 elif a not in anchors:
@@ -398,6 +343,9 @@ def judge_memory(parsed: dict[str, Any]) -> dict[str, Any]:
     hits = credential_hits(parsed["body"])
     if hits:
         return {"verdict": "refused", "reason": f"carries a {hits[0]} by shape; nothing of it leaves the account"}
+    hits = credential_hits("\n".join(parsed["anchors"])) if parsed["anchors"] else []
+    if hits:
+        return {"verdict": "refused", "reason": f"an anchor carries a {hits[0]} by shape; nothing of it leaves the account"}
     if not parsed["body"].strip() and not parsed["merge_target"]:
         return {"verdict": "refused", "reason": "has no body and names no merge_target: nothing to file (a memory with "
                 "a merge_target and no body retires that section, ADR-050 rule 7)"}
