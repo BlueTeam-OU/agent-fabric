@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import section_groups  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -88,33 +89,14 @@ SLOWEST_FIRST = (4, 8, 6, 1, 7, 9, 0, 2, 3, 5)
 
 
 def drive() -> int:
-    """Run every group, print each one's output in the order of the sections, and fail if any group did."""
-    import concurrent.futures
-    jobs = int(os.environ.get("LAUNCH_CLI_JOBS") or min(4, os.cpu_count() or 1))
-
-    def one(group: int) -> tuple[int, str]:
-        try:
-            r = subprocess.run([sys.executable, os.path.abspath(__file__), "--group", str(group)], stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", timeout=1200)
-        except subprocess.TimeoutExpired:
-            return 1, f"group {group}: FAILED — it did not finish in 20 minutes\n"
-        return r.returncode, r.stdout
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        futures = {g: pool.submit(one, g) for g in SLOWEST_FIRST}
-        results = [futures[g].result() for g in range(NGROUPS)]
-    failed = 0
-    for rc, text in results:
-        sys.stdout.write(text)
-        failed += rc != 0
-    print(f"\ntest_launch_cli: {'OK' if not failed else f'FAILED — {failed} group(s)'}")
-    return 1 if failed else 0
+    return section_groups.drive(__file__, "test_launch_cli", NGROUPS, SLOWEST_FIRST, "LAUNCH_CLI_JOBS", 1200)
 
 
 def main() -> int:
     if len(sys.argv) < 3 or sys.argv[1] != "--group":
         return drive()
     selected = int(sys.argv[2])
+    section_groups.child_setup()
 
     def _want(group: int) -> bool:
         return group == selected
@@ -1398,11 +1380,12 @@ echo "CLAUDE-USAGE:$(cat "$u" 2>/dev/null || echo none)"
             t0 = time.monotonic()
             rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "silentcontrol"})
             took = time.monotonic() - t0
-            # The fake harness itself waits up to 4 s for a usage file a silent gateway never lets exist; the ask's own
-            # timeout is 10 s, after that, so a session held for it would show as base_s + 14. 9 sits between that and
-            # the 4 s, with 5 s of room each way for a loaded runner (the sections run side by side).
+            # The fake harness itself waits up to 4 s for a usage file a silent gateway never lets exist, and the ask's own
+            # timeout of 10 s runs beside that wait, from the relay's start: a cut ask shows as base_s + 4, a session held
+            # for it as base_s + 10 (measured with Relay.stop not closing the socket: 10.0 s against 4.3 s). 7 sits
+            # between them, 3 s of room each way for a loaded runner (the sections run side by side).
             check("a gateway that never answers the ask does not hold the end of the session (the ask is cut with the session)",
-                  rc == 0 and took < base_s + 9 and not os.path.exists(f"{agent_dir}/gateway-usage.json"),
+                  rc == 0 and took < base_s + 7 and not os.path.exists(f"{agent_dir}/gateway-usage.json"),
                   f"rc={rc} silent={took:.1f}s normal={base_s:.1f}s\n{out[-300:]}")
             check("the provider stamp stays the routing column and the transport is stamped as the gateway",
                   has(r"CLAUDE-PROVIDER:anthropic$", out) and has(r"CLAUDE-TRANSPORT:gateway$", out), out)

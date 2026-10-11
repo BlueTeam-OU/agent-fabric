@@ -23,6 +23,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(ROOT, "runtime", "provisioning")
 sys.path.insert(0, os.path.join(ROOT, "tests"))
+import section_groups  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import SECRETS_REGISTRY, write_json  # noqa: E402
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 # The fixture template's token and its fingerprint, as store templates prints it.
@@ -176,33 +177,14 @@ NGROUPS = 3
 
 
 def drive() -> int:
-    """Run every group, print each one's output in the order of the sections, and fail if any group did."""
-    import concurrent.futures
-    jobs = int(os.environ.get("NEW_AGENT_CLI_JOBS") or min(NGROUPS, os.cpu_count() or 1))
-
-    def one(group: int) -> tuple[int, str]:
-        try:
-            r = subprocess.run([sys.executable, os.path.abspath(__file__), "--group", str(group)], stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", timeout=1500)
-        except subprocess.TimeoutExpired:
-            return 1, f"group {group}: FAILED — it did not finish in 25 minutes\n"
-        return r.returncode, r.stdout
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        futures = {g: pool.submit(one, g) for g in (1, 2, 0)}
-        results = [futures[g].result() for g in range(NGROUPS)]
-    failed = 0
-    for rc, out in results:
-        sys.stdout.write(out)
-        failed += rc != 0
-    print(f"\ntest_new_agent_cli: {'OK' if not failed else f'FAILED — {failed} group(s)'}")
-    return 1 if failed else 0
+    return section_groups.drive(__file__, "test_new_agent_cli", NGROUPS, (1, 2, 0), "NEW_AGENT_CLI_JOBS", 1500)
 
 
 def main() -> int:
     if len(sys.argv) < 3 or sys.argv[1] != "--group":
         return drive()
     selected = int(sys.argv[2])
+    section_groups.child_setup()
 
     def _want(group: int) -> bool:
         return group == selected
