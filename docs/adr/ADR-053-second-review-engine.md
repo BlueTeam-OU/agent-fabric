@@ -53,8 +53,10 @@ One-shot keeps the cost to a child process per review, under the
 reviewing login, with nothing resident. Going through the gateway keeps
 one place for credentials, usage readings and the account policy
 (ADR-052). The same brief and the same posting path mean the two
-reviews are compared like for like, and the arming gate needs only to
-count engines.
+reviews are compared like for like. Today `fabric-pr arm` checks a review
+of the head only for security-boundary changes, so rule 6 adds a gate that
+counts engines and requires a review of the head for every PR in a
+repository whose policy names `reviews`.
 
 ## 5. Binding Rules
 
