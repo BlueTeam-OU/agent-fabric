@@ -181,21 +181,45 @@ def case_lint_reads_catalogue_and_authority_from_the_operator() -> None:
 
 def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
     """The whole corpus lint over an operator tree that is a copy of this
-    checkout's instance data prints what it prints with none exported: the
+    checkout prints what it prints with none exported: the
     index links (`../agent-fabric/...`) and labels resolve in the operator's
     tree as in the engine's (review of #125: 183 false drift findings)."""
+    import re
+    import shutil
     import subprocess
     base = {k: v for k, v in os.environ.items() if k not in ("AGENT_FABRIC_ROOT", "AGENT_FABRIC_OPERATOR")}
     with tempfile.TemporaryDirectory() as tmp:
         # A whole checkout, not a few directories: the staleness pass (ADR-050 rule 2) judges the paths and anchors a
         # slice cites in the tree the corpus lies in, and an operator tree is that — a clone, with its history.
-        subprocess.run(["git", "clone", "-q", "--local", "--no-hardlinks", ROOT, tmp], check=True, timeout=300,
-                       env={**base, "GIT_CONFIG_GLOBAL": os.devnull})
+        git_env = {**{k: v for k, v in base.items() if not k.startswith("GIT_")}, "GIT_CONFIG_GLOBAL": os.devnull}
+        git = lambda *argv, **kw: subprocess.run(["git", *argv], check=True, timeout=300, env=git_env, **kw)  # noqa: E731
+        git("clone", "-q", "--local", "--no-hardlinks", ROOT, tmp)
+        # The checkout as it is, uncommitted edits and new files included: a run before the commit must say what CI says.
+        diff = subprocess.run(["git", "-C", ROOT, "diff", "HEAD", "--binary"], check=True, timeout=300, env=git_env,
+                              capture_output=True).stdout
+        if diff:
+            git("-C", tmp, "apply", "--whitespace=nowarn", input=diff)
+        untracked = subprocess.run(["git", "-C", ROOT, "ls-files", "-o", "--exclude-standard", "-z"], check=True, timeout=300,
+                                   env=git_env, capture_output=True).stdout.decode("utf-8", "surrogateescape").split("\0")
+        for rel in filter(None, untracked):
+            os.makedirs(os.path.dirname(os.path.join(tmp, rel)), exist_ok=True)
+            shutil.copy2(os.path.join(ROOT, rel), os.path.join(tmp, rel), follow_symlinks=False)
         run = lambda env: subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "lint.py"),  # noqa: E731
                                           "--no-siblings"], capture_output=True, text=True, env=env, timeout=300)
         plain, over = run(base), run({**base, "AGENT_FABRIC_OPERATOR": tmp})
         assert (over.returncode, over.stdout) == (plain.returncode, plain.stdout), \
             f"with the operator: rc {over.returncode}\n{over.stdout[-600:]}\nwithout: rc {plain.returncode}\n{plain.stdout[-300:]}"
+        # Positive control: the equality above also holds when lint ignores the operator, so show it reads the operator's
+        # corpus — a slice that exists only there, citing a path no tree holds, is one more staleness warning.
+        probe = os.path.join(tmp, "memory", "domains", "python-dev", "domain", "dead-pid-fixture-must-exceed-pid-max.md")
+        with open(probe, "a", encoding="utf-8") as fh:
+            fh.write("\n## A section only the operator tree has\n\nSee `tools/fabric/no_such_module_for_the_probe.py`.\n\n"
+                     "*Observed 2026-10-01 (python-dev)*\n")
+        probed = run({**base, "AGENT_FABRIC_OPERATOR": tmp})
+        again = run(base)
+        count = lambda r: int(re.findall(r"(\d+) warning", r.stdout)[-1])  # noqa: E731
+        assert probed.returncode == 0 and again.stdout == plain.stdout and count(probed) == count(plain) + 1, \
+            f"lint did not follow the operator's memory: {probed.stdout[-300:]!r} vs {plain.stdout[-300:]!r}"
 
 
 def case_fabric_labels_do_not_depend_on_the_checkouts_name() -> None:
