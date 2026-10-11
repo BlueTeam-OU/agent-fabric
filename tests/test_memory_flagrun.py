@@ -15,6 +15,9 @@ import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+sys.path.insert(0, os.path.join(HERE, "tests"))
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 import memory_flagrun as fr  # noqa: E402
 from test_memory_check import Tree, anchored, git  # noqa: E402 — tests/, the script's own directory
 from test_memory_hint import FAKE, tree_digest  # noqa: E402
@@ -323,8 +326,8 @@ class Entry(FlagRun):
     def run_cli(self, *args, bound=True):
         import subprocess
         wc = self.tree
-        # The code reads a few files of the fabric root it is given (the identity module, the role catalogue): copied in.
-        for rel in ("runtime/identity.py", "identities/roles/catalog.json"):
+        # The code reads a few files of the fabric root it is given (the identity module): copied in.
+        for rel in ("runtime/identity.py",):
             dest = os.path.join(wc, rel)
             if not os.path.exists(dest):
                 os.makedirs(os.path.dirname(dest), exist_ok=True)

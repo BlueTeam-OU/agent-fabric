@@ -54,6 +54,7 @@ import layout  # noqa: E402
 import memory_check  # noqa: E402
 import memory_flags  # noqa: E402
 import memory_hint  # noqa: E402
+import roots  # noqa: E402
 from gzcoord import gzmsg  # noqa: E402
 
 CTL_TIMEOUT_S = 120
@@ -86,12 +87,12 @@ class Fleet:
 
 
 def corpora_of(project: str, fabric_root: str, working_copy: str | None) -> list[Corpus]:
-    out = [Corpus("f", layout.FABRIC_PROJECT_ID, os.path.join(fabric_root, "memory"), fabric_root, layout.FABRIC_PROJECT_ID)]
+    out = [Corpus("f", layout.FABRIC_PROJECT_ID, roots.memory_dir(root=fabric_root), fabric_root, layout.FABRIC_PROJECT_ID)]
     if working_copy:
         # The fabric's own project has both corpora in one checkout: one label each, or the hints' sources and the
         # flags' keys of the two would be one.
         label = project if project != layout.FABRIC_PROJECT_ID else f"{project}/{layout.PROJECT_DIRNAME}"
-        out.append(Corpus("p", label, os.path.join(working_copy, layout.PROJECT_DIRNAME, "memory"), working_copy, None))
+        out.append(Corpus("p", label, os.path.join(working_copy, layout.PROJECT_MEMORY_SUBDIR), working_copy, None))
     return [c for c in out if os.path.isdir(c.root)]
 
 
