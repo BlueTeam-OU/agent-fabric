@@ -19,7 +19,7 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(HERE, "tools", "fabric", "secrets_sync.py")
 SHIM = os.path.join(HERE, "runtime", "provisioning", "secrets", "fabric-secrets")
-FAKE_GH = os.path.join(HERE, "tests", "fixtures", "fake-gh-auth.sh")
+FAKE_GH = os.path.join(HERE, "tests", "fixtures", "fake_gh_auth.py")
 spec = importlib.util.spec_from_file_location("secrets_sync", TOOL)
 s = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(s)
