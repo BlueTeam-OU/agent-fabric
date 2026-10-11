@@ -3,9 +3,8 @@
 PATH: each gate has a case that trips it and one that passes; the arming
 path posts the basis (on stdin) and runs gh pr merge --auto exactly once,
 and a dry run posts and runs nothing. Ported from gzapp's
-tools/gh/test_arm.sh, case for case, run through gzapp's forwarder
-(tests/fixtures/gzapp-gh/arm.sh, gzapp's forwarder as it was: its
-arm.json and the GZAPP_* names); then InterWeave's arm.json, which has no classes, and a project
+tools/gh/test_arm.sh, case for case, run through bin/fabric-pr arm
+with gzapp's arm.json (tests/fixtures/gzapp-gh/) named in the environment; then InterWeave's arm.json, which has no classes, and a project
 with none. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
@@ -20,7 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # gzapp's and InterWeave's files as the projects hold them, frozen (tests/fixtures/gzapp-gh/README.md):
 # a project's integration directory is the operator's instance data.
 FIXTURES = os.path.join(ROOT, "tests", "fixtures")
-GZAPP = os.path.join(FIXTURES, "gzapp-gh", "arm.sh")
+GZAPP_CONFIG = os.path.join(FIXTURES, "gzapp-gh", "arm.json")
 SHIM = os.path.join(ROOT, "bin", "fabric-pr")
 IW_CONFIG = os.path.join(FIXTURES, "interweave-gh", "arm.json")
 
@@ -169,17 +168,17 @@ def main() -> int:
             p = f"{state}/calls"
             return open(p).read() if os.path.exists(p) else ""
 
-        def run(*args: str, script: str = GZAPP, env: dict | None = None, cwd: str = sandbox) -> tuple[int, str]:
+        def run(*args: str, fixture_rules: bool = True, env: dict | None = None, cwd: str = sandbox) -> tuple[int, str]:
             e = dict(base_env, MOCK_STATE=state, PATH=f"{bindir}:{base_env.get('PATH', '')}",
-                     GZAPP_PR_GATE=f"{bindir}/pr-gate", GZAPP_PR_REVIEW_STATUS=f"{bindir}/pr-review-status",
-                     GZAPP_PR_SESSION="develop-qzapp/me", AGENT_FABRIC_GZCOORD_INBOX=f"{bindir}/gzcoord-inbox",
+                     AGENT_FABRIC_PR_GATE=f"{bindir}/pr-gate", AGENT_FABRIC_PR_REVIEW_STATUS=f"{bindir}/pr-review-status",
+                     AGENT_FABRIC_PR_SESSION="develop-qzapp/me", AGENT_FABRIC_GZCOORD_INBOX=f"{bindir}/gzcoord-inbox",
                      AGENT_FABRIC_CTL=f"{bindir}/fabric-ctl")
-            if script == SHIM:
-                # The shim reads the fabric's names; only gzapp's forwarder maps GZAPP_*.
-                e.update(AGENT_FABRIC_PR_GATE=e.pop("GZAPP_PR_GATE"), AGENT_FABRIC_PR_SESSION=e.pop("GZAPP_PR_SESSION"),
-                         AGENT_FABRIC_PR_REVIEW_STATUS=e.pop("GZAPP_PR_REVIEW_STATUS"))
+            if fixture_rules:
+                # Rules named, not found from the clone's remote; the legacy marker is the one the reader counts.
+                e.update(AGENT_FABRIC_ARM_CONFIG=GZAPP_CONFIG,
+                         AGENT_FABRIC_LEGACY_REVIEW_MARKERS="<!-- gzapp-substitute-review v1 -->")
             e.update(env or {})
-            r = subprocess.run(([script, "arm"] if script == SHIM else ["bash", script]) + list(args), env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            r = subprocess.run([SHIM, "arm", *args], env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                stdin=subprocess.DEVNULL, text=True, timeout=120, cwd=cwd)
             return r.returncode, r.stdout
 
@@ -594,17 +593,17 @@ def main() -> int:
                      "deny.toml", "crates/claude/channel-core/src/lib.rs", "apps/claude-channel/src/main.rs",
                      "apps/human-desktop/src/recovery_seed.rs"):
             reset(); set_pr(me, "plain", [path]); set_gate(9)
-            rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
+            rc, out = run("7", "--basis", "b", fixture_rules=False, env=iw)
             check(f"InterWeave: {path} is a boundary", rc == 1 and "no review-class review" in out, out)
         reset(); set_pr(me, "plain", ["infra/db/migrations/0053_x.sql", "architecture/adr/0050-x.md",
                                       "crates/identity/profile-identity/README.md", "tools/checks/check_x.sh",
                                       "crates/human/ui-slint/Cargo.toml", "Cargo.lock", "fixtures/README.md", "crates/human/client-api/src/lib.rs",
                                       "crates/human/ui-slint/src/lib.rs"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
+        rc, out = run("7", "--basis", "b", fixture_rules=False, env=iw)
         check("InterWeave: gzapp's migrations, prose, a crate README, tooling, the UI, a crate manifest, the lockfile and the fixtures' README are not",
               rc == 0 and "not a security-boundary change" in out, out)
         reset(); set_pr(me, "Class: docs-only", ["architecture/adr/0050-x.md"]); set_gate(2)
-        rc, out = run("7", "--basis", "b", script=SHIM, env=iw)
+        rc, out = run("7", "--basis", "b", fixture_rules=False, env=iw)
         check("InterWeave has no classes: a stated docs-only under 8 still asks the owner",
               rc == 1 and "none in this project" in out, out)
 
@@ -627,33 +626,33 @@ def main() -> int:
             subprocess.run(["git", "-C", d, "remote", "add", "origin", url], env=base_env, check=True, timeout=30)
             clones[name] = d
         reset(); set_pr(me, "plain", ["crates/transport/libp2p/src/dialing.rs"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["iw"], env=by_remote)
+        rc, out = run("7", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote)
         check("a clone of InterWeave is judged by InterWeave's rules (transport is a boundary there, not in gzapp's)",
               rc == 1 and "no review-class review" in out, out)
         reset(); set_pr(me, "plain", ["infra/db/migrations/0053_x.sql"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["iw"], env=by_remote)
+        rc, out = run("7", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote)
         check("…and not by gzapp's (a migrations path is not InterWeave's boundary)",
               rc == 0 and "not a security-boundary change" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", script=SHIM, cwd=clones["stranger"], env=by_remote)
+        rc, out = run("7", "--basis", "b", fixture_rules=False, cwd=clones["stranger"], env=by_remote)
         check("a clone of an unregistered remote: exit 2, nothing armed",
               rc == 2 and "no project found" in out and "pr merge" not in calls(), out)
 
         print("arm: a project with no arm.json")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", script=SHIM, env={"AGENT_FABRIC_ARM_CONFIG": f"{sandbox}/none.json"})
+        rc, out = run("7", "--basis", "b", fixture_rules=False, env={"AGENT_FABRIC_ARM_CONFIG": f"{sandbox}/none.json"})
         check("no arm.json: exit 2, the boundary never judged absent",
               rc == 2 and "declares no arm.json" in out and "pr merge" not in calls(), out)
         reset(); put("narrowed.json", json.dumps({"boundary": {"paths": "^src/", "cases": ["src/a.rs", "keys/k.rs"]}}))
         set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", script=SHIM, env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/narrowed.json"})
+        rc, out = run("7", "--basis", "b", fixture_rules=False, env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/narrowed.json"})
         check("a boundary case its own patterns miss: exit 2, nothing armed, the case named",
               rc == 2 and "keys/k.rs" in out and "pr merge" not in calls(), out)
         reset(); put("bad.json", '{"boundary": {"paths": "("}}')
-        rc, out = run("7", "--basis", "b", script=SHIM, env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/bad.json"})
+        rc, out = run("7", "--basis", "b", fixture_rules=False, env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/bad.json"})
         check("an arm.json whose pattern does not compile: exit 2", rc == 2 and "not a usable arm.json" in out, out)
         reset(); set_pr("develop-qzapp/other/feat/x", "plain", ["docs/a.md"])
-        rc, out = run("7", "--basis", "b", script=SHIM, env={"AGENT_FABRIC_ARM_CONFIG": f"{sandbox}/none.json"})
+        rc, out = run("7", "--basis", "b", fixture_rules=False, env={"AGENT_FABRIC_ARM_CONFIG": f"{sandbox}/none.json"})
         check("…but gates 1–3 refuse without one", rc == 1 and "not this session's" in out, out)
 
     print("test_arm_cli: " + ("OK" if not fails else f"FAILED — {fails}"))
