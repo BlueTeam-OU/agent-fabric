@@ -1315,6 +1315,68 @@ def test_a_harvest_whose_read_counts_are_no_counts_does_not_stop_the_drain_and_a
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-02-28").returncode == 0, "positive control: a real date"
 
 
+def test_the_report_lists_every_applied_correction_once_with_the_keys_the_harvest_reads(tmp: str) -> None:
+    """ADR-050 rule 10: a merge_target correction the author named is listed with its origin agent, the memory, the heading
+    it replaced and the keys of the old and the new text; applying the same memory again changes nothing and lists nothing
+    new; a supersede the owner or the same-agent rule decided is not an author's correction and is not listed; the list
+    survives a drain of another stamp while the slice stands and goes with the slice."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from corrections import memory_key
+    OLD, NEW = "The old fact.\n\n## Detail\n\nwith a heading of its own", "The new fact.\n\n## Detail\n\nalso"
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "The finding", "body": OLD, "evidence": ["h1"]},
+        {"class": "solution", "topic": "one", "title": "Kept", "body": "Untouched.", "evidence": ["h1"]}])})
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"content_hash": "h2", "agent": "python-dev-03", "host": "hostA"}) + "\n")
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert json.loads(read(report_path(out)))["applied_corrections"] == [], "nothing was corrected yet"
+    fix = {"class": "solution", "topic": "fix-one", "title": "The finding, corrected", "merge_target": "The finding",
+           "body": NEW, "evidence": ["h2"]}
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [fix]), fh)
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02").returncode == 0
+    listed = json.loads(read(report_path(out)))["applied_corrections"]
+    assert len(listed) == 1, listed
+    (entry,) = listed
+    assert entry["slice"].endswith("/solution.md") and entry["heading"] == "The finding, corrected" and entry["replaced"] == "The finding", entry
+    assert (entry["memory"], entry["agent"], entry["host"], entry["stamp"]) == ("fix-one", "python-dev-03", "hostA", "2026-01-02"), entry
+    assert entry["replaced_key"] == memory_key(OLD) and entry["applied_key"] == memory_key(NEW), entry
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02").returncode == 0
+    assert json.loads(read(report_path(out)))["applied_corrections"] == listed, "the same correction again lists nothing new"
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [{"class": "solution", "topic": "other", "title": "Other", "body": "Another.", "evidence": ["h3"]}]), fh)
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-03").returncode == 0
+    assert json.loads(read(report_path(out)))["applied_corrections"] == listed, "kept across a later stamp while its slice stands"
+    # a "correction" whose text is the section's own is no replacement: listed, the harvest would name it as its own original
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [{"class": "solution", "topic": "kept-again", "title": "Kept", "merge_target": "Kept",
+                                    "body": "Untouched.", "evidence": ["h2"]}]), fh)
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-03").returncode == 0
+    assert json.loads(read(report_path(out)))["applied_corrections"] == listed, "a merge_target onto identical text lists nothing"
+    # the list goes with the slice it describes
+    for d, _ds, fs in walk_role(out, "alpha"):
+        for n in fs:
+            if n.endswith(".md") and n != "INDEX.md" and "The finding, corrected" in read(os.path.join(d, n)):
+                os.remove(os.path.join(d, n))
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [{"class": "domain", "topic": "elsewhere", "title": "Elsewhere", "body": "Unrelated.", "evidence": ["h3"]}]), fh)
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-04").returncode == 0
+    assert json.loads(read(report_path(out)))["applied_corrections"] == [], "the slice is gone: so is its entry"
+    # a supersede decided by the same-agent rule is the drain's, not the author's merge_target: not listed
+    drain2, claims2, out2 = build(os.path.join(tmp, "b"), {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "The finding", "body": "The old fact.", "evidence": ["h1"], "observed_at": "2026-01-01"}])})
+    with open(os.path.join(drain2, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"content_hash": "h1", "agent": "python-dev-03", "host": "hostA"}) + "\n"
+                 + json.dumps({"content_hash": "h5", "agent": "python-dev-03", "host": "hostA"}) + "\n")
+    assert run_assemble(drain2, claims2, out2).returncode == 0
+    with open(os.path.join(claims2, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [{"class": "solution", "topic": "one", "title": "The finding", "body": "A newer text.",
+                                    "evidence": ["h5"], "observed_at": "2026-02-01"}]), fh)
+    proc = run_assemble(drain2, claims2, out2, "--stamp", "2026-01-02")
+    assert proc.returncode == 0 and "A newer text." in "".join(alpha_slices(out2).values()), proc.stderr
+    assert json.loads(read(report_path(out2)))["applied_corrections"] == [], "the same-agent supersede is not an author's correction"
+
+
 def test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report(tmp: str) -> None:
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "solution", "topic": "one", "title": "Keep me", "body": "Stays.", "evidence": ["h1"], "observed_at": "2026-09-18"},
@@ -3500,6 +3562,7 @@ def main() -> int:
         test_a_retire_finds_its_section_in_another_topic_and_leaves_a_sibling_that_only_looks_like_it,
         test_the_report_lists_review_horizons_from_the_drains_own_read_dates,
         test_a_harvest_whose_read_counts_are_no_counts_does_not_stop_the_drain_and_a_stamp_that_is_no_date_stops_it_first,
+        test_the_report_lists_every_applied_correction_once_with_the_keys_the_harvest_reads,
         test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report,
         test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
         test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section,

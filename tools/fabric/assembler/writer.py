@@ -8,6 +8,7 @@ import os
 import re
 from collections import defaultdict
 from typing import Callable, Any
+from corrections import section_key
 from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
 from assembler.slices import retire_in_siblings, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, is_retire
 from assembler.targets import existing_sections, is_budget_part, slice_candidates, is_carried
@@ -158,6 +159,7 @@ def write_slice(
         if target and not authorised and retire_elsewhere(target):
             authorised = True
             resolved.append(target)
+        replaced_text = blocks.get(target) if authorised else None
         if authorised:
             # Replacement is opt-in, and this is the opt-in. The claim's
             # own heading takes the target's place: keeping the target's
@@ -222,6 +224,18 @@ def write_slice(
             rendered = blocks[heading]
         blocks[heading] = rendered
         origin = next((run.origins[h] for h in claim.get("evidence", []) if h in run.origins), None)
+        if authorised and target and not claim.get("_inferred_target") and replaced_text is not None \
+           and undated(replaced_text) != undated(rendered):
+            # ADR-050 rule 10: the author's own merge_target replaced a section with other text. Listed once, with the keys
+            # the harvest recognises both texts by (corrections.py): the original memory is named to its author, and this
+            # correction is not harvested again once applied.
+            memory_name, notes = hygiene_substitute(claim["topic"], "applied correction memory name")
+            run.redactions.extend(notes)         # a name an agent chose goes into a committed report
+            who = origin if origin and origin.get("agent") and origin["agent"] != "unresolved" else {}
+            run.applied_corrections.append({
+                "slice": in_report(run, path), "heading": heading, "replaced": target, "memory": memory_name,
+                **({"agent": who["agent"]} if who else {}), **({"host": who["host"]} if who.get("host") else {}),
+                "replaced_key": section_key(replaced_text), "applied_key": section_key(rendered), "stamp": run.args.stamp})
         if origin and origin.get("agent") and origin["agent"] != "unresolved":
             run.section_writers[f"{in_report(run, path)}#{heading}"] = {
                 "agent": origin["agent"], **({"host": origin["host"]} if origin.get("host") else {}),

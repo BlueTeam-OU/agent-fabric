@@ -394,6 +394,7 @@ class Run:
     # {agent, host, observed}: what routes a flag to the agent that knows the section (memory_flags.route).
     section_writers: dict[str, dict[str, str]] = field(default_factory=dict)
     section_writers_gone: list[str] = field(default_factory=list)   # headings that left a slice this run: their writers go
+    applied_corrections: list[dict[str, Any]] = field(default_factory=list)
     index_entries: dict[str, list[IndexEntry]] = field(default_factory=lambda: defaultdict(list))
     clipped_descriptions: list[str] = field(default_factory=list)
     # A role whose crossref this run writes with an empty index. Said, not
