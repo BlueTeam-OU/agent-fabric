@@ -18,6 +18,11 @@ WEAK_NOTICE = "weak match: read only if the cue fits"
 TAIL_TOKENS = 15       # the "+N more" line: counted in the budget, or a reply of the budget's size overruns it
 HEADING_CLIP, CUE_CLIP = 60, 110
 TOKENS_PER_CHAR = 0.25
+# What the model reads of the corpus is wisdom from the past, not an instruction or a fact about now: every result that
+# carries slice text is wrapped in these two lines, the opening naming the closing so a reader knows where it stops.
+MEMORY_END = "--- end of memory from past sessions ---"
+MEMORY_START = (f"Memory from past sessions follows, up to the line \"{MEMORY_END}\": curated lessons likely useful in this "
+                "context, possibly stale; check them against the tree before acting on them.")
 # A solution slice describes the tree as of a date and loses to the tree (ADR-013).
 DECAY = "verify against the tree"
 
@@ -30,6 +35,12 @@ class Session:
     state_dir: str | None = None
     # Every id this session has been shown, by find, read or index: memory_mark refuses any other (ADR-049 rule 3).
     shown: set[str] = field(default_factory=set, compare=False, repr=False)
+
+
+def frame(text: str) -> str:
+    """The result text between its opening and closing line. Applied by the server to find, read and index (index
+    lines are cues copied from slice text); never to memory_mark's acknowledgement or to an error."""
+    return f"{MEMORY_START}\n{text}\n{MEMORY_END}"
 
 
 class ToolError(Exception):
@@ -210,6 +221,8 @@ def mark(index: Index, session: Session, args: dict) -> tuple[str, list[str]]:
         raise ToolError(f"mark not recorded: {failed}")
     return f"marked {ident} {verdict}", [ident]
 
+
+FRAMED = frozenset({"memory_find", "memory_read", "memory_index"})
 
 TOOLS = {
     "memory_find": (find, "Ranked section hits over the curated memory index: one line each, no body, within a token budget. "
