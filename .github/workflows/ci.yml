@@ -60,8 +60,7 @@ jobs:
           # and Node 20). The shims of ported scripts run the pinned fabric-python
           # whatever this matrix sets up (ADR-040 rule 4, installed below);
           # what the matrix decides here is the python3 of the scripts that
-          # keep the host's (the git and Claude Code hooks, bootstrap, the
-          # Node callers rule 4 names) and the Node the bash suites drive.
+          # keep the host's (the git and Claude Code hooks, bootstrap).
           # The python section's suites import the modules on each
           # interpreter.
           - { section: bash, python: '3.13', node: '20' }
@@ -97,7 +96,8 @@ jobs:
       # matrix's interpreters still run the Python suites themselves.
       - name: the fleet's pinned Python, as a host installs it
         run: sudo /usr/bin/python3 tools/fabric/python_pin.py install && /usr/bin/python3 tools/fabric/python_pin.py check
-      # Node in every leg: the bash suites drive the Node callers ADR-040 rule 4 names.
+      # Node in every leg: two python-section suites run the Node control plane
+      # as an oracle (tests/test_control_js.py, tests/test_control_sessions.py).
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
