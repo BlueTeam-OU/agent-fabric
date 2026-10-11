@@ -24,4 +24,4 @@ gzapp (`.agent-fabric/memory/`), never here.
   environment names its callers still use, mapped to the fabric's. The
   lint refuses a project's name under `runtime/`; that rule is what
   keeps the tools every project's, and this directory is the carve-out.
-  gzapp's `tools/gh/` shims forward here.
+  gzapp's agents reach it as `fabric-pr <verb>`, by name.

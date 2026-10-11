@@ -77,6 +77,8 @@ command — because in auto mode a narrow Bash rule is resolved before the
 classifier while a broad one, or one naming Monitor, is set aside; a
 Monitor follows the Bash rules. Every other rule the account allows,
 denies or asks is kept as read, and an `ask` rule still wins.
+`permissions.ask`: `Bash(<prefix> *)` for every `also_asked` prefix in
+commands.json (moli serve), added beside the account's own ask rules.
 
 `permissions.defaultMode` "auto" (the owner, 2026-09-26): every agent's
 session starts in auto mode. Eight accounts provisioned by hand had no
@@ -405,11 +407,28 @@ def rules() -> tuple[list[str], list[str]]:
             continue
         ours = os.path.realpath(os.path.join(local_bin(), name)) == os.path.realpath(os.path.join(FABRIC_ROOT, rel))
         (granted if ours else withheld).append(f"Bash({name} *)")
+    # Not the fabric's scripts, so no link to check: an installed tool whose
+    # one safe subcommand is allowed (moli fetch reads a page; moli serve
+    # opens an unauthenticated CDP port and gets no rule, ADR-051).
+    granted += [f"Bash({prefix} *)" for prefix in doc.get("also_allowed", {}) if prefix != "_comment"]
     return granted, withheld
 
 
 def allow_rules() -> list[str]:
     return rules()[0]
+
+
+def ask_rules() -> list[str]:
+    """`Bash(<prefix> *)` for every also_asked prefix: an installed tool's subcommand that must ask
+    even in auto mode, where an unnamed command goes to the classifier (moli serve, ADR-051)."""
+    with open(COMMANDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    return [f"Bash({prefix} *)" for prefix in doc.get("also_asked", {}) if prefix != "_comment"]
+
+
+def asked(doc: dict) -> list:
+    perms = doc.get("permissions") if isinstance(doc.get("permissions"), dict) else {}
+    return perms.get("ask") if isinstance(perms.get("ask"), list) else []
 
 
 class Unreadable(Exception):
@@ -451,6 +470,7 @@ def settled(doc: dict, auto: dict | None) -> bool:
     return (all(current.get(k) == v for k, v in ATTRIBUTION.items())
             and perms.get("defaultMode") == "auto"
             and all(r in allowed(doc) for r in allow_rules())
+            and all(r in asked(doc) for r in ask_rules())
             and not any(r in allowed(doc) for r in rules()[1])
             and "includeCoAuthoredBy" not in doc
             and all(doc.get(k) == v for k, v in TOP_LEVEL.items())
@@ -516,6 +536,7 @@ def main(argv: list[str]) -> int:
     perms = doc.get("permissions") if isinstance(doc.get("permissions"), dict) else {}
     granted, withheld = rules()
     perms["allow"] = [r for r in allowed(doc) if r not in withheld] + [r for r in granted if r not in allowed(doc)]
+    perms["ask"] = asked(doc) + [r for r in ask_rules() if r not in asked(doc)]
     perms["defaultMode"] = "auto"
     doc["permissions"] = perms
     doc["hooks"] = with_fabric_hooks(doc.get("hooks"))

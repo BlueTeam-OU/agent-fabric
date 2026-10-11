@@ -152,15 +152,16 @@ the same command asks on one account and not on another.
     session-start hook says when a working copy's last sweep is older
     than seven days; nothing runs on a timer (A 2026-09-28).
 12. The next job decides whether the session continues (ADR-037). At a
-    job's end, `fabric-jobs next` compares the next job with the one that
-    ended. The same project, working copy and topic continue in this
-    session. Any difference is a fresh session: the agent runs
+    job's end, `fabric-jobs next` asks whether this session has already
+    worked a job. If so, the next job is a fresh session however alike
+    the two are: the agent runs
     `fabric-fresh --job <id>`, and the launcher relaunches in that job's
     working copy with the job in its opening prompt. A working copy
     that is gone or has uncommitted changes is refused by the launcher,
     which starts in the old directory and says why. The command decides
     and the agent confirms; nothing restarts a session on its own
-    (A 2026-09-28).
+    (A 2026-09-28). A session that has worked no job yet takes the
+    job in place, being already fresh (A 2026-10-11).
 
 ## 6. Consequences
 
@@ -221,3 +222,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-09-28 | The next job decides whether the session continues | §5 rule 12: `fabric-jobs next` and `fabric-fresh --job`; rule 10 points to it |
 | 2026-09-30 | The opening prompt names no command | §5 rule 1, §3: the prompt defers the exact Monitor call to the hook's line |
 | 2026-10-10 | The watch is a background command, not a Monitor | §2, §5 rules 1, 2, 6: `gzcoord-inbox --until-delivery` exits on each delivery; no 30-minute expiry |
+| 2026-10-11 | Every job starts in a fresh session | §5 rule 12: `next` gives a fresh session whenever this session has worked a job; in place only for one that has worked none |

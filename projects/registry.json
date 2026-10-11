@@ -46,7 +46,10 @@
         {"name": "shellcheck", "proof": "shellcheck --version", "version": "any", "why": "devex-tooling's checks", "where": "host", "roles": ["devex-tooling"]},
         {"name": "doppler", "proof": "doppler --version", "version": "any", "why": "optional: seeds the dev provider keys (doppler run -- make seed-secrets); make up works without it. In the AppVM only, never the template, and only in the accounts that work on gzapp (the owner, 2026-10-08)", "where": "account", "optional": true,
          "install": {"version": "3.77.0", "url": "https://github.com/DopplerHQ/cli/releases/download/3.77.0/doppler_3.77.0_linux_amd64.tar.gz",
-                     "sha256": "92587cb89c2ff82fc2ddec2b2a9f275ff320994a44e16cd9310b55a429a82084", "member": "doppler"}}
+                     "sha256": "92587cb89c2ff82fc2ddec2b2a9f275ff320994a44e16cd9310b55a429a82084", "member": "doppler"}},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
       ]
     },
     "agent-fabric": {
@@ -73,7 +76,10 @@
         {"name": "fabric-python", "proof": "fabric-python --version", "version": "3.13", "why": "the pinned interpreter every fabric tool runs on (runtime/python.json)", "where": "host"},
         {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "the .mjs tests of GZCoord and the locale search server", "where": "host"},
         {"name": "gpg", "proof": "gpg --version", "version": "2.x", "why": "each account's own secrets store (ADR-038)", "where": "host"},
-        {"name": "shellcheck", "proof": "shellcheck --version", "why": "tests/static.sh's check of every tracked shell script", "where": "host", "optional": true}
+        {"name": "shellcheck", "proof": "shellcheck --version", "why": "tests/static.sh's check of every tracked shell script", "where": "host", "optional": true},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
       ]
     },
     "kutaisi-shop-transit": {
@@ -89,7 +95,10 @@
       "tools": [
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow", "where": "host"},
-        {"name": "python3", "proof": "python3 --version", "version": "3.x", "why": "kutaisi_shop_transit.py and its requirements.txt", "where": "host"}
+        {"name": "python3", "proof": "python3 --version", "version": "3.x", "why": "kutaisi_shop_transit.py and its requirements.txt", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
       ],
       "integration": null,
       "license": "LicenseRef-kutaisi-shop-transit-Proprietary",
@@ -114,7 +123,10 @@
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
         {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "the Astro site build", "where": "host"},
-        {"name": "pnpm", "proof": "pnpm --version", "why": "the site's package manager (pnpm-lock.yaml)", "where": "host"}
+        {"name": "pnpm", "proof": "pnpm --version", "why": "the site's package manager (pnpm-lock.yaml)", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
       ]
     },
     "gzapi.brand": {
@@ -132,7 +144,10 @@
       "note": "Names, claims by audience, the brand subset of the design tokens, the asset register and the decision records; no code, no build. The brand's source of authority since the owner's decision of 2026-09-17 (brand/decisions/0001), superseding the 2026-09-15 ruling that gzapi.ge was: the site, the decks and the product's shared web tokens copy the brand subset at a pinned commit and record it. One role, brand-comms; the owner decides, brand-comms proposes. A private repository whose tree carries no licence file; registered by fabric-coordinator on 2026-09-17.",
       "tools": [
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
-        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"}
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
       ]
     },
     "gzapp.decks": {
@@ -154,7 +169,10 @@
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
         {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "the Marp CLI that builds the decks (npm install)", "where": "host"},
-        {"name": "npm", "proof": "npm --version", "why": "installs the Marp CLI locally", "where": "host"}
+        {"name": "npm", "proof": "npm --version", "why": "installs the Marp CLI locally", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
       ]
     },
     "blueteam.ee": {
@@ -174,7 +192,10 @@
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
         {"name": "node", "proof": "node --version", "version": "22.12 or newer", "why": "the Astro 7 site build", "where": "host"},
-        {"name": "npm", "proof": "npm --version", "why": "the site's package manager (package-lock.json); npm run build writes dist/", "where": "host"}
+        {"name": "npm", "proof": "npm --version", "why": "the site's package manager (package-lock.json); npm run build writes dist/", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
       ]
     },
     "settings-blueteam": {
@@ -191,6 +212,9 @@
       "license": "LicenseRef-agent-fabric-settings-Proprietary",
       "note": "BlueTeam-OU's private settings repository: it holds the organisation's per-repository arming policies (repos/<repo>.json), which fabric-pr arm (from step C, the reader in tools/fabric/github/arm_policy.py) and the step C/E fabric-repo-policy tool read from its default branch on GitHub, never from a working copy, so a PR in a project cannot change the rules it is armed under. Owned by devex-tooling, who runs plan and apply after a change merges; the fleet default and the schema stay in agent-fabric (policies/arming.json, added with the reader in step C; identities/schemas/arming.schema.json). Registered on the owner's instruction, 2026-10-11.",
       "tools": [
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}},
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
         {"name": "fabric-python", "proof": "fabric-python --version", "version": "3.13", "why": "the step C/E tool fabric-repo-policy (plan and apply), which will read these policies (runtime/python.json)", "where": "host"}
@@ -210,6 +234,9 @@
       "license": "LicenseRef-agent-fabric-settings-Proprietary",
       "note": "gzapi-org's private settings repository: it holds the organisation's per-repository arming policies (repos/<repo>.json), which fabric-pr arm (from step C, the reader in tools/fabric/github/arm_policy.py) and the step C/E fabric-repo-policy tool read from its default branch on GitHub, never from a working copy, so a PR in a project cannot change the rules it is armed under. Owned by devex-tooling, who runs plan and apply after a change merges; the fleet default and the schema stay in agent-fabric (policies/arming.json, added with the reader in step C; identities/schemas/arming.schema.json). Registered on the owner's instruction, 2026-10-11.",
       "tools": [
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}},
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
         {"name": "fabric-python", "proof": "fabric-python --version", "version": "3.13", "why": "the step C/E tool fabric-repo-policy (plan and apply), which will read these policies (runtime/python.json)", "where": "host"}
@@ -238,7 +265,12 @@
         {"name": "cargo-machete", "proof": "cargo-machete --version", "why": "CI's unused-dependency check", "where": "account", "optional": true, "roles": ["p2p-network-dev", "rust-ui-dev", "devex-tooling"],
          "install": {"version": "0.9.2", "url": "https://github.com/bnjbvr/cargo-machete/releases/download/v0.9.2/cargo-machete-v0.9.2-x86_64-unknown-linux-musl.tar.gz",
                      "sha256": "48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9", "member": "cargo-machete-v0.9.2-x86_64-unknown-linux-musl/cargo-machete"}},
-        {"name": "Xvfb", "proof": "Xvfb -help", "why": "the desktop end-to-end tests of the human client run headless", "where": "host", "optional": true, "roles": ["rust-ui-dev"]}
+        {"name": "Xvfb", "proof": "Xvfb -help", "why": "the desktop end-to-end tests of the human client run headless", "where": "host", "optional": true, "roles": ["rust-ui-dev"]},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "osv-scanner", "proof": "osv-scanner --version", "version": "2.6.0", "why": "plan section 20: the Gradle graph's OSV.dev check, run locally before a push that changes it", "where": "account", "roles": ["rust-ui-dev", "p2p-network-dev", "devex-tooling"],
+         "install": {"version": "2.6.0", "url": "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_linux_amd64", "sha256": "ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108"}}
       ]
     },
     "agent-fabric-gateway": {
@@ -269,7 +301,10 @@
                      "sha256": "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f", "member": "cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny"}},
         {"name": "cargo-machete", "proof": "cargo-machete --version", "why": "CI's unused-dependency check, as InterWeave runs it (the owner, 2026-10-10)", "where": "account", "optional": true, "roles": ["rust-services-dev", "devex-tooling"],
          "install": {"version": "0.9.2", "url": "https://github.com/bnjbvr/cargo-machete/releases/download/v0.9.2/cargo-machete-v0.9.2-x86_64-unknown-linux-musl.tar.gz",
-                     "sha256": "48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9", "member": "cargo-machete-v0.9.2-x86_64-unknown-linux-musl/cargo-machete"}}
+                     "sha256": "48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9", "member": "cargo-machete-v0.9.2-x86_64-unknown-linux-musl/cargo-machete"}},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
       ]
     },
     "herdr": {
@@ -302,7 +337,10 @@
       "tools": [
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
-        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain herdr's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["rust-ui-dev", "devex-tooling"]}
+        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain herdr's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["rust-ui-dev", "devex-tooling"]},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
       ]
     },
     "radicle-spike": {
@@ -327,7 +365,10 @@
       "tools": [
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
-        {"name": "rad", "proof": "rad --version", "why": "the spike's local seed, on stand-by until Radicle 2.0.0", "where": "account", "optional": true, "roles": ["p2p-network-dev"]}
+        {"name": "rad", "proof": "rad --version", "why": "the spike's local seed, on stand-by until Radicle 2.0.0", "where": "account", "optional": true, "roles": ["p2p-network-dev"]},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
       ]
     }
   }

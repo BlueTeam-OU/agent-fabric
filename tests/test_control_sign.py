@@ -127,10 +127,12 @@ def main() -> int:
 
     print("what the relay can send (review of 73f35649)")
     import time
+    # A blocked pipe never returns; the bound only has to be finite. 5 s failed at 10 s under
+    # tests/run.sh running ten suites at once, so it is 30.
     t0 = time.monotonic()
     huge = {**signed, "sig": base64.b64encode(b"x" * 70000).decode()}
     check("a sig far longer than 64 bytes is False at once, never a blocked pipe",
-          sign.verify_request(huge, pub) is False and time.monotonic() - t0 < 5, time.monotonic() - t0)
+          sign.verify_request(huge, pub) is False and time.monotonic() - t0 < 30, time.monotonic() - t0)
     check("63 and 65 bytes are False too",
           all(sign.verify_request({**signed, "sig": base64.b64encode(b"x" * n).decode()}, pub) is False for n in (63, 65)))
     deep: object = "leaf"

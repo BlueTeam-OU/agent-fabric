@@ -19,6 +19,27 @@ def active(doc: dict) -> Job | None:
     return next((j for j in doc["jobs"] if j["state"] == "active"), None)
 
 
+def session_id() -> str | None:
+    """The harness session this command runs in (the variable the harness
+    exports to its Bash tool; identity.resolve_context reads another name)."""
+    return os.environ.get("CLAUDE_CODE_SESSION_ID") or None
+
+
+def session_worked(doc: dict, session: str | None) -> str | None:
+    """The first job with a log entry written in `session`, or None. Every
+    transition records its session, so a session launched with a job already
+    active (fabric-fresh --job) is found when it finishes that job. Without
+    a session id (an unlaunched shell) nothing can be told apart, so any job
+    that has left `active` counts: such a session always says "fresh", even
+    when just launched, which is the safe error."""
+    for job in doc["jobs"]:
+        if session is None and doc.get("last") == job["id"]:
+            return job["id"]
+        if session and any(e.get("session") == session for e in job.get("log", [])):
+            return job["id"]
+    return None
+
+
 def transition(doc: dict, job: dict, state: str, **fields) -> None:
     if job["state"] in TERMINAL:
         raise Refused(f"{job['id']} is {job['state']}; a closed job is not reopened — add a new one")
@@ -28,14 +49,21 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
             raise Refused(f"{current['id']} is active ({current['title']}); deliver, block, finish or drop "
                           "it first — one job is active at a time")
     if job["state"] == "active" and state != "active":
-        # The job that just left `active` is what `next` compares against.
+        # Only the no-session-id fallback of `next` reads this.
         doc["last"] = job["id"]
     if state != "blocked":
         job.pop("waits_on", None)
     now = identity.now_iso()
+    # Entering or leaving `active`, not only entering: a session launched with
+    # its job already active never activates it, and is known by finishing it.
+    # A drop or block of a job that was never active here is no work done.
+    touches_active = state == "active" or job.get("state") == "active"
     job["state"] = state
     job["updated"] = now
-    job.setdefault("log", []).append({"at": now, "state": state, **({"note": fields["note"]} if fields.get("note") else {})})
+    entry = {"at": now, "state": state, **({"note": fields["note"]} if fields.get("note") else {})}
+    if touches_active and session_id():
+        entry["session"] = session_id()
+    job.setdefault("log", []).append(entry)
     for key, value in fields.items():
         if key != "note" and value is not None:
             job[key] = value

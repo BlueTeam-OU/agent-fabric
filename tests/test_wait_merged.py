@@ -256,7 +256,7 @@ def main() -> int:
     code, text, err, _ = watch(f, c, interval=30, timeout=2400)
     check("armed, then idle on two adjacent polls, is the lost-arming 6", code == 6 and "on 2 consecutive polls" in text,
           text)
-    check("it names the project's arm command from arm.json", text.endswith('tools/gh/arm.sh 429 --basis "<why>"'), text)
+    check("it names the bare arm command, never a project's forwarder", text.endswith('fabric-pr arm 429 --basis "<why>"'), text)
     check("the first idle reading is only a re-check", "re-checking, the queue may have just consumed" in err, err)
     check("after one nap between them", c.naps == [30], str(c.naps))
     c = Clock()
@@ -281,7 +281,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as d:
         bare = os.path.join(d, "arm.json")
         with open(bare, "w") as fh:
-            json.dump({"arm_command": "x/arm.sh"}, fh)
+            json.dump({}, fh)
         c = Clock()
         code, text, _, _ = watch(Fake(c, ["OPEN:CLEAN"], arming=["queued", "idle"], merge_group=evicted()), c,
                                  env={"AGENT_FABRIC_ARM_CONFIG": bare})
@@ -298,13 +298,13 @@ def main() -> int:
     code, text, _, _ = watch(Fake(c, ["OPEN:CLEAN"], arming=["queued", "queued", "idle"]), c, interval=30, timeout=30)
     check("idle on the LAST poll is the unconfirmed 4, counted",
           code == 4 and "Its LAST poll read neither queued nor armed — 1 reading(s)" in text
-          and text.endswith('tools/gh/arm.sh 429 --basis "<why>"'), text)
+          and text.endswith('fabric-pr arm 429 --basis "<why>"'), text)
 
     c = Clock()
     code, text, _, _ = watch(Fake(c, ["OPEN:CLEAN"], arming=["queued", "idle"]), c,
                              env={"AGENT_FABRIC_ARM_CONFIG": os.path.join(ROOT, "no-such-arm.json")})
-    check("without an arm.json the lines name the project's arm.sh in words",
-          text.endswith('the project\'s arm.sh 429 --basis "<why>"'), text)
+    check("without an arm.json the lines name the same bare command",
+          text.endswith('fabric-pr arm 429 --basis "<why>"'), text)
 
     # ── the conflict line ────────────────────────────────────────────
     print("wait_merged: the conflict names its base")

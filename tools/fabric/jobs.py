@@ -20,7 +20,7 @@ behind bin/fabric-jobs.
 The list is agents/<login>/jobs.json, read and written only through
 runtime/identity.py, under the agent lock. A job's project and working
 copy are the ones the directory it was added in resolves to, unless given;
-its topic is a label the agent sets, compared by `next` and never guessed.
+its topic is a label the agent sets, never guessed.
 At most one job is active: `start` refuses a second, because "what am I
 doing" has one answer.
 
@@ -79,13 +79,18 @@ claims nothing.
 job, which is never preempted, and takes the job named, or the queued job
 of highest priority, the oldest first (the list's order is the order jobs
 were added); a blocked job keeps its place and is taken only by name. It
-compares that job with the job that last left
-`active`, or, when none has, with the directory it runs in:
-the same project, working copy and topic continue in this session; any
-difference is a fresh session, and `next` prints the one command that
-starts it (`fabric-fresh --job <id>`). The agent confirms by running it.
-A topic missing on either side leaves only the repository to compare,
-and `next` says so rather than guessing whether the subjects differ.
+asks whether this session has already worked a job. Every job
+starts in a fresh session (the owner, 2026-10-11): a fresh launch reads the
+fabric anew, which a running session never does, and a warm prompt cache is
+no reason to continue. A session that has worked a job gets a fresh session
+for the next, however alike the two are, and `next` prints the one command
+that starts it (`fabric-fresh --job <id>`); the agent confirms by running
+it. A session that has worked none (just launched, so already fresh)
+takes the job in place. "Worked" is read from the list: every transition writes the
+harness session id (CLAUDE_CODE_SESSION_ID) into the job's log entry,
+and a session is one that appears in any entry, so a session launched
+with its job already active is known once it finishes it. With no session id in the
+environment (an unlaunched shell) any job that has left `active` counts, so `next` says fresh.
 """
 from __future__ import annotations
 

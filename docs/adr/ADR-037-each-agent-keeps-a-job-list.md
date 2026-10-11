@@ -37,8 +37,8 @@ and managed with `fabric-jobs`. A job carries:
 - the artifacts that deliver it.
 
 **The restart rule.** At a job's end, `fabric-jobs next` decides whether
-the next job continues in this session, or needs a fresh one because its
-repository or topic differs. The agent confirms it with
+the next job takes this session in place only when it has worked no job
+yet; otherwise it needs a fresh one. The agent confirms it with
 `fabric-fresh --job <id>`. The launcher then starts the fresh session in
 that job's working copy, with the job in its opening prompt.
 
@@ -88,10 +88,15 @@ Why these choices:
 2. A job's state is one of `queued`, `active`, `blocked`, `delivered`,
    `done` and `dropped`, and at most one job per login is `active`.
 3. A job carries its project, its working copy and, when the agent sets
-   one, a topic. `fabric-jobs next` compares them with the job just ended:
-   - the same project, working copy and topic continue in this session;
-   - any difference is a fresh session, `fabric-fresh --job <id>`, which
-     starts in the job's working copy with the job in its opening prompt.
+   one, a topic. `fabric-jobs next` asks whether this session has already worked a job
+   (a job entered or left `active` in it, by the harness session id the
+   log entry of that transition records):
+   - a session that has worked a job gets a fresh session for every
+     next job, `fabric-fresh --job <id>`, which starts in the job's
+     working copy with the job in its opening prompt, whatever the
+     project, working copy and topic (A 2026-10-11);
+   - a session that has worked none is already fresh and takes the job
+     in place.
 4. Jobs come from the agent itself (`fabric-jobs add`), and from the owner
    (`fabric-ctl <login> jobs-add`, a signed action, ADR-029 rule 13),
    which lands in that login's checkout of the job's project. A GZCoord
@@ -158,9 +163,8 @@ Why these choices:
   that job's own working copy, instead of a note.
 - **What it costs.** Keeping a list costs the agent a command at each
   change of a job's state.
-- **The limit of a topic.** A topic is only as good as the label: two
-  jobs without topics are compared by repository alone, and `next` says
-  so.
+- **What a topic is for.** It no longer decides the session: it labels
+  the job for the reader of the list.
 
 ## 7. Future Evolution
 
@@ -192,3 +196,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-09 | A stale waiter still counts | §5 rule 8: a waiter whose state record is past the stream's bound still ranks the job blocking, named with the record's age as stale |
 | 2026-10-09 | A REQUEST to a login is queued on its list | §5 rule 11 added: the inbox queues a delivered REQUEST, the operator's send adds it by jobs-add; §7's intake item replaced by what remains |
 | 2026-10-09 | A job may be a plan's step | §5 rule 11: a job may be a step of a coordinator's plan, linked in the plan; no job field (ADR-047) |
+| 2026-10-11 | Every job starts in a fresh session | §5 rule 3: `next` gives a fresh session whenever this session has worked a job; in place only for one that has worked none |

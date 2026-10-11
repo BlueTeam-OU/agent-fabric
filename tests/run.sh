@@ -17,7 +17,7 @@ run() { echo; echo "== $1"; shift; "$@" || fail=$((fail+1)); }
 
 # A test run leaves behind nothing it did not find (the owner,
 # 2026-09-19). The run owns its temporary directory: a fresh one under
-# the account's, exported as TMPDIR so every suite — mktemp, Node's
+# short_dir (below), exported as TMPDIR so every suite — mktemp, Node's
 # os.tmpdir(), Python's tempfile — writes there and nowhere else. At the
 # end, every entry in it is a failure named by path: seventy such
 # directories per run had accumulated to 120 MB before anyone looked
@@ -28,8 +28,23 @@ run() { echo; echo "== $1"; shift; "$@" || fail=$((fail+1)); }
 # check; test_leak-check.sh is where a planted entry proves it fires.
 # shellcheck source=leak-check.sh
 . "$ROOT/tests/leak-check.sh"
-SCRATCH_DIR="$(mktemp -d "$(leak_dir)/agent-fabric-tests.XXXXXX")" || exit 1
+# The run's directories are made SHORT: a unix socket path is limited to 107
+# bytes, and the account's own TMPDIR (/var/tmp/agent-fabric-<login>/…) plus a
+# suite's nesting overflowed it for gpg's agent and the relay, and truncated
+# paths in assertions (found by the 2026-10-11 parallel trial). The runtime
+# directory is private to the account and short; /tmp is the fallback.
+short_dir() {
+    if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" && -w "$XDG_RUNTIME_DIR" ]]; then
+        printf '%s\n' "$XDG_RUNTIME_DIR"
+    else
+        printf '/tmp\n'
+    fi
+}
+SCRATCH_DIR="$(mktemp -d "$(short_dir)/af-t.XXXXXX")" || exit 1
 export TMPDIR="$SCRATCH_DIR"
+# A suite that block-buffers its stdout shows nothing in a CI log until it
+# ends (the 2026-10-11 audit could not time a case from one).
+export PYTHONUNBUFFERED=1
 # The GZCoord tools speak the READER's language, so a suite that asserts
 # their lines depends on which login runs it: green on a login with no
 # locale directory (CI's) and red on every holder's. The run pins the
@@ -48,7 +63,35 @@ export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=fal
 # and a harness that follows TERM with KILL got no cleanup at all. Bash
 # runs the EXIT trap when it dies of an untrapped signal, so the three
 # traps below only make the status conventional (128+signal).
-trap 'rm -rf "$SCRATCH_DIR"' EXIT
+# The parallel suites stay in run.sh's own process group, so a signal to the
+# group reaches them. Cleanup ends them and their children by walking the
+# process tree (not a group of their own: a KILL sent to run.sh's group must
+# keep reaching them), waits until they are gone, and only then removes the
+# directories, or a suite still writing would recreate them or fail in them.
+descendants() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do descendants "$c"; echo "$c"; done; }
+cleanup() {
+    local pid p i live
+    local -a all=()
+    for pid in $(jobs -p); do
+        all+=("$pid"); while read -r p; do [[ -n "$p" ]] && all+=("$p"); done < <(descendants "$pid")
+    done
+    (( ${#all[@]} )) && kill -TERM "${all[@]}" 2>/dev/null
+    for i in $(seq 100); do
+        live=0; for p in "${all[@]}"; do kill -0 "$p" 2>/dev/null && live=1; done
+        (( live )) || break
+        (( i == 50 )) && kill -KILL "${all[@]}" 2>/dev/null
+        sleep 0.1
+    done
+    rm -rf "$SCRATCH_DIR"
+    [[ -n "${WATCHER_PID:-}" ]] && kill "$WATCHER_PID" 2>/dev/null
+}
+# KILL cannot be trapped, and a group KILL (timeout -s KILL, a harness killing
+# by group) ends the suites with run.sh but runs no cleanup. A watcher in its
+# own session, so that group KILL misses it, removes the directories once
+# run.sh is gone; cleanup stops it on every other ending.
+setsid bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; rm -rf "$2"' _ "$$" "$SCRATCH_DIR" </dev/null >/dev/null 2>&1 &
+WATCHER_PID=$!
+trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
 scratch_before="$(leak_snapshot "$SCRATCH_DIR")"
 
@@ -56,7 +99,11 @@ if [[ "$what" == all || "$what" == static ]]; then
     run "static (bash -n, shellcheck, ruff)" bash tests/static.sh
 fi
 if [[ "$what" == all || "$what" == python ]]; then
-    for t in tests/test_*.py; do run "$t" python3 "$t"; done
+    # In the background and waited for, so a signal's trap runs at once (a
+    # foreground child would hold it until the suites ended); the runner's
+    # own header says why it resets INT and QUIT.
+    python3 tests/run_python_suites.py &
+    wait $! || fail=$((fail+1))
     run "corpus lint" python3 tools/fabric/lint.py
     run "routing check" python3 tools/fabric/routing.py check
 fi
