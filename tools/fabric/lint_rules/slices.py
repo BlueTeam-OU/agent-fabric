@@ -9,6 +9,7 @@ from typing import Any
 from .base import FRONTMATTER_RE, PAYLOAD_DIRS, layout
 from .docs import ITALIAN_MARKERS, PROJECT_PATTERNS, hygiene_findings, parse_frontmatter
 from .prompts import (
+    WARNINGS,
     BUDGET_TOKENS,
     BUDGET_TOLERANCE,
     CHARS_PER_TOKEN,
@@ -88,6 +89,29 @@ def lint_slices(base: str, where_prefix: str, template_schema: dict[str, Any] | 
                     findings.append(f"{rel}: {kind} is not English ({cue[:60]!r}); "
                                     "the holder renders it — description_en in the memory")
     return slices
+
+
+def staleness_warnings(corpus: str, label: str, project: str | None = None) -> None:
+    """ADR-050 rule 2: a section memory_check.py sorts stale-hard (an anchor's path or string, or a path the section
+    cites, is gone) or maybe-stale (an anchor's file changed after the section was written) is a WARNING, never an
+    error: a stale section is the holder's to judge, and this run may be a shallow checkout that cannot see history
+    (unchecked is silent). `label` is how the corpus is named in the output; `project` the project it belongs to."""
+    import memory_check
+    tree = memory_check.tree_of(corpus)
+    if tree is None or not os.path.isdir(corpus):
+        return
+    try:
+        rows = memory_check.check(corpus, tree, project=project)
+    except memory_check.Refused as e:
+        WARNINGS.append(f"{label}: the staleness check could not run ({e})")
+        return
+    for r in rows:
+        if r["verdict"] not in memory_check.FLAGS:
+            continue
+        reason = next((f"{a['anchor']}: {a.get('why') or a.get('subject') or a['status']}" for a in r.get("anchors", [])
+                       if a["status"] in memory_check.FLAGS),
+                      next((f"{p['path']} is gone" for p in r.get("paths", []) if p["status"] == "stale-hard"), r["verdict"]))
+        WARNINGS.append(f"{label}/{r['slice']}: section {r['heading']!r} is {r['verdict']} ({reason})")
 
 
 def flat_and_dir_findings(base: str, label: str) -> list[str]:
