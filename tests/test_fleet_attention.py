@@ -20,6 +20,8 @@ import fleet  # noqa: E402
 from test_fleet import Fleet, ctl_rows, done, rec  # noqa: E402
 
 T0 = 1_800_000_000.0
+# s3: what the attention data says of the session when the state row carries none of it.
+UNKNOWN_S3 = {"context_pct": None, "context_at": None, "output": None}
 
 
 def states_rows(**per: dict) -> str:
@@ -54,7 +56,7 @@ class Levels(unittest.TestCase):
         f = self.fleet(states_rows(a={"state": "blocked", "since": "2027-01-15T07:30:00Z"}), jobs_rows(a=[job("j1", "queued"), job("j2", "queued")]))
         r = attention(f.fetch(["attention"]), "a")
         self.assertEqual(r["status"], "ok")
-        self.assertEqual(r["data"], {"level": "needs_input", "reason": None, "since": "2027-01-15T07:30:00Z", "blocked": 0, "pending": 2})
+        self.assertEqual(r["data"], {"level": "needs_input", "reason": None, "since": "2027-01-15T07:30:00Z", "blocked": 0, "pending": 2, **UNKNOWN_S3})
 
     def test_needs_input_wins_over_a_blocked_job(self):
         f = self.fleet(states_rows(a={"state": "blocked", "since": "2027-01-15T07:30:00Z"}), jobs_rows(a=[job("j1", "blocked", "a review")]))
@@ -65,7 +67,7 @@ class Levels(unittest.TestCase):
         f = self.fleet(states_rows(a={"state": "idle", "since": "2027-01-15T06:00:00Z"}),
                        jobs_rows(a=[job("j1", "blocked", "owner's word on the merge", "2027-01-15T07:10:00Z"), job("j2", "queued")]))
         d = attention(f.fetch(["attention"]), "a")["data"]
-        self.assertEqual(d, {"level": "waiting", "reason": "owner's word on the merge", "since": "2027-01-15T07:10:00Z", "blocked": 1, "pending": 1})
+        self.assertEqual(d, {"level": "waiting", "reason": "owner's word on the merge", "since": "2027-01-15T07:10:00Z", "blocked": 1, "pending": 1, **UNKNOWN_S3})
 
     def test_with_several_blocked_jobs_the_most_recently_updated_gives_the_reason_the_first_among_equals(self):
         jobs = [job("j1", "blocked", "older", "2027-01-15T05:00:00Z"), job("j2", "blocked", "newest", "2027-01-15T08:00:00Z"),
@@ -81,7 +83,7 @@ class Levels(unittest.TestCase):
         for state in ("working", "idle", "none"):
             f = self.fleet(states_rows(a={"state": state}), jobs_rows(a=[job("j1", "active"), job("j2", "delivered")]))
             d = attention(f.fetch(["attention"]), "a")["data"]
-            self.assertEqual(d, {"level": "none", "reason": None, "since": None, "blocked": 0, "pending": 0}, state)
+            self.assertEqual(d, {"level": "none", "reason": None, "since": None, "blocked": 0, "pending": 0, **UNKNOWN_S3}, state)
 
     def test_the_counts_are_blocked_and_queued_jobs_only(self):
         jobs = [job("j1", "blocked", "x"), job("j2", "blocked", "y"), job("j3", "queued"), job("j4", "active"), job("j5", "delivered")]
@@ -91,6 +93,52 @@ class Levels(unittest.TestCase):
     def test_a_needs_input_whose_since_is_not_a_time_string_has_a_null_since(self):
         f = self.fleet(states_rows(a={"state": "blocked", "since": 7}), jobs_rows(a=[]))
         self.assertIsNone(attention(f.fetch(["attention"]), "a")["data"]["since"])
+
+
+class SessionFacts(unittest.TestCase):
+    """s3: needs_input's reason, context % with its sample time, and output activity, from the state row."""
+
+    AT = "2027-01-15T07:55:00.250Z"
+
+    def data(self, **row) -> dict:
+        f = Fleet(self, {("fabric-ctl", "states"): done(states_rows(a=row)), ("fabric-ctl", "jobs"): done(jobs_rows(a=[]))})
+        return attention(f.fetch(["attention"]), "a")["data"]
+
+    def test_the_reason_of_a_blocked_session_is_the_hooks_kind(self):
+        for kind in ("permission", "question"):
+            self.assertEqual(self.data(state="blocked", reason=kind)["reason"], kind)
+
+    def test_a_reason_the_hook_did_not_say_or_that_is_not_a_kind_is_null(self):
+        for bad in (None, "stuck", 7, "Permission", ["permission"]):
+            self.assertIsNone(self.data(state="blocked", reason=bad)["reason"], repr(bad))
+        self.assertIsNone(self.data(state="blocked")["reason"])
+
+    def test_a_reason_on_a_session_that_is_not_blocked_is_not_read(self):
+        d = self.data(state="working", reason="permission")
+        self.assertEqual((d["level"], d["reason"]), ("none", None))
+
+    def test_context_and_output_are_carried_at_every_level(self):
+        facts = {"context": {"pct": 62, "at": self.AT}, "activity": "recent"}
+        for state, level in (("blocked", "needs_input"), ("working", "none"), ("idle", "none")):
+            d = self.data(state=state, **facts)
+            self.assertEqual((d["level"], d["context_pct"], d["context_at"], d["output"]), (level, 62, self.AT, "recent"), state)
+        self.assertEqual(self.data(state="idle", activity="quiet")["output"], "quiet")
+
+    def test_zero_percent_is_a_sample_and_a_missing_one_is_null_not_zero(self):
+        d = self.data(state="idle", context={"pct": 0, "at": self.AT})
+        self.assertEqual((d["context_pct"], d["context_at"]), (0, self.AT))
+        d = self.data(state="idle")
+        self.assertEqual((d["context_pct"], d["context_at"], d["output"]), (None, None, None))
+
+    def test_a_context_that_is_not_a_percentage_with_a_time_is_no_sample(self):
+        for bad in ({"pct": 101, "at": self.AT}, {"pct": -1, "at": self.AT}, {"pct": 62.5, "at": self.AT}, {"pct": True, "at": self.AT},
+                    {"pct": "62", "at": self.AT}, {"pct": 62}, {"pct": 62, "at": "yesterday"}, {"pct": 62, "at": 7}, 62, "62", [62]):
+            d = self.data(state="idle", context=bad)
+            self.assertEqual((d["context_pct"], d["context_at"]), (None, None), repr(bad))
+
+    def test_an_output_that_is_not_recent_or_quiet_is_null(self):
+        for bad in ("busy", "Recent", 1, True, None, ["recent"]):
+            self.assertIsNone(self.data(state="idle", activity=bad)["output"], repr(bad))
 
 
 class Times(unittest.TestCase):

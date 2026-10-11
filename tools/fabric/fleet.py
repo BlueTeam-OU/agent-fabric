@@ -72,13 +72,14 @@ FLEET SECTIONS  `plans` and `prs_unplaced` are about the fleet, not an agent:
 
 ATTENTION  `attention` (Fleet Deck's "needs you" views) is told from the `states` and `jobs` records of the same
   fetch, which a fetch that names it reads and shows too (like prs_unplaced with prs). It has no source of its
-  own and no cache entry: it is as fresh as its inputs. data = {level, reason, since, blocked, pending}:
+  own and no cache entry: it is as fresh as its inputs. data = {level, reason, since, blocked, pending, context_pct, context_at, output}:
     level    needs_input  the account's most-wanting session waits on a PERSON (session-state's `blocked`:
                           a permission prompt, an input or elicitation dialog); wins over waiting
              waiting      an open job is blocked, on something that is not a person
              none         neither (no session, or only working and idle ones; no blocked job)
-    reason   null for needs_input (the hook records that a session is blocked, not why; a later step),
-             else the most recently updated blocked job's `blocked_on`: the agent's own words as a line,
+    reason   needs_input: "permission" (a permission prompt) or "question" (an input or elicitation dialog),
+             as the session-state hook recorded it; null where the hook did not say (an older hook)
+             waiting: the most recently updated blocked job's `blocked_on`: the agent's own words as a line,
              control characters and white space collapsed, cut at 80 characters, content NOT scrubbed
              (it can name a path): a view shows it as text only
     since    needs_input: that session's `since`; waiting: that job's `updated`; else null; null too where unknown
@@ -87,7 +88,16 @@ ATTENTION  `attention` (Fleet Deck's "needs you" views) is told from the `states
   `age_s` the oldest, `why` both); failed, never level `none`, when an input failed, when the account's state
   is `unknown` (no fresh state record), or when the jobs answer is not a list. A human login has no control
   agent (ADR-044): its attention is failed with that why. Agreed with the views' author (rust-ui-dev-01).
-  Not here, for want of a source on the control plane: context_pct, output activity, needs_input's reason.
+  context_pct, context_at, output  (s3) of the account's most-wanting session (the one that sets the level;
+             the first listed among equals), whatever the level; each null where unknown, never 0 or "quiet":
+    context_pct  integer 0..100, the share of the context window in use at the last status-line sample
+                 the account saw, and context_at that sample's time (the view decides what is too old;
+                 the status line's helper refreshes it every five points of change or five minutes while the session
+                 draws its status line, so a session that has not is as old as context_at says; null until that
+                 helper is installed)
+    output       "recent" when the session's transcript was written in the last 30 s, "quiet" when not: a
+                 long single response writes nothing until it completes, so quiet is "no message landed",
+                 not "idle"; null when the transcript cannot be told
 
 SECTIONS, by cost class (the TTL is how long a cached answer is reused)
   C0 proc 5 s · states 5 s · presence 10 s
@@ -753,6 +763,17 @@ def attention_text(value: Any) -> str | None:
     return flat if len(flat) <= ATTENTION_REASON_MAX else flat[:ATTENTION_REASON_MAX - 1].rstrip() + "…"
 
 
+def attention_session(states: dict) -> dict[str, Any]:
+    """context_pct, context_at and output of the most-wanting session (the state row carries them): each null
+    unless it has the shape the producers write. A percentage without a time is no sample."""
+    ctx = states.get("context")
+    pct = ctx.get("pct") if isinstance(ctx, dict) else None
+    at = attention_time(ctx.get("at")) if isinstance(ctx, dict) else None
+    sampled = isinstance(pct, int) and not isinstance(pct, bool) and 0 <= pct <= 100 and at is not None
+    return {"context_pct": pct if sampled else None, "context_at": at if sampled else None,
+            "output": states.get("activity") if states.get("activity") in ("recent", "quiet") else None}
+
+
 def attention_data(states: Any, jobs: Any) -> dict[str, Any] | str:
     """The attention data from the `states` and `jobs` record data of one agent, or the why it cannot be told.
     needs_input: the account's most-wanting session waits on a person (the session-state hook's
@@ -770,8 +791,10 @@ def attention_data(states: Any, jobs: Any) -> dict[str, Any] | str:
     blocked = [j for j in listed if j.get("state") == "blocked"]
     pending = sum(1 for j in listed if j.get("state") == "queued")
     base = {"blocked": len(blocked), "pending": pending}
+    base.update(attention_session(states))
     if states["state"] == "blocked":
-        return {"level": "needs_input", "reason": None, "since": attention_time(states.get("since")), **base}
+        reason = states.get("reason") if states.get("reason") in ("permission", "question") else None
+        return {"level": "needs_input", "reason": reason, "since": attention_time(states.get("since")), **base}
     if blocked:
         # The one it most recently began to wait on (by a time that is one); the first listed among equals.
         job = max(blocked, key=lambda j: attention_time(j.get("updated")) or "")
