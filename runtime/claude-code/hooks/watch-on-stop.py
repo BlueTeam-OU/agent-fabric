@@ -129,8 +129,8 @@ def remember(path: str, session: str, now: float) -> None:
 
 
 def integrated(cwd: str | None, session: str | None) -> bool:
-    """Whether this session is fabric-launched and its project has GZCoord
-    configured, by the inbox's own rule. Unlike session-start.py, an import
+    """Whether this session is fabric-launched (a binding with a role) and its
+    project has GZCoord configured, by the inbox's own rule. Unlike session-start.py, an import
     that fails answers False: there the line may stay, here a block must
     be certain."""
     sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
@@ -140,6 +140,11 @@ def integrated(cwd: str | None, session: str | None) -> bool:
         spec.loader.exec_module(identity)
         ctx = identity.resolve_context(cwd=cwd or os.getcwd(), session=session)
         if not ctx.get("agent") or not ctx.get("project"):
+            return False
+        # A login with no fabric binding (or one without a role) was not
+        # launched by the fabric: resolve_context fills agent and project
+        # for any registered working copy, so the binding is the evidence.
+        if not (identity.read_binding(ctx["agent"]) or {}).get("role"):
             return False
         from gzcoord.inbox_parts.config import integration_config
         return bool(integration_config(ctx["project"])["configured"])

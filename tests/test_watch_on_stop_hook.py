@@ -85,6 +85,30 @@ def main() -> int:
         check("a real run outside a fabric binding: exit 0, silent", r.returncode == 0 and not r.stdout,
               (r.stdout, r.stderr))
 
+        # integrated(): a binding with a role is required besides the project's
+        # GZCoord integration; the fabric root is a stub tree so only that is tested.
+        stub = os.path.join(tmp, "stubroot")
+        cfg = os.path.join(stub, "tools", "fabric", "gzcoord", "inbox_parts")
+        os.makedirs(cfg)
+        os.makedirs(os.path.join(stub, "runtime"))
+        for d in (os.path.dirname(cfg), cfg):
+            open(os.path.join(d, "__init__.py"), "w").close()
+        with open(os.path.join(cfg, "config.py"), "w") as fh:
+            fh.write("def integration_config(project):\n    return {'configured': True}\n")
+
+        def stub_identity(binding: str) -> None:
+            with open(os.path.join(stub, "runtime", "identity.py"), "w") as fh:
+                fh.write("def resolve_context(cwd=None, session=None):\n    return {'agent': 'a', 'project': 'p'}\n"
+                         f"def read_binding(agent=None):\n    return {binding}\n")
+        real_root, mod.FABRIC_ROOT = mod.FABRIC_ROOT, stub
+        stub_identity("{}")
+        check("integrated: no fabric binding passes silently", mod.integrated(tmp, "s") is False)
+        stub_identity("{'role': None}")
+        check("integrated: a binding without a role passes silently", mod.integrated(tmp, "s") is False)
+        stub_identity("{'role': 'fabric-coordinator'}")
+        check("integrated: a binding with a role and a configured project", mod.integrated(tmp, "s") is True)
+        mod.FABRIC_ROOT = real_root
+
         def boom(*a, **k):
             raise RuntimeError("x")
         orig, mod.read_procs = mod.read_procs, boom
