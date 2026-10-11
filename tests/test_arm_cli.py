@@ -39,6 +39,27 @@ if line.startswith("api repos/gzapi-org/gzapp/pulls/7/files") and "--paginate --
         old, _, new = f.rpartition("->")
         return {"filename": new, "previous_filename": old} if old else {"filename": f}
     print(json.dumps([[entry(f) for f in pr["files"]]])); sys.exit(0)
+# The arming policy's reads (arming step C): the repository's commits (no Fabric-Role trailer, so no role), its
+# client's settings repository with no file for it (the fleet policy), and GitHub's side as that policy renders it.
+# `drift` makes GitHub lose its ruleset; `commits_trailers` stamps the commits with a role.
+sys.path.insert(0, os.path.join(os.environ["ARM_ROOT"], "tools", "fabric"))
+if line.startswith("api repos/gzapi-org/gzapp/pulls/7/commits"):
+    role = open(os.path.join(s, "commits_role")).read().strip() if has("commits_role") else ""
+    msg = "a commit" + (f"\n\nFabric-Role: {role}" if role else "")
+    print(json.dumps([[{"parents": [{}], "commit": {"message": msg}}]])); sys.exit(0)
+if line.startswith("api repos/gzapi-org/agent-fabric-settings/contents/"):
+    print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
+if line.startswith("api repos/gzapi-org/agent-fabric-settings "):
+    print(json.dumps({"full_name": "gzapi-org/agent-fabric-settings"})); sys.exit(0)
+if line.startswith("api repos/gzapi-org/gzapp"):
+    from github import arm_policy
+    want = arm_policy.render(arm_policy.default())
+    if line.startswith("api repos/gzapi-org/gzapp/rulesets?"):
+        print(json.dumps([[] if has("drift") else [{"id": 1, "name": want["ruleset"]["name"]}]])); sys.exit(0)
+    if line.startswith("api repos/gzapi-org/gzapp/rulesets/1"):
+        print(json.dumps(want["ruleset"])); sys.exit(0)
+    if line.startswith("api repos/gzapi-org/gzapp --method GET"):
+        print(json.dumps(want["repository"])); sys.exit(0)
 if line == "api graphql --input -":
     sys.stdin.read()
     p = {"state": "OPEN", "headRefOid": pr["headRefOid"], "autoMergeRequest": None, "mergeQueueEntry": None}
@@ -158,7 +179,7 @@ def main() -> int:
                                        "headRefOid": HEAD, "body": body, "files": files, "title": "the pr"}))
 
         def set_gate(n: int | None, known: bool | None = True) -> None:
-            row: dict = {"number": 7}
+            row: dict = {"number": 7, "checks": "green"}
             if n is not None or known is not None:
                 row["work_commits"] = n
             if known is not None:
@@ -170,7 +191,7 @@ def main() -> int:
             return open(p).read() if os.path.exists(p) else ""
 
         def run(*args: str, script: str = GZAPP, env: dict | None = None, cwd: str = sandbox) -> tuple[int, str]:
-            e = dict(base_env, MOCK_STATE=state, PATH=f"{bindir}:{base_env.get('PATH', '')}",
+            e = dict(base_env, MOCK_STATE=state, ARM_ROOT=ROOT, PATH=f"{bindir}:{base_env.get('PATH', '')}",
                      GZAPP_PR_GATE=f"{bindir}/pr-gate", GZAPP_PR_REVIEW_STATUS=f"{bindir}/pr-review-status",
                      GZAPP_PR_SESSION="develop-qzapp/me", AGENT_FABRIC_GZCOORD_INBOX=f"{bindir}/gzcoord-inbox",
                      AGENT_FABRIC_CTL=f"{bindir}/fabric-ctl")
