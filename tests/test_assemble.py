@@ -2366,25 +2366,65 @@ def test_one_agent_s_memories_in_a_flat_class_file_are_not_one_retitled_memory(t
 
     # The directory shape: the topic's own file is one memory.
     drain2, claims2, out2 = build(os.path.join(tmp, "dir"), {"alpha": claims("alpha", [
-        {"class": "domain", "topic": "tracker", "title": "Issue open", "body": "Open.", "evidence": ["a1"]},
+        {"class": "domain", "topic": "tracker", "title": "Issue 851 open", "body": "Open.", "evidence": ["a1"]},
         {"class": "domain", "topic": "other", "title": "Other", "body": "O.", "evidence": ["a2"]},
     ])})
     with_agents(drain2, {"a1": "dev-01", "a2": "dev-01", "a3": "dev-01", "a4": "dev-01"})
     assert run_assemble(drain2, claims2, out2).returncode == 0
     set_claims(claims2, "alpha", [
-        {"class": "domain", "topic": "tracker", "title": "Issue merged", "body": "Merged.", "evidence": ["a3"]},
+        {"class": "domain", "topic": "tracker", "title": "Issue 851 merged", "body": "Merged.", "evidence": ["a3"]},
     ])
     proc = run_assemble(drain2, claims2, out2)
     assert proc.returncode == 0 and "SUPERSEDED, same agent" in proc.stderr, proc.stderr
     tracker = dom(out2, "alpha", "domain", "tracker.md")
-    assert "## Issue merged" in read(tracker) and "Issue open" not in read(tracker), read(tracker)
+    assert "## Issue 851 merged" in read(tracker) and "Issue 851 open" not in read(tracker), read(tracker)
     set_claims(claims2, "alpha", [
-        {"class": "domain", "topic": "tracker", "title": "Issue merged", "body": "Merged and released.", "evidence": ["a4"]},
+        {"class": "domain", "topic": "tracker", "title": "Issue 851 merged", "body": "Merged and released.", "evidence": ["a4"]},
     ])
     proc = run_assemble(drain2, claims2, out2)
     assert proc.returncode == 0 and "SUPERSEDED, same agent" in proc.stderr, proc.stderr
     assert "Merged and released." in read(tracker) and read(tracker).count("## ") == 1, read(tracker)
     assert "## Other" in read(dom(out2, "alpha", "domain", "other.md"))
+
+
+def test_a_retitle_replaces_only_the_sections_that_share_its_cue(tmp: str) -> None:
+    """ADR-050 rule 11 (ADR-014 rule 4(a)): in a topic one agent wrote, a new heading replaces the sections that
+    share a cue with it, and only those. One that shares none is a new section of the topic, not a retitle, and
+    nothing is superseded."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "tracker", "title": "Issue 851 is open", "body": "Waiting.", "evidence": ["a1"], "observed_at": "2026-09-20"},
+        {"class": "domain", "topic": "tracker", "title": "Release checklist", "body": "Steps.", "evidence": ["a2"], "observed_at": "2026-09-20"},
+        {"class": "domain", "topic": "other", "title": "Other", "body": "O.", "evidence": ["a5"]}])})
+    with_agents(drain, {"a1": "dev-01", "a2": "dev-01", "a3": "dev-01", "a4": "dev-01", "a5": "dev-01"})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    tracker = dom(out, "alpha", "domain", "tracker.md")
+    assert "## Issue 851 is open" in read(tracker) and "## Release checklist" in read(tracker), read(tracker)
+    set_claims(claims_dir, "alpha", [{"class": "domain", "topic": "tracker", "title": "Issue 851 is merged", "body": "Merged.",
+                                      "evidence": ["a3"], "observed_at": "2026-09-24"}])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0 and "SUPERSEDED, same agent" in proc.stderr, proc.stderr
+    text = read(tracker)
+    assert "## Issue 851 is merged" in text and "Issue 851 is open" not in text, text
+    assert "## Release checklist" in text and "Steps." in text, "a section that shares no cue with the retitle stays:\n" + text
+    # a heading that shares nothing with any section of the topic is a new section
+    set_claims(claims_dir, "alpha", [{"class": "domain", "topic": "tracker", "title": "Unrelated weather note", "body": "Rain.",
+                                      "evidence": ["a4"], "observed_at": "2026-09-25"}])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0 and "SUPERSEDED" not in proc.stderr, proc.stderr
+    text = read(tracker)
+    assert all(f"## {h}" in text for h in ("Issue 851 is merged", "Release checklist", "Unrelated weather note")), text
+
+
+def test_two_headings_share_a_cue_when_more_than_half_of_the_shorter_ones_tokens_are_common(tmp: str) -> None:
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from assembler.slices import shares_cue
+    assert shares_cue("Issue 851 is merged", "Issue 851 is open"), "3 of 4"
+    assert not shares_cue("First view", "Second view"), "1 of 2 is half, not more than half"
+    assert shares_cue("Issue 851 merged", "Issue 851 open"), "2 of 3"
+    assert shares_cue("PR 851 merged and released", "851 merged"), "2 of 2 of the shorter"
+    assert not shares_cue("Unrelated weather note", "Release checklist")
+    assert shares_cue("Issue Merged", "ISSUE, merged!"), "case and punctuation are no cue"
+    assert not shares_cue("", "Anything") and not shares_cue("Anything", "") and not shares_cue("!!!", "???")
 
 
 def test_two_claims_of_one_drain_under_a_heading_the_corpus_holds_still_stop_it(tmp: str) -> None:
@@ -3246,6 +3286,8 @@ def main() -> int:
         test_a_retire_finds_its_section_in_another_topic_and_takes_its_kept_both_siblings_with_it,
         test_retiring_a_section_nobody_holds_is_said_and_writes_nothing_on_every_drain,
         test_a_retire_reaches_a_section_in_another_part_of_a_split_topic,
+        test_a_retitle_replaces_only_the_sections_that_share_its_cue,
+        test_two_headings_share_a_cue_when_more_than_half_of_the_shorter_ones_tokens_are_common,
         test_an_empty_body_without_a_merge_target_is_no_retire,
         test_keep_both_is_remembered_on_the_next_drain,
         test_another_topic_in_the_flat_class_file_is_not_this_topic_s_rival,

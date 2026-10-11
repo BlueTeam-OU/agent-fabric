@@ -340,6 +340,21 @@ def undated(text: str) -> str:
     return OBSERVED_RE.sub("", text).strip()
 
 
+def cue_tokens(heading: str) -> set[str]:
+    """A heading's cue: its lower-case alphanumeric tokens."""
+    return set(re.findall(r"[a-z0-9]+", heading.lower()))
+
+
+def shares_cue(new_heading: str, old_heading: str) -> bool:
+    """ADR-050 rule 11 (the owner's measure, 2026-10-11): two headings share a cue when MORE THAN HALF of the shorter
+    one's lower-case alphanumeric tokens are in the other. "Issue 851 is open" / "Issue 851 is merged": 3 of 4 tokens
+    are common, they share; "First view" / "Second view": 1 of 2, they do not. A retitle replaces only the sections
+    that share a cue with it; a claim that shares none with any section of its topic is a new section."""
+    a, b = cue_tokens(new_heading), cue_tokens(old_heading)
+    shorter = min(len(a), len(b))
+    return bool(shorter) and 2 * len(a & b) > shorter
+
+
 def is_retire(claim: dict[str, Any]) -> bool:
     """ADR-050 rule 7: a claim that names a section in `merge_target` and has no body retires that section. The
     section leaves the corpus; its text stays in git."""
