@@ -1,9 +1,9 @@
 """tools/fabric/memory_horizons.py — the review horizons of a drain (agent-fabric ADR-050 rule 8): sections to look at, listed,
-never expired. Nothing here deletes, archived or demotes a section; the drain report lists them and a holder confirms
+never expired. Nothing here deletes, archives or demotes a section; the drain report lists them and a holder confirms
 (re-dates), corrects or retires each.
 
 CONTRACT
-  load_state(path, stamp)                        -> (state, status)
+  load_state(path)                               -> (state, status)
       the drain's own memory of when each section was last returned by a memory_read: `memory-drain-reads.json`, in the
       draining login's agent state directory. One state for the login, in scopes, because a drain is of one project and
       the login drains several:
@@ -24,7 +24,7 @@ CONTRACT
       unread   every section with no read in the last 56 days (8 weeks) that the state has watched for 56 days (`seen`):
                before that the answer is unknown, not "unread" — a section written yesterday was not watched. `unread_from`
                is the first day a section not yet watched long enough can be listed, or None
-  save_reads(path, state, live)                  written on every drain, atomically, mode 0600 (mkstemp's), with the keys of
+  save_reads(path, state, project, live)                written on every drain, atomically, mode 0600 (mkstemp's), with the keys of
                                                  sections that no longer exist dropped from the scopes this drain read; a
                                                  failure to write is the caller's to report and never turns into a listing.
                                                  Two drains of one login at once lose one's reads (read, then replace)
@@ -67,7 +67,7 @@ def _empty() -> dict[str, Any]:
     return {"fabric": {"seen": {}, "reads": {}}, "projects": {}}
 
 
-def load_state(path: str, stamp: str) -> tuple[dict[str, Any], str]:
+def load_state(path: str) -> tuple[dict[str, Any], str]:
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)

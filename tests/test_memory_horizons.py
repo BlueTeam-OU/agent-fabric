@@ -146,13 +146,13 @@ class Reads(Scratch):
 class State(Scratch):
     def test_no_file_starts_empty_and_a_file_that_is_no_state_starts_over_and_says_so(self):
         path = os.path.join(self.tmp, "state", mh.STATE_FILE)
-        self.assertEqual(mh.load_state(path, STAMP), ({"fabric": {"seen": {}, "reads": {}}, "projects": {}}, "new"))
+        self.assertEqual(mh.load_state(path), ({"fabric": {"seen": {}, "reads": {}}, "projects": {}}, "new"))
         os.makedirs(os.path.dirname(path))
         for bad in ("{not json", "[]", '{"fabric": [], "projects": {}}', '{"fabric": {"seen": {}, "reads": {}}, "projects": {"p": 3}}',
                     '{"fabric": {"seen": {}, "reads": {}}, "projects": []}'):
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(bad)
-            self.assertEqual(mh.load_state(path, STAMP)[1], "unreadable", bad)
+            self.assertEqual(mh.load_state(path)[1], "unreadable", bad)
 
     def test_the_state_is_private_atomic_and_drops_the_gone_keys_of_the_scopes_this_drain_read_only(self):
         path = os.path.join(self.tmp, "state", mh.STATE_FILE)
@@ -162,7 +162,7 @@ class State(Scratch):
         mh.save_reads(path, state, "demo", {"f": {"memory/f.md#F"}, "p": {"k#a"}})
         self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
         self.assertEqual(os.listdir(os.path.dirname(path)), [mh.STATE_FILE])
-        back, status = mh.load_state(path, STAMP)
+        back, status = mh.load_state(path)
         self.assertEqual(status, "ok")
         self.assertEqual(sorted(back["fabric"]["seen"]), ["memory/f.md#F"])
         self.assertEqual(sorted(back["projects"]["demo"]["seen"]), ["k#a"])

@@ -1242,8 +1242,10 @@ def test_a_harvest_whose_read_counts_are_no_counts_does_not_stop_the_drain_and_a
     shutil.rmtree(out)
     drain, claims_dir, out = build(os.path.join(tmp, "b"), {"alpha": claims("alpha", [
         {"class": "solution", "topic": "one", "title": "First", "body": "B1.", "evidence": ["h1"]}])})
-    proc = run_assemble(drain, claims_dir, out, "--stamp", "last-tuesday")
-    assert proc.returncode == 2 and "no YYYY-MM-DD date" in proc.stderr and alpha_slices(out) == {}, (proc.returncode, proc.stderr)
+    for stamp in ("last-tuesday", "2026-02-30", "2026-13-01"):
+        proc = run_assemble(drain, claims_dir, out, "--stamp", stamp)
+        assert proc.returncode == 2 and "no YYYY-MM-DD date" in proc.stderr and alpha_slices(out) == {}, (stamp, proc.returncode, proc.stderr)
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-02-28").returncode == 0, "positive control: a real date"
 
 
 def test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report(tmp: str) -> None:

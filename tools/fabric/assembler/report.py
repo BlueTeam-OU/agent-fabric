@@ -88,7 +88,7 @@ def review_horizons(run: Run, memory_use: dict[str, Any]) -> dict[str, Any]:
     corpora = {"f": roots.memory_dir(root=layout.FABRIC_ROOT), "p": layout.project_memory_root(run.project)}
     key_of = {p: (lambda rel, root=root: in_report(run, os.path.join(root, rel))) for p, root in corpora.items()}
     path = reads_state_path(run)
-    state, status = memory_horizons.load_state(path, run.args.stamp)
+    state, status = memory_horizons.load_state(path)
     ids_read: dict[str, Any] = {}
     for use in memory_use.values():
         ids = use.get("ids_read") if isinstance(use, dict) else None

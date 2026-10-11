@@ -3,11 +3,11 @@ A part of tools/fabric/assemble.py, whose docstring is the contract."""
 from __future__ import annotations
 
 import argparse
-import re
 import json
 import os
 import sys
 import anchors
+import memory_horizons
 from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, role_id_error, Run
 from assembler.bundle import open_bundle
 
@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
                     help="where the drain keeps when each section was last read (ADR-050 rule 8); "
                          "default: memory-drain-reads.json in this login's agent state directory")
     args = ap.parse_args()
-    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", args.stamp):
+    if memory_horizons.day(args.stamp) is None:
         ap.error(f"--stamp {args.stamp!r} is no YYYY-MM-DD date")       # before anything is written: the horizons need it
     if args.bundle:
         if args.claims or args.drain:
