@@ -103,6 +103,14 @@ def run() -> None:
     git("merge", "--no-ff", "--no-edit", "-m", "unsigned-merge", "feat", sign=False)
     r = git("push", "-q", "origin", "other")
     check("an unsigned merge commit is refused too", r.returncode != 0 and "unsigned-merge" in r.stderr, r.stderr)
+    git("checkout", "-q", "-b", "merged", "main")
+    commit("side2", sign=True)
+    git("checkout", "-q", "-b", "side3", "main")
+    commit("side3", sign=True)
+    git("checkout", "-q", "merged")
+    git("merge", "--no-ff", "--no-edit", "-m", "signed-merge", "side3", sign=True)
+    r = git("push", "-q", "origin", "merged")
+    check("a signed --no-ff merge of signed commits passes", r.returncode == 0, r.stderr)
 
 
 GNUPG, KEY = make_key(T)

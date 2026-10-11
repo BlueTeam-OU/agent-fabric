@@ -82,5 +82,23 @@ for _ in $(seq 50); do [[ -z "$(ls -A "$RUNTMP2")" ]] && break; sleep 0.1; done
 alive_in_group() { ps -e -o pgid=,stat=,pid=,args= | awk -v g="$1" '$1 == g && $2 !~ /^Z/'; }
 if [[ -n "$(alive_in_group "$KPID")" ]]; then bad "processes left in the killed group" "$(alive_in_group "$KPID")"; pkill -KILL -g "$KPID"; else ok "and no process of the group survives"; fi
 
+echo "a group KILL during cleanup's wait, with a suite that ignores TERM, leaves no directory"
+# Cleanup must not TERM the watcher: the python group (a background job)
+# ignores TERM, so cleanup is still waiting when the KILL comes, and only
+# the watcher can remove the directory.
+STUBBORN="$SANDBOX/stubborn"; mkdir -p "$STUBBORN"
+printf '#!/usr/bin/env bash\ntrap "" TERM\ntouch "%s/started"\nsleep 30\n' "$STUBBORN" > "$STUBBORN/python3"; chmod +x "$STUBBORN/python3"
+RUNTMP3="$SANDBOX/runtmp3"; mkdir -p "$RUNTMP3"
+XDG_RUNTIME_DIR="$RUNTMP3" PATH="$STUBBORN:$PATH" setsid bash "$HERE/run.sh" python > "$SANDBOX/run3.out" 2>&1 &
+SPID=$!
+for _ in $(seq 300); do [[ -e "$STUBBORN/started" ]] && break; sleep 0.1; done
+[[ -e "$STUBBORN/started" ]] || bad "the suite that ignores TERM never started" "$(cat "$SANDBOX/run3.out")"
+kill -TERM "$SPID"; sleep 1
+kill -KILL -- "-$SPID" 2>/dev/null
+wait "$SPID" 2>/dev/null
+for _ in $(seq 50); do [[ -z "$(ls -A "$RUNTMP3")" ]] && break; sleep 0.1; done
+[[ -z "$(ls -A "$RUNTMP3")" ]] && ok "TERM then KILL during the wait leaves no directory" || bad "directory left" "$(ls -A "$RUNTMP3")"
+pkill -KILL -g "$SPID" 2>/dev/null
+
 echo; echo "leak-check: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
