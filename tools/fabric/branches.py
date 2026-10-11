@@ -18,7 +18,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   stdout    the report; --help
   stderr    every refusal, prefixed `fabric-branches: `; what git or gh
             said when a deletion they were asked for failed
-  exit      0 reported, or swept; 2 refused — an unknown argument, not in a
+  exit      0 reported, or swept; 3 (--json only) a working copy it cannot
+            count: no default branch of origin known, or no origin/<default>
+            here; 2 refused — an unknown argument, not in a
             git working copy, uncommitted changes with --sweep, a failed
             fetch, no default branch known (origin/HEAD unset and none in
             projects/registry.json) or none on origin, or a git call whose answer could not be
@@ -349,11 +351,11 @@ def report_json(top: str, current: str, dirty: int) -> int:
     if not default:
         say("the default branch of origin is unknown: origin/HEAD is unset and projects/registry.json names "
             "none for this working copy — nothing counted")
-        return 2
+        return 3
     base = f"origin/{default}"
     if git.run(".", "rev-parse", "-q", "--verify", base, check=False).returncode != 0:
         say(f"no {base} here")
-        return 2
+        return 3
 
     def count(n: str):
         return int(n) if n.isdigit() else None

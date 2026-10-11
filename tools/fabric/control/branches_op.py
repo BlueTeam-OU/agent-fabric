@@ -160,8 +160,9 @@ def _report_one(name: str, copy: str, procs: list[dict] | None, root: str, run: 
     except OSError as e:
         return {"working_copy": name, "status": "failed", "why": f"cannot run: {type(e).__name__}"}
     if r.returncode != 0:
-        return {"working_copy": name, "status": "failed", "why": "not countable: " + _exit_words(r.returncode)
-                if r.returncode != 2 else "not countable: no origin, or no default branch known"}
+        return {"working_copy": name, "status": "failed",
+                "why": ("not countable: no origin, or no default branch known" if r.returncode == 3 else
+                        f"not countable: killed by signal {-r.returncode}" if r.returncode < 0 else f"not countable: exit {r.returncode}")}
     try:
         d = util.loads(r.stdout)
         branches, wts = d["branches"], d["worktrees"]
@@ -229,12 +230,14 @@ def _sweep_one(name: str, copy: str, proc: str, root: str, run: Callable[..., An
         state = util.loads(r.stdout) if r.returncode == 0 else None
     except (subprocess.TimeoutExpired, OSError, ValueError):
         r, state = None, None
-    if r is not None and r.returncode == 2:
-        # The tool refuses what is not a sweepable copy (no origin, no default branch): said, and the sweep goes on.
+    if r is not None and r.returncode == 3:
+        # --json's own code for a copy it cannot count (no origin, no default branch): said, and the sweep goes on.
+        # Any other non-zero exit is a git call that failed, which says nothing about the copy: failed below.
         return {**row, "status": "refused", "why": "not sweepable: no origin, or no default branch known"}
     if not isinstance(state, dict) or not isinstance(state.get("worktrees"), list) or not isinstance(state.get("dirty"), int):
         # The working copy's state could not be read: nothing to judge dirty or busy by, so nothing deleted.
-        return {**row, "status": "failed", "why": "its state could not be read; nothing deleted"}
+        return {**row, "status": "failed", "why": "its state could not be read; nothing deleted"
+                + (f" ({_exit_words(r.returncode)})" if r is not None and r.returncode != 0 else "")}
     if state["dirty"] > 0:
         return {**row, "status": "skipped", "why": "uncommitted changes"}
     worktrees = [w["path"] for w in state["worktrees"] if isinstance(w, dict) and isinstance(w.get("path"), str)]
@@ -259,17 +262,18 @@ def _sweep_one(name: str, copy: str, proc: str, root: str, run: Callable[..., An
     out = {**row, **_parse_sweep(r.stdout), "worktrees_kept": _worktrees_left(copy, keep, root, run)}
     if r.returncode == 0:
         return {**out, "status": "swept"}
-    # Only a clean exit is a sweep. The precheck above already told a copy the tool refuses from one it does not,
-    # so a 2 here is a git call or a fetch that failed or timed out inside the tool; 1 is a sweep it could not
-    # record; a negative code is a kill. What was deleted before it is still reported. The words are fixed:
-    # the tool's stderr names paths, and no path leaves the account.
+    # Only a clean exit is a sweep. Any other is a failure whose row still carries what was deleted before it
+    # (an irreversible fact). The words are about the exit code, not the tool's stderr: that names paths, and no
+    # path leaves the account.
     return {**out, "status": "failed", "why": _exit_words(r.returncode)}
 
 
 def _exit_words(code: int) -> str:
+    """What an exit code of the sweep says and no more: the tool's codes are classes (1 an uncaught error or an
+    unrecorded sweep, 2 a refusal or a git call that failed or timed out), not causes."""
     if code < 0:
         return f"killed by signal {-code}"
-    return {1: "swept but the sweep could not be recorded", 2: "a git call or the fetch failed or timed out"}.get(code, f"exit {code}")
+    return {1: "exit 1: the sweep stopped or could not record itself", 2: "exit 2: refused, or a git call failed or timed out"}.get(code, f"exit {code}")
 
 
 def takes_no_arguments(request: Any) -> bool:

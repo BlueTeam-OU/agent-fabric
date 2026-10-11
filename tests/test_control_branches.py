@@ -273,7 +273,7 @@ class Sweep(Scratch):
 
     def test_only_a_clean_exit_is_a_sweep_and_what_a_failure_says_names_no_path(self):
         self.clone("alpha")
-        for rc, words in ((1, "could not be recorded"), (2, "failed or timed out"), (-9, "killed by signal 9"), (3, "exit 3")):
+        for rc, words in ((1, "stopped or could not record itself"), (2, "refused, or a git call failed or timed out"), (-9, "killed by signal 9"), (3, "exit 3")):
             doc = bo.branches_sweep({"op": "branches-sweep"}, home=self.home, root=HERE, proc=self.proc(),
                                     run=self.fake(rc, f"Traceback...\nValueError: no such file '{self.dir}/agents'"))
             row = doc["working_copies"][0]
@@ -284,12 +284,29 @@ class Sweep(Scratch):
     def test_a_refusal_at_the_precheck_says_fixed_words_whatever_the_tool_printed(self):
         self.clone("alpha")
 
-        def run(cmd, **kw):
-            return subprocess.CompletedProcess(cmd, 2, "", f"fabric-branches: cannot read '{self.dir}/projects/registry.json'")
-        row = bo.branches_sweep({"op": "branches-sweep"}, home=self.home, root=HERE, run=run, proc=self.proc())["working_copies"][0]
-        self.assertEqual((row["status"], row["why"]), ("refused", "not sweepable: no origin, or no default branch known"))
-        read = bo.branches(home=self.home, root=HERE, run=run, proc=self.proc(), now=NOW)["working_copies"][0]
+        def run(code):
+            return lambda cmd, **kw: subprocess.CompletedProcess(cmd, code, "", f"fabric-branches: cannot read '{self.dir}/projects/registry.json'")
+        doc = bo.branches_sweep({"op": "branches-sweep"}, home=self.home, root=HERE, run=run(3), proc=self.proc())
+        row = doc["working_copies"][0]
+        self.assertEqual((doc["status"], row["status"], row["why"]), ("swept", "refused", "not sweepable: no origin, or no default branch known"))
+        read = bo.branches(home=self.home, root=HERE, run=run(3), proc=self.proc(), now=NOW)["working_copies"][0]
         self.assertEqual((read["status"], read["why"]), ("failed", "not countable: no origin, or no default branch known"))
+        # Any other non-zero exit of the precheck is a git call that failed: nothing is known of the copy, so it is failed, not refused.
+        doc = bo.branches_sweep({"op": "branches-sweep"}, home=self.home, root=HERE, run=run(2), proc=self.proc())
+        row = doc["working_copies"][0]
+        self.assertEqual((doc["status"], row["status"]), ("failed", "failed"))
+        self.assertNotIn(self.dir, json.dumps(doc))
+        self.assertNotIn("origin", row["why"])
+        read = bo.branches(home=self.home, root=HERE, run=run(2), proc=self.proc(), now=NOW)["working_copies"][0]
+        self.assertEqual((read["status"], read["why"]), ("failed", "not countable: exit 2"))
+
+    def test_a_copy_whose_default_branch_is_not_on_origin_here_is_refused_like_one_with_no_origin(self):
+        alpha = self.clone("alpha")
+        self.git(alpha, "update-ref", "-d", "refs/remotes/origin/main")
+        row = self.row(self.sweep(), "alpha")
+        self.assertEqual((row["status"], row["why"]), ("refused", "not sweepable: no origin, or no default branch known"))
+        self.assertIn("merged", self.branches(alpha))
+        self.assertEqual(self.row(self.read(), "alpha")["status"], "failed")
 
     def test_a_sweep_that_cannot_record_itself_is_failed_with_what_it_deleted_still_said(self):
         alpha = self.clone("alpha")
@@ -424,7 +441,7 @@ class Ctl(unittest.TestCase):
         self.assertEqual((a["op"], a["timeout"]), ("branches-sweep", bo.BRANCHES_SWEEP_BUDGET_S))
         self.assertIn("branches-sweep", ctl.ACTION_OPS)
         self.assertNotIn("branches", ctl.ACTION_OPS)
-        self.assertEqual(ctl.parse_args(["all", "branches"])["timeout"], 60)
+        self.assertEqual(ctl.parse_args(["all", "branches"])["timeout"], 180)
 
     def test_sweep_with_another_op_is_refused(self):
         for argv in (["all", "jobs", "--sweep"], ["all", "--sweep"], ["all", "local", "--sweep"]):
@@ -450,6 +467,16 @@ class Ctl(unittest.TestCase):
             self.assertIn(want, first)
         self.assertIn("failed", second)
         self.assertIn("no origin", second)
+
+    def test_a_failed_sweep_row_still_shows_what_it_deleted(self):
+        doc = {"status": "failed", "working_copies": [{"working_copy": "alpha", "status": "failed", "deleted": ["merged", "old"], "kept": ["owed"],
+                                                        "worktrees_removed": [], "worktrees_kept": [], "deleted_total": 2, "kept_total": 1,
+                                                        "why": "exit 1: the sweep stopped or could not record itself"}]}
+        line = ctl.table("branches-sweep", self.rows("branches-sweep", doc)).splitlines()[1]
+        self.assertIn("deleted merged old", line)
+        self.assertIn("could not record itself", line)
+        doc["working_copies"][0].pop("deleted")
+        self.assertIn("could not record itself", ctl.table("branches-sweep", self.rows("branches-sweep", doc)).splitlines()[1])
 
     def test_the_sweep_table_names_what_was_deleted_kept_and_skipped(self):
         doc = {"status": "swept", "working_copies": [

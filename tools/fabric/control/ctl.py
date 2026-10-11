@@ -392,7 +392,7 @@ def parse_args(argv: list[str]) -> dict:
                           else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
                           else 240 if op == "secrets-sync" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
-                          else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 60 if op == "branches"
+                          else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
                           else SELFTEST_BUDGET_S if op == "secrets-selftest" else 20)
     if op == "upgrade" and out["piece"] not in PIECES:
         raise CtlError(f"upgrade takes a piece: {', '.join(PIECES)}")
@@ -836,7 +836,7 @@ def _table_branches(op: str, rs: list) -> list[str]:
             continue
         for i, w in enumerate(rows):
             lead = f"{pad_end('' if i else r['account'], 22)} {pad_end(esc(dig(w, 'working_copy')), 18)} {pad_end(esc(dig(w, 'status')), 8)}"
-            if dig(w, "status") not in ("ok", "swept"):
+            if dig(w, "status") not in ("ok", "swept") and not (sweep and T(dig(w, "deleted"))):
                 lines.append(trim_end(f"{lead} {esc(nullish(dig(w, 'why'), ''))}"))
             elif sweep:
                 why = f"  ({esc(dig(w, 'why'))})" if T(dig(w, "why")) else ""
