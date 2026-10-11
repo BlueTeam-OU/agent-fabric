@@ -294,7 +294,7 @@ def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
     elif os.environ.get("AGENT_FABRIC_PULLED") == "1":
         die(f"agent-fabric at {fabric_root} is still {behind} commit(s) behind origin/main after a pull; not relaunching again.\n"
             f"  Look at the checkout: git -C \"{fabric_root}\" status")
-    elif (pulled := pull_ff(fabric_root) if verdict.kind == "behind" else "failed") == "timeout":
+    elif (pulled := pull_ff(fabric_root)) == "timeout":
         die(f"agent-fabric at {fabric_root}: git pull did not answer within {git.TIMEOUT_S:g} s; nothing was "
             "relaunched.\n"
             "  A pull ended by the bound may leave .git/index.lock behind. Look:\n"

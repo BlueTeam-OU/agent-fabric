@@ -1137,6 +1137,16 @@ def main() -> int:
                   rc == 1 and "cannot fast-forward" in out and "local commits that origin/main does not contain" in out
                   and "resolved profile" not in out, out)
             git("reset", "-q", "--hard", "origin/main", cwd=fabric)
+            # A file staged with exactly what origin brings is "uncommitted
+            # changes in the way" to a prediction and pulls fine: git decides.
+            put(f"{other}/same", "x\n")
+            git("add", "same", cwd=other)
+            origin_ahead("adds same")
+            put(f"{fabric}/same", "x\n")
+            git("add", "same", cwd=fabric)
+            rc, out = run("--print")
+            check("a file staged with the incoming content: pulled, not refused on a prediction",
+                  rc == 0 and "pulled to" in out and git("rev-parse", "HEAD", cwd=fabric) == git("rev-parse", "HEAD", cwd=other), out)
             origin_ahead("newer3")
             rc, out = run("--print", AGENT_FABRIC_ALLOW_STALE="1")
             check("AGENT_FABRIC_ALLOW_STALE=1: launches without pulling, loudly",

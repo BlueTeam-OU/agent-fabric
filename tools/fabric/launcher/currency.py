@@ -56,23 +56,32 @@ class Verdict:
 
 
 def pull_blocker(repo: str) -> str | None:
-    """Why `pull --ff-only origin main` must fail, or None when it may
-    succeed. A pull ended by the bound is not predictable and not here."""
+    """Why `pull --ff-only origin main` is predicted to fail, or None. A
+    prediction, for the message and for fabric-fresh (which ends a session
+    only on None); the launcher still lets git decide, since a file staged
+    with exactly the incoming content is "blocked" here and pulls fine. A pull ended by the bound is not predictable and not here."""
     anc = git_status_ok(repo, "merge-base", "--is-ancestor", "HEAD", "origin/main")
     if not anc:
         return "it has local commits that origin/main does not contain"
     try:
-        incoming = git.run(repo, "diff", "--name-only", "-z", "HEAD", "origin/main", check=False)
-        status = git.run(repo, "status", "--porcelain", "-z", check=False)
+        # --no-renames: a rename's old path is a change the pull makes too.
+        # --untracked-files=all: the default folds a new directory into one
+        # `?? dir/` entry, which names none of the files a pull would write.
+        incoming = git.run(repo, "diff", "--name-only", "--no-renames", "-z", "HEAD", "origin/main", check=False)
+        status = git.run(repo, "status", "--porcelain", "-z", "--untracked-files=all", check=False)
     except git.GitError:
         return None
     if incoming.returncode != 0 or status.returncode != 0:
         return None
     touched = set(filter(None, incoming.stdout.split("\0")))
-    # A -z status entry is "XY path"; a rename is followed by its source as a
-    # separate field, which at worst adds a path that is no change at all.
-    entries = [e for e in status.stdout.split("\0") if e]
-    dirty = {e[3:] for e in entries if len(e) > 3}
+    # A -z status entry is "XY path"; a rename or copy is followed by its
+    # source as a field of its own, with no status prefix: also a dirty path.
+    fields = iter(f for f in status.stdout.split("\0") if f)
+    dirty: set[str] = set()
+    for entry in fields:
+        dirty.add(entry[3:])
+        if "R" in entry[:2] or "C" in entry[:2]:
+            dirty.add(next(fields, ""))
     hit = sorted(touched & dirty)
     return f"uncommitted changes would be overwritten ({', '.join(hit[:3])})" if hit else None
 

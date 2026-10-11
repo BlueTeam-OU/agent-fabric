@@ -225,9 +225,34 @@ def main() -> int:
         rc, out = run([f"{bin_}/claude", "--force"], clean_env(**launched))
         check("…--force does not override it", rc == 3 and not os.path.exists(killed), f"rc={rc}\n{out}")
         rc, out = run([f"{bin_}/claude"], clean_env(**launched, AGENT_FABRIC_ALLOW_STALE="1"))
-        check("…AGENT_FABRIC_ALLOW_STALE=1, which the launcher honours, goes ahead", rc == 0 and os.path.exists(killed), f"rc={rc}\n{out}")
-        rm(killed, marker)
+        check("…nor does AGENT_FABRIC_ALLOW_STALE=1 here: the launcher's environment is not this process's",
+              rc == 3 and not os.path.exists(killed), f"rc={rc}\n{out}")
         subprocess.run(["git", "-C", fab, "checkout", "-q", "--", "a", "b"], check=True, timeout=30)
+        # The pull's changes as git lists them with rename detection off:
+        # an incoming rename b -> b2 writes b's removal, and a new directory
+        # collides with an untracked file inside it.
+        g(other, "mv", "b", "b2")
+        os.makedirs(f"{other}/newdir")
+        put(f"{other}/newdir/x", "1\n", 0o644)
+        g(other, "add", "-A")
+        g(other, "commit", "-q", "-m", "rename and new dir")
+        g(other, "push", "-q", "origin", "main")
+        put(f"{fab}/b", "local\n", 0o644)
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, a dirty file the pull renames away: exit 3",
+              rc == 3 and "overwritten (b" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        subprocess.run(["git", "-C", fab, "checkout", "-q", "--", "b"], check=True, timeout=30)
+        os.makedirs(f"{fab}/newdir")
+        put(f"{fab}/newdir/x", "mine\n", 0o644)
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, an untracked file inside a directory the pull adds: exit 3",
+              rc == 3 and "newdir/x" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        shutil.rmtree(f"{fab}/newdir")
+        g(fab, "mv", "a", "a-moved")
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, a staged rename whose source the pull modifies: exit 3, the source named",
+              rc == 3 and "overwritten (a" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        g(fab, "reset", "-q", "--hard")
         g(fab, "commit", "-q", "--allow-empty", "-m", "local")
         rc, out = run([f"{bin_}/claude"], clean_env(**launched))
         check("behind with a local commit: exit 3, said why, nothing stopped",
