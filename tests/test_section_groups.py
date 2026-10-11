@@ -62,8 +62,12 @@ def run(mode: str, ngroups: int, order: tuple[int, ...], timeout_s: int = 60, na
         starts = open(os.path.join(scratch, "starts"), encoding="utf-8").read() if os.path.exists(os.path.join(scratch, "starts")) else ""
         left = [n for n in os.listdir(scratch) if n.startswith("sandbox-")]
         kid = open(os.path.join(scratch, "kid"), encoding="utf-8").read() if os.path.exists(os.path.join(scratch, "kid")) else ""
-        alive = bool(kid) and os.path.exists(f"/proc/{kid}") and "sleep" in open(f"/proc/{kid}/cmdline").read()
-        return rc, out.getvalue(), "|".join([starts, ",".join(left), str(alive)])
+        try:
+            with open(f"/proc/{kid}/cmdline", encoding="utf-8") as fh:
+                alive = bool(kid) and "sleep" in fh.read()
+        except OSError:
+            alive = False
+        return rc, out.getvalue(), "|".join([starts, ",".join(left), str(alive), kid])
 
 
 def main() -> int:
@@ -84,12 +88,13 @@ def main() -> int:
     check("a group that exits non-zero fails the run, the others still reported",
           rc == 1 and "group 2: output" in out and "t: FAILED — 1 group(s)" in out, out)
     started = time.monotonic()
-    rc, out, state = run("overrun", 3, (0, 1, 2), timeout_s=2)
-    _starts, left, alive = state.split("|")
-    check("a group that overruns fails the run, said with its limit", rc == 1 and "group 0: FAILED — it did not finish in 2 s" in out, out)
+    rc, out, state = run("overrun", 3, (0, 1, 2), timeout_s=6)
+    _starts, left, alive, kid = state.split("|")
+    check("a group that overruns fails the run, said with its limit", rc == 1 and "group 0: FAILED — it did not finish in 6 s" in out, out)
+    check("…after it had made its sandbox and started its sleeper (else the two checks below prove nothing)", kid != "", state)
     check("…its sandbox is removed (it was told to stop, not killed)", left == "", state)
     check("…and the process it started is gone with its process group", alive == "False", state)
-    check("…without waiting out the 300 s it slept, or the grace for a child that ignores the stop", time.monotonic() - started < 20)
+    check("…without waiting out the 300 s it slept, or the grace for a child that ignores the stop", time.monotonic() - started < 25)
     rc, out, state = run("ok", 3, (0, 1, 2), jobs="16", cpus=2, nap=1.0)
     stamps = sorted(float(line.split()[1]) for line in state.split("|")[0].splitlines())
     check("an override of 16 on 2 cores runs two groups at once: the third starts after the first pair", len(stamps) == 3

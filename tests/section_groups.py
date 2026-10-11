@@ -36,7 +36,10 @@ def _one(script: str, group: int, timeout_s: int) -> tuple[int, str]:
             out, _ = proc.communicate(timeout=GRACE_S)
         except subprocess.TimeoutExpired:
             os.killpg(proc.pid, signal.SIGKILL)
-            out, _ = proc.communicate()
+            try:
+                out, _ = proc.communicate(timeout=GRACE_S)
+            except subprocess.TimeoutExpired:   # a descendant in a session of its own still holds the pipe: not waited for
+                out = ""
         return 1, f"{out}\ngroup {group}: FAILED — it did not finish in {timeout_s} s\n"
 
 
