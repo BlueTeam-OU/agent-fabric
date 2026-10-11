@@ -118,12 +118,14 @@ run "$S" >/dev/null
 perm="$(jq -c .permissions "$S")"
 jq -e '.allow | index("Bash(ls *)") and index("Bash(gzcoord-inbox *)") and index("Bash(fabric-status *)")' <<<"$perm" >/dev/null \
     && ok "each fabric command gets a narrow allow rule, beside the account's own" || bad "allow rules" "$perm"
-jq -e '.ask == ["Bash(gzcoord-send *)"] and .deny == ["Bash(rm *)"]' <<<"$perm" >/dev/null \
-    && ok "…the account's ask and deny rules are untouched (an ask still wins)" || bad "ask/deny changed" "$perm"
+jq -e '.ask == ["Bash(gzcoord-send *)","Bash(moli serve *)"] and .deny == ["Bash(rm *)"]' <<<"$perm" >/dev/null \
+    && ok "…the account's ask and deny rules are untouched (an ask still wins), the fabric's ask added after them" || bad "ask/deny changed" "$perm"
 jq -e '[.allow[] | select(. == "Bash(fabric-lease *)" or . == "Bash(fabric-host *)")] | length == 0' <<<"$perm" >/dev/null \
     && ok "…and fabric-lease and fabric-host, which run other commands, get none" || bad "wrapper allowed" "$perm"
 jq -e '(.allow | index("Bash(moli fetch *)")) != null and ([.allow[] | select(startswith("Bash(moli"))] == ["Bash(moli fetch *)"])' <<<"$perm" >/dev/null \
     && ok "…moli fetch is allowed (also_allowed) and moli serve is not (ADR-051)" || bad "moli rules" "$perm"
+jq -e '(.ask // []) | index("Bash(moli serve *)") != null' <<<"$perm" >/dev/null \
+    && ok "…and moli serve has an explicit ask rule (also_asked), never left to the classifier" || bad "moli serve ask" "$perm"
 out="$(run "$S")"; [[ "$out" == "  =  "* ]] && ok "…and a second run changes nothing" || bad "not idempotent" "$out"
 # An account the earlier bootstrap already settled — every other key in
 # place, no allow rule yet — still gets the rules: a check that ignored

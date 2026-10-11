@@ -46,6 +46,9 @@
   "also_allowed": {
     "moli fetch": "reads one web page to stdout (ADR-051). No command of the fabric and not linked by bootstrap: the tool is installed by fabric-tools. `moli serve` is deliberately absent: it opens a CDP port with no authentication, so it asks"
   },
+  "also_asked": {
+    "moli serve": "opens a CDP port with no authentication (ADR-051 rule 3): an explicit ask rule, because in auto mode a command no rule names is decided by the classifier, which could approve it unseen"
+  },
   "not_allowed": {
     "fabric-genimage": "every run spends on the OpenAI account (the owner, 2026-10-07): a person approves each one, so no session spends unattended",
     "fabric-lease": "runs whatever command follows `--`: an allow rule for it would allow every command, so it asks as any command does",

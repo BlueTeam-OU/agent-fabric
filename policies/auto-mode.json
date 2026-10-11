@@ -14,7 +14,8 @@
   },
   "allow": [],
   "soft_deny": [
-    "Reading, copying or modifying another Linux login's home directory, agent state or processes directly (paths under /home/<another login>/, or signalling a process another login owns): each login is another agent, reached only through the fabric's commands."
+    "Reading, copying or modifying another Linux login's home directory, agent state or processes directly (paths under /home/<another login>/, or signalling a process another login owns): each login is another agent, reached only through the fabric's commands.",
+    "Starting a browser automation or DevTools server (moli serve, a remote-debugging/CDP port, a Playwright or Chrome server) unless the user asked for it in this session: such a port has no authentication."
   ],
   "hard_deny": [
     "Putting a secret value — a token, private key, password or the contents of secrets.env or a pass store — into a commit, pull request, issue, comment, GZCoord message, log line or any file, other than by fabric-secrets itself: into a secrets store, or into the files its own sync writes; and above all into BlueTeam-OU/agent-fabric or gzapi-org/InterWeave, which are public."
