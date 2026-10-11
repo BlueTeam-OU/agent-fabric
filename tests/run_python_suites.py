@@ -12,7 +12,9 @@ the log reads the same but in completion order. Exit status: 1 if any suite
 failed, 2 for a bad AGENT_FABRIC_TEST_JOBS. The last line of stdout is
 `FAILED_SUITES=<n>`, n the number of suites that exited non-zero (0 when none),
 so run.sh can say how many failed and not only that one did; it is not printed
-for the exit 2, where nothing ran.
+for the exit 2, where nothing ran, nor when the runner itself fails or is killed
+(a suite that cannot be started raises out of its worker; a signal ends the
+process): a missing line is "unknown, at least one", never 0.
 
 run.sh starts this in the background (`&`, then `wait`), so a trap fires at
 once; bash starts an async command with INT and QUIT ignored, and every suite
