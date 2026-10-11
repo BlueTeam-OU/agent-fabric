@@ -148,5 +148,11 @@
     "fingerprint": "AE749977E03C64690B2844F0C7414538B1270B62",
     "login": "rust-services-dev-02",
     "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a129e5-3558-7a18-9443-f4b58ead1cf6": {
+    "born": "2026-10-11T07:37:29.688Z",
+    "fingerprint": "F88C6F8165D469D65854259B0A14EAA22C3ADFAB",
+    "login": "rust-ui-dev-02",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
   }
 }

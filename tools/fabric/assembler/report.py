@@ -3,11 +3,13 @@ A part of tools/fabric/assemble.py, whose docstring is the contract."""
 from __future__ import annotations
 
 import functools
+import importlib.util
 import json
 import os
 import sys
 from typing import Any
 import roots
+import memory_horizons
 from assembler.core import layout, Run, in_report, hygiene_substitute, patterns_for
 from assembler.slices import merge_reports, scan_collisions, drop_held
 
@@ -65,6 +67,57 @@ def memory_use_of(run: Run, hr: dict, source: str) -> tuple[dict[str, list[dict[
 
 
 memory_use_verdicts = ("helpful", "wrong", "stale")
+
+
+def reads_state_path(run: Run) -> str:
+    """Where this drain keeps its per-section last-read dates: the agent state directory of the login that drains, never the
+    tree (a clone reads the tree; the dates are this drain's own memory, ADR-050 rule 8)."""
+    if run.args.reads_state:
+        return os.path.abspath(run.args.reads_state)
+    spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(roots.code_root(), "runtime", "identity.py"))
+    assert spec and spec.loader
+    identity = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(identity)
+    return os.path.join(identity.agent_state_dir(), memory_horizons.STATE_FILE)
+
+
+def review_horizons(run: Run, memory_use: dict[str, Any]) -> dict[str, Any]:
+    """The drain report's `review_horizons` (ADR-050 rule 8): sections older than their class's horizon and sections no
+    memory_read returned in 8 weeks, listed and never expired. The reads this drain carried are recorded first, the state
+    is written on every drain; a state that cannot be read or written leaves the unread list empty and says so."""
+    corpora = {"f": roots.memory_dir(root=layout.FABRIC_ROOT), "p": layout.project_memory_root(run.project)}
+    key_of = {p: (lambda rel, root=root: in_report(run, os.path.join(root, rel))) for p, root in corpora.items()}
+    path = reads_state_path(run)
+    state, status = memory_horizons.load_state(path)
+    ids_read: dict[str, Any] = {}
+    for use in memory_use.values():
+        ids = use.get("ids_read") if isinstance(use, dict) else None
+        if isinstance(ids, dict):          # harvest content is untrusted: a list or a string is no counts
+            ids_read.update(ids)
+    rows = memory_horizons.rows_of(corpora, key_of)
+    memory_horizons.observe(state, run.project, rows, run.args.stamp)
+    memory_horizons.record_reads(state, run.project, ids_read, corpora, run.args.stamp, key_of)
+    out = memory_horizons.horizons(rows, state, run.project, run.args.stamp)
+    live = {p: {r["key"] for r in rows if r["scope"] == p} for p in corpora}
+    try:
+        memory_horizons.save_reads(path, state, run.project, live)
+    except OSError as e:
+        status = "unwritable"
+        print(f"memory-drain-reads.json could not be written ({e.strerror or e}); the unread list is not trusted this drain", file=sys.stderr)
+    if status in ("unreadable", "unwritable"):
+        out["unread"], out["unread_from"] = [], None
+    return {**out, "reads_state": status}
+
+
+def helpful_counts(memory_marks: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+    """Per section id, how many readers marked it helpful (ADR-050 rule 5). Counted from the merged marks, which a re-run of
+    a bundle does not grow, so a mark is counted once; an id with none is absent, not 0, and stale/wrong are routed, not counted."""
+    out: dict[str, int] = {}
+    for ident, rows in memory_marks.items():
+        n = sum(1 for row in rows if isinstance(row, dict) and row.get("verdict") == "helpful")
+        if n:
+            out[ident] = n
+    return dict(sorted(out.items()))
 
 
 def retrieval_summary(memory_use: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -211,8 +264,11 @@ def report(run: Run) -> int:
         roots = [layout.working_copy_for(run.project), layout.FABRIC_ROOT]
         return any(root and os.path.exists(os.path.join(root, rel)) for root in roots)
     report = merge_reports(previous, report, still_there)
+    # Derived from the corpus and the drain's reads each time, like the collisions: never carried from an earlier report.
+    report["review_horizons"] = review_horizons(run, memory_use)
     # After the merge: the sources of earlier runs of this stamp are in memory_use by now.
     report["memory_retrieval"] = retrieval_summary(report.get("memory_use") or {})
+    report["memory_helpful"] = helpful_counts(report.get("memory_marks") or {})
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
     # A key an earlier run of the stamp held stays held only while no run

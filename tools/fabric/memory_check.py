@@ -425,6 +425,29 @@ def check(corpus: str, tree: str, extra_dirs: list[str] | None = None, project: 
     return rows
 
 
+def resolve_section_id(ident: str, corpora: dict[str, str]) -> tuple[str, str, str] | None:
+    """(corpus label, slice relative to its corpus, heading) of a mark's section id `f:<path>#<n>` or
+    `p:<path>#<n>`, n counted from 1 in the slice's file order (memory_index.section_id), or None when the id
+    names no section of a corpus given. `corpora` maps `f` and `p` to the corpus root's directory."""
+    m = re.fullmatch(r"([fp]):([A-Za-z0-9._/-]+)#([0-9]+)", ident)
+    if not m or m.group(1) not in corpora or m.group(2).startswith("/") or ".." in m.group(2).split("/"):
+        return None
+    rel = m.group(2) + ".md"
+    path = os.path.join(corpora[m.group(1)], rel)
+    top = os.path.realpath(corpora[m.group(1)])
+    if not os.path.realpath(path).startswith(top + os.sep):
+        return None           # an id is text a reader wrote: it names a slice of the corpus or nothing
+    try:
+        _meta, sections = slices.read_existing_slice(path)
+    except (OSError, UnicodeDecodeError):
+        return None
+    headings = list(sections)
+    n = int(m.group(3))
+    if not 1 <= n <= len(headings):
+        return None
+    return m.group(1), rel, headings[n - 1]
+
+
 def observed_of(text: str) -> tuple[str | None, str | None]:
     """(date, role) of a section's `*Observed YYYY-MM-DD (role)*` tail, either None when absent."""
     m = slices.OBSERVED_RE.search(text)

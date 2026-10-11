@@ -61,8 +61,8 @@ WHERE THE PORT DIFFERS ON PURPOSE
 KNOWN LIMIT. The interlock with secrets-sync is a check and then a set
 (`upgrade_running()` then `restart_in_flight(True)` in secrets.py): safe
 while agentd runs one action at a time, as the Node's single thread did. A
-daemon that runs actions on threads needs one locked test-and-set; that is
-the cutover's to decide, since agentd's loop is its.
+daemon that runs actions on threads needs one locked test-and-set; restart.py
+takes one (`claim_restart`), secrets.py's is still the check and the set.
 """
 from __future__ import annotations
 
@@ -390,7 +390,7 @@ _state = threading.Lock()
 _running = False
 # secrets-sync writes the same restart marker: each refuses while the other
 # holds it, in both directions (re-review of #37).
-_sync_restarting = False
+_sync_restarting = 0   # holds, not a flag: a restart and a secrets-sync restart may overlap and neither may clear the other's
 
 
 def upgrade_running() -> bool:
@@ -399,7 +399,19 @@ def upgrade_running() -> bool:
 
 def restart_in_flight(on: bool) -> None:
     global _sync_restarting
-    _sync_restarting = bool(on)
+    with _state:
+        _sync_restarting = _sync_restarting + 1 if on else max(0, _sync_restarting - 1)
+
+
+def claim_restart() -> bool:
+    """Take a restart hold unless an upgrade is running: the check and the set under one lock, so an
+    upgrade arriving between them cannot get past `upgrade()`'s own test. Released by restart_in_flight(False)."""
+    global _sync_restarting
+    with _state:
+        if _running:
+            return False
+        _sync_restarting += 1
+        return True
 
 
 def upgrade(request: dict, **opts: Any) -> dict:

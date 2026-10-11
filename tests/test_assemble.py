@@ -26,6 +26,8 @@ own_instance_tree()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+import isolated_state  # noqa: E402,F401 — a throwaway AGENT_FABRIC_STATE_DIR for every subprocess
 ASSEMBLE = os.path.join(ROOT, "tools", "fabric", "assemble.py")
 LINT = os.path.join(ROOT, "tools", "fabric", "lint.py")
 SCHEMA_DIR = os.path.join(ROOT, "identities", "schemas")
@@ -326,16 +328,41 @@ def test_the_drain_report_lists_the_memory_marks_and_call_counts(tmp: str) -> No
     assert report.get("memory_retrieval") == {"dev-01": {
         "finds": 3, "zero_hit_finds": 1, "zero_hit_share": 0.333, "finds_followed_by_read": 1, "read_through": 0.333, "reads": 1,
         "indexes": 0, "marks": 3, "refused": 0, "hosts": ["boxA"], "since_ms": 0, "until_ms": 5}}, report.get("memory_retrieval")
+    assert report.get("memory_helpful") == {"f:domains/alpha/domain/one#1": 1}, report.get("memory_helpful")
     assert run_assemble(drain, claims_dir, out).returncode == 0
     again = json.loads(read(report_path(out)))
     assert again["memory_marks"] == marks, "re-running a bundle added its marks twice"
+    assert again["memory_helpful"] == report["memory_helpful"], "re-running a bundle counted a helpful mark twice"
+    # A second bundle of the same stamp (another host's marks): the count is over the merged marks, not this run's alone.
+    drain_b, claims_b, _ = build(os.path.join(tmp, "second"), {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}])})
+    with open(os.path.join(drain_b, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"host": "boxB", "agent": "dev-02", "since_watermark": 0, "next_watermark": 5, "memory_use": use,
+                   "counts": {"provisional_agent": 0, "in_scope": 1}}, fh)
+    with open(os.path.join(drain_b, "marks.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"t": "2026-10-10T08:00:00Z", "id": "f:domains/alpha/domain/one#1", "verdict": "helpful", "note": ""}) + "\n")
+    assert run_assemble(drain_b, claims_b, out).returncode == 0
+    assert json.loads(read(report_path(out)))["memory_helpful"] == {"f:domains/alpha/domain/one#1": 2}, "the count is not over the merged marks"
     # A drain that carries none lists none.
     drain2, claims2, out2 = build(os.path.join(tmp, "plain"), {"alpha": claims("alpha", [
         {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}])})
     assert run_assemble(drain2, claims2, out2).returncode == 0
     plain = json.loads(read(report_path(out2)))
     assert plain["memory_marks"] == {} and plain["memory_use"] == {}, (plain["memory_marks"], plain["memory_use"])
-    assert plain["memory_retrieval"] == {}, plain["memory_retrieval"]
+    assert plain["memory_retrieval"] == {} and plain["memory_helpful"] == {}, (plain["memory_retrieval"], plain["memory_helpful"])
+
+
+def test_helpful_marks_are_counted_per_section_and_only_those(tmp: str) -> None:
+    """ADR-050 rule 5: the drain report counts a section's helpful marks; an id with none is absent, and stale/wrong are
+    routed (not counted), so a section marked only stale or wrong is not in the count."""
+    sys.path.insert(0, os.path.join(os.path.dirname(ASSEMBLE)))
+    from assembler import report as rep  # noqa: PLC0415 - the tool dir is put on the path just above
+    row = lambda verdict: {"agent": "dev-01", "t": "2026-10-10T07:00:00Z", "verdict": verdict, "note": ""}  # noqa: E731
+    marks = {"p:x/y#2": [row("helpful"), row("stale"), row("helpful")], "f:a/b#1": [row("helpful")],
+             "f:c/d#1": [row("stale"), row("wrong")], "f:e/f#1": []}
+    assert rep.helpful_counts(marks) == {"f:a/b#1": 1, "p:x/y#2": 2}, rep.helpful_counts(marks)
+    assert list(rep.helpful_counts(marks)) == ["f:a/b#1", "p:x/y#2"], "sorted by id, so the report is byte-stable"
+    assert rep.helpful_counts({}) == {}
 
 
 def test_the_retrieval_summary_is_per_login_over_hosts_and_says_unknown_when_there_was_no_find(tmp: str) -> None:
@@ -1268,6 +1295,26 @@ def test_a_section_carries_its_anchors_above_its_observed_tail(tmp: str) -> None
     assert {os.path.join(d, n): read(os.path.join(d, n)) for d, _ds, fs in walk_role(out, "alpha") for n in fs} == before, "and nothing was written"
 
 
+def test_a_harvest_whose_read_counts_are_no_counts_does_not_stop_the_drain_and_a_stamp_that_is_no_date_stops_it_first(tmp: str) -> None:
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "First", "body": "B1.", "evidence": ["h1"], "observed_at": "2025-12-01"}])})
+    state = os.path.join(tmp, "state", "memory-drain-reads.json")
+    for bad in (["p:alpha/solution#1"], "p:alpha/solution#1", 7):
+        with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+            json.dump({"host": "boxA", "agent": "dev-01", "since_watermark": 0, "next_watermark": 5, "memory_use": {"ids_read": bad},
+                       "counts": {"provisional_agent": 0, "in_scope": 1}}, fh)
+        proc = run_assemble(drain, claims_dir, out, "--reads-state", state)
+        assert proc.returncode == 0, (bad, proc.stderr)
+        assert json.loads(read(state))["projects"][PROJECT]["reads"] == {}, bad
+    shutil.rmtree(out)
+    drain, claims_dir, out = build(os.path.join(tmp, "b"), {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "First", "body": "B1.", "evidence": ["h1"]}])})
+    for stamp in ("last-tuesday", "2026-02-30", "2026-13-01"):
+        proc = run_assemble(drain, claims_dir, out, "--stamp", stamp)
+        assert proc.returncode == 2 and "no YYYY-MM-DD date" in proc.stderr and alpha_slices(out) == {}, (stamp, proc.returncode, proc.stderr)
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-02-28").returncode == 0, "positive control: a real date"
+
+
 def test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report(tmp: str) -> None:
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "solution", "topic": "one", "title": "Keep me", "body": "Stays.", "evidence": ["h1"], "observed_at": "2026-09-18"},
@@ -1341,6 +1388,52 @@ def test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the
     assert flags and flags[0].report_key == key, (flags, key)
     address, how = memory_flags.route(flags[0], writers, {"alpha": ["hostA/python-dev-07", "hostA/python-dev-03"]}, set())
     assert (address, how) == ("hostA/python-dev-03", "last-writer"), (address, how)
+
+
+def test_the_report_lists_review_horizons_from_the_drains_own_read_dates(tmp: str) -> None:
+    """ADR-050 rule 8: the drain keeps when each section was last returned by a memory_read in its own state file, lists
+    solution sections past 30 days and sections unread for 8 weeks, and says nothing about the unread until it has
+    watched that long. A state it cannot write leaves the unread list empty and says so."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "First", "body": "B1.", "evidence": ["h1"], "observed_at": "2025-12-01"},
+        {"class": "solution", "topic": "one", "title": "Second", "body": "B2.", "evidence": ["h1"], "observed_at": "2025-12-28"}])})
+    state = os.path.join(tmp, "state", "memory-drain-reads.json")
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"host": "boxA", "agent": "dev-01", "since_watermark": 0, "next_watermark": 5,
+                   "memory_use": {"since_ms": 0, "until_ms": 5, "calls": {"memory_read": 1}, "ids_read": {"p:alpha/solution#2": 1}},
+                   "counts": {"provisional_agent": 0, "in_scope": 2}}, fh)
+    assert run_assemble(drain, claims_dir, out, "--reads-state", state).returncode == 0
+    first = json.loads(read(report_path(out)))["review_horizons"]
+    assert first["reads_state"] == "new" and first["unread"] == [] and first["unread_from"] == "2026-02-26", first
+    assert [a["key"].partition("#")[2] for a in first["aged"]] == ["First"] and first["aged"][0]["days"] == 31, first["aged"]
+    kept = json.loads(read(state))
+    scope = kept["projects"][PROJECT]
+    assert kept["fabric"] == {"seen": {}, "reads": {}} and set(scope["seen"].values()) == {"2026-01-01"}, kept
+    assert list(scope["reads"].values()) == ["2026-01-01"] and next(iter(scope["reads"])).endswith("#Second"), kept
+    assert os.stat(state).st_mode & 0o777 == 0o600
+    os.remove(os.path.join(drain, "harvest-report.json"))
+    assert run_assemble(drain, claims_dir, out, "--reads-state", state, "--stamp", "2026-03-01").returncode == 0
+    later = json.loads(read(report_path(out)))["review_horizons"]
+    assert later["reads_state"] == "ok" and later["unread_from"] is None, later
+    assert {u["key"].partition("#")[2]: u["last_read"] for u in later["unread"]} == {"First": None, "Second": "2026-01-01"}, later["unread"]
+    # A section written after the state is old has not been watched: unknown, not unread, whatever the older sections are.
+    claims_path = os.path.join(claims_dir, "alpha.json")
+    with open(claims_path, "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [{"class": "solution", "topic": "one", "title": "Third", "body": "B3.", "evidence": ["h1"], "observed_at": "2026-02-27"}]), fh)
+    assert run_assemble(drain, claims_dir, out, "--reads-state", state, "--stamp", "2026-03-02").returncode == 0
+    third = json.loads(read(report_path(out)))["review_horizons"]
+    assert "Third" not in {u["key"].partition("#")[2] for u in third["unread"]} and {"First", "Second"} <= {u["key"].partition("#")[2] for u in third["unread"]}, third
+    assert third["unread_from"] == "2026-04-27", third
+    # A state that reads but cannot be rewritten: the unread list is not trusted this drain, the aged list still is.
+    os.chmod(os.path.dirname(state), 0o500)
+    try:
+        if not os.access(os.path.dirname(state), os.W_OK):
+            proc = run_assemble(drain, claims_dir, out, "--reads-state", state, "--stamp", "2026-03-01")
+            assert proc.returncode == 0 and "could not be written" in proc.stderr, proc.stderr
+            unwritable = json.loads(read(report_path(out)))["review_horizons"]
+            assert unwritable["reads_state"] == "unwritable" and unwritable["unread"] == [] and unwritable["aged"], unwritable
+    finally:
+        os.chmod(os.path.dirname(state), 0o700)
 
 
 def test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drains(tmp: str) -> None:
@@ -3363,6 +3456,7 @@ def main() -> int:
         test_an_oversized_single_claim_is_written_whole_and_reported,
         test_drain_report_carries_the_watermark_forward,
         test_the_drain_report_lists_the_memory_marks_and_call_counts,
+        test_helpful_marks_are_counted_per_section_and_only_those,
         test_the_retrieval_summary_is_per_login_over_hosts_and_says_unknown_when_there_was_no_find,
         test_drain_report_records_unattributable_rows,
         test_drain_report_tolerates_a_drain_with_no_harvest_report,
@@ -3404,6 +3498,8 @@ def main() -> int:
         test_a_claim_with_a_merge_target_and_no_body_retires_the_section_and_nothing_is_written_for_it,
         test_retiring_the_only_section_removes_the_file_and_its_index_line,
         test_a_retire_finds_its_section_in_another_topic_and_leaves_a_sibling_that_only_looks_like_it,
+        test_the_report_lists_review_horizons_from_the_drains_own_read_dates,
+        test_a_harvest_whose_read_counts_are_no_counts_does_not_stop_the_drain_and_a_stamp_that_is_no_date_stops_it_first,
         test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report,
         test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
         test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section,

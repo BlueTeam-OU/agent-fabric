@@ -11,6 +11,8 @@ CONTRACT
              cut at max_tokens), memory_index, and memory_mark (a verdict on a section, to the login's own
              memory-marks.jsonl; the corpus is never written) (tools.py). The index itself is tools/fabric/memory_index.py. A tool's own failure is a result with isError
              true and one line, never a JSON-RPC error: the model reads results, not protocol errors.
+  framing    the text of memory_find, memory_read and memory_index is wrapped in an opening line that names the closing
+             line (tools.MEMORY_START, tools.MEMORY_END); memory_mark's acknowledgement and every error are not.
   reads      the fabric's memory/ (roots.py) and the session's working copy's .agent-fabric/memory/ and nothing
              else; writes nothing under either (only the login's state: the call log and the marks); no network, no model.
   state      one line per call in <agent state dir>/memory-calls.jsonl: time, tool, hit count, the ids returned, and for
@@ -75,7 +77,8 @@ class Server:
         elif name == "memory_read":
             after_find = bool(self.last_find & set(ids))
         calls.record(self.state_dir, name, ids, after_find, self.session.project)
-        return _result(self._unread_notice() + text)
+        # The notice is the server's own word, so it stays outside the frame that marks what is memory.
+        return _result(self._unread_notice() + (tools.frame(text) if name in tools.FRAMED else text))
 
     def _unread_notice(self) -> str:
         """A root git could not give is not served; the model must not read that as a corpus with nothing in it (stderr never reaches it)."""
