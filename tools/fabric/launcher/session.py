@@ -310,7 +310,9 @@ def read_restart(marker: str, started: int, binding: str, wait_s_text: str) -> s
         time.sleep(1)
         m = load()
     st = m.get("status")
-    if st == "done":
+    if st == "done" and m.get("piece") == "the session":
+        say("launch: the session was restarted by the control plane; resuming it on the current fabric.")
+    elif st == "done":
         verb = "moved" if m.get("piece") == "the Claude account" else "upgraded"
         say(f"launch: {m.get('piece')} {verb} {m.get('from')} → {m.get('installed') or m.get('to')}; "
             "resuming the session on it.")

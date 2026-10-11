@@ -60,6 +60,11 @@ _APPLIED = (0, 2)
 _syncing = threading.Lock()
 
 
+def sync_running() -> bool:
+    """A secrets-sync is running on this account (control/restart.py refuses beside it)."""
+    return _syncing.locked()
+
+
 def upgrade() -> Any:
     from control import upgrade as module   # python-dev-03's port
     return module

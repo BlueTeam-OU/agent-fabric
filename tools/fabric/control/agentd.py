@@ -117,6 +117,7 @@ from control.pool import POOL_FILE, pool_add, pool_claim, pool_holder, pool_list
 from control.secrets import secrets_sync  # noqa: E402
 from control.selftest import secrets_selftest  # noqa: E402
 from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, public_key_from, verify_request  # noqa: E402
+from control.restart import restart  # noqa: E402
 from control.upgrade import state_dir, upgrade  # noqa: E402
 from gzcoord import gzmsg  # noqa: E402
 import roots  # noqa: E402
@@ -592,6 +593,8 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {"upgrade": upgrade(request, me=me, **(ctx.get("upgrade_opts") or {}))}
     elif op == "secrets-sync":
         data = {"secrets-sync": secrets_sync(request, me=me, **(ctx.get("secrets_opts") or {}))}
+    elif op == "restart":
+        data = {"restart": restart(request, me=me, **(ctx.get("restart_opts") or {}))}
     elif op == "jobs-add":
         data = {"jobs-add": jobs_add(request, home=home, root=root, **(ctx.get("jobs_opts") or {}))}
     elif op == "pool-add":

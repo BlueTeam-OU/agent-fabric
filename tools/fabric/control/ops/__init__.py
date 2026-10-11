@@ -59,7 +59,7 @@ from .memory import MEMORY_PART_BYTES, memory_slug, memory_dirs, memory  # noqa:
 
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
        "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "tools-install", "local", "local-prune",
-       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install"]
+       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", "restart"]
 
 # Answered for any placed account, not only an operator: whether a session
 # is running is what every sender needs before it writes to one, and it
