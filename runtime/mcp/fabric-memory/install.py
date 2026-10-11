@@ -10,7 +10,7 @@ path. Every other key and server of the file is kept as read; the file is replac
 (0600 when it is created). An entry of that name whose command is not ours is the login's own and is left as it is.
 Prints one line in the installer's shape (+ = !) and exits 0.
 
-A file that is not JSON, or whose top level is not an object, is the login's to fix: one line on stderr, nothing
+A file that is not JSON, whose top level is not an object, or whose mcpServers is present and not an object, is the login's to fix: one line on stderr, nothing
 written, exit 1. Unlike the websearch-locale installer there is no `remove`: the server is for every login.
 """
 from __future__ import annotations
@@ -32,20 +32,32 @@ def load(path: str) -> dict:
         return {}
     if not isinstance(data, dict):
         raise ValueError("top level is not an object")
+    if "mcpServers" in data and not isinstance(data["mcpServers"], dict):
+        raise ValueError("mcpServers is not an object")     # replacing it would drop whatever the login put there
     return data
 
 
 def save(path: str, data: dict) -> None:
-    tmp = f"{path}.agent-fabric.tmp"
+    tmp = f"{path}.agent-fabric.{os.getpid()}.tmp"      # per process: two installs must not rename each other's half file
     try:
         mode = os.stat(path).st_mode & 0o777
     except FileNotFoundError:
         mode = 0o600   # holds the login's other servers' keys
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-    os.chmod(tmp, mode)
-    os.replace(tmp, path)
+    # Created 0600, never wider: the file holds the login's other servers' keys, and a umask-default create would
+    # expose them until the chmod below.
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def ours(entry: object) -> bool:
@@ -62,7 +74,7 @@ def main(argv: list[str]) -> int:
     try:
         data = load(path)
     except (ValueError, UnicodeDecodeError) as e:
-        print(f"  !  {path}: not a JSON object ({type(e).__name__}); left alone, nothing written", file=sys.stderr)
+        print(f"  !  {path}: unusable ({e or type(e).__name__}); left alone, nothing written", file=sys.stderr)
         return 1
     servers = data.get("mcpServers") if isinstance(data.get("mcpServers"), dict) else {}
     current = servers.get(NAME)

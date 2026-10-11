@@ -87,11 +87,41 @@ def main() -> int:
         check("--dry-run says what it would write and writes nothing", rc == 0 and "would write" in out and read(path) == {"mcpServers": {}}, out)
 
         print("malformed")
-        for label, doc in (("not JSON", "{not json"), ("a JSON list", "[1, 2]"), ("empty", "")):
+        for label, doc in (("not JSON", "{not json"), ("a JSON list", "[1, 2]"), ("empty", ""),
+                           ("mcpServers a list", '{"mcpServers": []}'), ("mcpServers a string", '{"mcpServers": "x"}'),
+                           ("mcpServers null", '{"mcpServers": null}')):
             path = config(doc)
             rc, out, err = run(path)
             check(f"{label}: exit 1, one line on stderr, the file untouched", rc == 1 and out == "" and err.count("\n") == 1
-                  and open(path, encoding="utf-8").read() == doc and not os.path.exists(path + ".agent-fabric.tmp"), f"{rc} {out!r} {err!r}")
+                  and open(path, encoding="utf-8").read() == doc and not [f for f in os.listdir(t) if f.endswith(".tmp")], f"{rc} {out!r} {err!r}")
+
+        print("the temporary file")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("fabric_memory_install", INSTALL)
+        inst = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(inst)
+        opened: list[tuple] = []
+        real_open = os.open
+
+        def spy(p, flags, mode=0o777, **kw):
+            opened.append((p, flags, mode))
+            return real_open(p, flags, mode, **kw)
+        path = os.path.join(t, "spy.json")
+        os.open = spy
+        try:
+            old_umask = os.umask(0)             # the widest umask: only the explicit 0600 can keep the file private
+            try:
+                inst.save(path, {"a": 1})
+            finally:
+                os.umask(old_umask)
+        finally:
+            os.open = real_open
+        want = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        check("the temp file is created with O_WRONLY|O_CREAT|O_TRUNC and mode 0600",
+              len(opened) == 1 and opened[0][1] == want and opened[0][2] == 0o600, str(opened))
+        check("...named with this process's pid, so a concurrent install has its own", f".{os.getpid()}." in opened[0][0], str(opened))
+        check("...and the result is private and the temp is gone", oct(os.stat(path).st_mode & 0o777) == "0o600"
+              and not [f for f in os.listdir(t) if f.endswith(".tmp")])
 
         print("usage")
         r = subprocess.run([sys.executable, "-I", INSTALL, os.path.join(t, "x.json"), "remove"], capture_output=True, text=True, timeout=60)
