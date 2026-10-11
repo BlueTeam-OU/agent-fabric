@@ -112,6 +112,7 @@ else:
 from control import gateway as gateway_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
 from control.jobs import jobs_add  # noqa: E402
+from control.branches_op import branches_sweep  # noqa: E402
 from control.local import local_prune  # noqa: E402
 from control.pool import POOL_FILE, pool_add, pool_claim, pool_holder, pool_list, role_from_stream  # noqa: E402
 from control.secrets import secrets_sync  # noqa: E402
@@ -607,6 +608,8 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {"gateway-install": gateway_mod.gateway_install(request, home=home, root=root, **(ctx.get("gateway_install_opts") or {}))}
     elif op == "local-prune":
         data = {"local-prune": local_prune(request, home=home, root=root)}
+    elif op == "branches-sweep":
+        data = {"branches-sweep": branches_sweep(request, home=home, root=root, **(ctx.get("branches_opts") or {}))}
     elif op == "secrets-selftest":
         data = {"secrets-selftest": secrets_selftest(request, home=home, root=root, **(ctx.get("selftest_opts") or {}))}
     else:
