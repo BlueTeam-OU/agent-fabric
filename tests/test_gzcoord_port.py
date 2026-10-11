@@ -685,7 +685,7 @@ def _():
     stub.close()   # nothing listens there now
     env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_UNTIL_DELIVERY_DOWN_S="1")
     env["CLAUDE_BRIDGE_URL"] = url
-    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=90)
+    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=20)   # under the 30 s retry sleep: the deadline is honoured
     eq(r.returncode, 5, r.stdout + r.stderr)
     ok(url in r.stdout, r.stdout)
 
@@ -756,7 +756,7 @@ def _():
     stub.close()
     env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_UNTIL_DELIVERY_DOWN_S="1")
     env["CLAUDE_BRIDGE_URL"] = url
-    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=90)
+    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=20)   # under the 30 s retry sleep: the deadline is honoured
     eq(r.returncode, 5, r.stdout + r.stderr)
     ok("the watch ended" in r.stdout and "waiting for it" not in r.stdout, r.stdout)
 
