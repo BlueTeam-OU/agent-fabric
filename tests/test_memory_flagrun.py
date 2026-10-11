@@ -199,6 +199,25 @@ class Phase(FlagRun):
         self.assertEqual([f.heading for f, _ in o.held], ["moved"])
         self.assertEqual(o.sent.keys() & {f"{HOST}/python-dev-02"}, set(), "the neighbour is not asked in its place")
 
+    def test_a_flag_whose_last_addressee_did_not_answer_the_jobs_query_is_held_too(self):
+        self.go(send=True)
+        self.fleet_files(jobs=[jobs("python-dev-01", [], answered=False), jobs("python-dev-02", []), jobs("rust-dev-01", [])],
+                         presence=[presence("python-dev-01", "python-dev", False), presence("python-dev-02", "python-dev", True),
+                                   presence("rust-dev-01", "rust-dev", False)])
+        o = self.go(send=True, now=NOW + 30 * DAY)
+        self.assertEqual(([f.heading for f, _ in o.held], list(o.sent)), (["moved"], [f"{HOST}/rust-dev-01"]))
+
+    def test_a_request_that_went_out_but_could_not_be_recorded_says_so_with_its_id(self):
+        real = fr.memory_flags.append_ledger
+        def full(*a, **k):
+            raise OSError(28, "No space left on device")
+        fr.memory_flags.append_ledger = full
+        self.addCleanup(setattr, fr.memory_flags, "append_ledger", real)
+        o = self.go(send=True)
+        self.assertTrue(o.failed and not o.sent)
+        self.assertRegex(o.unsent[f"{HOST}/python-dev-01"], r"^sent as [0-9a-f-]{36} but not recorded in the ledger \(No space left on device\); the next run sends it again$")
+        self.assertEqual(len(self.sent()), 2, "they did go out")
+
     def test_a_role_with_no_answering_holder_is_unknown_when_an_account_was_silent(self):
         self.fleet_files(presence=[presence("python-dev-01", "python-dev", True), {"account": "rust-dev-01", "host": HOST, "status": "failed"}])
         o = self.go(send=False)

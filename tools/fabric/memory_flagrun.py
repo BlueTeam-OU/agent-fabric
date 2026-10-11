@@ -185,7 +185,7 @@ def ledger_path() -> str:
 
 
 def send_request(send: list[str], text: str, timeout: float = SEND_TIMEOUT_S) -> tuple[int, str]:
-    """(gzcoord-send's exit status, its first stderr line). The message goes through a private file, never argv."""
+    """(gzcoord-send's exit status, its last stderr line). The message goes through a private file, never argv."""
     with tempfile.TemporaryDirectory(prefix="memory-flags.", dir=_scratch_base()) as d:
         path = os.path.join(d, "request.txt")
         with open(path, "w", encoding="utf-8") as fh:
@@ -196,7 +196,7 @@ def send_request(send: list[str], text: str, timeout: float = SEND_TIMEOUT_S) ->
             return 124, f"gzcoord-send did not answer within {timeout:g} s"
         except OSError as e:
             return 127, f"gzcoord-send could not run ({e.strerror or e})"
-    # The last line: gzcoord-send's warnings and presence lines come before the refusal itself.
+    # gzcoord-send's warnings and presence lines come before the refusal itself.
     said = (r.stderr or r.stdout or "").strip().splitlines()
     return r.returncode, memory_flags.one_line(said[-1] if said else "", 200)
 
@@ -234,7 +234,7 @@ def execute(flags: list[memory_flags.Flag], sources: dict, writers: dict, fleet:
     for f in flags:
         writer = (writers.get(f.report_key) or {}).get("agent")
         prior = sent.get(f.key, {}).get("to")
-        if writer in silent_logins or (prior and prior in fleet.silent):
+        if writer in silent_logins or (prior and (prior in fleet.silent or fleet.open_jobs.get(prior, ()) is None)):
             held.append((f, "the account that last wrote it or was last asked about it did not answer"))
         else:
             routable.append(f)
@@ -253,13 +253,19 @@ def execute(flags: list[memory_flags.Flag], sources: dict, writers: dict, fleet:
         try:
             text, mid = memory_flags.render_request(address, batch, sender, sender_role, project, taxonomy=taxonomy)
             rc, why = send_request(send, text)
-            if rc == 0:
-                memory_flags.append_ledger(ledger, batch, address, mid, at)
-                out.sent[address] = mid
-                continue
-        except (ValueError, OSError) as e:      # one agent's REQUEST that cannot be made or recorded does not stop the others
+        except (ValueError, OSError) as e:      # one agent's REQUEST that cannot be made does not stop the others
             out.unsent[address] = f"{type(e).__name__}: {memory_flags.one_line(e, 200)}"
             out.failed = True
+            continue
+        if rc == 0:
+            try:
+                memory_flags.append_ledger(ledger, batch, address, mid, at)
+            except OSError as e:
+                # It went out: the next run sends these flags again, and this is how that duplicate is recognised.
+                out.unsent[address] = f"sent as {mid} but not recorded in the ledger ({e.strerror or e}); the next run sends it again"
+                out.failed = True
+            else:
+                out.sent[address] = mid
             continue
         if rc == NO_SESSION_EXIT:
             out.unsent[address] = "no session running; tried again by the next run"
