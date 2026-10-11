@@ -38,11 +38,15 @@ def contents(doc) -> dict:
 class Api:
     """A fake gh.api: answers by path, records every path it was asked, raises what it is told to."""
 
-    def __init__(self, answer=None, error: gh.GhError | None = None):
-        self.answer, self.error, self.asked = answer, error, []
+    def __init__(self, answer=None, error: gh.GhError | None = None, repo_error: gh.GhError | None = None):
+        self.answer, self.error, self.repo_error, self.asked = answer, error, repo_error, []
 
     def __call__(self, path, **kw):
         self.asked.append(path)
+        if path.count("/") == 2 and path.startswith("repos/"):     # the settings repository itself
+            if self.repo_error:
+                raise self.repo_error
+            return {"full_name": path[len("repos/"):]}
         if self.error:
             raise self.error
         return self.answer
@@ -150,8 +154,15 @@ class Load(Scratch):
         self.assertEqual(api.asked, ["repos/o/settings/contents/repos/o/r.json"])
         self.assertEqual(p["commits"]["min"], 2)
 
-    def test_no_file_for_the_repository_is_the_fleet_policy(self):
-        self.assertEqual(self.load(Api(error=ghe(404, "Not Found"))), arm_policy.default())
+    def test_no_file_for_the_repository_is_the_fleet_policy_when_the_settings_repository_answers(self):
+        api = Api(error=ghe(404, "Not Found"))
+        self.assertEqual(self.load(api), arm_policy.default())
+        self.assertEqual(api.asked, ["repos/o/settings/contents/repos/o/r.json", "repos/o/settings"])
+
+    def test_a_404_with_the_settings_repository_unreadable_is_not_an_absence(self):
+        for e in (ghe(404, "Not Found"), ghe(403), ghe(None, "i/o timeout")):
+            with self.assertRaises(arm_policy.PolicyUnavailable, msg=repr(e.status)):
+                self.load(Api(error=ghe(404, "Not Found"), repo_error=e))
 
     def test_a_failure_that_is_not_an_absence_is_unavailable_never_the_default(self):
         for e in (ghe(500), ghe(403), ghe(401), ghe(None, "i/o timeout"), ghe(422)):
@@ -312,6 +323,58 @@ class PrGate(unittest.TestCase):
         self.assertNotIn("arm: post", text)
 
 
+class PrGateRun(unittest.TestCase):
+    """pr_gate.run() in process, with what it reads replaced: it loads the repository's policy and its verdict says
+    the policy's numbers, or that the policy could not be read."""
+    HEAD = "abcdef1234567890abcdef1234567890abcdef12"
+
+    def rows(self, policy_load, work=5):
+        pr = {"number": 7, "title": "t", "headRefName": "h/me/feat/x", "headRefOid": self.HEAD, "baseRefName": "main", "state": "OPEN",
+              "isDraft": False, "body": ""}
+        commits = {"work": work, "fix": 0, "merge": 0, "netted": 0, "fix_subjects": [], "netted_subjects": []}
+        st = {"mergeable": "MERGEABLE", "checks": "green", "unresolved": "0", "armed": "no", "queue": "", "mstate": "CLEAN"}
+        out = io.StringIO()
+        with contextlib.ExitStack() as es:
+            es.enter_context(mock.patch.object(pr_gate.shutil, "which", return_value="/bin/x"))
+            es.enter_context(mock.patch.object(pr_gate.gh, "this_repo", return_value="o/r"))
+            es.enter_context(mock.patch.object(pr_gate.gh, "run", return_value=json.dumps(pr)))
+            es.enter_context(mock.patch.object(pr_gate, "session_prefix", return_value="h/me"))
+            es.enter_context(mock.patch.object(pr_gate, "succeeds", return_value=True))
+            es.enter_context(mock.patch.object(pr_gate, "review_reader", return_value=None))
+            es.enter_context(mock.patch.object(pr_gate, "count_commits", return_value=commits))
+            es.enter_context(mock.patch.object(pr_gate, "gate_state", return_value=st))
+            es.enter_context(mock.patch.object(pr_gate, "review_of_head", return_value="head reviewed"))
+            es.enter_context(mock.patch.object(pr_gate.arm_policy, "load", policy_load))
+            es.enter_context(contextlib.redirect_stdout(out))
+            self.assertEqual(pr_gate.run(["--json", "7"]), 0)
+        return json.loads(out.getvalue())
+
+    def test_the_verdict_says_the_numbers_of_the_policy_loaded_for_the_repository(self):
+        asked = []
+
+        def load(repo, **kw):
+            asked.append(repo)
+            return arm_policy.validate({"commits": {"min": 3, "advice_over": 4}})
+        row = self.rows(load, work=5)[0]
+        self.assertEqual(asked, ["o/r"])
+        self.assertIn("5 work commits, over 4", row["verdict"])
+        self.assertIn("arm: post the basis (5", self.rows(lambda r, **k: arm_policy.validate({"commits": {"min": 3, "advice_over": 9}}))[0]["verdict"])
+
+    def test_the_default_is_the_verdict_before_the_policy(self):
+        self.assertIn("ask the owner (5 work commits < 8)", self.rows(lambda r, **k: arm_policy.default())[0]["verdict"])
+
+    def test_an_unreadable_policy_is_said_in_the_verdict_and_stops_nothing_else(self):
+        def load(repo, **kw):
+            raise arm_policy.PolicyUnavailable("o/settings repos/o/r.json could not be read (HTTP 500)")
+        row = self.rows(load)[0]
+        self.assertIn("the arming policy cannot be read (o/settings repos/o/r.json could not be read (HTTP 500))", row["verdict"])
+        self.assertEqual((row["work_commits"], row["checks"]), (5, "green"))
+
+        def bad(repo, **kw):
+            raise arm_policy.PolicyError("o/settings repos/o/r.json: unknown key(s) colour")
+        self.assertIn("unknown key(s) colour", self.rows(bad)[0]["verdict"])
+
+
 class ArmCountRule(unittest.TestCase):
     """arm.arm() in process, with everything it reads replaced: the count rule's numbers are the policy's."""
     HEAD = "abcdef1234567890abcdef1234567890abcdef12"
@@ -385,6 +448,34 @@ class ArmCountRule(unittest.TestCase):
         self.assertIn("the class docs arms at 3 or more", str(rc))
         rc, out = self.run_arm(p, 2, body=body, classes={"docs": r"\.md$"}, basis="the owner's word")
         self.assertEqual(rc, 0, out)
+
+    def test_a_class_with_a_minimum_of_one_has_no_lower_bound_a_zero_work_pull_request_still_arms(self):
+        for p in (arm_policy.default(), arm_policy.validate({"classes": {"docs": {"paths": r"\.md$", "min": 1}}})):
+            rc, out = self.run_arm(p, 0, body="Class: docs", classes={"docs": r"\.md$"})
+            self.assertEqual(rc, 0, out)
+            self.assertIn("under 8, arms at the gate as docs", out)
+
+    def test_the_policys_class_is_applied_whole_its_regex_as_well_as_its_minimum(self):
+        p = arm_policy.validate({"classes": {"docs": {"paths": r"^docs/", "min": 3}}})
+        rc, _ = self.run_arm(p, 3, files=("src/x.py",), body="Class: docs", classes={"docs": r"."})
+        self.assertIn("the changed files are not that class", str(rc))
+        rc, out = self.run_arm(p, 3, files=("docs/x.md",), body="Class: docs", classes={"docs": r"."})
+        self.assertEqual(rc, 0, out)
+
+    def test_a_class_only_the_policy_has_can_be_stated(self):
+        p = arm_policy.validate({"classes": {"web": {"paths": r"^web/", "min": 2}}})
+        rc, out = self.run_arm(p, 2, files=("web/a.ts",), body="Class: web")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("class stated and confirmed by the files: web", out)
+        rc, _ = self.run_arm(p, 1, files=("web/a.ts",), body="Class: web")
+        self.assertIn("the class web arms at 2 or more", str(rc))
+
+    def test_a_class_above_the_repositorys_minimum_is_said_as_the_owners_word_not_as_the_gate(self):
+        p = arm_policy.validate({"commits": {"min": 8}, "classes": {"big": {"paths": r"^x/", "min": 10}}})
+        rc, out = self.run_arm(p, 9, files=("x/a",), body="Class: big", basis="the owner's word")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("count rule: 9 work commits — under 10, on the owner's word", out)
+        self.assertNotIn("arms at the review gate", out)
 
     def test_an_arm_json_class_arms_at_one_as_before_and_a_boundary_is_not_lowered_by_it(self):
         p = arm_policy.default()

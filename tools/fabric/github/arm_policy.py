@@ -244,9 +244,15 @@ def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api
         # No `ref`: the contents API reads the default branch, which is the point.
         answer = api(f"repos/{settings}/contents/repos/{repo}.json")
     except gh.GhError as e:
-        if e.status == 404:
-            return None
-        raise PolicyUnavailable(f"{where} could not be read ({e.reason})") from None
+        if e.status != 404:
+            raise PolicyUnavailable(f"{where} could not be read ({e.reason})") from None
+        # A 404 is also what a token that cannot see a private repository, or a repository that is not there,
+        # gets: the file is absent only if the repository itself answers.
+        try:
+            api(f"repos/{settings}")
+        except gh.GhError as e2:
+            raise PolicyUnavailable(f"{settings} cannot be read ({e2.reason}); {where} is not known to be absent") from None
+        return None
     try:
         if not isinstance(answer, dict) or answer.get("type") != "file" or answer.get("encoding") != "base64":
             raise ValueError("not a file")
