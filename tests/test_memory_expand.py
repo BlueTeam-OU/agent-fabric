@@ -125,9 +125,12 @@ def main() -> int:
     check("…the neighbours cost no more than the allowance, whatever the budget", sum(max(1, round(len(ln) * tools.TOKENS_PER_CHAR)) for ln in text1.splitlines() if "linked to" in ln) <= tools.NEIGHBOUR_TOKENS)
     check("a tight budget keeps the same hits with expand, in the same order", [ln for ln in tight1.splitlines() if "linked to" not in ln] == tight0.splitlines(), (tight0, tight1))
     real_strong = mi.STRONG_SCORE
-    mi.STRONG_SCORE = 0.5
+    mi.STRONG_SCORE = 0.05
     try:
-        for_allowance = [section("many-seed", "marigold", heading="marigold seed", topic="s")] + many[1:]
+        seeds = [section(f"marigold-seed-{k}", "marigold", heading=f"marigold seed {k}", topic=f"s{k}") for k in range(3)]
+        citers = [section(f"a-fairly-long-slice-name-for-a-citer-number-{k}-{n}", f"[[marigold-seed-{k}]]", heading="a heading long enough to be clipped at sixty characters, " * 2,
+                          topic=f"m{k}{n}") for k in range(3) for n in range(2)]
+        for_allowance = seeds + citers
         allowed, _ = tools.find(index_of(*for_allowance), tools.Session(), {"query": "marigold", "expand": 1})
     finally:
         mi.STRONG_SCORE = real_strong
