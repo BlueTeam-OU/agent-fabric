@@ -62,9 +62,11 @@ class HintUnavailable(Exception):
 
 
 def scratch_dir() -> "tempfile.TemporaryDirectory[str]":
-    """A fresh private directory to run the call in, under this agent's own state directory when it exists, else the
-    temporary one (TMPDIR, which a launched session points at a directory of its own). Never a shared /tmp itself:
-    a CLAUDE.md or a .claude/settings.json planted there by another login would reach the call."""
+    """A fresh private directory (0700) to run the call in, under this agent's own state directory when it exists, else
+    under the temporary one (TMPDIR, which a launched session points at a directory of its own). The directory itself
+    is never shared, so nobody else can plant a file in it. The parents of the fallback are not this module's to make
+    private: with no state directory and no TMPDIR they are the system /tmp, whose own CLAUDE.md, if another login
+    wrote one, Claude Code's upward lookup could read. A launched session has both, so the drain is not exposed."""
     try:
         base = identity.agent_state_dir()
         base = base if os.path.isdir(base) else None
@@ -101,8 +103,8 @@ def ask(body: str, *, run: Callable[..., Any] = subprocess.run, argv: list[str] 
     hands in a fake of it; the body goes on stdin."""
     argv = argv or ARGV
     try:
-        # cwd: a fresh private directory, so no CLAUDE.md or project setting of the drain's working copy (or of a
-        # shared /tmp) loads.
+        # cwd: a fresh private directory, so no CLAUDE.md or project setting of the drain's working copy loads (see
+        # scratch_dir for what its fallback does not cover).
         with scratch_dir() as cwd:
             r = run(argv, input=body, capture_output=True, text=True, timeout=timeout, check=False, errors="replace", cwd=cwd)
     except FileNotFoundError:
