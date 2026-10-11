@@ -340,10 +340,17 @@ def authority_role_checked(role: str | None, repo: str) -> str:
     return role
 
 
-def holders_running(role: str) -> tuple[list[str], str]:
-    """(logins whose presence reports `role` with a session running now, "") or ([], why they could not be read).
-    The fabric keeps no list of which login holds a role (an account's binding is its own state), so an account
-    with no session running is not found here."""
+def author_of(branch: str) -> str:
+    """The login a pull request's branch is named for (<host>/<login>/<what>), or "" when it is not so named."""
+    m = re.fullmatch(r"[a-z0-9._-]+/([a-z0-9._-]+)/.+", branch)
+    return m.group(1) if m else ""
+
+
+def holders_running(role: str) -> tuple[list[str], list[str], str]:
+    """(logins whose presence reports `role` with a session running now, accounts that did not answer, "") or
+    ([], [], why the fleet could not be read). The fabric keeps no list of which login holds a role (an account's
+    binding is its own state), so an account with no session running is not found here, and one that did not
+    answer may be the holder."""
     rc, out = run_reader(program("AGENT_FABRIC_CTL", os.path.join(FABRIC, "bin", "fabric-ctl")), ["all", "presence", "--json"], timeout=120)
     rows = []
     for line in out.splitlines():
@@ -354,25 +361,47 @@ def holders_running(role: str) -> tuple[list[str], str]:
         if isinstance(row, dict) and isinstance(row.get("account"), str):
             rows.append(row)
     if not rows:
-        return [], f"fabric-ctl all presence exit {rc}"
-    running = sorted(r["account"] for r in rows
-                     if isinstance(r.get("presence"), dict) and r["presence"].get("status") == "ok"
-                     and r["presence"].get("online") is True and r["presence"].get("role") == role)
-    return running, ""
+        return [], [], f"fabric-ctl all presence exit {rc}"
+    running, silent = [], []
+    for r in rows:
+        p = r.get("presence")
+        if r.get("status") != "ok" or not isinstance(p, dict) or p.get("status") != "ok":
+            silent.append(r["account"])
+        elif p.get("online") is True and p.get("role") == role:
+            running.append(r["account"])
+    return sorted(running), sorted(silent), ""
 
 
-def ask_a_holder(role: str, field: str, repo: str, num: str, head: str, option: str) -> str:
+def ask_a_holder(role: str, field: str, repo: str, num: str, head: str, option: str, exclude: tuple = ()) -> str:
     """Who to ask for what a message can give, and the line to ask for: a refusal that a role's holder could lift
-    says so (the owner, 2026-10-11)."""
-    running, why = holders_running(role)
-    who = (f"a {role} holder with a session running now ({', '.join(running)})" if running else
-           f"a {role} holder (none has a session running now, and the fabric keeps no list of an offline account's role: "
-           f"fabric-coordinator knows who holds it)" if not why else f"a {role} holder (who holds it could not be read: {why})")
+    says so (the owner, 2026-10-11). `exclude` are logins whose message would be refused (the arming login, the
+    pull request's author): they are not named."""
+    running, silent, why = holders_running(role)
+    others = [a for a in running if a not in exclude]
+    refused = len(others) != len(running)
+    running = others
+    article = "an" if role[:1] in "aeiou" else "a"
+    unanswered = f"; {', '.join(silent)} did not answer and may hold it" if silent else ""
+    if why:
+        who = f"{article} {role} holder (who holds it could not be read: {why})"
+    elif running:
+        who = f"{article} {role} holder with a session running now ({', '.join(running)}){unanswered}"
+    else:
+        who = (f"{article} {role} holder (no {'other ' if refused else ''}holder has a session running now, and the fabric keeps no list of an offline"
+               f" account's role: fabric-coordinator knows who holds it{unanswered})")
     return (f"ask {who} to send you, TO this session, a DECISION or REPLY carrying `{field}: {repo}#{num}@{head[:8]}`, then"
             f" give its id with {option} <id>")
 
 
 OWNER_WORD = "ask the owner: their word (\"arm <n>\", relayed to you) goes in the basis as \"the owner's word\""
+
+
+def authority_known(role: str) -> bool:
+    """Whether the policy's boundary_authority is a role of the catalogue (False when the catalogue cannot be read)."""
+    try:
+        return bool(SLUG.fullmatch(role)) and role in catalogue_roles("boundary_authority")
+    except Unanswered:
+        return False
 
 
 def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: str, refuse, *, word: str, field: str,
@@ -388,7 +417,7 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
 
     def deny(why: str):
         """The refusal, with whom to ask for a message that would hold."""
-        return refuse(f"{why} — {ask_a_holder(role, field, repo, num, head, option)}")
+        return refuse(f"{why} — {ask_a_holder(role, field, repo, num, head, option, (session.split('/')[-1], author))}")
     rc, out = run_reader(program("AGENT_FABRIC_GZCOORD_INBOX",
                                  os.path.join(FABRIC, "bin", "gzcoord-inbox")),
                          ["--replay", ref, "--json"], timeout=120)
@@ -702,14 +731,19 @@ def arm(argv: list[str]) -> int:
         if not authorization:
             raise refuse(f"{work} work commits — a security-boundary change under {floor} arms only on the owner's word as well"
                          f" as the review, whatever class is stated; the basis does not carry the phrase \"owner's word\" — "
-                         + (ask_a_holder(authority, "AUTHORIZES", repo, num, head, "--authorization") + ", or " + OWNER_WORD
-                            if authority else OWNER_WORD))
+                         + (ask_a_holder(authority, "AUTHORIZES", repo, num, head, "--authorization", (session.split("/")[-1], author_of(branch)))
+                            + ", or " + OWNER_WORD if authority and authority_known(authority) else
+                            f"the policy names the boundary_authority {authority!r}, which is not a role of identities/roles/catalog.json: "
+                            + OWNER_WORD if authority else OWNER_WORD))
         # The owner's word, in the owner's place: the holder of the policy's boundary_authority role says so, for this
         # PR and this head, to this session. The review gate above still stood; it is not this message's to lift.
         if not authority:
             raise refuse(f"{repo}'s arming policy names no boundary_authority: only the owner's word arms a security-boundary"
                          f" change under {floor}, and the authorization {authorization} is nobody's to give — {OWNER_WORD}")
-        author = branch.split("/")[1] if branch.count("/") >= 2 else ""
+        author = author_of(branch)
+        if not author:
+            raise refuse(f"the pull request's author cannot be told from its branch {branch} (it is not <host>/<login>/…), so an"
+                         f" authorization cannot be checked as another login's — {OWNER_WORD}")
         login, mid = verify_grant(authorization, num, repo, head, session, authority_role_checked(authority, repo), refuse,
                                   word="authorization", field="AUTHORIZES", author=author)
         authorized_by = f"Boundary count gate authorized by {login}, {authority} ({mid})."

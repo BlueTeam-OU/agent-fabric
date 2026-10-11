@@ -581,6 +581,11 @@ def fleet_of(*rows):
                         for login, role, online in rows)
 
 
+def silent(login: str) -> str:
+    """A row `fabric-ctl all presence --json` prints for an account that did not answer."""
+    return json.dumps({"account": login, "host": "h", "status": "no answer", "presence": None})
+
+
 def presence_of(role="architect-cto", login="arch", host="h", status="ok"):
     return 0, json.dumps({"account": login, "host": host, "status": status, "presence": {"status": "ok", "role": role}})
 
@@ -860,7 +865,7 @@ class ArmRun(unittest.TestCase):
     def test_a_boundary_refusal_names_the_authority_the_holders_running_now_and_the_line_to_ask_for(self):
         policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
         text = self.refusal(policy, fleet=fleet_of(("arch1", "architect-cto", True), ("arch2", "architect-cto", True), ("dev", "web-dev", True)))
-        self.assertIn("ask a architect-cto holder with a session running now (arch1, arch2)", text)
+        self.assertIn("ask an architect-cto holder with a session running now (arch1, arch2)", text)
         self.assertIn(f"`AUTHORIZES: O/R#7@{self.HEAD[:8]}`", text)
         self.assertIn("--authorization <id>", text)
         self.assertNotIn("dev", text.split("running now")[1].split(")")[0])
@@ -869,9 +874,49 @@ class ArmRun(unittest.TestCase):
     def test_with_no_holder_running_the_refusal_says_so_and_who_knows(self):
         policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
         text = self.refusal(policy, fleet=fleet_of(("dev", "web-dev", True), ("arch1", "architect-cto", False)))
-        self.assertIn("none has a session running now", text)
+        self.assertIn("no holder has a session running now", text)
         self.assertIn("fabric-coordinator knows who holds it", text)
         self.assertNotIn("(arch1", text)
+
+    def test_a_fleet_read_in_part_does_not_say_no_holder_is_running_and_names_who_did_not_answer(self):
+        policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
+        rc, text = fleet_of(("dev", "web-dev", True))
+        partial = (1, text + "\n" + silent("arch1"))
+        said = self.refusal(policy, fleet=partial)
+        self.assertIn("arch1 did not answer and may hold it", said)
+        self.assertIn("no holder has a session running now", said)
+        rc, text = fleet_of(("arch2", "architect-cto", True))
+        said = self.refusal(policy, fleet=(1, text + "\n" + silent("arch1")))
+        self.assertIn("with a session running now (arch2); arch1 did not answer and may hold it", said)
+
+    def test_the_login_just_refused_is_not_named_as_someone_to_ask(self):
+        policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
+        fleet = fleet_of(("arch", "architect-cto", True), ("arch2", "architect-cto", True), ("me", "architect-cto", True))
+        text = self.refusal(policy, branch="h/arch/feat/x", extra=("--any-owner", *self.AUTH), replay=grant(sender="h/arch"), presence=presence_of(), fleet=fleet)
+        self.assertIn("the pull request's own author", text)
+        self.assertIn("session running now (arch2)", text)
+        text = self.refusal(policy, extra=(*self.AUTH,), replay=grant(sender="h/me"), presence=presence_of(), fleet=fleet)
+        self.assertIn("the login arming", text)
+        self.assertIn("session running now (arch, arch2)", text)
+        only = fleet_of(("arch", "architect-cto", True))
+        text = self.refusal(policy, branch="h/arch/feat/x", extra=("--any-owner", *self.AUTH), replay=grant(sender="h/arch"), presence=presence_of(), fleet=only)
+        self.assertIn("no other holder has a session running now", text)
+
+    def test_a_boundary_authority_the_catalogue_does_not_hold_is_not_offered_as_someone_to_ask(self):
+        policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "no-such-role"}})
+        text = self.refusal(policy, fleet=fleet_of(("x", "no-such-role", True)))
+        self.assertIn("the policy names the boundary_authority 'no-such-role', which is not a role of identities/roles/catalog.json", text)
+        self.assertIn("ask the owner", text)
+        self.assertNotIn("holder", text)
+        self.assertEqual([r for r in self.reads if r[0] == "fleet"], [])
+
+    def test_an_authorization_for_a_branch_not_named_for_its_author_is_refused_not_unchecked(self):
+        policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
+        for branch in ("fix-x", "x/y", "UPPER/Case/x"):
+            text = self.refusal(policy, branch=branch, extra=("--any-owner", *self.AUTH), replay=grant(), presence=presence_of())
+            self.assertIn("the pull request's author cannot be told from its branch", text, branch)
+            self.assertEqual(self.reads, [], branch)
+        self.assertEqual((arm.author_of("h/me/feat/x"), arm.author_of("h/me/a/b")), ("me", "me"))
 
     def test_with_the_fleet_unreadable_the_refusal_says_so(self):
         policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
@@ -897,14 +942,14 @@ class ArmRun(unittest.TestCase):
         text = self.refusal(policy, extra=(*self.AUTH,), replay=grant(target="O/R#7@0123456789ab"), presence=presence_of(),
                             fleet=fleet_of(("arch1", "architect-cto", True)))
         self.assertIn("head 0123456789ab", text)
-        self.assertIn("ask a architect-cto holder with a session running now (arch1)", text)
+        self.assertIn("ask an architect-cto holder with a session running now (arch1)", text)
         self.assertIn(f"`AUTHORIZES: O/R#7@{self.HEAD[:8]}`", text)
 
     def test_a_rejected_waiver_says_the_waiver_role_its_holders_and_the_waives_line(self):
         text = self.refusal(arm_policy.validate({"commits": {"min": 1}}), extra=("--no-boundary", "why", "--waiver", "w-1"), waiver_role="architect-cto",
                             replay=grant(field="WAIVES"), presence=presence_of(role="web-dev"), fleet=fleet_of(("arch1", "architect-cto", True)))
         self.assertIn("who holds web-dev, not architect-cto", text)
-        self.assertIn("ask a architect-cto holder with a session running now (arch1)", text)
+        self.assertIn("ask an architect-cto holder with a session running now (arch1)", text)
         self.assertIn(f"`WAIVES: O/R#7@{self.HEAD[:8]}`", text)
         self.assertIn("--waiver <id>", text)
 
