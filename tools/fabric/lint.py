@@ -812,7 +812,7 @@ def main() -> int:
                             "fold it back into its single owner")
 
     # --- staleness (ADR-050 rule 2): warnings, never findings -----------------
-    staleness_warnings(os.path.join(layout.FABRIC_ROOT, "memory"), "memory")
+    staleness_warnings(roots.memory_dir(engine=root), "memory")
 
     # --- launch prompt sections --------------------------------------------
     findings += prompt_template_findings()
