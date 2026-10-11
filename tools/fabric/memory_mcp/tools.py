@@ -12,8 +12,10 @@ from memory_mcp import marks
 
 DEFAULT_LIMIT, MAX_LIMIT = 8, 20
 FIND_TOKENS, READ_TOKENS, MAX_TOKENS = 200, 1500, 8000
-MIN_TOKENS = 100        # a reply smaller than this cannot hold one hit line (a clipped heading and a long id, ~65 tokens), the weak notice and the tail
+MIN_TOKENS = 100        # a reply smaller than this cannot hold one hit line (a clipped heading and an id, ~65 tokens), the weak notice and the tail. The
+                        # floor is measured on an id of 100 characters (tests/test_memory_mcp.py; the corpus's longest was 88 on 2026-10-11): ids past ~165 would not fit
 RELATED = 2
+NEIGHBOUR_TOKENS = 130     # what `expand: 1` may add to a find, on top of max_tokens: about two lines
 MAX_TRY_WORDS, MAX_TRY_LEN = 8, 40
 WEAK_NOTICE = "weak match: read only if the cue fits"
 TAIL_TOKENS = 15       # the "+N more" line: counted in the budget, or a reply of the budget's size overruns it
@@ -98,6 +100,14 @@ def _hit_line(hit: mi.Hit) -> str:
     return line + (f" | {DECAY}" if s.kind == "solution" else "")
 
 
+def _neighbour_line(n: mi.Neighbour) -> str:
+    """Not a match: a section linked to a hit (they share a key), so no score and no band; the line says to which and by what."""
+    s = n.section
+    kinds = ",".join(sorted({v.partition(":")[0] for v in n.via}))
+    line = f"{section_id(s)} | {clip(s.heading, HEADING_CLIP)} | {s.kind} | {s.observed or '-'} | {s.scope} | ~{s.tokens}t | linked to {section_id(n.seed)} by {kinds}"
+    return line + (f" | {DECAY}" if s.kind == "solution" else "")
+
+
 def _try(index: Index, query: str) -> str:
     """What a query that found nothing is pointed at: the cue words nearest to its own, else the most used ones."""
     vocab = index.vocabulary()
@@ -117,6 +127,7 @@ def find(index: Index, session: Session, args: dict) -> tuple[str, list[str]]:
     project = _text(args.get("project"), "project") or session.project
     limit = _int(args.get("limit"), "limit", DEFAULT_LIMIT, 1, MAX_LIMIT)
     budget = _int(args.get("max_tokens"), "max_tokens", FIND_TOKENS, MIN_TOKENS, MAX_TOKENS)
+    expand = _int(args.get("expand"), "expand", 0, 0, 1)
     hits = index.find(query, role, project)
     if not hits:
         return _try(index, query), []
@@ -133,12 +144,25 @@ def find(index: Index, session: Session, args: dict) -> tuple[str, list[str]]:
     lines = [_hit_line(h) for h in shown]
     if shown[0].band != "strong":
         lines.insert(0, WEAK_NOTICE)
+    # An opt-in expansion (a spike, measured in tests/memory_expand_measure.py): the sections linked to the strong hits, after the
+    # hits and never in place of one, in an allowance of their own: the budget is spent on hits first (the default 200 tokens holds
+    # three lines), so neighbours inside it would never show.
+    linked: list[mi.Neighbour] = []
+    if expand:
+        room = NEIGHBOUR_TOKENS
+        for n in index.neighbours(shown):
+            cost = _cost(_neighbour_line(n))
+            if cost > room:
+                break
+            linked.append(n)
+            room -= cost
+        lines.extend(_neighbour_line(n) for n in linked)
     if rest:
         scopes: dict[str, int] = {}
         for h in rest:
             scopes[h.section.scope] = scopes.get(h.section.scope, 0) + 1
         lines.append(f"+{len(rest)} more: " + ", ".join(f"{scope} {n}" for scope, n in sorted(scopes.items())))
-    ids = [section_id(h.section) for h in shown]
+    ids = [section_id(h.section) for h in shown] + [section_id(n.section) for n in linked]
     session.shown.update(ids)
     return "\n".join(lines), ids
 
@@ -244,7 +268,10 @@ TOOLS = {
                           "Ask before changing something the fleet may already know.",
                     {"query": {"type": "string"}, "role": {"type": "string"}, "project": {"type": "string"},
                      "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
-                     "max_tokens": {"type": "integer", "minimum": MIN_TOKENS, "maximum": MAX_TOKENS}}, ["query"]),
+                     "max_tokens": {"type": "integer", "minimum": MIN_TOKENS, "maximum": MAX_TOKENS},
+                     "expand": {"type": "integer", "minimum": 0, "maximum": 1,
+                                "description": "1 adds, after the hits, the sections linked to the strong ones (a shared path, a [[link]]); default 0"}},
+                    ["query"]),
     "memory_read": (read, "Sections by id (from memory_find), each with its provenance and its related slices' cue lines, cut at "
                           "max_tokens; a slice id alone lists its sections.",
                     {"ids": {"type": "array", "items": {"type": "string"}}, "max_tokens": {"type": "integer", "minimum": MIN_TOKENS,

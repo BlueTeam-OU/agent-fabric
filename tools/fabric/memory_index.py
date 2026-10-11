@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import committed_tree  # noqa: E402
-from assembler.slices import OBSERVED_RE, parse_slice  # noqa: E402
+from assembler.slices import OBSERVED_RE, anchors_of, parse_slice  # noqa: E402
 
 K1, B = 1.5, 0.75
 WORD = re.compile(r"[a-z0-9_]+")
@@ -108,6 +108,14 @@ TIE_MARGIN, TIE_COVERAGE = 1.01, 0.75
 
 
 @dataclass(frozen=True)
+class Neighbour:
+    section: Section
+    seed: Section                # the hit it is linked to
+    via: tuple[str, ...]         # the keys they share
+    score: float
+
+
+@dataclass(frozen=True)
 class Hit:
     section: Section
     score: float
@@ -119,6 +127,40 @@ def band(score: float, coverage: float, margin: float) -> str:
     if score >= STRONG_SCORE and coverage >= STRONG_COVERAGE and (margin >= TIE_MARGIN or coverage >= TIE_COVERAGE):
         return "strong"
     return "weak" if coverage >= WEAK_COVERAGE else "none"
+
+
+# Linked sections (a spike, ADR-049 follow-up): two sections are linked when they share what they are about without sharing
+# words. A section carries a few normalised keys: path:<p> for a path it is anchored to or cites in backticks, symbol:<name>
+# for the part after :: of an anchor, link:<name> for each [[name]] it links, name:<name> for its own slice's file name (as the
+# memory it was drained from was called), topic:<role>/<topic>. The edges are of five kinds: "direct" (one links the memory the
+# other is named for), "cocite" (both link the same third), "path", "symbol" and "topic" (the same key held). A key held by
+# more than KEY_DF_CAP sections links everything to everything and gives no edge.
+KEY_DF_CAP = 8
+PATH_EXT = r"(?:py|sh|md|json|mjs|js|ts|yml|yaml|toml|txt|cfg|ini|service|timer)"
+CITED_PATH = re.compile(rf"`([A-Za-z0-9_.][A-Za-z0-9_./-]*/[A-Za-z0-9_.-]+\.{PATH_EXT})(?:::[^`]*|:\d+)?`")
+LINK = re.compile(r"\[\[([A-Za-z0-9][A-Za-z0-9._-]*)\]\]")
+CLASS_PREFIX = re.compile(r"^(?:workflow|solution|domain|intersection|rationale|threads)-")
+KEY_KINDS = ("direct", "cocite", "path", "symbol", "topic")
+EDGE_WEIGHT = {"direct": 4.0, "cocite": 1.0, "path": 3.0, "symbol": 3.0, "topic": 1.0}
+EXPAND_FROM, PER_HIT, MAX_NEIGHBOURS = 3, 2, 4
+
+
+def section_keys(s: Section) -> frozenset[str]:
+    """The normalised keys of one section (see above)."""
+    keys: set[str] = set()
+    for anchor in anchors_of(s.text):
+        path, _, symbol = anchor.partition("::")
+        keys.add("path:" + path.removeprefix("./"))
+        if symbol.strip():
+            keys.add("symbol:" + symbol.strip().lower())
+    keys.update("path:" + m.group(1).removeprefix("./") for m in CITED_PATH.finditer(s.text) if ".." not in m.group(1).split("/"))
+    stem = os.path.basename(s.slice_id).removesuffix(".md").lower()
+    own = {stem, CLASS_PREFIX.sub("", stem)}            # a project slice's file name carries its class
+    keys.update("link:" + m.group(1).lower() for m in LINK.finditer(s.text) if m.group(1).lower() not in own)
+    keys.update("name:" + n for n in own)
+    if s.role and s.title:
+        keys.add(f"topic:{s.role}/{s.title}")
+    return frozenset(keys)
 
 
 def slice_ref(slice_id: str) -> str:
@@ -146,6 +188,7 @@ class Index:
     indexes: dict[str, str] = field(default_factory=dict)       # "<role>" -> INDEX.md text of the working copy
     unread: list[str] = field(default_factory=list)             # roots git could not give: not served, said
     _bm25: Bm25 | None = None
+    _graph: dict[int, dict[int, list[tuple[str, str, int]]]] | None = None
 
     @staticmethod
     def fields(s: Section) -> list[str]:
@@ -196,6 +239,70 @@ class Index:
             margin = score / picked[n + 1][1] if n + 1 < len(picked) else float("inf")
             hits.append(Hit(self.sections[i], score, coverage, band(score, coverage, margin)))
         return hits
+
+    def _edges(self) -> dict[int, dict[int, list[tuple[str, str, int]]]]:
+        """section -> neighbour section -> [(kind, key, holders)]: every edge of the link graph, once from each side."""
+        if self._graph is not None:
+            return self._graph
+        keys = [section_keys(s) for s in self.sections]
+        holders: dict[str, list[int]] = {}
+        for i, ks in enumerate(keys):
+            for k in ks:
+                holders.setdefault(k, []).append(i)
+        graph: dict[int, dict[int, list[tuple[str, str, int]]]] = {}
+
+        def add(i: int, j: int, kind: str, key: str, held: int) -> None:
+            if i != j:
+                graph.setdefault(i, {}).setdefault(j, []).append((kind, key, held))
+                graph.setdefault(j, {}).setdefault(i, []).append((kind, key, held))
+        for key, held in holders.items():
+            kind, _, name = key.partition(":")
+            if kind == "link":                                  # who cites it, against who is named for it and who else cites it
+                for i in held:
+                    for j in holders.get("name:" + name, []):
+                        add(i, j, "direct", name, 2)
+                if 2 <= len(held) <= KEY_DF_CAP:
+                    for n, i in enumerate(held):
+                        for j in held[n + 1:]:
+                            add(i, j, "cocite", name, len(held))
+            elif kind in ("path", "symbol", "topic") and 2 <= len(held) <= KEY_DF_CAP:
+                for n, i in enumerate(held):
+                    for j in held[n + 1:]:
+                        add(i, j, kind, name, len(held))
+        self._graph = graph
+        return graph
+
+    def neighbours(self, hits: list[Hit], from_top: int = EXPAND_FROM, per_hit: int = PER_HIT, total: int = MAX_NEIGHBOURS,
+                   kinds: tuple[str, ...] = KEY_KINDS, seed_bands: tuple[str, ...] = ("strong",)) -> list[Neighbour]:
+        """One hop out from the top strong hits (a weak hit is a guess, and its neighbours a guess of a guess): the sections
+        linked to one, from other slices than any hit's or than each other's, ranked below the hits (by the seed's rank, then
+        by the weight of the edges, a rarer key weighing more). An opt-in expansion of find(); the hits are untouched."""
+        graph = self._edges()
+        index_of = {id(s): i for i, s in enumerate(self.sections)}
+        taken = {h.section.slice_id for h in hits}
+        out: list[Neighbour] = []
+        for hit in [h for h in hits if h.band in seed_bands][:from_top]:
+            scored: dict[int, tuple[float, list[str]]] = {}
+            for j, edges in graph.get(index_of[id(hit.section)], {}).items():
+                if self.sections[j].slice_id in taken:
+                    continue
+                for kind, key, held in edges:
+                    if kind in kinds:
+                        score, via = scored.get(j, (0.0, []))
+                        scored[j] = (score + EDGE_WEIGHT[kind] / max(1, held - 1), via + [f"{kind}:{key}"])
+            best_per_slice: dict[str, int] = {}
+            for j, (score, _via) in scored.items():
+                slice_id = self.sections[j].slice_id
+                if slice_id not in best_per_slice or score > scored[best_per_slice[slice_id]][0]:
+                    best_per_slice[slice_id] = j
+            added = 0
+            for j in sorted(best_per_slice.values(), key=lambda j: (-scored[j][0], j)):
+                if added == per_hit or len(out) == total:
+                    break
+                taken.add(self.sections[j].slice_id)
+                out.append(Neighbour(self.sections[j], hit.section, tuple(sorted(scored[j][1])), scored[j][0]))
+                added += 1
+        return out
 
     def related(self, s: Section, n: int = 2) -> list[Section]:
         """Other slices whose cue and title share the section's words: what to read next."""
