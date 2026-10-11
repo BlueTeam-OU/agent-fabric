@@ -42,8 +42,8 @@ so the answer is legible to a person and branchable by a caller. Usage
 errors still go to stderr; they are not results.
 
 The repository is GH_REPO, else this working copy's origin on
-github.com. The project's arm command, which the lines that say to arm
-name, is its arm.json's arm_command; the eviction line explains the
+github.com. The lines that say to arm name `fabric-pr arm`, the bare
+command every project runs (ADR-040 rule 7); the eviction line explains the
 evicted PR's green checks only in the project's words, its
 eviction_note.
 
@@ -190,10 +190,9 @@ def _arm_json(key: str):
 
 
 def arm_command() -> str:
-    """The project's arm forwarder, which the lines that say to arm name:
-    its arm.json's arm_command; without one the lines name it in words."""
-    cmd = _arm_json("arm_command")
-    return cmd if isinstance(cmd, str) and cmd else "the project's arm.sh"
+    """What the lines that say to arm name: the fabric's bare command, never a project's
+    forwarder path, which a project retires (ADR-040 rule 7)."""
+    return "fabric-pr arm"
 
 
 def eviction_note() -> str:
