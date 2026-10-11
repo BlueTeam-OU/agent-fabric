@@ -343,16 +343,17 @@ def test_the_retrieval_summary_is_per_login_over_hosts_and_says_unknown_when_the
     login works on (one window each), counts only; a login with no find has no share, not a share of 0."""
     sys.path.insert(0, os.path.join(os.path.dirname(ASSEMBLE)))
     from assembler import report as rep  # noqa: PLC0415 - the tool dir is put on the path just above
-    use = lambda finds, zero, followed, reads=0, marks=0, errors=0, since=10, until=20: {  # noqa: E731
-        "since_ms": since, "until_ms": until, "calls": {"memory_find": finds, "memory_read": reads}, "zero_hit_finds": zero,
-        "finds_followed_by_read": followed, "ids_read": {"f:x/y#1": reads}, "marks": marks, "errors": errors}
-    got = rep.retrieval_summary({"dev-01@boxA": use(4, 1, 2, reads=3, marks=1), "dev-01@boxB": use(6, 2, 1, reads=1, errors=2, since=5, until=30),
+    use = lambda finds, zero, followed, reads=0, marks=0, errors=0, since=10, until=20, indexes=0: {  # noqa: E731
+        "since_ms": since, "until_ms": until, "calls": {"memory_find": finds, "memory_read": reads, "memory_index": indexes}, "zero_hit_finds": zero,
+        "finds_followed_by_read": followed, "ids_read": {"f:x/y#1": reads}, "marks": marks, "errors": errors,
+        "queries": ["SENTINEL-QUERY-TEXT"]}
+    got = rep.retrieval_summary({"dev-01@boxA": use(4, 1, 2, reads=3, marks=1), "dev-01@boxB": use(6, 2, 1, reads=1, errors=2, since=5, until=30, indexes=2),
                                  "dev-02@boxA": use(0, 0, 0, reads=2), "dev-03@boxA#projects-root": use(2, 2, 0)})
     assert got["dev-01"] == {"finds": 10, "zero_hit_finds": 3, "zero_hit_share": 0.3, "finds_followed_by_read": 3, "read_through": 0.3,
-                             "reads": 4, "indexes": 0, "marks": 1, "refused": 2, "hosts": ["boxA", "boxB"], "since_ms": 5, "until_ms": 30}, got["dev-01"]
+                             "reads": 4, "indexes": 2, "marks": 1, "refused": 2, "hosts": ["boxA", "boxB"], "since_ms": 5, "until_ms": 30}, got["dev-01"]
     assert got["dev-02"]["zero_hit_share"] is None and got["dev-02"]["read_through"] is None and got["dev-02"]["reads"] == 2, got["dev-02"]
     assert got["dev-03"]["zero_hit_share"] == 1.0 and got["dev-03"]["hosts"] == ["boxA"], got["dev-03"]
-    assert list(got) == ["dev-01", "dev-02", "dev-03"] and "ids_read" not in json.dumps(got) and "f:x/y" not in json.dumps(got), "section ids are not in the summary"
+    assert list(got) == ["dev-01", "dev-02", "dev-03"] and "ids_read" not in json.dumps(got) and "f:x/y" not in json.dumps(got) and "SENTINEL" not in json.dumps(got), "neither section ids nor query text are in the summary"
     assert rep.retrieval_summary({}) == {} and rep.retrieval_summary({"x@h": "not a dict", "y@h": {"calls": 5}}) == {}, "a source that is not counts is skipped"
     # Through a real drain: two bundles of one stamp (two hosts, one login) are summed, and the run says it on stdout.
     drain_a, claims_a, out = build(os.path.join(tmp, "a"), {"alpha": claims("alpha", [
@@ -368,7 +369,8 @@ def test_the_retrieval_summary_is_per_login_over_hosts_and_says_unknown_when_the
     summary = json.loads(read(report_path(out)))["memory_retrieval"]["dev-01"]
     assert summary["finds"] == 10 and summary["hosts"] == ["boxA", "boxB"] and summary["zero_hit_share"] == 0.3, summary
     assert "memory: dev-01 10 finds, zero-hit 30%, read-through 30%, 4 reads, 0 marks" in proc.stdout, proc.stdout
-    assert "query" not in read(report_path(out)).lower().replace("query text", ""), "no query text in the report"
+    blob = json.dumps(json.loads(read(report_path(out)))["memory_retrieval"])
+    assert "SENTINEL" not in blob and "f:x/y" not in blob, "no query text or section id in the retrieval summary"
 
 
 def test_drain_report_records_unattributable_rows(tmp: str) -> None:

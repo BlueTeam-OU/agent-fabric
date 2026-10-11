@@ -70,9 +70,13 @@ def main() -> int:
     low = copy.deepcopy(queries[0])
     low["expect"][0]["within"] = 0
     check("one that falls below its place is reported", "expected within 0" in "".join(check_expected(index, [low])))
-    strong = {"query": "interpreter", "expect": [{"slice": wanted["slice"], "heading": wanted["heading"], "within": 50, "band": "strong"}]}
-    weak_hit = check_expected(index, [strong])
-    check("a section that loses its band is reported", len(weak_hit) == 1, str(weak_hit))
+    # A hit that is present but not strong, expected as strong: the band branch itself, not the not-found one.
+    hits = index.find(queries[0]["query"])
+    weak = next((h for h in hits if h.band != "strong"), None)
+    ask = {"query": queries[0]["query"], "expect": [{"slice": memory_index.slice_ref(weak.section.slice_id), "heading": weak.section.heading,
+                                                     "within": len(hits), "band": "strong"}]} if weak else None
+    weak_hit = check_expected(index, [ask]) if ask else []
+    check("a section that loses its band is reported", len(weak_hit) == 1 and "expected at least strong" in weak_hit[0], str(weak_hit))
     claim = {"query": queries[0]["query"], "no_better_than": "weak", "expect": []}
     check("a topic with nothing on it that claims a strong match is reported", len(check_expected(index, [claim])) == 1)
 

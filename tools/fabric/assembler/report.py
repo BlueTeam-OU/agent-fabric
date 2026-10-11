@@ -80,9 +80,9 @@ def retrieval_summary(memory_use: dict[str, Any]) -> dict[str, dict[str, Any]]:
         row = out.setdefault(login, {"finds": 0, "zero_hit_finds": 0, "finds_followed_by_read": 0, "reads": 0, "indexes": 0,
                                      "marks": 0, "refused": 0, "hosts": [], "since_ms": None, "until_ms": None})
         calls = use["calls"]
-        row["finds"] += int(calls.get("memory_find", 0))
-        row["reads"] += int(calls.get("memory_read", 0))
-        row["indexes"] += int(calls.get("memory_index", 0))
+        row["finds"] += int(calls.get("memory_find") or 0)
+        row["reads"] += int(calls.get("memory_read") or 0)
+        row["indexes"] += int(calls.get("memory_index") or 0)
         row["zero_hit_finds"] += int(use.get("zero_hit_finds") or 0)
         row["finds_followed_by_read"] += int(use.get("finds_followed_by_read") or 0)
         row["marks"] += int(use.get("marks") or 0)
