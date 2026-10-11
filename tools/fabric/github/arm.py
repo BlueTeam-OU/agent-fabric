@@ -30,11 +30,12 @@ nothing wrote a false record.
   stderr    `arm: REFUSED #N — <why>` on a refusal; `arm: <why>` when a
             question could not be answered, or on a usage error
   exit      0 read back armed, queued or merged, each on the head the
-            gates read (or, with --dry-run, would arm); 1 refused — the
+            gates read (or, with --dry-run, would arm); on a direct
+            repository only merged on that head; 1 refused — the
             reason is the last line; 2 gh / pr-gate / pr-review-status /
             the project's arm.json / the relay / fabric-ctl could not
-            answer, the read-back is idle, closed or on another head,
-            or usage
+            answer, the read-back is idle, closed or on another head
+            (on a direct repository, anything but merged), or usage
 
 THE WAIVER:
 the security-boundary gate is waived only on a message from the holder
@@ -212,7 +213,8 @@ Then: posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"; a security boundary armed at 8 or more
 without the owner's word adds a sentence saying so), runs `gh pr merge <n> --merge --auto
 --match-head-commit <head>` (--squash or --rebase where the policy's method is that; no --auto on a direct
-repository, which merges at once) — pinned to the head the gates read — and prints the watcher line to run — it is not started here, because
+repository, which merges at once and has no watcher line) — pinned to the head the gates read — and prints the
+watcher line to run — it is not started here, because
 a watcher must be the SESSION's child for its exit to be the
 session's callback.
 
@@ -776,13 +778,16 @@ def arm(argv: list[str]) -> int:
         say(f"count rule: {work} work commits — {min_work} or more, arms at the review gate")
 
     # A repository with no required check has nothing server-side that makes the merge wait for green: arm waits
-    # for it here, on the head the gates read.
-    if not policy["required_checks"]:
+    # for it here, on the head the gates read. A direct repository has no ruleset, so a required_checks list in its
+    # policy (its own or the fleet's) holds nothing on GitHub either: it is waited for here too.
+    if policy["mode"] == "direct" or not policy["required_checks"]:
         checks = str(row.get("checks"))
+        held = "is direct" if policy["mode"] == "direct" else "has no required check"
         if checks != "green":
-            raise refuse(f"{repo} has no required check, so nothing but this gate keeps a red or unfinished head from"
+            raise refuse(f"{repo} {held}, so nothing but this gate keeps a red or unfinished head from"
                          f" merging: every check on the head must be green first (pr-gate reads {checks})")
-        say("no required check on this repository: every check on the head is green")
+        say("direct repository: every check on the head is green" if policy["mode"] == "direct"
+            else "no required check on this repository: every check on the head is green")
 
     comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}{f', role: {role}' if by_role else ''}, head {head[:8]}."
     if waived_by:
