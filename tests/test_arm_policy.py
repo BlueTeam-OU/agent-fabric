@@ -78,7 +78,7 @@ class Scratch(unittest.TestCase):
 class Document(unittest.TestCase):
     def test_the_default_is_the_behaviour_before_the_policy(self):
         d = arm_policy.default()
-        self.assertEqual(d["commits"], {"min": 8, "advice_over": 16, "below_min": "owner-word", "roles": {}, "classes": {}})
+        self.assertEqual(d["commits"], {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}})
         self.assertEqual((d["mode"], d["method"]), ("auto", "merge"))
 
     def test_a_partial_document_is_completed_from_the_default_and_the_default_is_not_changed(self):
@@ -150,10 +150,11 @@ class RealFiles(unittest.TestCase):
         queue = {"mode": "queue", "method": "squash", "queue": {"grouping": "headgreen", "build": 5, "merge_max": 5, "merge_min": 1,
                                                                 "wait_minutes": 2, "check_timeout_minutes": 60}}
         valid = [{}, FABRIC_POLICY, queue, {"commits": {"min": 4, "roles": {"devex-tooling": {"min": 2}}, "classes": {"docs": {"paths": "^docs/", "min": 1}}}},
+                 {"commits": {"boundary_min": 12}},
                  {"bots": {"dependabot": {"arm": ["patch", "minor"], "ecosystems": ["npm_and_yarn", "pip"]}}},
                  {"github": {"ruleset": "r", "branch": "main"}}, {"mode": "owner-only"}, {"mode": "direct"}, {"commits": {"below_min": "refuse"}}]
         invalid = [{"mode": "auto", "autoo": True}, {"queue": {"depth": 3}}, {"mode": "squash"}, {"method": "fast-forward"},
-                   {"commits": {"below_min": "warn"}}, {"commits": {"min": 0}}, {"commits": {"roles": {"devex-tooling": {"min": 0}}}},
+                   {"commits": {"below_min": "warn"}}, {"commits": {"min": 0}}, {"commits": {"boundary_min": 0}}, {"commits": {"boundary_min": 2.5}}, {"commits": {"roles": {"devex-tooling": {"min": 0}}}},
                    {"commits": {"roles": {"Devex Tooling": {"min": 2}}}}, {"commits": {"classes": {"docs": {"min": 1}}}},
                    {"queue": {"grouping": "some"}}, {"queue": {"build": 2.5}}, {"required_checks": [{"app": "github-actions"}]},
                    {"bots": {"renovate": {"arm": ["patch"]}}}, {"bots": {"dependabot": {"arm": ["breaking"]}}}, {"signatures": "yes"},
@@ -289,6 +290,14 @@ class Load(Scratch):
         self.load(api)
         self.assertEqual(len(api.asked), 2, "no cache, no reuse: nothing is kept between runs")
 
+    def test_a_repository_may_raise_the_boundary_minimum_and_never_lower_it_below_the_fleets(self):
+        for repo_value, want in ((3, 8), (8, 8), (12, 12)):
+            api = Api(contents({"commits": {"boundary_min": repo_value}}))
+            self.assertEqual(self.load(api)["commits"]["boundary_min"], want, repo_value)
+        self.fleet({"commits": {"boundary_min": 10}})
+        self.assertEqual(self.load(Api(contents({"commits": {"boundary_min": 4}})))["commits"]["boundary_min"], 10)
+        self.assertEqual(self.load(Api(error=ghe(404, "Not Found")))["commits"]["boundary_min"], 10)
+
     def test_the_registry_and_the_clients_are_read_when_not_given_and_their_failure_is_unavailable(self):
         import workingcopy
         with mock.patch.object(workingcopy, "load_registry", side_effect=OSError("gone")):
@@ -318,11 +327,16 @@ class Threshold(unittest.TestCase):
         for role, cls in ((None, ""), ("web-dev", ""), ("rust-dev", ""), ("web-dev", "docs"), ("rust-dev", "tooling")):
             self.assertEqual(arm_policy.threshold(self.P, role, cls, True), 9, (role, cls))
 
-    def test_the_boundary_floor_holds_when_the_repository_sets_a_small_minimum(self):
+    def test_the_boundary_minimum_holds_when_the_repository_sets_a_small_minimum(self):
         small = arm_policy.validate({"commits": {"min": 1, "roles": {"web-dev": {"min": 1}}}})
-        self.assertEqual(arm_policy.BOUNDARY_FLOOR, 8)
         self.assertEqual(arm_policy.threshold(small, "web-dev", "", True), 8)
         self.assertEqual(arm_policy.threshold(small, None, "", False), 1)
+
+    def test_the_boundary_minimum_is_its_own_key_and_a_repository_may_raise_it(self):
+        p = arm_policy.validate({"commits": {"min": 1, "boundary_min": 12}})
+        self.assertEqual(arm_policy.threshold(p, None, "", True), 12)
+        self.assertEqual(arm_policy.threshold(arm_policy.validate({"commits": {"min": 20, "advice_over": 30, "boundary_min": 3}}), None, "", True), 20,
+                         "a boundary change never needs fewer commits than an ordinary one")
 
     def test_a_class_the_policy_does_not_have_is_an_error_not_the_repositorys_minimum(self):
         with self.assertRaises(arm_policy.PolicyError):

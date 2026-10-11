@@ -20,10 +20,10 @@ Objects merge recursively, scalars and lists replace. The fetched file is cached
 (`cache=`), never between runs. validate() holds the schema's shape and refuses what it does not allow: a typo must
 not fall to the default.
 
-BOUNDARY_FLOOR. A security-boundary change not waived is judged against max(commits.min, BOUNDARY_FLOOR): the
-repository's own file cannot lower the owner's-word gate a boundary change has had (under 8 work commits) by
-setting a small `commits.min`. Provisional: the schema has no key for it; whether it should is the coordinator's
-decision (QUESTION in the PR).
+commits.boundary_min. A security-boundary change not waived is judged against max(commits.min, commits.boundary_min):
+the owner's word it needs under that many work commits is about the security boundary, not about the count of
+commits (the owner, 2026-10-11, through fabric-coordinator's REPLY 01a12ab1). The fleet's value is the floor: a
+repository's file may raise it and never lowers it below the fleet's, which load() enforces after the merge.
 
 threshold() IS THE ORDER OF SPECIFICITY: a stated class whose regex every file matches (commits.classes), then the
 author's role (commits.roles), then commits.min; a boundary change gets the floor above and nothing lowers it.
@@ -53,7 +53,6 @@ METHODS = ("merge", "squash", "rebase")
 BELOW_MIN = ("owner-word", "refuse")
 GROUPING = ("allgreen", "headgreen")
 UPDATE_TYPES = ("patch", "minor", "major")
-BOUNDARY_FLOOR = 8
 # GitHub's repository fields for the merge methods: the merge commit's is the odd one out.
 REPO_FIELD = {"merge": "allow_merge_commit", "squash": "allow_squash_merge", "rebase": "allow_rebase_merge"}
 # The integration id of an App by its slug, for a ruleset's required check; one not here is asked of GitHub
@@ -73,7 +72,7 @@ DEFAULT: dict[str, Any] = {
     "protect": {"deletion": True, "force_push": True},
     "delete_branch_on_merge": False,
     "queue": {},
-    "commits": {"min": 8, "advice_over": 16, "below_min": "owner-word", "roles": {}, "classes": {}},
+    "commits": {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}},
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
 }
@@ -181,7 +180,7 @@ def validate(doc: Any, where: str = "the policy") -> dict:
     if {**QUEUE_DEFAULTS, **q}["merge_min"] > {**QUEUE_DEFAULTS, **q}["merge_max"]:
         raise PolicyError(f"{where}: queue.merge_min is over queue.merge_max")
     c = _only_keys(p["commits"], tuple(DEFAULT["commits"]), f"{where}: commits")
-    for k in ("min", "advice_over"):
+    for k in ("min", "advice_over", "boundary_min"):
         if not _int(c[k]):
             raise PolicyError(f"{where}: commits.{k} is not a whole number of at least 1")
     if c["advice_over"] < c["min"]:
@@ -323,8 +322,11 @@ def load(repo: str | None, *, root: str | None = None, registry: Any = None, cli
         clients = _read_json_file(os.path.join(roots.projects_dir(root=root), "clients.json")) or {}
     settings = settings_repo_of(registry, clients, repo)
     doc = fetch_repo_policy(settings, repo, api) if settings else None
-    policy = fleet if doc is None else validate(merge(fleet, {k: v for k, v in doc.items() if k not in IGNORED_KEYS}),
-                                                f"{settings} repos/{repo.split('/', 1)[1]}.json")
+    policy = fleet
+    if doc is not None:
+        policy = validate(merge(fleet, {k: v for k, v in doc.items() if k not in IGNORED_KEYS}), f"{settings} repos/{repo.split('/', 1)[1]}.json")
+        # A repository may raise the boundary's minimum and never lower it below the fleet's.
+        policy["commits"]["boundary_min"] = max(policy["commits"]["boundary_min"], fleet["commits"]["boundary_min"])
     if cache is not None:
         cache[repo] = copy.deepcopy(policy)
     return policy
@@ -341,11 +343,11 @@ def with_classes(policy: dict, classes: dict[str, str]) -> dict:
 def threshold(policy: dict, role: str | None, cls: str | None, boundary: bool) -> int:
     """The work commits at which this pull request arms at the review gate. `cls` is the stated class whose
     regex every changed file matches (the caller checked), or empty; `boundary` is a security-boundary change not
-    waived. Most specific first: class, role, repository; a boundary change gets max(commits.min, BOUNDARY_FLOOR)
-    and nothing lowers it."""
+    waived. Most specific first: class, role, repository; a boundary change gets max(commits.min,
+    commits.boundary_min) and nothing lowers it."""
     c = policy["commits"]
     if boundary:
-        return max(c["min"], BOUNDARY_FLOOR)
+        return max(c["min"], c["boundary_min"])
     if cls:
         if cls not in c["classes"]:
             raise PolicyError(f"the policy has no class {cls!r}")
