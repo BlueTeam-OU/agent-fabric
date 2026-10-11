@@ -106,6 +106,28 @@ class Prefix(unittest.TestCase):
             mf.Flag("c", "s.md", "H", "r", report_prefix=prefix)     # positive control
 
 
+class Horizons(unittest.TestCase):
+    def test_an_aged_or_unread_section_is_a_flag_routed_like_any_and_a_key_naming_nothing_is_left_out(self):
+        tmp = tempfile.mkdtemp(prefix="flags-horizons-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        os.makedirs(os.path.join(tmp, "python-dev", "solution"))
+        with open(os.path.join(tmp, "python-dev", "solution", "x.md"), "w", encoding="utf-8") as fh:
+            fh.write('---\nrole: "python-dev"\nclass: solution\ntopic: "x"\ndescription: "d"\n---\n\n'
+                     "## Old\n\nText.\n\n*Observed 2026-08-01 (python-dev)*\n\n## Other\n\nText.\n\n*Observed 2026-10-01 (python-dev)*\n")
+        outside = os.path.join(os.path.dirname(tmp), os.path.basename(tmp) + "-outside.md")
+        shutil.copy(os.path.join(tmp, "python-dev", "solution", "x.md"), outside)       # a real slice, just not in the corpus
+        self.addCleanup(os.remove, outside)
+        hz = {"aged": [{"key": "memory/python-dev/solution/x.md#Old", "observed": "2026-08-01", "horizon_days": 30}],
+              "unread": [{"key": "memory/python-dev/solution/x.md#Old", "last_read": None},
+                         {"key": "memory/python-dev/solution/x.md#Missing", "last_read": None},
+                         {"key": f"memory/../{os.path.basename(outside)}#Old", "last_read": None},
+                         {"key": "elsewhere/x.md#H", "last_read": None}]}
+        flags = mf.flags_from_horizons(hz, {"f": tmp}, {"f": "agent-fabric"})
+        self.assertEqual([(f.key, f.role, [r["kind"] for r in f.reasons]) for f in flags],
+                         [("agent-fabric:python-dev/solution/x.md#Old", "python-dev", ["aged", "unread"])])
+        self.assertEqual(flags[0].report_key, "memory/python-dev/solution/x.md#Old")
+
+
 class Planning(unittest.TestCase):
     def flags(self, n, role="python-dev"):
         return [_flag("agent-fabric", "s.md", f"H{i:02d}", role, [{"kind": "stale-hard", "what": "a", "detail": "d"}]) for i in range(n)]
