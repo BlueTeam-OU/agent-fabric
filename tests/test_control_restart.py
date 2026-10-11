@@ -48,6 +48,13 @@ class Restart(unittest.TestCase):
         self.dir = self.tmp.name
         self.marker = up.marker_path(self.dir)
         self.clock_t = [0.0]
+        # An upgrade() probe that is not told busy (a regression these tests exist to catch) must fail the
+        # test, never install, write the real marker or signal the developer's own session.
+        self.upgrades_run = []
+        for name in ("upgrade_once", "upgrade_fabric"):
+            self.addCleanup(setattr, up, name, getattr(up, name))
+            setattr(up, name, lambda request, _n=name, **kw: self.upgrades_run.append(_n) or {"status": "upgraded"})
+        self.addCleanup(lambda: self.assertEqual(self.upgrades_run, [], "an upgrade ran beside a restart"))
 
     def run_restart(self, fake, request=REQ, **kw):
         def sleep(s):
