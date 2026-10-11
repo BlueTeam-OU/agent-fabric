@@ -52,11 +52,8 @@ def mask(text: str | None, eid: str, patterns: list) -> str | None:
 
 
 def open_readonly() -> sqlite3.Connection:
-    """The journal, owner-checked, read without creating it."""
-    path = episodic.db_path()
-    if not os.path.exists(path):
-        raise episodic.JournalError(f"no journal yet at {path}: nothing sent or received since ADR-041 landed here")
-    conn = episodic.connect(path)
+    """The journal, owner-checked, opened read-only (episodic.open_readonly): no write lock, no row written."""
+    conn = episodic.open_readonly()
     conn.row_factory = sqlite3.Row
     return conn
 

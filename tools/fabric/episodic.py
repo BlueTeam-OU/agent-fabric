@@ -53,6 +53,7 @@ import socket
 import sqlite3
 import sys
 import time
+import urllib.parse
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -189,6 +190,41 @@ def _version(path: str, rows: list) -> int:
     if type(v) is not int or v < 1:
         raise JournalError(f"{path}: meta.schema_version is {v!r}, not a version; the journal's version is unknown")
     return v
+
+
+def open_readonly(path: str | None = None, agent_id: str | None = None) -> sqlite3.Connection:
+    """The journal for a READER (fabric-history, any ADR-041 reader): a read-only URI (`mode=ro`), so it takes
+    no write lock, migrates nothing and cannot write a row (SQLite still keeps the WAL's -wal and -shm files
+    beside the journal, mode 0600, which a read-only connection cannot checkpoint away) — a writer holding a transaction does
+    not block it, and it does not block the writer. The owner is checked as connect() checks it (another
+    agent's journal is never read) and a journal written by newer code is refused; an older one is read as it
+    is, because every migration so far only adds. A missing file is a JournalError, not a created journal."""
+    path = path or db_path()
+    owner = agent_id or own_agent_id()
+    if not owner:
+        raise JournalError("this account has no agent id (fabric-secrets store id); no journal without an owner")
+    if not os.path.exists(path):
+        raise JournalError(f"no journal yet at {path}: nothing sent or received since ADR-041 landed here")
+    # quote(): a path with a `?` or `#` in it must not end the URI early (and `mode=ro` with it).
+    conn = sqlite3.connect(f"file:{urllib.parse.quote(os.path.abspath(path))}?mode=ro", uri=True, timeout=5.0, isolation_level=None)
+    try:
+        conn.execute("PRAGMA query_only=ON")      # belt: the URI already refuses a write
+        conn.execute("PRAGMA busy_timeout=5000")
+        try:
+            rows = conn.execute("SELECT owner_agent_id, schema_version FROM meta").fetchall()
+        except sqlite3.OperationalError as e:
+            raise JournalError(f"{path} is not a journal this code can read ({e})") from None
+        if len(rows) == 1 and rows[0][0] != owner:
+            raise JournalError(f"{path} belongs to agent {rows[0][0]}, not {owner}: a reused login never reads "
+                               "another agent's history")
+        version = _version(path, rows)
+        if version > SCHEMA_VERSION:
+            raise JournalError(f"{path} is at schema version {version}, newer than this code's "
+                               f"{SCHEMA_VERSION}: update the fabric; the journal is left as it is")
+    except BaseException:
+        conn.close()
+        raise
+    return conn
 
 
 def connect(path: str | None = None, agent_id: str | None = None) -> sqlite3.Connection:
