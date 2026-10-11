@@ -50,6 +50,8 @@ def main() -> int:
         os.makedirs(f"{fake}/tools/fabric/github")
         for b in ("fabric-pr", "fabric-query"):
             shutil.copy(f"{ROOT}/bin/{b}", f"{fake}/bin/{b}")
+        # The fixture copies the script it runs and, since the dispatch moved (Wave 9), the module beside it.
+        shutil.copy(f"{ROOT}/tools/fabric/github/fabric_pr.py", f"{fake}/tools/fabric/github/fabric_pr.py")
         for mod, _ in VERBS.values():
             with open(f"{fake}/tools/fabric/github/{mod}.py", "w") as fh:
                 fh.write(FAKE)
