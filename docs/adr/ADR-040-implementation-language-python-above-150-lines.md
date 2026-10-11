@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-30, by the merge of agent-fabric #70 (f15baa2), which carried it, as §8 provided
 **Decision Makers:** the owner (new fabric tooling in Python; a shell script ported when it next needs a substantial change; the wave plan); drafted by fabric-coordinator
-**Scope:** every executable the fabric tracks — `bin/`, `runtime/`, `policies/`, `tools/`, `tests/`: the language a new one is written in, the size a bash one may reach, and how an existing one moves; `policies/bash-allowlist.json` and the lint rule that reads it; `tools/fabric/gh.py` and `tools/fabric/git.py`
+**Scope:** every executable the fabric tracks — `bin/`, `runtime/`, `policies/`, `tools/`, `tests/`: the language a script is written in, the two kinds of bash that remain, and how an existing script moves; `policies/bash-allowlist.json` and the lint rule that reads it; `tools/fabric/gh.py` and `tools/fabric/git.py`
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -30,14 +30,12 @@ runs on one pinned interpreter: `runtime/python.json` names it (3.13
 today, a relocatable python-build-standalone build pinned by sha256),
 installed once per host as `/usr/local/bin/fabric-python`; the code
 stays valid on 3.13 and newer, the interpreters CI's matrix runs
-(A 2026-10-01). Bash stays for what it is good at: forwarders and thin shims,
-git hook entry points, the suite runners (`tests/run.sh`,
-`tests/static.sh`), and step-runners whose body is mostly `sudo`, `ssh`
-and installer calls. A tracked bash script over 150 lines is refused by
-lint unless `policies/bash-allowlist.json` names it; the list starts as
-the scripts that exist and only shrinks, each entry naming the wave that
-ports it. A script is ported when it next needs a substantial change, or
-in its wave, whichever comes first.
+(A 2026-10-01). Every fabric script is Python on it, bar two closed
+kinds of bash (A 2026-10-11): the pre-Python installation path, which
+runs where no interpreter exists yet, and the forwarder, which only
+finds a Python module and execs it (rule 1). Other bash is ported in the
+batches of Wave 9 (§7); a script is ported when it next needs a
+substantial change, or in its batch, whichever comes first.
 
 A port keeps the script's contract and its path. The path becomes a
 shim until every caller, in the fabric and in the managed projects, has
@@ -70,20 +68,60 @@ serve as the parity oracle for each port, unchanged.
 
 ## 5. Binding Rules
 
-1. New fabric tooling is Python, standard library only, valid on 3.13
+1. Every fabric script is Python, standard library only, valid on 3.13
    and newer, the pin and the oldest system python3 of a supported
    platform, Debian 13's (A 2026-10-09), and runs on the pinned interpreter: `runtime/python.json`,
    installed per host by `tools/fabric/python_pin.py` (run as root by
    the host's own `/usr/bin/python3`, the hash checked before
    extraction) and reached as `/usr/local/bin/fabric-python`; CI installs
    the same build, and lint holds its minor version in CI's matrix
-   (A 2026-10-01). Bash is
-   allowed for forwarders and shims, git hook entry points, `tests/run.sh`
-   and `tests/static.sh`, and step-runners that are mostly `sudo`, `ssh`
-   and installer calls.
-2. `tools/fabric/lint.py` refuses a tracked bash script over 150 lines
-   that `policies/bash-allowlist.json` does not name. An entry names its
-   wave. Adding an entry is a finding; the list only shrinks.
+   (A 2026-10-01). Bash is allowed in two closed places and nowhere
+   else (A 2026-10-11):
+   - **The pre-Python installation path**: what runs before
+     `python_pin.py install` has made `fabric-python`, or where it
+     cannot be (a TemplateVM, an account before its interpreter, the
+     boot of an AppVM), so that no interpreter is the reason and the
+     only one. The list is closed, and `policies/bash-allowlist.json`
+     holds it with each file's reason: the platform profiles and
+     `packages.sh` under `runtime/provisioning/platform/` (sourced where
+     only the host's shell exists; the CI smoke job installs the host
+     contract from them); the Qubes scripts under `platform/qubes/`
+     (`ssh-template.sh`, `ssh-operator.sh`, `ssh-restore.sh`,
+     `agent-fabric-accounts.rc`); and under
+     `runtime/provisioning/moveto/` `install.sh`, `enter` (a login-shell
+     stub), `enter-ssh` (an sshd forced command) and `completion.bash`.
+     Adding to the list is a finding. A script that is not on it is not
+     pre-Python for being a step of provisioning: `bootstrap.sh`, the
+     account creation and the host executor all need the pin, and are
+     forwarders.
+   - **The forwarder**: a file that finds its Python module, checks
+     that the pin is installed and, if it is not, prints the command that
+     installs it, and execs the module; at most 12 lines of code, comments
+     and blank lines not counted, with no `case` and no loop. It carries
+     no logic: a verb table, a refusal or a help text belongs to the
+     module. It may pass on which signals were ignored, which Python's
+     start-up erases. A guard the harness would read as no objection when
+     it fails keeps a forwarder that fails closed in its own words, asking
+     or denying, as `agent-dispatch-guard.sh` and `review-bash-guard.sh`
+     do. A forwarder execs the pin; the suite runners' alone exec the
+     host's `python3` (rule 4).
+
+   The bin/ entry points and the hook entry points are forwarders of the
+   second kind. Git runs a hook, and the harness a hook command, by path,
+   so a hook's path stays a forwarder and its decision is a module on the
+   pin; a Claude Code hook script is ported on the same terms, unless it
+   is an entry on the first list. A forwarder that execs only a Python
+   module keeps rule 7's bare commands consistent: the command people
+   and agents run is its name on `PATH`, never the path of the module.
+2. `tools/fabric/lint.py` refuses a tracked bash file that is neither
+   on the pre-Python list in `policies/bash-allowlist.json` nor a
+   forwarder by the shape of rule 1 (A 2026-10-11). A file is bash when
+   it ends in `.sh` or `.bash` or its first line names `bash` or `sh`.
+   The list has two sections: `stays`, the closed pre-Python list, whose
+   every entry is a finding when added; and, while Wave 9 runs, `ports`,
+   the files not yet ported, each naming its batch, which only shrinks
+   and is empty when the wave ends. A forwarder is not listed; the
+   150-line threshold is gone.
 3. A port freezes the script's contract first — its argv, the
    `AGENT_FABRIC_*` environment it reads, what goes to stdout and to
    stderr, its exit codes and its help text — in the new module's header.
@@ -97,7 +135,7 @@ serve as the parity oracle for each port, unchanged.
    These keep the host's `python3`:
    - the hooks not yet ported — the git hooks and the Claude Code hooks
      (`session-start.sh`, `model-switch-guard.sh`, `self-kill-guard.py`) —
-     whose port moves them; the launcher, account creation and bootstrap
+     whose port moves them to the pin in Wave 9 (A 2026-10-11); the launcher, account creation and bootstrap
      have moved, and bootstrap's helpers under `runtime/` run on the pin
      with it, but for step 7's language-detector venv, which is made with
      the host's `python3`;
@@ -106,7 +144,8 @@ serve as the parity oracle for each port, unchanged.
    - what `fabric-host` runs on another host, which may not have the pin
      yet;
    - the suite runners, which run the interpreter CI's matrix sets, to
-     prove 3.13 and newer (A 2026-10-09);
+     prove 3.13 and newer (A 2026-10-09); ported in Wave 9, their `.sh`
+     paths stay forwarders to that interpreter (A 2026-10-11);
    - the Node scripts that run fabric Python — GZCoord's `gzmsg.mjs`
      (whoami) and `send.mjs` (job intake), and the control agent's
      `jobs.mjs`, `ops.mjs` and `upgrade.mjs` — which keep it until they
@@ -134,14 +173,13 @@ serve as the parity oracle for each port, unchanged.
    added beside it; every caller moves, the managed projects' forwarders
    last; the old path says on stderr which command replaces it, for one
    release; it is deleted once every managed project's `fabric-ref` is
-   past the move. A CI-only script is called through its module. Never
-   migrated, and kept as shell: what runs before the pinned Python
-   exists or says how to install it — the host and account provisioning
-   chain (`runtime/provisioning/platform/`, `new-agent.sh` and its
-   worker, `persist-accounts.sh`, `rename-working-copy.sh`), the host
-   executor, `bootstrap.sh`, `moveto`, and the `bin/` entry points,
+   past the move. A CI-only script is called through its module. Kept as shell: the
+   pre-Python list and the forwarders of rule 1, and nothing else
+   (A 2026-10-11). The `bin/` entry points, the host executor,
+   `bootstrap.sh`, `moveto` and the provisioning entries are forwarders
    whose few lines of shell print the install command when the pin is
-   absent — and the git hooks and the suite runners (rule 1).
+   absent; the git hooks and the suite runners are forwarders once
+   ported.
 8. No new fabric code is written in Node. Wave 7's carve-out kept
    existing Node code as it was; it never admitted new modules into it,
    and none is admitted now. Node not yet ported (the control plane until
@@ -149,6 +187,16 @@ serve as the parity oracle for each port, unchanged.
    to Python, the Node test suites and their helpers) takes fixes and
    test cases where it is; new behaviour of the control plane is written
    in the Python package (A 2026-10-09).
+9. A managed project takes rule 1 as its own through its remit, and
+   this record only advises it (A 2026-10-11): the project's code is its
+   own (ADR-011). A bash script a project changes is ported in that
+   change, a test that runs on a host is Python, and the same two kinds
+   of bash stay (what runs before the project's interpreter exists, and
+   the forwarder). There are no port waves in a project: a script that is
+   not changed waits, and no agent is taken off current work to port it.
+   The project's devex-tooling and architect-cto decide the order. The
+   forwarders a project keeps to the fabric's commands (`tools/gh/*.sh`
+   to `fabric-pr`) stay forwarders until rule 7 retires them.
 
 ## 6. Consequences
 
@@ -163,8 +211,9 @@ serve as the parity oracle for each port, unchanged.
 
 The waves: the GitHub toolkit, then the guards, then `bin/` and status,
 then the launcher on its own, then the provisioning logic; the bash
-tests migrate last. The decision is done when the allowlist holds no
-production script.
+tests migrate last. Waves 0 to 8 are the production scripts; Wave 9
+(below) is the rest. The decision is done when the allowlist holds only
+the pre-Python list.
 
 Wave 7 is not bash: GZCoord's command-line tools, `gzmsg.mjs`,
 `send.mjs` and `inbox.mjs` with the `i18n.mjs` they read, move to Python
@@ -228,16 +277,63 @@ it a reason to move.
   on the wire only once the Node code is deleted; until then it is
   outside the parity suite.
 
+Wave 9 ports the rest of the fabric's bash (A 2026-10-11). Waves 0 to 8
+moved the scripts that had logic of their own and left, by size and by
+kind, hooks, bash tests, suite runners and step-runners; a bash test on
+a host forked about four thousand processes in one run and nearly froze
+it. Rule 1 now keeps two kinds of bash only, and Wave 9 ports every
+other tracked bash file on main. The file-by-file inventory, with line
+counts, is [docs/wave-9/inventory.md](../wave-9/inventory.md): 97 files
+and 3,937 lines, of which 14 files are the pre-Python list, 46 are
+forwarders, and 37 files (2,580 lines) are ported in ten batches. A
+batch is one pull request: the module and its forwarder, the old bash
+test running unchanged against it as the oracle (rule 5), then the
+bash test replaced by a Python one case for case, and the allowlist
+entries removed.
+
+| batch | what | files | lines | lane |
+|---|---|---|---|---|
+| 1 | `fabric-pr`, `fabric-locale`, `fabric-secrets` dispatch; the secrets-sync fixture | 4 | 101 | python-dev |
+| 2 | `fabric-role`, `fabric-review` dispatch | 2 | 85 | fabric-coordinator |
+| 3 | `policies/` checks and their tests | 3 | 274 | fabric-coordinator |
+| 4 | git hooks and their helpers | 5 | 341 | fabric-coordinator |
+| 5 | Claude Code guards and their tests | 6 | 415 | fabric-coordinator |
+| 6 | Claude Code session hooks and their tests | 5 | 392 | fabric-coordinator |
+| 7 | status line and tab title | 3 | 311 | fabric-coordinator |
+| 8 | installer tests under `runtime/claude-code/` | 2 | 293 | fabric-coordinator |
+| 9 | language detector installer; gzapp host check | 3 | 89 | fabric-coordinator |
+| 10 | suite runners and leak check, last | 4 | 279 | fabric-coordinator |
+
+The lane is who may commit the batch: python-dev's contributor entry
+(`policies/authority.json`), or the coordinator, because the batch's
+paths are on `CONTRIBUTOR_NEVER` in `tools/fabric/lint.py` or no entry
+names them. Batches 1 to 9 are independent of each other; batch 10 is
+last because the suite runner lists the bash suites the others retire.
+Until then the order within the wave is the coordinator's.
+
+Lint changes in a pull request of its own, before batch 1 (it is
+`tools/fabric/lint.py` and so the coordinator's): the allowlist
+`scripts` map becomes the two sections of rule 2, seeded with the
+pre-Python list and the files of the table above, each naming its batch;
+the 150-line rule is replaced by the forwarder shape (at most 12 lines of
+code, no `case`, no loop); the file kinds it reads grow from `*.sh` to
+`*.sh`, `*.bash` and a bash shebang, so an extensionless hook is seen; and
+a finding names the rule a file breaks. Seeding `ports` is the one time
+adding to the list is not a finding. Until that change merges, the
+150-line rule is what lint enforces.
+
 ## 8. Decision Status
 
 Accepted and in force. Waves 0 to 7 are done (the bash allowlist is
 empty, GZCoord's command-line tools run Python behind their `.mjs`
-shims); Wave 8, the control plane, is in progress.
+shims); Wave 8, the control plane, is in progress; Wave 9, the rest of
+the bash, is decided and not started.
 
 ## References
 
 - `policies/bash-allowlist.json`, `tools/fabric/lint.py`,
   `tools/fabric/gh.py`, `tools/fabric/git.py`.
+- `docs/wave-9/inventory.md`: every tracked bash file, classified.
 - `tools/fabric/secrets_sync.py`: the first port, its contract frozen in
   its header, `runtime/provisioning/secrets/fabric-secrets` its shim.
 - ADR-001 (the records), ADR-015 (code as memory), ADR-018 (the guards).
@@ -255,3 +351,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-08 | Shims retire; commands run by bare name | §2, §5 rule 7: a caller names the command on PATH; a shim retires in four steps once its callers move; shell before the pinned Python stays shell |
 | 2026-10-09 | Wave 8: the control plane moves to Python | §5 waves: the control plane (`runtime/control/`) is built beside in Python, wire frozen, Ed25519 through openssl, cut over once; Wave 7's carve-out of the control plane withdrawn; rule 8 added: no new fabric code in Node |
 | 2026-10-09 | Valid on 3.13 and newer; CI's Python legs halved | §2 and §5 rule 1: the floor is 3.13, the pin and the oldest supported system python3; CI runs the Python suites on 3.13 and 3.14 |
+| 2026-10-11 | Wave 9: the rest of the bash moves to Python | §2, §5 rules 1, 2, 4, 7 and 9, §7: Python bar the pre-Python list and the forwarder; the 150-line rule goes; 37 files in ten batches; managed projects advised |
