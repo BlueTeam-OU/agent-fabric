@@ -39,7 +39,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
-from github import commit_class, common, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
+from github import arm_policy, commit_class, common, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
 from github.review_status.base import listed, obj  # noqa: E402
 # What was split out of this module stays importable from here: the unit
 # suite, pr_compliance and the other callers reach it as pr_gate.<name>.
@@ -337,7 +337,9 @@ def awaiting_supply(body: str) -> list[str]:
 
 
 def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, review: str,
-            awaiting: list[str]) -> str:
+            awaiting: list[str], policy: dict | str | None = None) -> str:
+    """`policy` is the repository's arming policy (arm_policy.load), None for the default, or the reason it could
+    not be read: the numbers of the count rule are its, and an unreadable one is said, never the default."""
     blocks = []
     if draft:
         blocks.append("a draft — mark it ready first")
@@ -368,12 +370,15 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
         return "BLOCKED: " + "; ".join(blocks)
     if commits is None:
         return "MERGEABLE — commits unknown (fetch the base); apply the count rule by hand"
+    if isinstance(policy, str):
+        return f"MERGEABLE — the arming policy cannot be read ({policy}); apply the count rule by hand"
+    rule = (policy or arm_policy.default())["commits"]
     work = commits["work"]
-    if work > 16:
-        return f"MERGEABLE — {work} work commits, over 16: smaller batches next time; arm on the basis"
-    if work >= 8:
+    if work > rule["advice_over"]:
+        return f"MERGEABLE — {work} work commits, over {rule['advice_over']}: smaller batches next time; arm on the basis"
+    if work >= rule["min"]:
         return f"MERGEABLE — arm: post the basis ({work} work commits, review on head) and gh pr merge {num} --auto"
-    return f"MERGEABLE — ask the owner ({work} work commits < 8), then arm"
+    return f"MERGEABLE — ask the owner ({work} work commits < {rule['min']}), then arm"
 
 
 def owner_of(branch: str) -> str:
@@ -547,6 +552,10 @@ def run(argv: list[str]) -> int:
     if not fetched:
         note("git fetch origin failed — the base is stale, so no commit count is trusted (commits unknown)")
     reader = review_reader()
+    try:
+        policy: dict | str = arm_policy.load(repo)
+    except (arm_policy.PolicyError, arm_policy.PolicyUnavailable) as e:
+        policy = str(e)
     rows = []
     for p in prs:
         if p.get("state") == "MERGED":
@@ -577,7 +586,7 @@ def run(argv: list[str]) -> int:
             "awaiting_supply": awaiting,
             "checks": st["checks"], "review": review, "unresolved_threads": st["unresolved"], "armed": st["armed"],
             "queue_position": st["queue"], "merge_state": st["mstate"], "draft": alt(p.get("isDraft")) is True,
-            "verdict": verdict(num, base, alt(p.get("isDraft")) is True, commits, st, review, awaiting),
+            "verdict": verdict(num, base, alt(p.get("isDraft")) is True, commits, st, review, awaiting, policy),
         })
     if as_json:
         print(json.dumps(rows, indent=2, ensure_ascii=False))
