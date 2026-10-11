@@ -49,7 +49,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | the agent id; UUIDv7; renaming a login | ADR-039 |
 | a human login; identity kinds; the deck's operator | ADR-044 |
 | the engine/operator/client split; roots; publishing the engine | ADR-045 |
-| which language a tool is written in; the bash size limit and allowlist; porting a script; gh.py, git.py | ADR-040 |
+| which language a tool is written in; which bash stays (pre-Python list, forwarders) and the allowlist; porting a script; gh.py, git.py | ADR-040 |
 | your GZCoord history; the episodic journal; fabric-history | ADR-041 |
 | signed store commits; trusted base; trust-base; a refused store | ADR-042 |
 | Claude Code mods; managed settings; where the guards live; the fleet's own mods | ADR-043 |
@@ -865,28 +865,28 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
-- New fabric tooling is Python, standard library only, on the pinned
-  `fabric-python`; bash stays for shims, forwarders, hook entry points,
-  the suite runners and step-runners (§5 rule 1).
-- Lint refuses a tracked bash script over 150 lines not named in
-  `policies/bash-allowlist.json`; each entry names its wave, and the
-  list only shrinks (§5 rule 2).
-- A port freezes the contract in the module's header, keeps the path as
-  a shim, runs the old test unchanged as the oracle, and removes the
-  entry (§5 rules 3–5).
-- GitHub and git go through `gh.py` and `git.py` (§5 rule 6).
-- A 2026-10-01 — the oracle's assertions stay; its gh mock and source
-  reads may follow the port (§5 rule 5).
-- A 2026-10-01 — one pinned Python per host, fabric-python (§5 rules 1, 4).
-- A 2026-10-01 — a fixture may copy the modules its scripts load; no assertion changes (§5 rule 5).
-- A 2026-10-04 — Wave 7: GZCoord's tools to Python together (§7).
-- A 2026-10-08 — commands by bare name; shims retire; pre-Python shell stays (§5 rule 7).
-- A 2026-10-09 — Wave 8: the control plane to Python, wire frozen, cut
-  over once; no new Node (§5 rule 8).
+- Every fabric script is Python, standard library only, on the pinned
+  `fabric-python`; bash stays only as the closed pre-Python list and
+  forwarders (12 code lines, no case or loop, exec the module),
+  hook and bin/ paths included (§5 rule 1).
+- Lint refuses a bash file on neither the list nor the forwarder shape;
+  `ports` only shrinks (§5 rule 2).
+- A port freezes the contract, keeps the path, runs the old
+  test as the oracle, removes the entry (§5 rules 3–5).
+- GitHub and git go through `gh.py`, `git.py` (§5 rule 6).
+- A 2026-10-01 — the oracle stays; mock and source reads may follow (§5 rule 5).
+- A 2026-10-01 — one pinned Python per host (§5 rule 1).
+- A 2026-10-01 — a fixture copies its scripts' modules (§5 rule 5).
+- A 2026-10-04 — Wave 7: GZCoord's tools to Python (§7).
+- A 2026-10-08 — commands by bare name; shims retire (§5 rule 7).
+- A 2026-10-09 — Wave 8: control plane to Python; no new Node (§5 rule 8).
 - A 2026-10-09 — valid on 3.13+ (§5 rule 1).
+- A 2026-10-11 — Wave 9: the rest of the bash to Python in ten batches
+  (docs/wave-9/inventory.md); projects advised: port a script
+  when changed, host tests Python (§5 rules 1, 2, 9, §7).
 - Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
-  git, 150 lines, P1, bare command, fabric-pr, deprecated path, Node,
-  control plane, openssl, Ed25519.
+  git, 150 lines, P1, bare command, Node, control plane,
+  forwarder.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 
