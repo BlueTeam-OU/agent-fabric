@@ -1191,6 +1191,32 @@ def case_the_repository_is_one_license() -> None:
         assert code == 1 and "lives in the project's repository" in out, f"project knowledge here passed:\n{out}"
 
 
+def case_every_client_with_a_project_names_a_settings_repository() -> None:
+    """A client some project names, with no settings_repo, would have its
+    projects armed under no policy; a malformed one is refused too, and a
+    client without projects needs none."""
+    registry = {"projects": {"agent-fabric": {"license": "Apache-2.0", "client": "self"},
+                             PROJECT: {"license": "Apache-2.0", "client": "acme"}}}
+    def clients(**acme) -> str:
+        return json.dumps({"version": 1, "clients": {
+            "self": {"settings_repo": "o/agent-fabric-settings"}, "acme": acme, "idle": {}}})
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        _write_license_layout(fabric, registry, REUSE_OK, clients=False)
+        path = os.path.join(fabric, "projects", "clients.json")
+        write(path, clients(settings_repo="acme/agent-fabric-settings"))
+        code, out = run_lint(fabric)
+        assert code == 0, f"a client with a settings_repo, and one without projects and none, was refused:\n{out}"
+        write(path, clients())
+        code, out = run_lint(fabric)
+        assert code == 1 and "client 'acme' has projects and no settings_repo" in out, out
+        assert "client 'idle'" not in out and "client 'self'" not in out, out
+        for bad in ("not-a-repo", "o/..", "../r", "a/b/c"):
+            write(path, clients(settings_repo=bad))
+            code, out = run_lint(fabric)
+            assert code == 1 and "client 'acme' has projects and no settings_repo" in out, (bad, out)
+
+
 def case_every_project_names_a_defined_client() -> None:
     """ADR-045 §5 rule 5: a working copy resolves remote -> project ->
     client, so a project's client must be one projects/clients.json
@@ -1201,10 +1227,10 @@ def case_every_project_names_a_defined_client() -> None:
         fabric = make_base(root)
         _write_license_layout(fabric, registry, REUSE_OK, clients=False)
         write(os.path.join(fabric, "projects", "clients.json"),
-              json.dumps({"version": 1, "clients": {"self": {}, "acme": {}}}))
+              json.dumps({"version": 1, "clients": {"self": {"settings_repo": "o/s"}, "acme": {"settings_repo": "o/s"}}}))
         code, out = run_lint(fabric)
         assert code == 0, f"defined clients were refused:\n{out}"
-        write(os.path.join(fabric, "projects", "clients.json"), json.dumps({"version": 1, "clients": {"self": {}}}))
+        write(os.path.join(fabric, "projects", "clients.json"), json.dumps({"version": 1, "clients": {"self": {"settings_repo": "o/s"}}}))
         code, out = run_lint(fabric)
         assert code == 1 and "names client 'acme', which projects/clients.json does not define" in out, out
         os.remove(os.path.join(fabric, "projects", "clients.json"))
@@ -2438,6 +2464,7 @@ def main() -> int:
         case_model_profiles_unknown_role_is_refused,
         case_model_profiles_schema_is_enforced,
         case_the_repository_is_one_license,
+        case_every_client_with_a_project_names_a_settings_repository,
         case_every_project_names_a_defined_client,
         case_a_registry_with_projects_and_no_clients_is_a_finding,
         case_the_class_list_a_reader_sees_is_the_real_one,

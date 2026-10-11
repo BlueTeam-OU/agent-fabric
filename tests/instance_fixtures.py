@@ -32,7 +32,7 @@ def with_client(doc: dict) -> dict:
 
 def write_clients(directory: str) -> str:
     """<directory>/clients.json defining FIXTURE_CLIENT; its path."""
-    return write_json(os.path.join(directory, "clients.json"), {"version": 1, "clients": {FIXTURE_CLIENT: {}}})
+    return write_json(os.path.join(directory, "clients.json"), {"version": 1, "clients": {FIXTURE_CLIENT: {"settings_repo": "fixture-org/agent-fabric-settings"}}})
 
 
 def write_registry(directory: str, doc: dict = ADR_REGISTRY) -> str:

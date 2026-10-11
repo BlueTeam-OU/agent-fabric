@@ -346,6 +346,7 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
                  
                  "if [ \"$1\" = watch ]; then (exec -a 'node inbox.mjs --follow' sleep 20) & w=$!; sleep 0.3; fi\n"
                  "if [ \"$1\" = until ]; then (exec -a 'node /home/x/.local/bin/gzcoord-inbox --until-delivery' sleep 20) & w=$!; sleep 0.3; fi\n"
+                 "if [ \"$1\" = wait ]; then (exec -a 'gzcoord-inbox --wait' sleep 20) & w=$!; sleep 0.3; fi\n"
                  "if [ \"$1\" = named ]; then (exec -a 'node /home/x/.local/bin/gzcoord-inbox --follow' sleep 20) & w=$!; sleep 0.3; fi\n"
                  f"bash {HOOK} < {payload}\n"
                  "[ -n \"${w:-}\" ] && kill $w\n")
@@ -356,6 +357,8 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     assert "NO INBOX WATCH" not in context_of(armed), armed.stdout
     until = subprocess.run([fake, "until"], capture_output=True, text=True, env=env)
     assert "NO INBOX WATCH" not in context_of(until), "the background wait was not seen:\n" + until.stdout
+    waiting = subprocess.run([fake, "wait"], capture_output=True, text=True, env=env)
+    assert "NO INBOX WATCH" not in context_of(waiting), "--wait counts as a watch, as in watch-on-stop:\n" + waiting.stdout
     said = context_of(bare)
     assert "run_in_background: true" in said and "--until-delivery" in said and "Never a Monitor" in said, said
     assert "do not run it again until it is fixed" in said, said

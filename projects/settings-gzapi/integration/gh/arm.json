@@ -1,0 +1,15 @@
+{
+  "description": "settings-gzapi's rules for fabric-pr arm. boundary.paths: the repository holds the organisation's per-repository arming policies, so its boundary is the policy files themselves (repos/<repo>.json) and CI (.github/): a change there changes the rules every repository of the organisation is armed under. boundary.exempt is dropped first: Markdown prose. No classes. waiver_role is null: only the owner waives the boundary.",
+  "boundary": {
+    "paths": "^repos/.*\\.json$|^\\.github/",
+    "exempt": "^.*\\.md$",
+    "cases": [
+      "repos/gzapp.json",
+      "repos/agent-fabric.json",
+      "repos/nested/x.json",
+      ".github/workflows/ci.yml",
+      ".github/dependabot.yml"
+    ]
+  },
+  "waiver_role": null
+}
