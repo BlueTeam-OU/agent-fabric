@@ -194,7 +194,8 @@ def _version(path: str, rows: list) -> int:
 
 def open_readonly(path: str | None = None, agent_id: str | None = None) -> sqlite3.Connection:
     """The journal for a READER (fabric-history, any ADR-041 reader): a read-only URI (`mode=ro`), so it takes
-    no write lock, creates nothing, migrates nothing and cannot write — a writer holding a transaction does
+    no write lock, migrates nothing and cannot write a row (SQLite still keeps the WAL's -wal and -shm files
+    beside the journal, mode 0600, which a read-only connection cannot checkpoint away) — a writer holding a transaction does
     not block it, and it does not block the writer. The owner is checked as connect() checks it (another
     agent's journal is never read) and a journal written by newer code is refused; an older one is read as it
     is, because every migration so far only adds. A missing file is a JournalError, not a created journal."""

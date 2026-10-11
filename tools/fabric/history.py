@@ -52,7 +52,7 @@ def mask(text: str | None, eid: str, patterns: list) -> str | None:
 
 
 def open_readonly() -> sqlite3.Connection:
-    """The journal, owner-checked, opened read-only (episodic.open_readonly): no write lock, nothing created."""
+    """The journal, owner-checked, opened read-only (episodic.open_readonly): no write lock, no row written."""
     conn = episodic.open_readonly()
     conn.row_factory = sqlite3.Row
     return conn
