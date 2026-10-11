@@ -138,6 +138,9 @@ def main() -> int:
                 with open(stale, "w", encoding="utf-8") as fh:
                     fh.write("leftover of a killed run, wider than 0600")
                 os.chmod(stale, 0o644)
+            keeper = os.path.join(d, "keeper")
+            if kind != "a symlink":
+                os.link(stale, keeper)          # a second name for the leftover: written through, it would change too
             inst.save(path, {"a": 1})
             with open(path, encoding="utf-8") as fh:
                 saved = fh.read()
@@ -146,6 +149,11 @@ def main() -> int:
             check(f"{kind} at the temp name is replaced: the result is the new JSON, private, the temp gone, the link's target untouched",
                   json.loads(saved) == {"a": 1} and oct(os.stat(path).st_mode & 0o777) == "0o600" and not os.path.lexists(stale)
                   and victim_text == "untouched", f"{saved!r} {victim_text!r}")
+            if kind != "a symlink":
+                with open(keeper, encoding="utf-8") as fh:
+                    kept = fh.read()
+                check("...and the leftover was unlinked, not written through: its other name still holds the old text at 0644",
+                      kept == "leftover of a killed run, wider than 0600" and oct(os.stat(keeper).st_mode & 0o777) == "0o644", kept)
 
         print("usage")
         r = subprocess.run([sys.executable, "-I", INSTALL, os.path.join(t, "x.json"), "remove"], capture_output=True, text=True, timeout=60)

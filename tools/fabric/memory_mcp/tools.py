@@ -3,6 +3,7 @@ memory_mark writes, and only to the login's own state."""
 from __future__ import annotations
 
 import difflib
+import unicodedata
 from dataclasses import dataclass, field
 
 import memory_index as mi
@@ -45,7 +46,12 @@ def frame(text: str) -> str:
     # and leave the rest of the slice outside it, read as the session's own context. In backticks it is quoted text.
     # Split on every line break a reader may take for one (\r, \x0b, \x0c, \x1c-\x1e, \x85, U+2028/2029 as well as
     # \n), so an end line cannot hide behind a break that "\n" alone does not see; the frame is joined with \n.
-    body = "\n".join(f"`{line.strip()}`" if line.lstrip().startswith(END_PREFIX) else line for line in text.splitlines())
+    # The test ignores format characters (category Cf: zero-width space, BOM, soft hyphen, bidi marks) as it ignores
+    # whitespace: to a reader the line is the end line either way.
+    def is_end_line(line: str) -> bool:
+        return "".join(c for c in line if unicodedata.category(c) != "Cf").lstrip().startswith(END_PREFIX)
+
+    body = "\n".join(f"`{line.strip()}`" if is_end_line(line) else line for line in text.splitlines())
     return f"{MEMORY_START}\n{body}\n{MEMORY_END}"
 
 
