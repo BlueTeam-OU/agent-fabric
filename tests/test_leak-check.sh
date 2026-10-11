@@ -56,8 +56,9 @@ for _ in $(seq 100); do made_dir && break; sleep 0.1; done
 made_dir && ok "the run made its directory under XDG_RUNTIME_DIR" || bad "run directory" "$(ls -A "$RUNTMP")"
 kill -TERM -- "-$RUNPID" 2>/dev/null || kill -TERM "$RUNPID"
 ended=0
-# run.sh's cleanup gives its suites 5 s after TERM before it KILLs them, so
-# the run may take a little over 5 s on a loaded runner: 15 s is the bound.
+# run.sh's cleanup TERMs its suites, KILLs what is left after 5 s and waits
+# about 10 s in all (a zombie answers kill -0 to the end), so the run may
+# take that long on a loaded runner: 15 s is the bound.
 for _ in $(seq 150); do kill -0 "$RUNPID" 2>/dev/null || { ended=1; break; }; sleep 0.1; done
 (( ended )) && ok "TERM ends the run within fifteen seconds" || { bad "the run outlived TERM" "$(cat "$SANDBOX/run.out")"; kill -KILL -- "-$RUNPID" 2>/dev/null; }
 wait "$RUNPID" 2>/dev/null; rc=$?

@@ -73,6 +73,9 @@ cleanup() {
     local pid p i live
     local -a all=()
     for pid in $(jobs -p); do
+        # The watcher is a job too, and must outlive the removal below: TERMed
+        # here, a KILL during the wait would leave the directory to nobody.
+        [[ "$pid" == "${WATCHER_PID:-}" ]] && continue
         all+=("$pid"); while read -r p; do [[ -n "$p" ]] && all+=("$p"); done < <(descendants "$pid")
     done
     (( ${#all[@]} )) && kill -TERM "${all[@]}" 2>/dev/null
