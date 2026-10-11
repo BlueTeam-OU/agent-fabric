@@ -250,16 +250,23 @@ def project_of(registry: Any, repo: str) -> tuple[str, dict] | None:
 
 
 def settings_repo_of(registry: Any, clients: Any, repo: str) -> str | None:
-    """The settings repository of `repo`'s client, or None when the repository is not a registered project's, its
-    project has no client, or its client names no settings repository (then the fleet policy applies)."""
+    """The settings repository of `repo`'s client; None when the repository is not a registered project's (then the
+    fleet policy applies). A registered project whose client is missing, unknown or names no settings repository
+    is an error, said loudly: the policy of a repository the fabric knows is somewhere, and falling back to the
+    fleet's would arm it by rules its owner did not write."""
     found = project_of(registry, repo)
     if found is None:
         return None
-    client = found[1].get("client")
+    pid, spec = found
+    client = spec.get("client")
+    if not isinstance(client, str) or not client:
+        raise PolicyError(f"projects/registry.json: project {pid} (the remote of {repo}) names no client, so its settings repository is unknown")
     entry = clients.get("clients", {}).get(client) if isinstance(clients, dict) and isinstance(clients.get("clients"), dict) else None
-    value = entry.get("settings_repo") if isinstance(entry, dict) else None
+    if not isinstance(entry, dict):
+        raise PolicyError(f"projects/clients.json has no client {client!r}, which project {pid} ({repo}) names")
+    value = entry.get("settings_repo")
     if value is None:
-        return None
+        raise PolicyError(f"projects/clients.json: client {client!r} (project {pid}, {repo}) has no settings_repo")
     if not is_repo_name(value):
         raise PolicyError(f"projects/clients.json: {client}'s settings_repo is not an <owner>/<name>")
     return value

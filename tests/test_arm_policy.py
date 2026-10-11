@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 from github import arm, arm_policy, pr_gate, repo_policy  # noqa: E402
+from lint_rules import schema as lint_schema  # noqa: E402
 
 RULESET = os.path.join(HERE, "tools", "fabric", "github-ruleset-main.json")
 # What agent-fabric's policy file in its client's settings repository says, which is what github-ruleset-main.json is today.
@@ -130,6 +131,44 @@ class Document(unittest.TestCase):
                 arm_policy.validate({"commits": {"classes": bad}})
 
 
+class RealFiles(unittest.TestCase):
+    """The operator's own files, read on purpose (tests/test_tests_read_fixtures.py names this file): the fleet
+    default loads through arm_policy and is the built-in default, and the schema file and arm_policy.validate say the
+    same of every document below, so the schema's test and the loader are one judgement."""
+
+    SCHEMA = None
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(HERE, "identities", "schemas", "arming.schema.json"), encoding="utf-8") as fh:
+            cls.SCHEMA = json.load(fh)
+
+    def test_the_fleet_default_file_loads_through_arm_policy_and_is_the_built_in_default(self):
+        self.assertEqual(arm_policy.fleet_policy(HERE), arm_policy.default())
+
+    def test_the_schema_and_the_loader_agree_on_every_document(self):
+        queue = {"mode": "queue", "method": "squash", "queue": {"grouping": "headgreen", "build": 5, "merge_max": 5, "merge_min": 1,
+                                                                "wait_minutes": 2, "check_timeout_minutes": 60}}
+        valid = [{}, FABRIC_POLICY, queue, {"commits": {"min": 4, "roles": {"devex-tooling": {"min": 2}}, "classes": {"docs": {"paths": "^docs/", "min": 1}}}},
+                 {"bots": {"dependabot": {"arm": ["patch", "minor"], "ecosystems": ["npm_and_yarn", "pip"]}}},
+                 {"github": {"ruleset": "r", "branch": "main"}}, {"mode": "owner-only"}, {"mode": "direct"}, {"commits": {"below_min": "refuse"}}]
+        invalid = [{"mode": "auto", "autoo": True}, {"queue": {"depth": 3}}, {"mode": "squash"}, {"method": "fast-forward"},
+                   {"commits": {"below_min": "warn"}}, {"commits": {"min": 0}}, {"commits": {"roles": {"devex-tooling": {"min": 0}}}},
+                   {"commits": {"roles": {"Devex Tooling": {"min": 2}}}}, {"commits": {"classes": {"docs": {"min": 1}}}},
+                   {"queue": {"grouping": "some"}}, {"queue": {"build": 2.5}}, {"required_checks": [{"app": "github-actions"}]},
+                   {"bots": {"renovate": {"arm": ["patch"]}}}, {"bots": {"dependabot": {"arm": ["breaking"]}}}, {"signatures": "yes"},
+                   {"protect": {"deletion": 1}}, {"required_checks": ["ci-ok"]}]
+        with open(os.path.join(HERE, "policies", "arming.json"), encoding="utf-8") as fh:
+            valid.append(json.load(fh))
+        for doc in valid:
+            self.assertEqual(lint_schema.validate_json(self.SCHEMA, doc, "x"), [], doc)
+            arm_policy.validate(doc)
+        for doc in invalid:
+            self.assertTrue(lint_schema.validate_json(self.SCHEMA, doc, "x"), f"the schema accepts {doc}")
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(doc)):
+                arm_policy.validate(doc)
+
+
 class Layers(Scratch):
     def test_no_fleet_file_is_the_default_and_a_fleet_file_is_over_it(self):
         self.assertEqual(arm_policy.fleet_policy(self.dir), arm_policy.default())
@@ -157,9 +196,15 @@ class Client(unittest.TestCase):
         for repo in ("O/R", "o/r", "O/r"):
             self.assertEqual(arm_policy.settings_repo_of(REGISTRY, CLIENTS, repo), "o/settings", repo)
 
-    def test_no_project_no_client_or_a_client_without_one_is_none_and_the_fleet_policy_applies(self):
-        for repo in ("x/unknown", "o/q", "o/n", "o/b"):
-            self.assertIsNone(arm_policy.settings_repo_of(REGISTRY, CLIENTS, repo), repo)
+    def test_a_repository_that_is_no_registered_projects_is_none_and_the_fleet_policy_applies(self):
+        self.assertIsNone(arm_policy.settings_repo_of(REGISTRY, CLIENTS, "x/unknown"))
+
+    def test_a_registered_project_with_no_client_an_unknown_client_or_no_settings_repo_fails_loudly(self):
+        for repo, words in (("o/n", "names no client"), ("o/q", "has no client 'nobody'"), ("o/b", "has no settings_repo")):
+            with self.assertRaises(arm_policy.PolicyError, msg=repo) as cm:
+                arm_policy.settings_repo_of(REGISTRY, CLIENTS, repo)
+            self.assertIn(words, str(cm.exception))
+            self.assertIn(repo, str(cm.exception))
 
     def test_a_settings_repository_that_is_not_a_name_is_an_error(self):
         for bad in ("x", "a/b/c", 3, ["a/b"], "", "../x"):
@@ -176,9 +221,15 @@ class Load(Scratch):
         return arm_policy.load(repo, root=self.dir, registry=REGISTRY if registry is None else registry,
                                clients=CLIENTS if clients is None else clients, api=api, cache=cache)
 
-    def test_no_settings_repository_is_the_fleet_policy_and_no_call_is_made(self):
+    def test_a_repository_that_is_no_registered_projects_is_the_fleet_policy_and_no_call_is_made(self):
         api = Api(error=ghe(500))
-        self.assertEqual(self.load(api, repo="o/q"), arm_policy.default())
+        self.assertEqual(self.load(api, repo="x/unknown"), arm_policy.default())
+        self.assertEqual(api.asked, [])
+
+    def test_a_registered_project_whose_client_has_no_settings_repository_is_an_error_not_the_fleet_policy(self):
+        api = Api(contents({}))
+        with self.assertRaises(arm_policy.PolicyError):
+            self.load(api, repo="o/b")
         self.assertEqual(api.asked, [])
 
     def test_no_repository_is_the_fleet_policy(self):
