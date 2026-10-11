@@ -102,6 +102,9 @@ def _load(name: str, path: str):
 layout = _load("fabric_layout", os.path.join(HERE, "layout.py"))
 identity = _load("fabric_identity", os.path.join(layout.FABRIC_ROOT, "runtime", "identity.py"))
 memory_use = _load("fabric_memory_use", os.path.join(HERE, "memory_use.py"))
+# ADR-050 rule 1: what an anchor is, the one definition (the assembler and the staleness check read the same).
+anchors_mod = _load("fabric_anchors", os.path.join(HERE, "anchors.py"))
+ANCHOR_CLASSES, ANCHORS_MAX = anchors_mod.ANCHOR_CLASSES, anchors_mod.ANCHORS_MAX
 
 # THE SECRET FENCE, at the harvester. The assembler substitutes a person's
 # name and redacts a secret when it files a claim — but a bundle travels
@@ -266,6 +269,23 @@ def parse_memory(path: str) -> dict[str, Any] | None:
         if not line.startswith((" ", "\t")):
             section = None
     name = meta.get("name") or os.path.splitext(os.path.basename(path))[0]
+    anchors: list[str] = []
+    anchor_problems: list[str] = []
+    raw_anchors = meta.get("metadata.anchors") or meta.get("anchors")
+    if raw_anchors is not None:
+        listed = anchors_mod.split_inline_list(raw_anchors)
+        if listed is None:
+            anchor_problems.append(f"anchors is no inline list: {raw_anchors[:60]!r}")
+        else:
+            for a in listed:
+                bad = anchors_mod.problem(a)
+                if bad:
+                    anchor_problems.append(f"anchor {a[:60]!r}: {bad}")
+                elif a not in anchors:
+                    anchors.append(a)
+            if len(anchors) > ANCHORS_MAX:
+                anchor_problems.append(f"{len(anchors) - ANCHORS_MAX} anchor(s) past the first {ANCHORS_MAX} dropped")
+                anchors = anchors[:ANCHORS_MAX]
     return {
         "name": name,
         "description": meta.get("description", ""),
@@ -294,6 +314,9 @@ def parse_memory(path: str) -> dict[str, Any] | None:
         # assembler asks the owner nothing. The README promised the field
         # and the harvest dropped it (language-culture, 2026-09-20).
         "merge_target": (meta.get("metadata.merge_target") or meta.get("merge_target") or "").strip(),
+        "anchors": anchors,
+        "anchor_problems": anchor_problems,
+        "raw_anchors": raw_anchors or "",
     }
 
 
@@ -321,6 +344,14 @@ def judge_memory(parsed: dict[str, Any]) -> dict[str, Any]:
     hits = credential_hits(parsed["body"])
     if hits:
         return {"verdict": "refused", "reason": f"carries a {hits[0]} by shape; nothing of it leaves the account"}
+    # The raw value, not the validated list: an anchor that failed validation is quoted in the warnings that reach
+    # harvest-report.json, so a credential in it must refuse the drain as well.
+    hits = credential_hits(parsed["raw_anchors"])
+    if hits:
+        return {"verdict": "refused", "reason": f"an anchor carries a {hits[0]} by shape; nothing of it leaves the account"}
+    if not parsed["body"].strip() and not parsed["merge_target"]:
+        return {"verdict": "refused", "reason": "has no body and names no merge_target: nothing to file (a memory with "
+                "a merge_target and no body retires that section, ADR-050 rule 7)"}
     # A memory in another language drains through its English rendering.
     text, language = parsed["body"], None
     original, rendering = split_rendering(parsed["body"])
@@ -433,6 +464,7 @@ def main() -> int:
     needs_rendering: list[str] = []
     unrendered_ms: list[int] = []
     refusals: list[str] = []
+    anchor_warnings: list[str] = []
 
     for name in sorted(os.listdir(memory_dir)):
         if not name.endswith(".md"):
@@ -461,6 +493,11 @@ def main() -> int:
             unrendered_ms.append(parsed["mtime_ms"])
             continue
         text, language, title = judged["text"], judged["language"], judged["title"]
+        # Anchors are a claim's own business only for a class that decays against a tree (ADR-050 rule 1). On any
+        # other class, or malformed, they are dropped and said: the claim is kept, and the schema never sees them.
+        if parsed["anchors"] and klass not in ANCHOR_CLASSES:
+            anchor_warnings.append(f"{name}: anchors dropped, roles_class {klass!r} is not one of {sorted(ANCHOR_CLASSES)}")
+        anchor_warnings.extend(f"{name}: {p}" for p in parsed["anchor_problems"])
         cid = content_hash(parsed["name"], parsed["body"])
         observations.append({
             "content_hash": cid,
@@ -486,6 +523,7 @@ def main() -> int:
             "body": text,
             "observed_at": parsed["observed_at"],
             **({"merge_target": parsed["merge_target"]} if parsed["merge_target"] else {}),
+            **({"anchors": parsed["anchors"]} if parsed["anchors"] and klass in ANCHOR_CLASSES else {}),
             # Two or more owners is the assembler's route to a shared slice
             # (memory/README.md, "Four scopes"); a memory names its co-owners
             # and the drain carries them, so a fact every role needs is not
@@ -499,6 +537,8 @@ def main() -> int:
             "evidence": [cid],
         })
 
+    for w in anchor_warnings:
+        print(f"harvest_memory: warning: {w}", file=sys.stderr)
     if refusals:
         # Refuse the WHOLE drain, not the offending file. A partial claims
         # file looks complete to the assembler, and the memory that was
@@ -535,6 +575,8 @@ def main() -> int:
         # Named too: a memory in another language that carries no English
         # rendering yet — the holder renders it, then the drain takes it.
         "needs_rendering": needs_rendering,
+        # Anchors the harvest dropped, and why (ADR-050 rule 1): named, so the memory's holder can fix it.
+        **({"anchor_warnings": anchor_warnings} if anchor_warnings else {}),
         # The window this drain read, in the shape the assembler carries
         # into the committed report (`harvest`, `watermarks`).
         "since_watermark": since_ms,

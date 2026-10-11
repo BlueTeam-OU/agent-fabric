@@ -390,6 +390,10 @@ class Run:
     applied_decisions: list[dict[str, str]] = field(default_factory=list)
     written: list[str] = field(default_factory=list)
     retired_in: list[str] = field(default_factory=list)   # sibling parts a supersede touched: path, section, rewritten|removed
+    # ADR-050 rule 3: who last wrote each section this run touched, "<slice as the report names it>#<heading>" ->
+    # {agent, host, observed}: what routes a flag to the agent that knows the section (memory_flags.route).
+    section_writers: dict[str, dict[str, str]] = field(default_factory=dict)
+    section_writers_gone: list[str] = field(default_factory=list)   # headings that left a slice this run: their writers go
     index_entries: dict[str, list[IndexEntry]] = field(default_factory=lambda: defaultdict(list))
     clipped_descriptions: list[str] = field(default_factory=list)
     # A role whose crossref this run writes with an empty index. Said, not

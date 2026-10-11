@@ -6,6 +6,8 @@ import argparse
 import json
 import os
 import sys
+import anchors
+import memory_horizons
 from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, role_id_error, Run
 from assembler.bundle import open_bundle
 
@@ -33,7 +35,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--collision-decisions", default=None, metavar="FILE",
                     help="the owner's decision per collision the previous run refused on: "
                          "{\"<role>/<class>:<topic>#<heading>\": \"supersede\"|\"keep-both\"|\"drop\"}")
+    ap.add_argument("--reads-state", default=None, metavar="FILE",
+                    help="where the drain keeps when each section was last read (ADR-050 rule 8); "
+                         "default: memory-drain-reads.json in this login's agent state directory")
     args = ap.parse_args()
+    if memory_horizons.day(args.stamp) is None:
+        ap.error(f"--stamp {args.stamp!r} is no YYYY-MM-DD date")       # before anything is written: the horizons need it
     if args.bundle:
         if args.claims or args.drain:
             ap.error("--bundle replaces --claims and --drain")
@@ -105,6 +112,7 @@ def read_claims(run: Run) -> int | None:
         f for f in os.listdir(run.args.claims) if f.endswith(".json") and not f.startswith(".")
     )
     scope_violations: list[str] = []
+    anchor_violations: list[str] = []
     for name in claim_files:
         with open(os.path.join(run.args.claims, name), encoding="utf-8") as fh:
             payload = json.load(fh)
@@ -145,6 +153,29 @@ def read_claims(run: Run) -> int | None:
                     "sibling-project evidence may support only a domain claim"
                 )
 
+    # ADR-050 rule 1: a claim's anchors come from a distiller's file, which is untrusted, and are rendered into a
+    # slice as a line a later reader trusts and opens files by. They are refused here, before anything is written:
+    # only a solution or workflow claim has them, as a list of strings that are anchors (anchors.problem).
+    for role, claims in run.all_claims.items():
+        for claim in claims:
+            if "anchors" not in claim:
+                continue
+            listed = claim["anchors"]
+            who = f"{role}: {claim.get('title') or claim.get('topic')!r}"
+            if not (isinstance(listed, list) and all(isinstance(a, str) for a in listed)):
+                anchor_violations.append(f"{who}: anchors is not a list of strings")
+            elif claim.get("class") not in anchors.ANCHOR_CLASSES:
+                anchor_violations.append(f"{who}: anchors on a {claim.get('class')!r} claim; only {sorted(anchors.ANCHOR_CLASSES)} have them")
+            elif len(listed) > anchors.ANCHORS_MAX:
+                anchor_violations.append(f"{who}: {len(listed)} anchors, at most {anchors.ANCHORS_MAX}")
+            else:
+                anchor_violations.extend(f"{who}: anchor {a[:60]!r}: {anchors.problem(a)}" for a in listed if anchors.problem(a))
+    if anchor_violations:
+        print("CLAIM ANCHOR VIOLATIONS:", file=sys.stderr)
+        for problem in anchor_violations:
+            print(f"  {problem}", file=sys.stderr)
+        return 1
+
     # Refuse BEFORE writing anything. A scope violation is an input defect,
     # so assembling and reporting afterwards would leave a tree that has to
     # be reverted rather than simply re-run.
@@ -183,6 +214,18 @@ def screen_hygiene(run: Run) -> None:
                 if isinstance(claim.get(field), str):
                     claim[field], notes = hygiene_substitute(claim[field], f"{where} {field}", patterns_for(claim["class"]))
                     run.redactions.extend(notes)
+            # An anchor the hygiene lists would change is dropped, not rewritten: a rewritten one names no file.
+            if claim.get("anchors"):
+                kept_anchors = []
+                for anchor in claim["anchors"]:
+                    _text, notes = hygiene_substitute(anchor, f"{where} anchor", patterns_for(claim["class"]))
+                    if notes:
+                        run.redactions.extend(f"{n} (the anchor was dropped)" for n in notes)
+                    else:
+                        kept_anchors.append(anchor)
+                claim["anchors"] = kept_anchors
+                if not kept_anchors:
+                    del claim["anchors"]
             issues = hygiene_check(claim.get("body") or "", where, patterns_for(claim["class"]))
             if issues:
                 run.rejected_hygiene.extend(issues)

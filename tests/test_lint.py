@@ -339,6 +339,28 @@ def case_slices_are_still_linted() -> None:
         assert "good.md" not in out, f"the well-formed slice was flagged:\n{out}"
 
 
+def case_a_stale_section_is_a_warning_never_a_finding() -> None:
+    """ADR-050 rule 2: a section memory_check sorts stale-hard is named as a warning; it never fails the lint, and a
+    section whose anchors hold is silent."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        write(os.path.join(fabric, "tools", "kept.py"), "def run():\n    return 1\n")
+        index = index_for("- [`../agent-fabric/memory/domains/web-dev/domain/good.md`](../agent-fabric/memory/domains/web-dev/domain/good.md)"
+                          " — A well-formed slice, shaped like the real ones\n")
+        write(proj(fabric, "INDEX.md"), index)
+        write(dom(fabric, "domain", "good.md"), SLICE)
+        code, out = run_lint(fabric)
+        assert code == 0 and "stale-hard" not in out, f"a slice with no anchor warned:\n{out}"
+        anchored = SLICE.rstrip("\n") + "\n\n## Anchored\n\nThe fact.\n\n*Anchors: `tools/kept.py::run`*\n\n*Observed 2026-03-01 (web-dev)*\n"
+        write(dom(fabric, "domain", "good.md"), anchored)
+        code, out = run_lint(fabric)
+        assert code == 0 and "stale-hard" not in out, f"anchors that hold warned:\n{out}"
+        write(dom(fabric, "domain", "good.md"), anchored.replace("tools/kept.py::run", "tools/kept.py::gone_symbol`, `tools/gone.py"))
+        code, out = run_lint(fabric)
+        assert code == 0, f"a stale section failed the lint:\n{out}"
+        assert "warning: memory/domains/web-dev/domain/good.md: section 'Anchored' is stale-hard (tools/kept.py::gone_symbol" in out, out
+
+
 def case_a_cue_in_another_script_is_refused() -> None:
     """A slice's description and its headings are English like its body:
     they are the index line and what a holder reads before choosing.
@@ -2387,6 +2409,7 @@ def main() -> int:
         case_a_projects_own_name_is_held_to_its_own_set,
         case_a_persons_name_is_refused_everywhere,
         case_slices_are_still_linted,
+        case_a_stale_section_is_a_warning_never_a_finding,
         case_a_cue_in_another_script_is_refused,
         case_exemption_is_anchored_at_the_role_root,
         case_payload_shape_is_asserted,

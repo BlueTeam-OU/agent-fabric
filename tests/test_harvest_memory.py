@@ -166,6 +166,96 @@ def test_merge_target_travels_from_the_memory_to_the_claim(tmp: str) -> None:
     assert got == {"newer": "The dictionary has never had a native pass", "plain": None}, got
 
 
+def write_anchored(d: str, name: str, klass: str, anchors: str) -> None:
+    with open(os.path.join(d, f"{name}.md"), "w", encoding="utf-8") as fh:
+        fh.write(f"---\nname: {name}\ndescription: d\nmetadata:\n  type: project\n  roles_class: {klass}\n"
+                 f"  anchors: {anchors}\n---\n\nThe fact.\n")
+
+
+def test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim(tmp: str) -> None:
+    """ADR-050 rule 1: `anchors: [<path>::<symbol or literal>]` in the metadata block reaches the claim as a list,
+    in order, once each; a literal may hold a comma when quoted; a memory without anchors carries no key."""
+    mem, out = os.path.join(tmp, "an"), os.path.join(tmp, "oan")
+    os.makedirs(mem)
+    write_anchored(mem, "sol", "solution", '[tools/a.py::run, "docs/b.md::a literal, with a comma", tools/a.py::run, runtime/c.json]')
+    write_anchored(mem, "wf", "workflow", "['tools/d.py::main']")
+    write_memory(mem, "plain", "project", roles_class="solution")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    got = {c["topic"]: c.get("anchors") for c in claims_of(out)}
+    assert got == {"sol": ["tools/a.py::run", "docs/b.md::a literal, with a comma", "runtime/c.json"],
+                   "wf": ["tools/d.py::main"], "plain": None}, got
+    assert "warning" not in r.stderr, r.stderr
+
+
+def test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays(tmp: str) -> None:
+    """The harvest drops what the schema would refuse, says so on stderr and in the report, and keeps the claim:
+    a drain is never refused for an anchor (ADR-050 rule 1)."""
+    mem, out = os.path.join(tmp, "ad"), os.path.join(tmp, "oad")
+    os.makedirs(mem)
+    write_anchored(mem, "wrong-class", "domain", "[tools/a.py::run]")
+    write_anchored(mem, "bad-ones", "solution", "[/etc/passwd::x, ../up.py::x, tools/e.py::, \"a b/c.py::x\", tools/ok.py::fine]")
+    write_anchored(mem, "not-a-list", "solution", "tools/a.py::run")
+    write_anchored(mem, "too-many", "workflow", "[" + ", ".join(f"f{i}.py::x" for i in range(25)) + "]")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    got = {c["topic"]: c.get("anchors") for c in claims_of(out)}
+    assert got["wrong-class"] is None and got["bad-ones"] == ["tools/ok.py::fine"] and got["not-a-list"] is None, got
+    assert len(got["too-many"]) == 20, got["too-many"]
+    for needle in ("wrong-class.md: anchors dropped, roles_class 'domain'", "bad-ones.md: anchor '/etc/passwd::x'", "bad-ones.md: anchor '../up.py::x'",
+                   "bad-ones.md: anchor 'tools/e.py::': nothing follows", "not-a-list.md: anchors is no inline list", "too-many.md: 5 anchor(s) past"):
+        assert needle in r.stderr, (needle, r.stderr)
+    with open(os.path.join(out, "harvest-report.json"), encoding="utf-8") as fh:
+        report = json.load(fh)
+    assert len(report["anchor_warnings"]) >= 7, report.get("anchor_warnings")
+
+
+def test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused(tmp: str) -> None:
+    """ADR-050 rule 7: the claim of an empty memory that names a section in merge_target has an empty body and
+    that target, and the assembler retires the section; an empty memory that names none files nothing and
+    refuses the drain, as any memory the harvest cannot file does."""
+    mem, out = os.path.join(tmp, "rt"), os.path.join(tmp, "ort")
+    os.makedirs(mem)
+    with open(os.path.join(mem, "retire-it.md"), "w", encoding="utf-8") as fh:
+        fh.write("---\nname: retire-it\ndescription: gone\nmetadata:\n  type: project\n  roles_class: solution\n"
+                 "  merge_target: \"A record of an event\"\n---\n\n")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    (claim,) = claims_of(out)
+    assert (claim["body"], claim["merge_target"], claim["class"]) == ("", "A record of an event", "solution"), claim
+    nothing = os.path.join(tmp, "rt2")
+    os.makedirs(nothing)
+    with open(os.path.join(nothing, "empty.md"), "w", encoding="utf-8") as fh:
+        fh.write("---\nname: empty\ndescription: d\nmetadata:\n  type: project\n  roles_class: solution\n---\n\n")
+    r = run(nothing, os.path.join(tmp, "ort2"))
+    assert r.returncode == 1 and "empty.md: has no body and names no merge_target" in r.stderr, (r.returncode, r.stderr)
+
+
+def test_an_anchor_that_carries_a_credential_refuses_the_drain_and_a_doubled_single_quote_is_one_quote(tmp: str) -> None:
+    """An anchor is text that leaves the account like the body: a credential in it refuses the drain, as in a body.
+    YAML's doubled single quote inside a single-quoted item is one quote."""
+    mem, out = os.path.join(tmp, "ac"), os.path.join(tmp, "oac")
+    os.makedirs(mem)
+    write_anchored(mem, "leaky", "solution", "[cfg/a.py::ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8]")
+    r = run(mem, out)
+    assert r.returncode == 1 and "leaky.md: an anchor carries a" in r.stderr and "nothing of it leaves the account" in r.stderr, (r.returncode, r.stderr)
+    for i, bad in enumerate(("[/etc/ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8]", "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8")):
+        m3, o3 = os.path.join(tmp, f"ac3{i}"), os.path.join(tmp, f"oac3{i}")
+        os.makedirs(m3)
+        write_anchored(m3, "invalid", "solution", bad)
+        r = run(m3, o3)
+        assert r.returncode == 1 and "an anchor carries a" in r.stderr, (bad, r.returncode, r.stderr)
+        report = os.path.join(o3, "harvest-report.json")
+        assert not os.path.exists(report) or "ghp_A1b2" not in open(report).read(), "an invalid anchor leaked into the report"
+    mem2, out2 = os.path.join(tmp, "ac2"), os.path.join(tmp, "oac2")
+    os.makedirs(mem2)
+    write_anchored(mem2, "quoted", "solution", "['tools/a.py::it''s', 'b.py']")
+    r = run(mem2, out2)
+    assert r.returncode == 0, r.stderr
+    (claim,) = claims_of(out2)
+    assert claim["anchors"] == ["tools/a.py::it's", "b.py"], claim["anchors"]
+
+
 def test_role_knowledge_is_opt_in(tmp: str) -> None:
     """A memory reaches the shared corpus only if it says so. Nothing is
     inferred from `type`: memory has four types, .roles/ has nine classes,
@@ -870,6 +960,10 @@ def main() -> int:
         test_a_note_with_a_credential_is_withheld_and_a_query_is_never_carried,
         test_a_second_store_of_the_login_carries_no_marks,
         test_the_marks_reach_the_committed_report_through_the_assembler,
+        test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim,
+        test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays,
+        test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused,
+        test_an_anchor_that_carries_a_credential_refuses_the_drain_and_a_doubled_single_quote_is_one_quote,
     ]
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:

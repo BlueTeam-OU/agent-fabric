@@ -3,11 +3,13 @@ A part of tools/fabric/assemble.py, whose docstring is the contract."""
 from __future__ import annotations
 
 import functools
+import importlib.util
 import json
 import os
 import sys
 from typing import Any
 import roots
+import memory_horizons
 from assembler.core import layout, Run, in_report, hygiene_substitute, patterns_for
 from assembler.slices import merge_reports, scan_collisions, drop_held
 
@@ -65,6 +67,80 @@ def memory_use_of(run: Run, hr: dict, source: str) -> tuple[dict[str, list[dict[
 
 
 memory_use_verdicts = ("helpful", "wrong", "stale")
+
+
+def reads_state_path(run: Run) -> str:
+    """Where this drain keeps its per-section last-read dates: the agent state directory of the login that drains, never the
+    tree (a clone reads the tree; the dates are this drain's own memory, ADR-050 rule 8)."""
+    if run.args.reads_state:
+        return os.path.abspath(run.args.reads_state)
+    spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(roots.code_root(), "runtime", "identity.py"))
+    assert spec and spec.loader
+    identity = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(identity)
+    return os.path.join(identity.agent_state_dir(), memory_horizons.STATE_FILE)
+
+
+def review_horizons(run: Run, memory_use: dict[str, Any]) -> dict[str, Any]:
+    """The drain report's `review_horizons` (ADR-050 rule 8): sections older than their class's horizon and sections no
+    memory_read returned in 8 weeks, listed and never expired. The reads this drain carried are recorded first, the state
+    is written on every drain; a state that cannot be read or written leaves the unread list empty and says so."""
+    corpora = {"f": roots.memory_dir(root=layout.FABRIC_ROOT), "p": layout.project_memory_root(run.project)}
+    key_of = {p: (lambda rel, root=root: in_report(run, os.path.join(root, rel))) for p, root in corpora.items()}
+    path = reads_state_path(run)
+    state, status = memory_horizons.load_state(path)
+    ids_read: dict[str, Any] = {}
+    for use in memory_use.values():
+        ids = use.get("ids_read") if isinstance(use, dict) else None
+        if isinstance(ids, dict):          # harvest content is untrusted: a list or a string is no counts
+            ids_read.update(ids)
+    rows = memory_horizons.rows_of(corpora, key_of)
+    memory_horizons.observe(state, run.project, rows, run.args.stamp)
+    memory_horizons.record_reads(state, run.project, ids_read, corpora, run.args.stamp, key_of)
+    out = memory_horizons.horizons(rows, state, run.project, run.args.stamp)
+    live = {p: {r["key"] for r in rows if r["scope"] == p} for p in corpora}
+    try:
+        memory_horizons.save_reads(path, state, run.project, live)
+    except OSError as e:
+        status = "unwritable"
+        print(f"memory-drain-reads.json could not be written ({e.strerror or e}); the unread list is not trusted this drain", file=sys.stderr)
+    if status in ("unreadable", "unwritable"):
+        out["unread"], out["unread_from"] = [], None
+    return {**out, "reads_state": status}
+
+
+def retrieval_summary(memory_use: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Per login, what the owner reads to see whether memory_find is used (ADR-049 rule 7): from the counts of the harvest
+    bundles (memory_use, keyed agent@host[#store], one window each), summed over a login's hosts. Counts and shares only: no
+    query text is in the harvest to carry, and no section id (that is memory_use.ids_read). A share is None, not 0, when there
+    was no find to share over: unknown stays unknown."""
+    out: dict[str, dict[str, Any]] = {}
+    for source, use in memory_use.items():
+        if not isinstance(use, dict) or not isinstance(use.get("calls"), dict):
+            continue
+        login, _, host = source.partition("@")
+        row = out.setdefault(login, {"finds": 0, "zero_hit_finds": 0, "finds_followed_by_read": 0, "reads": 0, "indexes": 0,
+                                     "marks": 0, "refused": 0, "hosts": [], "since_ms": None, "until_ms": None})
+        calls = use["calls"]
+        row["finds"] += int(calls.get("memory_find") or 0)
+        row["reads"] += int(calls.get("memory_read") or 0)
+        row["indexes"] += int(calls.get("memory_index") or 0)
+        row["zero_hit_finds"] += int(use.get("zero_hit_finds") or 0)
+        row["finds_followed_by_read"] += int(use.get("finds_followed_by_read") or 0)
+        row["marks"] += int(use.get("marks") or 0)
+        row["refused"] += int(use.get("errors") or 0)
+        hostname = host.partition("#")[0]
+        if hostname and hostname not in row["hosts"]:
+            row["hosts"] = sorted([*row["hosts"], hostname])
+        for key, pick in (("since_ms", min), ("until_ms", max)):
+            value = use.get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                row[key] = value if row[key] is None else pick(row[key], value)
+    for row in out.values():
+        finds = row["finds"]
+        row["zero_hit_share"] = round(row["zero_hit_finds"] / finds, 3) if finds else None
+        row["read_through"] = round(row["finds_followed_by_read"] / finds, 3) if finds else None
+    return dict(sorted(out.items()))
 
 
 def report(run: Run) -> int:
@@ -148,6 +224,8 @@ def report(run: Run) -> int:
         "rejected_hygiene": run.rejected_hygiene,
         "redactions": run.redactions,
         "retired_in_siblings": run.retired_in,
+        "section_writers": run.section_writers,
+        "section_writers_gone": run.section_writers_gone,
         "oversized_claims": run.oversized,
         "clipped_descriptions": run.clipped_descriptions,
         "migrated": run.migrated,
@@ -175,6 +253,10 @@ def report(run: Run) -> int:
         roots = [layout.working_copy_for(run.project), layout.FABRIC_ROOT]
         return any(root and os.path.exists(os.path.join(root, rel)) for root in roots)
     report = merge_reports(previous, report, still_there)
+    # Derived from the corpus and the drain's reads each time, like the collisions: never carried from an earlier report.
+    report["review_horizons"] = review_horizons(run, memory_use)
+    # After the merge: the sources of earlier runs of this stamp are in memory_use by now.
+    report["memory_retrieval"] = retrieval_summary(report.get("memory_use") or {})
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
     # A key an earlier run of the stamp held stays held only while no run
@@ -197,6 +279,10 @@ def report(run: Run) -> int:
             f"admitted={counts.get('admitted', '?')} rejected={counts.get('rejected', '?')}"
         )
     print(f"\n{len(run.written)} files, {len(run.shared)} shared slices")
+    for login, row in report["memory_retrieval"].items():
+        share = lambda v: "n/a" if v is None else f"{v:.0%}"  # noqa: E731 - a label for a line
+        print(f"memory: {login} {row['finds']} finds, zero-hit {share(row['zero_hit_share'])}, read-through {share(row['read_through'])}, "
+              f"{row['reads']} reads, {row['marks']} marks")
     if run.redactions:
         print("\nREDACTED (hygiene — the slice carries the substitute; fix the memory so the next drain needs none):", file=sys.stderr)
         for note in run.redactions:

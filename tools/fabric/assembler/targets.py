@@ -10,7 +10,7 @@ import sys
 from collections import defaultdict
 from typing import Any
 from assembler.core import layout, CLASS_FILES, Run, in_report
-from assembler.slices import read_existing_slice, claim_heading
+from assembler.slices import is_retire, read_existing_slice, claim_heading
 
 
 def crossref_slice_ids(run: Run, role: str) -> set[str]:
@@ -225,6 +225,13 @@ def resolve_targets(run: Run, role: str | None, label: str,
             if len(holders) > 1:
                 run.ambiguous_targets.append(f"{where}: merge_target {target!r} is a section of "
                                          + ", ".join(f"{klass}:{t}" for t in holders))
+                continue
+            if is_retire(claim) and not holders:
+                # A retire (ADR-050 rule 7) of a section no topic holds: retired already, or never there. It renders
+                # nothing, so it must not become a topic of its own; said, not an error.
+                group.remove(claim)
+                run.unresolved_targets.append(f"{where}: retire of {target!r}: no section of {label}/{klass} has "
+                                              "that heading; nothing to retire (already retired?)")
                 continue
             if not holders and heading in own:
                 # Written as its own topic by an earlier drain, the

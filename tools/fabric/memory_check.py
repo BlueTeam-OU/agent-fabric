@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""tools/fabric/memory_check.py (bin/fabric-memory-check) — does a curated
-slice still cite paths that exist? A slice describes a tree as of a date
-and loses to the tree (layout.py); this reads each slice section's cited
-repository paths and says which are gone, so the slice is corrected where
-it lives instead of misleading the next session.
+"""tools/fabric/memory_check.py (bin/fabric-memory-check) — is a curated
+slice section still true of its tree? A slice describes a tree as of a date
+and loses to the tree (layout.py); this reads each section's anchors and
+cited repository paths and says which are gone or have changed since the
+section was observed, so the section is corrected where it lives instead of
+misleading the next session (ADR-050 rule 2). It judges nothing: it sorts.
 
     fabric-memory-check [CORPUS] [--tree DIR] [--project ID] [--known-dir NAME]… [--all] [--json]
 
@@ -34,30 +35,50 @@ CONTRACT
            project that is not the tree's own (`--project` names it; the
            fabric's memory/ is agent-fabric, a .agent-fabric/memory is its working
            copy). A slice with no origin is judged by the corpus's tree.
-  VERDICT  per path: `exists` (in the tree or an origin's checkout),
-           `stale-hard` (in none of them, and every origin's checkout was here to
-           look in), `unchecked` (absent where it was looked, and an origin's
-           checkout is not beside the tree, or a `../NAME/…` sibling is not;
-           unknown, never stale). Per section: stale-hard if any path is, else
-           unchecked if any is, else fresh if it cites a path, else no-anchor. A
-           slice or a directory that cannot be read is `unreadable` with the
-           reason, and the rest is still reported; a corpus root that cannot be
-           read is a refusal.
+  ANCHORS  a section's `*Anchors: `<path>::<symbol or literal>`, …*` line (written by
+           the assembler from the memory's `anchors:`, ADR-050 rule 1): the path must
+           exist, and when `::` follows, the file must contain that string (a symbol
+           name or a literal, matched as plain text). Unlike a cited path, an anchor is
+           looked for only in the slice's origin checkouts (the corpus's own tree when
+           the slice has none): a same-named file of another project proves nothing. OBSERVED is the date in
+           the section's `*Observed YYYY-MM-DD (role)*` tail.
+  VERDICT  per path: `exists` (in the tree or an origin's checkout), `stale-hard`
+           (in none of them, and every origin's checkout was here to look in),
+           `unchecked` (absent where it was looked, and an origin's checkout is not
+           beside the tree, or a `../NAME/…` sibling is not; unknown, never stale).
+           Per anchor, the same within those checkouts, and also `stale-hard` when its file lacks the symbol
+           or literal, and `maybe-stale` when its file has a commit after OBSERVED's
+           day (git, in the checkout the file is in; the finding names the newest such
+           commit). Per section, in this order: stale-hard if any path or anchor is;
+           else maybe-stale if any anchor is; else unchecked if any path or anchor is,
+           or the section has anchors and no OBSERVED date to judge a change by, or the
+           git history is shallow or missing; else fresh if it cites a path or has an
+           anchor; else no-anchor. Only stale-hard and maybe-stale are flags (ADR-050
+           rule 2). A slice or a directory that cannot be read is `unreadable` with the
+           reason, and the rest is still reported; a corpus root that cannot be read is
+           a refusal.
   stdout   one line per finding, tab-separated:
              stale-hard  <slice>  <heading>  <path>
-             unchecked   <slice>  <heading>  <path>  <why>
+             stale-hard  <slice>  <heading>  <path>::<symbol>  <why>
+             maybe-stale <slice>  <heading>  <anchor>  <commit> <date> <subject>
+             unchecked   <slice>  <heading>  <path or anchor>  <why>
              unreadable  <slice>  <why>
            (--all adds `fresh  <slice>  <heading>  <n> path(s)` and
            `no-anchor  <slice>  <heading>`), then `summary` and the counts.
            <slice> is relative to CORPUS. --json prints one document instead:
-           {"corpus", "tree", "sections": [{"slice", "heading", "verdict",
-           "paths": [{"path", "status", "why"?}], "why"?}], "counts": {verdict: n}}.
+           {"corpus", "tree", "sections": [{"slice", "heading", "verdict", "role"?,
+           "observed"?, "paths": [{"path", "status", "why"?}], "anchors": [{"anchor",
+           "path", "status", "why"?, "commit"?, "date"?, "subject"?}], "why"?}],
+           "counts": {verdict: n}}.
   stderr   `fabric-memory-check: ` and one line on a refusal.
   exit     0 whatever it found: a report, not a gate; 2 usage or an
            unreadable corpus or tree.
 
-WHAT IT DOES NOT DO  no model, no network, no git (the tree is read as it is
-on disk), nothing written. It does not see `path::symbol` anchors, dates, or
+WHAT IT DOES NOT DO  no model, no network, nothing written; git is only read (log and
+rev-parse, an argument list, a timeout, a minimal environment). It does not
+judge a changed file: maybe-stale says the file moved since the section was
+written, and the section's holder says whether the section still holds; the
+day is the grain (a change on OBSERVED's own day is not seen). It does not see
 a path relative to anything but the tree root; a citation whose first
 directory is gone and not named by --known-dir is not seen as a path; and
 two `## X` sections of one slice count as one, because
@@ -68,9 +89,11 @@ is not recognised as a path at all (a word pair like `a/b` could be anything).
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -83,8 +106,11 @@ from assembler import slices  # noqa: E402
 # (after `:`) or an absolute path (after `/`).
 CANDIDATE = re.compile(r"(?<![\w./:~@%+-])((?:\./|(?:\.\./)*)\.?[A-Za-z0-9_][A-Za-z0-9_.@+-]*(?:/[A-Za-z0-9_.@+-]+)+/?)")
 NOT_A_PATH_NEXT = frozenset("*<>{}$[]|…=")
-VERDICTS = ("stale-hard", "unchecked", "fresh", "no-anchor", "unreadable")
+VERDICTS = ("stale-hard", "maybe-stale", "unchecked", "fresh", "no-anchor", "unreadable")
+FLAGS = ("stale-hard", "maybe-stale")
 NOT_SLICES = frozenset({"README.md", "RUBRIC.md", "INDEX.md"})
+ANCHOR_FILE_MAX = 4 * 1024 * 1024         # a file larger than this is not searched for a symbol: unchecked, not stale
+GIT_TIMEOUT_S = 30
 
 
 class Refused(Exception):
@@ -224,18 +250,144 @@ def status(path: str, tree: str, trees: list[str], missing: list[str]) -> tuple[
     return "stale-hard", None
 
 
-def verdict_of(paths: list[dict]) -> str:
-    states = {p["status"] for p in paths}
+class NoHistory(Exception):
+    """The git history that would answer cannot be read here: unknown, never stale. `why` is one line."""
+
+    def __init__(self, why: str):
+        super().__init__(why)
+        self.why = why
+
+
+class History:
+    """What git says of a tree, read-only and asked once. A subprocess has an argument list, a timeout and
+    a minimal environment (no GIT_DIR of the caller's, no pager, no system or user config); `run` is
+    subprocess.run's own signature so a test can hand in a fake of it."""
+
+    def __init__(self, run=subprocess.run):
+        self.run = run
+        self._ready: dict[str, str | None] = {}
+
+    def _git(self, tree: str, *args: str) -> subprocess.CompletedProcess:
+        env = {"PATH": os.environ.get("PATH") or "/usr/bin:/bin", "LC_ALL": "C", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+               "GIT_TERMINAL_PROMPT": "0", "GIT_PAGER": "cat"}
+        try:
+            return self.run(["git", "-C", tree, *args], capture_output=True, text=True, timeout=GIT_TIMEOUT_S, env=env, check=False,
+                            stdin=subprocess.DEVNULL, errors="replace")
+        except FileNotFoundError:
+            raise NoHistory("git is not installed") from None
+        except subprocess.TimeoutExpired:
+            raise NoHistory(f"git did not answer within {GIT_TIMEOUT_S} s") from None
+        except OSError as e:
+            raise NoHistory(f"git could not run ({e.strerror or e})") from None
+
+    def ready(self, tree: str) -> None:
+        """Raises NoHistory unless `tree` is a repository whose history is whole."""
+        if tree not in self._ready:
+            r = self._git(tree, "rev-parse", "--is-shallow-repository")
+            if r.returncode != 0:
+                self._ready[tree] = "no git history: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"git exited {r.returncode}")
+            elif r.stdout.strip() != "false":
+                self._ready[tree] = "the git history is shallow: a change since the section was written may be missing from it"
+            else:
+                self._ready[tree] = None
+        if self._ready[tree]:
+            raise NoHistory(self._ready[tree])
+
+    def changed_after(self, tree: str, path: str, day: str) -> dict | None:
+        """The newest commit that touched `path` after the end of `day` (YYYY-MM-DD, UTC), or None."""
+        self.ready(tree)
+        end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
+        r = self._git(tree, "log", "-1", "--format=%h%x09%cs%x09%s", f"--since={int(end.timestamp())} +0000", "--", path)
+        if r.returncode != 0:
+            raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
+        line = r.stdout.strip().split("\n")[0]
+        if not line:
+            return None
+        commit, _, rest = line.partition("\t")
+        date, _, subject = rest.partition("\t")
+        return {"commit": commit, "date": date, "subject": subject[:100]}
+
+
+def _in_tree(root: str, path: str) -> str:
+    """"ok", "absent" or "escape": whether `path` exists under `root` and, once links are followed, stays inside it.
+    An anchor is text from a slice; what it names is opened only inside the tree it belongs to."""
+    full = os.path.normpath(os.path.join(root, path))
+    if not os.path.lexists(full):
+        return "absent"
+    real, top = os.path.realpath(full), os.path.realpath(root)
+    return "ok" if real == top or real.startswith(top + os.sep) else "escape"
+
+
+def judge_anchor(anchor: str, trees: list[str], missing: list[str], observed: str | None, history: History) -> dict:
+    """One anchor `<path>[::<symbol or literal>]` of a section, sorted: stale-hard when its path or its string is
+    gone, maybe-stale when its file has a commit after the section's Observed day, unchecked when that cannot be
+    looked at, exists otherwise. It is judged where the slice's origin says it lives, in `trees` (the checkouts the
+    slice's origin names, the corpus's own tree when it names none): a file of the same name in another project's
+    tree says nothing, and a checkout that is not here makes what it would have held unknown, never gone."""
+    path, _, symbol = anchor.partition("::")
+    row: dict = {"anchor": anchor, "path": path}
+    found = {t: _in_tree(t, path) for t in trees}
+    present = [t for t in trees if found[t] == "ok"]
+    if not present:
+        if any(v == "escape" for v in found.values()):
+            return {**row, "status": "unchecked", "why": "the path leaves its tree through a link"}
+        if missing:
+            return {**row, "status": "unchecked", "why": "; ".join(missing)}
+        return {**row, "status": "stale-hard", "why": "the path is gone"}
+    where = present[0]
+    if symbol:
+        unknown: list[str] = []
+        holders: list[str] = []
+        for t in present:
+            full = os.path.normpath(os.path.join(t, path))
+            if not os.path.isfile(full):
+                continue
+            try:
+                with open(full, "rb") as fh:
+                    data = fh.read(ANCHOR_FILE_MAX + 1)
+            except OSError as e:
+                unknown.append(f"cannot read the file: {e.strerror or e}")
+                continue
+            if len(data) > ANCHOR_FILE_MAX:
+                unknown.append(f"the file is larger than {ANCHOR_FILE_MAX} bytes")
+            elif symbol in data.decode("utf-8", errors="replace"):
+                holders.append(t)
+        if holders:
+            where = holders[0]
+        elif unknown:
+            return {**row, "status": "unchecked", "why": unknown[0]}
+        elif missing:
+            return {**row, "status": "unchecked", "why": "the file lacks it here, and " + "; ".join(missing)}
+        elif not any(os.path.isfile(os.path.normpath(os.path.join(t, path))) for t in present):
+            return {**row, "status": "stale-hard", "why": "the path is not a file, so it holds no symbol"}
+        else:
+            return {**row, "status": "stale-hard", "why": f"the file no longer holds {symbol!r}"}
+    if observed is None:
+        return {**row, "status": "exists"}
+    try:
+        changed = history.changed_after(where, path, observed)
+    except NoHistory as e:
+        return {**row, "status": "unchecked", "why": e.why}
+    return {**row, "status": "maybe-stale", **changed} if changed else {**row, "status": "exists"}
+
+
+def verdict_of(paths: list[dict], anchors: list[dict] | None = None, observed: str | None = None) -> str:
+    anchors = anchors or []
+    states = {p["status"] for p in paths} | {a["status"] for a in anchors}
     if "stale-hard" in states:
         return "stale-hard"
-    if "unchecked" in states:
-        return "unchecked"
-    return "fresh" if paths else "no-anchor"
+    if "maybe-stale" in states:
+        return "maybe-stale"
+    if "unchecked" in states or (anchors and observed is None):
+        return "unchecked"                  # a change since the section was written cannot be judged without its date
+    return "fresh" if paths or anchors else "no-anchor"
 
 
-def check(corpus: str, tree: str, extra_dirs: list[str] | None = None, project: str | None = None) -> list[dict]:
+def check(corpus: str, tree: str, extra_dirs: list[str] | None = None, project: str | None = None,
+          history: History | None = None) -> list[dict]:
     if not os.path.isdir(corpus):
         raise Refused(f"no corpus at {corpus}")
+    history = history or History()
     own = own_project_of(corpus, project)
     rows = []
     tops: dict[str, set[str]] = {tree: known_dirs(tree)}      # a tree that cannot be read is a refusal, slices or none
@@ -263,8 +415,43 @@ def check(corpus: str, tree: str, extra_dirs: list[str] | None = None, project: 
             for p in cited(text, known):
                 state, why = status(p, tree, trees, missing)
                 paths.append({"path": p, "status": state, **({"why": why} if why else {})})
-            rows.append({"slice": sl["rel"], "heading": heading, "verdict": verdict_of(paths), "paths": paths})
+            observed, role = observed_of(text)
+            anchors = [judge_anchor(a, trees, missing, observed, history) for a in slices.anchors_of(text)]
+            row = {"slice": sl["rel"], "heading": heading, "verdict": verdict_of(paths, anchors, observed), "paths": paths, "anchors": anchors,
+                   **({"observed": observed} if observed else {}), **({"role": role} if role else {})}
+            if anchors and observed is None and row["verdict"] == "unchecked" and not any(a["status"] == "unchecked" for a in anchors):
+                row["why"] = "the section has anchors and no Observed date, so a change since it was written cannot be judged"
+            rows.append(row)
     return rows
+
+
+def resolve_section_id(ident: str, corpora: dict[str, str]) -> tuple[str, str, str] | None:
+    """(corpus label, slice relative to its corpus, heading) of a mark's section id `f:<path>#<n>` or
+    `p:<path>#<n>`, n counted from 1 in the slice's file order (memory_index.section_id), or None when the id
+    names no section of a corpus given. `corpora` maps `f` and `p` to the corpus root's directory."""
+    m = re.fullmatch(r"([fp]):([A-Za-z0-9._/-]+)#([0-9]+)", ident)
+    if not m or m.group(1) not in corpora or m.group(2).startswith("/") or ".." in m.group(2).split("/"):
+        return None
+    rel = m.group(2) + ".md"
+    path = os.path.join(corpora[m.group(1)], rel)
+    top = os.path.realpath(corpora[m.group(1)])
+    if not os.path.realpath(path).startswith(top + os.sep):
+        return None           # an id is text a reader wrote: it names a slice of the corpus or nothing
+    try:
+        _meta, sections = slices.read_existing_slice(path)
+    except (OSError, UnicodeDecodeError):
+        return None
+    headings = list(sections)
+    n = int(m.group(3))
+    if not 1 <= n <= len(headings):
+        return None
+    return m.group(1), rel, headings[n - 1]
+
+
+def observed_of(text: str) -> tuple[str | None, str | None]:
+    """(date, role) of a section's `*Observed YYYY-MM-DD (role)*` tail, either None when absent."""
+    m = slices.OBSERVED_RE.search(text)
+    return (m.group(1), m.group(2)) if m else (None, None)
 
 
 def counts(rows: list[dict]) -> dict[str, int]:
@@ -281,6 +468,16 @@ def lines(rows: list[dict], show_all: bool) -> list[str]:
                 out.append("\t".join((p["status"], r["slice"], r["heading"], p["path"])))
             elif p["status"] == "unchecked":
                 out.append("\t".join((p["status"], r["slice"], r["heading"], p["path"], p["why"])))
+        for a in r.get("anchors", []):
+            if a["status"] == "stale-hard":
+                out.append("\t".join((a["status"], r["slice"], r["heading"], a["anchor"], a["why"])) if "why" in a
+                           else "\t".join((a["status"], r["slice"], r["heading"], a["anchor"])))
+            elif a["status"] == "maybe-stale":
+                out.append("\t".join((a["status"], r["slice"], r["heading"], a["anchor"], f"{a['commit']} {a['date']} {a['subject']}")))
+            elif a["status"] == "unchecked":
+                out.append("\t".join((a["status"], r["slice"], r["heading"], a["anchor"], a["why"])))
+        if r["verdict"] == "unchecked" and r.get("why"):
+            out.append("\t".join(("unchecked", r["slice"], r["heading"], "-", r["why"])))
         if show_all and r["verdict"] == "fresh":
             out.append("\t".join(("fresh", r["slice"], r["heading"], f"{len(r['paths'])} path(s)")))
         elif show_all and r["verdict"] == "no-anchor":

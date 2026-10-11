@@ -3,9 +3,14 @@
 bin/fabric-branches is its shim).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
-  argv      [--sweep | -h | --help]; only the first argument is read, an
-            empty one is none, and what follows it is ignored
-  env       AGENT_FABRIC_STATE_DIR / XDG_STATE_HOME (through
+  argv      [--sweep | --json | -h | --help]; only the first argument is read,
+            an empty one is none, and what follows it is ignored. --json is
+            the control agent's read (`fabric-ctl <login> branches`): one JSON
+            object on stdout, no fetch, nothing changed
+  env       AGENT_FABRIC_BRANCHES_KEEP (absolute worktree paths, one per line,
+            that a sweep keeps as "in use": the control agent names the
+            worktrees a live process of this login stands in), then
+            AGENT_FABRIC_STATE_DIR / XDG_STATE_HOME (through
             runtime/identity.py: where the sweep is recorded), PATH (git,
             gh); the working copy is the git toplevel of the current
             directory, which this changes into
@@ -13,7 +18,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   stdout    the report; --help
   stderr    every refusal, prefixed `fabric-branches: `; what git or gh
             said when a deletion they were asked for failed
-  exit      0 reported, or swept; 2 refused — an unknown argument, not in a
+  exit      0 reported, or swept; 3 (--json only) a working copy it cannot
+            count: no default branch of origin known, or no origin/<default>
+            here; 2 refused — an unknown argument, not in a
             git working copy, uncommitted changes with --sweep, a failed
             fetch, no default branch known (origin/HEAD unset and none in
             projects/registry.json) or none on origin, or a git call whose answer could not be
@@ -70,6 +77,8 @@ ADR-022).
 
   fabric-branches            report every local branch and worktree
   fabric-branches --sweep    report, then delete what shows 0
+  fabric-branches --json     the same counts as one JSON object, without
+                             fetching (what the control agent reads)
 
 The number beside a branch is how many of its commits are NOT on the
 remote's default branch — origin/HEAD, as the launcher reads it, else
@@ -282,6 +291,90 @@ def record_sweep(top: str) -> None:
         identity.atomic_write(path, json.dumps(doc, indent=2, sort_keys=True) + "\n")
 
 
+def keep_paths() -> set[str]:
+    """Worktrees the caller says a live process stands in (AGENT_FABRIC_BRANCHES_KEEP, one absolute path per
+    line): removing one would pull the directory from under that process."""
+    return {p for p in os.environ.get("AGENT_FABRIC_BRANCHES_KEEP", "").split("\n") if p}
+
+
+def worktree_state(wt: dict, base: str, top: str) -> tuple[str, str]:
+    """(commits not on base, why it is kept or "") for a linked worktree: kept whatever its count when it has
+    changes, ignored files (a .env, a build) that removal deletes, a lock (someone is using it), when it is the
+    one this runs in, or when the caller names it in use."""
+    path = wt["path"]
+    changes = status_lines(path)
+    ignored = status_lines(path, "--ignored")
+    n = ahead(wt["head"], base)
+    why = ""
+    if changes is None or ignored is None:
+        why = "status unreadable"
+    else:
+        if changes:
+            why = f"{len(changes)} uncommitted change(s)"
+        n_ignored = sum(1 for l in ignored if l.startswith("!!"))
+        if n_ignored:
+            why = f"{why + ', ' if why else ''}{n_ignored} ignored path(s)"
+    if wt["locked"]:
+        why = f"{why + ', ' if why else ''}locked"
+    if path == top:
+        why = f"{why + ', ' if why else ''}this one"
+    if path in keep_paths():
+        why = f"{why + ', ' if why else ''}in use"
+    return n, why
+
+
+def last_sweep(top: str) -> str | None:
+    """When this working copy was last swept, from the record a sweep writes (record_sweep); None for never
+    or for a record that cannot be read."""
+    try:
+        with open(os.path.join(load_identity().agent_state_dir(), "branch-sweep.json"), encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    stamp = doc.get(top) if isinstance(doc, dict) else None
+    return stamp if isinstance(stamp, str) else None
+
+
+def fetched_at(top: str) -> float | None:
+    """The modification time of the last fetch's FETCH_HEAD, as seconds: how old the counts' base is."""
+    try:
+        gitdir = read("rev-parse", "--absolute-git-dir").strip()
+        return os.stat(os.path.join(gitdir, "FETCH_HEAD")).st_mtime
+    except (Refused, OSError):
+        return None
+
+
+def report_json(top: str, current: str, dirty: int) -> int:
+    """The counts of a plain report as one JSON object, for the control agent: no fetch (what it counts against
+    is as old as `fetched_at` says), nothing changed. A count git could not give is null, never 0."""
+    default = default_branch()
+    if not default:
+        say("the default branch of origin is unknown: origin/HEAD is unset and projects/registry.json names "
+            "none for this working copy — nothing counted")
+        return 3
+    base = f"origin/{default}"
+    if git.run(".", "rev-parse", "-q", "--verify", base, check=False).returncode != 0:
+        say(f"no {base} here")
+        return 3
+
+    def count(n: str):
+        return int(n) if n.isdigit() else None
+    listing = worktrees()
+    main_wt = listing[0]["path"] if listing else ""
+    wts = []
+    for wt in listing:
+        if wt["path"] == main_wt:
+            continue
+        n, why = worktree_state(wt, base, top)
+        wts.append({"path": wt["path"], "branch": wt["branch"] or None, "ahead": count(n), "kept_because": why or None})
+    branches = [{"name": b, "ahead": count(ahead(b, base)), "current": b == current}
+                for b in lines_of(read("for-each-ref", "--format=%(refname:short)", "refs/heads/")) if b != default]
+    print(json.dumps({"working_copy": top, "current": current, "dirty": dirty, "default": default, "base": base,
+                      "fetched_at": fetched_at(top), "last_sweep": last_sweep(top), "branches": branches,
+                      "worktrees": wts}, sort_keys=True), flush=True)
+    return 0
+
+
 def sweep_one(b: str, checked_out: set[str], base: str) -> str:
     """Delete branch `b` if, counted again now, it is wholly on `base`,
     and say what was done in the report's words. Anything else — a count
@@ -318,6 +411,8 @@ def run(argv: list[str]) -> int:
         pass
     elif first == "--sweep":
         sweep = True
+    elif first == "--json":
+        pass
     elif first in ("-h", "--help"):
         print(HELP, flush=True)
         return 0
@@ -337,6 +432,8 @@ def run(argv: list[str]) -> int:
     current = r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "(detached)"
     dirty = len(lines_of(read("status", "--porcelain")))
 
+    if first == "--json":
+        return report_json(top, current, dirty)
     echo(f"working copy: {top}")
     echo(f"on: {current}{f'  — {dirty} uncommitted change(s)' if dirty else ''}")
     if sweep and dirty:
@@ -392,22 +489,7 @@ def run(argv: list[str]) -> int:
         if path == main_wt:
             continue
         wt_count += 1
-        changes = status_lines(path)
-        ignored = status_lines(path, "--ignored")
-        n = ahead(wt["head"], base)
-        why = ""
-        if changes is None or ignored is None:
-            why = "status unreadable"
-        else:
-            if changes:
-                why = f"{len(changes)} uncommitted change(s)"
-            n_ignored = sum(1 for l in ignored if l.startswith("!!"))
-            if n_ignored:
-                why = f"{why + ', ' if why else ''}{n_ignored} ignored path(s)"
-        if wt["locked"]:
-            why = f"{why + ', ' if why else ''}locked"
-        if path == top:
-            why = f"{why + ', ' if why else ''}this one"
+        n, why = worktree_state(wt, base, top)
         echo(f"  {n:<3} {path}  {wt['branch'] or '(detached)'}  {why or 'clean'}")
         if n == "0" and not why:
             wt_remove.append(path)

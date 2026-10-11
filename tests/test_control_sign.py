@@ -70,11 +70,12 @@ def main() -> int:
           "\n" not in k["privateKeySpec"] and "\n" not in k["publicKeySpec"])
 
     print("the rest of the contract")
-    # gateway-install and restart joined the actions after the Node was deleted; the Node's list is the rest of it.
+    # gateway-install, branches-sweep and restart joined the actions after the Node was deleted; the Node's list is the rest of it.
     check("ACTION_OPS, the ttl cap and the prefixes are the wire's, as the Node had them",
-          ORACLE["consts"] == [[op for op in sign.ACTION_OPS if op not in ("gateway-install", "restart")], sign.ACTION_TTL_MAX_S, sign.KEY_PREFIX,
-                               sign.PRIVATE_PREFIX])
-    check("…and the two actions added since are the last of them", sign.ACTION_OPS[-2:] == ["gateway-install", "restart"])
+          ORACLE["consts"] == [[op for op in sign.ACTION_OPS if op not in ("gateway-install", "branches-sweep", "restart")], sign.ACTION_TTL_MAX_S,
+                               sign.KEY_PREFIX, sign.PRIVATE_PREFIX])
+    check("…and the three added since are the last of them, in the order they came",
+          sign.ACTION_OPS[-3:] == ["gateway-install", "branches-sweep", "restart"])
     check("a public key is not a private one, nor the other way",
           sign.private_key_from("ed25519-pkcs8:" + k["publicKeySpec"].split(":", 1)[1]) is None
           and sign.public_key_from("ed25519:" + k["privateKeySpec"].split(":", 1)[1]) is None)

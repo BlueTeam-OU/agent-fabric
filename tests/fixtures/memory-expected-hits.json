@@ -1,0 +1,30 @@
+{
+ "comment": "The offline set of expected hits of ADR-049 (rule 7): a query a person would type, the sections it must return, how far down the list, and the weakest band each may carry. Run by tests/test_memory_expected_hits.py against the corpus committed at HEAD. A section is named by its slice and the start of its heading, never by its position. Change it with the ranking, on purpose: a hit that moves is the point of the file.",
+ "version": 1,
+ "queries": [
+  {"query": "merge_target replaces a stale section", "expect": [
+    {"slice": "p:fabric-coordinator/workflow/correction-requests-name-merge-target", "heading": "When asking an agent for a correction memory", "within": 1, "band": "strong"}]},
+  {"query": "a test passes in the session but fails in CI because of inherited environment", "role": "python-dev", "project": "agent-fabric", "expect": [
+    {"slice": "p:shared/workflow-run-suites-as-ci-before-push", "heading": "Running a suite \"as CI\"", "within": 3, "band": "strong"},
+    {"slice": "f:domains/python-dev/domain/oracle-blind-spots-in-ports", "heading": "Porting a script with its old test as the oracle", "within": 3, "band": "strong"}]},
+  {"query": "git worktree under .claude directory staged as embedded repo", "expect": [
+    {"slice": "p:shared/workflow-worktree-under-dot-claude", "heading": "an isolated subagent's worktree", "within": 1, "band": "strong"}]},
+  {"query": "grep resolves to ugrep on this host", "expect": [
+    {"slice": "p:shared/workflow-local-grep-is-ugrep", "heading": "On develop-qzapp `grep` resolves to ugrep", "within": 1, "band": "strong"}]},
+  {"query": "pipe exit status tail commit lint failed", "expect": [
+    {"slice": "p:shared/workflow-check-exit-status-not-pipe", "heading": "Never `check | tail -1", "within": 1, "band": "strong"}]},
+  {"query": "test GNUPGHOME equals home gpg-agent shared", "expect": [
+    {"slice": "p:shared/solution-gnupghome-default-agent-trap", "heading": "A test GNUPGHOME equal to", "within": 1, "band": "strong"}]},
+  {"query": "python and javascript differ at boundaries number parsing", "expect": [
+    {"slice": "f:domains/python-dev/domain/js-python-parity-at-boundaries", "heading": "porting Node to Python where both must answer alike", "within": 1, "band": "strong"}]},
+  {"query": "codeql alert shows a flow sarif", "expect": [
+    {"slice": "f:domains/python-dev/domain/codeql-sarif-shows-the-flow", "heading": "a CodeQL alert you cannot explain", "within": 1, "band": "strong"}]},
+  {"query": "fake tools on the PATH of the callee env -i login shell", "expect": [
+    {"slice": "p:python-dev/workflow/fake-tools-must-sit-on-the-callees-path", "heading": "Faking a tool for code that builds its own PATH", "within": 1, "band": "strong"}]},
+  {"query": "a mutation the oracle did not catch in a port", "role": "python-dev", "project": "agent-fabric", "expect": [
+    {"slice": "p:python-dev/workflow/test-port-by-mutation-parity", "heading": "Porting a bash TEST to Python has no oracle of its own", "within": 2, "band": "strong"},
+    {"slice": "f:domains/python-dev/domain/oracle-blind-spots-in-ports", "heading": "Porting a script with its old test as the oracle", "within": 2, "band": "strong"}]},
+  {"query": "lease held by another process fabric-lease", "role": "python-dev", "project": "agent-fabric", "no_better_than": "weak", "expect": []},
+  {"query": "how do I bake a sourdough bread", "no_better_than": "weak", "expect": []}
+ ]
+}
