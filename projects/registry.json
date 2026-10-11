@@ -268,7 +268,9 @@
         {"name": "Xvfb", "proof": "Xvfb -help", "why": "the desktop end-to-end tests of the human client run headless", "where": "host", "optional": true, "roles": ["rust-ui-dev"]},
         {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
          "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
-                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "osv-scanner", "proof": "osv-scanner --version", "version": "2.6.0", "why": "plan section 20: the Gradle graph's OSV.dev check, run locally before a push that changes it", "where": "account", "roles": ["rust-ui-dev", "p2p-network-dev", "devex-tooling"],
+         "install": {"version": "2.6.0", "url": "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_linux_amd64", "sha256": "ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108"}}
       ]
     },
     "agent-fabric-gateway": {
