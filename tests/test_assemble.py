@@ -1228,6 +1228,24 @@ def test_a_section_carries_its_anchors_above_its_observed_tail(tmp: str) -> None
     assert {os.path.join(d, n): read(os.path.join(d, n)) for d, _ds, fs in walk_role(out, "alpha") for n in fs} == before, "and nothing was written"
 
 
+def test_a_harvest_whose_read_counts_are_no_counts_does_not_stop_the_drain_and_a_stamp_that_is_no_date_stops_it_first(tmp: str) -> None:
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "First", "body": "B1.", "evidence": ["h1"], "observed_at": "2025-12-01"}])})
+    state = os.path.join(tmp, "state", "memory-drain-reads.json")
+    for bad in (["p:alpha/solution#1"], "p:alpha/solution#1", 7):
+        with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+            json.dump({"host": "boxA", "agent": "dev-01", "since_watermark": 0, "next_watermark": 5, "memory_use": {"ids_read": bad},
+                       "counts": {"provisional_agent": 0, "in_scope": 1}}, fh)
+        proc = run_assemble(drain, claims_dir, out, "--reads-state", state)
+        assert proc.returncode == 0, (bad, proc.stderr)
+        assert json.loads(read(state))["projects"][PROJECT]["reads"] == {}, bad
+    shutil.rmtree(out)
+    drain, claims_dir, out = build(os.path.join(tmp, "b"), {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "First", "body": "B1.", "evidence": ["h1"]}])})
+    proc = run_assemble(drain, claims_dir, out, "--stamp", "last-tuesday")
+    assert proc.returncode == 2 and "no YYYY-MM-DD date" in proc.stderr and alpha_slices(out) == {}, (proc.returncode, proc.stderr)
+
+
 def test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report(tmp: str) -> None:
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "solution", "topic": "one", "title": "Keep me", "body": "Stays.", "evidence": ["h1"], "observed_at": "2026-09-18"},
@@ -1320,13 +1338,23 @@ def test_the_report_lists_review_horizons_from_the_drains_own_read_dates(tmp: st
     assert first["reads_state"] == "new" and first["unread"] == [] and first["unread_from"] == "2026-02-26", first
     assert [a["key"].partition("#")[2] for a in first["aged"]] == ["First"] and first["aged"][0]["days"] == 31, first["aged"]
     kept = json.loads(read(state))
-    assert kept["since"] == "2026-01-01" and list(kept["reads"].values()) == ["2026-01-01"] and next(iter(kept["reads"])).endswith("#Second"), kept
+    scope = kept["projects"][PROJECT]
+    assert kept["fabric"] == {"seen": {}, "reads": {}} and set(scope["seen"].values()) == {"2026-01-01"}, kept
+    assert list(scope["reads"].values()) == ["2026-01-01"] and next(iter(scope["reads"])).endswith("#Second"), kept
     assert os.stat(state).st_mode & 0o777 == 0o600
     os.remove(os.path.join(drain, "harvest-report.json"))
     assert run_assemble(drain, claims_dir, out, "--reads-state", state, "--stamp", "2026-03-01").returncode == 0
     later = json.loads(read(report_path(out)))["review_horizons"]
     assert later["reads_state"] == "ok" and later["unread_from"] is None, later
     assert {u["key"].partition("#")[2]: u["last_read"] for u in later["unread"]} == {"First": None, "Second": "2026-01-01"}, later["unread"]
+    # A section written after the state is old has not been watched: unknown, not unread, whatever the older sections are.
+    claims_path = os.path.join(claims_dir, "alpha.json")
+    with open(claims_path, "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [{"class": "solution", "topic": "one", "title": "Third", "body": "B3.", "evidence": ["h1"], "observed_at": "2026-02-27"}]), fh)
+    assert run_assemble(drain, claims_dir, out, "--reads-state", state, "--stamp", "2026-03-02").returncode == 0
+    third = json.loads(read(report_path(out)))["review_horizons"]
+    assert "Third" not in {u["key"].partition("#")[2] for u in third["unread"]} and {"First", "Second"} <= {u["key"].partition("#")[2] for u in third["unread"]}, third
+    assert third["unread_from"] == "2026-04-27", third
     # A state that reads but cannot be rewritten: the unread list is not trusted this drain, the aged list still is.
     os.chmod(os.path.dirname(state), 0o500)
     try:
@@ -3400,6 +3428,7 @@ def main() -> int:
         test_retiring_the_only_section_removes_the_file_and_its_index_line,
         test_a_retire_finds_its_section_in_another_topic_and_leaves_a_sibling_that_only_looks_like_it,
         test_the_report_lists_review_horizons_from_the_drains_own_read_dates,
+        test_a_harvest_whose_read_counts_are_no_counts_does_not_stop_the_drain_and_a_stamp_that_is_no_date_stops_it_first,
         test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report,
         test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
         test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section,

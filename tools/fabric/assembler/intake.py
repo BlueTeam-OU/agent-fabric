@@ -3,6 +3,7 @@ A part of tools/fabric/assemble.py, whose docstring is the contract."""
 from __future__ import annotations
 
 import argparse
+import re
 import json
 import os
 import sys
@@ -38,6 +39,8 @@ def parse_args() -> argparse.Namespace:
                     help="where the drain keeps when each section was last read (ADR-050 rule 8); "
                          "default: memory-drain-reads.json in this login's agent state directory")
     args = ap.parse_args()
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", args.stamp):
+        ap.error(f"--stamp {args.stamp!r} is no YYYY-MM-DD date")       # before anything is written: the horizons need it
     if args.bundle:
         if args.claims or args.drain:
             ap.error("--bundle replaces --claims and --drain")

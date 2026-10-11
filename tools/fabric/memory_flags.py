@@ -10,6 +10,7 @@ THE FLAG   one per SECTION, however many of its anchors failed or readers marked
              maybe-stale  an anchor's file has a commit after the section's Observed day
              mark-stale / mark-wrong   a reader's memory_mark (ADR-049 rule 3), a note carried as
                           the reader's words, clipped, never as an instruction
+             aged / unread   a review horizon of the drain report (ADR-050 rule 8; flags_from_horizons)
            `helpful` marks are not flags. A model's hint (rule 6) may be attached to a flag by the
            caller; it is rendered, marked as a guess, and changes nothing else.
 

@@ -50,6 +50,16 @@ class Scratch(unittest.TestCase):
         return "memory/" + rel
 
 
+def state_with(seen_on: str, rows, reads=None, project="demo"):
+    """A state that has seen every row since `seen_on`, with the reads given as {heading: day}."""
+    state = {"fabric": {"seen": {}, "reads": {}}, "projects": {}}
+    mh.observe(state, project, rows, seen_on)
+    keys = {r["key"].partition("#")[2]: r for r in rows}
+    for heading, when in (reads or {}).items():
+        mh.scope_of(state, keys[heading]["scope"], project)["reads"][keys[heading]["key"]] = when
+    return state
+
+
 class Horizons(Scratch):
     def rows(self):
         root = self.corpus({
@@ -61,7 +71,7 @@ class Horizons(Scratch):
 
     def test_a_solution_is_aged_after_30_days_and_a_workflow_after_90_and_a_domain_never(self):
         _root, rows = self.rows()
-        out = mh.horizons(rows, {"since": "2026-01-01", "reads": {}}, STAMP)
+        out = mh.horizons(rows, state_with("2026-01-01", rows), "demo", STAMP)
         aged = {a["key"].partition("#")[2]: a for a in out["aged"]}
         self.assertEqual(sorted(aged), ["Old solution", "Old workflow"])      # 30 days exactly (Sep 11) and 90 (Jul 13) are not older
         self.assertEqual((aged["Old solution"]["days"], aged["Old solution"]["horizon_days"]), (40, 30))
@@ -73,27 +83,37 @@ class Horizons(Scratch):
             text = fh.read().replace("2026-09-01", "2026-10-09")
         with open(os.path.join(root, "python-dev/solution/s.md"), "w", encoding="utf-8") as fh:
             fh.write(text)
-        out = mh.horizons(mh.rows_of({"f": root}, {"f": self.key_of}), {"since": "2026-01-01", "reads": {}}, STAMP)
+        rows = mh.rows_of({"f": root}, {"f": self.key_of})
+        out = mh.horizons(rows, state_with("2026-01-01", rows), "demo", STAMP)
         self.assertNotIn("Old solution", [a["key"].partition("#")[2] for a in out["aged"]])
 
-    def test_a_section_with_no_read_in_8_weeks_is_unread_once_the_state_has_watched_that_long(self):
+    def test_a_section_with_no_read_in_8_weeks_is_unread_once_the_state_has_watched_it_that_long(self):
         _root, rows = self.rows()
-        keys = {r["key"].partition("#")[2]: r["key"] for r in rows}
-        state = {"since": "2026-08-01", "reads": {keys["Old solution"]: "2026-10-01", keys["Fresh solution"]: "2026-08-16", keys["Edge solution"]: "2026-08-15"}}
-        out = mh.horizons(rows, state, STAMP)
+        state = state_with("2026-08-01", rows, {"Old solution": "2026-10-01", "Fresh solution": "2026-08-16", "Edge solution": "2026-08-15"})
+        out = mh.horizons(rows, state, "demo", STAMP)
         names = {u["key"].partition("#")[2]: u["last_read"] for u in out["unread"]}
         self.assertNotIn("Old solution", names)                    # read 10 days ago
         self.assertNotIn("Fresh solution", names)                  # 56 days ago exactly: not past 8 weeks
         self.assertEqual(names["Edge solution"], "2026-08-15")     # 57 days
-        self.assertIsNone(names["Ancient domain"])                 # never read, and the state has watched since August
+        self.assertIsNone(names["Ancient domain"])                 # never read, and watched since August
         self.assertIsNone(out["unread_from"])
+
+    def test_a_section_the_state_has_not_watched_for_8_weeks_is_unknown_not_unread_whatever_the_rest_of_the_state_has(self):
+        _root, rows = self.rows()
+        state = state_with("2026-01-01", rows[:-1])                # the last row is new to a state that is old
+        mh.observe(state, "demo", rows, STAMP)
+        out = mh.horizons(rows, state, "demo", STAMP)
+        listed = {u["key"].partition("#")[2] for u in out["unread"]}
+        self.assertNotIn(rows[-1]["key"].partition("#")[2], listed)
+        self.assertIn(rows[0]["key"].partition("#")[2], listed)    # the control: an old, unread section is listed
+        self.assertEqual(out["unread_from"], "2026-12-06")         # 2026-10-11 + 56 days
 
     def test_before_the_state_has_watched_8_weeks_nothing_is_unread_and_the_day_it_can_begin_is_said(self):
         _root, rows = self.rows()
-        out = mh.horizons(rows, {"since": "2026-10-01", "reads": {}}, STAMP)
+        out = mh.horizons(rows, state_with("2026-10-01", rows), "demo", STAMP)
         self.assertEqual(out["unread"], [])
         self.assertEqual(out["unread_from"], "2026-11-26")
-        out = mh.horizons(rows, {"since": "2026-08-16", "reads": {}}, STAMP)      # 56 days: it has watched long enough
+        out = mh.horizons(rows, state_with("2026-08-16", rows), "demo", STAMP)      # 56 days: it has watched long enough
         self.assertTrue(out["unread"])
 
     def test_an_unreadable_slice_is_not_a_row(self):
@@ -111,42 +131,51 @@ class Reads(Scratch):
         return {"f": root}
 
     def test_an_id_credits_the_heading_at_its_position_and_ids_that_name_no_section_are_ignored(self):
-        state = {"since": "2026-01-01", "reads": {}}
+        state = {"fabric": {"seen": {}, "reads": {}}, "projects": {}}
         ids = {"f:python-dev/solution/s#2": 3, "f:python-dev/solution/s#9": 1, "f:../etc/x#1": 1, "p:python-dev/solution/s#1": 1, "junk": 1}
-        mh.record_reads(state, ids, self.corpora(), STAMP, {"f": self.key_of})
-        self.assertEqual(state["reads"], {"memory/python-dev/solution/s.md#Two": STAMP})
+        mh.record_reads(state, "demo", ids, self.corpora(), STAMP, {"f": self.key_of})
+        self.assertEqual(state["fabric"]["reads"], {"memory/python-dev/solution/s.md#Two": STAMP})
+        self.assertEqual(state["projects"], {})
 
     def test_a_later_read_date_is_never_replaced_by_an_earlier_stamp(self):
-        state = {"since": "2026-01-01", "reads": {"memory/python-dev/solution/s.md#Two": "2026-10-12"}}
-        mh.record_reads(state, {"f:python-dev/solution/s#2": 1}, self.corpora(), STAMP, {"f": self.key_of})
-        self.assertEqual(state["reads"]["memory/python-dev/solution/s.md#Two"], "2026-10-12")
+        state = {"fabric": {"seen": {}, "reads": {"memory/python-dev/solution/s.md#Two": "2026-10-12"}}, "projects": {}}
+        mh.record_reads(state, "demo", {"f:python-dev/solution/s#2": 1}, self.corpora(), STAMP, {"f": self.key_of})
+        self.assertEqual(state["fabric"]["reads"]["memory/python-dev/solution/s.md#Two"], "2026-10-12")
 
 
 class State(Scratch):
-    def test_no_file_starts_at_the_stamp_and_a_file_that_is_no_state_starts_over_and_says_so(self):
+    def test_no_file_starts_empty_and_a_file_that_is_no_state_starts_over_and_says_so(self):
         path = os.path.join(self.tmp, "state", mh.STATE_FILE)
-        self.assertEqual(mh.reads_state(path, STAMP), ({"since": STAMP, "reads": {}}, "new"))
+        self.assertEqual(mh.load_state(path, STAMP), ({"fabric": {"seen": {}, "reads": {}}, "projects": {}}, "new"))
         os.makedirs(os.path.dirname(path))
-        for bad in ("{not json", "[]", '{"since": "yesterday", "reads": {}}', '{"since": "2026-01-01", "reads": []}'):
+        for bad in ("{not json", "[]", '{"fabric": [], "projects": {}}', '{"fabric": {"seen": {}, "reads": {}}, "projects": {"p": 3}}',
+                    '{"fabric": {"seen": {}, "reads": {}}, "projects": []}'):
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(bad)
-            self.assertEqual(mh.reads_state(path, STAMP), ({"since": STAMP, "reads": {}}, "unreadable"), bad)
+            self.assertEqual(mh.load_state(path, STAMP)[1], "unreadable", bad)
 
-    def test_the_state_is_written_atomically_private_and_without_the_keys_of_sections_that_are_gone(self):
+    def test_the_state_is_private_atomic_and_drops_the_gone_keys_of_the_scopes_this_drain_read_only(self):
         path = os.path.join(self.tmp, "state", mh.STATE_FILE)
-        state = {"since": "2026-08-01", "reads": {"memory/a.md#A": "2026-10-01", "memory/gone.md#G": "2026-09-01", "memory/b.md#B": "2026-10-02"}}
-        mh.save_reads(path, state, {"memory/a.md#A", "memory/b.md#B"})
+        keep = {"seen": {"k#a": "2026-08-01", "k#gone": "2026-08-01"}, "reads": {"k#a": "2026-10-01", "k#gone": "2026-09-01"}}
+        state = {"fabric": {"seen": {"memory/f.md#F": "2026-08-01", "memory/old.md#O": "2026-08-01"}, "reads": {}},
+                 "projects": {"demo": keep, "other": {"seen": {"other#x": "2026-08-01"}, "reads": {"other#x": "2026-09-09"}}}}
+        mh.save_reads(path, state, "demo", {"f": {"memory/f.md#F"}, "p": {"k#a"}})
         self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
         self.assertEqual(os.listdir(os.path.dirname(path)), [mh.STATE_FILE])
-        back, status = mh.reads_state(path, STAMP)
-        self.assertEqual((status, back["since"], sorted(back["reads"])), ("ok", "2026-08-01", ["memory/a.md#A", "memory/b.md#B"]))
+        back, status = mh.load_state(path, STAMP)
+        self.assertEqual(status, "ok")
+        self.assertEqual(sorted(back["fabric"]["seen"]), ["memory/f.md#F"])
+        self.assertEqual(sorted(back["projects"]["demo"]["seen"]), ["k#a"])
+        self.assertEqual(back["projects"]["other"], {"seen": {"other#x": "2026-08-01"}, "reads": {"other#x": "2026-09-09"}})   # not this drain's
 
     def test_a_write_that_fails_leaves_the_old_state_and_no_temporary_file(self):
         path = os.path.join(self.tmp, "state", mh.STATE_FILE)
-        mh.save_reads(path, {"since": "2026-08-01", "reads": {"k#h": "2026-10-01"}}, {"k#h"})
+        good = {"fabric": {"seen": {"k#h": "2026-08-01"}, "reads": {"k#h": "2026-10-01"}}, "projects": {}}
+        mh.save_reads(path, good, "demo", {"f": {"k#h"}, "p": set()})
         before = rd(path)
+        bad = {"fabric": {"seen": {"k#h": "2026-08-01"}, "reads": {"k#h": object()}}, "projects": {}}
         with self.assertRaises(TypeError):
-            mh.save_reads(path, {"since": "2026-08-01", "reads": {"k#h": object()}}, {"k#h"})
+            mh.save_reads(path, bad, "demo", {"f": {"k#h"}, "p": set()})
         self.assertEqual((rd(path), os.listdir(os.path.dirname(path))), (before, [mh.STATE_FILE]))
 
 

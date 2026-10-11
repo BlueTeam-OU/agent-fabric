@@ -88,16 +88,19 @@ def review_horizons(run: Run, memory_use: dict[str, Any]) -> dict[str, Any]:
     corpora = {"f": roots.memory_dir(root=layout.FABRIC_ROOT), "p": layout.project_memory_root(run.project)}
     key_of = {p: (lambda rel, root=root: in_report(run, os.path.join(root, rel))) for p, root in corpora.items()}
     path = reads_state_path(run)
-    state, status = memory_horizons.reads_state(path, run.args.stamp)
-    ids_read: dict[str, int] = {}
+    state, status = memory_horizons.load_state(path, run.args.stamp)
+    ids_read: dict[str, Any] = {}
     for use in memory_use.values():
-        for ident, n in (use.get("ids_read") or {}).items() if isinstance(use, dict) else ():
-            ids_read[ident] = ids_read.get(ident, 0) + (n if isinstance(n, int) else 1)
-    memory_horizons.record_reads(state, ids_read, corpora, run.args.stamp, key_of)
+        ids = use.get("ids_read") if isinstance(use, dict) else None
+        if isinstance(ids, dict):          # harvest content is untrusted: a list or a string is no counts
+            ids_read.update(ids)
     rows = memory_horizons.rows_of(corpora, key_of)
-    out = memory_horizons.horizons(rows, state, run.args.stamp)
+    memory_horizons.observe(state, run.project, rows, run.args.stamp)
+    memory_horizons.record_reads(state, run.project, ids_read, corpora, run.args.stamp, key_of)
+    out = memory_horizons.horizons(rows, state, run.project, run.args.stamp)
+    live = {p: {r["key"] for r in rows if r["scope"] == p} for p in corpora}
     try:
-        memory_horizons.save_reads(path, state, {r["key"] for r in rows})
+        memory_horizons.save_reads(path, state, run.project, live)
     except OSError as e:
         status = "unwritable"
         print(f"memory-drain-reads.json could not be written ({e.strerror or e}); the unread list is not trusted this drain", file=sys.stderr)
