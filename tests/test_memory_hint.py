@@ -85,7 +85,10 @@ class Hints(Tree):
 
     def calls(self):
         p = os.path.join(self.fake_dir, "calls.jsonl")
-        return [json.loads(ln) for ln in open(p, encoding="utf-8")] if os.path.exists(p) else []
+        if not os.path.exists(p):
+            return []
+        with open(p, encoding="utf-8") as fh:
+            return [json.loads(ln) for ln in fh]
 
     def hinted(self, **kw):
         said: list[str] = []

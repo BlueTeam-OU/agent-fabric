@@ -43,7 +43,7 @@ MAX_DIFF_CHARS = 12000
 MAX_HINT_CHARS = 400
 ARGV = ["claude", "-p", "--tools", "", "--permission-mode", "dontAsk", "--no-session-persistence"]
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f  ]+")
-_NONE = re.compile(r"^\W*(none|no sentence|nothing)\W*$", re.IGNORECASE)
+_NONE = re.compile(r"\W*(none|no sentence|nothing)\W*", re.IGNORECASE)   # used with fullmatch: `$` would admit a trailing newline
 
 
 class HintUnavailable(Exception):
@@ -86,7 +86,7 @@ def ask(body: str, *, run: Callable[..., Any] = subprocess.run, argv: list[str] 
     hint = one_line(r.stdout or "", MAX_HINT_CHARS)
     if not hint:
         raise HintUnavailable("the harness CLI answered nothing")
-    return "" if _NONE.match(hint) else hint
+    return "" if _NONE.fullmatch(hint) else hint
 
 
 def anchor_path(anchor: str) -> str:
