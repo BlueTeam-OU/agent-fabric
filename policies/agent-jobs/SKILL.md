@@ -105,8 +105,7 @@ agent's list (`fabric-ctl <login> jobs-add [--priority P] "<title>"`);
 you do not add to a pool.
 
 It starts the job and asks whether this session has already worked one.
-Every job after a finished one starts in a fresh session (the owner,
-2026-10-11):
+Every job after a finished one starts in a fresh session (the owner):
 
 - **This session has worked a job:** "fresh session", whatever the
   project, working copy or topic. It prints `fabric-fresh --job <id>`.

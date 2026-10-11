@@ -15,55 +15,6 @@ case "$what" in all|static|python|bash) ;; *) echo "tests/run.sh: no section '$w
 fail=0
 run() { echo; echo "== $1"; shift; "$@" || fail=$((fail+1)); }
 
-# The python suites, up to AGENT_FABRIC_TEST_JOBS at a time (default: the
-# cores; 1 is the old serial run). Each suite is independent: it makes its
-# own scratch under this run's TMPDIR, binds port 0 for any socket and gives
-# itself a HOME (the one fixed path, /var/tmp/agent-fabric-<login> in
-# test_launch_cli, is created idempotently).
-# The slowest start first, so the last one started is a short one and not the
-# 3-minute launcher alone at the end. A suite's output is buffered and printed
-# whole when it ends, under the same "== <suite>" header the serial run
-# printed, so the log reads the same but in completion order.
-SLOW_PYTHON_SUITES=(
-    test_launch_cli test_new_agent_cli test_gzcoord_port test_bootstrap_cli
-    test_secret_store test_control_agentd test_gzcoord_protocol test_jobs
-    test_roots_readers test_control_ctl test_pr_review_status_cli test_arm_cli
-    test_session_start test_lint test_assemble
-)
-run_python_suites() {
-    local slots="${AGENT_FABRIC_TEST_JOBS:-$(nproc 2>/dev/null || echo 1)}"
-    [[ "$slots" =~ ^[1-9][0-9]*$ ]] || { echo "tests/run.sh: AGENT_FABRIC_TEST_JOBS='$slots' is not a positive number" >&2; exit 2; }
-    local -a ordered=() started=()
-    local t n running=0
-    for n in "${SLOW_PYTHON_SUITES[@]}"; do
-        [[ -f "tests/$n.py" ]] && ordered+=("tests/$n.py")
-    done
-    for t in tests/test_*.py; do
-        for n in "${ordered[@]}"; do [[ "$n" == "$t" ]] && continue 2; done
-        ordered+=("$t")
-    done
-    for t in "${ordered[@]}"; do
-        if (( running >= slots )); then wait -n; running=$((running-1)); flush_python_suites; fi
-        n="$OUT_DIR/$(basename "$t")"
-        started+=("$t")
-        # The status file appears whole (mv) and after the output is complete.
-        ( python3 "$t" >"$n.out" 2>&1; echo $? >"$n.rc.tmp"; mv "$n.rc.tmp" "$n.rc" ) &
-        running=$((running+1))
-    done
-    while (( running > 0 )); do wait -n; running=$((running-1)); flush_python_suites; done
-}
-# Print and account every finished suite not yet printed.
-flush_python_suites() {
-    local t n
-    for t in "${started[@]}"; do
-        n="$OUT_DIR/$(basename "$t")"
-        [[ -f "$n.rc" && ! -f "$n.done" ]] || continue
-        echo; echo "== $t"; cat "$n.out"
-        [[ "$(cat "$n.rc")" == 0 ]] || fail=$((fail+1))
-        : >"$n.done"
-    done
-}
-
 # A test run leaves behind nothing it did not find (the owner,
 # 2026-09-19). The run owns its temporary directory: a fresh one under
 # short_dir (below), exported as TMPDIR so every suite — mktemp, Node's
@@ -90,9 +41,6 @@ short_dir() {
     fi
 }
 SCRATCH_DIR="$(mktemp -d "$(short_dir)/af-t.XXXXXX")" || exit 1
-# The parallel python suites' buffered output lives beside SCRATCH_DIR, not in
-# it: it is the harness's, and the leak check would name it as a suite's.
-OUT_DIR="$(mktemp -d "$(short_dir)/af-o.XXXXXX")" || exit 1
 export TMPDIR="$SCRATCH_DIR"
 # A suite that block-buffers its stdout shows nothing in a CI log until it
 # ends (the 2026-10-11 audit could not time a case from one).
@@ -134,14 +82,14 @@ cleanup() {
         (( i == 50 )) && kill -KILL "${all[@]}" 2>/dev/null
         sleep 0.1
     done
-    rm -rf "$SCRATCH_DIR" "$OUT_DIR"
+    rm -rf "$SCRATCH_DIR"
     [[ -n "${WATCHER_PID:-}" ]] && kill "$WATCHER_PID" 2>/dev/null
 }
 # KILL cannot be trapped, and a group KILL (timeout -s KILL, a harness killing
 # by group) ends the suites with run.sh but runs no cleanup. A watcher in its
 # own session, so that group KILL misses it, removes the directories once
 # run.sh is gone; cleanup stops it on every other ending.
-setsid bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; rm -rf "$2" "$3"' _ "$$" "$SCRATCH_DIR" "$OUT_DIR" </dev/null >/dev/null 2>&1 &
+setsid bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; rm -rf "$2"' _ "$$" "$SCRATCH_DIR" </dev/null >/dev/null 2>&1 &
 WATCHER_PID=$!
 trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
@@ -151,7 +99,11 @@ if [[ "$what" == all || "$what" == static ]]; then
     run "static (bash -n, shellcheck, ruff)" bash tests/static.sh
 fi
 if [[ "$what" == all || "$what" == python ]]; then
-    run_python_suites
+    # In the background and waited for, so a signal's trap runs at once (a
+    # foreground child would hold it until the suites ended); the runner's
+    # own header says why it resets INT and QUIT.
+    python3 tests/run_python_suites.py &
+    wait $! || fail=$((fail+1))
     run "corpus lint" python3 tools/fabric/lint.py
     run "routing check" python3 tools/fabric/routing.py check
 fi
