@@ -123,7 +123,8 @@ def test_hook_gives_the_project_layer_from_the_working_copy(tmp: str) -> None:
     ctx = context_of(run_hook({"cwd": wc}, env))
     assert "REMIT-BODY-LINE" in ctx and "class: remit" not in ctx, ctx
     assert "# db-admin — remit in fixture-proj (.agent-fabric/roles/db-admin.md)" in ctx, ctx
-    assert ".agent-fabric/memory/db-admin/INDEX.md lists every slice" in ctx and "nothing else now" in ctx, ctx
+    assert "ask `memory_find` before changing" in ctx and "`memory_read`" in ctx and "nothing else now" in ctx, ctx
+    assert "INDEX.md" not in ctx, ctx   # ADR-049 rule 8: the tools, not a path
     parent = os.path.join(tmp, "projects"); os.makedirs(parent)
     ctx = context_of(run_hook({"cwd": parent}, env))
     assert "not in a registered working copy" in ctx and "REMIT-BODY-LINE" not in ctx, ctx

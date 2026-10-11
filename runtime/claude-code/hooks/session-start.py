@@ -403,8 +403,9 @@ def project_layer(role: str | None, project: str | None, working_copy: str | Non
         out.append(f"agent-fabric: {project} has no remit for {role} "
                    f"({os.path.relpath(remit, working_copy)} is missing); the charter is the whole definition here.")
     if os.path.isfile(index):
-        out.append(f"Your knowledge of {project}: {os.path.relpath(index, working_copy)} lists every slice with "
-                   "its cue — open a slice when its cue matches what you are doing; nothing else now.")
+        out.append(f"Your knowledge of {project}: ask `memory_find` before changing code, config or a decision here "
+                   "(it answers the slices whose cue matches, with their age), `memory_read` for the sections you "
+                   "need, `memory_index` for what exists; nothing else now.")
     else:
         out.append(f"agent-fabric: {project} has no distilled knowledge for {role} yet "
                    f"({os.path.relpath(os.path.dirname(index), working_copy)}/).")

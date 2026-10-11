@@ -56,6 +56,9 @@ if os.path.exists(out):
     sys.stdout.write(open(out).read())
 """
 
+# The fabric-memory installer is called as <claude.json> set [--dry-run]; logged apart so the locale checks stay as they are.
+MEMORY_STUB = INSTALL_STUB.replace('"tool": "install"', '"tool": "memory-install"')
+
 
 def main() -> int:
     fails = 0
@@ -76,14 +79,14 @@ def main() -> int:
             n += 1
             base = os.path.join(scratch, f"f{n}")
             root, home, cfg = (os.path.join(base, x) for x in ("fabric", "home", "cfg"))
-            for d in (home, cfg, os.path.join(root, "tools", "fabric"), os.path.join(root, "runtime", "mcp", "websearch-locale")):
+            for d in (home, cfg, os.path.join(root, "tools", "fabric"), os.path.join(root, "runtime", "mcp", "websearch-locale"), os.path.join(root, "runtime", "mcp", "fabric-memory")):
                 os.makedirs(d)
             shutil.copy(MODULE, os.path.join(root, "tools", "fabric", "install_agent_files.py"))
             for sibling in ("fabric_writes.py", "roots.py"):
                 shutil.copy(os.path.join(os.path.dirname(MODULE), sibling), os.path.join(root, "tools", "fabric"))
             shutil.copytree(AGENTS, os.path.join(root, "runtime", "claude-code", "agents"))
             for rel, body in (("tools/fabric/routing.py", ROUTING_STUB), ("runtime/identity.py", IDENTITY_STUB),
-                              ("runtime/mcp/websearch-locale/install.py", INSTALL_STUB)):
+                              ("runtime/mcp/websearch-locale/install.py", INSTALL_STUB), ("runtime/mcp/fabric-memory/install.py", MEMORY_STUB)):
                 with open(os.path.join(root, rel), "w") as f:
                     f.write(body)
             put(root, "tools/fabric/pins.txt", "code-review fable claude-pinned-model\n")
@@ -258,6 +261,32 @@ def main() -> int:
         check("without CLAUDE_CONFIG_DIR: ~/.claude.json and ~/.claude/settings.json, agents in ~/.claude/agents",
               ic == [[os.path.join(home, ".claude.json"), "remove"], [os.path.join(home, ".claude", "settings.json"), "allow-websearch"]]
               and os.path.isfile(os.path.join(home, ".claude", "agents", "code-low.md")), str(ic))
+
+        # fabric-memory (ADR-049 §5 rule 1): every login, whatever its role, by bare name (no server path passed).
+        def memory_calls(root: str) -> list[list[str]]:
+            return [c["argv"] for c in calls(root) if c["tool"] == "memory-install"]
+
+        root, home, cfg = fixture()
+        put(root, "runtime/mcp/fabric-memory/out-set.txt", "  +  m mcpServers.fabric-memory\n  =  n\n")
+        r = run(root, home, cfg)
+        check("a login with no role: fabric-memory install.py <claude.json> set, nothing more",
+              memory_calls(root) == [[os.path.join(cfg, ".claude.json"), "set"]], str(memory_calls(root)))
+        check("its lines are printed and counted (+ written, = current)",
+              "  +  m mcpServers.fabric-memory" in r.stdout and r.stdout.splitlines()[-1] == "agent files (anthropic): 6 written, 1 already current.", r.stdout)
+        r = run(root, home, cfg, "--dry-run")
+        check("--dry-run is passed on", memory_calls(root)[-1] == [os.path.join(cfg, ".claude.json"), "set", "--dry-run"], str(memory_calls(root)))
+        root, home, _ = fixture()
+        run(root, home, None)
+        check("without CLAUDE_CONFIG_DIR: ~/.claude.json", memory_calls(root) == [[os.path.join(home, ".claude.json"), "set"]], str(memory_calls(root)))
+        root, home, cfg = fixture()
+        put(root, "runtime/role.txt", "code-medium\n")
+        run(root, home, cfg)
+        check("any other role gets it too", len(memory_calls(root)) == 1, str(memory_calls(root)))
+        root, home, cfg = fixture()
+        put(root, "runtime/mcp/fabric-memory/fail", "5")
+        r = run(root, home, cfg)
+        check("its failure is the installer's: exit 5, no count line, class files already written",
+              r.returncode == 5 and "agent files (" not in r.stdout and os.path.isfile(os.path.join(cfg, "agents", "code-low.md")), f"{r.returncode} {r.stdout}")
 
         # language-culture with a locale file: set and deny-websearch.
         root, home, cfg = fixture()
