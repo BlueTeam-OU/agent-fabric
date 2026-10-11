@@ -123,6 +123,30 @@ def main() -> int:
         check("...and the result is private and the temp is gone", oct(os.stat(path).st_mode & 0o777) == "0o600"
               and not [f for f in os.listdir(t) if f.endswith(".tmp")])
 
+        print("a stale temp under this pid")
+        for kind in ("a 0644 file", "a symlink"):
+            d = os.path.join(t, "stale-" + kind.split()[-1])
+            os.makedirs(d)
+            path = os.path.join(d, "config.json")
+            stale = f"{path}.agent-fabric.{os.getpid()}.tmp"
+            victim = os.path.join(d, "victim.txt")
+            with open(victim, "w", encoding="utf-8") as fh:
+                fh.write("untouched")
+            if kind == "a symlink":
+                os.symlink(victim, stale)
+            else:
+                with open(stale, "w", encoding="utf-8") as fh:
+                    fh.write("leftover of a killed run, wider than 0600")
+                os.chmod(stale, 0o644)
+            inst.save(path, {"a": 1})
+            with open(path, encoding="utf-8") as fh:
+                saved = fh.read()
+            with open(victim, encoding="utf-8") as fh:
+                victim_text = fh.read()
+            check(f"{kind} at the temp name is replaced: the result is the new JSON, private, the temp gone, the link's target untouched",
+                  json.loads(saved) == {"a": 1} and oct(os.stat(path).st_mode & 0o777) == "0o600" and not os.path.lexists(stale)
+                  and victim_text == "untouched", f"{saved!r} {victim_text!r}")
+
         print("usage")
         r = subprocess.run([sys.executable, "-I", INSTALL, os.path.join(t, "x.json"), "remove"], capture_output=True, text=True, timeout=60)
         check("an op other than set exits 2", r.returncode == 2, r.stderr[:100])
