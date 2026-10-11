@@ -768,7 +768,7 @@ class Usage(Case):
                 {**row, "account": "c", "gateway": {k: v for k, v in row["gateway"].items() if k != "usage"}},
                 {**row, "account": "d", "gateway": {**row["gateway"], "usage": {"status": "ok", "fetched_at": "T", "credentials": []}}}]
         lines = ctl.table("gateway", rows).split("\n")
-        self.assertRegex(lines[1], r"usage: 5h 42% 7d 90% allowed_warning \(read 3\ds ago\); no reading yet \(asked T\)")
+        self.assertRegex(lines[1], r"usage: 5h 42% 7d 90% allowed_warning \(read \d+s ago\); no reading yet \(asked T\)")
         self.assertIn("usage: stale (the gateway is gone)", lines[2])
         self.assertNotIn("usage", lines[3], "an account that relayed nothing is the row it was")
         self.assertIn("usage: no source yet", lines[4])

@@ -313,8 +313,8 @@ def gateway_text(r: dict) -> str:
     if r["status"] not in ("ok",):
         return f"{r['account']:<22} {'-':<34} {r['status']}{('  ' + printable(r['reason'])) if r.get('reason') else ''}"
     src = r["source"] if isinstance(r["source"], dict) else {}
-    where = src.get("token_file") or (f"fixed:{src['fixed']}" if src.get("fixed") else "?")
-    who = f"setup-token {r['setup_token']}" if r["setup_token"] else "account unknown"
+    where = printable(src.get("token_file") or (f"fixed:{src['fixed']}" if src.get("fixed") else "?"))
+    who = f"setup-token {printable(r['setup_token'])}" if r["setup_token"] else "account unknown"
     u = r["usage"] if isinstance(r["usage"], dict) else None
     if u is None:
         return f"{r['account']:<22} {who:<34} no reading yet  ({where})"
@@ -333,7 +333,7 @@ def gateway_text(r: dict) -> str:
     read = epoch_s(r.get("read_at"))
     age = f"read {int(max(now - read, 0))}s ago" if read is not None else "read at unknown time"
     return (f"{r['account']:<22} {who:<34} {pct(five):>7}  {pct(seven):>7}  "
-            f"{printable(u.get('status')) or '-'}  ({printable(where)}; {age})")
+            f"{printable(u.get('status')) or '-'}  ({where}; {age})")
 
 
 def run_gateway(hx: str, placed: list[tuple[str, str]], logins: list[str], as_json: bool) -> int:
