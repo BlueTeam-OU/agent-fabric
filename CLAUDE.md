@@ -156,10 +156,12 @@ is the capability class below (ADR-002, ADR-005).
   block, deliver, done. When a job has reached its artifact and what you
   learnt is in your memory, run `fabric-jobs next`: every job after a
   finished one starts in a fresh session, so it prints
-  `fabric-fresh --job <id>`, which starts one in that job's working copy;
-  only a session that has worked no job yet takes it in place. A job that ends (done, delivered, blocked, dropped) is
-  followed by `next` before anything else: a session never stops idle
-  while a job is queued (ADR-037 rule 10). `fabric-fresh --note "<what just
+  `fabric-fresh --job <id>`, which starts one in that job's working copy
+  and which you run yourself, never handing it to the owner; only a
+  session that has worked no job yet takes it in place. A job that ends
+  (done, delivered, blocked, dropped) is followed by `next` before
+  anything else: a session never stops idle while a job is queued
+  (ADR-037 rule 10). `fabric-fresh --note "<what just
   finished>"` ends a session with no next job. Both refuse a working
   copy with uncommitted changes. The `agent-jobs` skill has the
   procedure.
