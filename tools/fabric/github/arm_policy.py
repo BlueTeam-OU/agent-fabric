@@ -10,9 +10,10 @@ WHERE A POLICY IS. Two layers, the second over the first:
   repo      repos/<repo>.json in the settings repository of the repository's client, read from that repository's
             default branch through gh.py's contents API: never from a pull request's head or a working copy, so a PR
             cannot change the rules it is armed under. The client is projects/registry.json's `client` of the project
-            whose remote is the repository; the settings repository is projects/clients.json's `settings_repo` for
-            it. No such project or client, or none with a settings repository, or no file for the repository (HTTP
-            404 with the settings repository itself answering): the fleet policy applies. Any other failure to
+            whose remote is the repository (as workingcopy.canonical_remote compares them); the settings repository
+            is projects/clients.json's `settings_repo` for it. A repository no registered project has, or no file
+            for it (HTTP 404 with the settings repository itself answering): the fleet policy applies. A
+            registered project whose client is missing, unknown or has no settings_repo is an error. Any other failure to
             read it — no answer, a refusal, a file that is not JSON, a settings repository that cannot be read —
             is PolicyUnavailable: an unreadable policy is never the default, because a default more permissive than
             the repository's own would arm what the repository meant to hold.
@@ -44,10 +45,10 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
+import workingcopy  # noqa: E402
 
 REPO_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 ROLE_SLUG = re.compile(r"[a-z][a-z0-9-]*")
-APP_SLUG = re.compile(r"[a-z0-9][a-z0-9-]*")
 MODES = ("queue", "auto", "direct", "owner-only")
 METHODS = ("merge", "squash", "rebase")
 BELOW_MIN = ("owner-word", "refuse")
@@ -76,8 +77,8 @@ DEFAULT: dict[str, Any] = {
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
 }
-# `$schema` and `description` are for the reader of the file.
-IGNORED_KEYS = ("$schema", "description")
+# `description` is for the reader of the file (the schema allows it, a non-empty string, and nothing else beside the keys).
+IGNORED_KEYS = ("description",)
 
 
 class PolicyError(ValueError):
@@ -94,7 +95,14 @@ def is_repo_name(v: Any) -> bool:
 
 
 def _int(v: Any, low: int = 1) -> bool:
-    return isinstance(v, int) and not isinstance(v, bool) and v >= low
+    """A whole number of at least `low`: JSON's `1.0` is the integer 1 to the schema, and is here."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and v not in (float("inf"), float("-inf")) \
+        and int(v) == v and v >= low
+
+
+def _whole(table: dict, key: str) -> None:
+    if key in table:
+        table[key] = int(table[key])
 
 
 def merge(base: Any, over: Any) -> Any:
@@ -107,20 +115,22 @@ def merge(base: Any, over: Any) -> Any:
     return copy.deepcopy(over)
 
 
-def normalize_classes(raw: Any, where: str = "classes") -> dict[str, dict]:
-    """{name: regex} (the arm.json form, = {paths, min: 1}) and {name: {paths, min}}; names are lower-cased, as a
-    PR body's `Class:` line is read."""
+def normalize_classes(raw: Any, where: str = "classes", legacy: bool = False) -> dict[str, dict]:
+    """{name: {paths, min}} as the schema has it, names lower-cased as a PR body's `Class:` line is read. `legacy`
+    is a project's arm.json (with_classes): there {name: regex} is also a class, = {paths, min: 1}, and `min` may
+    be left out. A policy file is the schema's: both keys, an object."""
     if not isinstance(raw, dict):
         raise PolicyError(f"{where} is not an object of class names")
     out = {}
     for name, spec in raw.items():
         name = str(name).lower()
-        if not name or name != name.strip() or "\n" in name:
+        if not name or "\n" in name:
             raise PolicyError(f"{where}: {name!r} is not a class name")
-        if isinstance(spec, str):
+        if legacy and isinstance(spec, str):
             spec = {"paths": spec, "min": 1}
-        if not isinstance(spec, dict) or set(spec) - {"paths", "min"} or not isinstance(spec.get("paths"), str) or not spec["paths"]:
-            raise PolicyError(f"{where}.{name} is not a regex or an object with `paths` and `min`")
+        required = {"paths"} if legacy else {"paths", "min"}
+        if not isinstance(spec, dict) or set(spec) - {"paths", "min"} or required - set(spec) or not isinstance(spec.get("paths"), str) or not spec["paths"]:
+            raise PolicyError(f"{where}.{name} is not an object with `paths` and `min`")
         floor = spec.get("min", 1)
         if not _int(floor):
             raise PolicyError(f"{where}.{name}.min is not a whole number of at least 1")
@@ -130,7 +140,7 @@ def normalize_classes(raw: Any, where: str = "classes") -> dict[str, dict]:
             raise PolicyError(f"{where}.{name}.paths is not a regex ({e})") from None
         if name in out:
             raise PolicyError(f"{where}: class {name!r} is named twice")
-        out[name] = {"paths": spec["paths"], "min": floor}
+        out[name] = {"paths": spec["paths"], "min": int(floor)}
     return out
 
 
@@ -148,6 +158,8 @@ def validate(doc: Any, where: str = "the policy") -> dict:
     unknown = sorted(set(doc) - set(DEFAULT) - set(IGNORED_KEYS))
     if unknown:
         raise PolicyError(f"{where}: unknown key(s) {', '.join(unknown)}; the keys are {', '.join(DEFAULT)}")
+    if "description" in doc and not (isinstance(doc["description"], str) and doc["description"]):
+        raise PolicyError(f"{where}: description is not a non-empty string")
     p = merge(DEFAULT, {k: v for k, v in doc.items() if k not in IGNORED_KEYS})
     if p["mode"] not in MODES:
         raise PolicyError(f"{where}: mode is {p['mode']!r}, not one of {', '.join(MODES)}")
@@ -160,8 +172,8 @@ def validate(doc: Any, where: str = "the policy") -> dict:
     for c in checks:
         if not isinstance(c, dict) or set(c) - {"context", "app"} or not isinstance(c.get("context"), str) or not c["context"]:
             raise PolicyError(f"{where}: required_checks: {c!r} is not {{\"context\": a check name, \"app\": an App slug}}")
-        if "app" in c and not (isinstance(c["app"], str) and APP_SLUG.fullmatch(c["app"])):
-            raise PolicyError(f"{where}: required_checks: app {c['app']!r} is not an App's slug")
+        if "app" in c and not (isinstance(c["app"], str) and c["app"]):
+            raise PolicyError(f"{where}: required_checks: app {c['app']!r} is not an App's name")
         key = (c["context"], c.get("app"))
         if key in seen:
             raise PolicyError(f"{where}: required_checks names {c['context']!r} twice")
@@ -175,16 +187,15 @@ def validate(doc: Any, where: str = "the policy") -> dict:
     if q.get("grouping", "allgreen") not in GROUPING:
         raise PolicyError(f"{where}: queue.grouping is one of {', '.join(GROUPING)}")
     for k in QUEUE_DEFAULTS:
-        if k != "grouping" and k in q and not _int(q[k]):
-            raise PolicyError(f"{where}: queue.{k} is not a whole number of at least 1")
-    if {**QUEUE_DEFAULTS, **q}["merge_min"] > {**QUEUE_DEFAULTS, **q}["merge_max"]:
-        raise PolicyError(f"{where}: queue.merge_min is over queue.merge_max")
+        if k != "grouping" and k in q:
+            if not _int(q[k]):
+                raise PolicyError(f"{where}: queue.{k} is not a whole number of at least 1")
+            _whole(q, k)
     c = _only_keys(p["commits"], tuple(DEFAULT["commits"]), f"{where}: commits")
     for k in ("min", "advice_over", "boundary_min"):
         if not _int(c[k]):
             raise PolicyError(f"{where}: commits.{k} is not a whole number of at least 1")
-    if c["advice_over"] < c["min"]:
-        raise PolicyError(f"{where}: commits.advice_over ({c['advice_over']}) is under commits.min ({c['min']})")
+        _whole(c, k)
     if c["below_min"] not in BELOW_MIN:
         raise PolicyError(f"{where}: commits.below_min is {c['below_min']!r}, not one of {', '.join(BELOW_MIN)}")
     if not isinstance(c["roles"], dict):
@@ -194,6 +205,7 @@ def validate(doc: Any, where: str = "the policy") -> dict:
             raise PolicyError(f"{where}: commits.roles: {slug!r} is not a role slug")
         if not isinstance(spec, dict) or set(spec) != {"min"} or not _int(spec["min"]):
             raise PolicyError(f"{where}: commits.roles.{slug} is not {{\"min\": a whole number of at least 1}}")
+        _whole(spec, "min")
     c["classes"] = normalize_classes(c["classes"], f"{where}: commits.classes")
     bots = _only_keys(p["bots"], ("dependabot",), f"{where}: bots")
     if "dependabot" in bots:
@@ -205,7 +217,7 @@ def validate(doc: Any, where: str = "the policy") -> dict:
             raise PolicyError(f"{where}: bots.dependabot.ecosystems is a list of distinct package ecosystems")
     g = _only_keys(p["github"], ("ruleset", "branch"), f"{where}: github")
     for k, v in g.items():
-        if not isinstance(v, str) or not v.strip():
+        if not isinstance(v, str) or not v:
             raise PolicyError(f"{where}: github.{k} is not a name")
     return p
 
@@ -239,11 +251,13 @@ def project_of(registry: Any, repo: str) -> tuple[str, dict] | None:
     projects = registry.get("projects") if isinstance(registry, dict) else None
     if not isinstance(projects, dict):
         raise PolicyUnavailable("projects/registry.json has no projects map")
-    want = repo.lower()
+    # The registry's own comparison (workingcopy.canonical_remote): the scheme, the user, a trailing .git or space,
+    # a host's case are not part of which repository a remote names. A second reading of remotes could miss a
+    # registered project, and a registered project must never be given the fleet policy by a spelling.
+    want = workingcopy.canonical_remote(f"https://github.com/{repo}")
     for pid, spec in projects.items():
         for remote in (spec.get("remotes") if isinstance(spec, dict) else None) or []:
-            m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$", str(remote))
-            if m and m.group(1).lower() == want:
+            if want and workingcopy.canonical_remote(str(remote)) == want:
                 return pid, spec
     return None
 
@@ -313,7 +327,6 @@ def load(repo: str | None, *, root: str | None = None, registry: Any = None, cli
     if cache is not None and repo in cache:
         return copy.deepcopy(cache[repo])
     if registry is None:
-        import workingcopy
         try:
             registry = workingcopy.load_registry()
         except (OSError, ValueError) as e:
@@ -336,7 +349,7 @@ def with_classes(policy: dict, classes: dict[str, str]) -> dict:
     """The policy with a project's older arm.json classes ({name: regex}) added under the policy's own: a class
     the policy states wins."""
     out = copy.deepcopy(policy)
-    out["commits"]["classes"] = {**normalize_classes(classes, "arm.json classes"), **policy["commits"]["classes"]}
+    out["commits"]["classes"] = {**normalize_classes(classes, "arm.json classes", legacy=True), **policy["commits"]["classes"]}
     return out
 
 

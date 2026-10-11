@@ -93,20 +93,20 @@ class Document(unittest.TestCase):
             with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
                 arm_policy.validate(bad)
 
-    def test_the_schema_and_description_keys_are_for_the_reader(self):
-        self.assertEqual(arm_policy.validate({"$schema": "x", "description": "y"}), arm_policy.default())
+    def test_the_description_key_is_for_the_reader(self):
+        self.assertEqual(arm_policy.validate({"description": "y"}), arm_policy.default())
 
     def test_values_of_the_wrong_kind_or_range_are_refused(self):
         for bad in ({"mode": "fast"}, {"method": "ff"}, {"commits": {"min": 0}}, {"commits": {"min": True}}, {"commits": {"min": 2.5}},
-                    {"commits": {"min": "8"}}, {"commits": {"min": 9, "advice_over": 8}}, {"commits": {"below_min": "nobody"}},
+                    {"commits": {"min": "8"}}, {"commits": {"below_min": "nobody"}},
                     {"commits": {"roles": {"Web Dev": {"min": 2}}}}, {"commits": {"roles": {"web-dev": {"min": 0}}}},
                     {"commits": {"roles": {"web-dev": 2}}}, {"commits": {"roles": []}}, {"commits": []},
                     {"required_checks": [{"context": "a"}, {"context": "a"}]}, {"required_checks": [{"context": ""}]},
                     {"required_checks": "ci-ok"}, {"required_checks": ["ci-ok"]}, {"required_checks": [{"context": "a", "app": 15368}]},
-                    {"required_checks": [{"context": "a", "app": "Github Actions"}]},
+                    {"required_checks": [{"context": "a", "app": ""}]},
                     {"signatures": "yes"}, {"delete_branch_on_merge": 1}, {"protect": {"deletion": 1}}, {"protect": []},
-                    {"github": {"ruleset": " "}}, {"github": {"branch": 3}},
-                    {"queue": {"grouping": "any"}}, {"queue": {"build": 0}}, {"queue": {"merge_min": 9, "merge_max": 2}},
+                    {"github": {"ruleset": ""}}, {"github": {"branch": 3}},
+                    {"queue": {"grouping": "any"}}, {"queue": {"build": 0}},
                     {"bots": {"dependabot": {"arm": ["huge"]}}}, {"bots": {"dependabot": {"arm": ["patch", "patch"]}}},
                     {"bots": {"dependabot": {"ecosystems": ["pip"]}}}, 7, [], "x", None):
             with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
@@ -120,13 +120,39 @@ class Document(unittest.TestCase):
         arm_policy.validate({"commits": {"below_min": "refuse"}, "bots": {"dependabot": {"arm": ["patch", "minor"], "ecosystems": ["pip"]}},
                              "queue": {"grouping": "headgreen", "build": 3}, "github": {"ruleset": "r", "branch": "main"}})
 
-    def test_the_older_class_form_is_a_class_with_a_minimum_of_one_and_names_may_have_spaces(self):
-        p = arm_policy.validate({"commits": {"classes": {"Single-Check Tooling": r"^tools/", "docs": {"paths": r"\.md$", "min": 3}}}})
-        self.assertEqual(p["commits"]["classes"], {"single-check tooling": {"paths": "^tools/", "min": 1}, "docs": {"paths": r"\.md$", "min": 3}})
+    def test_the_older_arm_json_class_form_is_a_class_with_a_minimum_of_one_and_names_may_have_spaces(self):
+        base = arm_policy.validate({"commits": {"classes": {"docs": {"paths": r"\.md$", "min": 3}}}})
+        p = arm_policy.with_classes(base, {"Single-Check Tooling": r"^tools/", "x": {"paths": "^x/"}})
+        self.assertEqual(p["commits"]["classes"], {"single-check tooling": {"paths": "^tools/", "min": 1}, "x": {"paths": "^x/", "min": 1},
+                                                    "docs": {"paths": r"\.md$", "min": 3}})
+
+    def test_a_policy_file_states_a_class_as_the_schema_does_the_older_form_is_arm_jsons_only(self):
+        for bad in ({"docs": "^docs/"}, {"docs": {"paths": "^d"}}, {"docs": {"min": 2}}):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
+                arm_policy.validate({"commits": {"classes": bad}})
+        arm_policy.validate({"commits": {"classes": {" odd name": {"paths": "^d", "min": 1}}}})
+
+    def test_what_the_schema_allows_the_loader_allows(self):
+        for doc in ({"commits": {"min": 20}}, {"queue": {"merge_min": 6}}, {"required_checks": [{"context": "c", "app": "Foo"}]},
+                    {"github": {"ruleset": " "}}, {"commits": {"min": 1.0, "advice_over": 16.0, "roles": {"web-dev": {"min": 2.0}}}},
+                    {"commits": {"classes": {"docs": {"paths": "^d", "min": 3.0}}}}, {"description": "why"}):
+            arm_policy.validate(doc)
+        self.assertIsInstance(arm_policy.validate({"commits": {"min": 3.0}})["commits"]["min"], int)
+
+    def test_what_the_schema_refuses_the_loader_refuses(self):
+        for doc in ({"$schema": "x"}, {"description": 5}, {"description": ""}, {"commits": {"min": 1.5}}, {"commits": {"min": float("inf")}},
+                    {"commits": {"min": float("nan")}}):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(doc)):
+                arm_policy.validate(doc)
+
+    def test_the_two_rules_the_schema_cannot_say_are_the_loaders_a_regex_that_compiles_and_class_names_distinct_in_lower_case(self):
+        for bad in ({"docs": {"paths": "(", "min": 1}}, {"Docs": {"paths": "a", "min": 1}, "docs": {"paths": "b", "min": 1}}):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
+                arm_policy.validate({"commits": {"classes": bad}})
 
     def test_a_class_that_is_not_one_is_refused(self):
-        for bad in ({"a": {"paths": "("}}, {"a": {"paths": 3}}, {"a": {"min": 2}}, {"a": {"paths": "x", "min": 0}}, {"a": 3},
-                    {"A": "x", "a": "y"}, {" a": "x"}, {"": "x"}):
+        for bad in ({"a": {"paths": "(", "min": 1}}, {"a": {"paths": 3, "min": 1}}, {"a": {"min": 2}}, {"a": {"paths": "x", "min": 0}}, {"a": 3},
+                    {"A": {"paths": "x", "min": 1}, "a": {"paths": "y", "min": 1}}, {"": {"paths": "x", "min": 1}}):
             with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
                 arm_policy.validate({"commits": {"classes": bad}})
 
@@ -146,19 +172,22 @@ class RealFiles(unittest.TestCase):
     def test_the_fleet_default_file_loads_through_arm_policy_and_is_the_built_in_default(self):
         self.assertEqual(arm_policy.fleet_policy(HERE), arm_policy.default())
 
-    def test_the_schema_and_the_loader_agree_on_every_document(self):
+    def test_the_schema_and_the_loader_agree_on_the_documents_where_they_can(self):
         queue = {"mode": "queue", "method": "squash", "queue": {"grouping": "headgreen", "build": 5, "merge_max": 5, "merge_min": 1,
                                                                 "wait_minutes": 2, "check_timeout_minutes": 60}}
         valid = [{}, FABRIC_POLICY, queue, {"commits": {"min": 4, "roles": {"devex-tooling": {"min": 2}}, "classes": {"docs": {"paths": "^docs/", "min": 1}}}},
                  {"commits": {"boundary_min": 12}},
                  {"bots": {"dependabot": {"arm": ["patch", "minor"], "ecosystems": ["npm_and_yarn", "pip"]}}},
-                 {"github": {"ruleset": "r", "branch": "main"}}, {"mode": "owner-only"}, {"mode": "direct"}, {"commits": {"below_min": "refuse"}}]
+                 {"github": {"ruleset": "r", "branch": "main"}}, {"mode": "owner-only"}, {"mode": "direct"}, {"commits": {"below_min": "refuse"}},
+                 {"commits": {"min": 20}}, {"queue": {"merge_min": 6}}, {"required_checks": [{"context": "c", "app": "Foo"}]},
+                 {"github": {"ruleset": " "}}, {"commits": {"min": 1.0}}, {"description": "why"}]
         invalid = [{"mode": "auto", "autoo": True}, {"queue": {"depth": 3}}, {"mode": "squash"}, {"method": "fast-forward"},
                    {"commits": {"below_min": "warn"}}, {"commits": {"min": 0}}, {"commits": {"boundary_min": 0}}, {"commits": {"boundary_min": 2.5}}, {"commits": {"roles": {"devex-tooling": {"min": 0}}}},
                    {"commits": {"roles": {"Devex Tooling": {"min": 2}}}}, {"commits": {"classes": {"docs": {"min": 1}}}},
                    {"queue": {"grouping": "some"}}, {"queue": {"build": 2.5}}, {"required_checks": [{"app": "github-actions"}]},
                    {"bots": {"renovate": {"arm": ["patch"]}}}, {"bots": {"dependabot": {"arm": ["breaking"]}}}, {"signatures": "yes"},
-                   {"protect": {"deletion": 1}}, {"required_checks": ["ci-ok"]}]
+                   {"protect": {"deletion": 1}}, {"required_checks": ["ci-ok"]}, {"$schema": "x"}, {"description": 5}, {"description": ""},
+                   {"commits": {"classes": {"docs": "^docs/"}}}, {"commits": {"classes": {"docs": {"paths": "^d"}}}}]
         with open(os.path.join(HERE, "policies", "arming.json"), encoding="utf-8") as fh:
             valid.append(json.load(fh))
         for doc in valid:
@@ -215,6 +244,20 @@ class Client(unittest.TestCase):
     def test_a_registry_without_projects_is_unavailable(self):
         with self.assertRaises(arm_policy.PolicyUnavailable):
             arm_policy.settings_repo_of({}, CLIENTS, "O/R")
+
+
+class RemoteSpellings(unittest.TestCase):
+    def test_a_registered_project_is_found_by_the_registrys_own_comparison_of_remotes(self):
+        for remote in ("https://GitHub.com/O/R", "ssh://git@github.com:22/O/R.git", "git@github.com:O/R.git ", "https://github.com/o/r/",
+                       "https://user@github.com/O/R.git", "git@github.com:o/R"):
+            registry = {"projects": {"p": {"client": "c", "remotes": [remote]}}}
+            found = arm_policy.project_of(registry, "O/R")
+            self.assertIsNotNone(found, remote)
+            self.assertEqual(arm_policy.settings_repo_of(registry, CLIENTS, "O/R"), "o/settings", remote)
+
+    def test_a_remote_that_is_another_repository_or_another_host_is_not_it(self):
+        for remote in ("https://github.com/O/R2", "https://gitlab.com/O/R", "git@github.com:O/other.git", "/srv/git/O/R", "R"):
+            self.assertIsNone(arm_policy.project_of({"projects": {"p": {"client": "c", "remotes": [remote]}}}, "O/R"), remote)
 
 
 class Load(Scratch):
@@ -311,7 +354,7 @@ class Load(Scratch):
 
 class Threshold(unittest.TestCase):
     P = arm_policy.validate({"commits": {"min": 9, "roles": {"web-dev": {"min": 4}, "rust-dev": {"min": 12}},
-                                         "classes": {"docs": {"paths": r"\.md$", "min": 2}, "tooling": r"^tools/"}}})
+                                         "classes": {"docs": {"paths": r"\.md$", "min": 2}, "tooling": {"paths": r"^tools/", "min": 1}}}})
 
     def test_the_repositorys_minimum_when_nothing_more_specific_applies(self):
         self.assertEqual(arm_policy.threshold(self.P, None, "", False), 9)
@@ -438,6 +481,13 @@ class PrGate(unittest.TestCase):
         text = self.v(9, "o/settings repos/R.json could not be read (HTTP 500)")
         self.assertIn("the arming policy cannot be read (o/settings repos/R.json could not be read (HTTP 500))", text)
         self.assertNotIn("arm: post", text)
+
+    def test_the_verdict_names_the_policys_method_and_says_below_min_refuse(self):
+        for method in ("merge", "squash", "rebase"):
+            self.assertIn(f"gh pr merge 1 --{method} --auto", self.v(9, arm_policy.validate({"method": method})))
+        text = self.v(3, arm_policy.validate({"commits": {"min": 8, "below_min": "refuse"}}))
+        self.assertIn("refuses below the minimum", text)
+        self.assertNotIn("ask the owner", text)
 
     def test_owner_only_and_direct_are_not_armed_by_fabric_pr(self):
         for mode, words in (("owner-only", "only the owner merges"), ("direct", "nothing to arm")):
@@ -569,6 +619,14 @@ class ArmRun(unittest.TestCase):
         self.assertIn("6 work commits — over 5: smaller batches next time", out)
         _, out = self.run_arm(p, 5, extra=("--dry-run",))
         self.assertNotIn("smaller batches", out)
+
+    def test_a_minimum_above_the_default_advice_size_does_not_make_every_pull_request_too_big(self):
+        p = arm_policy.validate({"commits": {"min": 20}})
+        _, out = self.run_arm(p, 18, basis="the owner's word", extra=("--dry-run",))
+        self.assertNotIn("smaller batches", out)
+        _, out = self.run_arm(p, 21, extra=("--dry-run",))
+        self.assertNotIn("over 16", out)
+        self.assertIn("21 work commits — over 20: smaller batches next time", out)
 
     def test_below_min_refuse_is_a_refusal_the_owners_word_does_not_lift(self):
         p = arm_policy.validate({"commits": {"min": 3, "below_min": "refuse"}})
@@ -725,6 +783,46 @@ class ArmRun(unittest.TestCase):
         with mock.patch.object(arm.arm_policy, "with_classes", lambda p, c: (seen.append(c), real_with(p, c))[1]):
             rc, out = self.run_arm(None, 9, classes={"docs": r"\.md$"}, load_fn=spy, extra=("--dry-run",))
         self.assertEqual((rc, loaded, seen), (0, ["O/R"], [{"docs": r"\.md$"}]), out)
+
+    def test_the_role_is_read_from_the_trailer_block_only_not_from_any_line_of_the_message(self):
+        p = arm_policy.validate({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
+        stamped = [{"parents": [{}], "commit": {"message": "subject\n\nbody\n\nKind: work\nFabric-Role: web-dev"}}]
+        quoted = [{"parents": [{}], "commit": {"message": "subject\n\nFabric-Role: web-dev\n\nand then prose follows"}}]
+        for commits, role in ((stamped, "web-dev"), (quoted, None)):
+            with mock.patch.object(arm.gh, "api", return_value=commits):
+                self.assertEqual(arm.author_role("O/R", "7"), role)
+        self.assertIsNotNone(p)
+
+    def test_a_pull_request_at_githubs_listing_cap_has_no_role_read_from_a_part_of_it(self):
+        commits = [{"parents": [{}], "commit": {"message": "c\n\nFabric-Role: web-dev"}}] * arm.PR_COMMITS_CAP
+        with mock.patch.object(arm.gh, "api", return_value=commits):
+            self.assertIsNone(arm.author_role("O/R", "7"))
+        with mock.patch.object(arm.gh, "api", return_value=commits[:-1]):
+            self.assertEqual(arm.author_role("O/R", "7"), "web-dev")
+
+    def test_a_role_that_armed_below_the_repositorys_minimum_is_said_in_the_log_and_the_comment(self):
+        p = arm_policy.validate({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
+        _, out = self.run_arm(p, 3, role_trailers=["web-dev"], extra=("--dry-run",))
+        self.assertIn("count rule: 3 work commits — the role web-dev's minimum is 2, arms at the review gate", out)
+        self.assertNotIn("on the owner's word", out)
+        self.assertIn("3 work commits, role: web-dev, head", out)
+        _, out = self.run_arm(p, 9, role_trailers=["web-dev"], extra=("--dry-run",))
+        self.assertNotIn("role: web-dev", out)
+        _, out = self.run_arm(arm_policy.validate({"commits": {"min": 8}}), 3, role_trailers=["web-dev"], basis="the owner's word", extra=("--dry-run",))
+        self.assertNotIn("role: web-dev", out)
+
+    def test_the_mode_is_judged_before_the_settings_are_compared_or_the_commits_listed(self):
+        called = []
+        for mode in ("owner-only", "direct"):
+            with mock.patch.object(arm.repo_policy, "check", side_effect=lambda *a, **k: called.append("check")), \
+                    mock.patch.object(arm, "author_role", side_effect=lambda *a, **k: called.append("role")):
+                rc, _ = self.run_arm(arm_policy.validate({"mode": mode}), 20, basis="the owner's word")
+            self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertEqual(called, [])
+
+    def test_the_merge_flag_is_a_fixed_table_not_the_policys_text(self):
+        self.assertEqual(arm.MERGE_FLAGS, {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"})
+        self.assertEqual(set(arm.MERGE_FLAGS), set(arm_policy.METHODS))
 
     def test_an_author_whose_commits_cannot_be_listed_stops_the_arming(self):
         with mock.patch.object(arm.gh, "api", side_effect=gh.GhError("x", "boom")):

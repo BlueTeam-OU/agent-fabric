@@ -62,7 +62,18 @@ whose waiver_role is missing while a waiver is asked, or is not a role
 of identities/roles/catalog.json. The arming comment records "Boundary
 gate waived by <login> (<message-id>): <why>". A boundary that is NOT
 waived still needs the review of the head and no open thread, and,
-under 8 work commits, the owner's word.
+under the policy's boundary minimum (commits.boundary_min, 8 by default) work commits, the owner's word.
+
+THE ARMING POLICY (tools/fabric/github/arm_policy.py; the 8 and the 16 in the gates below are its defaults): the
+fleet's policies/arming.json with the repository's file in its client's settings repository over it. Read before
+the count rule, and a policy or a comparison with GitHub's settings that cannot be read is exit 2, never the
+default. A repository in mode owner-only or direct is not armed here. A difference between the policy and GitHub
+in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
+merge methods are allowed, advisory. The minimum is the stated class's, else the author's role's (the
+Fabric-Role trailer every commit of the PR carries, when they agree), else commits.min; a boundary change gets
+max(commits.min, commits.boundary_min) whatever role or class; commits.below_min "refuse" is a refusal the owner's
+word does not lift; the merge method is the policy's; a repository with no required check is armed only with every
+check on the head green.
 
 WHAT THIS DOES NOT PROVE: the relay does not authenticate a sender
 (BRIDGE-RELAY-SETUP.md) — FROM and the relay's sender are both the
@@ -181,11 +192,12 @@ What it refuses, in order, and why:
      class the files contradict is refused, not trusted. A
      security-boundary change under 8 needs the owner's word whatever
      class it states; at 8 or more it needs none, boundary or not. A waived boundary is judged as no boundary.
+     (8 and 16 are the default numbers; the policy's, read as THE ARMING POLICY above, are the ones applied.)
 
 Then: posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"; a security boundary armed at 8 or more
 without the owner's word adds a sentence saying so), runs `gh pr merge <n> --merge --auto
---match-head-commit <head>` — pinned to the head the gates read —
+--match-head-commit <head>` (--squash or --rebase where the policy's method is that) — pinned to the head the gates read —
 and prints the watcher line to run — it is not started here, because
 a watcher must be the SESSION's child for its exit to be the
 session's callback.
@@ -214,6 +226,10 @@ def say(msg: str) -> None:
 
 
 ROLE_TRAILER = re.compile(r"^Fabric-Role:[ \t]*([a-z][a-z0-9-]*)[ \t]*$", re.M)
+# The merge method as the flag gh takes: a fixed table, not the policy's text put into an argument.
+MERGE_FLAGS = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}
+# GitHub lists at most this many commits of a pull request; a role is not read from a part of them.
+PR_COMMITS_CAP = 250
 
 
 def author_role(repo: str, num: str) -> str | None:
@@ -223,11 +239,14 @@ def author_role(repo: str, num: str) -> str | None:
     None unless it is certain. Raises Unanswered when GitHub cannot list the commits."""
     try:
         listed = gh.api(f"repos/{repo}/pulls/{num}/commits?per_page=100", paginate=True)
+        if len(listed) >= PR_COMMITS_CAP:
+            return None
         roles = set()
         for c in listed:
             if len(c.get("parents") or []) > 1:
                 continue
-            found = ROLE_TRAILER.findall(str((c.get("commit") or {}).get("message") or ""))
+            # The trailer block: the message's last paragraph, where the commit-msg hook writes it.
+            found = ROLE_TRAILER.findall(str((c.get("commit") or {}).get("message") or "").rstrip().split("\n\n")[-1])
             if not found:
                 return None
             roles.update(found)
@@ -479,7 +498,8 @@ def arm(argv: list[str]) -> int:
         raise refuse(f"{repo}'s GitHub settings differ from its arming policy — {'; '.join(hard[:3])}"
                      f"{f' (and {len(hard) - 3} more)' if len(hard) > 3 else ''} — fabric-repo-policy plan shows all of it")
     min_work = policy["commits"]["min"]
-    advice_over = policy["commits"]["advice_over"]
+    # A policy that raises the minimum above the default advice size does not make every PR "too big".
+    advice_over = max(policy["commits"]["advice_over"], min_work)
     # The classes are the policy's, whole: its regex and its minimum go together (the project's arm.json classes
     # ride under it as {paths, min: 1}, and one the policy states wins).
     classes = {name: re.compile(spec["paths"]) for name, spec in policy["commits"]["classes"].items()}
@@ -600,8 +620,13 @@ def arm(argv: list[str]) -> int:
         raise refuse(f"{work} work commits — under {floor} arms only on the owner's word, unless the body states a class"
                      f" that arms at the gate ({gate_classes}) and the files agree; the basis does not carry the"
                      f" phrase \"owner's word\" and no class is stated")
+    # The role's minimum decided it only where it is below the repository's and nothing more specific stands.
+    by_role = (bool(role) and not cls and not boundary_unwaived and role in policy["commits"]["roles"] and floor < min_work
+               and work < min_work)
     if under:
         say(f"count rule: {work} work commits — under {floor}, on the owner's word")
+    elif by_role:
+        say(f"count rule: {work} work commits — the role {role}'s minimum is {floor}, arms at the review gate")
     elif work < min_work:
         say(f"count rule: {work} work commits — under {min_work}, arms at the gate as {cls}" if cls and not boundary_unwaived
             else f"count rule: {work} work commits — under {min_work}, on the owner's word")
@@ -617,7 +642,7 @@ def arm(argv: list[str]) -> int:
                          f" merging: every check on the head must be green first (pr-gate reads {checks})")
         say("no required check on this repository: every check on the head is green")
 
-    comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}, head {head[:8]}."
+    comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}{f', role: {role}' if by_role else ''}, head {head[:8]}."
     if waived_by:
         comment += f" {waived_by}"
     # A boundary armed at the repository's minimum or more needs no owner's word (gate 5), so the
@@ -629,7 +654,7 @@ def arm(argv: list[str]) -> int:
         comment += f" Security boundary, armed on the count rule ({floor} or more work commits) without the owner's word."
     if dry:
         say(f"DRY RUN — would post: {comment}")
-        say(f"DRY RUN — would run: gh pr merge {num} --{policy['method']} --auto --match-head-commit {head}")
+        say(f"DRY RUN — would run: gh pr merge {num} {MERGE_FLAGS[policy['method']]} --auto --match-head-commit {head}")
         return 0
     # The body on stdin: a body is data (gh.py's invariant).
     try:
@@ -640,7 +665,7 @@ def arm(argv: list[str]) -> int:
         # Pinned to the head the gates read: a push between the checks and
         # this call would otherwise arm a head nobody reviewed or waived
         # (re-review of b1a8e41, pre-existing).
-        gh.run(["pr", "merge", num, f"--{policy['method']}", "--auto", "--match-head-commit", head], what=f"gh pr merge {num}")
+        gh.run(["pr", "merge", num, MERGE_FLAGS[policy["method"]], "--auto", "--match-head-commit", head], what=f"gh pr merge {num}")
     except gh.GhError:
         raise Unanswered(f"gh pr merge --auto failed on #{num}") from None
     # A green PR goes STRAIGHT INTO THE QUEUE on arming, and a queued PR

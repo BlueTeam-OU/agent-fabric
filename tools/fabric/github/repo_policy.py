@@ -6,8 +6,9 @@ to arm on a repository that has drifted (arming step C; apply is step E's).
   fabric-repo-policy plan   [owner/repo] [--json]    exit 0; the differences, or "no change"
   fabric-repo-policy verify [owner/repo] [--json]    exit 0 when GitHub matches the policy, 1 when it differs
                                                      exit 2 for what could not be read or judged
-A difference in which merge methods are allowed or in delete-branch-on-merge is `(advisory)`: verify fails on it,
-arm does not refuse on it.
+A difference in which merge methods are allowed (a ruleset that allows the policy's method and more, or the
+repository's allow_*_merge fields), in delete-branch-on-merge, or in bypass actors this token cannot see, is
+`(advisory)`: verify fails on it, arm does not refuse on it.
 
 The repository defaults to the current one (gh.py). The policy is arm_policy.load(repo): the fleet's with the
 client's settings repository's file over it. What it asks of GitHub is arm_policy.render(): the repository's
@@ -26,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -40,6 +42,10 @@ REPOSITORY_FIELDS = ("allow_auto_merge", "allow_merge_commit", "allow_squash_mer
 ADVISORY_FIELDS = ("allow_merge_commit", "allow_squash_merge", "allow_rebase_merge", "delete_branch_on_merge")
 
 
+# What an App's slug may be where it forms a request path: GitHub's own spelling.
+APP_SLUG = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
 class Unreadable(Exception):
     """GitHub's side could not be read, or the policy could not be rendered: nothing is known of the difference."""
 
@@ -50,6 +56,8 @@ def resolve_apps(policy: dict, api=gh.api) -> dict[str, int]:
     for c in policy["required_checks"]:
         slug = c.get("app")
         if slug and slug not in arm_policy.APP_IDS and slug not in ids:
+            if not APP_SLUG.fullmatch(slug):
+                raise Unreadable(f"the App {slug!r} named by a required check is not an App's slug")
             try:
                 got = api(f"apps/{slug}")
             except gh.GhError as e:
@@ -93,6 +101,11 @@ def _rule_differences(want: dict, have: dict) -> list[str]:
         if k == "required_status_checks":
             if _checks(want["parameters"]) != _checks(have.get("parameters") or {}):
                 out.append(f"rule {t}: required checks are {_checks(have.get('parameters') or {})}, the policy wants {_checks(want['parameters'])}")
+        elif k == "allowed_merge_methods" and got != v:
+            # More methods allowed than the policy's does not change how a merge is held; its method missing means
+            # `gh pr merge --<method>` would fail.
+            more = isinstance(got, list) and all(m in got for m in v)
+            out.append(f"rule {t}: {k} is {got!r}, the policy wants {v!r}" + (" (advisory)" if more else ""))
         elif got != v:
             out.append(f"rule {t}: {k} is {got!r}, the policy wants {v!r}")
     return out
@@ -117,7 +130,9 @@ def differences(desired: dict, live: dict, name: str) -> list[str]:
                 out.append(f"ruleset {k} is {have.get(k)!r}, the policy wants {want[k]!r}")
         if (have.get("conditions") or {}).get("ref_name") != want["conditions"]["ref_name"]:
             out.append(f"ruleset conditions are {(have.get('conditions') or {}).get('ref_name')!r}, the policy wants {want['conditions']['ref_name']!r}")
-        if have.get("bypass_actors") != want["bypass_actors"]:
+        if "bypass_actors" not in have:
+            out.append("ruleset bypass actors are not visible to this token, so none could be compared (advisory)")
+        elif have["bypass_actors"] != want["bypass_actors"]:
             out.append(f"ruleset bypass actors are {have.get('bypass_actors')!r}, the policy wants none")
         by_want = {r["type"]: r for r in want["rules"]}
         by_have = {r.get("type"): r for r in have.get("rules") or [] if isinstance(r, dict)}

@@ -108,12 +108,31 @@ class Differences(unittest.TestCase):
         g = Github(POLICY)
         g.ruleset["rules"] = [r for r in g.ruleset["rules"] if r["type"] != "required_signatures"]
         g.ruleset["rules"].append({"type": "creation"})
-        rule(g, "pull_request")["parameters"]["allowed_merge_methods"] = ["merge", "squash"]
+        rule(g, "pull_request")["parameters"]["require_code_owner_review"] = True
         found = self.check(g)
         self.assertEqual(sorted(found), sorted([
             "rule required_signatures is missing",
             "rule creation is on the ruleset, and the policy does not want it",
-            "rule pull_request: allowed_merge_methods is ['merge', 'squash'], the policy wants ['merge']"]))
+            "rule pull_request: require_code_owner_review is True, the policy wants False"]))
+
+    def test_a_ruleset_that_allows_the_policys_method_and_more_is_advisory_one_that_lacks_it_is_not(self):
+        g = Github(POLICY)
+        rule(g, "pull_request")["parameters"]["allowed_merge_methods"] = ["merge", "squash"]
+        found = self.check(g)
+        self.assertEqual(found, ["rule pull_request: allowed_merge_methods is ['merge', 'squash'], the policy wants ['merge'] (advisory)"])
+        self.assertEqual(repo_policy.blocking(found), [])
+        rule(g, "pull_request")["parameters"]["allowed_merge_methods"] = ["squash", "rebase"]
+        found = self.check(g)
+        self.assertEqual(repo_policy.blocking(found), ["rule pull_request: allowed_merge_methods is ['squash', 'rebase'], the policy wants ['merge']"])
+        rule(g, "pull_request")["parameters"]["allowed_merge_methods"] = []
+        self.assertEqual(len(repo_policy.blocking(self.check(g))), 1)
+
+    def test_bypass_actors_a_token_cannot_see_are_said_and_do_not_refuse(self):
+        g = Github(POLICY)
+        del g.ruleset["bypass_actors"]
+        found = self.check(g)
+        self.assertEqual(found, ["ruleset bypass actors are not visible to this token, so none could be compared (advisory)"])
+        self.assertEqual(repo_policy.blocking(found), [])
 
     def test_the_required_checks_are_compared_by_context_and_integration_id(self):
         g = Github(POLICY)
@@ -147,6 +166,14 @@ class Differences(unittest.TestCase):
         g.apps = {}
         with self.assertRaises(repo_policy.Unreadable):
             self.check(g, policy)
+
+    def test_an_app_slug_that_could_shape_a_request_path_is_refused_before_any_call(self):
+        for slug in ("../x", "A", "a b", "a/b", "a?x=1"):
+            policy = arm_policy.validate({"required_checks": [{"context": "x", "app": slug}]})
+            g = Github(POLICY)
+            with self.assertRaises(repo_policy.Unreadable, msg=slug):
+                repo_policy.resolve_apps(policy, g)
+            self.assertEqual(g.asked, [], slug)
 
     def test_a_read_that_fails_or_answers_in_another_shape_is_unreadable_never_no_difference(self):
         for path in (f"repos/{REPO}", "rulesets?", "rulesets/7"):
