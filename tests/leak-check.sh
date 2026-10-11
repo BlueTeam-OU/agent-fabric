@@ -11,8 +11,8 @@
 # leak_dir is where a suite's scratch lands when the run does not export
 # TMPDIR — resolved as Node's os.tmpdir() does (TMPDIR, then TMP, then TEMP,
 # then /tmp; Python reads TEMP before TMP, which stops mattering once run.sh
-# exports TMPDIR for the run). run.sh makes its own directories (af-t.*,
-# af-o.*) under $XDG_RUNTIME_DIR or /tmp, not under leak_dir.
+# exports TMPDIR for the run). run.sh makes its own directories (af-t.*)
+# under $XDG_RUNTIME_DIR or /tmp, not under leak_dir.
 # Names are handled as whole lines: an entry with a space or a glob
 # character is printed as itself, never split or expanded.
 leak_dir() { printf '%s\n' "${TMPDIR:-${TMP:-${TEMP:-/tmp}}}"; }

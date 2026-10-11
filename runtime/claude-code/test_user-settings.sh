@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # runtime/claude-code/test_user-settings.sh
-#
 # The fabric's keys in a login's user settings: user-settings.py writes
 # attribution {commit "", pr "", sessionUrl false}, showThinkingSummaries
 # true and verbose true, keeps every other key, replaces the deprecated
@@ -13,17 +12,14 @@ ok()  { PASS=$((PASS+1)); printf '  ✓ %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  ✗ %s\n' "$1"; [[ -n "${2:-}" ]] && printf '%s\n' "$2" | sed 's/^/      /' | head -6; }
 SANDBOX="$(mktemp -d)"; trap 'rm -rf "$SANDBOX"' EXIT
 S="$SANDBOX/.claude/settings.json"
-# The links bootstrap makes: a rule is granted only where the link is the
-# fabric's script.
+# The links bootstrap makes: a rule is granted only where the link is the fabric's script.
 FABRIC="$(cd "$HERE/../.." && pwd)"
 # Inside .claude/: the flag cases assert nothing else appears in the sandbox.
 export AGENT_FABRIC_LOCAL_BIN="$SANDBOX/.claude/local-bin"; mkdir -p "$AGENT_FABRIC_LOCAL_BIN"
 while IFS=$'\t' read -r name rel; do ln -s "$FABRIC/$rel" "$AGENT_FABRIC_LOCAL_BIN/$name"; done \
     < <(python3 -c 'import json,sys; [print(f"{k}\t{v}") for k, v in json.load(open(sys.argv[1]))["commands"].items()]' "$HERE/commands.json")
-# Claude Code's auto-mode defaults from a stand-in (inside .claude/, as
-# above): a runner without claude would otherwise make every write say the
-# defaults could not be read. tests/test_user_settings_auto_mode.py tests
-# autoMode itself.
+# Claude Code's auto-mode defaults from a stand-in (inside .claude/, as above): a runner without claude
+# would otherwise make every write say the defaults could not be read (test_user_settings_auto_mode.py tests autoMode).
 printf '%s\n' '#!/bin/sh' 'echo '"'"'{"environment": ["**Organization**: None configured"], "allow": [], "soft_deny": [], "hard_deny": []}'"'" \
     > "$SANDBOX/.claude/claude"; chmod +x "$SANDBOX/.claude/claude"
 export AGENT_FABRIC_CLAUDE="$SANDBOX/.claude/claude"

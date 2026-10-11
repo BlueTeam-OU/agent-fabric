@@ -47,7 +47,7 @@ FAKEBIN="$SANDBOX/bin"; mkdir -p "$FAKEBIN"
 printf '#!/usr/bin/env bash\nsleep 30\n' > "$FAKEBIN/shellcheck"; chmod +x "$FAKEBIN/shellcheck"
 RUNTMP="$SANDBOX/runtmp"; mkdir -p "$RUNTMP"
 before="$(ls -A "$RUNTMP")"
-# run.sh makes af-t.*/af-o.* under XDG_RUNTIME_DIR (short_dir), so the test
+# run.sh makes af-t.* under XDG_RUNTIME_DIR (short_dir), so the test
 # points that at its sandbox.
 XDG_RUNTIME_DIR="$RUNTMP" PATH="$FAKEBIN:$PATH" setsid bash "$HERE/run.sh" static > "$SANDBOX/run.out" 2>&1 &
 RUNPID=$!
