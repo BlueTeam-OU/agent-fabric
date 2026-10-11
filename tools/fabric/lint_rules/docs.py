@@ -428,37 +428,29 @@ def client_findings(root: str) -> list[str]:
     return findings
 
 
-def settings_repos_findings(root: str) -> list[str]:
-    """Every project's remote organisation maps to a settings repository in
-    projects/registry.json `settings_repos` (an organisation to
-    <owner>/<repo>): fabric-pr arm reads a repository's arming policy from
-    its organisation's agent-fabric-settings, so a project whose
-    organisation maps to none would be armed under no policy at all. GitHub
-    organisation names are case-insensitive, so the match is."""
+def settings_repo_findings(root: str) -> list[str]:
+    """Every client some registered project names has a `settings_repo` in
+    projects/clients.json, an <owner>/<repo>: fabric-pr arm reads a
+    repository's arming policy from its client's settings repository, so a
+    project whose client has none would be armed under no policy at all. A
+    client without projects needs none. A client missing from clients.json
+    is client_findings' to report."""
     reg_path = roots.projects_registry(engine=root)
-    if not os.path.exists(reg_path):
-        return []
+    clients_path = os.path.join(os.path.dirname(reg_path), "clients.json")
     try:
-        registry = json.load(open(reg_path, encoding="utf-8"))
+        projects = json.load(open(reg_path, encoding="utf-8")).get("projects") or {}
+        clients = json.load(open(clients_path, encoding="utf-8")).get("clients") or {}
     except (OSError, ValueError):
-        return []  # the registry's own parse is reported elsewhere
-    where = "projects/registry.json"
-    remotes = []  # (project, remote, organisation)
-    for pid, entry in sorted((registry.get("projects") or {}).items()):
-        for remote in (entry.get("remotes") or []) if isinstance(entry, dict) else []:
-            m = re.search(r"github\.com[:/]([^/\s]+)/", remote) if isinstance(remote, str) else None
-            if m:
-                remotes.append((pid, remote, m.group(1)))
-    if not remotes:
-        return []  # nothing to arm, so no policy to find
-    settings = registry.get("settings_repos")
-    if not isinstance(settings, dict) or not all(
-            isinstance(k, str) and isinstance(v, str) and re.fullmatch(r"[^/\s]+/[^/\s]+", v)
-            for k, v in settings.items()):
-        return [f"{where}: settings_repos must map an organisation to <owner>/<repo>"]
-    known = {k.casefold() for k in settings}
-    return [f"{where}: project {pid!r} has remote {remote!r}, whose organisation {org!r} has no settings_repos entry"
-            for pid, remote, org in remotes if org.casefold() not in known]
+        return []  # an unreadable file is reported by its own check
+    used = {e.get("client") for e in projects.values() if isinstance(e, dict)}
+    findings = []
+    for name in sorted(c for c in used if isinstance(c, str) and c in clients):
+        entry = clients[name]
+        repo = entry.get("settings_repo") if isinstance(entry, dict) else None
+        if not (isinstance(repo, str) and re.fullmatch(r"[^/\s]+/[^/\s]+", repo)):
+            findings.append(f"projects/clients.json: client {name!r} has projects and no settings_repo "
+                            "<owner>/<repo> (its arming policies would be read from nowhere)")
+    return findings
 
 
 def license_findings(root: str) -> list[str]:
