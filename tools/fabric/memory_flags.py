@@ -45,6 +45,7 @@ from typing import Any, Callable, Iterable
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
+import memory_check  # noqa: E402
 from assembler import slices  # noqa: E402
 from gzcoord import gzmsg  # noqa: E402
 from jobsparts.base import OPEN as OPEN_STATES  # noqa: E402 — the one list of the states in which a job is still open
@@ -55,7 +56,7 @@ NOTE_CLIP = 200
 # slice by its path from the fabric root or the working copy, which the id letter of a mark (f: / p:) also says.
 REPORT_PREFIX = {"f": "memory/", "p": ".agent-fabric/memory/"}
 MARK_VERDICTS = {"stale": "mark-stale", "wrong": "mark-wrong"}
-KIND_ORDER = ("stale-hard", "maybe-stale", "mark-wrong", "mark-stale")
+KIND_ORDER = ("stale-hard", "maybe-stale", "mark-wrong", "mark-stale", "aged", "unread")
 
 
 @dataclass
@@ -137,27 +138,7 @@ def one_line(text: Any, limit: int) -> str:
     return flat[:limit] + ("…" if len(flat) > limit else "")
 
 
-def resolve_mark(ident: str, corpora: dict[str, str]) -> tuple[str, str, str] | None:
-    """(corpus label, slice relative to its corpus, heading) of a mark's section id `f:<path>#<n>` or
-    `p:<path>#<n>`, n counted from 1 in the slice's file order (memory_index.section_id), or None when the id
-    names no section of a corpus given. `corpora` maps `f` and `p` to the corpus root's directory."""
-    m = re.fullmatch(r"([fp]):([A-Za-z0-9._/-]+)#([0-9]+)", ident)
-    if not m or m.group(1) not in corpora or m.group(2).startswith("/") or ".." in m.group(2).split("/"):
-        return None
-    rel = m.group(2) + ".md"
-    path = os.path.join(corpora[m.group(1)], rel)
-    top = os.path.realpath(corpora[m.group(1)])
-    if not os.path.realpath(path).startswith(top + os.sep):
-        return None           # an id is text a reader wrote: it names a slice of the corpus or nothing
-    try:
-        _meta, sections = slices.read_existing_slice(path)
-    except (OSError, UnicodeDecodeError):
-        return None
-    headings = list(sections)
-    n = int(m.group(3))
-    if not 1 <= n <= len(headings):
-        return None
-    return m.group(1), rel, headings[n - 1]
+resolve_mark = memory_check.resolve_section_id
 
 
 def flags_from_marks(marks: "Iterable[dict] | dict[str, list[dict]]", corpora: dict[str, str], labels: dict[str, str],
@@ -186,6 +167,36 @@ def flags_from_marks(marks: "Iterable[dict] | dict[str, list[dict]]", corpora: d
         note = clip_note(mk.get("note"))
         flag.reasons.append({"kind": kind, "what": "a reader's mark" + (f" of {mk['t']}" if mk.get("t") else ""),
                              "detail": f"the reader's words, not ours: {note!r}" if note else "no note"})
+    return flags
+
+
+def flags_from_horizons(horizons: dict, corpora: dict[str, str], labels: dict[str, str], into: list[Flag] | None = None) -> list[Flag]:
+    """The drain report's `review_horizons` (ADR-050 rule 8) as flags, routed as any flag is: an aged section and an unread
+    one join the flag of the section they name (a new flag when there is none). A key whose slice or heading is not in the
+    corpora given is left to the caller's report."""
+    flags = into if into is not None else []
+    by_key = {f.key: f for f in flags}
+    rows = [("aged", a, f"observed {a.get('observed')}, past its {a.get('horizon_days')}-day horizon") for a in horizons.get("aged") or []]
+    rows += [("unread", u, f"no memory_read returned it since {u.get('last_read') or 'the drain began to watch'}") for u in horizons.get("unread") or []]
+    for kind, item, detail in rows:
+        key = str(item.get("key", ""))
+        prefix = next((p for p, rp in REPORT_PREFIX.items() if key.startswith(rp) and p in corpora), None)
+        rel, _, heading = key[len(REPORT_PREFIX[prefix]):].partition("#") if prefix else ("", "", "")
+        if not (prefix and rel and heading) or ".." in rel.split("/") or rel.startswith("/"):
+            continue
+        try:
+            _meta, sections = slices.read_existing_slice(os.path.join(corpora[prefix], rel))
+        except (OSError, UnicodeDecodeError):
+            continue
+        if heading not in sections:
+            continue
+        corpus = labels.get(prefix, prefix)
+        flag = by_key.get(f"{corpus}:{rel}#{heading}")
+        if flag is None:
+            _date, role = _observed(sections[heading])
+            flag = by_key[f"{corpus}:{rel}#{heading}"] = Flag(corpus, rel, heading, section_role(rel, role), report_prefix=REPORT_PREFIX[prefix])
+            flags.append(flag)
+        flag.reasons.append({"kind": kind, "what": "the drain's review horizon", "detail": detail})
     return flags
 
 
