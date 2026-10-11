@@ -60,7 +60,10 @@ def main() -> int:
               out and out["decision"] == "block" and "gzcoord-inbox --until-delivery" in out["reason"], out)
         fresh()
         out = go({}, table((300, (200, "python3", "gzcoord-inbox --follow"))))
-        check("a watch without --until-delivery/--wait is not one: blocked", out and out["decision"] == "block", out)
+        check("--follow counts as a watch, as in session-start", out is None, out)
+        out = go({}, table((300, (200, "python3", "gzcoord-inbox --status"))))
+        check("a gzcoord-inbox without --until-delivery/--follow/--wait is not a watch: blocked",
+              out and out["decision"] == "block", out)
         out = go({}, table(), now=1100.0)
         check("blocked again 100 s later: passes", out is None, out)
         out = go({}, table(), now=1000.0 + mod.WINDOW_S + 1)

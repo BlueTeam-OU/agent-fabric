@@ -330,9 +330,18 @@ def gzcoord_configured(project: str | None) -> bool:
         sys.path[:] = [p for p in sys.path if p != os.path.join(FABRIC_ROOT, "tools", "fabric")]
 
 
+def inbox_watch():
+    """The predicate shared with watch-on-stop.py, loaded by path."""
+    spec = importlib.util.spec_from_file_location(
+        "fabric_inbox_watch", os.path.join(os.path.dirname(os.path.abspath(__file__)), "inbox-watch.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
-    """Whether a `gzcoord-inbox --until-delivery` (or a `--follow`, for a
-    session not yet moved to it) runs under the session this hook
+    """Whether a `gzcoord-inbox --until-delivery` (or a `--follow` or `--wait`, as
+    inbox-watch.py says) runs under the session this hook
     belongs to: the nearest ancestor whose command is `claude`. None when
     there is no such ancestor (not under a harness) — nothing to say."""
     def stat(p: int) -> tuple[str, int] | None:
@@ -366,12 +375,7 @@ def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
                 cmd = fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
         except OSError:
             continue
-        # The entry by the name bootstrap links it under (the watch the
-        # message below prescribes; bin/gzcoord-inbox keeps that name in the
-        # process table under the pinned Python), or the Node shim's file,
-        # which callers outside this repository still run: missing either
-        # told an armed session to arm a second consumer (review of #42).
-        if not ("inbox.mjs" in cmd or "gzcoord-inbox" in cmd) or not ("--until-delivery" in cmd or "--follow" in cmd):
+        if not inbox_watch().is_watch(cmd):
             continue
         a = d
         for _ in range(64):

@@ -12,7 +12,7 @@ session would fall silent. Registered at user scope on Stop
 (runtime/claude-code/user-settings.py).
 
 A watch is "of this session" when a process whose command line is
-gzcoord-inbox with --until-delivery (or --wait) descends from the session's
+gzcoord-inbox with --until-delivery, --follow or --wait (inbox-watch.py) descends from the session's
 harness: the nearest ancestor of this hook named `claude` (session-state.py's
 rule). The process table is read from /proc and passed in as `procs`, so a
 test supplies its own.
@@ -75,9 +75,12 @@ def harness_pid(procs: dict, pid: int) -> int | None:
 
 
 def is_watch(cmd: str) -> bool:
-    # inbox.mjs: the Node shim some callers outside this repository still run
-    # (session-start.py's watch_running accepts it too).
-    return ("gzcoord-inbox" in cmd or "inbox.mjs" in cmd) and ("--until-delivery" in cmd or "--wait" in cmd)
+    # One predicate with session-start.py, loaded by path (inbox-watch.py).
+    spec = importlib.util.spec_from_file_location(
+        "fabric_inbox_watch", os.path.join(os.path.dirname(os.path.abspath(__file__)), "inbox-watch.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.is_watch(cmd)
 
 
 def has_watch(procs: dict, session: int) -> bool:
