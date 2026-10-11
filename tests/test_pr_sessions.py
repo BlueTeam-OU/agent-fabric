@@ -12,7 +12,9 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import subprocess
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -383,6 +385,14 @@ def main() -> int:
         own_name = pso.who_am_i()
         pso.local.remote_url = lambda root: "git@example.com:org/legacy-testclone.git"
         repo_name = pso.who_am_i()
+        # The faked remotes above decide; this one is read from a real clone's origin.
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = os.path.join(tmp, "legacy-testclone")
+            subprocess.run(["git", "init", "-q", clone], check=True)
+            subprocess.run(["git", "-C", clone, "remote", "add", "origin",
+                            "git@example.com:org/legacy-testclone.git"], check=True)
+            pso.local.toplevel, pso.local.remote_url = (lambda: clone), saved[2]
+            read_origin = pso.who_am_i()
         pso.local.toplevel = lambda: None
         outside = pso.who_am_i()
     finally:
@@ -391,6 +401,7 @@ def main() -> int:
           own_name == ("h/agent1", "h/legacy-testclone", "devex-tooling"))
     check("a clone named after its repository is every login's: no session's name, no older prefix",
           repo_name == ("h/agent1", "", "devex-tooling"))
+    check("…and the remote is read from the clone's own origin", read_origin == ("h/agent1", "", "devex-tooling"))
     check("outside a clone there is no identity", outside == ("", "", ""))
     older = [{"number": 7, "headRefName": "h/legacy-old/fix/theirs", "updatedAt": "2026-09-30T10:00:00Z"}]
     check("another working copy's older branch is its session's: not mine, not unattributed, listed under /all",

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -94,7 +95,8 @@ def main() -> int:
               remote="", bound="", launched="", reply_url="https://github.com/o/r/pull/1#discussion_r1",
               fail=(), missing=()):
         """pr_reply.run with gh, the clone and the role faked: (exit, output, verbs, reply body) as the CLI
-        suite's mock would record them. A Refused is the exit 2 and the `pr-reply: ` line main() makes of it."""
+        suite's mock would record them. A Refused is the exit 2 and the `pr-reply: ` line main() makes of it.
+        remote=None leaves local.remote_url real: it reads origin from the git repository at wc."""
         calls = []
 
         def graphql(query, **kw):
@@ -127,7 +129,8 @@ def main() -> int:
         old_role = os.environ.get("AGENT_FABRIC_LAUNCH_ROLE")
         gh.graphql, gh.this_repo = graphql, this_repo
         pr_reply.local.toplevel, pr_reply.local.probe = (lambda: wc), probe
-        pr_reply.local.remote_url = lambda root: remote
+        if remote is not None:
+            pr_reply.local.remote_url = lambda root: remote
         shutil.which = lambda b: None if b in missing else "/usr/bin/" + b
         os.environ["AGENT_FABRIC_LAUNCH_ROLE"] = launched
         out = io.StringIO()
@@ -184,6 +187,15 @@ def main() -> int:
           rc == 0 and "named for this working copy" in out and "REPLY" in verbs)
     rc, out, verbs, sent = drive("h/legacy-testclone/fix/mine", wc=legacy, remote="git@example.com:org/legacy-testclone.git")
     check("a clone named after its repository names no session", rc == 2 and "REPLY" not in verbs)
+    # The decision above is fed its remote; this one reads it from a real clone's origin, the only
+    # thing that tells a clone named after its repository from an older working copy's.
+    with tempfile.TemporaryDirectory() as tmp:
+        clone = os.path.join(tmp, "legacy-testclone")
+        subprocess.run(["git", "init", "-q", clone], check=True)
+        subprocess.run(["git", "-C", clone, "remote", "add", "origin", "git@example.com:org/legacy-testclone.git"],
+                       check=True)
+        rc, out, verbs, sent = drive("h/legacy-testclone/fix/mine", wc=clone, remote=None)
+    check("…and the remote is read from the clone's own origin", rc == 2 and "REPLY" not in verbs)
     rc, out, verbs, sent = drive("h/legacy-old/fix/theirs", wc=legacy)
     check("an older branch named for another working copy is another session's", rc == 2 and "REPLY" not in verbs)
 
