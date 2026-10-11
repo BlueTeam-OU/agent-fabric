@@ -73,6 +73,7 @@ findings on its hunks there. The caller arms, never with an unanswered
 `REQUEST` of its own; person-facing copy is never self-authored (a
 caller's draft ships as a marked placeholder).
 
+
 **A code PR is armed by its work-commit count**: the commits of work as opened, review fixes excluded.
 Eight or more, a security boundary too: arm once the review gate is met
 (a posted review of the head, no open P1/P2). Fewer: ask the owner, who

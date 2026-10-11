@@ -130,6 +130,16 @@ Why these choices:
    stream's bound still counts: its block is in its own job list whether
    or not its control agent runs; `list` names it with the record's age
    and says it is stale (A 2026-10-09).
+   `block --on` also accepts checkable blockers, `pr:<owner/repo>#<n>`
+   (cleared when merged or closed), `request:<message-id>` (cleared when
+   a REPLY to it is in the journal) and `job:<login>/j<n>` (cleared when
+   delivered, or closed after it was seen open); several may be given
+   and all must clear. `list`, `next` and `block` re-check a blocker at
+   most every ten minutes and never one that cleared; a job whose
+   blockers have all cleared reads "blocker cleared", is listed first
+   and is taken first by `next`, and `--stored` reads the cache without
+   checking a blocker or reaching the state stream, which the session-start
+   hook uses to name such jobs (A 2026-10-12).
 9. A role has an open pool, held by the coordinator's control agent, so
    that one process orders every claim. A job is added to it by a signed
    action; a placed agent lists its role's pool and claims a job from it.
@@ -197,3 +207,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-09 | A REQUEST to a login is queued on its list | §5 rule 11 added: the inbox queues a delivered REQUEST, the operator's send adds it by jobs-add; §7's intake item replaced by what remains |
 | 2026-10-09 | A job may be a plan's step | §5 rule 11: a job may be a step of a coordinator's plan, linked in the plan; no job field (ADR-047) |
 | 2026-10-11 | Every job starts in a fresh session | §5 rule 3: `next` gives a fresh session whenever this session has worked a job; in place only for one that has worked none |
+| 2026-10-12 | Checkable blockers | §5 rule 8: `block --on` takes `pr:`, `request:` and `job:` blockers, re-checked at most every ten minutes; a cleared job is listed first and taken first by `next` |

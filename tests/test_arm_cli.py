@@ -1,19 +1,31 @@
 #!/usr/bin/env python3
-"""fabric-pr arm with gh, pr-gate and pr-review-status mocked on
-PATH: each gate has a case that trips it and one that passes; the arming
-path posts the basis (on stdin) and runs gh pr merge --auto exactly once,
-and a dry run posts and runs nothing. Ported from gzapp's
-tools/gh/test_arm.sh, case for case, run through bin/fabric-pr arm
-with gzapp's arm.json (tests/fixtures/gzapp-gh/) named in the environment; then InterWeave's arm.json, which has no classes, and a project
-with none. Plain script: prints ok/FAIL, exit 1 on any failure."""
+"""fabric-pr arm with gh, pr-gate and pr-review-status mocked. The decision
+logic — each gate has a case that trips it and one that passes; the arming
+path posts the basis (on stdin) and runs gh pr merge --auto exactly once, and
+a dry run posts and runs nothing — is asserted IN PROCESS: arm.main() with
+gh.run and the readers replaced by the same mock functions the subprocess
+shims serve, over gzapp's arm.json (tests/fixtures/gzapp-gh/), then
+InterWeave's, which has no classes, and a project with none. Ported from
+gzapp's tools/gh/test_arm.sh, case for case. The CLI layer is one smoke case
+per command and outcome, through bin/fabric-pr with the mocks on PATH: usage
+refusal, --help, a refusal (exit 1, stderr, no gh write), a question gh could
+not answer (exit 2), GH_REPO, the arming and the dry run, a PR merged on the
+arming, a waiver read by the relay and fabric-ctl programs, an arm.json read
+from disk and rules found from the clone's remote. Plain script: prints
+ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from unittest import mock
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # gzapp's and InterWeave's files as the projects hold them, frozen (tests/fixtures/gzapp-gh/README.md):
@@ -23,114 +35,141 @@ GZAPP_CONFIG = os.path.join(FIXTURES, "gzapp-gh", "arm.json")
 SHIM = os.path.join(ROOT, "bin", "fabric-pr")
 IW_CONFIG = os.path.join(FIXTURES, "interweave-gh", "arm.json")
 
-GH_MOCK = r'''#!/usr/bin/env python3
-import json, os, sys
-s, a = os.environ["MOCK_STATE"], sys.argv[1:]
-line = " ".join(a)
-def has(n): return os.path.exists(os.path.join(s, n))
-with open(os.path.join(s, "calls"), "a") as fh:
-    fh.write(line + "\n")
-    if line.startswith("pr comment ") and line.endswith("--body-file -"):
-        fh.write(f"pr comment {a[2]} --body {sys.stdin.read()}\n"); sys.exit(0)
-pr = json.load(open(os.path.join(s, "pr.json")))
-if line.startswith("api repos/gzapi-org/gzapp/pulls/7/files") and "--paginate --slurp" in line:
-    def entry(f):
-        old, _, new = f.rpartition("->")
-        return {"filename": new, "previous_filename": old} if old else {"filename": f}
-    print(json.dumps([[entry(f) for f in pr["files"]]])); sys.exit(0)
-# The arming policy's reads (arming step C): the repository's commits (no Fabric-Role trailer, so no role), its
-# client's settings repository with no file for it (the fleet policy), and GitHub's side as that policy renders it.
-# `drift` makes GitHub lose its ruleset; `commits_trailers` stamps the commits with a role.
-sys.path.insert(0, os.path.join(os.environ["ARM_ROOT"], "tools", "fabric"))
-if line.startswith("api repos/gzapi-org/gzapp/pulls/7/commits"):
-    role = open(os.path.join(s, "commits_role")).read().strip() if has("commits_role") else ""
-    msg = "a commit" + (f"\n\nFabric-Role: {role}" if role else "")
-    print(json.dumps([[{"parents": [{}], "commit": {"message": msg}}]])); sys.exit(0)
-if line.startswith("api repos/gzapi-org/agent-fabric-settings/contents/"):
-    print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
-if line.startswith("api repos/gzapi-org/agent-fabric-settings "):
-    print(json.dumps({"full_name": "gzapi-org/agent-fabric-settings"})); sys.exit(0)
-if line.startswith("api repos/gzapi-org/gzapp"):
-    from github import arm_policy
-    want = arm_policy.render(arm_policy.default())
-    if line.startswith("api repos/gzapi-org/gzapp/rulesets?"):
-        print(json.dumps([[] if has("drift") else [{"id": 1, "name": want["ruleset"]["name"]}]])); sys.exit(0)
-    if line.startswith("api repos/gzapi-org/gzapp/rulesets/1"):
-        print(json.dumps(want["ruleset"])); sys.exit(0)
-    if line.startswith("api repos/gzapi-org/gzapp --method GET"):
-        print(json.dumps(want["repository"])); sys.exit(0)
-if line == "api graphql --input -":
-    sys.stdin.read()
-    p = {"state": "OPEN", "headRefOid": pr["headRefOid"], "autoMergeRequest": None, "mergeQueueEntry": None}
-    if has("pushed"): p["headRefOid"] = "0123456789abcdef0123456789abcdef01234567"
-    if has("closed"): p["state"] = "CLOSED"
-    elif has("merged"):
-        p["state"] = "MERGED"
-        p["headRefOid"] = open(os.path.join(s, "merged")).read() or p["headRefOid"]
-    elif has("queued"): p["mergeQueueEntry"] = {"position": 2}
-    elif has("armed"): p["autoMergeRequest"] = {"enabledAt": "x"}
-    if has("nohead"): del p["headRefOid"]
-    print(json.dumps({"data": {"repository": {"pullRequest": p}}})); sys.exit(0)
-if line.startswith("pr view "):
-    if has("viewfail"): sys.exit(1)
-    print(json.dumps({k: v for k, v in pr.items() if k != "files"})); sys.exit(0)
-if line == "pr merge 7 --merge --auto --match-head-commit abcdef0123456789abcdef0123456789abcdef01":
-    if not has("noarm"): open(os.path.join(s, "armed"), "w").close()
-    sys.exit(0)
-print("mock gh: unhandled: " + line, file=sys.stderr); sys.exit(1)
-'''
+# The mocks are functions of (state dir, argv, stdin) -> (exit, stdout, stderr): the in-process run calls them in
+# place of gh and the readers, and the shims on the CLI's PATH call them as programs (serve), so the two layers
+# answer alike.
 
-GATE_MOCK = r'''#!/usr/bin/env python3
-import os
-print(open(os.path.join(os.environ["MOCK_STATE"], "gate.json")).read())
-'''
+
+def _state(s: str, n: str, d: str | None = None) -> str | None:
+    p = os.path.join(s, n)
+    return open(p).read() if os.path.exists(p) else d
+
+
+def _log(s: str, text: str) -> None:
+    with open(os.path.join(s, "calls"), "a") as fh:
+        fh.write(text)
+
+
+def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
+    line = " ".join(a)
+    has = lambda n: os.path.exists(os.path.join(s, n))
+    _log(s, line + "\n")
+    if line.startswith("pr comment ") and line.endswith("--body-file -"):
+        _log(s, f"pr comment {a[2]} --body {stdin}\n")
+        return 0, "", ""
+    pr = json.load(open(os.path.join(s, "pr.json")))
+    if line.startswith("api repos/gzapi-org/gzapp/pulls/7/files") and "--paginate --slurp" in line:
+        def entry(f):
+            old, _, new = f.rpartition("->")
+            return {"filename": new, "previous_filename": old} if old else {"filename": f}
+        return 0, json.dumps([[entry(f) for f in pr["files"]]]), ""
+    # The arming policy's reads (arming step C), which only the CLI layer makes: the repository's commits (no
+    # Fabric-Role trailer, so no role), its client's settings repository with no
+    # file for it (the fleet policy), and GitHub's side as that policy renders it.
+    if line.startswith("api repos/gzapi-org/gzapp/pulls/7/commits"):
+        return 0, json.dumps([[{"parents": [{}], "commit": {"message": "a commit"}}]]), ""
+    if line.startswith("api repos/gzapi-org/agent-fabric-settings/contents/"):
+        return 1, "", "gh: Not Found (HTTP 404)"
+    if line.startswith("api repos/gzapi-org/agent-fabric-settings "):
+        return 0, json.dumps({"full_name": "gzapi-org/agent-fabric-settings"}), ""
+    if line.startswith("api repos/gzapi-org/gzapp"):
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        from github import arm_policy
+        want = arm_policy.render(arm_policy.default())
+        if line.startswith("api repos/gzapi-org/gzapp/rulesets?"):
+            return 0, json.dumps([[{"id": 1, "name": want["ruleset"]["name"]}]]), ""
+        if line.startswith("api repos/gzapi-org/gzapp/rulesets/1"):
+            return 0, json.dumps(want["ruleset"]), ""
+        if line.startswith("api repos/gzapi-org/gzapp --method GET"):
+            return 0, json.dumps(want["repository"]), ""
+    if line == "api graphql --input -":
+        p = {"state": "OPEN", "headRefOid": pr["headRefOid"], "autoMergeRequest": None, "mergeQueueEntry": None}
+        if has("pushed"):
+            p["headRefOid"] = "0123456789abcdef0123456789abcdef01234567"
+        if has("closed"):
+            p["state"] = "CLOSED"
+        elif has("merged"):
+            p["state"] = "MERGED"
+            p["headRefOid"] = open(os.path.join(s, "merged")).read() or p["headRefOid"]
+        elif has("queued"):
+            p["mergeQueueEntry"] = {"position": 2}
+        elif has("armed"):
+            p["autoMergeRequest"] = {"enabledAt": "x"}
+        if has("nohead"):
+            del p["headRefOid"]
+        return 0, json.dumps({"data": {"repository": {"pullRequest": p}}}), ""
+    if line.startswith("pr view "):
+        if has("viewfail"):
+            return 1, "", ""
+        return 0, json.dumps({k: v for k, v in pr.items() if k != "files"}), ""
+    if line == "pr merge 7 --merge --auto --match-head-commit abcdef0123456789abcdef0123456789abcdef01":
+        if not has("noarm"):
+            open(os.path.join(s, "armed"), "w").close()
+        return 0, "", ""
+    return 1, "", "mock gh: unhandled: " + line
+
+
+def gate_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
+    return 0, _state(s, "gate.json") + "\n", ""
+
 
 # The --json object agent-fabric's reader prints (the fields arm reads),
 # from state files: `blind` and `independent` list commits (sha8),
 # `unresolved` the thread count ("null" for a failed lookup). review_rc 0
 # with no `blind` file stands for a review-class review of the head.
 # `no_blind_field` drops blind.rows.
-REVIEW_MOCK = r'''#!/usr/bin/env python3
-import json, os, sys
-s = os.environ["MOCK_STATE"]
-def rd(n, d=None):
-    p = os.path.join(s, n)
-    return open(p).read().strip() if os.path.exists(p) else d
-with open(os.path.join(s, "calls"), "a") as fh:
-    fh.write(" ".join(sys.argv[1:]) + "\n")
-if "--json" not in sys.argv[1:]:
-    print("mock pr-review-status: arm must ask for --json", file=sys.stderr); sys.exit(2)
-rc = int(rd("review_rc", "1"))
-if rc == 2: sys.exit(2)
-blind = rd("blind") if rd("blind") is not None else ("abcdef01" if rc == 0 else "")
-rows = lambda t: [{"login": "someone", "commit_sha8": x, "at": "2026-09-25T00:00:00Z"} for x in (t or "").split() if x]
-out = {"state": "OPEN", "head": "abcdef0123456789", "head_reviewed": rc == 0,
-       "independent": {"count": len(rows(rd("independent"))), "rows": rows(rd("independent"))},
-       "unresolved_threads": json.loads(rd("unresolved", "0")),
-       "blind": {"count": 0} if rd("no_blind_field") is not None else {"count": len(rows(blind)), "rows": rows(blind)}}
-print(json.dumps(out)); sys.exit(rc)
-'''
+def review_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
+    def rd(n, d=None):
+        v = _state(s, n)
+        return v.strip() if v is not None else d
+    _log(s, " ".join(a) + "\n")
+    if "--json" not in a:
+        return 2, "", "mock pr-review-status: arm must ask for --json"
+    rc = int(rd("review_rc", "1"))
+    if rc == 2:
+        return 2, "", ""
+    blind = rd("blind") if rd("blind") is not None else ("abcdef01" if rc == 0 else "")
+    rows = lambda t: [{"login": "someone", "commit_sha8": x, "at": "2026-09-25T00:00:00Z"} for x in (t or "").split() if x]
+    out = {"state": "OPEN", "head": "abcdef0123456789", "head_reviewed": rc == 0,
+           "independent": {"count": len(rows(rd("independent"))), "rows": rows(rd("independent"))},
+           "unresolved_threads": json.loads(rd("unresolved", "0")),
+           "blind": {"count": 0} if rd("no_blind_field") is not None else {"count": len(rows(blind)), "rows": rows(blind)}}
+    return rc, json.dumps(out) + "\n", ""
+
 
 # The waiver's two readers, from state files: the relay's replay
 # (`waiver.out` printed, `waiver_rc` its exit) and fabric-ctl's presence
 # (`presence.out`, `ctl_rc`). Each call is recorded, prefixed, so a test
 # can say whether it was asked at all.
-INBOX_MOCK = r'''#!/usr/bin/env python3
+def inbox_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
+    _log(s, "replay " + " ".join(a) + "\n")
+    return int(_state(s, "waiver_rc", "0") or 0), _state(s, "waiver.out", ""), ""
+
+
+def ctl_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
+    _log(s, "ctl " + " ".join(a) + "\n")
+    return int(_state(s, "ctl_rc", "0") or 0), _state(s, "presence.out", ""), ""
+
+
+MOCKS = {"gh": gh_mock, "pr-gate": gate_mock, "pr-review-status": review_mock,
+         "gzcoord-inbox": inbox_mock, "fabric-ctl": ctl_mock}
+
+SHIM_TEXT = '''#!/usr/bin/env python3
 import os, sys
-s = os.environ["MOCK_STATE"]
-rd = lambda n, d="": open(os.path.join(s, n)).read() if os.path.exists(os.path.join(s, n)) else d
-with open(os.path.join(s, "calls"), "a") as fh:
-    fh.write("replay " + " ".join(sys.argv[1:]) + "\n")
-sys.stdout.write(rd("waiver.out")); sys.exit(int(rd("waiver_rc", "0") or 0))
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.environ["ARM_ROOT"], "tests"))
+import test_arm_cli
+sys.exit(test_arm_cli.serve({name!r}))
 '''
-CTL_MOCK = r'''#!/usr/bin/env python3
-import os, sys
-s = os.environ["MOCK_STATE"]
-rd = lambda n, d="": open(os.path.join(s, n)).read() if os.path.exists(os.path.join(s, n)) else d
-with open(os.path.join(s, "calls"), "a") as fh:
-    fh.write("ctl " + " ".join(sys.argv[1:]) + "\n")
-sys.stdout.write(rd("presence.out")); sys.exit(int(rd("ctl_rc", "0") or 0))
-'''
+
+
+def serve(name: str) -> int:
+    """The mock `name` as a program on PATH: what the CLI layer runs."""
+    rc, out, err = MOCKS[name](os.environ["MOCK_STATE"], sys.argv[1:], sys.stdin.read() if name == "gh" else "")
+    sys.stdout.write(out)
+    sys.stderr.write(err + ("\n" if err else ""))
+    return rc
+
 
 HEAD = "abcdef0123456789abcdef0123456789abcdef01"
 
@@ -145,6 +184,10 @@ def main() -> int:
             print("      " + detail.replace("\n", "\n      "))
         fails += not good
 
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import gh
+    from github import arm, arm_policy, repo_policy
+
     base_env = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GZAPP_")) and k != "GIT_DIR"}
     # The repository the mock serves (gh.this_repo never reads gh's default).
@@ -156,10 +199,9 @@ def main() -> int:
         state, bindir = f"{sandbox}/state", f"{sandbox}/bin"
         os.makedirs(state)
         os.makedirs(bindir)
-        for name, text in (("gh", GH_MOCK), ("pr-gate", GATE_MOCK), ("pr-review-status", REVIEW_MOCK),
-                           ("gzcoord-inbox", INBOX_MOCK), ("fabric-ctl", CTL_MOCK)):
+        for name in MOCKS:
             with open(f"{bindir}/{name}", "w") as fh:
-                fh.write(text)
+                fh.write(SHIM_TEXT.format(name=name))
             os.chmod(f"{bindir}/{name}", 0o755)
 
         def put(name: str, text: str) -> None:
@@ -189,7 +231,7 @@ def main() -> int:
             p = f"{state}/calls"
             return open(p).read() if os.path.exists(p) else ""
 
-        def run(*args: str, fixture_rules: bool = True, env: dict | None = None, cwd: str = sandbox) -> tuple[int, str]:
+        def environment(fixture_rules: bool, env: dict | None) -> dict:
             e = dict(base_env, MOCK_STATE=state, ARM_ROOT=ROOT, PATH=f"{bindir}:{base_env.get('PATH', '')}",
                      AGENT_FABRIC_PR_GATE=f"{bindir}/pr-gate", AGENT_FABRIC_PR_REVIEW_STATUS=f"{bindir}/pr-review-status",
                      AGENT_FABRIC_PR_SESSION="develop-qzapp/me", AGENT_FABRIC_GZCOORD_INBOX=f"{bindir}/gzcoord-inbox",
@@ -199,9 +241,43 @@ def main() -> int:
                 e.update(AGENT_FABRIC_ARM_CONFIG=GZAPP_CONFIG,
                          AGENT_FABRIC_LEGACY_REVIEW_MARKERS="<!-- gzapp-substitute-review v1 -->")
             e.update(env or {})
-            r = subprocess.run([SHIM, "arm", *args], env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               stdin=subprocess.DEVNULL, text=True, timeout=120, cwd=cwd)
-            return r.returncode, r.stdout
+            return e
+
+        def cli(*args: str, fixture_rules: bool = True, env: dict | None = None, cwd: str = sandbox,
+                split: bool = False) -> tuple:
+            """bin/fabric-pr arm as a process, the mocks on its PATH: (exit, stdout and stderr), or with `split`
+            (exit, stdout, stderr)."""
+            r = subprocess.run([SHIM, "arm", *args], env=environment(fixture_rules, env), stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE if split else subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                               text=True, timeout=120, cwd=cwd)
+            return (r.returncode, r.stdout, r.stderr) if split else (r.returncode, r.stdout)
+
+        def gh_run(args: list[str], *, input: str | None = None, timeout: float = 0, what: str | None = None) -> str:
+            rc, out, err = gh_mock(state, list(args), input or "")
+            if rc:
+                raise gh.GhError(what or "gh " + " ".join(args[:2]), err.strip() or "failed")
+            return out
+
+        def reader(head: list[str], args: list[str], timeout: int = 600) -> tuple[int, str]:
+            rc, out, _ = MOCKS[os.path.basename(head[0])](state, list(args), "")
+            return rc, out
+
+        def run(*args: str, fixture_rules: bool = True, env: dict | None = None) -> tuple[int, str]:
+            """arm.main() in this process, the same environment as the CLI's: gh and the readers are the mocks'
+            functions, and the arming policy and GitHub's side (read by the CLI layer) are the fleet default with
+            no drift. (exit, stdout and stderr in the order written.)"""
+            buf = io.StringIO()
+            with contextlib.ExitStack() as st:
+                st.enter_context(mock.patch.dict(os.environ, environment(fixture_rules, env), clear=True))
+                st.enter_context(mock.patch.object(arm.common, "apply_project_env"))
+                st.enter_context(mock.patch.object(gh, "run", gh_run))
+                st.enter_context(mock.patch.object(arm, "run_reader", reader))
+                st.enter_context(mock.patch.object(arm_policy, "load", lambda repo, **kw: arm_policy.default()))
+                st.enter_context(mock.patch.object(repo_policy, "check", lambda repo, policy, api=None: []))
+                st.enter_context(contextlib.redirect_stdout(buf))
+                st.enter_context(contextlib.redirect_stderr(buf))
+                rc = arm.main(list(args))
+            return rc, buf.getvalue()
 
         me = "develop-qzapp/me/feat/x"
         owner = "reviewed; the owner's word given"
@@ -595,11 +671,6 @@ def main() -> int:
         check("dry run posts and arms nothing", "pr merge" not in calls() and "pr comment" not in calls(), calls())
         reset(); put("viewfail", "")
         rc, out = run("7", "--basis", "b"); check("unreadable PR: exit 2", rc == 2, out)
-        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", env={"GH_REPO": "noslash"})
-        check("a repository with no owner: exit 2, never 1, nothing armed",
-              rc == 2 and "cannot read the repository" in out and "pr merge" not in calls(), out)
-
         print("arm: another project's rules — InterWeave's arm.json, through the shim")
         iw = {"AGENT_FABRIC_ARM_CONFIG": IW_CONFIG}
         for path in ("crates/identity/profile-identity/src/lib.rs", "crates/human/store/src/lib.rs",
@@ -628,42 +699,7 @@ def main() -> int:
         check("InterWeave has no classes: a stated docs-only under 8 still asks the owner",
               rc == 1 and "none in this project" in out, out)
 
-        print("arm: the rules found from the clone's remote, AGENT_FABRIC_ARM_CONFIG unset")
-        # The operator the tool finds a clone's project in: a fixture registry and
-        # InterWeave's arm.json at their places in a tree of its own.
-        operator = f"{sandbox}/operator"
-        os.makedirs(f"{operator}/projects/interweave/integration/gh")
-        iw_remote = "git@github.com:fixture-org/interweave.git"
-        with open(f"{operator}/projects/registry.json", "w") as fh:
-            json.dump({"projects": {"interweave": {"remotes": [iw_remote]}}}, fh)
-        shutil.copy(IW_CONFIG, f"{operator}/projects/interweave/integration/gh/arm.json")
-        os.makedirs(f"{operator}/identities/roles")
-        shutil.copy(os.path.join(FIXTURES, "gzcoord-operator", "identities", "roles", "catalog.json"), f"{operator}/identities/roles/catalog.json")
-        by_remote = {"AGENT_FABRIC_OPERATOR": operator}
-        clones = {}
-        for name, url in (("iw", iw_remote), ("stranger", "git@github.com:nobody/unregistered.git")):
-            d = f"{sandbox}/{name}"
-            subprocess.run(["git", "init", "-q", d], env=base_env, check=True, timeout=30)
-            subprocess.run(["git", "-C", d, "remote", "add", "origin", url], env=base_env, check=True, timeout=30)
-            clones[name] = d
-        reset(); set_pr(me, "plain", ["crates/transport/libp2p/src/dialing.rs"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote)
-        check("a clone of InterWeave is judged by InterWeave's rules (transport is a boundary there, not in gzapp's)",
-              rc == 1 and "no review-class review" in out, out)
-        reset(); set_pr(me, "plain", ["infra/db/migrations/0053_x.sql"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote)
-        check("…and not by gzapp's (a migrations path is not InterWeave's boundary)",
-              rc == 0 and "not a security-boundary change" in out, out)
-        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", fixture_rules=False, cwd=clones["stranger"], env=by_remote)
-        check("a clone of an unregistered remote: exit 2, nothing armed",
-              rc == 2 and "no project found" in out and "pr merge" not in calls(), out)
-
-        print("arm: a project with no arm.json")
-        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
-        rc, out = run("7", "--basis", "b", fixture_rules=False, env={"AGENT_FABRIC_ARM_CONFIG": f"{sandbox}/none.json"})
-        check("no arm.json: exit 2, the boundary never judged absent",
-              rc == 2 and "declares no arm.json" in out and "pr merge" not in calls(), out)
+        print("arm: a project whose arm.json cannot be used")
         reset(); put("narrowed.json", json.dumps({"boundary": {"paths": "^src/", "cases": ["src/a.rs", "keys/k.rs"]}}))
         set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
         rc, out = run("7", "--basis", "b", fixture_rules=False, env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/narrowed.json"})
@@ -675,6 +711,98 @@ def main() -> int:
         reset(); set_pr("develop-qzapp/other/feat/x", "plain", ["docs/a.md"])
         rc, out = run("7", "--basis", "b", fixture_rules=False, env={"AGENT_FABRIC_ARM_CONFIG": f"{sandbox}/none.json"})
         check("…but gates 1–3 refuse without one", rc == 1 and "not this session's" in out, out)
+
+        # ── the CLI layer: one smoke case per command and outcome ──────────
+        # What the process adds to arm.main(): the exit status and the stream, the PATH lookup, the environment, the
+        # working directory, the files read from disk, the arming policy and GitHub's settings as the process reads them,
+        # and the readers run as programs. Which gate refuses, and why, is asserted above, in process.
+
+        print("arm (CLI): usage and --help")
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out, err = cli("7", split=True)
+        check("usage: exit 2, on stderr", rc == 2 and "--basis" in err and out == "", err)
+        rc, out, err = cli("--help", split=True)
+        check("--help: exit 0, on stdout", rc == 0 and "SECURITY-BOUNDARY" in out and err == "", out)
+
+        print("arm (CLI): a refusal, and a question gh could not answer")
+        reset(); set_pr(me, "plain", mig); set_gate(9)
+        rc, out, err = cli("7", "--basis", "b", split=True)
+        check("a refusal: exit 1, on stderr, nothing armed or posted",
+              rc == 1 and "arm: REFUSED #7 — a security-boundary change with no review-class review" in err and "REFUSED" not in out
+              and "pr merge" not in calls() and "pr comment" not in calls(), err)
+        check("…the review reader run as a program, asked for the PR as --json", "7 -q --json" in calls().splitlines(), calls())
+        reset(); put("viewfail", "")
+        rc, out, err = cli("7", "--basis", "b", split=True)
+        check("unreadable PR: exit 2, on stderr", rc == 2 and "cannot read #7" in err and out == "" and "pr merge" not in calls(), err)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = cli("7", "--basis", "b", env={"GH_REPO": "noslash"})
+        check("GH_REPO with no owner: exit 2, never 1, nothing armed",
+              rc == 2 and "cannot read the repository" in out and "pr merge" not in calls(), out)
+
+        print("arm (CLI): the arming path, the dry run, a merge on the arming")
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out, err = cli("7", "--basis", "nine work commits at the review gate", split=True)
+        check("exits 0, on stdout", rc == 0 and "ARMED #7" in out and err == "", out + err)
+        check("gh pr merge --auto ran once, pinned to the head the gates read",
+              calls().count(f"pr merge 7 --merge --auto --match-head-commit {HEAD}") == 1, calls())
+        check("the basis comment carries the count and the head, on stdin",
+              "pr comment 7 --body Arming basis: nine work commits at the review gate — 9 work commits, head abcdef01." in calls(), calls())
+        check("prints the watcher line for the session", "fabric-pr wait-merged 7 &" in out, out)
+        reset()
+        rc, out = cli("7", "--basis", "b", "--dry-run")
+        check("dry run: exit 0, names the command the run issues, posts and arms nothing",
+              rc == 0 and "DRY RUN" in out and f"would run: gh pr merge 7 --merge --auto --match-head-commit {HEAD}" in out
+              and "pr merge" not in calls() and "pr comment" not in calls(), out + calls())
+        reset(); put("merged", "")
+        rc, out = cli("7", "--basis", "b")
+        check("a PR merged on the arming: exit 0, said merged, with no watcher line",
+              rc == 0 and "MERGED #7" in out and "wait-merged" not in out, out)
+
+        print("arm (CLI): a waiver, read by the relay and fabric-ctl as programs")
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
+        rc, out = cli("7", "--basis", "nine at the gate", "--no-boundary", why, "--waiver", mid, env=wenv)
+        check("a waiver from the role's holder: armed, the comment records it, the readers run with their argv",
+              rc == 0 and "boundary gate WAIVED by architect-cto-01" in out and "ARMED #7" in out
+              and f"Boundary gate waived by architect-cto-01 ({mid}): {why}." in calls()
+              and f"replay --replay {mid} --json" in calls() and "ctl architect-cto-01 presence --json" in calls(), out + calls())
+
+        print("arm (CLI): the rules read from disk, and found from the clone's remote")
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = cli("7", "--basis", "b", fixture_rules=False, env={"AGENT_FABRIC_ARM_CONFIG": f"{sandbox}/none.json"})
+        check("no arm.json on disk: exit 2, the boundary never judged absent",
+              rc == 2 and "declares no arm.json" in out and "pr merge" not in calls(), out)
+        # The operator the tool finds a clone's project in: a fixture registry and
+        # InterWeave's arm.json at their places in a tree of its own.
+        operator = f"{sandbox}/operator"
+        os.makedirs(f"{operator}/projects/interweave/integration/gh")
+        iw_remote = "git@github.com:fixture-org/interweave.git"
+        # A registered project with no arm.json of its own: found, then refused, never judged by another's rules.
+        bare_remote = "git@github.com:fixture-org/bare.git"
+        with open(f"{operator}/projects/registry.json", "w") as fh:
+            json.dump({"projects": {"interweave": {"remotes": [iw_remote]}, "bare": {"remotes": [bare_remote]}}}, fh)
+        shutil.copy(IW_CONFIG, f"{operator}/projects/interweave/integration/gh/arm.json")
+        os.makedirs(f"{operator}/identities/roles")
+        shutil.copy(os.path.join(FIXTURES, "gzcoord-operator", "identities", "roles", "catalog.json"), f"{operator}/identities/roles/catalog.json")
+        by_remote = {"AGENT_FABRIC_OPERATOR": operator}
+        clones = {}
+        for name, url in (("iw", iw_remote), ("bare", bare_remote), ("stranger", "git@github.com:nobody/unregistered.git")):
+            d = f"{sandbox}/{name}"
+            subprocess.run(["git", "init", "-q", d], env=git_env(base_env), check=True, timeout=30)
+            subprocess.run(["git", "-C", d, "remote", "add", "origin", url], env=git_env(base_env), check=True, timeout=30)
+            clones[name] = d
+        reset(); set_pr(me, "plain", ["crates/transport/libp2p/src/dialing.rs"]); set_gate(9)
+        rc, out = cli("7", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote)
+        check("a clone of InterWeave is judged by InterWeave's rules (transport is a boundary there, not in gzapp's)",
+              rc == 1 and "no review-class review" in out, out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = cli("7", "--basis", "b", fixture_rules=False, cwd=clones["stranger"], env=by_remote)
+        check("a clone of an unregistered remote: exit 2, nothing armed",
+              rc == 2 and "no project found" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = cli("7", "--basis", "b", fixture_rules=False, cwd=clones["bare"], env=by_remote)
+        check("a clone of a registered project with no arm.json: exit 2, the file named, nothing armed",
+              rc == 2 and "declares no arm.json" in out and "projects/bare/integration/gh/arm.json" in out
+              and "pr merge" not in calls(), out)
 
     print("test_arm_cli: " + ("OK" if not fails else f"FAILED — {fails}"))
     return 1 if fails else 0

@@ -82,6 +82,9 @@ meaning.
      best section per slice, and adds the count of hits in other scopes.
      A query with no hit answers with the index's closest cue terms
      ("try: …"), never an empty reply.
+     `expand: 0|1` (default 0, opt-in) (A 2026-10-12) adds below the
+     hits the linked neighbours of the top strong hits: one hop, from
+     other slices than the hits', within a token allowance of its own.
    - `memory_read(ids, max_tokens?)` — one or more sections by id, each
      with its provenance line and the cue lines of its related slices,
      cut at `max_tokens`; a slice id alone lists its sections.
@@ -171,3 +174,11 @@ coordinator's session; acceptance is theirs.
   the wire freeze), ADR-045 (roots, the operator tree)
 - `memory/README.md`, `memory/RUBRIC.md`
 - `tools/fabric/control/ops/activity.py` (the recall operation)
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-049-amendments.md](history/ADR-049-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-12 | Memory find can expand to linked sections | §5 rule 3: `memory_find` takes `expand: 0|1`, default 0; the neighbours of the strong hits are listed below the hits |

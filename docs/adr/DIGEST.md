@@ -807,18 +807,18 @@ its record disagree, the record wins. Look it up, never read it whole:
   that has worked none takes it in place (§5 rule 3).
 - Jobs come from the agent and from the owner (`fabric-ctl <login>
   jobs-add`); a GZCoord request becomes a job only when its receiver adds
-  it — the automatic intake is built and inactive (§5 rules 4–5).
+  it (§5 rules 4–5).
 - The owner reads every list with `fabric-ctl <login|all> jobs` (§5
   rule 6).
 - A 2026-10-08 — priority (blocking, high, normal, low) orders `next`,
   never preempting; a job others wait on ranks blocking via the state
-  stream's `waits_on`; a role pool with one claimant; after a job ends,
+  stream's `waits_on`; a role pool; after a job ends,
   take the next (§5 rules 7–10).
-- A 2026-10-09 — a waiter whose state record is stale still ranks the
-  job blocking, said stale with the record's age (§5 rule 8).
+- A 2026-10-09 — a stale waiter still ranks the job blocking (§5 rule 8).
 - A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
 - A 2026-10-09 — a job may be a plan's step (§5 rule 11).
 - A 2026-10-11 — every job after a worked one starts fresh (§5 rule 3).
+- A 2026-10-12 — checkable blockers; a cleared job is taken first (§5 rule 8).
 - Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
   session, restart, fabric-fresh --job, working copy, intake, priority,
   blocking, pool, claim, P3.
@@ -1041,13 +1041,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rule 5).
 - It serves only what lint admitted, from git's committed tree: an
   uncommitted slice is refused; never a path outside the roots (§5 rule 6).
-- Calls are counted per login in its state, never the query. The harvest
-  bundle carries the counts and the marks, the drain report lists them; it
-  amends ADR-013 §5 rules 5 and 11 and ADR-029 §5 rule 9, and a note with
-  a credential travels empty. The hook's INDEX line, the launch prompt's
-  memory section and `CLAUDE.md` name the tools (§5 rules 7-8).
+- Calls are counted per login, never the query; the harvest bundle and
+  drain report carry the counts and marks, amending ADR-013 §5 rules 5
+  and 11 and ADR-029 §5 rule 9. The hook, launch prompt and `CLAUDE.md`
+  name the tools (§5 rules 7-8).
 - Automatic capture (claude-mem) was declined: the fabric keeps processed
   slices (§3).
+- A 2026-10-12 — `memory_find` takes `expand: 0|1` (default 0): linked
+  neighbours of strong hits, opt-in (§5 rule 3).
 - Keywords: memory, retrieval, MCP, fabric-memory, memory_find, memory_read,
   memory_index, memory_mark, BM25, cue, INDEX, slice, corpus, mark, recall,
   claude.json, harvest bundle.

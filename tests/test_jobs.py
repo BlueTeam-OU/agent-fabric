@@ -263,6 +263,8 @@ def main() -> int:
         check("same project, working copy and topic: still a fresh session once this one worked a job",
               "j2" in p.stdout and "fresh session" in p.stdout and "fabric-fresh --job j2" in p.stdout
               and "continue here" not in p.stdout, p.stdout)
+        check("the fresh line says the agent runs it itself, never the owner",
+              "run it yourself" in p.stdout and "never hand it to the owner" in p.stdout, p.stdout)
         check("next makes the job it names active", jobs()[1]["state"] == "active", repr(jobs()[1]))
         run("done", "j2")
         p = run("next")
