@@ -13,7 +13,7 @@ THE FLAG   one per SECTION, however many of its anchors failed or readers marked
            `helpful` marks are not flags. A model's hint (rule 6) may be attached to a flag by the
            caller; it is rendered, marked as a guess, and changes nothing else.
 
-THE OWNER  rule 3, per section: the agent that last wrote it (`writers[key]["agent"]`, the drain's
+THE OWNER  rule 3, per section: the agent that last wrote it (`writers[flag.report_key]["agent"]`, the drain's
            state, the assembler's per-section record) if it still holds the section's role; else the
            role's running holder; else its lowest-numbered holder. The section's role is the one in
            its Observed tail, else the first directory of a project corpus's slice. A section no
@@ -68,6 +68,11 @@ class Flag:
     hint: str | None = None
     report_prefix: str = ""     # what the drain report puts before the slice's path: "memory/" or ".agent-fabric/memory/"
 
+    def __post_init__(self) -> None:
+        # A flag with no prefix would never match a section_writers key and would route as if no one had written it.
+        if self.report_prefix not in REPORT_PREFIX.values():
+            raise ValueError(f"report_prefix {self.report_prefix!r} is not one the drain report uses: {sorted(REPORT_PREFIX.values())}")
+
     @property
     def key(self) -> str:
         """The flag's identity in the ledger: the corpus label, the slice from its corpus, the heading."""
@@ -121,14 +126,14 @@ def flags_from_rows(corpus: str, rows: Iterable[dict], report_prefix: str) -> li
 
 def clip_note(note: Any) -> str:
     """A reader's words as one line of at most NOTE_CLIP characters, no control characters."""
-    text = " ".join(re.sub(r"[\x00-\x1f\x7f]", " ", str(note or "")).split())
+    text = " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(note or "")).split())
     return text[:NOTE_CLIP] + ("…" if len(text) > NOTE_CLIP else "")
 
 
 def one_line(text: Any, limit: int) -> str:
     """Text from a slice, a commit or a reader as one line of at most `limit` characters, no control or line-break
     characters: it reaches a REQUEST as data to read, never as lines of the request itself."""
-    flat = " ".join(re.sub(r"[\x00-\x1f\x7f]", " ", str(text if text is not None else "")).split())
+    flat = " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(text if text is not None else "")).split())
     return flat[:limit] + ("…" if len(flat) > limit else "")
 
 
@@ -219,8 +224,8 @@ def route(flag: Flag, writers: dict[str, dict], holders: dict[str, list[str]], r
 
 
 def open_message_ids(jobs_doc: dict) -> set[str]:
-    """The MESSAGE-IDs of the REQUESTs that are still open jobs in a jobs.json document (queued, active or
-    blocked), from each job's source or the `(REQUEST <id>)` of its title."""
+    """The MESSAGE-IDs of the REQUESTs that are still open jobs in a jobs.json document (jobsparts.base.OPEN: queued, active,
+    blocked or delivered), from each job's source or the `(REQUEST <id>)` of its title."""
     ids: set[str] = set()
     for j in (jobs_doc or {}).get("jobs", []):
         if j.get("state") not in OPEN_STATES:

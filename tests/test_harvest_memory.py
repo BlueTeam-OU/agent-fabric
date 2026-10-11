@@ -239,6 +239,14 @@ def test_an_anchor_that_carries_a_credential_refuses_the_drain_and_a_doubled_sin
     write_anchored(mem, "leaky", "solution", "[cfg/a.py::ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8]")
     r = run(mem, out)
     assert r.returncode == 1 and "leaky.md: an anchor carries a" in r.stderr and "nothing of it leaves the account" in r.stderr, (r.returncode, r.stderr)
+    for i, bad in enumerate(("[/etc/ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8]", "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8")):
+        m3, o3 = os.path.join(tmp, f"ac3{i}"), os.path.join(tmp, f"oac3{i}")
+        os.makedirs(m3)
+        write_anchored(m3, "invalid", "solution", bad)
+        r = run(m3, o3)
+        assert r.returncode == 1 and "an anchor carries a" in r.stderr, (bad, r.returncode, r.stderr)
+        report = os.path.join(o3, "harvest-report.json")
+        assert not os.path.exists(report) or "ghp_A1b2" not in open(report).read(), "an invalid anchor leaked into the report"
     mem2, out2 = os.path.join(tmp, "ac2"), os.path.join(tmp, "oac2")
     os.makedirs(mem2)
     write_anchored(mem2, "quoted", "solution", "['tools/a.py::it''s', 'b.py']")

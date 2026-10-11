@@ -1226,6 +1226,30 @@ def test_a_section_carries_its_anchors_above_its_observed_tail(tmp: str) -> None
     assert {os.path.join(d, n): read(os.path.join(d, n)) for d, _ds, fs in walk_role(out, "alpha") for n in fs} == before, "and nothing was written"
 
 
+def test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report(tmp: str) -> None:
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "Keep me", "body": "Stays.", "evidence": ["h1"], "observed_at": "2026-09-18"},
+        {"class": "solution", "topic": "one", "title": "Retire me", "body": "Goes.", "evidence": ["h1"], "observed_at": "2026-09-18"},
+        {"class": "domain", "topic": "field", "title": "Field fact", "body": "True.", "evidence": ["h1"], "observed_at": "2026-09-18"}])})
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"content_hash": "h1", "agent": "python-dev-03", "host": "hostA"}) + "\n")
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    heads = lambda: {k.partition("#")[2] for k in json.loads(read(report_path(out)))["section_writers"]}
+    assert {"Keep me", "Retire me", "Field fact"} <= heads()
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import memory_flags
+    (fkey,) = [k for k in json.loads(read(report_path(out)))["section_writers"] if k.endswith("#Field fact")]
+    assert fkey.startswith(memory_flags.REPORT_PREFIX["f"] + "domains/alpha/"), fkey
+    rel = fkey[len(memory_flags.REPORT_PREFIX["f"]):].partition("#")[0]
+    (flag,) = memory_flags.flags_from_rows("agent-fabric", [{"slice": rel, "heading": "Field fact", "role": "alpha", "verdict": "stale-hard",
+                                                            "paths": [], "anchors": [{"status": "stale-hard", "anchor": "a.py"}]}], memory_flags.REPORT_PREFIX["f"])
+    assert flag.report_key == fkey
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [retire("Retire me", topic="one", evidence="h1")]), fh)
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02").returncode == 0
+    assert "Retire me" not in heads() and "Keep me" in heads(), heads()
+
+
 def test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped(tmp: str) -> None:
     """A claims file is untrusted text: an anchor that is no anchor, of the wrong class, not a list, or more than
     ANCHORS_MAX refuses the run before anything is written; one that hygiene would substitute is dropped, never
@@ -2475,6 +2499,9 @@ def test_two_headings_share_a_cue_when_more_than_half_of_the_shorter_ones_tokens
     assert shares_cue("PR 851 merged and released", "851 merged"), "2 of 2 of the shorter"
     assert not shares_cue("Unrelated weather note", "Release checklist")
     assert shares_cue("Issue Merged", "ISSUE, merged!"), "case and punctuation are no cue"
+    assert shares_cue("Überprüfung der Leitung", "Leitung der Überprüfung"), "non-ASCII letters are tokens, not separators"
+    assert shares_cue("設定 変更 完了", "設定 変更 未了"), "a heading with no ASCII letter has cue tokens too"
+    assert not shares_cue("Überprüfung", "Leitung"), "and two different non-ASCII words share nothing"
     assert not shares_cue("", "Anything") and not shares_cue("Anything", "") and not shares_cue("!!!", "???")
 
 
@@ -3335,6 +3362,7 @@ def main() -> int:
         test_a_claim_with_a_merge_target_and_no_body_retires_the_section_and_nothing_is_written_for_it,
         test_retiring_the_only_section_removes_the_file_and_its_index_line,
         test_a_retire_finds_its_section_in_another_topic_and_leaves_a_sibling_that_only_looks_like_it,
+        test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report,
         test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
         test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section,
         test_retiring_a_section_nobody_holds_is_said_and_writes_nothing_on_every_drain,

@@ -62,7 +62,7 @@ def problem(anchor: str) -> str | None:
     path, sep, rest = anchor.partition("::")
     if len(anchor) > ANCHOR_MAX_LEN:
         return f"longer than {ANCHOR_MAX_LEN} characters"
-    if "`" in anchor or any(ord(c) < 32 or ord(c) == 127 for c in anchor):
+    if "`" in anchor or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in anchor):
         return "holds a backtick or a control character"
     if not path or path.startswith("/") or "\\" in path or any(c.isspace() for c in path):
         return "its path is empty, absolute, or holds a backslash or a space"

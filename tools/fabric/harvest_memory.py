@@ -316,6 +316,7 @@ def parse_memory(path: str) -> dict[str, Any] | None:
         "merge_target": (meta.get("metadata.merge_target") or meta.get("merge_target") or "").strip(),
         "anchors": anchors,
         "anchor_problems": anchor_problems,
+        "raw_anchors": raw_anchors or "",
     }
 
 
@@ -343,7 +344,9 @@ def judge_memory(parsed: dict[str, Any]) -> dict[str, Any]:
     hits = credential_hits(parsed["body"])
     if hits:
         return {"verdict": "refused", "reason": f"carries a {hits[0]} by shape; nothing of it leaves the account"}
-    hits = credential_hits("\n".join(parsed["anchors"])) if parsed["anchors"] else []
+    # The raw value, not the validated list: an anchor that failed validation is quoted in the warnings that reach
+    # harvest-report.json, so a credential in it must refuse the drain as well.
+    hits = credential_hits(parsed["raw_anchors"])
     if hits:
         return {"verdict": "refused", "reason": f"an anchor carries a {hits[0]} by shape; nothing of it leaves the account"}
     if not parsed["body"].strip() and not parsed["merge_target"]:

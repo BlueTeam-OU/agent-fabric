@@ -38,14 +38,15 @@ CONTRACT
   ANCHORS  a section's `*Anchors: `<path>::<symbol or literal>`, …*` line (written by
            the assembler from the memory's `anchors:`, ADR-050 rule 1): the path must
            exist, and when `::` follows, the file must contain that string (a symbol
-           name or a literal, matched as plain text). The path is looked for as a cited
-           path is, in the tree and in each origin's checkout. OBSERVED is the date in
+           name or a literal, matched as plain text). Unlike a cited path, an anchor is
+           looked for only in the slice's origin checkouts (the corpus's own tree when
+           the slice has none): a same-named file of another project proves nothing. OBSERVED is the date in
            the section's `*Observed YYYY-MM-DD (role)*` tail.
   VERDICT  per path: `exists` (in the tree or an origin's checkout), `stale-hard`
            (in none of them, and every origin's checkout was here to look in),
            `unchecked` (absent where it was looked, and an origin's checkout is not
            beside the tree, or a `../NAME/…` sibling is not; unknown, never stale).
-           Per anchor, the same, and also `stale-hard` when its file lacks the symbol
+           Per anchor, the same within those checkouts, and also `stale-hard` when its file lacks the symbol
            or literal, and `maybe-stale` when its file has a commit after OBSERVED's
            day (git, in the checkout the file is in; the finding names the newest such
            commit). Per section, in this order: stale-hard if any path or anchor is;
