@@ -28,6 +28,7 @@ python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); d["roles"], d["a
 cp "$REAL_ROOT/runtime/claude-code/aliases.json" "$REAL_ROOT/runtime/claude-code/install-agent-files.sh" "$FABRIC/runtime/claude-code/"
 cp -r "$REAL_ROOT/runtime/claude-code/agents" "$FABRIC/runtime/claude-code/agents"
 cp "$REAL_ROOT/runtime/identity.py" "$FABRIC/runtime/"
+mkdir -p "$FABRIC/runtime/mcp/fabric-memory"; cp "$REAL_ROOT/runtime/mcp/fabric-memory/install.py" "$FABRIC/runtime/mcp/fabric-memory/"
 cp "$REAL_ROOT/tools/fabric/routing.py" "$REAL_ROOT/tools/fabric/workingcopy.py" "$REAL_ROOT/tools/fabric/layout.py" "$REAL_ROOT/tools/fabric/install_agent_files.py" "$REAL_ROOT/tools/fabric/fabric_writes.py" "$REAL_ROOT/tools/fabric/roots.py" "$FABRIC/tools/fabric/"
 bind() { printf '{"agent":"%s","host":"%s","role":"%s","updated_at":"x"}\n' "$LOGIN" "$(hostname -s)" "$1" > "$STATE/agents/$LOGIN/binding.json"; }
 WORKER="$FABRIC/identities/roles/language-culture/locale/$SUFFIX/worker.md"
@@ -63,6 +64,10 @@ python3 -c "import json; d=json.load(open('$HOME/.claude/settings.json')); asser
 printf '{"permissions": {"deny": ["WebSearch"]}, "theme": "dark"}' > "$HOME/.claude/settings.json"
 out="$(run_install)"; python3 -c "import json; d=json.load(open('$HOME/.claude/settings.json')); assert d['permissions']['deny']==['WebSearch'] and d['theme']=='dark', d" && ok "a WebSearch the login denied itself is left alone" || bad "own deny touched" "$(cat "$HOME/.claude/settings.json")"
 
+echo "fabric-memory (ADR-049): every login, whatever its role, by bare command name"
+python3 -c "import json; d=json.load(open('$HOME/.claude.json')); e=d['mcpServers']['fabric-memory']; assert e=={'type':'stdio','command':'fabric-memory-mcp','args':[],'env':{}} and 'mine' in d['mcpServers'], d" && ok "the entry is there beside the login's own, after the role changed under it" || bad "memory entry" "$(cat "$HOME/.claude.json")"
+out="$(run_install)"; grep -q "=  $HOME/.claude.json mcpServers.fabric-memory" <<<"$out" && ok "a run again leaves it" || bad "memory idempotence" "$out"
+
 echo "a language-culture login whose locale has no authored worker: removed, never another locale's"
 bind language-culture
 run_install >/dev/null; [[ -f "$DEST" ]] || bad "precondition: installed"
@@ -82,7 +87,7 @@ for klass in code-low code-medium code-high code-plan code-review; do
     fi
 done
 grep -q "^effort:" "$FABRIC/runtime/claude-code/agents/code-high.md" && bad "the committed source carries a hand-written effort:" || ok "the committed sources carry none: the installer is the only writer"
-out="$(run_install)"; grep -q "0 written, 5 already current" <<<"$out" && ok "a second run rewrites nothing" || bad "not idempotent" "$out"
+out="$(run_install)"; grep -q "0 written, 6 already current" <<<"$out" && ok "a second run rewrites nothing" || bad "not idempotent" "$out"
 
 echo "the pre-fabric backup is taken once, not on every run"
 rm -rf "$HOME/.claude/agents"; mkdir -p "$A"

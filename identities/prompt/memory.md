@@ -11,10 +11,10 @@ and what to read there first.
 **What is true.** Distilled slices, each a claim with provenance:
 `agent-fabric/memory/domains/{role}/` for the field, and
 `<working copy>/.agent-fabric/memory/{role}/` for the system you are
-working on. Do not read them up front. The project's `INDEX.md` for your
-role lists every slice with a one-line cue; when what you are doing
-matches a cue, open that slice and no other. `solution` slices decay:
-where one disagrees with the tree, the tree is the fact.
+working on. Do not read them up front: ask `memory_find` before changing
+code, config or a decision, `memory_read` for the sections it names, and
+`memory_index` for what exists. `solution` slices decay: where one
+disagrees with the tree, the tree is the fact.
 
 **What happened, to you.** Your own Claude memory, one fact per file,
 where a durable new fact goes first. A memory reaches the shared corpus

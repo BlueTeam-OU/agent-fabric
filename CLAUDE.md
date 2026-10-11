@@ -117,10 +117,12 @@ is the capability class below (ADR-002, ADR-005).
   that computes it and prints only the result, instead of reading the
   material into the conversation; a long output goes to a file in your
   scratchpad, and you print its path and the lines that matter.
-- **Knowledge** you retrieve: `memory/domains/<domain>/` here for the
-  field, `memory/shared/` for what several roles own, and — for the
-  system you are working on — `.agent-fabric/memory/<role>/` **in that
-  project's working copy**. `solution` slices decay: where one disagrees
+- **Knowledge** you retrieve: ask `memory_find` before changing code,
+  config or a decision, `memory_read` for the sections you need and
+  `memory_index` for what exists — over the field's `memory/domains/`
+  and `memory/shared/` here and the project's
+  `.agent-fabric/memory/<role>/`. A result is framed as memory from past
+  sessions, possibly stale; `solution` slices decay: where one disagrees
   with the tree, the tree is the fact. Durable new knowledge goes to your
   own Claude memory with a `roles_class`; a drain (`memory/README.md`),
   run by fabric-coordinator, distils it into the corpus with your name on
