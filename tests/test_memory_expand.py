@@ -104,6 +104,9 @@ def main() -> int:
     shared = index_of(section("p", "`x/y.py`", topic="tp"), section("q", "`x/y.py`", topic="tq"))
     check("by default only direct links are followed: a section sharing only a path is no neighbour",
           shared.neighbours([hit(shared.sections[0])]) == [] and len(shared.neighbours([hit(shared.sections[0])], kinds=mi.KEY_KINDS)) == 1)
+    check("by default a co-citer is no neighbour either: citer2 is reached from citer only with cocite asked for",
+          [mi.section_id(n.section) for n in ix.neighbours([hit(citer)])] == [mi.section_id(cited)]
+          and mi.section_id(citer2) in [mi.section_id(n.section) for n in ix.neighbours([hit(citer)], kinds=("direct", "cocite"))])
     check("a kind left out of kinds gives no edge of it", ix.neighbours([seed], kinds=("cocite",)) == [])
     two_ways = index_of(section("a", "[[b]] `x/y.py`", topic="ta"), section("b", "`x/y.py`", topic="tb"), section("c", "[[a]]", topic="tc"))
     ranked = two_ways.neighbours([hit(two_ways.sections[0])], kinds=mi.KEY_KINDS)
