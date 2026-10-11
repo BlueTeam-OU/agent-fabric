@@ -127,13 +127,22 @@ def run_ctl(argv: list[str], timeout: float = CTL_TIMEOUT_S) -> list[dict]:
     for line in r.stdout.splitlines():
         try:
             row = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):      # a line nested past the parser's depth is as unreadable as one that is not JSON
             continue
         if isinstance(row, dict) and isinstance(row.get("account"), str) and isinstance(row.get("host"), str):
             rows.append(row)
     if not rows:
         raise FlagRunError(f"fabric-ctl all {argv[-2]} gave no account (exit {r.returncode}): who holds a role is not guessed")
     return rows
+
+
+def job_objects(jobs: Any) -> bool:
+    """Whether `jobs` is what an account that answered gives: a list of job objects, each with the fields open_message_ids
+    reads in their types. An account on older code, or one whose answer carries an error text in the list, is unknown."""
+    return isinstance(jobs, list) and all(
+        isinstance(j, dict) and isinstance(j.get("state"), str) and isinstance(j.get("title", ""), str)
+        and (j.get("source") is None or (isinstance(j["source"], dict) and isinstance(j["source"].get("message_id", ""), (str, type(None)))))
+        for j in jobs)
 
 
 def read_fleet(ctl: list[str], run: Callable[..., list[dict]] = run_ctl) -> Fleet:
@@ -146,7 +155,7 @@ def read_fleet(ctl: list[str], run: Callable[..., list[dict]] = run_ctl) -> Flee
         if row.get("status") != "ok" or not isinstance(p, dict) or p.get("status") != "ok":
             silent.add(address)
             continue
-        if not p.get("role"):
+        if not isinstance(p.get("role"), str) or not p["role"]:
             continue
         holders.setdefault(p["role"], []).append(address)
         if p.get("online") is True:
@@ -154,7 +163,7 @@ def read_fleet(ctl: list[str], run: Callable[..., list[dict]] = run_ctl) -> Flee
     open_jobs: dict[str, "set[str] | None"] = {}
     for row in run([*ctl, "all", "jobs", "--json"]):
         j = row.get("jobs")
-        ok = row.get("status") == "ok" and isinstance(j, dict) and j.get("status") == "ok"
+        ok = row.get("status") == "ok" and isinstance(j, dict) and j.get("status") == "ok" and job_objects(j.get("jobs"))
         open_jobs[f"{row['host']}/{row['account']}"] = memory_flags.open_message_ids(j) if ok else None
     return Fleet(holders, running, open_jobs, silent)
 
