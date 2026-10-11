@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Tests for tools/fabric/github/pr_gate.py's internals; the behaviour is
-tests/test_pr_gate_cli.py's, run against the shim (ADR-040
-§5 rule 5). What the oracle does not pin: the band's edges, which it
-tests only at 6, 9 and 17."""
+"""Tests for tools/fabric/github/pr_gate.py, in-process: the verdict and
+each reason it blocks, the band's edges, the checks and threads read from
+GitHub's answer, the review reader's text, and the work / fix / merge split
+with a revert netted, over a small throwaway repository. The outcomes of
+the command (exit status, stream, output mode, a real clone, gh failing)
+are tests/test_pr_gate_cli.py's, one smoke case each; the verdict logic is
+asserted here, where it costs no subprocess."""
 from __future__ import annotations
 
 import os
@@ -40,6 +43,60 @@ def main() -> int:
           .startswith("MERGEABLE — commits unknown"))
     check("a queue position wins over every block",
           pr_gate.verdict(1, "main", True, commits(9), dict(CLEAR, queue="2"), "none", []).startswith("QUEUED"))
+
+    print("the verdict's reasons")
+
+    def why(review="head reviewed", awaiting=(), draft=False, **st) -> str:
+        return pr_gate.verdict(1, "main", draft, commits(6), dict(CLEAR, **st), review, list(awaiting))
+    check("clear, reviewed, 6 work: ask the owner",
+          why().startswith("MERGEABLE — ask the owner (6 work commits < 8), then arm"))
+    check("a review not on the head: BLOCKED, says NOT on head",
+          why(review="NOT on head") == "BLOCKED: no review of the head (NOT on head)")
+    check("no review at all: says none", why(review="none") == "BLOCKED: no review of the head (none)")
+    check("a failed check: named, BLOCKED", why(checks="red:backend / shard") == "BLOCKED: red checks: backend / shard")
+    check("a running check: pending, BLOCKED", why(checks="pending:1") == "BLOCKED: 1 check(s) pending")
+    check("no check reported at all (seconds after a push): not green",
+          why(checks="none-yet").startswith("BLOCKED: no check has reported yet"))
+    check("unresolved threads block", why(unresolved="2") == "BLOCKED: 2 unresolved thread(s)")
+    check("a conflict blocks", why(mergeable="CONFLICTING") == "BLOCKED: conflicts with main")
+    check("a draft is never told to arm", why(draft=True) == "BLOCKED: a draft — mark it ready first")
+    check("an awaited supply blocks, by the login",
+          why(awaiting=["db-admin"]).startswith("BLOCKED: awaiting supply from db-admin (AWAITING-SUPPLY"))
+    check("every reason is said, in order",
+          why(checks="red:x", unresolved="2") == "BLOCKED: red checks: x; 2 unresolved thread(s)")
+    check("armed and clear", why(armed="yes").startswith("ARMED and clear"))
+    check("armed but red: says what holds it", why(armed="yes", checks="red:x").startswith("ARMED but held: red checks"))
+    check("queued: position, nothing to do", why(queue="3") == "QUEUED (position 3) — nothing to do")
+    nodes_green = [{"name": "ci / a", "status": "COMPLETED", "conclusion": "SUCCESS"}]
+    nodes_red = nodes_green + [{"name": "backend / shard", "status": "COMPLETED", "conclusion": "FAILURE"}]
+    nodes_pending = [{"name": "ci / a", "status": "IN_PROGRESS", "conclusion": None}]
+    check("checks_of: green, red (named), pending (counted), none yet",
+          [pr_gate.checks_of(n) for n in (nodes_green, nodes_red, nodes_pending, [])]
+          == ["green", "red:backend / shard", "pending:1", "none-yet"])
+    check("checks_of: a status context reads by its state",
+          pr_gate.checks_of([{"context": "legacy", "state": "FAILURE"}]) == "red:legacy"
+          and pr_gate.checks_of([{"context": "legacy", "state": "PENDING"}]) == "pending:1")
+
+    print("the review reader's text")
+    with tempfile.TemporaryDirectory() as tmp:
+        script = os.path.join(tmp, "reader")
+
+        def reader(head_reviewed: str, reviews: int = 1, verdicts: int = 0, code: int = 0) -> list[str]:
+            with open(script, "w") as fh:
+                fh.write("#!/bin/sh\n"
+                         f'echo "  independent reviews : {reviews}"\necho "  blind reviews       : 0"\n'
+                         f'echo "  verdict comments    : {verdicts}"\necho "  head reviewed?      : {head_reviewed}"\n'
+                         f"exit {code}\n")
+            os.chmod(script, 0o755)
+            return [script]
+        check("head reviewed", pr_gate.review_of_head(reader("yes"), 1) == "head reviewed")
+        check("a review not on the head: NOT on head", pr_gate.review_of_head(reader("no"), 1) == "NOT on head")
+        check("no review at all: none", pr_gate.review_of_head(reader("no", 0), 1) == "none")
+        check("a clean verdict comment on an earlier head counts as NOT on head, not none",
+              pr_gate.review_of_head(reader("no", 0, 1), 1) == "NOT on head")
+        check("a reader that exits 2, or cannot run, is ?",
+              pr_gate.review_of_head(reader("yes", code=2), 1) == "?"
+              and pr_gate.review_of_head([os.path.join(tmp, "absent")], 1) == "?")
 
     print("AWAITING-SUPPLY")
     body = "AWAITING-SUPPLY: h/db-admin\n - AWAITING-SUPPLY: web-dev-01\naaaaaaa1..bbbbbbb2: web-dev-01 (web-dev)"
@@ -255,6 +312,20 @@ def main() -> int:
         gh.graphql = rollup([], more=False)
         st = pr_gate.gate_state("o/r", 1, "H")
         check("...and green does not", st["checks"] == "green" and "BLOCKED" not in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+        gh.graphql = shaped((("mergeable",), "CONFLICTING"), (("reviewThreads", "nodes"), [node(False)] * 2),
+                            (("autoMergeRequest",), {"enabledAt": "x"}),
+                            (("mergeQueueEntry",), {"position": 3, "state": "AWAITING_CHECKS"}))
+        st = pr_gate.gate_state("o/r", 1, "H")
+        check("gate_state: the conflict, two unresolved threads, armed and the queue position are read",
+              (st["mergeable"], st["unresolved"], st["armed"], st["queue"]) == ("CONFLICTING", "2", "yes", "3"))
+        gh.graphql = shaped((("mergeQueueEntry",), None))
+        st = pr_gate.gate_state("o/r", 1, "H")
+        check("gate_state: not queued, not armed, no unresolved thread",
+              (st["mergeable"], st["unresolved"], st["armed"], st["queue"]) == ("MERGEABLE", "0", "no", ""))
+        gh.graphql = rollup([], more=False)
+        st = pr_gate.gate_state("o/r", 1, "other")
+        check("a push since the PR list: the checks are another head's, ?, which blocks",
+              st["checks"] == "?" and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
     finally:
         gh.graphql = real
 
@@ -300,6 +371,103 @@ def main() -> int:
         check("the fixes are the declared one and the undeclared review subject",
               sorted(c["fix_subjects"]) == ["review F4: undeclared, read as before",
                                             "the guard reads the count from the file"])
+
+    # The CLI suite's branch of work, fixes and a merge, split in-process:
+    # the subjects that count as fix, the Answers: trailer (one of them
+    # folded, RFC-822 style), and a revert netted with its in-range partner.
+    print("split_range: work, fix and merge; a revert nets once")
+    with tempfile.TemporaryDirectory() as repo:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t",
+                   GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+
+        def commit(n: int, *msg: str) -> str:
+            open(os.path.join(repo, f"f{n}"), "w").write(str(n))
+            git("add", "-A")
+            git("commit", "-q", *[a for m in msg for a in ("-m", m)])
+            return git("rev-parse", "HEAD")
+
+        def row_of(c: dict) -> dict:
+            return {"number": 7, "title": "the thing", "owner": "h/l", "mine": True, "commits_known": True,
+                    "work_commits": c["work"], "fix_commits": c["fix"], "merge_commits": c["merge"],
+                    "netted_commits": c["netted"], "fix_subjects": c["fix_subjects"],
+                    "netted_subjects": c["netted_subjects"], "checks": "green", "review": "head reviewed",
+                    "unresolved_threads": "0", "armed": "no", "queue_position": "", "verdict": "v"}
+
+        git("init", "-q", "-b", "main")
+        base = commit(0, "base")
+        git("checkout", "-q", "-b", "h/l/feat/x")
+        commit(1, "work one")
+        commit(2, "work two")
+        git("checkout", "-q", "-b", "side", "main")
+        commit(3, "side change")
+        git("checkout", "-q", "h/l/feat/x")
+        git("merge", "-q", "--no-ff", "side", "-m", "Merge origin/main")
+        fixes = ["fix: the review's F1 and F2",
+                 "geocode: address the blind review of the entrypoint",
+                 "third-round review: four P3s, the .env pin and the dropped spellings",
+                 "db: 0055's guard was too broad and stopped the file re-applying",
+                 "docs(adr): the backfilled row keeps its updated_at"]
+        commit(4, fixes[0])
+        commit(5, "admin driver review: approving a stranded applicant gets its own 409")
+        commit(6, "fix(passenger): the debounce still fired the wrong query")
+        commit(7, fixes[1])
+        commit(8, fixes[2])
+        commit(9, "feat(contracts): the review decision's reason reaches the merchant")
+        commit(10, fixes[3], "Answers: PE-6")
+        commit(11, fixes[4], "Answers: PE-6,\n  PR-1")
+        here = os.getcwd()
+        os.chdir(repo)
+        try:
+            c = pr_gate.split_range(7, "", f"{base}..HEAD")
+            git("update-ref", "refs/remotes/origin/main", base)
+            known = pr_gate.count_commits(7, "", "main", git("rev-parse", "HEAD"))
+            unknown = pr_gate.count_commits(7, "", "main", "deadbeef" * 5)
+            nobase = pr_gate.count_commits(7, "", "nobranch", git("rev-parse", "HEAD"))
+            # A work commit, git's own revert of it, a revert of a commit
+            # that is not in the range (it changes the tree: work), and a
+            # "Revert" subject with no trailer line (prose: work).
+            commit(12, "feat: the used-by guard")
+            git("revert", "--no-edit", "HEAD")
+            commit(13, 'Revert "base"', f"This reverts commit {base}.")
+            commit(14, "Revert the thing by hand")
+            after_pair = pr_gate.split_range(7, "", f"{base}..HEAD")
+            # feat B; revert B; reapply B (the revert of the revert): the
+            # tree after the chain is B's, so B stands as work.
+            commit(15, "feat: B, the thing reapplied")
+            git("revert", "--no-edit", "HEAD")
+            git("revert", "--no-edit", "HEAD")
+            after_chain = pr_gate.split_range(7, "", f"{base}..HEAD")
+        finally:
+            os.chdir(here)
+        check(f"12 commits: 6 work, 5 fix, 1 merge (got {c['work']}, {c['fix']}, {c['merge']})",
+              (c["work"], c["fix"], c["merge"], c["netted"]) == (6, 5, 1, 0))
+        check("the fixes are the F1/F2 labels, 'address the blind review', 'third-round review', and the two "
+              "review-less subjects with an Answers: trailer (one folded); a domain 'driver review:', a "
+              "fix(scope): bug fix and a 'review decision' feature are work",
+              sorted(c["fix_subjects"]) == sorted(fixes))
+        check("count_commits: the same split over origin/<base>..<head>",
+              known is not None and (known["work"], known["fix"], known["merge"]) == (6, 5, 1))
+        check("count_commits: a head the clone does not have, or a base it does not have, is None, never a zero",
+              unknown is None and nobase is None)
+        check("four commits added: the in-range pair is netted (2); the revert of a main commit and the "
+              "trailer-less 'Revert' are work (+2); fixes unchanged",
+              (after_pair["work"], after_pair["fix"], after_pair["netted"]) == (8, 5, 2))
+        check("...and the netted pair is named, as the fixes are",
+              sorted(after_pair["netted_subjects"]) == sorted(['Revert "feat: the used-by guard"', "feat: the used-by guard"]))
+        text = pr_gate.render(row_of(after_pair))
+        check("the row says so, and names the pair",
+              "commits=16 (8 work, 5 fix, 1 merge, 2 netted by a revert)" in text
+              and 'netted by a revert: "' in text and "feat: the used-by guard" in text)
+        check("a revert of a revert leaves the original as work: B stands (+1), two more netted (4)",
+              (after_chain["work"], after_chain["netted"]) == (9, 4))
+        unknown_row = dict(row_of(after_pair), commits_known=False, work_commits=None, fix_commits=None,
+                           merge_commits=None, netted_commits=None, fix_subjects=[], netted_subjects=[])
+        check("a row whose commits are unknown says so", "commits=unknown (fetch)" in pr_gate.render(unknown_row))
 
     # A fold reaches the classifier through split_range's <head>: #10 was
     # merged unrebased into this branch and closed, so its review fix is
