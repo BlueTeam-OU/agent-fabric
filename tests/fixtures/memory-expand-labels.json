@@ -1,0 +1,60 @@
+{
+ "comment": "The author's own judgement (python-dev-02, 2026-10-11) of the neighbours memory_find(expand: 1) adds on the offline expected-hit set, for tests/memory_expand_measure.py: useful = a person who asked this query would read it next and gain; related = the same subject, not an answer to the query; noise = neither. One judge, one reading each: a measure of the direction, not a finding; relabel it with the ranking. Pairs that only a variant of the measurement adds (weak hits as seeds, one kind of edge) are labelled noise unless read otherwise.",
+ "labels": {
+  "a test passes in the session but fails in CI because of inherited environment": {
+   "f:domains/python-dev/domain/shell-text-secrets-and-git-answers#1": "noise",
+   "f:domains/python-dev/domain/splitting-a-closure-heavy-main#1": "noise",
+   "p:fabric-coordinator/workflow/launcher-help-is-a-launch#1": "noise"
+  },
+  "grep resolves to ugrep on this host": {
+   "p:fabric-coordinator/workflow/skills-no-prs-no-dates#1": "noise",
+   "p:shared/workflow-smoke-container-before-ci#1": "noise",
+   "p:fabric-coordinator/workflow/blind-review-loop#1": "noise",
+   "p:python-dev/workflow/gh-port-oracle-mock-learns-gh-py#1": "noise",
+   "p:python-dev/workflow/pr-arming-and-ci-traps#1": "noise"
+  },
+  "pipe exit status tail commit lint failed": {
+   "p:fabric-coordinator/workflow/auto-merge-is-immediate-here#1": "noise",
+   "p:fabric-coordinator/workflow/suite-in-a-worktree-lints-wrong#1": "useful",
+   "f:domains/devex-tooling/domain/fabric-lint-is-not-in-run-sh#1": "related",
+   "f:domains/python-dev/domain/review-before-suite-and-numeric-guards#1": "noise"
+  },
+  "test GNUPGHOME equals home gpg-agent shared": {
+   "p:shared/threads-suite-scratch-leak#1": "related",
+   "p:fabric-coordinator/workflow/cleanup-spares-live-logs#1": "noise",
+   "p:python-dev/solution/root-relative-tools-write-the-running-clone#1": "related",
+   "p:fabric-coordinator/workflow/parallel-agents-share-scratchpad#1": "noise"
+  },
+  "python and javascript differ at boundaries number parsing": {
+   "p:python-dev/threads/wave-8-signed-bytes-and-frozen-state#1": "related",
+   "f:domains/python-dev/domain/openssl-ed25519-pkeyutl-measured#1": "noise",
+   "f:domains/python-dev/domain/exec-inherits-python-ignored-signals#1": "related"
+  },
+  "codeql alert shows a flow sarif": {
+   "p:python-dev/solution/tools-report-and-pr-lessons#1": "noise",
+   "p:python-dev/solution/fabric-pr-and-tools-install#1": "noise"
+  },
+  "fake tools on the PATH of the callee env -i login shell": {
+   "p:python-dev/workflow/suites-inherit-launch-stamps#1": "useful",
+   "p:python-dev/workflow/lint-in-a-worktree-reads-the-session-root#1": "related",
+   "p:fabric-coordinator/workflow/outside-text-is-data#1": "noise",
+   "p:python-dev/workflow/static-skips-ruff-here#1": "noise"
+  },
+  "a mutation the oracle did not catch in a port": {
+   "p:python-dev/workflow/never-restore-a-mutation-with-git-checkout#1": "useful",
+   "f:domains/python-dev/domain/shell-text-secrets-and-git-answers#1": "noise",
+   "f:domains/python-dev/domain/splitting-a-closure-heavy-main#1": "noise"
+  },
+  "merge_target replaces a stale section": {
+   "p:fabric-coordinator/solution/subagent-tools-and-transcripts#1": "noise"
+  },
+  "git worktree under .claude directory staged as embedded repo": {
+   "p:shared/threads-suite-scratch-leak#1": "noise",
+   "p:python-dev/workflow/gh-port-oracle-mock-learns-gh-py#1": "noise"
+  },
+  "lease held by another process fabric-lease": {
+   "f:domains/python-dev/domain/exec-inherits-python-ignored-signals#1": "noise",
+   "f:domains/python-dev/domain/js-python-parity-at-boundaries#1": "noise"
+  }
+ }
+}
