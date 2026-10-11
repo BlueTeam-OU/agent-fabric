@@ -209,6 +209,13 @@ class Marks(unittest.TestCase):
         self.assertIn("the reader's words, not ours: 'the runner moved'", flags[0].reasons[1]["detail"])
         self.assertEqual(flags[0].reasons[2]["detail"], "no note")
 
+    def test_the_drain_reports_marks_by_section_id_are_read_as_the_harvests_rows_are(self):
+        report_marks = {"p:python-dev/solution/b#1": [{"agent": "web-dev-01", "t": "2026-10-09T10:00:00Z", "verdict": "wrong", "note": "n"},
+                                                      {"agent": "web-dev-01", "t": "t", "verdict": "helpful", "note": ""}],
+                        "p:python-dev/solution/b#2": [{"agent": "x", "t": "t", "verdict": "stale", "note": ""}]}
+        flags = mf.flags_from_marks(report_marks, self.corpora, self.labels)
+        self.assertEqual({f.heading: [r["kind"] for r in f.reasons] for f in flags}, {"First": ["mark-wrong"], "Second": ["mark-stale"]})
+
     def test_a_mark_on_an_unflagged_section_makes_a_flag_with_the_role_of_its_tail(self):
         flags = mf.flags_from_marks([{"t": "t", "id": "f:domains/d/domain/a#1", "verdict": "wrong", "note": "n"}], self.corpora, self.labels)
         self.assertEqual((flags[0].key, flags[0].role), ("agent-fabric:domains/d/domain/a.md#First", "python-dev"))

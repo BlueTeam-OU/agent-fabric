@@ -134,10 +134,13 @@ def resolve_mark(ident: str, corpora: dict[str, str]) -> tuple[str, str, str] | 
     return m.group(1), rel, headings[n - 1]
 
 
-def flags_from_marks(marks: Iterable[dict], corpora: dict[str, str], labels: dict[str, str],
+def flags_from_marks(marks: "Iterable[dict] | dict[str, list[dict]]", corpora: dict[str, str], labels: dict[str, str],
                      into: list[Flag] | None = None) -> list[Flag]:
     """A reader's `stale` or `wrong` mark joins the flag of the section it names (a new flag when there is none);
-    `helpful` marks and marks naming no section of the corpora given are left to the caller's report."""
+    `helpful` marks and marks naming no section of the corpora given are left to the caller's report. `marks` is
+    the rows of a harvest's marks.jsonl, or the drain report's `memory_marks`: {section id: [{t, verdict, note}]}."""
+    if isinstance(marks, dict):
+        marks = [{**row, "id": ident} for ident, rows in marks.items() for row in rows if isinstance(row, dict)]
     flags = into if into is not None else []
     by_key = {f.key: f for f in flags}
     for mk in marks:

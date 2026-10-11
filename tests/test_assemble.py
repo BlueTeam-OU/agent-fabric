@@ -1226,6 +1226,41 @@ def test_a_section_carries_its_anchors_above_its_observed_tail(tmp: str) -> None
     assert {os.path.join(d, n): read(os.path.join(d, n)) for d, _ds, fs in walk_role(out, "alpha") for n in fs} == before, "and nothing was written"
 
 
+def test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drains(tmp: str) -> None:
+    """ADR-050 rule 3: `section_writers` maps "<slice as the report names it>#<heading>" to the agent, host and
+    Observed date of the claim that last rendered the section: what routes a flag to the agent that knows the
+    section. A later drain of other sections keeps it; one that rewrites the section replaces it; a slice that is
+    gone takes its sections' writers with it."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "T", "body": "Body.", "evidence": ["h1"], "observed_at": "2026-09-18"},
+        {"class": "solution", "topic": "two", "title": "U", "body": "Other.", "evidence": ["h2"], "observed_at": "2026-09-19"}])})
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        for row in ({"content_hash": "h1", "agent": "python-dev-03", "host": "hostA"}, {"content_hash": "h2", "agent": "web-dev-01", "host": "hostB"}):
+            fh.write(json.dumps(row) + "\n")
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    writers = json.loads(read(report_path(out)))["section_writers"]
+    assert {k.partition("#")[2]: v for k, v in writers.items()} == {
+        "T": {"agent": "python-dev-03", "host": "hostA", "observed": "2026-09-18"},
+        "U": {"agent": "web-dev-01", "host": "hostB", "observed": "2026-09-19"}}, writers
+    assert all(k.startswith(".agent-fabric/memory/alpha/solution/") and k.partition("#")[0].endswith(".md") for k in writers), list(writers)
+    # a later drain (another stamp) writes only U, from another agent: T's writer stays, U's is replaced
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [{"class": "solution", "topic": "two", "title": "U", "body": "Other.", "evidence": ["h2"], "observed_at": "2026-10-01"}]), fh)
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"content_hash": "h2", "agent": "python-dev-02", "host": "hostA"}) + "\n")
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-02-02").returncode == 0
+    later = {k.partition("#")[2]: v for k, v in json.loads(read(report_path(out)))["section_writers"].items()}
+    assert later == {"T": {"agent": "python-dev-03", "host": "hostA", "observed": "2026-09-18"},
+                     "U": {"agent": "python-dev-02", "host": "hostA", "observed": "2026-10-01"}}, later
+    # a slice that is gone takes its writers with it
+    for key in list(json.loads(read(report_path(out)))["section_writers"]):
+        if key.endswith("#T"):
+            os.remove(os.path.join(working_copy(out), key.partition("#")[0]))
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-02-02").returncode == 0
+    gone = {k.partition("#")[2] for k in json.loads(read(report_path(out)))["section_writers"]}
+    assert gone == {"U"}, gone
+
+
 def test_keep_both_is_remembered_on_the_next_drain(tmp: str) -> None:
     """Once the owner kept both, the same pair re-emitted (--all, a
     watermark at zero) is present as "X" and "X (2)" and is not asked
@@ -3075,6 +3110,7 @@ def main() -> int:
         test_carried_text_is_redacted_the_same_way_a_claim_is,
         test_the_same_claim_again_is_never_a_collision_whatever_its_date,
         test_a_section_carries_its_anchors_above_its_observed_tail,
+        test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drains,
         test_keep_both_is_remembered_on_the_next_drain,
         test_another_topic_in_the_flat_class_file_is_not_this_topic_s_rival,
         test_a_collision_inside_a_two_topic_flat_file_is_still_stopped,

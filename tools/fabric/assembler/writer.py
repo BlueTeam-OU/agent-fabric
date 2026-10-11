@@ -204,6 +204,11 @@ def write_slice(
            and undated(blocks[heading]) == undated(rendered):
             rendered = blocks[heading]
         blocks[heading] = rendered
+        origin = next((run.origins[h] for h in claim.get("evidence", []) if h in run.origins), None)
+        if origin and origin.get("agent") and origin["agent"] != "unresolved":
+            run.section_writers[f"{in_report(run, path)}#{heading}"] = {
+                "agent": origin["agent"], **({"host": origin["host"]} if origin.get("host") else {}),
+                **({"observed": claim["observed_at"]} if claim.get("observed_at") else {})}
 
     # SCOPE UNIONS WITH WHAT IS CARRIED, and `full` wins.
     #

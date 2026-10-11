@@ -69,12 +69,16 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     marks = {h: v for h, v in (previous.get("watermarks") or {}).items() if isinstance(v, (int, float))}
     for host, mark in (current.get("watermarks") or {}).items():
         marks[host] = mark
+    # Who last wrote each section accumulates across drains (ADR-050 rule 3): a section written by an earlier drain
+    # keeps its writer until it is written again, and a slice that is gone takes its sections' writers with it.
+    writers = {k: v for k, v in (previous.get("section_writers") or {}).items() if isinstance(v, dict) and exists(k.partition("#")[0])}
+    writers.update(current.get("section_writers") or {})
     if previous.get("stamp") != current["stamp"]:
-        merged = dict(current, watermarks=marks)
+        merged = dict(current, watermarks=marks, section_writers=writers)
         merged["files"] = [f for f in current["files"] if exists(f)]
         merged["files_written"] = len(merged["files"])
         return merged
-    merged = dict(current, watermarks=marks)
+    merged = dict(current, watermarks=marks, section_writers=writers)
     merged["roles"] = sorted(set(previous.get("roles") or []) | set(current["roles"]))
     merged["shared_topics"] = sorted(set(previous.get("shared_topics") or []) | set(current["shared_topics"]))
     merged["shared_slices"] = len(merged["shared_topics"])
