@@ -54,12 +54,14 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
     if state != "blocked":
         job.pop("waits_on", None)
     now = identity.now_iso()
+    # Entering or leaving `active`, not only entering: a session launched with
+    # its job already active never activates it, and is known by finishing it.
+    # A drop or block of a job that was never active here is no work done.
+    touches_active = state == "active" or job.get("state") == "active"
     job["state"] = state
     job["updated"] = now
-    # On every transition, not only `active`: a session launched with its job
-    # already active never activates it, and is known by finishing it.
     entry = {"at": now, "state": state, **({"note": fields["note"]} if fields.get("note") else {})}
-    if session_id():
+    if touches_active and session_id():
         entry["session"] = session_id()
     job.setdefault("log", []).append(entry)
     for key, value in fields.items():

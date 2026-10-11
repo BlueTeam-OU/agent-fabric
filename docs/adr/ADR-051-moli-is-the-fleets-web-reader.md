@@ -3,7 +3,7 @@
 **Date:** 2026-10-11
 **Status:** Proposed
 **Decision Makers:** the owner (agents may go on the internet through moli; reading now, scripted browsing once a live test passed, which it did on 2026-10-11); drafted by fabric-coordinator
-**Scope:** `projects/registry.json` (the `moli` account tool of every project), `tools/fabric/tools_install.py` (unchanged; installs it), `policies/moli-web/SKILL.md`, `tools/fabric/bootstrap.py` (`SKILLS`), `runtime/claude-code/commands.json` (`also_allowed`) and `runtime/claude-code/user-settings.py`; how an agent reads a web page and which browser serves which task
+**Scope:** `projects/registry.json` (the `moli` account tool of every project), `tools/fabric/tools_install.py` (unchanged; installs it), `policies/moli-web/SKILL.md`, `tools/fabric/bootstrap.py` (`SKILLS`), `runtime/claude-code/commands.json` (`also_allowed`, `also_asked`), `policies/auto-mode.json` and `runtime/claude-code/user-settings.py`; how an agent reads a web page and which browser serves which task
 **Pillar:** P1
 **Evidence:** docs/live-checks/2026-10-10-moli-spike.md
 
@@ -101,9 +101,10 @@ is handled the same way, by never leaving one open.
    identically (the installer refuses projects that pin different installs
    of one tool), so any account with a working copy of a registered project
    gets it.
-3. **A session may run `moli fetch` without a prompt.** `moli serve` is
-   not allowed by any rule and asks as any command does: a session starts it
-   knowingly. (A 2026-10-11) That stays so, though scripted browsing is
+3. **A session may run `moli fetch` without a prompt.** `moli serve` has
+   an explicit ask rule (`commands.json` `also_asked`) and an auto-mode
+   soft deny, because in auto mode a command no rule names goes to the
+   classifier: a session starts it knowingly. (A 2026-10-11) That stays so, though scripted browsing is
    approved.
 4. **A `moli serve` endpoint is per login, on 127.0.0.1, started on demand
    and stopped after.** The CDP port has no authentication, so every

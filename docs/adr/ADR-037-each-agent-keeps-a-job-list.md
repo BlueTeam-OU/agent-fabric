@@ -89,8 +89,8 @@ Why these choices:
    `done` and `dropped`, and at most one job per login is `active`.
 3. A job carries its project, its working copy and, when the agent sets
    one, a topic. `fabric-jobs next` asks whether this session has already worked a job
-   (a job went `active` in it, by the harness session id its log entry
-   records):
+   (a job entered or left `active` in it, by the harness session id the
+   log entry of that transition records):
    - a session that has worked a job gets a fresh session for every
      next job, `fabric-fresh --job <id>`, which starts in the job's
      working copy with the job in its opening prompt, whatever the

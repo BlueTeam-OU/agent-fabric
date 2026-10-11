@@ -308,6 +308,16 @@ def main() -> int:
         p = subprocess.run([JOBS, "next"], cwd=repo_a, env=env_nosession, capture_output=True, text=True)
         check("no session id: a job that has left active counts, so fresh", "fabric-fresh --job j9" in p.stdout, p.stdout + p.stderr)
         run("done", "j9")
+        env["CLAUDE_CODE_SESSION_ID"] = "sess-C"
+        run("add", "stale")
+        run("add", "real work")
+        run("drop", "j10", "stale")
+        p = run("next", "--json")
+        verdict = json.loads(p.stdout or "{}")
+        check("a session that only dropped a queued job has worked none: continue here",
+              verdict.get("job") == "j11" and verdict.get("fresh") is False and verdict.get("worked") is None, p.stdout)
+        run("done", "j11")
+        env["CLAUDE_CODE_SESSION_ID"] = saved
         p = run("next", "j3")
         check("next refuses a closed job", p.returncode == 1 and "next takes a queued" in p.stderr, p.stderr)
 
