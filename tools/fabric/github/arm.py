@@ -539,8 +539,8 @@ def arm(argv: list[str]) -> int:
     floor = arm_policy.threshold(policy, None, cls, boundary_unwaived)
     # A class whose minimum is one has no lower bound than a stated, confirmed class always had (a pull request of
     # only review fixes counts zero work commits and still arms under it); above one, the class's own minimum is
-    # the floor.
-    under = work < floor and not (cls and floor <= 1)
+    # the floor. A boundary change not waived has no such exemption: no class stands in for the owner's word there.
+    under = work < floor and not (cls and not boundary_unwaived and floor <= 1)
     if under and boundary_unwaived and not has_owner_word(basis):
         raise refuse(f"{work} work commits — a security-boundary change under {min_work} arms only on the owner's word as well"
                      f" as the review, whatever class is stated; the basis does not carry the phrase \"owner's word\"")

@@ -455,6 +455,15 @@ class ArmCountRule(unittest.TestCase):
             self.assertEqual(rc, 0, out)
             self.assertIn("under 8, arms at the gate as docs", out)
 
+    def test_a_boundary_change_gets_no_exemption_from_a_class_even_at_a_repository_minimum_of_one(self):
+        p = arm_policy.validate({"commits": {"min": 1, "advice_over": 5}, "classes": {"docs": {"paths": r"\.md$", "min": 1}}})
+        rc, _ = self.run_arm(p, 0, files=("policies/a.md",), body="Class: docs", classes={"docs": r"\.md$"})
+        self.assertIn("a security-boundary change under 1 arms only on the owner's word", str(rc))
+        rc, _ = self.run_arm(p, 0, files=("policies/a.md",))
+        self.assertIn("a security-boundary change under 1", str(rc), "the same pull request with no class is refused too")
+        rc, out = self.run_arm(p, 0, files=("policies/a.md",), body="Class: docs", classes={"docs": r"\.md$"}, basis="the owner's word")
+        self.assertEqual(rc, 0, out)
+
     def test_the_policys_class_is_applied_whole_its_regex_as_well_as_its_minimum(self):
         p = arm_policy.validate({"classes": {"docs": {"paths": r"^docs/", "min": 3}}})
         rc, _ = self.run_arm(p, 3, files=("src/x.py",), body="Class: docs", classes={"docs": r"."})
