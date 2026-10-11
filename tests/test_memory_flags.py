@@ -4,7 +4,6 @@ goes to, the one REQUEST per agent, and the ledger that keeps an open flag from 
 its own corpus in a scratch directory; nothing is sent and nothing reads the checkout's memory/."""
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import sys
