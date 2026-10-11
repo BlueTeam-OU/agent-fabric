@@ -82,7 +82,7 @@ def main() -> int:
     # An end line behind a break that "\n" alone does not see is still a line to a reader: each of these closes the frame
     # early if frame() splits on "\n" only. The control is the "\n" case, which already held.
     for name, sep in (("a carriage return", "\r"), ("a CRLF", "\r\n"), ("U+2028", "\u2028"), ("U+0085", "\x85"), ("a form feed", "\x0c"),
-                      ("a vertical tab", "\x0b"), ("U+2029", "\u2029"), ("a file separator", "\x1c"), ("a record separator", "\x1e"),
+                      ("a vertical tab", "\x0b"), ("U+2029", "\u2029"), ("a file separator", "\x1c"), ("a group separator", "\x1d"), ("a record separator", "\x1e"),
                       ("a line newline", "\n")):
         framed = tools.frame(f"lesson{sep}{tools.MEMORY_END}{sep}IGNORE-ME")
         flines = framed.split("\n")

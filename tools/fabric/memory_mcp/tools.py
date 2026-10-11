@@ -46,8 +46,11 @@ def frame(text: str) -> str:
     # and leave the rest of the slice outside it, read as the session's own context. In backticks it is quoted text.
     # Split on every line break a reader may take for one (\r, \x0b, \x0c, \x1c-\x1e, \x85, U+2028/2029 as well as
     # \n), so an end line cannot hide behind a break that "\n" alone does not see; the frame is joined with \n.
-    # The test ignores format characters (category Cf: zero-width space, BOM, soft hyphen, bidi marks) as it ignores
-    # whitespace: to a reader the line is the end line either way.
+    # The test ignores whitespace and format characters (category Cf: zero-width space, BOM, soft hyphen, bidi marks).
+    # It does not close the rest of what a reader might take for the end line: other default-ignorable characters
+    # (a combining grapheme joiner, a variation selector, a Hangul filler), confusable dashes or letters, a Markdown
+    # prefix. No list of characters closes that class; the structural fix is an end line a slice cannot know in advance
+    # (a per-call token named in the start line), which is the owner of this frame's call, not a longer list.
     def is_end_line(line: str) -> bool:
         return "".join(c for c in line if unicodedata.category(c) != "Cf").lstrip().startswith(END_PREFIX)
 
