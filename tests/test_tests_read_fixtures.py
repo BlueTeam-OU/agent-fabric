@@ -43,6 +43,7 @@ DELIBERATE = {
     "tests/test_auto_mode_policy.py": "the operator's auto-mode policy names its public repositories and holds no \"$defaults\": the operator's own text",
     "tests/test_arm_fabric_config.py": "every project's committed arm.json loads and holds the rules the fabric relies on: the operator's own files",
     "tests/test_session_commands.py": "no session-facing text, the projects' CLAUDE files included, calls a fabric command through a path: the operator's own texts",
+    "tests/test_memory_expected_hits.py": "the offline expected-hit set (ADR-049 rule 7) is run against the operator's own committed corpus: the hits are a fact of that corpus",
     "tests/test_githooks_prepush.py": "the brand projects' committed direct.pr_paths send secret-shaped files to a pull request and design files direct: the operator's own files",
 }
 
