@@ -162,7 +162,7 @@ def main() -> int:
         except Exception:  # noqa: BLE001 — a report oddity must not cost the session its start
             pass
         try:
-            lines += jobs_line(identity.read_jobs(ctx["agent"]), ctx["working_copy"])
+            lines += jobs_line(identity.read_jobs(ctx["agent"]), ctx["working_copy"], cleared_jobs())
         except (Exception, SystemExit):  # noqa: BLE001 — a job list it cannot read must not cost the session its start
             pass
         try:
@@ -267,7 +267,21 @@ def tools_line(project: str | None, state_dir: str, now: float | None = None) ->
             f"a host tool is the owner's to install, an account tool is said to the owner, never installed by a session."]
 
 
-def jobs_line(doc: dict, working_copy: str | None) -> list[str]:
+def cleared_jobs() -> list[str]:
+    """"j12 (pr:o/r#5)" for each job whose checkable blockers have all
+    cleared, read from fabric-jobs' cache: --cached checks nothing, so no
+    network and no wait. Empty when it cannot be read."""
+    try:
+        p = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-jobs"), "list", "--json", "--cached"],
+                           capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL, check=False)
+        rows = json.loads(p.stdout) if p.returncode == 0 else []
+        return [f"{j['id']} ({', '.join(b['spec'] for b in j.get('blockers') or [])})"
+                for j in rows if j.get("state") == "blocked" and j.get("cleared") is True]
+    except Exception:  # noqa: BLE001 — a cache it cannot read must not cost the session its start
+        return []
+
+
+def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = None) -> list[str]:
     """The agent's job list in one line (ADR-037): the active job and how
     many wait behind it, and a warning when the active job's working copy
     is not this session's — the restart rule broken, or a job left active
@@ -279,6 +293,8 @@ def jobs_line(doc: dict, working_copy: str | None) -> list[str]:
     if not active and not queued and not blocked:
         return []
     waiting = ", ".join(f"{n} {what}" for n, what in ((queued, "queued"), (blocked, "blocked")) if n) or "nothing waiting"
+    if cleared:
+        waiting += f"; blocker cleared: {', '.join(cleared)}"
     if not active:
         return [f"agent-fabric: jobs — none active; {waiting}. `fabric-jobs next` starts the next one "
                 f"and says whether it needs a fresh session."]

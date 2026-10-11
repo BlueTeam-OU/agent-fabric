@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 import socket
@@ -593,6 +594,12 @@ def test_hook_says_the_job_list(tmp: str) -> None:
     ctx = context_of(run_hook({"cwd": here}, env))
     assert f"active j2: the job there; 1 blocked" in ctx and f"Your active job is in {there}, and this session is in {here}" in ctx \
         and "fabric-fresh --job j2" in ctx, ctx
+    # A blocked job whose checkable blocker the cache says cleared is named, from the cache alone.
+    jobs("block", "j2", "--on", "pr:example/none#5", "a PR")
+    with open(os.path.join(state, "agents", id_un(), "jobs-blockers.json"), "w", encoding="utf-8") as fh:
+        json.dump({"pr:example/none#5": {"state": "cleared", "detail": "merged", "checked_at": time.time()}}, fh)
+    ctx = context_of(run_hook({"cwd": here}, env))
+    assert "blocker cleared: j2 (pr:example/none#5)" in ctx, ctx
     # A list the hook cannot read never costs the session its start.
     with open(os.path.join(state, "agents", id_un(), "jobs.json"), "w", encoding="utf-8") as fh:
         fh.write("{ not json")
