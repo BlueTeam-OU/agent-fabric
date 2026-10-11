@@ -433,7 +433,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, with no open P1/P2 (§5
   rules 5–6).
 - No machine attribution (§5 rule 7). GitHub settings: §6.
-- A 2026-10-04 — `main`'s ruleset: a PR, CI, signed commits (§5 rule 6).
+- A 2026-10-04 — `main`'s ruleset (§5 rule 6).
 - A 2026-10-05 — the ruleset requires `ci-ok` alone (§5 rule 6).
 - A 2026-10-05 — 8+ work commits arm on the gate alone (§5 rule 4).
 - A 2026-10-06 — one open PR at a time (§5 rule 2).
@@ -441,8 +441,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — a folded PR's review fixes are fixes (§5 rule 3).
 - A 2026-10-09 — results.py reads a fold (§5 rule 3).
 - A 2026-10-09 — a push after the arming disarms it (§5 rule 5).
-- A 2026-10-10 — arm.json `direct`: roles fast-forward main;
-  `pr_paths` and executables by PR, fenced by pre-push (§5 rule 1).
+- A 2026-10-10 — arm.json `direct`: fast-forward main, fenced by
+  pre-push (§5 rule 1).
+- A 2026-10-11 — pre-push refuses unsigned commits (§5 rule 1).
 - Keywords: Answers, Kind, fold, pr-gate, ruleset, direct, pre-push.
 
 ### ADR-020 — The review class is the review (Accepted)
