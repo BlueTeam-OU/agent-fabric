@@ -70,6 +70,13 @@ FLEET SECTIONS  `plans` and `prs_unplaced` are about the fleet, not an agent:
   or by branch where the listing had no number (a number the gate lacks is
   a PR not at the gate: gate_found false). closed_jobs.data adds done_total (state done only) to closed_total.
 
+PROC  `proc` per account (fleet_proc.py, local or through fabric-host): {uid, cpu_pct, rss_kb, swap_kb, procs,
+  inbox_watch}. inbox_watch is true when a process of the account runs gzcoord-inbox with --until-delivery or --wait
+  (by whole arguments: a prompt or a shell string that mentions the words is not one); false when its processes were
+  read and none does; null when that could not be told (a command line unreadable, or /proc hiding other accounts'
+  processes from the reader, or not saying whether it does): never false for unknown. How long an agent has been idle
+  and what counts as too long stay in the view.
+
 ATTENTION  `attention` (Fleet Deck's "needs you" views) is told from the `states` and `jobs` records of the same
   fetch, which a fetch that names it reads and shows too (like prs_unplaced with prs). It has no source of its
   own and no cache entry: it is as fresh as its inputs. data = {level, reason, since, blocked, pending, context_pct, context_at, output}:
@@ -125,7 +132,8 @@ SIDE EFFECT  `prs` and `prs_unplaced` (a default section, riding with prs)
   asked (so always with --max-age 0 or without a cache); once per fetch for
   both sections.
 
-NEVER read: /proc/*/environ, cmdline, transcripts (fleet_proc.py).
+NEVER read: /proc/*/environ, transcripts. A process's command line (/proc/*/cmdline) is read by fleet_proc.py for one
+question only (proc's inbox_watch below) and never kept: its answer is a boolean.
 """
 from __future__ import annotations
 
