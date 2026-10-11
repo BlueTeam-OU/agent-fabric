@@ -38,10 +38,15 @@ def settings_pins(path: str) -> list[str] | None:
     """The pins a settings file carries; None for a file that is JSON but
     not an object (the bash crashed there and the launch went on)."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        # utf-8-sig: a byte-order mark must not make a pinning file read as pin-free.
+        with open(path, encoding="utf-8-sig") as fh:
             d = json.load(fh) or {}
     except Exception:
         return []
+    return pins_of(d)
+
+
+def pins_of(d: object) -> list[str] | None:
     if not isinstance(d, dict):
         return None
     bad = []
@@ -105,3 +110,53 @@ def refuse_pins(scopes: list[str], local_override: str) -> None:
         die(f"CLAUDE_CODE_EFFORT_LEVEL is set to '{os.environ['CLAUDE_CODE_EFFORT_LEVEL']}'; it outranks every "
             "per-class effort the fabric writes, in every subagent. Unset it (routing/effort.json is where a "
             "level is decided).")
+
+
+def cli_settings_values(args: list[str]) -> list[str]:
+    """The values of every `--settings X` / `--settings=X`, wherever they stand: a
+    bare `--` can be an option's value (`-n -- --settings ...`), and claude goes on
+    parsing options after it, so stopping there was a bypass. A prompt that merely
+    contains the word is refused too, the safe side."""
+    out: list[str] = []
+    for i, a in enumerate(args):
+        if a == "--settings" and i + 1 < len(args):
+            out.append(args[i + 1])
+        elif a.startswith("--settings="):
+            out.append(a.split("=", 1)[1])
+    return out
+
+
+# What claude trims off a --settings value before it decides JSON from path (its JS
+# trim, plus a byte-order mark the launcher would otherwise take for a path character).
+JS_BLANKS = " \t\n\r\v\f\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a" \
+            "\u2028\u2029\u202f\u205f\u3000\ufeff"
+
+
+def refuse_cli_settings(args: list[str], cwd: str, local_override: str) -> None:
+    """A `--settings` the caller passes is one more settings scope, and the
+    harness loads it above the files fenced by refuse_pins: it gets the same
+    pin test. Only for the providers that have no ori fence of their own to
+    override (see argv.refuse_passthrough).
+
+    The launcher cannot be sure how claude will classify a value, so it tests
+    BOTH readings: the text as inline JSON, and the value as a file relative to the
+    launch directory. A reading that does not exist is skipped; a value neither
+    reading can read is the harness's refusal (it says so), not evidence of pins."""
+    for value in cli_settings_values(args):
+        text = value.strip(JS_BLANKS)
+        found: list[tuple[str, list[str] | None]] = []
+        if text.startswith("{"):
+            try:
+                found.append(("the --settings value", pins_of(json.loads(text) or {})))
+            except ValueError:
+                pass
+        for candidate in (value, text):
+            where = candidate if os.path.isabs(candidate) else os.path.join(cwd, candidate)
+            if candidate and os.path.isfile(where):
+                found.append((where, settings_pins(where)))
+        for where, pins in found:
+            if pins is None:
+                say(f"launch: {where} is not a JSON object; not read for model pins.")
+            elif pins:
+                die(f"{where} carries model pins ({' '.join(pins)}), which would silently outrank the profile. "
+                    f"Remove them; per-agent tiers go through {local_override}.")

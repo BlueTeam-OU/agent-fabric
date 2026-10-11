@@ -860,6 +860,49 @@ def _table_tools_install(rs: list) -> list[str]:
     return lines
 
 
+def _percent(x: Any) -> str:
+    return f"{round(x * 100)}%" if isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0 else "-"
+
+
+def _epoch_s(x: Any) -> float | None:
+    """A timestamp the gateway wrote, as seconds since the epoch; milliseconds are told by size."""
+    if not isinstance(x, (int, float)) or isinstance(x, bool) or x < 0:
+        return None
+    return x / 1000 if x > 1e11 else float(x)
+
+
+def _usage_words(u: Any) -> str:
+    """The usage the launcher relayed (control/gateway.py usage), as a few words after the version
+    row. A reading is the gateway's, per credential source and generation, unlabelled by account."""
+    if not isinstance(u, dict):
+        return ""
+    status = u.get("status")
+    if status != "ok":
+        why = f" ({u['reason']})" if isinstance(u.get("reason"), str) else ""
+        return f"usage: {status}{why}"
+    shown = []
+    for e in u.get("credentials") or []:
+        reading = e.get("usage") if isinstance(e, dict) else None
+        if not isinstance(reading, dict):
+            shown.append("no reading yet")
+            continue
+        five, seven = reading.get("five_hour"), reading.get("seven_day")
+        now = time.time()
+
+        def window(w: Any) -> str:
+            if not isinstance(w, dict):
+                return _percent(None)
+            ends = _epoch_s(w.get("reset"))
+            # A window that ended since the reading says nothing of the one running now; fetched_at only
+            # dates the relay's ask, so the gateway's own reset and read_at are what age a reading.
+            return "reset" if ends is not None and ends <= now else _percent(w.get("utilization"))
+        read = _epoch_s(e.get("read_at"))
+        age = f"read {int(max(now - read, 0))}s ago" if read is not None else "read at unknown time"
+        shown.append(f"5h {window(five)} 7d {window(seven)}"
+                     f"{' ' + reading['status'] if isinstance(reading.get('status'), str) else ''} ({age})")
+    return "usage: " + ("; ".join(shown) if shown else "no source yet") + f" (asked {u.get('fetched_at')})"
+
+
 def _table_gateway(rs: list) -> list[str]:
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('version', 9)} {pad_end('contract', 8)} digest"]
     for r in rs:
@@ -869,8 +912,10 @@ def _table_gateway(rs: list) -> list[str]:
             continue
         digest = S(dig(u, "installed_sha256"))[:12] if T(dig(u, "installed_sha256")) else "-"
         why = f"  {S(u['reason'])}" if T(dig(u, "reason")) else ""
+        words = _usage_words(u.get("usage")) if isinstance(u, dict) else ""
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
-                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(S(nullish(dig(u, 'contract'), '-')), 8)} {digest}{why}")))
+                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(S(nullish(dig(u, 'contract'), '-')), 8)} {digest}{why}"
+                                  f"{'  ' + words if words else ''}")))
     return lines
 
 

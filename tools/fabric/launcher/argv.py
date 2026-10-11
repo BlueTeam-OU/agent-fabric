@@ -32,10 +32,14 @@ def parse_argv(argv: list[str]) -> tuple[bool, str, list[str]]:
     return print_only, provider, args
 
 
-def refuse_passthrough(args: list[str]) -> None:
-    """Pass-through args must not be able to fence ori out of OpenRouter."""
+def refuse_passthrough(args: list[str], provider: str = "openrouter") -> None:
+    """Pass-through args must not be able to fence ori out of OpenRouter. The
+    --settings refusal is ori's: on anthropic and gateway there is no
+    fence of the launcher's to override, so a caller's --settings (a live check's
+    hook) is let through here and tested for model pins by
+    settings.refuse_cli_settings instead."""
     for arg in args:
-        if arg == "--settings" or arg.startswith("--settings="):
+        if (arg == "--settings" or arg.startswith("--settings=")) and provider == "openrouter":
             die("passing --settings would disable ori's provider fence (its own\n"
                 "  --settings carries apiKeyHelper and blanks every other provider\n"
                 "  variable). Launch without it; per-session settings go through the\n"
