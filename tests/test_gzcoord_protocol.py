@@ -255,12 +255,18 @@ def _():
     eq(validate("﻿" + HEAD + "BROADCAST: true\n")["errors"], [])
 
 
-def gzmsg_cli(*args: str) -> "subprocess.CompletedProcess[str]":
-    """The command at its contract's path: bin/gzmsg, the name everything inside the fabric uses."""
+def gzmsg_env() -> dict:
+    """What bin/gzmsg runs under: a scratch HOME and state directory, never the runner's."""
     home = tempfile.mkdtemp(prefix="gzmsg-home-")
     SCRATCH.append(home)
     env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(home, "state")}
     env.pop("XDG_STATE_HOME", None)
+    return env
+
+
+def gzmsg_cli(*args: str) -> "subprocess.CompletedProcess[str]":
+    """The command at its contract's path: bin/gzmsg, the name everything inside the fabric uses."""
+    env = gzmsg_env()
     return subprocess.run([os.path.join(os.path.dirname(os.path.dirname(GZCOORD)), "bin", "gzmsg"), *args], capture_output=True,
                           text=True, timeout=120, stdin=subprocess.DEVNULL, env=env)
 
@@ -1284,6 +1290,47 @@ def _():
 
 
 # The notification cap: what one --follow event carries.
+
+@case("waitLoop: the late error of an abandoned slice is not the next slice's own")
+def _():
+    """A hold that begins mid-slice abandons the fetch; its worker finishes later, after the loop has made the next
+    slice's box. The worker used to look `box` up when it ran, so a late error landed in the NEXT slice's box and was
+    raised as that fetch's own (found as a flaky 'aborted' under load). Here the next slice answers only after the
+    abandoned worker is dead, which is the bad order every time."""
+    me = DB_ADMIN
+    state = {"served": 0, "hold": False, "checks": 0}
+    first: list = []
+    second_started = threading.Event()
+    acked: list = []
+
+    def rec(rid: str) -> dict:
+        return {"id": rid, "sender": "develop-qzapp/x", "timestamp": "t",
+                "content": f"[GZCOORD/1] INFO\nFROM: develop-qzapp/x\nROLE: architect-cto\nPROJECT: gzapp\nMESSAGE-ID: x-{rid}\nBROADCAST: true\n"}
+
+    def fetch(_slice, abort):
+        state["served"] += 1
+        if state["served"] == 1:
+            first.append(threading.current_thread())
+            state["hold"] = True
+            abort.wait(30)
+            second_started.wait(10)       # the loop has made the next slice's box by now: the bad order, every time
+            raise RuntimeError("the abandoned slice's own error")
+        second_started.set()
+        first[0].join(10)
+        eq(first[0].is_alive(), False, "the abandoned worker has finished, its error written")
+        return {"messages": [rec("m9")]}
+
+    def held() -> bool:
+        if state["hold"]:
+            state["checks"] += 1
+            if state["checks"] > 3:
+                state["hold"] = False
+        return state["hold"]
+    r = inbox.wait_loop(fetch, acked.append, 1800, mine_of(me), held=held, hold_poll_ms=1)
+    eq(r["delivered"], True)
+    eq(state["served"], 2)
+    eq(acked, ["m9"])
+
 @case("render under a cap: metadata whole, body cut at a line, the replay command last")
 def _():
     me = {"address": "develop-qzapp/user", "slug": "fabric-coordinator"}
@@ -1548,7 +1595,9 @@ def _():
         ok(env["AGENT_FABRIC_STATE_DIR"] != "/runner/state" and os.path.isdir(os.path.dirname(env["AGENT_FABRIC_STATE_DIR"])), env["AGENT_FABRIC_STATE_DIR"])
         ok("XDG_STATE_HOME" not in env)
         eq(cmd_env(AGENT_FABRIC_STATE_DIR="/case/state")["AGENT_FABRIC_STATE_DIR"], "/case/state", "a case that names its own keeps it")
-        ok(gzmsg_cli("new-id").returncode == 0)   # gzmsg_cli runs under a scratch HOME and state directory of its own
+        g = gzmsg_env()    # and so does bin/gzmsg
+        ok(g["HOME"] != os.environ.get("HOME") and g["AGENT_FABRIC_STATE_DIR"].startswith(g["HOME"]) and "XDG_STATE_HOME" not in g, g)
+        ok(gzmsg_cli("new-id").returncode == 0)
     finally:
         for k, v in saved.items():
             if v is None:

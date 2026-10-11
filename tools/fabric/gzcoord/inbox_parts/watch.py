@@ -78,7 +78,10 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
         abort = threading.Event()
         box: dict = {}
 
-        def fetch() -> None:
+        # Bound now, not when the thread runs: an abandoned slice's worker finishes later, after this loop has made
+        # the next slice's `box` and `abort`, and a name looked up then would write its late error (or page) into that
+        # slice's box, where the waiting side raises it as the next fetch's own.
+        def fetch(box: dict = box, abort: threading.Event = abort, slice_: int = slice_) -> None:
             try:
                 box["page"] = fetch_page(slice_, abort)
             except BaseException as e:  # noqa: BLE001 — carried to the waiting side
