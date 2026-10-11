@@ -1,45 +1,33 @@
-"""tools/fabric/github/arm_policy.py — a repository's arming policy: how many work commits arm at the review gate,
-who may arm under it, and the GitHub settings that enforce the rest, as one document (the owner, 2026-10-11).
-Step A of the arming-policy work (fabric-coordinator REQUEST 01a12a13-cceb-755e-91b1-7f4e8236c1cf and its two
-changes, INFO 01a12a14-985a-72e4-ba2f-f8a025a302c5 and 01a12a15-752f-7755-848a-1011e8949867): no behaviour
-change. arm.py and pr_gate.py read the 8 and the 16 through here; until a policy file says otherwise the built-in
-default is what they did.
+"""tools/fabric/github/arm_policy.py — a repository's arming policy: how a pull request reaches the default branch,
+how many work commits arm it at the review gate, and the GitHub settings that enforce the rest, as one document
+whose shape is identities/schemas/arming.schema.json (the coordinator's). Step A (#196) made arm.py and pr_gate.py
+read the 8 and the 16 through it; step C (this) makes it the schema's document, reads it for the repository's client,
+and maps it onto GitHub for tools/fabric/github/repo_policy.py (fabric-repo-policy plan|verify) and arm.py's drift
+refusal.
 
 WHERE A POLICY IS. Two layers, the second over the first:
-  fleet     policies/arming.json in the fabric's tree (absent: DEFAULT below, today's behaviour)
-  repo      repos/<owner>/<repo>.json in the settings repository that projects/registry.json names in
-            `settings_repo` ("<owner>/<name>"), read from that repository's default branch through gh.py's
-            contents API: never from a pull request's head or a working copy, so a PR cannot change the rules it is
-            armed under. No `settings_repo` in the registry, or the repository has no file for this repo (HTTP 404):
-            the fleet policy applies. Any other failure to read it — no answer, a refusal, a file that is not JSON —
-            is PolicyUnavailable: an unreadable policy is never the default, because a default that is more
-            permissive than the repository's own would arm what the repository meant to hold.
+  fleet     policies/arming.json in the fabric's tree (absent: DEFAULT below)
+  repo      repos/<repo>.json in the settings repository of the repository's client, read from that repository's
+            default branch through gh.py's contents API: never from a pull request's head or a working copy, so a PR
+            cannot change the rules it is armed under. The client is projects/registry.json's `client` of the project
+            whose remote is the repository; the settings repository is projects/clients.json's `settings_repo` for
+            it. No such project or client, or none with a settings repository, or no file for the repository (HTTP
+            404 with the settings repository itself answering): the fleet policy applies. Any other failure to
+            read it — no answer, a refusal, a file that is not JSON, a settings repository that cannot be read —
+            is PolicyUnavailable: an unreadable policy is never the default, because a default more permissive than
+            the repository's own would arm what the repository meant to hold.
 Objects merge recursively, scalars and lists replace. The fetched file is cached by the caller for one run
-(`cache=`), never between runs. The schema of both files is identities/schemas/arming.schema.json (the
-coordinator's); this module validates the same shape and refuses an unknown key, a typo must not fall to the default.
+(`cache=`), never between runs. validate() holds the schema's shape and refuses what it does not allow: a typo must
+not fall to the default.
 
-THE DOCUMENT (every key optional in a file; the merged policy has them all):
-  mode           "auto" | "queue"      GitHub auto-merge, or the merge queue
-  method         "merge" | "squash" | "rebase"
-  commits        {min, advice_over, below_min}
-                   min          work commits that arm at the review gate (8)
-                   advice_over  over this many is advice for the next batch, never a refusal (16)
-                   below_min    "owner-word": under min, arming needs the owner's word (the only value)
-  roles          {<role slug>: {min}}  the minimum for a pull request whose author holds the role
-  classes        {<name>: {paths, min}} | {<name>: "<regex>"} (the older arm.json form, = {paths, min: 1}):
-                   a stated class whose regex every changed file matches arms at its own min
-  required_checks  [<check context>, ...]      required_status_checks
-  app            integration id of the App that reports them, or null
-  signatures     bool                  required_signatures
-  protect        ["deletion", "non_fast_forward", ...] subset
-  delete_branch_on_merge  bool
-  queue          the merge queue's parameters, read when mode is "queue"
-  ruleset_name   the ruleset's name ("main protection")
+BOUNDARY_FLOOR. A security-boundary change not waived is judged against max(commits.min, BOUNDARY_FLOOR): the
+repository's own file cannot lower the owner's-word gate a boundary change has had (under 8 work commits) by
+setting a small `commits.min`. Provisional: the schema has no key for it; whether it should is the coordinator's
+decision (QUESTION in the PR).
 
-threshold() IS THE ORDER OF SPECIFICITY: a stated class whose regex every file matches, then the author's role,
-then the repository's minimum (the merged `commits.min`, which is the repository's own or else the fleet's). A
-security-boundary change not waived is judged against the repository's minimum and never lowered by role or class.
-render() IS THE MAPPING to GitHub: the repository fields and the ruleset body (docs/adr/ADR-019 §6).
+threshold() IS THE ORDER OF SPECIFICITY: a stated class whose regex every file matches (commits.classes), then the
+author's role (commits.roles), then commits.min; a boundary change gets the floor above and nothing lowers it.
+render() IS THE MAPPING to GitHub: the repository fields and the ruleset body.
 """
 from __future__ import annotations
 
@@ -50,7 +38,7 @@ import json
 import os
 import re
 import sys
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -58,33 +46,36 @@ import gh  # noqa: E402
 import roots  # noqa: E402
 
 REPO_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-ROLE_SLUG = re.compile(r"[a-z0-9][a-z0-9-]*")
-# A class is named in a PR body as `Class: <name>`: a project's existing names have spaces ("single-check tooling").
-CLASS_NAME = re.compile(r"\S[^\n]*")
-MODES = ("auto", "queue")
+ROLE_SLUG = re.compile(r"[a-z][a-z0-9-]*")
+APP_SLUG = re.compile(r"[a-z0-9][a-z0-9-]*")
+MODES = ("queue", "auto", "direct", "owner-only")
 METHODS = ("merge", "squash", "rebase")
-PROTECT = ("deletion", "non_fast_forward")
-GROUPING = ("ALLGREEN", "HEADGREEN")
-QUEUE_METHODS = ("MERGE", "SQUASH", "REBASE")
-BELOW_MIN = ("owner-word",)
+BELOW_MIN = ("owner-word", "refuse")
+GROUPING = ("allgreen", "headgreen")
+UPDATE_TYPES = ("patch", "minor", "major")
+BOUNDARY_FLOOR = 8
 # GitHub's repository fields for the merge methods: the merge commit's is the odd one out.
 REPO_FIELD = {"merge": "allow_merge_commit", "squash": "allow_squash_merge", "rebase": "allow_rebase_merge"}
+# The integration id of an App by its slug, for a ruleset's required check; one not here is asked of GitHub
+# (apps/<slug>) by repo_policy.resolve_apps. github-actions is 15368 everywhere.
+APP_IDS = {"github-actions": 15368}
+# GitHub's own defaults for a merge queue, for what a policy leaves out.
+QUEUE_DEFAULTS = {"grouping": "allgreen", "build": 5, "merge_max": 5, "merge_min": 1, "wait_minutes": 5, "check_timeout_minutes": 60}
+RULESET_PARAMETERS = {"build": "max_entries_to_build", "merge_max": "max_entries_to_merge", "merge_min": "min_entries_to_merge",
+                      "wait_minutes": "min_entries_to_merge_wait_minutes", "check_timeout_minutes": "check_response_timeout_minutes"}
 
-# Today's behaviour: arm.py and pr_gate.py before this module. The queue block carries GitHub's own defaults.
+# The fleet default, as policies/arming.json has it: what a tree without that file gets.
 DEFAULT: dict[str, Any] = {
     "mode": "auto",
     "method": "merge",
-    "commits": {"min": 8, "advice_over": 16, "below_min": "owner-word"},
-    "roles": {},
-    "classes": {},
     "required_checks": [],
-    "app": None,
-    "signatures": False,
-    "protect": ["deletion", "non_fast_forward"],
+    "signatures": True,
+    "protect": {"deletion": True, "force_push": True},
     "delete_branch_on_merge": False,
-    "queue": {"merge_method": "MERGE", "grouping_strategy": "ALLGREEN", "max_entries_to_build": 5, "max_entries_to_merge": 5,
-              "min_entries_to_merge": 1, "min_entries_to_merge_wait_minutes": 5, "check_response_timeout_minutes": 60},
-    "ruleset_name": "main protection",
+    "queue": {},
+    "commits": {"min": 8, "advice_over": 16, "below_min": "owner-word", "roles": {}, "classes": {}},
+    "bots": {},
+    "github": {"ruleset": "fabric arming policy"},
 }
 # `$schema` and `description` are for the reader of the file.
 IGNORED_KEYS = ("$schema", "description")
@@ -103,8 +94,8 @@ def is_repo_name(v: Any) -> bool:
     return isinstance(v, str) and REPO_NAME.fullmatch(v) is not None and all(part not in (".", "..") for part in v.split("/"))
 
 
-def _int(v: Any) -> bool:
-    return isinstance(v, int) and not isinstance(v, bool)
+def _int(v: Any, low: int = 1) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and v >= low
 
 
 def merge(base: Any, over: Any) -> Any:
@@ -118,20 +109,21 @@ def merge(base: Any, over: Any) -> Any:
 
 
 def normalize_classes(raw: Any, where: str = "classes") -> dict[str, dict]:
-    """{name: regex} (the arm.json form) and {name: {paths, min}} as the second; the older form is {min: 1}."""
+    """{name: regex} (the arm.json form, = {paths, min: 1}) and {name: {paths, min}}; names are lower-cased, as a
+    PR body's `Class:` line is read."""
     if not isinstance(raw, dict):
         raise PolicyError(f"{where} is not an object of class names")
     out = {}
     for name, spec in raw.items():
         name = str(name).lower()
-        if not CLASS_NAME.fullmatch(name) or name != name.strip():
+        if not name or name != name.strip() or "\n" in name:
             raise PolicyError(f"{where}: {name!r} is not a class name")
         if isinstance(spec, str):
             spec = {"paths": spec, "min": 1}
-        if not isinstance(spec, dict) or set(spec) - {"paths", "min"} or not isinstance(spec.get("paths"), str):
+        if not isinstance(spec, dict) or set(spec) - {"paths", "min"} or not isinstance(spec.get("paths"), str) or not spec["paths"]:
             raise PolicyError(f"{where}.{name} is not a regex or an object with `paths` and `min`")
         floor = spec.get("min", 1)
-        if not _int(floor) or floor < 1:
+        if not _int(floor):
             raise PolicyError(f"{where}.{name}.min is not a whole number of at least 1")
         try:
             re.compile(spec["paths"])
@@ -143,60 +135,79 @@ def normalize_classes(raw: Any, where: str = "classes") -> dict[str, dict]:
     return out
 
 
+def _only_keys(value: Any, allowed: tuple, where: str) -> dict:
+    if not isinstance(value, dict) or set(value) - set(allowed):
+        raise PolicyError(f"{where} is not an object of {', '.join(allowed)}")
+    return value
+
+
 def validate(doc: Any, where: str = "the policy") -> dict:
-    """The document, checked and normalized (a copy). Raises PolicyError naming `where` and the key."""
+    """The document, completed from the default and checked against the schema's shape (a copy). Raises
+    PolicyError naming `where` and the key."""
     if not isinstance(doc, dict):
         raise PolicyError(f"{where} is not an object")
     unknown = sorted(set(doc) - set(DEFAULT) - set(IGNORED_KEYS))
     if unknown:
         raise PolicyError(f"{where}: unknown key(s) {', '.join(unknown)}; the keys are {', '.join(DEFAULT)}")
     p = merge(DEFAULT, {k: v for k, v in doc.items() if k not in IGNORED_KEYS})
-
-    def one_of(key: str, allowed: tuple) -> None:
-        if p[key] not in allowed:
-            raise PolicyError(f"{where}: {key} is {p[key]!r}, not one of {', '.join(allowed)}")
-    one_of("mode", MODES)
-    one_of("method", METHODS)
-    c = p["commits"]
-    if not isinstance(c, dict) or set(c) - set(DEFAULT["commits"]):
-        raise PolicyError(f"{where}: commits is not an object of {', '.join(DEFAULT['commits'])}")
+    if p["mode"] not in MODES:
+        raise PolicyError(f"{where}: mode is {p['mode']!r}, not one of {', '.join(MODES)}")
+    if p["method"] not in METHODS:
+        raise PolicyError(f"{where}: method is {p['method']!r}, not one of {', '.join(METHODS)}")
+    checks = p["required_checks"]
+    if not isinstance(checks, list):
+        raise PolicyError(f"{where}: required_checks is not a list")
+    seen = set()
+    for c in checks:
+        if not isinstance(c, dict) or set(c) - {"context", "app"} or not isinstance(c.get("context"), str) or not c["context"]:
+            raise PolicyError(f"{where}: required_checks: {c!r} is not {{\"context\": a check name, \"app\": an App slug}}")
+        if "app" in c and not (isinstance(c["app"], str) and APP_SLUG.fullmatch(c["app"])):
+            raise PolicyError(f"{where}: required_checks: app {c['app']!r} is not an App's slug")
+        key = (c["context"], c.get("app"))
+        if key in seen:
+            raise PolicyError(f"{where}: required_checks names {c['context']!r} twice")
+        seen.add(key)
+    if not isinstance(p["signatures"], bool) or not isinstance(p["delete_branch_on_merge"], bool):
+        raise PolicyError(f"{where}: signatures and delete_branch_on_merge are true or false")
+    protect = _only_keys(p["protect"], ("deletion", "force_push"), f"{where}: protect")
+    if not all(isinstance(v, bool) for v in protect.values()):
+        raise PolicyError(f"{where}: protect.deletion and protect.force_push are true or false")
+    q = _only_keys(p["queue"], tuple(QUEUE_DEFAULTS), f"{where}: queue")
+    if q.get("grouping", "allgreen") not in GROUPING:
+        raise PolicyError(f"{where}: queue.grouping is one of {', '.join(GROUPING)}")
+    for k in QUEUE_DEFAULTS:
+        if k != "grouping" and k in q and not _int(q[k]):
+            raise PolicyError(f"{where}: queue.{k} is not a whole number of at least 1")
+    if {**QUEUE_DEFAULTS, **q}["merge_min"] > {**QUEUE_DEFAULTS, **q}["merge_max"]:
+        raise PolicyError(f"{where}: queue.merge_min is over queue.merge_max")
+    c = _only_keys(p["commits"], tuple(DEFAULT["commits"]), f"{where}: commits")
     for k in ("min", "advice_over"):
-        if not _int(c.get(k)) or c[k] < 1:
+        if not _int(c[k]):
             raise PolicyError(f"{where}: commits.{k} is not a whole number of at least 1")
     if c["advice_over"] < c["min"]:
         raise PolicyError(f"{where}: commits.advice_over ({c['advice_over']}) is under commits.min ({c['min']})")
-    if c.get("below_min") not in BELOW_MIN:
-        raise PolicyError(f"{where}: commits.below_min is {c.get('below_min')!r}, not one of {', '.join(BELOW_MIN)}")
-    roles = p["roles"]
-    if not isinstance(roles, dict):
-        raise PolicyError(f"{where}: roles is not an object of role slugs")
-    for slug, spec in roles.items():
+    if c["below_min"] not in BELOW_MIN:
+        raise PolicyError(f"{where}: commits.below_min is {c['below_min']!r}, not one of {', '.join(BELOW_MIN)}")
+    if not isinstance(c["roles"], dict):
+        raise PolicyError(f"{where}: commits.roles is not an object of role slugs")
+    for slug, spec in c["roles"].items():
         if not ROLE_SLUG.fullmatch(str(slug)):
-            raise PolicyError(f"{where}: roles: {slug!r} is not a role slug")
-        if not isinstance(spec, dict) or set(spec) != {"min"} or not _int(spec["min"]) or spec["min"] < 1:
-            raise PolicyError(f"{where}: roles.{slug} is not {{\"min\": a whole number of at least 1}}")
-    p["classes"] = normalize_classes(p["classes"], f"{where}: classes")
-    checks = p["required_checks"]
-    if not isinstance(checks, list) or not all(isinstance(x, str) and x and x == x.strip() for x in checks) or len(set(checks)) != len(checks):
-        raise PolicyError(f"{where}: required_checks is not a list of distinct check names")
-    if p["app"] is not None and (not _int(p["app"]) or p["app"] < 1):
-        raise PolicyError(f"{where}: app is not an App's integration id or null")
-    if not isinstance(p["signatures"], bool) or not isinstance(p["delete_branch_on_merge"], bool):
-        raise PolicyError(f"{where}: signatures and delete_branch_on_merge are true or false")
-    if not isinstance(p["protect"], list) or any(x not in PROTECT for x in p["protect"]) or len(set(p["protect"])) != len(p["protect"]):
-        raise PolicyError(f"{where}: protect is not a list drawn from {', '.join(PROTECT)}")
-    q = p["queue"]
-    if not isinstance(q, dict) or set(q) != set(DEFAULT["queue"]):
-        raise PolicyError(f"{where}: queue is not an object of {', '.join(DEFAULT['queue'])}")
-    if q["merge_method"] not in QUEUE_METHODS or q["grouping_strategy"] not in GROUPING:
-        raise PolicyError(f"{where}: queue.merge_method is one of {', '.join(QUEUE_METHODS)}, queue.grouping_strategy one of {', '.join(GROUPING)}")
-    for k in DEFAULT["queue"]:
-        if k not in ("merge_method", "grouping_strategy") and (not _int(q[k]) or q[k] < 1):
-            raise PolicyError(f"{where}: queue.{k} is not a whole number of at least 1")
-    if q["min_entries_to_merge"] > q["max_entries_to_merge"]:
-        raise PolicyError(f"{where}: queue.min_entries_to_merge is over queue.max_entries_to_merge")
-    if not isinstance(p["ruleset_name"], str) or not p["ruleset_name"].strip():
-        raise PolicyError(f"{where}: ruleset_name is not a name")
+            raise PolicyError(f"{where}: commits.roles: {slug!r} is not a role slug")
+        if not isinstance(spec, dict) or set(spec) != {"min"} or not _int(spec["min"]):
+            raise PolicyError(f"{where}: commits.roles.{slug} is not {{\"min\": a whole number of at least 1}}")
+    c["classes"] = normalize_classes(c["classes"], f"{where}: commits.classes")
+    bots = _only_keys(p["bots"], ("dependabot",), f"{where}: bots")
+    if "dependabot" in bots:
+        d = _only_keys(bots["dependabot"], ("arm", "ecosystems"), f"{where}: bots.dependabot")
+        if "arm" not in d or not isinstance(d["arm"], list) or any(x not in UPDATE_TYPES for x in d["arm"]) or len(set(d["arm"])) != len(d["arm"]):
+            raise PolicyError(f"{where}: bots.dependabot.arm is a list drawn from {', '.join(UPDATE_TYPES)}")
+        eco = d.get("ecosystems", [])
+        if not isinstance(eco, list) or not all(isinstance(x, str) and x for x in eco) or len(set(eco)) != len(eco):
+            raise PolicyError(f"{where}: bots.dependabot.ecosystems is a list of distinct package ecosystems")
+    g = _only_keys(p["github"], ("ruleset", "branch"), f"{where}: github")
+    for k, v in g.items():
+        if not isinstance(v, str) or not v.strip():
+            raise PolicyError(f"{where}: github.{k} is not a name")
     return p
 
 
@@ -220,29 +231,50 @@ def fleet_policy(root: str | None = None) -> dict:
 
 
 def default() -> dict:
-    """The built-in policy: today's behaviour, for a caller with no repository to load for."""
+    """The built-in policy, for a caller with no repository to load for."""
     return validate({})
 
 
-def settings_repo(registry: Any) -> str | None:
-    """The settings repository the registry names, or None when it names none (the feature is not set up)."""
-    value = registry.get("settings_repo") if isinstance(registry, dict) else None
+def project_of(registry: Any, repo: str) -> tuple[str, dict] | None:
+    """The registry project whose remote is `repo` ("<owner>/<name>", compared without case), or None."""
+    projects = registry.get("projects") if isinstance(registry, dict) else None
+    if not isinstance(projects, dict):
+        raise PolicyUnavailable("projects/registry.json has no projects map")
+    want = repo.lower()
+    for pid, spec in projects.items():
+        for remote in (spec.get("remotes") if isinstance(spec, dict) else None) or []:
+            m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$", str(remote))
+            if m and m.group(1).lower() == want:
+                return pid, spec
+    return None
+
+
+def settings_repo_of(registry: Any, clients: Any, repo: str) -> str | None:
+    """The settings repository of `repo`'s client, or None when the repository is not a registered project's, its
+    project has no client, or its client names no settings repository (then the fleet policy applies)."""
+    found = project_of(registry, repo)
+    if found is None:
+        return None
+    client = found[1].get("client")
+    entry = clients.get("clients", {}).get(client) if isinstance(clients, dict) and isinstance(clients.get("clients"), dict) else None
+    value = entry.get("settings_repo") if isinstance(entry, dict) else None
     if value is None:
         return None
     if not is_repo_name(value):
-        raise PolicyError("projects/registry.json: settings_repo is not an <owner>/<name>")
+        raise PolicyError(f"projects/clients.json: {client}'s settings_repo is not an <owner>/<name>")
     return value
 
 
 def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api) -> dict | None:
-    """repos/<repo>.json from the settings repository's default branch, or None when it has none (404). Every
-    other failure raises PolicyUnavailable."""
+    """repos/<repo name>.json from the settings repository's default branch, or None when it has none (404 while the
+    settings repository itself answers). Every other failure raises PolicyUnavailable."""
     if not is_repo_name(repo):
         raise PolicyUnavailable(f"{repo!r} is not an <owner>/<name>")
-    where = f"{settings} repos/{repo}.json"
+    name = repo.split("/", 1)[1]
+    where = f"{settings} repos/{name}.json"
     try:
         # No `ref`: the contents API reads the default branch, which is the point.
-        answer = api(f"repos/{settings}/contents/repos/{repo}.json")
+        answer = api(f"repos/{settings}/contents/repos/{name}.json")
     except gh.GhError as e:
         if e.status != 404:
             raise PolicyUnavailable(f"{where} could not be read ({e.reason})") from None
@@ -264,8 +296,8 @@ def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api
     return doc
 
 
-def load(repo: str | None, *, root: str | None = None, registry: Any = None, api: Callable[..., Any] = gh.api,
-         cache: dict | None = None) -> dict:
+def load(repo: str | None, *, root: str | None = None, registry: Any = None, clients: Any = None,
+         api: Callable[..., Any] = gh.api, cache: dict | None = None) -> dict:
     """The policy for `repo` ("<owner>/<name>"; None: the fleet's). `cache` is the caller's dict, for one run: a
     repository's file is fetched once. PolicyError for a document that is not valid, PolicyUnavailable when the
     repository's file could not be read."""
@@ -280,10 +312,12 @@ def load(repo: str | None, *, root: str | None = None, registry: Any = None, api
             registry = workingcopy.load_registry()
         except (OSError, ValueError) as e:
             raise PolicyUnavailable(f"projects/registry.json cannot be read ({e})") from None
-    settings = settings_repo(registry)
+    if clients is None:
+        clients = _read_json_file(os.path.join(roots.projects_dir(root=root), "clients.json")) or {}
+    settings = settings_repo_of(registry, clients, repo)
     doc = fetch_repo_policy(settings, repo, api) if settings else None
     policy = fleet if doc is None else validate(merge(fleet, {k: v for k, v in doc.items() if k not in IGNORED_KEYS}),
-                                                f"{settings} repos/{repo}.json")
+                                                f"{settings} repos/{repo.split('/', 1)[1]}.json")
     if cache is not None:
         cache[repo] = copy.deepcopy(policy)
     return policy
@@ -291,47 +325,71 @@ def load(repo: str | None, *, root: str | None = None, registry: Any = None, api
 
 def with_classes(policy: dict, classes: dict[str, str]) -> dict:
     """The policy with a project's older arm.json classes ({name: regex}) added under the policy's own: a class
-    the policy states wins. Step A leaves classes in arm.json."""
+    the policy states wins."""
     out = copy.deepcopy(policy)
-    out["classes"] = {**normalize_classes(classes, "arm.json classes"), **policy["classes"]}
+    out["commits"]["classes"] = {**normalize_classes(classes, "arm.json classes"), **policy["commits"]["classes"]}
     return out
 
 
 def threshold(policy: dict, role: str | None, cls: str | None, boundary: bool) -> int:
     """The work commits at which this pull request arms at the review gate. `cls` is the stated class whose
     regex every changed file matches (the caller checked), or empty; `boundary` is a security-boundary change not
-    waived. Most specific first: class, role, repository; a boundary change gets the repository's minimum and
-    nothing lowers it."""
-    base = policy["commits"]["min"]
+    waived. Most specific first: class, role, repository; a boundary change gets max(commits.min, BOUNDARY_FLOOR)
+    and nothing lowers it."""
+    c = policy["commits"]
     if boundary:
-        return base
+        return max(c["min"], BOUNDARY_FLOOR)
     if cls:
-        if cls not in policy["classes"]:
+        if cls not in c["classes"]:
             raise PolicyError(f"the policy has no class {cls!r}")
-        return policy["classes"][cls]["min"]
-    spec = policy["roles"].get(role) if role else None
-    return spec["min"] if spec else base
+        return c["classes"][cls]["min"]
+    spec = c["roles"].get(role) if role else None
+    return spec["min"] if spec else c["min"]
 
 
-def render(policy: dict) -> dict:
-    """What the policy asks of GitHub: {"repository": the repository fields, "ruleset": the ruleset body}."""
+def ruleset_name(policy: dict) -> str:
+    return policy["github"]["ruleset"]
+
+
+def render(policy: dict, apps: Mapping[str, int] | None = None) -> dict:
+    """What the policy asks of GitHub: {"repository": the repository fields, "ruleset": the ruleset body or None}.
+    `apps` maps an App slug to its integration id (APP_IDS by default; repo_policy asks GitHub for the rest). The
+    mode decides: auto and queue turn auto-merge on, owner-only and direct off; direct has no server-side rule, so
+    no ruleset."""
     p = validate(policy)
-    repository = {"allow_auto_merge": True, "delete_branch_on_merge": p["delete_branch_on_merge"],
+    ids = {**APP_IDS, **(apps or {})}
+    repository = {"allow_auto_merge": p["mode"] in ("auto", "queue"), "delete_branch_on_merge": p["delete_branch_on_merge"],
                   **{field: m == p["method"] for m, field in REPO_FIELD.items()}}
-    rules: list[dict] = [{"type": t} for t in p["protect"]]
+    if p["mode"] == "direct":
+        return {"repository": repository, "ruleset": None}
+    rules: list[dict] = []
+    if p["protect"].get("deletion"):
+        rules.append({"type": "deletion"})
+    if p["protect"].get("force_push"):
+        rules.append({"type": "non_fast_forward"})
     rules.append({"type": "pull_request", "parameters": {
         "allowed_merge_methods": [p["method"]], "dismiss_stale_reviews_on_push": False, "require_code_owner_review": False,
         "require_last_push_approval": False, "required_approving_review_count": 0, "required_review_thread_resolution": False}})
     if p["required_checks"]:
+        entries = []
+        for c in p["required_checks"]:
+            entry: dict[str, Any] = {"context": c["context"]}
+            if "app" in c:
+                if c["app"] not in ids:
+                    raise PolicyError(f"no integration id is known for the App {c['app']!r} (repo_policy asks GitHub for it)")
+                entry["integration_id"] = ids[c["app"]]
+            entries.append(entry)
         rules.append({"type": "required_status_checks", "parameters": {
-            "strict_required_status_checks_policy": False, "do_not_enforce_on_create": False,
-            "required_status_checks": [{"context": c, **({"integration_id": p["app"]} if p["app"] is not None else {})}
-                                       for c in p["required_checks"]]}})
+            "strict_required_status_checks_policy": False, "do_not_enforce_on_create": False, "required_status_checks": entries}})
     if p["mode"] == "queue":
-        rules.append({"type": "merge_queue", "parameters": dict(p["queue"])})
+        q = {**QUEUE_DEFAULTS, **p["queue"]}
+        rules.append({"type": "merge_queue", "parameters": {
+            "merge_method": p["method"].upper(), "grouping_strategy": q["grouping"].upper(),
+            **{RULESET_PARAMETERS[k]: q[k] for k in RULESET_PARAMETERS}}})
     if p["signatures"]:
         rules.append({"type": "required_signatures"})
+    branch = p["github"].get("branch")
     return {"repository": repository,
-            "ruleset": {"name": p["ruleset_name"], "target": "branch", "enforcement": "active",
-                        "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+            "ruleset": {"name": ruleset_name(p), "target": "branch", "enforcement": "active",
+                        "conditions": {"ref_name": {"include": [f"refs/heads/{branch}" if branch else "~DEFAULT_BRANCH"], "exclude": []}},
                         "bypass_actors": [], "rules": rules}}

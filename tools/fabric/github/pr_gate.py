@@ -372,7 +372,11 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
         return "MERGEABLE — commits unknown (fetch the base); apply the count rule by hand"
     if isinstance(policy, str):
         return f"MERGEABLE — the arming policy cannot be read ({policy}); apply the count rule by hand"
-    rule = (policy or arm_policy.default())["commits"]
+    policy = policy or arm_policy.default()
+    if policy["mode"] in ("owner-only", "direct"):
+        return (f"NOT ARMED BY FABRIC-PR — this repository's arming policy is {policy['mode']}: "
+                + ("only the owner merges" if policy["mode"] == "owner-only" else "work reaches it by push, there is nothing to arm"))
+    rule = policy["commits"]
     work = commits["work"]
     if work > rule["advice_over"]:
         return f"MERGEABLE — {work} work commits, over {rule['advice_over']}: smaller batches next time; arm on the basis"
