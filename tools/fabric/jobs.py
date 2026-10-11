@@ -20,7 +20,7 @@ behind bin/fabric-jobs.
 The list is agents/<login>/jobs.json, read and written only through
 runtime/identity.py, under the agent lock. A job's project and working
 copy are the ones the directory it was added in resolves to, unless given;
-its topic is a label the agent sets, compared by `next` and never guessed.
+its topic is a label the agent sets, never guessed.
 At most one job is active: `start` refuses a second, because "what am I
 doing" has one answer.
 
@@ -86,10 +86,11 @@ no reason to continue. A session that has worked a job gets a fresh session
 for the next, however alike the two are, and `next` prints the one command
 that starts it (`fabric-fresh --job <id>`); the agent confirms by running
 it. A session that has worked none (just launched, so already fresh)
-takes the job in place. "Worked" is read from the list: going `active` writes the
-harness session id (CLAUDE_CODE_SESSION_ID) into that job's log entry,
-and a session is one that appears there. With no session id in the
-environment (an unlaunched shell) any job that has left `active` counts.
+takes the job in place. "Worked" is read from the list: every transition writes the
+harness session id (CLAUDE_CODE_SESSION_ID) into the job's log entry,
+and a session is one that appears in any entry, so a session launched
+with its job already active is known once it finishes it. With no session id in the
+environment (an unlaunched shell) any job that has left `active` counts, so `next` says fresh.
 """
 from __future__ import annotations
 

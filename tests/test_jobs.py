@@ -288,11 +288,26 @@ def main() -> int:
               and verdict.get("fresh") is True and verdict.get("worked") == "j5", p.stdout)
         run("done", "j6")
         env["CLAUDE_CODE_SESSION_ID"] = saved
+        # A launched session never activates its job: A's `next` did, and B
+        # (opened by fabric-fresh --job) only works and finishes it.
+        run("add", "launched-job")
+        run("add", "after-launched")
+        p = run("next")
+        launched = "j7"
+        check("A hands the job to a fresh session", f"fabric-fresh --job {launched}" in p.stdout, p.stdout)
+        env["CLAUDE_CODE_SESSION_ID"] = "sess-launched"
+        run("done", launched)
+        p = run("next", "--json")
+        verdict = json.loads(p.stdout or "{}")
+        check("B, launched with the job active, has worked it: its next is fresh", verdict.get("fresh") is True
+              and verdict.get("worked") == launched, p.stdout)
+        run("done", verdict.get("job", "j8"))
+        env["CLAUDE_CODE_SESSION_ID"] = saved
         env_nosession = {k: v for k, v in env.items() if k != "CLAUDE_CODE_SESSION_ID"}
         run("add", "g")
         p = subprocess.run([JOBS, "next"], cwd=repo_a, env=env_nosession, capture_output=True, text=True)
-        check("no session id: a job that has left active counts, so fresh", "fabric-fresh --job j7" in p.stdout, p.stdout + p.stderr)
-        run("done", "j7")
+        check("no session id: a job that has left active counts, so fresh", "fabric-fresh --job j9" in p.stdout, p.stdout + p.stderr)
+        run("done", "j9")
         p = run("next", "j3")
         check("next refuses a closed job", p.returncode == 1 and "next takes a queued" in p.stderr, p.stderr)
 
