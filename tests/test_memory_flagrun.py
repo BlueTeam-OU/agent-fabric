@@ -226,9 +226,14 @@ class Phase(FlagRun):
                 self.assertIsNone(fleet.open_jobs[f"{HOST}/python-dev-01"])
                 o = self.go(send=False, now=NOW + 30 * DAY)
                 self.assertEqual([f.heading for f, _ in o.held], ["moved"], "its flag is held, as for an account that did not answer")
-        self.fleet_files(jobs=[{"account": "python-dev-01", "host": HOST, "status": "ok", "op": "jobs", "jobs": {"status": "ok", "jobs": [good, {"state": "done", "source": None}]}},
+        mid = "01a12be4-c199-7261-b019-9d0b329d10c9"
+        well_formed = [good, {"state": "done", "source": None}, {"state": "queued", "title": "t", "source": {"kind": "self"}},
+                       {"state": "queued", "source": {"message_id": None}}, {"state": "queued", "source": {"message_id": mid}},
+                       {"state": "queued", "title": "memory (REQUEST " + "0" * 8 + "-0000-0000-0000-" + "0" * 12 + ")"}]
+        self.fleet_files(jobs=[{"account": "python-dev-01", "host": HOST, "status": "ok", "op": "jobs", "jobs": {"status": "ok", "jobs": well_formed}},
                                jobs("python-dev-02", []), jobs("rust-dev-01", [])])
-        self.assertEqual(fr.read_fleet([sys.executable, os.path.join(self.work, "ctl.py")]).open_jobs[f"{HOST}/python-dev-01"], set(), "the control: well-formed objects are read")
+        self.assertEqual(fr.read_fleet([sys.executable, os.path.join(self.work, "ctl.py")]).open_jobs[f"{HOST}/python-dev-01"],
+                         {mid, "0" * 8 + "-0000-0000-0000-" + "0" * 12}, "the control: well-formed objects, the shapes real jobs have, are read")
 
     def test_a_presence_role_that_is_not_a_string_is_no_role_not_a_crash(self):
         self.fleet_files(presence=[presence("python-dev-01", ["python-dev"], True), presence("rust-dev-01", "rust-dev", False)])

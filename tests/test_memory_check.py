@@ -315,7 +315,10 @@ GIT_ENV = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG
 
 def git(tree: str, *args: str, date: str | None = None) -> str:
     env = {**GIT_ENV, **({"GIT_AUTHOR_DATE": f"{date}T12:00:00Z", "GIT_COMMITTER_DATE": f"{date}T12:00:00Z"} if date else {})}
-    r = subprocess.run(["git", "-C", tree, "-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false", *args],
+    r = subprocess.run(["git", "-C", tree, "-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false",
+                        # git commit may start a detached maintenance that holds objects/maintenance.lock for a moment: a test that
+                        # digests the repository before and after would see the lock come and go.
+                        "-c", "gc.auto=0", "-c", "maintenance.auto=false", *args],
                        capture_output=True, text=True, env=env, timeout=60, check=True, stdin=subprocess.DEVNULL)
     return r.stdout.strip()
 
