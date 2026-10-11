@@ -648,8 +648,11 @@ def arm(argv: list[str]) -> int:
             say(f"no boundary matched: the waiver {waiver} is not needed, not read, and not recorded")
     waived_by = ""
     boundary_unwaived = False
-    if is_boundary:
-        if waiver:
+    # A direct repository merges at once (no --auto, no ruleset holding the merge), so every PR
+    # there needs the review of its head and no open thread, boundary or not (review of #212, F1).
+    direct = policy["mode"] == "direct"
+    if is_boundary or direct:
+        if is_boundary and waiver:
             login, mid = verify_waiver(waiver, num, repo, head, session, waiver_role, refuse)
             waived_by = f"Boundary gate waived by {login} ({mid}): {no_boundary}."
             say(f"boundary gate WAIVED by {login}, {waiver_role} ({mid}): {no_boundary}")
@@ -673,19 +676,21 @@ def arm(argv: list[str]) -> int:
                 # An independent or automated review is not the boundary's
                 # review: the reader counts any non-author review object
                 # (a managed project's PR #930 blind review, F1).
-                raise refuse(f"a security-boundary change with no review-class review of the current head: dispatch the"
+                what = "a security-boundary change" if is_boundary else "a PR on a direct repository (merged at once)"
+                raise refuse(f"{what} with no review-class review of the current head: dispatch the"
                              f" review class on {head} and post with fabric-pr post-review, then arm (an independent"
                              f" or automated review does not count here)")
             if not isinstance(unresolved, int) or isinstance(unresolved, bool):
                 raise Unanswered(f"pr-review-status reported no unresolved_threads count for #{num} (null: the lookup"
                                  f" failed) — cannot judge the open findings")
             if unresolved != 0:
-                raise refuse(f"a security-boundary change with {unresolved} unresolved review thread(s): answer and"
+                what = "a security-boundary change" if is_boundary else "a PR on a direct repository (merged at once)"
+                raise refuse(f"{what} with {unresolved} unresolved review thread(s): answer and"
                              f" resolve them first (no open P1 or P2)")
             say(f"the current head {head} has the review class's review, and no unresolved thread")
             # Its owner's word follows the count (gate 5): only under the repository's minimum (8
             # by default), and there no class stands in for it.
-            boundary_unwaived = True
+            boundary_unwaived = is_boundary
 
     # 5. the count rule, from pr-gate's classifier
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])

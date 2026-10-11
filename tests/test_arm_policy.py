@@ -1027,6 +1027,12 @@ class ArmRun(unittest.TestCase):
                  "dispatch the review class on"),
                 ("an open thread on a boundary", {"unresolved": 1, "basis": "the owner's word", "files": ("policies/x.json",)},
                  "answer and resolve them first"),
+                # Not a boundary file: a direct repository merges at once, so the head's review and its
+                # threads are gated for every PR there (review of #212, F1).
+                ("no review of a non-boundary head", {"reviewed": False, "basis": "the owner's word"},
+                 "a PR on a direct repository (merged at once) with no review-class review"),
+                ("an open thread on a non-boundary PR", {"unresolved": 1, "basis": "the owner's word"},
+                 "a PR on a direct repository (merged at once) with 1 unresolved"),
                 ("under the minimum without the word", {}, "on the owner's word")):
             rc, _ = self.run_arm(p, 3, live=merged, **kw)
             self.assertTrue(str(rc).startswith("refused"), (label, rc))
