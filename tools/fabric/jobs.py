@@ -79,13 +79,17 @@ claims nothing.
 job, which is never preempted, and takes the job named, or the queued job
 of highest priority, the oldest first (the list's order is the order jobs
 were added); a blocked job keeps its place and is taken only by name. It
-compares that job with the job that last left
-`active`, or, when none has, with the directory it runs in:
-the same project, working copy and topic continue in this session; any
-difference is a fresh session, and `next` prints the one command that
-starts it (`fabric-fresh --job <id>`). The agent confirms by running it.
-A topic missing on either side leaves only the repository to compare,
-and `next` says so rather than guessing whether the subjects differ.
+asks whether this session has already worked a job. Every job
+starts in a fresh session (the owner, 2026-10-11): a fresh launch reads the
+fabric anew, which a running session never does, and a warm prompt cache is
+no reason to continue. A session that has worked a job gets a fresh session
+for the next, however alike the two are, and `next` prints the one command
+that starts it (`fabric-fresh --job <id>`); the agent confirms by running
+it. A session that has worked none (just launched, so already fresh)
+takes the job in place. "Worked" is read from the list: going `active` writes the
+harness session id (CLAUDE_CODE_SESSION_ID) into that job's log entry,
+and a session is one that appears there. With no session id in the
+environment (an unlaunched shell) any job that has left `active` counts.
 """
 from __future__ import annotations
 

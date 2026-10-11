@@ -85,3 +85,7 @@ fifteen minutes with exit 5, the reason on stdout. `--follow` is
 unchanged for other consumers, and the start hook recognises either under
 the session. §2 and §5 rules 1, 2 and 6 name the new command; the
 launcher's opening prompt says to run it again after each delivery.
+
+### Amendment 2026-10-11 — Every job starts in a fresh session
+
+The owner decided on 2026-10-11 that an agent starts a fresh session for every job it takes after finishing one; keeping the prompt cache warm is not a reason to continue. A fresh launch reads the fabric anew (launch prompt, charter, CLAUDE.md, hooks), which the fleet upgrade updates on disk and a running session never re-reads, so a continued session works on stale rules. `fabric-jobs next` therefore no longer compares project, working copy and topic: a session that has already worked a job gets `fabric-fresh --job <id>` always; a session that has worked none (just launched) takes the job in place, being already fresh. A job's `active` log entry records the harness session id (`CLAUDE_CODE_SESSION_ID`), which is how a session is told to have worked a job; an active job is still never preempted and a blocked one is still taken only by name.

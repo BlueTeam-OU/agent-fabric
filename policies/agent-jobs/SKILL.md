@@ -104,21 +104,24 @@ Pool jobs are added by the owner (`fabric-ctl <holder> pool-add --role
 agent's list (`fabric-ctl <login> jobs-add [--priority P] "<title>"`);
 you do not add to a pool.
 
-It starts the job and compares it with the job that just ended:
+It starts the job and asks whether this session has already worked one.
+Every job after a finished one starts in a fresh session (the owner,
+2026-10-11):
 
-- **Same project, same working copy, same topic:** "continue here". Go on
-  in this session.
-- **Any of the three differs:** "fresh session". It prints
-  `fabric-fresh --job <id>`. Run it once this session's work is
-  committed and what you learnt is in your memory. The launcher starts a
-  new session in that job's working copy, with the job in its opening
-  prompt.
-- **A job without a topic:** only the repository is compared, and `next`
-  says so. If the subject differs anyway, it is a fresh session all the
-  same.
+- **This session has worked a job:** "fresh session", whatever the
+  project, working copy or topic. It prints `fabric-fresh --job <id>`.
+  Run it once this session's work is committed and what you learnt is in
+  your memory. The launcher starts a new session in that job's working
+  copy, with the job in its opening prompt.
+- **This session has worked no job yet** (just launched, by
+  `fabric-fresh --job` or on its own): "continue here". It is already
+  fresh, so take the job in place.
 
-A fresh session costs this conversation's context; that is the point. A
-different repository or subject should not read this one's history. If
+A fresh session costs this conversation's context, and a cold prompt
+cache; that is the point. A launch reads the fabric anew (the prompt,
+charter, CLAUDE.md and hooks that an upgrade updates on disk and a running
+session never re-reads), so a continued session works on stale rules, and
+an earlier job's history should not shape the next. If
 the session-start context says your active job is in another working
 copy, you are in the wrong session for it: continue it there, or block
 or deliver it first.

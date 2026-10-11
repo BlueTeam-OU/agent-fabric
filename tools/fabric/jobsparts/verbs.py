@@ -6,32 +6,18 @@ import json
 import sys
 from fabric_jobs.base import MESSAGE_ID, NothingQueued, OPEN, POOL_ID, Refused, TERMINAL, identity, mutate
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
-from fabric_jobs.records import active, fetch_message, find, new_job, own_project, request_job, transition
+from fabric_jobs.records import active, fetch_message, find, new_job, request_job, session_id, session_worked, transition
 from fabric_jobs.queue import stream_waits
 from fabric_jobs.pool import Unanswered, ask_pool, claimed_job, pool_job, pool_line, pool_offer, printable
 from fabric_jobs.render import line, show, summary
 
 
-def decide(doc: dict, nxt: dict, here: dict) -> dict:
-    """Whether `nxt` continues in this session or needs a fresh one."""
-    prev = next((j for j in doc["jobs"] if j["id"] == doc.get("last")), None)
-    base = prev or {"project": own_project(here), "working_copy": here.get("working_copy"), "topic": None}
-    against = f"{prev['id']}" if prev else "this directory"
-    differs = []
-    if (base.get("working_copy") or None) != (nxt.get("working_copy") or None):
-        differs.append(f"working copy {nxt.get('working_copy') or '-'}, not {base.get('working_copy') or '-'}")
-    elif (base.get("project") or None) != (nxt.get("project") or None):
-        differs.append(f"project {nxt.get('project') or '-'}, not {base.get('project') or '-'}")
-    caveat = None
-    if base.get("topic") and nxt.get("topic"):
-        if base["topic"].casefold() != nxt["topic"].casefold():
-            differs.append(f"topic {nxt['topic']!r}, not {base['topic']!r}")
-    else:
-        missing = [j for j in (prev, nxt) if j and not j.get("topic")]
-        caveat = (f"no topic on {' and '.join(j['id'] for j in missing)}: compared by repository only — "
-                  "if the subject differs, it is a fresh session all the same") if missing else \
-                 "compared with this directory by repository only"
-    return {"job": nxt["id"], "against": against, "fresh": bool(differs), "differs": differs, "caveat": caveat}
+def decide(doc: dict, nxt: dict, session: str | None) -> dict:
+    """Whether `nxt` continues in this session or needs a fresh one: a
+    session that has already worked a job always needs a fresh one, so each
+    job reads the fabric anew (the owner, 2026-10-11, ADR-037 rule 3)."""
+    worked = session_worked(doc, session)
+    return {"job": nxt["id"], "fresh": bool(worked), "worked": worked}
 
 
 def add(args) -> int:
@@ -57,7 +43,7 @@ def add(args) -> int:
         print(f"added {line(job)}")
         if not job.get("working_copy"):
             print(f"  no working copy of {job.get('project') or 'its project'} found beside this one: "
-                  f"fabric-jobs next compares it by project only; re-add it with --working-copy to fix",
+                  f"fabric-fresh would start it in the wrong directory; re-add it with --working-copy to fix",
                   file=sys.stderr)
     return 0
 
@@ -133,7 +119,6 @@ def show_job(args) -> int:
 
 def next_job(args) -> int:
     """next: start the next job and say whether it needs a fresh session."""
-    here = identity.resolve_context()
     # Read before the lock: the stream is a relay call, and the list's
     # lock is every writer's.
     waits, stale = ({}, {}) if args.id else stream_waits(identity.read_jobs())
@@ -151,7 +136,7 @@ def next_job(args) -> int:
             nxt = next(iter(queue_order(doc, waits)), None)
             if nxt is None:
                 raise NothingQueued("no queued job")
-        verdict = decide(doc, nxt, here)
+        verdict = decide(doc, nxt, session_id())
         who = waiters(nxt, waits)
         transition(doc, nxt, "active")
         return verdict, dict(nxt), who
@@ -167,13 +152,10 @@ def next_job(args) -> int:
             print(f"  ranked blocking: {named(who, stale)} {'waits' if len(who) == 1 else 'wait'} on its request "
                   f"(stored {stored_priority(job)})")
         if verdict["fresh"]:
-            print(f"fresh session: against {verdict['against']}, {'; '.join(verdict['differs'])}.")
+            print(f"fresh session: this one has already worked {verdict['worked']}; every job starts in a fresh one.")
             print(f"  run: fabric-fresh --job {job['id']}")
         else:
-            print(f"continue here: the same repository{'' if verdict['caveat'] else ' and topic'} "
-                  f"as {verdict['against']}.")
-        if verdict["caveat"]:
-            print(f"  ({verdict['caveat']})")
+            print("continue here: this session has worked no job yet, so it is already fresh.")
     return 0
 
 

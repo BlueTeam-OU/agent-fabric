@@ -118,7 +118,7 @@ def main() -> int:
         env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT,
                "HOME": home, "CLAUDE_BRIDGE_URL": dead_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
                "AGENT_FABRIC_HOSTS_REGISTRY": registry, "FABRIC_STATE_CHANNEL": "t:state:control",
-               "FABRIC_CONTROL_CHANNEL": "t:control"}
+               "FABRIC_CONTROL_CHANNEL": "t:control", "CLAUDE_CODE_SESSION_ID": "sess-A"}
         # The projects the tool resolves checkouts against: a fixture
         # registry, with ids the live one lacks, so a reader of the live
         # projects/registry.json finds neither.
@@ -253,33 +253,46 @@ def main() -> int:
         run("add", "e")
         run("add", "f")
         p = run("next")
-        check("the first job is compared with the directory: continue", p.returncode == 0
-              and "j1" in p.stdout and "continue here" in p.stdout and "repository only" in p.stdout, p.stdout)
+        check("a session that has worked no job takes the first in place", p.returncode == 0
+              and "j1" in p.stdout and "continue here" in p.stdout and "fabric-fresh" not in p.stdout, p.stdout)
+        check("going active records the session in the log", jobs()[0]["log"][-1].get("session") == "sess-A", repr(jobs()[0]))
         p = run("next")
         check("next refuses while a job is active", p.returncode == 1 and "still active" in p.stderr, p.stderr)
         run("deliver", "j1", "x#1")
         p = run("next")
-        check("same repository and topic: continue here", "j2" in p.stdout and "continue here" in p.stdout
-              and "fabric-fresh" not in p.stdout and "repository only" not in p.stdout, p.stdout)
+        check("same project, working copy and topic: still a fresh session once this one worked a job",
+              "j2" in p.stdout and "fresh session" in p.stdout and "fabric-fresh --job j2" in p.stdout
+              and "continue here" not in p.stdout, p.stdout)
+        check("next makes the job it names active", jobs()[1]["state"] == "active", repr(jobs()[1]))
         run("done", "j2")
         p = run("next")
-        check("another topic: a fresh session", "fresh session" in p.stdout and "topic 'routing'" in p.stdout
-              and "fabric-fresh --job j3" in p.stdout, p.stdout)
-        check("next makes the job it names active", jobs()[2]["state"] == "active", repr(jobs()[2]))
+        check("another topic: a fresh session", "fabric-fresh --job j3" in p.stdout, p.stdout)
         run("block", "j3", "a reply")
         p = run("next")
-        check("another working copy: a fresh session", "fresh session" in p.stdout and repo_b in p.stdout
-              and "fabric-fresh --job j4" in p.stdout, p.stdout)
+        check("another working copy: a fresh session", "fabric-fresh --job j4" in p.stdout, p.stdout)
         run("done", "j4")
         p = run("next", "j3")
         check("a named blocked job can be next", p.returncode == 0 and "j3" in p.stdout
               and "fabric-fresh --job j3" in p.stdout, p.stdout)
         run("done", "j3")
+        saved = env.get("CLAUDE_CODE_SESSION_ID")
+        env["CLAUDE_CODE_SESSION_ID"] = "sess-B"
         p = run("next", "--json")
         verdict = json.loads(p.stdout or "{}")
-        check("no topic on the next job: repository only, said", verdict.get("job") == "j5"
-              and verdict.get("fresh") is False and "no topic on j5" in (verdict.get("caveat") or ""), p.stdout)
+        check("another session, which has worked no job: continue here, whatever the last job was",
+              verdict.get("job") == "j5" and verdict.get("fresh") is False and verdict.get("worked") is None, p.stdout)
         run("done", "j5")
+        p = run("next", "--json")
+        verdict = json.loads(p.stdout or "{}")
+        check("that session has now worked one: fresh, and it names it", verdict.get("job") == "j6"
+              and verdict.get("fresh") is True and verdict.get("worked") == "j5", p.stdout)
+        run("done", "j6")
+        env["CLAUDE_CODE_SESSION_ID"] = saved
+        env_nosession = {k: v for k, v in env.items() if k != "CLAUDE_CODE_SESSION_ID"}
+        run("add", "g")
+        p = subprocess.run([JOBS, "next"], cwd=repo_a, env=env_nosession, capture_output=True, text=True)
+        check("no session id: a job that has left active counts, so fresh", "fabric-fresh --job j7" in p.stdout, p.stdout + p.stderr)
+        run("done", "j7")
         p = run("next", "j3")
         check("next refuses a closed job", p.returncode == 1 and "next takes a queued" in p.stderr, p.stderr)
 
