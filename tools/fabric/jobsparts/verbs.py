@@ -208,6 +208,7 @@ def change(args) -> int:
             # A request waited on is also kept as waits_on, which the state stream reads (rule 8).
             requests = [s.split(":", 1)[1] for s in specs if s.startswith("request:")]
             job.pop("waits_on", None)
+            job.pop("blockers", None)       # a new block replaces the whole wait: free text alone leaves no checkable blocker behind
             if requests:
                 job["waits_on"] = requests[0]
             if specs:

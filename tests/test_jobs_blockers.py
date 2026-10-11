@@ -28,7 +28,7 @@ states = json.load(open(os.path.join(d, "gh.states")))
 if a[:2] == ["pr", "view"] and "--repo" in a:
     key = a[a.index("--repo") + 1] + "#" + a[2]
     if key in states:
-        print(json.dumps({"state": states[key]}))
+        print("[]" if states[key] == "__ARRAY__" else json.dumps({"state": states[key]}))
         sys.exit(0)
     sys.stderr.write("GraphQL: Could not resolve to a PullRequest with the number (HTTP 404)\\n")
     sys.exit(1)
@@ -116,7 +116,7 @@ def main() -> int:
             path = cache_file()
             doc = json.load(open(path))
             for k, v in doc.items():
-                if spec is None or k == spec:
+                if (spec is None or k == spec) and "checked_at" in v:
                     v["checked_at"] -= by
             json.dump(doc, open(path, "w"))
 
@@ -241,10 +241,11 @@ def main() -> int:
 
         print("a free-text blocker behaves as before, and a hint says once that a checkable form exists")
         run("start", "j5")
+        calls_before = (len(calls("gh.calls")), len(calls("ctl.calls")))
         r = run("block", "j5", "the owner's decision")
         check("free text: stored as it was, no blockers, no cleared, no hint", job("j5")["blocked_on"] == "the owner's decision"
               and "blockers" not in job("j5") and "cleared" not in job("j5") and "checkable" not in r.stderr, (job("j5"), r.stderr))
-        check("…and no call of any kind was made for it", True)
+        check("…and no call of any kind was made for it", (len(calls("gh.calls")), len(calls("ctl.calls"))) == calls_before, calls("gh.calls"))
         for text in ("waiting for PR 123 to merge", "waiting for #45", f"waiting on message {RID}"):
             run("start", "j5")
             r = run("block", "j5", text)
@@ -308,6 +309,108 @@ def main() -> int:
         run("start", jid)
         run("done", jid)
 
+        print("blocking again with free text replaces the whole wait, the checkable blockers included")
+        jid = re.search(r"added (j\d+)", run("add", "re-blocked on free text").stdout).group(1)
+        put("gh.states", {"o/r#5": "OPEN", "o/r#6": "OPEN", "o/r#7": "MERGED", "o/r#8": "CLOSED", "o/r#20": "OPEN"})
+        run("start", jid)
+        run("block", jid, "--on", "pr:o/r#20", "--on", f"request:{RID}")
+        check("blocked on a PR and a request", sorted(b["spec"] for b in job(jid)["blockers"]) == sorted(["pr:o/r#20", f"request:{RID}"])
+              and job(jid, "--stored")["waits_on"] == RID, job(jid))
+        run("block", jid, "now waiting on the owner")
+        j = job(jid, "--stored")
+        check("the free-text block leaves no checkable blocker and no waits_on behind",
+              "blockers" not in j and "cleared" not in j and "waits_on" not in j and j["blocked_on"] == "now waiting on the owner", j)
+        put("gh.states", {"o/r#5": "OPEN", "o/r#6": "OPEN", "o/r#7": "MERGED", "o/r#8": "CLOSED", "o/r#20": "MERGED"})
+        age()
+        out = run("list").stdout
+        check("…so the PR merging later does not clear a job that waits on the owner", "blocker cleared" not in out.split(jid, 1)[1].splitlines()[0], out)
+        run("start", jid)
+        run("done", jid)
+
+        print("a journal SQLite cannot open is unknown, never a dead listing")
+        jid = re.search(r"added (j\d+)", run("add", "held on a request, journal broken").stdout).group(1)
+        RID3 = "01a12bb1-0000-7000-8000-0000000000a3"
+        run("start", jid)
+        run("block", jid, "--on", f"request:{RID3}")
+        db = next(os.path.join(d, "episodic.db") for d, _, fs in os.walk(state) if "episodic.db" in fs)
+        os.replace(db, db + ".good")
+        with open(db, "wb") as fh:
+            fh.write(b"this is not a database" * 40)
+        age()
+        r = run("list")
+        check("`list` still lists, and the broken journal is unknown with its reason", r.returncode == 0 and "Traceback" not in r.stderr
+              and job(jid)["blockers"][0]["state"] == "unknown" and "journal" in job(jid)["blockers"][0]["detail"], (r.returncode, r.stderr[-300:], job(jid)))
+        r = run("next")
+        check("`next` still runs", "Traceback" not in r.stderr, r.stderr[-300:])
+        run("start", jid) if job(jid)["state"] != "active" else None
+        os.replace(db + ".good", db)
+        run("block", jid, "--on", f"request:{RID3}")
+        run("start", jid)
+        run("done", jid)
+
+        print("a check that fails in a way nobody listed is unknown, never a dead command")
+        put("gh.states", {"o/r#40": "__ARRAY__"})
+        jid = re.search(r"added (j\d+)", run("add", "held on a PR gh answers oddly").stdout).group(1)
+        run("start", jid)
+        r = run("block", jid, "--on", "pr:o/r#40")
+        check("gh answering an array: the block is made, the blocker unknown, nothing crashes",
+              r.returncode == 0 and "Traceback" not in r.stderr and job(jid)["blockers"][0]["state"] == "unknown"
+              and "the check failed" in job(jid)["blockers"][0]["detail"], (r.returncode, r.stderr[-300:], job(jid)))
+        r = run("list")
+        check("…and `list` lists it", r.returncode == 0 and jid in r.stdout)
+        run("start", jid)
+        run("done", jid)
+
+        print("a cache value out of range is no value, and never fails a listing")
+        jid = re.search(r"added (j\d+)", run("add", "held on a PR, cache damaged").stdout).group(1)
+        put("gh.states", {"o/r#5": "OPEN", "o/r#6": "OPEN", "o/r#7": "MERGED", "o/r#8": "CLOSED", "o/r#21": "OPEN"})
+        run("start", jid)
+        run("block", jid, "--on", "pr:o/r#21")
+        path = cache_file()
+        for label, bad in (("1e300", 1e300), ("Infinity", float("inf")), ("NaN", float("nan")), ("far in the future", 1e12), ("negative", -5)):
+            doc = json.load(open(path))
+            doc["pr:o/r#21"]["checked_at"] = bad
+            json.dump(doc, open(path, "w"))
+            r = run("list", "--stored", "--json")
+            got = json.loads(r.stdout) if r.returncode == 0 else []
+            entry = next((j for j in got if j["id"] == jid), None)
+            check(f"checked_at {label}: `list --stored` still answers, with no time", r.returncode == 0 and entry is not None
+                  and entry["blockers"][0]["checked_at"] is None, (r.returncode, r.stderr[-200:]))
+        n = len(calls("gh.calls"))
+        run("list")
+        check("…and is rechecked at the next look, since it is no value", "pr view 21 --json state --repo o/r" in calls("gh.calls")[n:], calls("gh.calls")[n:])
+        run("start", jid)
+        run("done", jid)
+
+        print("two jobs on one peer job: blocking again keeps what was seen")
+        put("ctl.json", {"logins": {"peer-1": [{"id": "j30", "state": "active"}]}})
+        ja = re.search(r"added (j\d+)", run("add", "waits on peer j30 (A)").stdout).group(1)
+        jb = re.search(r"added (j\d+)", run("add", "waits on peer j30 (B)").stdout).group(1)
+        for x in (ja, jb):
+            run("start", x)
+            run("block", x, "--on", "job:peer-1/j30")
+        put("ctl.json", {"logins": {"peer-1": []}})        # the peer finished it
+        age()
+        run("start", jb)
+        run("block", jb, "--on", "job:peer-1/j30")          # B blocks again: a fresh check, the sighting kept
+        check("B, blocked again after the peer closed j30, reads cleared, not unknown", job(jb)["cleared"] is True, job(jb))
+        check("…and A, which was never rechecked, reads cleared too", job(ja)["cleared"] is True, job(ja))
+        for x in (ja, jb):
+            run("start", x)
+            run("done", x)
+
+        print("a reply id written in upper case clears the blocker, which is stored in lower case")
+        RID4 = "01a12bb2-0000-7000-8000-0000000000a4"
+        jid = re.search(r"added (j\d+)", run("add", "held on a request answered in upper case").stdout).group(1)
+        run("start", jid)
+        run("block", jid, "--on", f"request:{RID4.upper()}")
+        check("stored lower-cased", job(jid)["blockers"][0]["spec"] == f"request:{RID4}")
+        episodic({"content": reply("01a12b00-0000-7000-8000-000000000005", RID4.upper()), "seq": 5})
+        age()
+        check("the reply clears it", job(jid)["cleared"] is True, job(jid))
+        run("start", jid)
+        run("done", jid)
+
         print("the control agent's jobs op carries blockers and cleared only where the job has them")
         sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
         from control import jobs as control_jobs  # noqa: E402
@@ -338,6 +441,26 @@ def main() -> int:
                 refused = True
             check(f"{bad!r} is refused", refused)
         check("a request id is stored lower-cased", bl.normalise("request:" + RID.upper()) == "request:" + RID)
+
+        print("the cache merge: a result never undoes what another process wrote")
+        os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "merge-state")
+        spec = "pr:o/r#31"
+        real = bl.run_check
+
+        def raced(s, entry):
+            """While this process checks, another one clears the same blocker and has seen the job open."""
+            bl.save_cache({**bl.load_cache(), s: {"state": "cleared", "detail": "merged", "checked_at": bl.now(), "seen_open": True}})
+            return {"state": "waiting", "detail": "open", "checked_at": bl.now()}
+        bl.run_check = raced
+        try:
+            got = bl.refresh([spec], check=True)
+        finally:
+            bl.run_check = real
+        check("a cleared answer written meanwhile is kept over a waiting one", got[spec]["state"] == "cleared" and bl.load_cache()[spec]["state"] == "cleared", got)
+        bl.forget([spec])
+        check("forget keeps only what was seen", bl.load_cache().get(spec) == {"seen_open": True}, bl.load_cache())
+        check("the cache and its lock are private", all(os.stat(os.path.join(os.path.dirname(bl.cache_path()), n)).st_mode & 0o777 == 0o600
+                                                        for n in os.listdir(os.path.dirname(bl.cache_path())) if n.startswith("jobs-blockers")))
 
     print("pass" if not fails else f"{fails} FAILED")
     return 1 if fails else 0

@@ -20,9 +20,13 @@ list was closed only if it was seen open before; one never seen is unknown (a ty
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
+import math
 import os
 import re
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -87,10 +91,11 @@ def check_request(message_id: str) -> Check:
         return Check("waiting", "no journal yet: nothing has been received")
     try:
         conn = episodic.open_readonly(path)
-    except episodic.JournalError as e:
-        return Check("unknown", str(e)[:160])
+    except (episodic.JournalError, sqlite3.Error, OSError) as e:      # a file SQLite cannot open is not a JournalError
+        return Check("unknown", f"journal: {e}"[:160])
     try:
-        row = conn.execute("SELECT 1 FROM episodes WHERE direction='inbound' AND type='REPLY' AND in_reply_to=? LIMIT 1",
+        # lower(): the id is stored as the sender wrote it, the blocker as normalise() made it.
+        row = conn.execute("SELECT 1 FROM episodes WHERE direction='inbound' AND type='REPLY' AND lower(in_reply_to)=? LIMIT 1",
                            (message_id,)).fetchone()
     except Exception as e:  # noqa: BLE001 — an unreadable journal is unknown, never a traceback in a listing
         return Check("unknown", f"journal: {e}"[:160])
@@ -143,13 +148,26 @@ def cache_path() -> str:
     return os.path.join(identity.agent_state_dir(), "jobs-blockers.json")
 
 
+def _sane(entry: dict) -> dict:
+    """A cache entry as it is trusted: a state of the three, a `checked_at` that is a finite time no later than a
+    minute from now (a value out of range, or from a clock that was ahead, would otherwise stop a recheck or crash
+    the listing that formats it), and the `seen_open` memory."""
+    at = entry.get("checked_at")
+    out = {k: entry[k] for k in ("detail", "seen_open") if k in entry}
+    if entry.get("state") in ("cleared", "waiting", "unknown"):
+        out["state"] = entry["state"]
+    if isinstance(at, (int, float)) and not isinstance(at, bool) and math.isfinite(at) and 0 <= at <= now() + 60:
+        out["checked_at"] = at
+    return out
+
+
 def load_cache() -> dict[str, dict]:
     try:
         with open(cache_path(), encoding="utf-8") as fh:
             doc = json.load(fh)
     except (OSError, ValueError):
         return {}
-    return {k: v for k, v in doc.items() if isinstance(v, dict)} if isinstance(doc, dict) else {}
+    return {k: _sane(v) for k, v in doc.items() if isinstance(k, str) and isinstance(v, dict)} if isinstance(doc, dict) else {}
 
 
 def save_cache(cache: dict[str, dict]) -> None:
@@ -165,43 +183,82 @@ def save_cache(cache: dict[str, dict]) -> None:
         pass   # a cache that cannot be written is checked again next time; it never fails a listing
 
 
+@contextlib.contextmanager
+def _locked():
+    """The cache's read-modify-write, one process at a time. Held only around that merge: a check (gh, the journal,
+    fabric-ctl) is made before it, never inside it."""
+    try:
+        os.makedirs(os.path.dirname(cache_path()), mode=0o700, exist_ok=True)
+        fd = os.open(cache_path() + ".lock", os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:
+        yield     # no lock to be had: the last writer wins, as it would have without one
+        return
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
 def forget(specs: list[str]) -> None:
-    """Drop the cache entries of `specs`: a job that blocks again on a spec starts from a fresh check, not from the
-    answer a former wait left (a cleared blocker stays cleared only for as long as the wait it belonged to)."""
-    cache = load_cache()
-    if any(cache.pop(s, None) is not None for s in dict.fromkeys(specs)):
-        save_cache(cache)
+    """Start `specs` over: a job that blocks again on a spec gets a fresh check, not the answer a former wait left (a
+    cleared blocker stays cleared only for as long as the wait it belonged to). What was SEEN stays: another job may be
+    blocked on the same spec, and a job that left the peer's open list was closed only if it was seen open."""
+    with _locked():
+        cache = load_cache()
+        changed = False
+        for spec in dict.fromkeys(specs):
+            entry = cache.pop(spec, None)
+            if entry is not None:
+                changed = True
+                if entry.get("seen_open"):
+                    cache[spec] = {"seen_open": True}
+        if changed:
+            save_cache(cache)
 
 
 def run_check(spec: str, entry: dict | None) -> dict:
     """The cache entry for `spec`, freshly checked."""
     seen = bool((entry or {}).get("seen_open"))
-    m = PR.fullmatch(spec)
-    if m:
-        result = check_pr(m.group(1), m.group(2))
-    elif (m := REQUEST.fullmatch(spec)):
-        result = check_request(m.group(1))
-    elif (m := JOB.fullmatch(spec)):
-        result, seen = check_job(m.group(1), m.group(2), seen)
-    else:
-        result = Check("unknown", "not a checkable form")
+    try:
+        m = PR.fullmatch(spec)
+        if m:
+            result = check_pr(m.group(1), m.group(2))
+        elif (m := REQUEST.fullmatch(spec)):
+            result = check_request(m.group(1))
+        elif (m := JOB.fullmatch(spec)):
+            result, seen = check_job(m.group(1), m.group(2), seen)
+        else:
+            result = Check("unknown", "not a checkable form")
+    except Exception as e:  # noqa: BLE001 — a check can fail in ways nobody listed (gh not executable, an answer of another shape): unknown, never a dead listing
+        result = Check("unknown", f"the check failed: {type(e).__name__}: {e}"[:160])
     return {"state": result.state, "detail": result.detail, "checked_at": now(), **({"seen_open": True} if seen else {})}
 
 
 def refresh(specs: list[str], *, check: bool = True) -> dict[str, dict]:
     """The cache entry of each spec. With `check`, one that is not cleared and was last checked more than CACHE_TTL_S
-    ago (or never) is checked now; a cleared one is never checked again. Without, nothing is checked."""
+    ago (or never) is checked now; a cleared one is never checked again. Without, nothing is checked. The checks run
+    first and the results are merged into the file under the lock, keeping a `cleared` another process wrote and the
+    `seen_open` either has."""
     cache = load_cache()
-    changed = False
+    fresh: dict[str, dict] = {}
     for spec in dict.fromkeys(specs):
         entry = cache.get(spec)
         if not check or (entry and (entry.get("state") == "cleared"
                                     or (isinstance(entry.get("checked_at"), (int, float)) and now() - entry["checked_at"] < CACHE_TTL_S))):
             continue
-        cache[spec] = run_check(spec, entry)
-        changed = True
-    if changed:
-        save_cache(cache)
+        fresh[spec] = run_check(spec, entry)
+    if fresh:
+        with _locked():
+            cache = load_cache()
+            for spec, new in fresh.items():
+                old = cache.get(spec) or {}
+                if old.get("state") == "cleared":
+                    continue
+                if old.get("seen_open"):
+                    new["seen_open"] = True
+                cache[spec] = new
+            save_cache(cache)
     return {s: cache[s] for s in specs if s in cache}
 
 
@@ -219,9 +276,12 @@ def states_of(job: dict, cache: dict[str, dict]) -> list[dict[str, Any]]:
     for spec in specs_of(job):
         e = cache.get(spec) or {}
         at = e.get("checked_at")
+        try:
+            when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)) if isinstance(at, (int, float)) else None
+        except (OverflowError, ValueError, OSError):
+            when = None
         out.append({"spec": spec, "state": e.get("state") if e.get("state") in ("cleared", "waiting", "unknown") else "unknown",
-                    "detail": e.get("detail"), "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at))
-                    if isinstance(at, (int, float)) else None})
+                    "detail": e.get("detail"), "checked_at": when})
     return out
 
 
