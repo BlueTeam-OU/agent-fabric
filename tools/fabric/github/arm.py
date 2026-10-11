@@ -71,13 +71,13 @@ THE ARMING POLICY (tools/fabric/github/arm_policy.py; the 8 and the 16 in the ga
 fleet's policies/arming.json with the repository's file in its client's settings repository over it. Read before
 the count rule, and a policy or a comparison with GitHub's settings that cannot be read is exit 2, never the
 default. A repository in mode owner-only is not armed here; one in mode direct has no server-side rule to arm under
-(auto-merge off, no ruleset), so the same gates end in an immediate gh pr merge, without --auto, on the head they read. A difference between the policy and GitHub
-in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
+(auto-merge off, no ruleset), so the same gates end in an immediate gh pr merge, without --auto, on the head
+they read. A difference between the policy and GitHub in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
 merge methods are allowed, advisory. The minimum is the stated class's, else the author's role's (the
 Fabric-Role trailer every commit of the PR carries, when they agree), else commits.min; a boundary change gets
 max(commits.min, commits.boundary_min) whatever role or class; commits.below_min "refuse" is a refusal the owner's
-word does not lift; the merge method is the policy's; a repository with no required check is armed only with every
-check on the head green.
+word does not lift; the merge method is the policy's; a repository with no required check, and every direct
+repository whatever its policy lists, is armed only with every check on the head green.
 
 AUTHORIZATION (commits.boundary_authority, a role slug the policy may name): a security-boundary change under its
 minimum arms without the owner's word on `--authorization <MESSAGE-ID|seq>`: a DECISION or REPLY sent TO this session
