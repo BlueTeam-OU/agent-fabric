@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""identities/schemas/arming.schema.json: the fleet default (policies/arming.json)
+"""identities/schemas/arming.schema.json: the fleet default (kept below as
+FLEET_DEFAULT; policies/arming.json is added with the reader, step C)
 and a repository's own policy validate against it, and a policy that
 could not be applied (an unknown key, a value out of range) does not.
 Judged by lint's validator both ways: jsonschema when present, and the
@@ -16,7 +17,19 @@ sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 from lint_rules import schema as lint_schema  # noqa: E402
 
 SCHEMA = json.load(open(os.path.join(ROOT, "identities", "schemas", "arming.schema.json"), encoding="utf-8"))
-DEFAULT = json.load(open(os.path.join(ROOT, "policies", "arming.json"), encoding="utf-8"))
+
+# The fleet default as step C will commit it to policies/arming.json.
+DEFAULT = {
+    "mode": "auto",
+    "method": "merge",
+    "required_checks": [],
+    "signatures": True,
+    "protect": {"deletion": True, "force_push": True},
+    "delete_branch_on_merge": False,
+    "commits": {"min": 8, "advice_over": 16, "below_min": "owner-word", "roles": {}, "classes": {}},
+    "bots": {},
+    "github": {"ruleset": "fabric arming policy"},
+}
 
 # A queue repository with per-role and per-class minimums and a bot rule,
 # as gzapp's hand-made queue would be written.
