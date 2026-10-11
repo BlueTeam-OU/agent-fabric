@@ -358,7 +358,9 @@ def test_the_retrieval_summary_is_per_login_over_hosts_and_says_unknown_when_the
     # Through a real drain: two bundles of one stamp (two hosts, one login) are summed, and the run says it on stdout.
     drain_a, claims_a, out = build(os.path.join(tmp, "a"), {"alpha": claims("alpha", [
         {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}])})
+    # The drain stores a bundle's memory_use as it is (the harvester is what keeps query text out), so this half feeds counts only.
     for host, counts in (("boxA", use(4, 1, 2, reads=3)), ("boxB", use(6, 2, 1, reads=1))):
+        counts.pop("queries")
         drain, claims_dir, _ = build(os.path.join(tmp, host), {"alpha": claims("alpha", [
             {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}])})
         with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
@@ -370,6 +372,7 @@ def test_the_retrieval_summary_is_per_login_over_hosts_and_says_unknown_when_the
     assert summary["finds"] == 10 and summary["hosts"] == ["boxA", "boxB"] and summary["zero_hit_share"] == 0.3, summary
     assert "memory: dev-01 10 finds, zero-hit 30%, read-through 30%, 4 reads, 0 marks" in proc.stdout, proc.stdout
     blob = json.dumps(json.loads(read(report_path(out)))["memory_retrieval"])
+    assert "SENTINEL" not in read(report_path(out)), "no query text in the report"
     assert "SENTINEL" not in blob and "f:x/y" not in blob, "no query text or section id in the retrieval summary"
 
 
