@@ -78,7 +78,8 @@ merge methods are allowed, advisory. The minimum is the stated class's, else the
 Fabric-Role trailer every commit of the PR carries, when they agree), else commits.min; a boundary change gets
 max(commits.min, commits.boundary_min) whatever role or class; commits.below_min "refuse" is a refusal the owner's
 word does not lift; the merge method is the policy's; a repository with no required check, and every direct
-repository whatever its policy lists, is armed only with every check on the head green.
+repository whatever its policy lists, is armed only with every check on the head green, except a direct
+repository whose policy names no required check and whose head has no check at all, which merges on its review.
 
 AUTHORIZATION (commits.boundary_authority, a role slug the policy may name): a security-boundary change under its
 minimum arms without the owner's word on `--authorization <MESSAGE-ID|seq>`: a DECISION or REPLY sent TO this session
@@ -793,8 +794,9 @@ def arm(argv: list[str]) -> int:
         held = "is direct" if policy["mode"] == "direct" else "has no required check"
         # The owner's rule for a direct repository with no CI at all (blueteam.ee, gzapi.ge, gzapp.decks,
         # gzapi.brand): a head with no check merges on the review of its head and no open thread, both gated
-        # above for every direct PR; a check that exists must still be green.
-        if policy["mode"] == "direct" and checks == "none-yet":
+        # above for every direct PR; a check that exists must still be green, and a policy that names a
+        # required check says CI exists, so its "none-yet" is a check not reported yet, never no CI.
+        if policy["mode"] == "direct" and not policy["required_checks"] and checks == "none-yet":
             say("direct repository with no check on the head: it merges on the review of its head alone")
         elif checks != "green":
             raise refuse(f"{repo} {held}, so nothing but this gate keeps a red or unfinished head from"

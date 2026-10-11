@@ -1048,6 +1048,12 @@ class ArmRun(unittest.TestCase):
                                  extra=("--no-boundary", "not a boundary", "--waiver", "m1"))
         self.assertTrue(str(rc).startswith("refused"), rc)
         self.assertFalse([r for r in self.ran if r[:2] == ["pr", "merge"]], "waived")
+        # ...and still lifts the boundary minimum: a waived, reviewed boundary PR under 8 merges on a direct repository.
+        low = arm_policy.validate({"mode": "direct", "commits": {"min": 1}})
+        with mock.patch.object(arm, "verify_waiver", return_value=("h/holder", "m1")):
+            rc, out = self.run_arm(low, 1, files=("policies/x.json",), live=merged, waiver_role="architect-cto",
+                                   extra=("--no-boundary", "not a boundary", "--waiver", "m1"))
+        self.assertEqual(rc, 0, out)
         # No check at all on a direct head: it merges on the head's review (the owner's rule for CI-less repositories).
         no_ci = arm_policy.validate({"mode": "direct", "commits": {"min": 1}})
         rc, out = self.run_arm(no_ci, 1, checks="none-yet", live=merged)
@@ -1059,7 +1065,7 @@ class ArmRun(unittest.TestCase):
         auto_none = arm_policy.validate({"mode": "auto", "commits": {"min": 1}})
         rc, _ = self.run_arm(auto_none, 1, checks="none-yet", live=merged)
         self.assertTrue(str(rc).startswith("refused"), rc)
-        for checks in ("red:ci", "pending"):
+        for checks in ("red:ci", "pending", "none-yet"):
             rc, _ = self.run_arm(with_checks, 3, checks=checks, live=merged)
             self.assertTrue(str(rc).startswith("refused"), (checks, rc))
             self.assertIn("is direct", str(rc))
