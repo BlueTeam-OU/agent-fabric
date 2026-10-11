@@ -8,6 +8,9 @@ project's default branch, except for a change to a file matching
 review (agent-fabric ADR-019 §5 rule 1). fabric-pr arm never sees a direct
 push, so this hook, at the keyboard, is the only place the rule is enforced.
 
+Before any of that, in every project: a push that adds an unsigned commit is
+refused (tools/fabric/guards/ban_unsigned_commits.py).
+
 A project that is not managed, or whose arm.json has no `direct` key, gets
 no rule from here at all: exit 0, silent. Every other doubt about a managed
 direct project refuses, because a boundary this hook could not read must not
@@ -33,6 +36,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
+from guards import ban_unsigned_commits  # noqa: E402
 import workingcopy  # noqa: E402
 
 FABRIC_ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -136,7 +140,28 @@ def _changed(remote_name: str, branch: str, local: str, remote: str) -> list[tup
     return changed
 
 
+def _signed(remote_name: str, lines: list[str]) -> None:
+    """Every commit the refs add carries a signature git can read, in every
+    project (ban_unsigned_commits says why). Before the direct-push rules:
+    those pass untouched for most projects, and this one is for all."""
+    found: list[tuple[str, str]] = []
+    for line in lines:
+        fields = line.split()
+        if len(fields) != 4 or ZERO.match(fields[1]):
+            continue
+        _, local, _, remote = fields
+        # A new branch adds what the remote's refs do not already have.
+        scope = [local, "--not", f"--remotes={remote_name}"] if ZERO.match(remote) else [f"{remote}..{local}"]
+        try:
+            found += ban_unsigned_commits.unsigned(".", *scope)
+        except ban_unsigned_commits.git.GitError as e:
+            raise Refused(f"the signatures of the pushed commits could not be read ({e})") from None
+    if found:
+        raise Refused(ban_unsigned_commits.refusal(found))
+
+
 def check(remote_name: str, lines: list[str]) -> None:
+    _signed(remote_name, lines)
     try:
         info = workingcopy.resolve(os.getcwd())
     except SystemExit as e:

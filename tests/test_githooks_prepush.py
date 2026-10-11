@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = os.path.join(HERE, "policies", "githooks")
 sys.path.insert(0, os.path.join(HERE, "tests"))
 from instance_fixtures import own_instance_tree, write_json, write_registry  # noqa: E402
+from signing_fixture import drop_key, make_key  # noqa: E402
 own_instance_tree()
 
 T = tempfile.mkdtemp(prefix="test_githooks_prepush.")
@@ -33,6 +34,8 @@ REMOTE = f"{T}/remote.git"
 REPO = f"{T}/repo"
 HOME = f"{T}/home"
 os.makedirs(HOME)
+# The hook refuses unsigned commits in every project, so the fixtures sign.
+GNUPG, KEY = make_key(T)
 LOGIN = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
 HOST = subprocess.run(["hostname", "-s"], capture_output=True, text=True, check=True).stdout.strip()
 ZERO = "0" * 40
@@ -59,12 +62,12 @@ def env() -> dict:
     e = {k: v for k, v in os.environ.items()
          if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_", "GIT_", "XDG_")) and k != "CLAUDECODE"}
     e.update(HOME=HOME, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
-             AGENT_FABRIC_STATE_DIR=STATE, AGENT_FABRIC_OPERATOR=OPERATOR)
+             AGENT_FABRIC_STATE_DIR=STATE, AGENT_FABRIC_OPERATOR=OPERATOR, GNUPGHOME=GNUPG)
     return e
 
 
 def git(*args: str, cwd: str = REPO) -> tuple:
-    p = subprocess.run(["git", "-c", "commit.gpgsign=false", *args], cwd=cwd, env=env(),
+    p = subprocess.run(["git", "-c", "commit.gpgsign=true", "-c", f"user.signingkey={KEY}", *args], cwd=cwd, env=env(),
                        capture_output=True, text=True)
     return p.returncode, p.stdout, p.stderr
 
@@ -296,6 +299,7 @@ try:
     shipped_patterns()
     run()
 finally:
+    drop_key(GNUPG)
     shutil.rmtree(T, ignore_errors=True)
 print(f"{fails} failed" if fails else "all passed")
 sys.exit(1 if fails else 0)

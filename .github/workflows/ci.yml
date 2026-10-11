@@ -109,6 +109,8 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends paperkey
       - name: no machine attribution in commits or the PR description
         run: python3 tools/fabric/guards/ban_generated_by_attribution.py
+      - name: every commit the branch adds is signed
+        run: python3 tools/fabric/guards/ban_unsigned_commits.py
       - name: the bash suites
         run: bash tests/run.sh bash
 
