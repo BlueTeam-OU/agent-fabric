@@ -427,9 +427,24 @@ def main() -> int:
         odd = os.path.join(tmp, "odd?name#1", "episodic.db")
         os.makedirs(os.path.dirname(odd))
         shutil.copy(path, odd)
+        names_before = sorted(os.listdir(os.path.dirname(odd)))
         r2 = ep.open_readonly(odd)
         check("a path with a ? or # in it is the file it names", r2.execute("SELECT count(*) FROM episodes").fetchone()[0] == before[0])
         r2.close()
+        # SQLite needs the WAL index and file to read a WAL database, and a read-only connection cannot checkpoint them away:
+        # a reader may leave `-wal` and `-shm` beside an idle journal. They are private (the database file's mode) and the
+        # next writer reuses them; no other file appears.
+        left = sorted(os.listdir(os.path.dirname(odd)))
+        extra = [n for n in left if n not in names_before]
+        check("a reader leaves at most the WAL's own sidecars, private, and nothing else",
+              names_before == ["episodic.db"] and set(extra) <= {"episodic.db-wal", "episodic.db-shm"}
+              and all(stat.S_IMODE(os.stat(os.path.join(os.path.dirname(odd), n)).st_mode) == 0o600 for n in left), (names_before, left))
+        r3 = ep.open_readonly(odd)
+        check("…and a second reader finds them and reads on", r3.execute("SELECT count(*) FROM episodes").fetchone()[0] == before[0])
+        r3.close()
+        w = ep.connect(odd, AGENT_A)
+        check("…and a writer opens the same files and sees every row", w.execute("SELECT count(*) FROM episodes").fetchone()[0] == before[0])
+        w.close()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
