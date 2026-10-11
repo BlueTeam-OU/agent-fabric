@@ -124,7 +124,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import common, pr_gate  # noqa: E402
+from github import arm_policy, common, pr_gate  # noqa: E402
 # The rules' names stay importable from here, where the oracle and callers
 # reach them as arm.<name>.
 from github.arm_rules import (  # noqa: E402, F401
@@ -168,11 +168,15 @@ What it refuses, in order, and why:
      The relay does not authenticate senders: this stops mistakes, not
      a forger. The comment records who waived it, the message
      and the reason. A PR that matches no boundary ignores a waiver;
-  5. the count rule (fabric-pr gate's classifier): 8 or more arms at the
+  5. the count rule (fabric-pr gate's classifier; the 8 and the 16 here are
+     the default numbers of the repository's arming policy, tools/fabric/
+     github/arm_policy.py: the fleet's, with the settings repository's file for
+     the repository over it; one that cannot be read is exit 2): 8 or more arms at the
      review gate; over 16 is ADVICE for the next batch, never a refusal; under
      8 is armed on the owner's word — the --basis must carry the phrase
      "owner's word" — EXCEPT a class the project's arm.json lets arm at
-     the gate (none, in a project that declares none), STATED in the PR body
+     the gate (none, in a project that declares none; a class arms at its own
+     minimum, one for the older form, and under it only on the owner's word), STATED in the PR body
      ("Class: <class>") and confirmed by the changed files; a stated
      class the files contradict is refused, not trusted. A
      security-boundary change under 8 needs the owner's word whatever
@@ -424,6 +428,18 @@ def arm(argv: list[str]) -> int:
     # The project's rules are read only now: gates 1–3 hold for any
     # project, and refuse without them.
     boundary_re, exempt_re, classes, waiver_role = load_config(config_path())
+    # The count rule's numbers are the repository's arming policy (arm_policy.py): the fleet's, with the settings
+    # repository's file for this repo over it. One that cannot be read is exit 2, never the default: a default more
+    # permissive than the repository's own would arm what it meant to hold.
+    try:
+        policy = arm_policy.with_classes(arm_policy.load(repo), {c: r.pattern for c, r in classes.items()})
+    except (arm_policy.PolicyError, arm_policy.PolicyUnavailable) as e:
+        raise Unanswered(f"the arming policy for {repo} cannot be read ({e}); the count rule is not applied to a guess") from None
+    min_work = policy["commits"]["min"]
+    advice_over = policy["commits"]["advice_over"]
+    # The classes are the policy's, whole: its regex and its minimum go together (the project's arm.json classes
+    # ride under it as {paths, min: 1}, and one the policy states wins).
+    classes = {name: re.compile(spec["paths"]) for name, spec in policy["classes"].items()}
 
     # 4. the security boundary. The changed files come from the paginated
     # REST list, not `gh pr view --json files`, which stops at 100 — a
@@ -488,8 +504,8 @@ def arm(argv: list[str]) -> int:
                 raise refuse(f"a security-boundary change with {unresolved} unresolved review thread(s): answer and"
                              f" resolve them first (no open P1 or P2)")
             say(f"the current head {head} has the review class's review, and no unresolved thread")
-            # Its owner's word follows the count (gate 5): only under 8 work
-            # commits, and there no class stands in for it.
+            # Its owner's word follows the count (gate 5): only under the repository's minimum (8
+            # by default), and there no class stands in for it.
             boundary_unwaived = True
 
     # 5. the count rule, from pr-gate's classifier
@@ -509,40 +525,51 @@ def arm(argv: list[str]) -> int:
     work = row.get("work_commits")
     if not isinstance(work, int) or isinstance(work, bool) or work < 0:
         raise Unanswered(f"pr-gate reported no commit count for #{num}")
-    # Over 16 is advice for the NEXT batch, never a gate at arming time
+    # Over the policy's advice_over (16) is advice for the NEXT batch, never a gate at arming time
     # nor a reorganisation of the open PR.
-    if work > 16:
-        say(f"{work} work commits — over 16: smaller batches next time; arming on the basis given")
+    if work > advice_over:
+        say(f"{work} work commits — over {advice_over}: smaller batches next time; arming on the basis given")
     cls = stated_class(body, classes)
     if cls:
         offlist = [f for f in files if not classes[cls].search(f)]
         if offlist:
             raise refuse(f"the body states Class: {cls} but the changed files are not that class — {head_lines(offlist)}")
         say(f"class stated and confirmed by the files: {cls}")
-    if work < 8 and boundary_unwaived and not has_owner_word(basis):
-        raise refuse(f"{work} work commits — a security-boundary change under 8 arms only on the owner's word as well"
+    # The author's role is not read here yet: roles.<role>.min waits for the data that says who holds what.
+    floor = arm_policy.threshold(policy, None, cls, boundary_unwaived)
+    # A class whose minimum is one has no lower bound than a stated, confirmed class always had (a pull request of
+    # only review fixes counts zero work commits and still arms under it); above one, the class's own minimum is
+    # the floor. A boundary change not waived has no such exemption: no class stands in for the owner's word there.
+    under = work < floor and not (cls and not boundary_unwaived and floor <= 1)
+    if under and boundary_unwaived and not has_owner_word(basis):
+        raise refuse(f"{work} work commits — a security-boundary change under {min_work} arms only on the owner's word as well"
                      f" as the review, whatever class is stated; the basis does not carry the phrase \"owner's word\"")
-    if work < 8 and not cls and not has_owner_word(basis):
+    if under and cls and not has_owner_word(basis):
+        raise refuse(f"{work} work commits — the class {cls} arms at {floor} or more; under that only on the owner's word,"
+                     f" and the basis does not carry the phrase \"owner's word\"")
+    if under and not cls and not has_owner_word(basis):
         gate_classes = " / ".join(f"Class: {c}" for c in classes) or "none in this project"
-        raise refuse(f"{work} work commits — under 8 arms only on the owner's word, unless the body states a class"
+        raise refuse(f"{work} work commits — under {min_work} arms only on the owner's word, unless the body states a class"
                      f" that arms at the gate ({gate_classes}) and the files agree; the basis does not carry the"
                      f" phrase \"owner's word\" and no class is stated")
-    if work < 8:
-        say(f"count rule: {work} work commits — under 8, arms at the gate as {cls}" if cls and not boundary_unwaived
-            else f"count rule: {work} work commits — under 8, on the owner's word")
-    elif work <= 16:
-        say(f"count rule: {work} work commits — 8 or more, arms at the review gate")
+    if under:
+        say(f"count rule: {work} work commits — under {floor}, on the owner's word")
+    elif work < min_work:
+        say(f"count rule: {work} work commits — under {min_work}, arms at the gate as {cls}" if cls and not boundary_unwaived
+            else f"count rule: {work} work commits — under {min_work}, on the owner's word")
+    elif work <= advice_over:
+        say(f"count rule: {work} work commits — {min_work} or more, arms at the review gate")
 
     comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}, head {head[:8]}."
     if waived_by:
         comment += f" {waived_by}"
-    # A boundary armed at 8 or more needs no owner's word (gate 5), so the
+    # A boundary armed at the repository's minimum or more needs no owner's word (gate 5), so the
     # record says that is what happened: a reader of the PR would
     # otherwise take an unmarked boundary arming for an oversight. Gate 5
-    # already refused an unwaived boundary under 8 without the word, so
-    # `work >= 8` restates it here rather than deciding anything.
-    if boundary_unwaived and work >= 8 and not has_owner_word(basis):
-        comment += " Security boundary, armed on the count rule (8 or more work commits) without the owner's word."
+    # already refused an unwaived boundary under the minimum without the word, so
+    # `work >= min_work` restates it here rather than deciding anything.
+    if boundary_unwaived and work >= min_work and not has_owner_word(basis):
+        comment += f" Security boundary, armed on the count rule ({min_work} or more work commits) without the owner's word."
     if dry:
         say(f"DRY RUN — would post: {comment}")
         say(f"DRY RUN — would run: gh pr merge {num} --merge --auto --match-head-commit {head}")
