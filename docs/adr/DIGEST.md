@@ -493,13 +493,13 @@ its record disagree, the record wins. Look it up, never read it whole:
   `gzcoord-send` tells the sender, without refusing (§5 rule 8).
 - A clone-started session is held only if its project wires the hooks
   (§5 rule 9, §7).
-- A 2026-09-28 — a finished job ends its session with `fabric-fresh` (§5 rule 10).
-- A 2026-09-28 — `fabric-branches --sweep` weekly (§5 rule 11).
-- A 2026-09-28 — the next job decides whether the session continues: `fabric-jobs
-  next`, then `fabric-fresh --job` into the job's working copy (§5 rule 12).
+- A 2026-09-28 — a finished job runs `fabric-fresh` (rule 10).
+- A 2026-09-28 — `fabric-branches --sweep` weekly (rule 11).
+- A 2026-09-28 — `fabric-jobs next`, then `fabric-fresh --job` (rule 12).
 - A 2026-09-30 — the opening prompt names no command (§5 rule 1).
 - A 2026-10-10 — the watch is `gzcoord-inbox --until-delivery`, a
   background command exiting per delivery, never a Monitor (§5 rules 1, 2, 6).
+- A 2026-10-11 — a session that worked a job starts every next one fresh (§5 rule 12).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.
@@ -799,10 +799,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One list per login, `agents/<login>/jobs.json`, written only through
   `runtime/identity.py`; states queued, active (one at a time), blocked,
   delivered, done, dropped (§5 rules 1–2).
-- At a job's end `fabric-jobs next` compares the next job's project,
-  working copy and topic: the same continues here, a difference is
-  `fabric-fresh --job <id>`, a fresh session in the job's working copy
-  with the job in its opening prompt (§5 rule 3).
+- `fabric-jobs next`: a session that has worked a job gets
+  `fabric-fresh --job <id>` for the next, in the job's working copy; one
+  that has worked none takes it in place (§5 rule 3).
 - Jobs come from the agent and from the owner (`fabric-ctl <login>
   jobs-add`); a GZCoord request becomes a job only when its receiver adds
   it — the automatic intake is built and inactive (§5 rules 4–5).
@@ -816,6 +815,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   job blocking, said stale with the record's age (§5 rule 8).
 - A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
 - A 2026-10-09 — a job may be a plan's step (§5 rule 11).
+- A 2026-10-11 — every job after a worked one starts fresh (§5 rule 3).
 - Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
   session, restart, fabric-fresh --job, working copy, intake, priority,
   blocking, pool, claim, P3.

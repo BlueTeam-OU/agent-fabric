@@ -19,6 +19,24 @@ def active(doc: dict) -> Job | None:
     return next((j for j in doc["jobs"] if j["state"] == "active"), None)
 
 
+def session_id() -> str | None:
+    """The harness session this command runs in (the variable the harness
+    exports to its Bash tool; identity.resolve_context reads another name)."""
+    return os.environ.get("CLAUDE_CODE_SESSION_ID") or None
+
+
+def session_worked(doc: dict, session: str | None) -> str | None:
+    """The first job that went `active` in `session`, or None. Without a
+    session id (an unlaunched shell) nothing can be told apart, so any job
+    that has left `active` counts: fresh is the safe answer."""
+    for job in doc["jobs"]:
+        if session is None and doc.get("last") == job["id"]:
+            return job["id"]
+        if session and any(e.get("state") == "active" and e.get("session") == session for e in job.get("log", [])):
+            return job["id"]
+    return None
+
+
 def transition(doc: dict, job: dict, state: str, **fields) -> None:
     if job["state"] in TERMINAL:
         raise Refused(f"{job['id']} is {job['state']}; a closed job is not reopened — add a new one")
@@ -35,7 +53,11 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
     now = identity.now_iso()
     job["state"] = state
     job["updated"] = now
-    job.setdefault("log", []).append({"at": now, "state": state, **({"note": fields["note"]} if fields.get("note") else {})})
+    # The session is what `next` reads to know this one has worked a job.
+    entry = {"at": now, "state": state, **({"note": fields["note"]} if fields.get("note") else {})}
+    if state == "active" and session_id():
+        entry["session"] = session_id()
+    job.setdefault("log", []).append(entry)
     for key, value in fields.items():
         if key != "note" and value is not None:
             job[key] = value

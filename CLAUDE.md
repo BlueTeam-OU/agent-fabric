@@ -152,10 +152,10 @@ is the capability class below (ADR-002, ADR-005).
   (`fabric-jobs add "<artifact>" --topic <label>`; a request you
   undertake, `--request <MESSAGE-ID>`), and its state follows it: start,
   block, deliver, done. When a job has reached its artifact and what you
-  learnt is in your memory, run `fabric-jobs next`: the same project,
-  working copy and topic continue here; otherwise it prints
-  `fabric-fresh --job <id>`, which starts a fresh session in that job's
-  working copy. A job that ends (done, delivered, blocked, dropped) is
+  learnt is in your memory, run `fabric-jobs next`: every job after a
+  finished one starts in a fresh session, so it prints
+  `fabric-fresh --job <id>`, which starts one in that job's working copy;
+  only a session that has worked no job yet takes it in place. A job that ends (done, delivered, blocked, dropped) is
   followed by `next` before anything else: a session never stops idle
   while a job is queued (ADR-037 rule 10). `fabric-fresh --note "<what just
   finished>"` ends a session with no next job. Both refuse a working
@@ -177,7 +177,7 @@ fabric-status                             # identity, binding, API path, models,
 fabric-model list                         # every model and effort choice per provider, with its source layer
 fabric-lease <name> -- <cmd>              # one holder per host resource across this host's accounts (ADR-010)
 fabric-branches [--sweep]                 # local branches against origin/main; --sweep deletes what is on it (ADR-022)
-fabric-jobs add|list|next|show …          # your job list; next says: continue here, or fabric-fresh --job (ADR-037)
+fabric-jobs add|list|next|show …          # your job list; next says: fabric-fresh --job, or in place if none worked yet (ADR-037)
 # fabric-coordinator:
 fabric-ctl all status                     # the fleet, answered by each account's control agent (ADR-029)
 fabric-ctl <login|all> jobs               # every agent's open jobs; <login> jobs-add "<title>" adds one (ADR-037)
