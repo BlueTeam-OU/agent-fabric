@@ -37,38 +37,30 @@ jobs:
       - run: bash tests/static.sh
 
   guards-and-suites:
-    # Each suite on the interpreters it depends on, and no more: the Python
-    # suites on every Python an agent host runs (3.13, the pinned
-    # fabric-python and Debian 13's system python3, up to Fedora's 3.14;
-    # ADR-040 rule 1), and the bash suites and the guards on the oldest and
-    # newest interpreters. GZCoord's suites are Python now and run in the
-    # python section. Every leg of the old
-    # matrix ran all 78 suites, ~49 runner-minutes a push; split, less, with
-    # each section still on every interpreter pairing it needs (devex-
-    # tooling's measurement, 2026-09-29). Static checks are their own job.
+    # The bash suites and the guards on the oldest and newest interpreters.
+    # The Python suites are not here: they run once per interpreter an agent
+    # host runs (3.13, Debian 13's system python3; 3.14, Fedora's; ADR-040
+    # rule 1) in platform-smoke, whose containers are those two platforms.
+    # They ran in this job's matrix as well, the same suites on the same
+    # two interpreters twice a push (audit of 2026-10-11). Static checks are
+    # their own job.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Two legs, not four (the owner, 2026-10-09): every interpreter a host
-          # runs is 3.13 or 3.14.
-          - { section: python, python: '3.13', node: '20' }
-          - { section: python, python: '3.14', node: '22' }
-          # The bash suites run on the oldest interpreters the hosts promise
+          # Two legs (the owner, 2026-10-09): every interpreter a host runs is
+          # 3.13 or 3.14. The bash suites run on the oldest interpreters the hosts promise
           # and on the newest (review of #68: the newest alone lost the oldest
           # and Node 20). The shims of ported scripts run the pinned fabric-python
           # whatever this matrix sets up (ADR-040 rule 4, installed below);
           # what the matrix decides here is the python3 of the scripts that
           # keep the host's (the git and Claude Code hooks, bootstrap).
-          # The python section's suites import the modules on each
-          # interpreter.
-          - { section: bash, python: '3.13', node: '20' }
-          - { section: bash, python: '3.14', node: '22' }
-    # Measured 7-9.5 min for the whole run on 2026-09-29; 18-25 min each python section on 2026-10-11 (the bash
-    # sections take under a minute); the cap is for a
+          - { python: '3.13', node: '20' }
+          - { python: '3.14', node: '22' }
+    # The bash section takes under a minute (2026-10-11); the cap is for a
     # hang, not a budget, so it sits well above the slowest healthy run.
-    timeout-minutes: 40
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -86,7 +78,6 @@ jobs:
       # user site, no PYTHON* variables; the guards then find their own
       # modules beside main's copy, and judge this checkout.
       - name: the branch's authority, judged by main's own guards
-        if: matrix.section == 'bash'
         run: |
           base="$(mktemp -d)"
           git archive origin/main tools/fabric policies | tar -x -C "$base"
@@ -94,12 +85,15 @@ jobs:
           AGENT_FABRIC_CHARTER_BASE=origin/main /usr/bin/python3 -I "$base/tools/fabric/guards/charter_authority.py" "$PWD"
       # The fleet's pinned Python (runtime/python.json), installed as a host
       # installs it: every shim runs /usr/local/bin/fabric-python, and the
-      # suites strip AGENT_FABRIC_*, so no override would reach them. The
-      # matrix's interpreters still run the Python suites themselves.
+      # suites strip AGENT_FABRIC_*, so no override would reach them.
       - name: the fleet's pinned Python, as a host installs it
         run: sudo /usr/bin/python3 tools/fabric/python_pin.py install && /usr/bin/python3 tools/fabric/python_pin.py check
-      # Node in every leg: two python-section suites run the Node control plane
-      # as an oracle (tests/test_control_js.py, tests/test_control_sessions.py).
+      # Node in every leg, as the suites' environment has it: the two suites
+      # that run the Node control plane as an oracle (tests/test_control_js.py,
+      # tests/test_control_sessions.py) are Python suites and run in
+      # platform-smoke now. The bash section does not need it, nor the
+      # jsonschema and paperkey steps below (also for Python suites): kept
+      # until the legs are shown to pass without them.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
@@ -114,10 +108,9 @@ jobs:
       - name: paperkey, for the recovery copy the store's suite makes
         run: sudo apt-get install -y --no-install-recommends paperkey
       - name: no machine attribution in commits or the PR description
-        if: matrix.section == 'bash'
         run: python3 tools/fabric/guards/ban_generated_by_attribution.py
-      - name: the ${{ matrix.section }} suites
-        run: bash tests/run.sh ${{ matrix.section }}
+      - name: the bash suites
+        run: bash tests/run.sh bash
 
   platform-smoke:
     # The platform profiles are proven by being used: each container
