@@ -123,7 +123,8 @@ def test_hook_gives_the_project_layer_from_the_working_copy(tmp: str) -> None:
     ctx = context_of(run_hook({"cwd": wc}, env))
     assert "REMIT-BODY-LINE" in ctx and "class: remit" not in ctx, ctx
     assert "# db-admin — remit in fixture-proj (.agent-fabric/roles/db-admin.md)" in ctx, ctx
-    assert ".agent-fabric/memory/db-admin/INDEX.md lists every slice" in ctx and "nothing else now" in ctx, ctx
+    assert "ask `memory_find` before changing" in ctx and "`memory_read`" in ctx and "nothing else now" in ctx, ctx
+    assert "INDEX.md" not in ctx, ctx   # ADR-049 rule 8: the tools, not a path
     parent = os.path.join(tmp, "projects"); os.makedirs(parent)
     ctx = context_of(run_hook({"cwd": parent}, env))
     assert "not in a registered working copy" in ctx and "REMIT-BODY-LINE" not in ctx, ctx
@@ -345,6 +346,7 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
                  
                  "if [ \"$1\" = watch ]; then (exec -a 'node inbox.mjs --follow' sleep 20) & w=$!; sleep 0.3; fi\n"
                  "if [ \"$1\" = until ]; then (exec -a 'node /home/x/.local/bin/gzcoord-inbox --until-delivery' sleep 20) & w=$!; sleep 0.3; fi\n"
+                 "if [ \"$1\" = wait ]; then (exec -a 'gzcoord-inbox --wait' sleep 20) & w=$!; sleep 0.3; fi\n"
                  "if [ \"$1\" = named ]; then (exec -a 'node /home/x/.local/bin/gzcoord-inbox --follow' sleep 20) & w=$!; sleep 0.3; fi\n"
                  f"bash {HOOK} < {payload}\n"
                  "[ -n \"${w:-}\" ] && kill $w\n")
@@ -355,6 +357,8 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     assert "NO INBOX WATCH" not in context_of(armed), armed.stdout
     until = subprocess.run([fake, "until"], capture_output=True, text=True, env=env)
     assert "NO INBOX WATCH" not in context_of(until), "the background wait was not seen:\n" + until.stdout
+    waiting = subprocess.run([fake, "wait"], capture_output=True, text=True, env=env)
+    assert "NO INBOX WATCH" not in context_of(waiting), "--wait counts as a watch, as in watch-on-stop:\n" + waiting.stdout
     said = context_of(bare)
     assert "run_in_background: true" in said and "--until-delivery" in said and "Never a Monitor" in said, said
     assert "do not run it again until it is fixed" in said, said

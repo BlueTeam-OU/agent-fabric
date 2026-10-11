@@ -428,12 +428,21 @@ def client_findings(root: str) -> list[str]:
     return findings
 
 
+def _settings_repo_name(v: str) -> bool:
+    # Same test as arm_policy.is_repo_name (REPO_NAME, no "." or ".." part).
+    return re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", v) is not None and all(x not in (".", "..") for x in v.split("/"))
+
+
 def settings_repo_findings(root: str) -> list[str]:
     """Every client some registered project names has a `settings_repo` in
-    projects/clients.json, an <owner>/<repo>: fabric-pr arm reads a
-    repository's arming policy from its client's settings repository, so a
-    project whose client has none would be armed under no policy at all. A
-    client without projects needs none. A client missing from clients.json
+    projects/clients.json, an <owner>/<repo>: from step C (the reader in
+    tools/fabric/github/arm_policy.py) fabric-pr arm reads a repository's
+    arming policy, repos/<repo>.json, from its client's settings repository,
+    so a project whose client has none would be armed under no policy at
+    all. Not read by anything today. The name is judged by the regex of
+    arm_policy.REPO_NAME and its is_repo_name (`.` and `..` are no part),
+    copied here because lint does not import tools/fabric/github. A client
+    without projects needs none. A client missing from clients.json
     is client_findings' to report."""
     reg_path = roots.projects_registry(engine=root)
     clients_path = os.path.join(os.path.dirname(reg_path), "clients.json")
@@ -447,7 +456,7 @@ def settings_repo_findings(root: str) -> list[str]:
     for name in sorted(c for c in used if isinstance(c, str) and c in clients):
         entry = clients[name]
         repo = entry.get("settings_repo") if isinstance(entry, dict) else None
-        if not (isinstance(repo, str) and re.fullmatch(r"[^/\s]+/[^/\s]+", repo)):
+        if not (isinstance(repo, str) and _settings_repo_name(repo)):
             findings.append(f"projects/clients.json: client {name!r} has projects and no settings_repo "
                             "<owner>/<repo> (its arming policies would be read from nowhere)")
     return findings

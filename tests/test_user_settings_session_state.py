@@ -96,6 +96,12 @@ def main() -> int:
         r = run()
         check("pr-counts: a second run changes nothing", r.stdout.startswith("  =  "), r.stdout + r.stderr)
 
+        # The watch-on-stop guard rides Stop beside pr-counts, once, at this path.
+        watch = f'python3 "{HERE}/runtime/claude-code/hooks/watch-on-stop.py"'
+        stops = [h["command"] for e in json.load(open(settings))["hooks"]["Stop"] for h in e["hooks"]]
+        check("watch-on-stop: one entry on Stop, this checkout's", [c for c in stops if "watch-on-stop.py" in c] == [watch], stops)
+        check("watch-on-stop: pr-counts kept beside it", any("pr-counts.py" in c for c in stops), stops)
+
         raw = '{"hooks": {"Notification": {"hooks": []}}}'
         with open(settings, "w") as f:
             f.write(raw)

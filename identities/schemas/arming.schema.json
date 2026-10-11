@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:agent-fabric:arming",
   "title": "Arming policy of one repository",
-  "description": "One repository's arming policy: how a pull request reaches its default branch, mapped onto GitHub's merge settings but more abstract. The fleet default is policies/arming.json; a repository's own file (repos/<repo>.json in its organisation's agent-fabric-settings repository, registry settings_repos) merges over it, objects recursively and scalars replacing, so every field here is optional in a repository's file. The merged result is what fabric-pr arm judges a PR by and what fabric-repo-policy applies to GitHub and verifies.",
+  "description": "One repository's arming policy: how a pull request reaches its default branch, mapped onto GitHub's merge settings but more abstract. The fleet default is policies/arming.json (added with the reader in step C); a repository's own file (repos/<repo>.json in its organisation's agent-fabric-settings repository, projects/clients.json settings_repo, read from step C) merges over it, objects recursively and scalars replacing, so every field here is optional in a repository's file. The merged result is what fabric-pr arm judges a PR by and what the step C/E tool fabric-repo-policy applies to GitHub and verifies.",
   "type": "object",
   "additionalProperties": false,
   "properties": {

@@ -1211,9 +1211,10 @@ def case_every_client_with_a_project_names_a_settings_repository() -> None:
         code, out = run_lint(fabric)
         assert code == 1 and "client 'acme' has projects and no settings_repo" in out, out
         assert "client 'idle'" not in out and "client 'self'" not in out, out
-        write(path, clients(settings_repo="not-a-repo"))
-        code, out = run_lint(fabric)
-        assert code == 1 and "client 'acme' has projects and no settings_repo" in out, out
+        for bad in ("not-a-repo", "o/..", "../r", "a/b/c"):
+            write(path, clients(settings_repo=bad))
+            code, out = run_lint(fabric)
+            assert code == 1 and "client 'acme' has projects and no settings_repo" in out, (bad, out)
 
 
 def case_every_project_names_a_defined_client() -> None:

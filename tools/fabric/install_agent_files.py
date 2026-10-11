@@ -24,7 +24,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
                "  +  dest" (written; "  +  dest (would write)" on a dry
                run), "     (kept the previous file as ...)", "  -  dest
                (removed: ...)" ("would remove" on a dry run), the lines of
-               runtime/mcp/websearch-locale/install.py, and last
+               runtime/mcp/websearch-locale/install.py and
+               runtime/mcp/fabric-memory/install.py, and last
                "agent files (P): N written, M already current."
   stderr       the routing and install.py children's own, and the refusals
   exit         0; 1 when routing.py pins or efforts fails (nothing is
@@ -43,13 +44,16 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
                login with an authored worker for its locale; removed by the
                agent-fabric marker anywhere else), the locale MCP entry in
                .claude.json and the WebSearch deny in settings.json (both
-               through install.py), and the removal of the retired
+               through install.py), the fabric-memory MCP entry in
+               .claude.json (every login, ADR-049; fabric-memory/install.py),
+               and the removal of the retired
                blind-reviewer.md. All with mode 644. Nothing under
                --dry-run.
   calls        routing.py pins --me --provider P; routing.py efforts --me
                --provider P; runtime/identity.py --role; install.py
                <claude.json> set|remove, <settings.json>
-               deny-websearch|allow-websearch
+               deny-websearch|allow-websearch; fabric-memory/install.py
+               <claude.json> set
   relied on    launcher (tools/fabric/launch.py): exit status only, stdout
                discarded; bootstrap.sh: plain and --dry-run, stdout shown;
                bin/fabric-model (tools/fabric/model_profile.py): stdout
@@ -247,7 +251,7 @@ class Installer:
         role = self.role()
         suffix = login().rsplit("-", 1)[-1]
         self.locale_worker(claude_home, role, suffix)
-        rc = self.locale_search(claude_home, role, suffix)
+        rc = self.locale_search(claude_home, role, suffix) or self.memory_search()
         if rc:
             return rc
         # The review class was installed as blind-reviewer.md until 2026-09-15; a
@@ -331,6 +335,33 @@ class Installer:
             outs.append(r.stdout.rstrip("\n"))
         lines = [ln for ln in "\n".join(o for o in outs if o).split("\n") if ln != ""]
         for line in lines:
+            say(line)
+            if line.startswith("  +  ") and "would write" not in line:
+                self.changed += 1
+            if line.startswith("  =  "):
+                self.same += 1
+        return 0
+
+    def memory_search(self) -> int:
+        # The fabric-memory MCP server (ADR-049 §5 rule 1) on every login, whatever its role: the corpus is every
+        # login's. Its entry runs `fabric-memory-mcp` by bare name (ADR-040 rule 7), so no bin/ path is passed.
+        claude_json = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or home(), ".claude.json")
+        call = [sys.executable, os.path.join(self.root, "runtime", "mcp", "fabric-memory", "install.py"), claude_json, "set",
+                *(["--dry-run"] if self.dry_run else [])]
+        r = subprocess.run(call, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+        if r.returncode == 3:
+            # The installer's exit 3 (UNUSABLE) is "the file is the login's to fix, nothing written". Bootstrap's
+            # contract for an unusable .claude.json (step 5b, the locale step's remove path) is to say it on both
+            # streams and go on with exit 0. Any other code, 1 included (an uncaught fault such as an unwritable
+            # directory), is a real fault and fails the step.
+            for line in (ln for ln in r.stderr.split("\n") if ln != ""):
+                print(line, file=sys.stderr)
+                say(line)
+            return 0
+        if r.returncode != 0:
+            sys.stderr.write(r.stderr)
+            return r.returncode
+        for line in (ln for ln in r.stdout.split("\n") if ln != ""):
             say(line)
             if line.startswith("  +  ") and "would write" not in line:
                 self.changed += 1

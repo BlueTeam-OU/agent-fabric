@@ -10,6 +10,9 @@
 input=$(cat)
 
 FABRIC_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../.." && pwd)"
+# The share of the context window in use is in this JSON and in no hook payload: kept beside the session
+# state for the control agent (fleet-deck-attention s3). Never waits long, never prints, never fails the line.
+printf '%s' "$input" | timeout 2 python3 "$FABRIC_ROOT/runtime/claude-code/hooks/context-sample.py" >/dev/null 2>&1 || true
 dir=$(printf '%s' "$input" | jq -r '.workspace.current_dir // empty')
 [ -z "$dir" ] && dir="$PWD"
 model=$(printf '%s' "$input" | jq -r '.model.display_name // "Claude"')

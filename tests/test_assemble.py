@@ -328,16 +328,41 @@ def test_the_drain_report_lists_the_memory_marks_and_call_counts(tmp: str) -> No
     assert report.get("memory_retrieval") == {"dev-01": {
         "finds": 3, "zero_hit_finds": 1, "zero_hit_share": 0.333, "finds_followed_by_read": 1, "read_through": 0.333, "reads": 1,
         "indexes": 0, "marks": 3, "refused": 0, "hosts": ["boxA"], "since_ms": 0, "until_ms": 5}}, report.get("memory_retrieval")
+    assert report.get("memory_helpful") == {"f:domains/alpha/domain/one#1": 1}, report.get("memory_helpful")
     assert run_assemble(drain, claims_dir, out).returncode == 0
     again = json.loads(read(report_path(out)))
     assert again["memory_marks"] == marks, "re-running a bundle added its marks twice"
+    assert again["memory_helpful"] == report["memory_helpful"], "re-running a bundle counted a helpful mark twice"
+    # A second bundle of the same stamp (another host's marks): the count is over the merged marks, not this run's alone.
+    drain_b, claims_b, _ = build(os.path.join(tmp, "second"), {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}])})
+    with open(os.path.join(drain_b, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"host": "boxB", "agent": "dev-02", "since_watermark": 0, "next_watermark": 5, "memory_use": use,
+                   "counts": {"provisional_agent": 0, "in_scope": 1}}, fh)
+    with open(os.path.join(drain_b, "marks.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"t": "2026-10-10T08:00:00Z", "id": "f:domains/alpha/domain/one#1", "verdict": "helpful", "note": ""}) + "\n")
+    assert run_assemble(drain_b, claims_b, out).returncode == 0
+    assert json.loads(read(report_path(out)))["memory_helpful"] == {"f:domains/alpha/domain/one#1": 2}, "the count is not over the merged marks"
     # A drain that carries none lists none.
     drain2, claims2, out2 = build(os.path.join(tmp, "plain"), {"alpha": claims("alpha", [
         {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}])})
     assert run_assemble(drain2, claims2, out2).returncode == 0
     plain = json.loads(read(report_path(out2)))
     assert plain["memory_marks"] == {} and plain["memory_use"] == {}, (plain["memory_marks"], plain["memory_use"])
-    assert plain["memory_retrieval"] == {}, plain["memory_retrieval"]
+    assert plain["memory_retrieval"] == {} and plain["memory_helpful"] == {}, (plain["memory_retrieval"], plain["memory_helpful"])
+
+
+def test_helpful_marks_are_counted_per_section_and_only_those(tmp: str) -> None:
+    """ADR-050 rule 5: the drain report counts a section's helpful marks; an id with none is absent, and stale/wrong are
+    routed (not counted), so a section marked only stale or wrong is not in the count."""
+    sys.path.insert(0, os.path.join(os.path.dirname(ASSEMBLE)))
+    from assembler import report as rep  # noqa: PLC0415 - the tool dir is put on the path just above
+    row = lambda verdict: {"agent": "dev-01", "t": "2026-10-10T07:00:00Z", "verdict": verdict, "note": ""}  # noqa: E731
+    marks = {"p:x/y#2": [row("helpful"), row("stale"), row("helpful")], "f:a/b#1": [row("helpful")],
+             "f:c/d#1": [row("stale"), row("wrong")], "f:e/f#1": []}
+    assert rep.helpful_counts(marks) == {"f:a/b#1": 1, "p:x/y#2": 2}, rep.helpful_counts(marks)
+    assert list(rep.helpful_counts(marks)) == ["f:a/b#1", "p:x/y#2"], "sorted by id, so the report is byte-stable"
+    assert rep.helpful_counts({}) == {}
 
 
 def test_the_retrieval_summary_is_per_login_over_hosts_and_says_unknown_when_there_was_no_find(tmp: str) -> None:
@@ -3431,6 +3456,7 @@ def main() -> int:
         test_an_oversized_single_claim_is_written_whole_and_reported,
         test_drain_report_carries_the_watermark_forward,
         test_the_drain_report_lists_the_memory_marks_and_call_counts,
+        test_helpful_marks_are_counted_per_section_and_only_those,
         test_the_retrieval_summary_is_per_login_over_hosts_and_says_unknown_when_there_was_no_find,
         test_drain_report_records_unattributable_rows,
         test_drain_report_tolerates_a_drain_with_no_harvest_report,

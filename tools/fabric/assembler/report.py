@@ -109,6 +109,17 @@ def review_horizons(run: Run, memory_use: dict[str, Any]) -> dict[str, Any]:
     return {**out, "reads_state": status}
 
 
+def helpful_counts(memory_marks: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+    """Per section id, how many readers marked it helpful (ADR-050 rule 5). Counted from the merged marks, which a re-run of
+    a bundle does not grow, so a mark is counted once; an id with none is absent, not 0, and stale/wrong are routed, not counted."""
+    out: dict[str, int] = {}
+    for ident, rows in memory_marks.items():
+        n = sum(1 for row in rows if isinstance(row, dict) and row.get("verdict") == "helpful")
+        if n:
+            out[ident] = n
+    return dict(sorted(out.items()))
+
+
 def retrieval_summary(memory_use: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Per login, what the owner reads to see whether memory_find is used (ADR-049 rule 7): from the counts of the harvest
     bundles (memory_use, keyed agent@host[#store], one window each), summed over a login's hosts. Counts and shares only: no
@@ -257,6 +268,7 @@ def report(run: Run) -> int:
     report["review_horizons"] = review_horizons(run, memory_use)
     # After the merge: the sources of earlier runs of this stamp are in memory_use by now.
     report["memory_retrieval"] = retrieval_summary(report.get("memory_use") or {})
+    report["memory_helpful"] = helpful_counts(report.get("memory_marks") or {})
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
     # A key an earlier run of the stamp held stays held only while no run

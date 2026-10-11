@@ -84,9 +84,9 @@ STATE_HEARTBEAT_MS = 10 * 60 * 1000
 NO_PROCESS_FRESH_MS = 2 * STATE_HEARTBEAT_MS
 STATES = ("working", "blocked", "idle")
 # fleet-deck-attention s3: what the session-state hook records of a blocked session (why it waits on a person)
-# and what the status line records beside the state file (the context window's use). Neither has a producer
-# in the tree when this lands: the hook records no reason yet and the status line's sampler is the supply in
-# the pull request that added this (#188), so until that is committed none of it is there. Each
+# and what the status line records beside the state file (the context window's use). The producers are
+# runtime/claude-code/hooks/session-state.py (reason, transcript) and hooks/context-sample.py, which
+# statusline.sh runs (context). Each
 # is optional on the wire and absent where unknown: a view never reads a missing sample as 0 % or a missing reason as "permission".
 REASONS = ("permission", "question")
 CONTEXT_FILE = "session-context.json"
