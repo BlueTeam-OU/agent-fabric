@@ -32,6 +32,8 @@ TIMEOUT_S = 300
 # Added to every ctl row after the Node was deleted (the gateway ops, control/gateway.py);
 # null on a row of any other op, so removing exactly this text puts the Node's row back.
 AFTER_NODE_ROW_KEYS = '"gateway":null,"gatewayInstall":null,'
+# ...and the restart action's (control/restart.py), after secretsSync.
+AFTER_NODE_RESTART_KEY = '"restart":null,'
 # --version goes with gateway-install too now; the Node's words said "with upgrade only".
 AFTER_NODE_VERSION_WORDS = "with upgrade and gateway-install only"
 
@@ -132,7 +134,7 @@ def run_python(cases: list[dict]) -> list[str]:
                    "home": fx["home"]}
         # -I: no '' on sys.path and no PYTHON* variable reaches the side.
         answers = _side([sys.executable, "-I", "-c", _PY, CONTROL_PY], payload, fx["env"], fx["home"]["root"])
-        return [a.replace(os.path.join(tmp, "py"), "<root>").replace(AFTER_NODE_ROW_KEYS, "").replace(AFTER_NODE_VERSION_WORDS, "with upgrade only")
+        return [a.replace(os.path.join(tmp, "py"), "<root>").replace(AFTER_NODE_ROW_KEYS, "").replace(AFTER_NODE_RESTART_KEY, "").replace(AFTER_NODE_VERSION_WORDS, "with upgrade only")
                 for a in answers]
 
 

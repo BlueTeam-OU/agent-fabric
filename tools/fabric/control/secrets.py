@@ -60,6 +60,11 @@ _APPLIED = (0, 2)
 _syncing = threading.Lock()
 
 
+def sync_running() -> bool:
+    """A secrets-sync is running on this account (control/restart.py refuses beside it)."""
+    return _syncing.locked()
+
+
 def upgrade() -> Any:
     from control import upgrade as module   # python-dev-03's port
     return module
@@ -247,6 +252,9 @@ def secrets_sync_once(
     up = upgrade()
     if (upgrading or up.upgrade_running)():
         return fail("an upgrade is running on this account (it owns the restart marker); synced, nothing stopped — run it again after")
+    from control import restart as restart_mod   # the other action that stops sessions; ours is up (the sync lock), theirs is tested after
+    if restart_mod.running():
+        return fail("a restart is running on this account; synced, nothing stopped — run it again after")
     directory = directory or util.state_dir()
     wait_ms = up.STOP_WAIT_MS if stop_wait_ms is None else stop_wait_ms
     up.restart_in_flight(True)

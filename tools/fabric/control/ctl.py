@@ -8,6 +8,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login|all> memory --out <dir>
     fabric-ctl <login|all> upgrade claude [--version V] | upgrade fabric
     fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]
+    fabric-ctl <login|all> restart
     fabric-ctl <login|all> presence | jobs | tools | local | local-prune | secrets-selftest
     fabric-ctl <login|all> branches [--sweep]
     fabric-ctl <login|all> tools-install <tool>
@@ -98,6 +99,7 @@ from control.ops import OPS, PUBLIC_OPS
 from control.pool import check_pool_args, pool_holder
 from control.jobs import check_job_args
 from control.selftest import SELFTEST_BUDGET_S
+from control.restart import RESTART_BUDGET_S
 from control.sessions import SESSION_ID
 from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, public_key_from, sign_request
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
@@ -118,6 +120,7 @@ USAGE = (
     "       fabric-ctl <login|all> jobs\n"
     "       fabric-ctl <login|all> tools   (each account: its missing required tools, from its hourly report)\n"
     "       fabric-ctl <login|all> tools-install <tool>   (an action: install the tool its registry pin names, on the accounts with a working copy of a project that declares it)\n"
+    "       fabric-ctl <login|all> restart   (an action: stop the account's running session so its launcher resumes it on the current fabric; one account at a time for all; refused while an upgrade or a secrets-sync runs)\n"
     "       fabric-ctl <login|all> gateway   (each account: the gateway binary it has, its version and digest)\n"
     "       fabric-ctl <login|all> gateway-install --version V   (an action: install the gateway release the reviewed pin names, SHA-256 checked; a running gateway is never stopped)\n"
     "       fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] \"<title>\"\n"
@@ -390,7 +393,7 @@ def parse_args(argv: list[str]) -> dict:
     if out["timeout"] is None:
         out["timeout"] = (5 if op == "ping" else 120 if op == "memory" else 60 if op == "tokens" else 300 if op == "accounts"
                           else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
-                          else 240 if op == "secrets-sync" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
+                          else 240 if op == "secrets-sync" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
                           else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
                           else SELFTEST_BUDGET_S if op == "secrets-selftest" else 20)
@@ -609,7 +612,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "five_hour": g("usage", "five_hour"), "seven_day": g("usage", "seven_day"), "usage_status": g("usage", "status"),
                     "keys": g("keys"), "fabric": g("fabric"), "session": g("session"), "script": g("script"), "recall": g("recall"),
                     "tokens": g("tokens"), "memory": g("memory"), "machine": g("host"), "disk": g("disk"), "accounts": g("accounts"),
-                    "upgrade": g("upgrade"), "secretsSync": g("secrets-sync"), "presence": g("presence"), "jobs": g("jobs"), "tools": g("tools"),
+                    "upgrade": g("upgrade"), "secretsSync": g("secrets-sync"), "restart": g("restart"), "presence": g("presence"), "jobs": g("jobs"), "tools": g("tools"),
                     "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
@@ -621,7 +624,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
 # What counts as success for each action; anything else fails the run.
 ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added"], "local-prune": ["pruned", "clean"],
              "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"],
-             "gateway-install": ["installed", "current"], "branches-sweep": ["swept"]}
+             "gateway-install": ["installed", "current"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
 
 
 def targets_of(targets: list[str], placed: list[dict]) -> dict:
@@ -983,6 +986,18 @@ def _table_gateway(rs: list) -> list[str]:
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
                                   f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(S(nullish(dig(u, 'contract'), '-')), 8)} {digest}{why}"
                                   f"{'  ' + words if words else ''}")))
+    return lines
+
+
+def _table_restart(rs: list) -> list[str]:
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} reason"]
+    for r in rs:
+        u = r.get("restart")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 11)} "
+                                  f"{S(nullish(dig(u, 'reason'), nullish(dig(u, 'note'), '')))}")))
     return lines
 
 
@@ -1529,6 +1544,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_gateway(rs)
     elif op == "gateway-install":
         lines = _table_gateway_install(rs)
+    elif op == "restart":
+        lines = _table_restart(rs)
     elif op == "jobs-add":
         lines = _table_jobs_add(rs)
     elif op == "pool-add":
@@ -1597,6 +1614,11 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         err(f"fabric-ctl: {picked['refused']}")
         return 2
     expected, everyone = picked["expected"], picked.get("everyone", False)
+    if args["op"] == "restart" and len(expected) > 1:
+        # One account at a time: a fleet's sessions are not all down at once, and each row is read before the next is stopped.
+        rcs = [main(["--json"] * bool(args["json"]) + ["--timeout", str(args["timeout"]), e["login"], "restart"], registry=registry, call=call,
+                    out=out, err=err, sleep=sleep, now=now, who=who, token=token) for e in expected]
+        return max(rcs)
     if args["op"] == "pool-add":
         holder = pool_holder(agentd.control_config(), registry)
         if not expected or expected[0]["address"] != holder:

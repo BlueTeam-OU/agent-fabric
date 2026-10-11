@@ -258,6 +258,17 @@ class SecretsSync(unittest.TestCase):
         self.assertEqual(r3["status"], "failed")
         self.assertIn("an upgrade is running", r3["reason"])
         self.assertEqual(up.up.in_flight, [], "the interlock is not taken under an upgrade")
+        from control import restart as restart_mod
+        beside = Fixture(self)
+        held = restart_mod._restarting.acquire(blocking=False)
+        self.assertTrue(held)
+        try:
+            r4 = beside.sync({"id": "x", "from": "h/user", "args": {"restart": True}}, sessions=[8], me="h/db-admin", env_of=env_with(OLD), kill=no_kill)
+        finally:
+            restart_mod._restarting.release()
+        self.assertEqual(r4["status"], "failed")
+        self.assertIn("a restart is running", r4["reason"])
+        self.assertEqual(beside.up.in_flight, [], "the interlock is not taken beside a restart")
         other = Fixture(self)
         os.makedirs(other.dir)
 

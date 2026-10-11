@@ -262,8 +262,8 @@ def run_session(cmd: list[str]) -> int:
 
 
 # ── back on the new version: the restart an action asked for ─────────
-# The control agent's `upgrade` or `secrets-sync --restart`
-# (runtime/control/{upgrade,secrets}.mjs) writes
+# The control agent's `upgrade`, `secrets-sync --restart` or `restart`
+# (tools/fabric/control/{upgrade,secrets,restart}.py) writes
 # $STATE_DIR/restart.json, then stops this session with SIGTERM — the
 # harness's graceful shutdown. This process is still in the session's
 # terminal, so it is the one that can bring the session back: it waits
@@ -310,7 +310,9 @@ def read_restart(marker: str, started: int, binding: str, wait_s_text: str) -> s
         time.sleep(1)
         m = load()
     st = m.get("status")
-    if st == "done":
+    if st == "done" and m.get("piece") == "the session":
+        say("launch: the session was restarted by the control plane; resuming it on the current fabric.")
+    elif st == "done":
         verb = "moved" if m.get("piece") == "the Claude account" else "upgraded"
         say(f"launch: {m.get('piece')} {verb} {m.get('from')} → {m.get('installed') or m.get('to')}; "
             "resuming the session on it.")
