@@ -248,6 +248,13 @@ def main() -> int:
         check("behind, an untracked file inside a directory the pull adds: exit 3",
               rc == 3 and "newdir/x" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
         shutil.rmtree(f"{fab}/newdir")
+        # An untracked file where the pull needs a directory (newdir is the
+        # pull's), and an untracked directory where it puts a file.
+        put(f"{fab}/newdir", "a file\n", 0o644)
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, an untracked file where the pull adds a directory: exit 3",
+              rc == 3 and "overwritten (newdir" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        rm(f"{fab}/newdir")
         g(fab, "mv", "a", "a-moved")
         rc, out = run([f"{bin_}/claude"], clean_env(**launched))
         check("behind, a staged rename whose source the pull modifies: exit 3, the source named",

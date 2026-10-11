@@ -82,7 +82,8 @@ def pull_blocker(repo: str) -> str | None:
         dirty.add(entry[3:])
         if "R" in entry[:2] or "C" in entry[:2]:
             dirty.add(next(fields, ""))
-    hit = sorted(touched & dirty)
+    # A file where the pull needs a directory, or the reverse, collides too.
+    hit = sorted(d for d in dirty if any(d == t or t.startswith(d + "/") or d.startswith(t + "/") for t in touched))
     return f"uncommitted changes would be overwritten ({', '.join(hit[:3])})" if hit else None
 
 
