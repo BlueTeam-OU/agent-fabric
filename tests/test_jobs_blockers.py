@@ -459,8 +459,20 @@ def main() -> int:
         check("a cleared answer written meanwhile is kept over a waiting one", got[spec]["state"] == "cleared" and bl.load_cache()[spec]["state"] == "cleared", got)
         bl.forget([spec])
         check("forget keeps only what was seen", bl.load_cache().get(spec) == {"seen_open": True}, bl.load_cache())
-        check("the cache and its lock are private", all(os.stat(os.path.join(os.path.dirname(bl.cache_path()), n)).st_mode & 0o777 == 0o600
-                                                        for n in os.listdir(os.path.dirname(bl.cache_path())) if n.startswith("jobs-blockers")))
+        lock_path = bl.cache_path() + ".lock"
+        check("the cache and its lock exist and are private", os.path.exists(bl.cache_path()) and os.path.exists(lock_path)
+              and all(os.stat(p).st_mode & 0o777 == 0o600 for p in (bl.cache_path(), lock_path)))
+        import fcntl
+        import threading
+        held = os.open(lock_path, os.O_RDWR)
+        fcntl.flock(held, fcntl.LOCK_EX)
+        done = threading.Event()
+        worker = threading.Thread(target=lambda: (bl.forget([spec]), done.set()), daemon=True)
+        worker.start()
+        check("with the lock held elsewhere, forget waits for it", not done.wait(0.6))
+        fcntl.flock(held, fcntl.LOCK_UN)
+        os.close(held)
+        check("…and goes on once it is let go", done.wait(10))
 
     print("pass" if not fails else f"{fails} FAILED")
     return 1 if fails else 0
