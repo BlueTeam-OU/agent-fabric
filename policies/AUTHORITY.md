@@ -119,6 +119,11 @@ this for a Python developer sharing the port of the fabric's bash
   records `Fabric-Role: <role>`, and refuses any guarded commit whose
   message types another role — so an amend of another role's commit,
   which keeps its trailer, is refused too.
+- **The checkout stays put.** A contributor's agent-fabric checkout stays
+  on its default branch and current, because the launcher, hooks and
+  prompt run from it (a relaunch and a fleet upgrade refuse it
+  otherwise); branch work goes in a worktree off origin/main (`git
+  worktree add ../af-<what> -b <branch> origin/main`).
 - **In CI**, `check_agent_fabric_dir_authority.sh` admits such a commit
   against the entry **as the base has it**: a branch that widens its
   own entry is judged by main's.
