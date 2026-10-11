@@ -15,7 +15,9 @@ CONTRACT, frozen from jobs.mjs:
   PROJECT_SLUG, TITLE_MAX, TOPIC_MAX, PRIORITIES      as Node's
   jobs(home, root, run)      {"status": "ok", "jobs": [...]}, each job's
                              id, state, title, project, topic, priority,
-                             source, blocked_on, artifacts, updated; a
+                             source, blocked_on, artifacts, updated, and
+                             where it has checkable blockers (after the
+                             Node was deleted) blockers and cleared; a
                              failed list is JobsError
   check_job_args(args)       None, or why the arguments are refused
   jobs_add(request, home, root, run)
@@ -131,7 +133,10 @@ def jobs(home: str | None = None, root: str | None = None, run: Runner = run_pyt
         out.append({**{k: j[k] for k in ("id", "state", "title") if k in j}, "project": nn(j.get("project")),
                     "topic": nn(j.get("topic")), "priority": j["priority"] if "priority" in j else "normal",
                     "source": nn(kind, "self"), "blocked_on": nn(j.get("blocked_on")), "artifacts": nn(j.get("artifacts"), []),
-                    "updated": nn(j.get("updated"))})
+                    "updated": nn(j.get("updated")),
+                    # Only where the job has checkable blockers (fabric-jobs list --json --stored, from its cache): the
+                    # board reads a missing key as "not said". Each is {spec, state, detail, checked_at}.
+                    **({"blockers": j["blockers"], "cleared": j.get("cleared")} if isinstance(j.get("blockers"), list) and j["blockers"] else {})})
     return {"status": "ok", "jobs": out}
 
 

@@ -4,11 +4,12 @@ behind bin/fabric-jobs.
 
     fabric-jobs add "<title>" [--topic T] [--project P] [--working-copy W] [--priority P]
     fabric-jobs add --request <MESSAGE-ID|seq> [--topic T] [--working-copy W] [--priority P]
-    fabric-jobs list [--all] [--json] [--stored]
+    fabric-jobs list [--all] [--json] [--stored] [--cached]
     fabric-jobs prio <id> <blocking|high|normal|low>
     fabric-jobs start <id>
     fabric-jobs block <id> "<on what>"
     fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
+    fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n>
     fabric-jobs deliver <id> <artifact>...
     fabric-jobs done <id>
     fabric-jobs drop <id> "<why>"
@@ -50,6 +51,20 @@ in its state record (tools/fabric/control/sessions.py) while the job stays
 blocked, so the job that request asked for ranks blocking wherever it is
 queued. Leaving `blocked` drops it: an id kept on a job that no longer
 waits would be said by nobody, and read as a wait by a person.
+
+A job can be blocked on something the tool can check (`block --on`, tools/fabric/jobsparts/blockers.py is the
+contract): a pull request (`pr:<owner/repo>#<n>`, cleared when it is merged or closed), a request this login sent
+(`request:<message-id>`, cleared when a REPLY to it is in the journal) or a peer's job (`job:<login>/j<n>`, cleared
+when it is delivered, or closed after it was seen open; read through fabric-ctl, a host operator's op), several
+allowed and all of them must clear. `list`, `next` and `block` check them, a blocker at most once every ten
+minutes (a cleared one never again: <state dir>/jobs-blockers.json), and a job whose blockers have all cleared reads
+"blocker cleared: <what>", is listed first, and is what `next` takes before anything queued: the agent moves it on
+itself. `--stored` and `--cached` check nothing and read that cache (the control agent's `jobs` op, a hook).
+`list --json` and the control plane's `jobs` carry, for such a job only, `blockers` ([{spec, state, detail,
+checked_at}]; state cleared, waiting or unknown, and unknown never clears) and `cleared` (true, false, or null
+while none is told). A request blocker is also kept as `waits_on`, as `--on-request` always kept it, and
+`--on-request` is now the same blocker. A free-text blocker behaves as it always did; one that names a pull
+request or a message id says once that a checkable form exists. Leaving `blocked` drops the blockers.
 
 The other half: a queued job whose source message is in any account's
 waits_on ranks blocking, its stored priority kept. `list` and `next` read
@@ -112,6 +127,7 @@ sys.modules["fabric_jobs"] = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sys.modules["fabric_jobs"])
 # Every name the parts define, from here as before: the tests and the intake reach them as jobs.<name>.
 from fabric_jobs.base import HERE, FABRIC_ROOT, _JobKeys, Job, _load, identity, STATES, OPEN, TERMINAL, MESSAGE_ID, POOL_ID, PRIORITIES, DEFAULT_PRIORITY, Refused, NothingQueued, Stale, mutate  # noqa: E402, F401
+from fabric_jobs import blockers  # noqa: E402, F401
 from fabric_jobs.ranking import stored_priority, message_of, waiters, effective_priority, queue_order, named  # noqa: E402, F401
 from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job  # noqa: E402, F401
 from fabric_jobs.queue import QUEUE, QUEUE_TIMEOUT_S, Unreachable, ask_queue, stream_waits  # noqa: E402, F401
@@ -135,7 +151,8 @@ def main(argv: list[str] | None = None) -> int:
     ls = sub.add_parser("list", help="open jobs (--all: closed ones too)")
     ls.add_argument("--all", action="store_true")
     ls.add_argument("--json", action="store_true")
-    ls.add_argument("--stored", action="store_true", help="stored priorities only; the state stream is not read")
+    ls.add_argument("--stored", action="store_true", help="stored priorities only; the state stream is not read, nor a blocker checked")
+    ls.add_argument("--cached", action="store_true", help="checkable blockers are read from the cache, not checked")
     pr = sub.add_parser("prio", help="set a job's priority")
     pr.add_argument("id")
     pr.add_argument("priority", choices=PRIORITIES)
@@ -144,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("block")
     b.add_argument("id")
     b.add_argument("on", nargs="?")
+    b.add_argument("--on", dest="on_spec", action="append", metavar="BLOCKER",
+                   help="a checkable blocker: pr:<owner/repo>#<n>, request:<message-id> or job:<login>/j<n>; repeatable, all must clear")
     b.add_argument("--on-request", metavar="MESSAGE-ID", help="the GZCoord request this job waits on")
     d = sub.add_parser("deliver")
     d.add_argument("id")
