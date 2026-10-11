@@ -184,13 +184,13 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
     checkout's instance data prints what it prints with none exported: the
     index links (`../agent-fabric/...`) and labels resolve in the operator's
     tree as in the engine's (review of #125: 183 false drift findings)."""
-    import shutil
     import subprocess
     base = {k: v for k, v in os.environ.items() if k not in ("AGENT_FABRIC_ROOT", "AGENT_FABRIC_OPERATOR")}
     with tempfile.TemporaryDirectory() as tmp:
-        for d in ("identities/roles", "identities/schemas", "identities/keys", "projects", "policies", "memory",
-                  "routing", "docs", "runtime/hosts"):
-            shutil.copytree(os.path.join(ROOT, d), os.path.join(tmp, d))
+        # A whole checkout, not a few directories: the staleness pass (ADR-050 rule 2) judges the paths and anchors a
+        # slice cites in the tree the corpus lies in, and an operator tree is that — a clone, with its history.
+        subprocess.run(["git", "clone", "-q", "--local", "--no-hardlinks", ROOT, tmp], check=True, timeout=300,
+                       env={**base, "GIT_CONFIG_GLOBAL": os.devnull})
         run = lambda env: subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "lint.py"),  # noqa: E731
                                           "--no-siblings"], capture_output=True, text=True, env=env, timeout=300)
         plain, over = run(base), run({**base, "AGENT_FABRIC_OPERATOR": tmp})
