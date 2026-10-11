@@ -178,9 +178,7 @@ under it is reported as DRIFT by `bin/fabric-status`, never applied.
   and how to read back the served model.
 - `tests/test_launch_cli.py` — the behavioural suite for the launcher and the audit
   (`fabric-python tests/test_launch_cli.py`), the
-  port's parity oracle; the module's internals are `tests/test_launch.py`,
-  and `tests/parity/launch_print.py` compares `--print` with the bash's,
-  byte for byte, for every role and provider.
+  port's parity oracle; the module's internals are `tests/test_launch.py`.
 
 ## Why every class rides an alias, and how the review class got its own model (verified live 2026-09-13; read-backs in `docs/live-checks/2026-09-13-openrouter-routing.md`)
 
