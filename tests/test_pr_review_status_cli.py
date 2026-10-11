@@ -34,6 +34,8 @@ import re
 import subprocess
 import sys
 import tempfile
+from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = [os.path.join(ROOT, "bin", "fabric-pr"), "review-status"]
