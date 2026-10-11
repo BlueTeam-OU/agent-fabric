@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-fabric:arming",
+  "title": "Arming policy of one repository",
+  "description": "One repository's arming policy: how a pull request reaches its default branch, mapped onto GitHub's merge settings but more abstract. The fleet default is policies/arming.json; a repository's own file (repos/<repo>.json in its organisation's agent-fabric-settings repository, registry settings_repos) merges over it, objects recursively and scalars replacing, so every field here is optional in a repository's file. The merged result is what fabric-pr arm judges a PR by and what fabric-repo-policy applies to GitHub and verifies.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "description": {"type": "string", "minLength": 1, "description": "Why this file says what it says; ignored by every reader."},
+    "mode": {"enum": ["queue", "auto", "direct", "owner-only"], "description": "queue: GitHub's merge queue. auto: auto-merge once the required checks pass. direct: no server-side rule, the pre-push hook is the fence. owner-only: fabric-pr arm refuses, only the owner merges."},
+    "method": {"enum": ["merge", "squash", "rebase"], "description": "The one merge method the repository allows."},
+    "required_checks": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Status checks that must pass before the merge; auto and queue need at least one, which lint checks on the merged policy.",
+      "items": {
+        "type": "object",
+        "required": ["context"],
+        "additionalProperties": false,
+        "properties": {
+          "context": {"type": "string", "minLength": 1, "description": "The check's name as it reports on a commit."},
+          "app": {"type": "string", "minLength": 1, "description": "The GitHub App that reports it, e.g. github-actions; absent, any."}
+        }
+      }
+    },
+    "signatures": {"type": "boolean", "description": "Commits must be signed."},
+    "protect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deletion": {"type": "boolean", "description": "The default branch cannot be deleted."},
+        "force_push": {"type": "boolean", "description": "The default branch refuses a non-fast-forward push."}
+      }
+    },
+    "delete_branch_on_merge": {"type": "boolean", "description": "GitHub deletes the head branch of a merged PR."},
+    "queue": {
+      "type": "object",
+      "description": "Merge-queue parameters; read only in mode queue.",
+      "additionalProperties": false,
+      "properties": {
+        "grouping": {"enum": ["allgreen", "headgreen"], "description": "GitHub's grouping strategy: every entry in a build must be green, or only the group's head."},
+        "build": {"type": "integer", "minimum": 1, "description": "Most entries built at once."},
+        "merge_max": {"type": "integer", "minimum": 1, "description": "Most entries merged in one group."},
+        "merge_min": {"type": "integer", "minimum": 1, "description": "Fewest entries merged in one group."},
+        "wait_minutes": {"type": "integer", "minimum": 1, "description": "Minutes to wait for merge_min entries."},
+        "check_timeout_minutes": {"type": "integer", "minimum": 1, "description": "Minutes before a queued build's checks time out."}
+      }
+    },
+    "commits": {
+      "type": "object",
+      "description": "The work-commit count a PR needs before it is armed (agent-fabric ADR-019 rule 4).",
+      "additionalProperties": false,
+      "properties": {
+        "min": {"type": "integer", "minimum": 1, "description": "Work commits a PR needs."},
+        "advice_over": {"type": "integer", "minimum": 1, "description": "Work commits above which the gate advises splitting the PR."},
+        "below_min": {"enum": ["owner-word", "refuse"], "description": "A PR under the minimum: arm on the owner's word, or refuse."},
+        "roles": {
+          "type": "object",
+          "description": "A different minimum for the author's role, by role slug.",
+          "propertyNames": {"pattern": "^[a-z][a-z0-9-]*$"},
+          "additionalProperties": {
+            "type": "object",
+            "required": ["min"],
+            "additionalProperties": false,
+            "properties": {"min": {"type": "integer", "minimum": 1}}
+          }
+        },
+        "classes": {
+          "type": "object",
+          "description": "A different minimum for a stated Class: whose paths every changed file matches, by class name.",
+          "propertyNames": {"minLength": 1},
+          "additionalProperties": {
+            "type": "object",
+            "required": ["paths", "min"],
+            "additionalProperties": false,
+            "properties": {
+              "paths": {"type": "string", "minLength": 1, "description": "Regular expression every changed file must match."},
+              "min": {"type": "integer", "minimum": 1}
+            }
+          }
+        }
+      }
+    },
+    "bots": {
+      "type": "object",
+      "description": "What a bot's PRs may be armed without a person.",
+      "additionalProperties": false,
+      "properties": {
+        "dependabot": {
+          "type": "object",
+          "required": ["arm"],
+          "additionalProperties": false,
+          "properties": {
+            "arm": {"type": "array", "uniqueItems": true, "items": {"enum": ["patch", "minor", "major"]}, "description": "The update types armed."},
+            "ecosystems": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}, "description": "Dependabot package ecosystems armed; absent, all."}
+          }
+        }
+      }
+    },
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ruleset": {"type": "string", "minLength": 1, "description": "Name of the one ruleset the fabric manages; any other is left alone."},
+        "branch": {"type": "string", "minLength": 1, "description": "The branch the rules govern; absent, the registry's default_branch."}
+      }
+    }
+  }
+}
