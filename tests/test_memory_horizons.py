@@ -3,7 +3,6 @@
 memory server's logs, and the wiring in the drain report. Every case builds its own corpus and state in a scratch directory."""
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import stat

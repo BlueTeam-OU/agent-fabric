@@ -24,7 +24,7 @@ CONTRACT
       unread   every section with no read in the last 56 days (8 weeks) that the state has watched for 56 days (`seen`):
                before that the answer is unknown, not "unread" — a section written yesterday was not watched. `unread_from`
                is the first day a section not yet watched long enough can be listed, or None
-  save_reads(path, state, project, live)                written on every drain, atomically, mode 0600 (mkstemp's), with the keys of
+  save_reads(path, state, project, live)       written on every drain, atomically, mode 0600 (mkstemp's), with the keys of
                                                  sections that no longer exist dropped from the scopes this drain read; a
                                                  failure to write is the caller's to report and never turns into a listing.
                                                  Two drains of one login at once lose one's reads (read, then replace)
