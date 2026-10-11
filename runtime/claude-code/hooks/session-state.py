@@ -10,13 +10,17 @@ one of:
 
     working   a prompt was submitted, or a tool is about to run
     blocked   the session waits on a person: a permission prompt, an
-              input or elicitation dialog
+              input or elicitation dialog; with it `reason`, "permission"
+              or "question" (fleet-deck-attention s3)
     idle      the session started, a turn ended, or it sat waiting
     (gone)    the session ended: its entry is removed
 
+and, per session, `transcript`, the path the payload names (the control
+agent reads its modification time, never its content, and the path stays
+on the account),
 in <state>/session-state.json (the directory runtime/identity.py and
 tools/fabric/control/upgrade.py's state dir name), mode 0600, rewritten whole
-under a lock and only when a session's state changes: PreToolUse fires on
+under a lock and only when a session's state, reason or transcript changes: PreToolUse fires on
 every tool call and writes nothing while the session stays working.
 
 Beside the state, the session's own `claude` process (the nearest
@@ -120,12 +124,28 @@ def state_of(payload: dict) -> str | None:
     return None
 
 
+def reason_of(payload: dict) -> str | None:
+    """Why a blocked session waits on a person: "permission" for a permission prompt (the PermissionRequest
+    event, or a Notification of that type), "question" for an input or elicitation dialog; None when the
+    event is not one that blocks, or the notification type says nothing the deck can tell apart."""
+    event = payload.get("hook_event_name")
+    if event == "PermissionRequest":
+        return "permission"
+    kind = payload.get("notification_type")
+    if event != "Notification" or kind not in NEEDS_A_PERSON:
+        return None
+    return "permission" if kind in ("permission_prompt", "worker_permission_prompt") else "question"
+
+
 def record(payload: dict, directory: str | None = None, now: float | None = None,
            process: tuple[int, int] | None = None, proc: str = "/proc") -> bool:
     """True when the file changed. `process` is the session's harness
     (pid, start); looked up when not given."""
     sid = payload.get("session_id")
     state = state_of(payload)
+    reason = reason_of(payload) if state == "blocked" else None
+    transcript = payload.get("transcript_path")
+    transcript = transcript if isinstance(transcript, str) and os.path.isabs(transcript) else None
     if not isinstance(sid, str) or not sid or state is None:
         return False
     directory = directory or state_dir()
@@ -156,12 +176,20 @@ def record(payload: dict, directory: str | None = None, now: float | None = None
             pid, start = process if process is not None else (harness() or (None, None))
             # `since` is when the session entered its state: a write made
             # only to prune another entry keeps it (review of #105).
-            if (current.get("state"), current.get("pid"), current.get("start")) == (state, pid, start):
+            same = (current.get("state"), current.get("pid"), current.get("start")) == (state, pid, start)
+            # A payload without a transcript path does not erase the one an earlier event gave.
+            transcript = transcript or current.get("transcript")
+            if same and (current.get("reason"), current.get("transcript")) == (reason, transcript):
                 if not pruned:
                     return False
             else:
-                sessions[sid] = {"state": state, "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
-                                 "pid": pid, "start": start}
+                # A new reason or transcript alone is not a new state: `since` stays.
+                since = current["since"] if same and "since" in current else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+                sessions[sid] = {"state": state, "since": since, "pid": pid, "start": start}
+                if reason:
+                    sessions[sid]["reason"] = reason
+                if transcript:
+                    sessions[sid]["transcript"] = transcript
         tmp = f"{path}.{os.getpid()}"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
