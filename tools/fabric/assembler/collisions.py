@@ -8,7 +8,7 @@ import sys
 from collections import defaultdict
 from typing import Any
 from assembler.core import layout, CLASS_FILES, Run
-from assembler.slices import read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block
+from assembler.slices import read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, shares_cue
 from assembler.targets import existing_sections, slice_candidates, is_carried
 
 
@@ -152,7 +152,10 @@ def check_collisions(run: Run) -> int | None:
             # collision; a claim whose merge_target named a section was
             # authorised above, and a topic several agents wrote is several
             # memories, where a new heading is simply new.
-            retitled = rival is None and heading not in present and author is not None and agent == author
+            # ADR-050 rule 11: only the sections that share a cue with the new heading are the retitle's; a claim
+            # that shares none is a new section of the topic, however sole the author.
+            cue_mates = [h for h in present if shares_cue(heading, h)] if rival is None and heading not in present else []
+            retitled = rival is None and heading not in present and author is not None and agent == author and bool(cue_mates)
             if rival is None and not retitled:
                 continue
             key_id = f"{label}/{klass}:{topic}#{heading}"
@@ -180,7 +183,7 @@ def check_collisions(run: Run) -> int | None:
             # Every section the supersede would remove: the heading and its
             # kept-both siblings "X (n)", which the replace retires too; a
             # retitle retires the whole topic (the re-review of #41).
-            replaced = [k for k in siblings if k in present] if heading in present else list(present)
+            replaced = [k for k in siblings if k in present] if heading in present else cue_mates
             corpus_dates = [observed_of(present[h]) for h in replaced]
             older = bool(incoming_date) and any(d != "undated" and incoming_date < d for d in corpus_dates)
             same_agent = not open_pair and not older and ((retitled and author is not None and agent == author)
@@ -190,9 +193,9 @@ def check_collisions(run: Run) -> int | None:
                 decision, rule = "supersede", "same-agent"
                 same_agent_supersedes.append(f"{key_id}  ({agent})")
             if decision == "supersede" and retitled:
-                # The new title wins: every section of the topic is retired
+                # The new title wins: the sections that share its cue are retired
                 # and the claim takes the first one's place.
-                claim["_retire"] = list(present)
+                claim["_retire"] = list(cue_mates)
             elif decision == "supersede":
                 claim["merge_target"] = heading
             elif decision == "drop":
@@ -201,9 +204,9 @@ def check_collisions(run: Run) -> int | None:
                 pass
             elif retitled:
                 refused_collisions.append(
-                    f"{claim_key}   (retitled? every section of the topic is {agent}'s)\n"
+                    f"{claim_key}   (retitled? it shares a cue with {agent}'s {', '.join(map(repr, cue_mates))})\n"
                     + "".join(f"    in the corpus (observed {observed_of(present[h])}) as {h!r}: {excerpt(present[h])}\n"
-                              for h in present)
+                              for h in cue_mates)
                     + f"    incoming      (observed {claim.get('observed_at') or 'undated'}, {agent}) "
                       f"as {heading!r}: {excerpt(rendered)}"
                 )

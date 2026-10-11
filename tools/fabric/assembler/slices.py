@@ -6,6 +6,7 @@ import json
 import os
 import re
 from typing import Callable, Any
+import anchors
 from assembler.core import layout, yaml_scalar
 
 
@@ -69,12 +70,19 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     marks = {h: v for h, v in (previous.get("watermarks") or {}).items() if isinstance(v, (int, float))}
     for host, mark in (current.get("watermarks") or {}).items():
         marks[host] = mark
+    # Who last wrote each section accumulates across drains (ADR-050 rule 3): a section written by an earlier drain
+    # keeps its writer until it is written again, and a slice that is gone takes its sections' writers with it.
+    gone = set(current.get("section_writers_gone") or [])
+    writers = {k: v for k, v in (previous.get("section_writers") or {}).items()
+               if isinstance(v, dict) and k not in gone and exists(k.partition("#")[0])}
+    writers.update(current.get("section_writers") or {})
+    current = {k: v for k, v in current.items() if k != "section_writers_gone"}     # a hand-off to this merge, not a record
     if previous.get("stamp") != current["stamp"]:
-        merged = dict(current, watermarks=marks)
+        merged = dict(current, watermarks=marks, section_writers=writers)
         merged["files"] = [f for f in current["files"] if exists(f)]
         merged["files_written"] = len(merged["files"])
         return merged
-    merged = dict(current, watermarks=marks)
+    merged = dict(current, watermarks=marks, section_writers=writers)
     merged["roles"] = sorted(set(previous.get("roles") or []) | set(current["roles"]))
     merged["shared_topics"] = sorted(set(previous.get("shared_topics") or []) | set(current["shared_topics"]))
     merged["shared_slices"] = len(merged["shared_topics"])
@@ -309,6 +317,23 @@ def parse_slice(text: str) -> tuple[dict[str, Any], dict[str, str]]:
     return meta, sections
 
 
+# ADR-050 rule 1: the anchors of a section, on a line of their own above its *Observed* tail, each in
+# backticks (an anchor never holds one: harvest_memory.anchor_problem), so the list reads back whole.
+ANCHORS_LINE = re.compile(r"(?m)^\*Anchors: (.+)\*[ \t]*$")
+
+
+def anchors_of(section: str) -> list[str]:
+    """The anchors a section's text names, in order, once each. A line of a slice is text any memory's body may
+    carry, which no harvest validated: an anchor that is not one (absolute, leaving the tree, over the bounds) is
+    not read, so nothing outside the tree is ever opened for it."""
+    found: dict[str, None] = {}
+    for line in ANCHORS_LINE.findall(section):
+        for a in re.findall(r"`([^`]+)`", line):
+            if anchors.problem(a) is None:
+                found.setdefault(a, None)
+    return list(found)
+
+
 OBSERVED_RE = re.compile(r"\s*\*Observed (\d{4}-\d{2}-\d{2})(?: \(([a-z0-9-]+)\))?\*\s*$")
 
 
@@ -320,6 +345,27 @@ def undated(text: str) -> str:
     and a comparison that included the tail refused it as a collision
     with two identical excerpts (review of 2026-09-20, F1)."""
     return OBSERVED_RE.sub("", text).strip()
+
+
+def cue_tokens(heading: str) -> set[str]:
+    """A heading's cue: its lower-case alphanumeric tokens (letters and digits of any script)."""
+    return set(re.findall(r"[^\W_]+", heading.lower()))
+
+
+def shares_cue(new_heading: str, old_heading: str) -> bool:
+    """ADR-050 rule 11 (the owner's measure, 2026-10-11): two headings share a cue when MORE THAN HALF of the shorter
+    one's lower-case alphanumeric tokens are in the other. "Issue 851 is open" / "Issue 851 is merged": 3 of 4 tokens
+    are common, they share; "First view" / "Second view": 1 of 2, they do not. A retitle replaces only the sections
+    that share a cue with it; a claim that shares none with any section of its topic is a new section."""
+    a, b = cue_tokens(new_heading), cue_tokens(old_heading)
+    shorter = min(len(a), len(b))
+    return bool(shorter) and 2 * len(a & b) > shorter
+
+
+def is_retire(claim: dict[str, Any]) -> bool:
+    """ADR-050 rule 7: a claim that names a section in `merge_target` and has no body retires that section. The
+    section leaves the corpus; its text stays in git."""
+    return not str(claim.get("body") or "").strip() and bool((claim.get("merge_target") or "").strip())
 
 
 def claim_heading(claim: dict[str, Any]) -> str:
@@ -382,6 +428,8 @@ def claim_block(claim: dict[str, Any]) -> str:
     # only if each carries its date; the slice's distilled_at is the last
     # drain's, not the fact's. The role, never the login: a slice travels
     # into every repository.
+    if claim.get("anchors"):
+        tail += "\n\n*Anchors: " + ", ".join(f"`{a}`" for a in claim["anchors"]) + "*"
     if claim.get("observed_at"):
         who = f" ({claim['_role']})" if claim.get("_role") else ""
         tail += f"\n\n*Observed {claim['observed_at']}{who}*"

@@ -310,6 +310,201 @@ class Corpus(Tree):
         self.assertEqual(before, after)
 
 
+GIT_ENV = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "LC_ALL": "C"}
+
+
+def git(tree: str, *args: str, date: str | None = None) -> str:
+    env = {**GIT_ENV, **({"GIT_AUTHOR_DATE": f"{date}T12:00:00Z", "GIT_COMMITTER_DATE": f"{date}T12:00:00Z"} if date else {})}
+    r = subprocess.run(["git", "-C", tree, "-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false", *args],
+                       capture_output=True, text=True, env=env, timeout=60, check=True, stdin=subprocess.DEVNULL)
+    return r.stdout.strip()
+
+
+def anchored(body: str, anchors: list[str], observed: str | None = "2026-03-10", role: str = "python-dev") -> str:
+    """A section's text as the assembler writes it: the body, the Anchors line, the Observed tail."""
+    return (body + ("\n\n*Anchors: " + ", ".join(f"`{x}`" for x in anchors) + "*" if anchors else "")
+            + (f"\n\n*Observed {observed} ({role})*" if observed else ""))
+
+
+class Anchors(Tree):
+    """ADR-050 rules 1 and 2: anchors, the symbol they name, and a change since the section was written."""
+
+    def setUp(self):
+        super().setUp()
+        git(self.tree, "init", "-q")
+        self.write("tools/fabric/runner.py", "def run_it():\n    return 1\n")
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the first state", date="2026-03-01")
+
+    def verdicts(self, *args):
+        return {s["heading"]: s for s in self.report(*args)["sections"]}
+
+    def test_an_anchor_that_holds_and_whose_file_has_not_moved_is_fresh_and_silent(self):
+        self.slice("a", ("ok", anchored("Body.", ["tools/fabric/runner.py::run_it"])))
+        row = self.verdicts()["ok"]
+        self.assertEqual((row["verdict"], row["anchors"][0]["status"], row["observed"], row["role"]), ("fresh", "exists", "2026-03-10", "python-dev"))
+        self.assertNotIn("ok", self.run_cli(self.corpus).stdout.replace("summary", ""), "a fresh section is not listed without --all")
+
+    def test_a_path_that_is_gone_a_symbol_that_is_gone_and_a_directory_with_a_symbol_are_stale_hard(self):
+        self.slice("a", ("path", anchored("B.", ["tools/fabric/deleted.py::run_it"])),
+                   ("symbol", anchored("B.", ["tools/fabric/runner.py::renamed_it"])),
+                   ("dir", anchored("B.", ["tools/fabric::run_it"])),
+                   ("whole", anchored("B.", ["tools/fabric/runner.py"])))
+        v = self.verdicts()
+        self.assertEqual({h: v[h]["verdict"] for h in v}, {"path": "stale-hard", "symbol": "stale-hard", "dir": "stale-hard", "whole": "fresh"})
+        self.assertIn("renamed_it", v["symbol"]["anchors"][0]["why"])
+        out = [ln.split("\t") for ln in self.run_cli(self.corpus).stdout.splitlines()]
+        self.assertIn(["stale-hard", "domains/d/domain/a.md", "symbol", "tools/fabric/runner.py::renamed_it",
+                       "the file no longer holds 'renamed_it'"], out)
+        self.assertIn(["stale-hard", "domains/d/domain/a.md", "path", "tools/fabric/deleted.py::run_it", "the path is gone"], out)
+
+    def test_a_file_changed_after_the_observed_day_is_maybe_stale_and_names_the_commit(self):
+        self.write("tools/fabric/runner.py", "def run_it():\n    return 2\n")
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the run changes its answer", date="2026-03-20")
+        want = git(self.tree, "rev-parse", "--short", "HEAD")
+        self.slice("a", ("moved", anchored("B.", ["tools/fabric/runner.py::run_it"], observed="2026-03-10")),
+                   ("later", anchored("B.", ["tools/fabric/runner.py::run_it"], observed="2026-03-25")),
+                   ("sameday", anchored("B.", ["tools/fabric/runner.py::run_it"], observed="2026-03-20")))
+        v = self.verdicts()
+        self.assertEqual({h: v[h]["verdict"] for h in v}, {"moved": "maybe-stale", "later": "fresh", "sameday": "fresh"})
+        a = v["moved"]["anchors"][0]
+        self.assertEqual((a["commit"], a["date"], a["subject"]), (want, "2026-03-20", "the run changes its answer"))
+        out = [ln.split("\t") for ln in self.run_cli(self.corpus).stdout.splitlines()]
+        self.assertIn(["maybe-stale", "domains/d/domain/a.md", "moved", "tools/fabric/runner.py::run_it", f"{want} 2026-03-20 the run changes its answer"], out)
+
+    def test_stale_hard_outranks_maybe_stale_outranks_unchecked_outranks_fresh(self):
+        self.write("tools/fabric/runner.py", "def run_it():\n    return 2\n")
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "moved", date="2026-03-20")
+        self.slice("a", ("all", anchored("B. `tools/fabric/deleted.py`", ["tools/fabric/runner.py::run_it", "tools/fabric/layout.py"])),
+                   ("movedfresh", anchored("B.", ["tools/fabric/runner.py::run_it", "tools/fabric/layout.py"])),
+                   ("uncheckedfresh", anchored("B.", ["tools/fabric/layout.py"], observed="2026-03-25") + "\n\n`../zz/y/z`"))
+        v = self.verdicts()
+        self.assertEqual({h: v[h]["verdict"] for h in v}, {"all": "stale-hard", "movedfresh": "maybe-stale", "uncheckedfresh": "unchecked"})
+
+    def test_history_that_cannot_be_read_is_unchecked_never_stale_and_never_fresh(self):
+        self.slice("a", ("s", anchored("B.", ["tools/fabric/runner.py::run_it"])))
+        # not a repository
+        shutil.rmtree(os.path.join(self.tree, ".git"))
+        row = self.verdicts()["s"]
+        self.assertEqual((row["verdict"], row["anchors"][0]["status"]), ("unchecked", "unchecked"))
+        self.assertIn("no git history", row["anchors"][0]["why"])
+        # git not installed
+        r = self.run_cli(self.corpus, "--json", env={"PATH": "/nonexistent"})
+        self.assertEqual(json.loads(r.stdout)["sections"][0]["verdict"], "unchecked")
+        # a shallow clone
+        origin = self.tree + "-origin"
+        shutil.copytree(self.tree, origin, ignore=shutil.ignore_patterns("memory"))
+        git(origin, "init", "-q")
+        git(origin, "add", "-A")
+        git(origin, "commit", "-q", "-m", "one", date="2026-03-01")
+        self.write("tools/fabric/runner.py", "def run_it():\n    return 3\n", root=origin)
+        git(origin, "commit", "-q", "-am", "two", date="2026-03-02")
+        shutil.rmtree(self.tree)
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "file://" + origin, self.tree], check=True, env=GIT_ENV, capture_output=True, timeout=60)
+        self.slice("a", ("s", anchored("B.", ["tools/fabric/runner.py::run_it"])))
+        row = self.verdicts()["s"]
+        self.assertEqual(row["verdict"], "unchecked")
+        self.assertIn("shallow", row["anchors"][0]["why"])
+
+    def test_anchors_with_no_observed_date_cannot_be_judged_for_a_change(self):
+        self.slice("a", ("undated", anchored("B.", ["tools/fabric/runner.py::run_it"], observed=None)),
+                   ("gone", anchored("B.", ["tools/fabric/deleted.py"], observed=None)))
+        v = self.verdicts()
+        self.assertEqual((v["undated"]["verdict"], v["gone"]["verdict"]), ("unchecked", "stale-hard"))
+        self.assertIn("no Observed date", v["undated"]["why"])
+        self.assertIn(["unchecked", "domains/d/domain/a.md", "undated", "-", v["undated"]["why"]],
+                      [ln.split("\t") for ln in self.run_cli(self.corpus).stdout.splitlines()])
+
+    def test_an_anchor_in_an_origin_projects_checkout_is_judged_there_by_that_checkouts_history(self):
+        other = os.path.join(self.base, "other")
+        os.makedirs(os.path.join(other, "src"))
+        git(other, "init", "-q")
+        self.write("src/engine.py", "class Engine: ...\n", root=other)
+        git(other, "add", "-A")
+        git(other, "commit", "-q", "-m", "engine v1", date="2026-03-01")
+        self.write("src/engine.py", "class Engine:\n    pass\n", root=other)
+        git(other, "commit", "-q", "-am", "engine v2", date="2026-03-20")
+        self.slice("a", ("far", anchored("B.", ["src/engine.py::Engine"])), origins=(("other", "other"),))
+        row = self.verdicts("--project", "agent-fabric")["far"]
+        self.assertEqual((row["verdict"], row["anchors"][0]["subject"]), ("maybe-stale", "engine v2"))
+
+    def test_an_anchor_is_judged_in_its_origins_checkout_never_by_a_same_named_file_of_another_project(self):
+        self.write("README.md", "the fabric's own readme, without the literal\n")
+        self.slice("a", ("far", anchored("B.", ["README.md::only-in-the-other-readme"], observed=None)), origins=(("other", "other"),))
+        row = self.verdicts("--project", "agent-fabric")["far"]
+        self.assertEqual(row["verdict"], "unchecked", "the other project's checkout is not here: unknown, never stale")
+        self.assertIn("no checkout 'other' beside the tree", row["anchors"][0]["why"])
+        other = os.path.join(self.base, "other")
+        self.write("README.md", "# other\nonly-in-the-other-readme\n", root=other)
+        self.assertEqual(self.verdicts("--project", "agent-fabric")["far"]["anchors"][0]["status"], "exists",
+                         "present, it is the origin's file that is searched, not the tree's")
+        self.write("README.md", "# other, changed\n", root=other)
+        row = self.verdicts("--project", "agent-fabric")["far"]
+        self.assertEqual((row["verdict"], row["anchors"][0]["status"]), ("stale-hard", "stale-hard"))
+        # the corpus's own project, and a slice with no origin, are judged in the tree
+        self.slice("b", ("own", anchored("B.", ["README.md::a literal the readme lacks"], observed=None)), origins=(("agent-fabric", "agent-fabric"),))
+        self.assertEqual(self.verdicts("--project", "agent-fabric")["own"]["anchors"][0]["status"], "stale-hard")
+
+    def test_an_anchor_that_is_not_one_is_never_opened_and_a_link_out_of_the_tree_is_not_followed(self):
+        outside = os.path.join(self.base, "outside.txt")
+        with open(outside, "w", encoding="utf-8") as fh:
+            fh.write("MARKER-ONLY-OUTSIDE\n")
+        os.symlink(outside, os.path.join(self.tree, "tools", "fabric", "link.py"))
+        # a forged line in a slice: absolute and climbing anchors are not anchors; the link is one, and is refused
+        self.slice("a", ("forged", anchored("B.", [f"{outside}::MARKER-ONLY-OUTSIDE", "../outside.txt::MARKER-ONLY-OUTSIDE",
+                                                   "../../x::y"], observed=None)),
+                   ("link", anchored("B.", ["tools/fabric/link.py::MARKER-ONLY-OUTSIDE"], observed=None)))
+        v = self.verdicts()
+        self.assertEqual(v["forged"]["anchors"], [], "nothing is read for them")
+        self.assertEqual(v["forged"]["verdict"], "no-anchor")
+        self.assertEqual((v["link"]["verdict"], v["link"]["anchors"][0]["status"]), ("unchecked", "unchecked"))
+        self.assertIn("leaves its tree through a link", v["link"]["anchors"][0]["why"])
+
+    def test_a_file_too_large_to_search_is_unchecked_not_stale(self):
+        self.slice("a", ("big", anchored("B.", ["tools/fabric/runner.py::run_it"])))
+        orig = memory_check.ANCHOR_FILE_MAX
+        memory_check.ANCHOR_FILE_MAX = 10
+        try:
+            row = memory_check.check(self.corpus, self.tree)[0]
+        finally:
+            memory_check.ANCHOR_FILE_MAX = orig
+        self.assertEqual((row["verdict"], row["anchors"][0]["status"]), ("unchecked", "unchecked"))
+        self.assertIn("larger than 10 bytes", row["anchors"][0]["why"])
+        self.assertEqual(memory_check.check(self.corpus, self.tree)[0]["verdict"], "fresh", "positive control: within the bound it is searched")
+
+    def test_the_history_asks_git_with_an_argument_list_a_timeout_and_a_minimal_environment(self):
+        calls = []
+
+        class Done:
+            def __init__(self, out, rc=0):
+                self.stdout, self.stderr, self.returncode = out, "", rc
+
+        def fake(argv, **kw):
+            calls.append((argv, kw))
+            return Done("false\n" if "rev-parse" in argv else "abc1234\t2026-03-20\tsubject\n")
+        h = memory_check.History(run=fake)
+        self.assertEqual(h.changed_after("/t", "a/b.py", "2026-03-10"), {"commit": "abc1234", "date": "2026-03-20", "subject": "subject"})
+        self.assertEqual(len(calls), 2)
+        for argv, kw in calls:
+            self.assertIsInstance(argv, list)
+            self.assertEqual(argv[:3], ["git", "-C", "/t"])
+            self.assertEqual(kw["timeout"], memory_check.GIT_TIMEOUT_S)
+            self.assertFalse(kw.get("shell"))
+            self.assertNotIn("GIT_DIR", kw["env"])
+            self.assertEqual(kw["env"]["GIT_TERMINAL_PROMPT"], "0")
+        self.assertTrue(any(a.startswith("--since=") and a.endswith(" +0000") for a in calls[1][0]), calls[1][0])
+        self.assertEqual(calls[1][0][-2:], ["--", "a/b.py"], "the path follows `--`, never read as an option")
+        # a timeout and a failing git are unknown, not an exception out of the check
+        def slow(argv, **kw):
+            raise subprocess.TimeoutExpired(argv, 1)
+        with self.assertRaises(memory_check.NoHistory):
+            memory_check.History(run=slow).changed_after("/t", "a", "2026-03-10")
+        with self.assertRaises(memory_check.NoHistory):
+            memory_check.History(run=lambda argv, **kw: Done("", 128)).changed_after("/t", "a", "2026-03-10")
+
+
 class Output(Tree):
     def setUp(self):
         super().setUp()
@@ -321,7 +516,7 @@ class Output(Tree):
         out = r.stdout.splitlines()
         self.assertEqual(out[0].split("\t"), ["stale-hard", "domains/d/domain/a.md", "gone", "tools/fabric/deleted.py"])
         self.assertEqual(out[1].split("\t"), ["unchecked", "domains/d/domain/a.md", "far", "../zz/y/z", "no checkout 'zz' beside the tree"])
-        self.assertEqual(out[2], "summary\t1 stale-hard, 1 unchecked, 1 fresh, 1 no-anchor, 0 unreadable; 1 slice(s) cite a path that is gone")
+        self.assertEqual(out[2], "summary\t1 stale-hard, 0 maybe-stale, 1 unchecked, 1 fresh, 1 no-anchor, 0 unreadable; 1 slice(s) cite a path that is gone")
         self.assertEqual(len(out), 3)
 
     def test_all_adds_the_fresh_and_no_anchor_sections(self):
@@ -332,7 +527,7 @@ class Output(Tree):
     def test_json_is_one_document_with_every_section_and_the_counts(self):
         doc = self.report()
         self.assertEqual(sorted(doc), ["corpus", "counts", "sections", "tree"])
-        self.assertEqual(doc["counts"], {"stale-hard": 1, "unchecked": 1, "fresh": 1, "no-anchor": 1, "unreadable": 0})
+        self.assertEqual(doc["counts"], {"stale-hard": 1, "maybe-stale": 0, "unchecked": 1, "fresh": 1, "no-anchor": 1, "unreadable": 0})
         self.assertEqual(doc["tree"], self.tree)
         self.assertEqual([s["heading"] for s in doc["sections"]], ["gone", "fine", "none", "far"])
 
