@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 # The harvest reads the login's memory-server logs from its state directory (memory_use.py): a suite that did not
@@ -254,6 +255,81 @@ def test_an_anchor_that_carries_a_credential_refuses_the_drain_and_a_doubled_sin
     assert r.returncode == 0, r.stderr
     (claim,) = claims_of(out2)
     assert claim["anchors"] == ["tools/a.py::it's", "b.py"], claim["anchors"]
+
+
+def test_an_applied_correction_is_not_harvested_again_and_the_original_it_replaced_is_named(tmp: str) -> None:
+    """ADR-050 rule 10: the project's drain report lists the corrections it applied, each by the keys of the text it
+    replaced and the text that replaced it (corrections.py). The harvest skips a correction memory whose text is one of
+    those, with a line and the watermark passing it; names an original memory whose text is a replaced one — whatever
+    the watermark says; and files everything else as it always did."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from corrections import memory_key
+    OLD, NEW = "The old fact.\n\n## Detail\n\nwith a heading", "The new fact.\n\n## Detail\n\nalso"
+    mem, out = os.path.join(tmp, "ca"), os.path.join(tmp, "oca")
+    os.makedirs(mem)
+    wc = os.path.join(tmp, "wc-ca")
+    os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    entry = {"slice": ".agent-fabric/memory/architect-cto/solution.md", "heading": "New heading", "replaced": "Old heading",
+             "memory": "fix", "replaced_key": memory_key(OLD), "applied_key": memory_key(NEW)}
+    far = 4102444800000          # a watermark in 2100: every memory is older than it
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"applied_corrections": [entry, {"slice": "bad shape"}, "junk"],
+                   "watermarks": {f"{LOGIN}@hostA": far}}, fh)
+    for name, body, target in (("orig", OLD, None), ("fix", NEW, "Old heading"),
+                               ("fix2", "A newer fact, not applied.", "Old heading"), ("plain", "Unrelated.", None)):
+        write_memory(mem, name, "project", body=body, roles_class="solution")
+        if target:
+            path = os.path.join(mem, f"{name}.md")
+            text = open(path, encoding="utf-8").read().replace("roles_class: solution", f"roles_class: solution\n  merge_target: {target}")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+    # the watermark spares re-reading everything: only the naming of the original looks past it
+    r = run(mem, out, "--working-copy", wc, "--project", "demo", "--host", "hostA")
+    assert r.returncode == 0, r.stderr
+    assert "superseded: orig.md" in r.stderr and "retire this memory" in r.stderr and "'fix'" in r.stderr, r.stderr
+    assert "plain.md" not in r.stderr and "fix2.md" not in r.stderr, r.stderr
+    assert not (os.path.exists(os.path.join(out, "claims", "architect-cto.json")) and claims_of(out)), "everything was older than the watermark"
+    newest = time.time() + 86400          # only the skipped correction is this new: the watermark passes it or it does not
+    os.utime(os.path.join(mem, "fix.md"), (newest, newest))
+    far_back = {"watermarks": {f"{LOGIN}@hostA": 1}, "applied_corrections": [entry]}
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump(far_back, fh)
+    out2 = os.path.join(tmp, "oca2")
+    r = run(mem, out2, "--working-copy", wc, "--project", "demo", "--host", "hostA")
+    assert r.returncode == 0, r.stderr
+    assert "applied correction: fix.md: already applied" in r.stderr and "not harvested again" in r.stderr, r.stderr
+    assert sorted(c["topic"] for c in claims_of(out2)) == ["fix2", "orig", "plain"], "the applied correction is not a claim; the rest are"
+    with open(os.path.join(out2, "harvest-report.json"), encoding="utf-8") as fh:
+        report = json.load(fh)
+    assert len(report["applied_corrections_skipped"]) == 1 and len(report["superseded_originals"]) == 1, report
+    assert report["next_watermark"] >= int(newest * 1000) - 1, "the watermark passes the skipped correction"
+    # the guards: a plain memory whose words are an applied correction's is filed (only a correction is skipped); a correction
+    # whose words are a replaced text is filed (only a plain memory is named); the same words aimed at another heading are
+    # another correction, not the applied one
+    guards = os.path.join(tmp, "guards")
+    os.makedirs(guards)
+    write_memory(guards, "same-words-plain", "project", body=NEW, roles_class="solution")
+    write_memory(guards, "old-words-correction", "project", body=OLD, roles_class="solution")
+    write_memory(guards, "other-heading", "project", body=NEW, roles_class="solution")
+    for name, target in (("old-words-correction", "Old heading"), ("other-heading", "Another heading")):
+        path = os.path.join(guards, f"{name}.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text.replace("roles_class: solution", f"roles_class: solution\n  merge_target: {target}"))
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump(far_back, fh)
+    r = run(guards, os.path.join(tmp, "oguards"), "--working-copy", wc, "--project", "demo", "--host", "hostA")
+    assert r.returncode == 0 and "superseded" not in r.stderr and "applied correction" not in r.stderr, r.stderr
+    got = sorted(c["topic"] for c in claims_of(os.path.join(tmp, "oguards")))
+    assert got == ["old-words-correction", "other-heading", "same-words-plain"], (got, r.stderr)
+    # control: with no applied corrections listed, the same memories are all filed and nothing is named
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"watermarks": {f"{LOGIN}@hostA": 1}}, fh)
+    out3 = os.path.join(tmp, "oca3")
+    r = run(mem, out3, "--working-copy", wc, "--project", "demo", "--host", "hostA")
+    assert r.returncode == 0 and "superseded" not in r.stderr and "applied correction" not in r.stderr, r.stderr
+    assert sorted(c["topic"] for c in claims_of(out3)) == ["fix", "fix2", "orig", "plain"]
 
 
 def test_role_knowledge_is_opt_in(tmp: str) -> None:
@@ -961,6 +1037,7 @@ def main() -> int:
         test_a_second_store_of_the_login_carries_no_marks,
         test_the_marks_reach_the_committed_report_through_the_assembler,
         test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim,
+        test_an_applied_correction_is_not_harvested_again_and_the_original_it_replaced_is_named,
         test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays,
         test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused,
         test_an_anchor_that_carries_a_credential_refuses_the_drain_and_a_doubled_single_quote_is_one_quote,

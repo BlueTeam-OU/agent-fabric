@@ -198,6 +198,7 @@ def check_collisions(run: Run) -> int | None:
                 claim["_retire"] = list(cue_mates)
             elif decision == "supersede":
                 claim["merge_target"] = heading
+                claim["_inferred_target"] = True      # the owner's or the same-agent rule's, not the author's: no rule 10 record
             elif decision == "drop":
                 group.remove(claim)
             elif decision == "keep-both":

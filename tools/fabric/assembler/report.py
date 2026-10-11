@@ -11,7 +11,8 @@ from typing import Any
 import roots
 import memory_horizons
 from assembler.core import layout, Run, in_report, hygiene_substitute, patterns_for
-from assembler.slices import merge_reports, scan_collisions, drop_held
+from assembler.slices import merge_reports, scan_collisions, drop_held, read_existing_slice
+from corrections import section_key
 
 
 def store_of(hr: dict) -> str:
@@ -237,6 +238,7 @@ def report(run: Run) -> int:
         "retired_in_siblings": run.retired_in,
         "section_writers": run.section_writers,
         "section_writers_gone": run.section_writers_gone,
+        "applied_corrections": run.applied_corrections,
         "oversized_claims": run.oversized,
         "clipped_descriptions": run.clipped_descriptions,
         "migrated": run.migrated,
@@ -271,6 +273,19 @@ def report(run: Run) -> int:
     report["memory_helpful"] = helpful_counts(report.get("memory_marks") or {})
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
+    # A correction stays listed only while its slice still holds the text it applied: a later correction, a revert or a hand
+    # edit ends it (else the harvest would name a live memory superseded, or skip a correction asserting live text again).
+    def holds(entry: dict[str, Any]) -> bool:
+        for base in [layout.working_copy_for(run.project), layout.FABRIC_ROOT]:
+            path = os.path.join(base, entry["slice"]) if base else ""
+            if path and os.path.isfile(path):
+                try:
+                    _meta, sections = read_existing_slice(path)
+                except (OSError, UnicodeDecodeError):
+                    return False
+                return entry.get("heading") in sections and section_key(sections[entry["heading"]]) == entry.get("applied_key")
+        return False
+    report["applied_corrections"] = [e for e in report.get("applied_corrections") or [] if holds(e)]
     # A key an earlier run of the stamp held stays held only while no run
     # has written its slice since: this run writing it ends the hold.
     def written_now(key: str) -> bool:

@@ -7,6 +7,7 @@ import os
 import re
 from typing import Callable, Any
 import anchors
+from corrections import demote_headings  # noqa: F401 — the one rule, shared with the harvest (ADR-050 rule 10)
 from assembler.core import layout, yaml_scalar
 
 
@@ -77,12 +78,18 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
                if isinstance(v, dict) and k not in gone and exists(k.partition("#")[0])}
     writers.update(current.get("section_writers") or {})
     current = {k: v for k, v in current.items() if k != "section_writers_gone"}     # a hand-off to this merge, not a record
+    # ADR-050 rule 10: every correction the drain applied, kept while the slice it corrected exists (the harvest reads them to
+    # skip an applied correction and to name a superseded original), each once.
+    applied: dict[tuple, dict[str, Any]] = {}
+    for entry in [*(previous.get("applied_corrections") or []), *(current.get("applied_corrections") or [])]:
+        if isinstance(entry, dict) and isinstance(entry.get("slice"), str) and exists(entry["slice"]):
+            applied[(entry["slice"], entry.get("heading"), entry.get("applied_key"))] = entry
     if previous.get("stamp") != current["stamp"]:
-        merged = dict(current, watermarks=marks, section_writers=writers)
+        merged = dict(current, watermarks=marks, section_writers=writers, applied_corrections=list(applied.values()))
         merged["files"] = [f for f in current["files"] if exists(f)]
         merged["files_written"] = len(merged["files"])
         return merged
-    merged = dict(current, watermarks=marks, section_writers=writers)
+    merged = dict(current, watermarks=marks, section_writers=writers, applied_corrections=list(applied.values()))
     merged["roles"] = sorted(set(previous.get("roles") or []) | set(current["roles"]))
     merged["shared_topics"] = sorted(set(previous.get("shared_topics") or []) | set(current["shared_topics"]))
     merged["shared_slices"] = len(merged["shared_topics"])
@@ -172,7 +179,8 @@ def decode_scalar(text: str) -> str:
 def retire_in_siblings(directory: str, filename: str, target: str,
                        clip: Callable[[str, str], str] = lambda d, _where: d,
                        stem: str | None = None,
-                       is_part: Callable[[str], bool] | None = None) -> list[tuple[str, str]]:
+                       is_part: Callable[[str], bool] | None = None,
+                       removed: dict[str, str] | None = None) -> list[tuple[str, str]]:
     """Remove the section `target` (and its "(n)" siblings) from every
     OTHER budget part of the same topic in `directory`. `filename` is the
     part being written: `<topic>.md`, `<topic>-<n>.md`,
@@ -190,7 +198,9 @@ def retire_in_siblings(directory: str, filename: str, target: str,
     `stem` and `is_part`, when the caller knows the topic, say which
     files are its parts: read off the file name alone, a separate topic
     named `<topic>-2` is a part of `<topic>`, and `<topic>-2.md` as that
-    topic's part one is a part of `<topic>` too."""
+    topic's part one is a part of `<topic>` too.
+
+    `removed`, when given, receives the text of the section `target` itself that was removed (ADR-050 rule 10 keys it)."""
     if stem is None:
         stem = re.sub(r"(-\d+)?\.md$", "", filename)
     if is_part is None:
@@ -206,6 +216,8 @@ def retire_in_siblings(directory: str, filename: str, target: str,
         _meta, sections = read_existing_slice(path)
         victims = [h for h in sections if h == target or re.fullmatch(re.escape(target) + r" \(\d+\)", h)]
         if victims:
+            if removed is not None and target in sections:
+                removed[target] = sections[target]
             touched.append((path, remove_sections(path, victims, [target], clip)))
     return touched
 
@@ -375,20 +387,6 @@ def claim_heading(claim: dict[str, Any]) -> str:
 
 
 SECTION_BREAK = re.compile(r"(?m)^## ")
-
-
-BODY_HEADING = re.compile(r"(?m)^(#{2,})(?=[ \t]|$)")
-
-
-def demote_headings(text: str) -> str:
-    """Every heading of level two or deeper one level down. A slice's
-    sections are its `## ` lines — read_existing_slice splits there — so
-    a claim body that keeps the `## ` headings its memory had opened
-    sections of its own: the first part lost its dated footer, and
-    re-assembling the same bundle was refused as a collision with itself
-    (a drain's blind review, 2026-09-25). Fenced code is demoted too: the
-    reader does not know fences, and a split inside one is the same break."""
-    return BODY_HEADING.sub(r"#\1", text)
 
 
 def absorbed(sections: dict[str, str], claim: dict[str, Any]) -> list[str]:

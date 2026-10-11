@@ -105,6 +105,8 @@ memory_use = _load("fabric_memory_use", os.path.join(HERE, "memory_use.py"))
 # ADR-050 rule 1: what an anchor is, the one definition (the assembler and the staleness check read the same).
 anchors_mod = _load("fabric_anchors", os.path.join(HERE, "anchors.py"))
 ANCHOR_CLASSES, ANCHORS_MAX = anchors_mod.ANCHOR_CLASSES, anchors_mod.ANCHORS_MAX
+# ADR-050 rule 10: how a memory's body and a corpus section are recognised as the same text (the assembler keys them alike).
+corrections_mod = _load("fabric_corrections", os.path.join(HERE, "corrections.py"))
 
 # THE SECRET FENCE, at the harvester. The assembler substitutes a person's
 # name and redacts a secret when it files a claim — but a bundle travels
@@ -221,6 +223,20 @@ def previous_watermark(working_copy: str, host: str, agent: str | None = None,
         return int(marks.get(key or store_key(agent, host)) or 0), report
     except (OSError, ValueError, TypeError):
         return 0, None
+
+
+def applied_corrections_of(working_copy: str) -> list[dict[str, str]]:
+    """The corrections the project's drains applied (ADR-050 rule 10), from its committed report: each {slice, heading,
+    replaced, memory, replaced_key, applied_key}. An entry that is not that shape is not one; no report, no entries."""
+    report = os.path.join(working_copy, ".agent-fabric", "memory", "last-drain-report.json")
+    try:
+        with open(report, encoding="utf-8") as fh:
+            listed = json.load(fh).get("applied_corrections")
+    except (OSError, ValueError, AttributeError):
+        return []
+    fields = ("slice", "heading", "replaced", "memory", "replaced_key", "applied_key")
+    return [{f: e[f] for f in fields} for e in (listed if isinstance(listed, list) else [])
+            if isinstance(e, dict) and all(isinstance(e.get(f), str) and e[f] for f in fields)]
 
 
 def scalar(value: str) -> str:
@@ -465,6 +481,11 @@ def main() -> int:
     unrendered_ms: list[int] = []
     refusals: list[str] = []
     anchor_warnings: list[str] = []
+    applied = applied_corrections_of(working_copy)
+    applied_by_key = {(e["applied_key"], e["replaced"]): e for e in applied}
+    replaced_by_key = {e["replaced_key"]: e for e in applied}
+    applied_skipped: list[str] = []
+    superseded_originals: list[str] = []
 
     for name in sorted(os.listdir(memory_dir)):
         if not name.endswith(".md"):
@@ -473,6 +494,15 @@ def main() -> int:
         if parsed is None:
             continue                    # no frontmatter: the index, not a memory
         total += 1
+        # ADR-050 rule 10, whatever the watermark says: an original memory whose section a merged correction replaced is
+        # named to its author, who retires it. Looked for in every memory with a class: the watermark only spares re-reading.
+        # The key is over the memory's text as written: a body the assembler changed (a banned term substituted) or that
+        # drains through an English rendering is not recognised, which errs toward not naming.
+        if parsed["roles_class"] and parsed["body"].strip() and not parsed["merge_target"]:
+            hit = replaced_by_key.get(corrections_mod.memory_key(parsed["body"]))
+            if hit:
+                superseded_originals.append(f"{name}: section {hit['replaced']!r} of {hit['slice']} was replaced by the "
+                                            f"correction {hit['memory']!r} (now {hit['heading']!r}); retire this memory")
         if parsed["mtime_ms"] <= since_ms:
             before_watermark.append(name)   # drained already; merge mode would no-op it
             continue
@@ -493,6 +523,14 @@ def main() -> int:
             unrendered_ms.append(parsed["mtime_ms"])
             continue
         text, language, title = judged["text"], judged["language"], judged["title"]
+        # Skipped only for the section it targets: the same words aimed at another heading are another correction.
+        done = applied_by_key.get((corrections_mod.memory_key(text), parsed["merge_target"])) if parsed["merge_target"] else None
+        if done:
+            # A correction whose text is already the corpus's section: filed again it would replace a section that has
+            # since moved on, and be counted as new evidence. The watermark passes it; its author may retire it.
+            applied_skipped.append(f"{name}: already applied to {done['slice']} ({done['heading']!r}); not harvested again")
+            next_ms = max(next_ms, parsed["mtime_ms"])
+            continue
         # Anchors are a claim's own business only for a class that decays against a tree (ADR-050 rule 1). On any
         # other class, or malformed, they are dropped and said: the claim is kept, and the schema never sees them.
         if parsed["anchors"] and klass not in ANCHOR_CLASSES:
@@ -539,6 +577,10 @@ def main() -> int:
 
     for w in anchor_warnings:
         print(f"harvest_memory: warning: {w}", file=sys.stderr)
+    for line in applied_skipped:
+        print(f"harvest_memory: applied correction: {line}", file=sys.stderr)
+    for line in superseded_originals:
+        print(f"harvest_memory: superseded: {line}", file=sys.stderr)
     if refusals:
         # Refuse the WHOLE drain, not the offending file. A partial claims
         # file looks complete to the assembler, and the memory that was
@@ -577,6 +619,8 @@ def main() -> int:
         "needs_rendering": needs_rendering,
         # Anchors the harvest dropped, and why (ADR-050 rule 1): named, so the memory's holder can fix it.
         **({"anchor_warnings": anchor_warnings} if anchor_warnings else {}),
+        **({"applied_corrections_skipped": applied_skipped} if applied_skipped else {}),
+        **({"superseded_originals": superseded_originals} if superseded_originals else {}),
         # The window this drain read, in the shape the assembler carries
         # into the committed report (`harvest`, `watermarks`).
         "since_watermark": since_ms,

@@ -8,6 +8,7 @@ import os
 import re
 from collections import defaultdict
 from typing import Callable, Any
+from corrections import section_key
 from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
 from assembler.slices import retire_in_siblings, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, is_retire
 from assembler.targets import existing_sections, is_budget_part, slice_candidates, is_carried
@@ -73,6 +74,8 @@ def write_slice(
     resolved: list[str] = []
     blocks: dict[str, str] = dict(previous_sections)
     order: list[str] = list(previous_sections)
+    elsewhere_text: dict[str, str] = {}      # the text of a section retire_elsewhere removed from another part (rule 10)
+
     def retire_elsewhere(target: str) -> bool:
         """THE SECTION LIVES IN ANOTHER PART of this topic (a slice
         split by budget): the owner's supersede retires it there and
@@ -81,13 +84,14 @@ def write_slice(
         two files (connected reviewer, 2026-09-20). Every sibling
         touched is written and reported."""
         if topic is None:
-            touched = retire_in_siblings(directory, filename, target, clip=functools.partial(clip_description, run))
+            touched = retire_in_siblings(directory, filename, target, clip=functools.partial(clip_description, run),
+                                         removed=elsewhere_text)
         else:
             owner = None if role == "shared" else role
             touched = retire_in_siblings(
                 directory, filename, target, clip=functools.partial(clip_description, run),
                 stem=f"{klass}-{topic}" if owner is None else topic,
-                is_part=lambda p: is_budget_part(run, owner, klass, p, topic))
+                is_part=lambda p: is_budget_part(run, owner, klass, p, topic), removed=elsewhere_text)
         for tpath, what in touched:
             run.retired_in.append(f"{in_report(run, tpath)}: '{target}' {what}")
             # `written` counts files on disk once: a rewritten
@@ -158,6 +162,7 @@ def write_slice(
         if target and not authorised and retire_elsewhere(target):
             authorised = True
             resolved.append(target)
+        replaced_text = (blocks.get(target) or elsewhere_text.get(target)) if authorised else None
         if authorised:
             # Replacement is opt-in, and this is the opt-in. The claim's
             # own heading takes the target's place: keeping the target's
@@ -222,6 +227,26 @@ def write_slice(
             rendered = blocks[heading]
         blocks[heading] = rendered
         origin = next((run.origins[h] for h in claim.get("evidence", []) if h in run.origins), None)
+        if authorised and target and not claim.get("_inferred_target") and replaced_text is not None \
+           and section_key(replaced_text) != section_key(rendered):
+            # The slice's own set (patterns_for(klass)), not the strictest: the slice body is substituted with it, so the heading
+            # written here must be the heading the file keeps, or holds() (report.py) cannot find the section again.
+            # ADR-050 rule 10: the author's own merge_target replaced a section with other words (a rewrap or a new date is not
+            # other words: its key would equal the original's, and the original would be named superseded while live). Listed
+            # with the keys the harvest recognises both texts by (corrections.py): the original memory is named to its author,
+            # and this correction is not harvested again once applied. Drain-inferred supersedes (an owner's decision, the
+            # same-agent rule) are not the author's and are not listed.
+            memory_name, notes = hygiene_substitute(claim["topic"], "applied correction memory name", patterns_for(klass))
+            run.redactions.extend(notes)         # names an agent chose, and carried headings, go into a committed report
+            heading_out, notes = hygiene_substitute(heading, "applied correction heading", patterns_for(klass))
+            run.redactions.extend(notes)
+            replaced_out, notes = hygiene_substitute(target, "applied correction replaced heading", patterns_for(klass))
+            run.redactions.extend(notes)
+            who = origin if origin and origin.get("agent") and origin["agent"] != "unresolved" else {}
+            run.applied_corrections.append({
+                "slice": in_report(run, path), "heading": heading_out, "replaced": replaced_out, "memory": memory_name,
+                **({"agent": who["agent"]} if who else {}), **({"host": who["host"]} if who.get("host") else {}),
+                "replaced_key": section_key(replaced_text), "applied_key": section_key(rendered), "stamp": run.args.stamp})
         if origin and origin.get("agent") and origin["agent"] != "unresolved":
             run.section_writers[f"{in_report(run, path)}#{heading}"] = {
                 "agent": origin["agent"], **({"host": origin["host"]} if origin.get("host") else {}),
