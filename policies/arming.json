@@ -1,14 +1,16 @@
 {
-  "description": "The fleet's default arming policy. Each organisation's agent-fabric-settings repository (projects/registry.json settings_repos) holds repos/<repo>.json, which overrides this per repository: objects merge recursively, scalars replace. The shape is identities/schemas/arming.schema.json. Below the minimum of work commits a PR is armed only on the owner's word; the 8 and 16 are the minimum and the size above which the gate advises splitting.",
+  "description": "The fleet's default arming policy. Each organisation's agent-fabric-settings repository (projects/registry.json settings_repos) holds repos/<repo>.json, which overrides this per repository: objects merge recursively, scalars replace. The shape is identities/schemas/arming.schema.json. Below the minimum of work commits a PR is armed only on the owner's word; the 8 and 16 are the minimum and the size above which the gate advises splitting; boundary_min is the security boundary's own minimum, which no repository lowers.",
   "mode": "auto",
   "method": "merge",
   "required_checks": [],
   "signatures": true,
   "protect": {"deletion": true, "force_push": true},
   "delete_branch_on_merge": false,
+  "queue": {},
   "commits": {
     "min": 8,
     "advice_over": 16,
+    "boundary_min": 8,
     "below_min": "owner-word",
     "roles": {},
     "classes": {}

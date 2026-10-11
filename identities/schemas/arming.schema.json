@@ -53,6 +53,7 @@
       "properties": {
         "min": {"type": "integer", "minimum": 1, "description": "Work commits a PR needs."},
         "advice_over": {"type": "integer", "minimum": 1, "description": "Work commits above which the gate advises splitting the PR."},
+        "boundary_min": {"type": "integer", "minimum": 1, "description": "Work commits a security-boundary PR needs without the owner's word, judged as max(min, boundary_min); a repository may raise the fleet's value, never lower it."},
         "below_min": {"enum": ["owner-word", "refuse"], "description": "A PR under the minimum: arm on the owner's word, or refuse."},
         "roles": {
           "type": "object",
