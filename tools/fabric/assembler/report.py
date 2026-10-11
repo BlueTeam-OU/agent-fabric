@@ -67,6 +67,40 @@ def memory_use_of(run: Run, hr: dict, source: str) -> tuple[dict[str, list[dict[
 memory_use_verdicts = ("helpful", "wrong", "stale")
 
 
+def retrieval_summary(memory_use: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Per login, what the owner reads to see whether memory_find is used (ADR-049 rule 7): from the counts of the harvest
+    bundles (memory_use, keyed agent@host[#store], one window each), summed over a login's hosts. Counts and shares only: no
+    query text is in the harvest to carry, and no section id (that is memory_use.ids_read). A share is None, not 0, when there
+    was no find to share over: unknown stays unknown."""
+    out: dict[str, dict[str, Any]] = {}
+    for source, use in memory_use.items():
+        if not isinstance(use, dict) or not isinstance(use.get("calls"), dict):
+            continue
+        login, _, host = source.partition("@")
+        row = out.setdefault(login, {"finds": 0, "zero_hit_finds": 0, "finds_followed_by_read": 0, "reads": 0, "indexes": 0,
+                                     "marks": 0, "refused": 0, "hosts": [], "since_ms": None, "until_ms": None})
+        calls = use["calls"]
+        row["finds"] += int(calls.get("memory_find") or 0)
+        row["reads"] += int(calls.get("memory_read") or 0)
+        row["indexes"] += int(calls.get("memory_index") or 0)
+        row["zero_hit_finds"] += int(use.get("zero_hit_finds") or 0)
+        row["finds_followed_by_read"] += int(use.get("finds_followed_by_read") or 0)
+        row["marks"] += int(use.get("marks") or 0)
+        row["refused"] += int(use.get("errors") or 0)
+        hostname = host.partition("#")[0]
+        if hostname and hostname not in row["hosts"]:
+            row["hosts"] = sorted([*row["hosts"], hostname])
+        for key, pick in (("since_ms", min), ("until_ms", max)):
+            value = use.get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                row[key] = value if row[key] is None else pick(row[key], value)
+    for row in out.values():
+        finds = row["finds"]
+        row["zero_hit_share"] = round(row["zero_hit_finds"] / finds, 3) if finds else None
+        row["read_through"] = round(row["finds_followed_by_read"] / finds, 3) if finds else None
+    return dict(sorted(out.items()))
+
+
 def report(run: Run) -> int:
     # An unresolved collision is a property of the corpus, not of the drain
     # that happened to create it. Deriving it from the tree is what makes the
@@ -177,6 +211,8 @@ def report(run: Run) -> int:
         roots = [layout.working_copy_for(run.project), layout.FABRIC_ROOT]
         return any(root and os.path.exists(os.path.join(root, rel)) for root in roots)
     report = merge_reports(previous, report, still_there)
+    # After the merge: the sources of earlier runs of this stamp are in memory_use by now.
+    report["memory_retrieval"] = retrieval_summary(report.get("memory_use") or {})
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
     # A key an earlier run of the stamp held stays held only while no run
@@ -199,6 +235,10 @@ def report(run: Run) -> int:
             f"admitted={counts.get('admitted', '?')} rejected={counts.get('rejected', '?')}"
         )
     print(f"\n{len(run.written)} files, {len(run.shared)} shared slices")
+    for login, row in report["memory_retrieval"].items():
+        share = lambda v: "n/a" if v is None else f"{v:.0%}"  # noqa: E731 - a label for a line
+        print(f"memory: {login} {row['finds']} finds, zero-hit {share(row['zero_hit_share'])}, read-through {share(row['read_through'])}, "
+              f"{row['reads']} reads, {row['marks']} marks")
     if run.redactions:
         print("\nREDACTED (hygiene — the slice carries the substitute; fix the memory so the next drain needs none):", file=sys.stderr)
         for note in run.redactions:
