@@ -268,14 +268,14 @@ def main() -> int:
         long_miss = tools.find(corpus, sess, {"query": " ".join(f"zzzzq{n}x" * 4 for n in range(40000))})[0]
         check("a very long query that matches nothing is answered with a pointer", long_miss.startswith("no sections match; try: "), long_miss[:60])
 
-        # A root git cannot give is said to the model in every reply, not only on stderr (which never reaches it).
+        # A root git cannot give is said to the model in the reply of every call that succeeds, not only on stderr (which never reaches it).
         with contextlib.redirect_stderr(io.StringIO()):
             half = memory_index.build(f"{bare}/memory", None)
         said = srv.Server(half, sess, f"{t}/state-unread").call("memory_find", {"query": "seen"})["content"][0]["text"]
         said_lines = said.splitlines()
         check("the notice that a root was not served stands outside the frame, before its opening", tools.MEMORY_START in said_lines
               and said_lines.index(tools.MEMORY_START) > 0 and said_lines[0].startswith("NOT SERVED") and said_lines[-1] == tools.MEMORY_END, said)
-        check("a reply from a server whose root was not served says so, and names the root", said.startswith("NOT SERVED (ask the owner): the fabric's memory/") and "not in a git" in said.lower() or "NOT SERVED" in said, said[:140])
+        check("a reply from a server whose root was not served says so, and names the root", said.startswith("NOT SERVED (ask the owner): the fabric's memory/") and "not a git repository" in said.lower(), said[:140])
         print("memory_read")
         ref = "p:python-dev/solution/launcher-pin"
         listing = tools.read(corpus, sess, {"ids": [ref]})[0]
@@ -298,6 +298,9 @@ def main() -> int:
         worst = tools._hit_line(memory_index.Hit(memory_index.Section(slice_id=".agent-fabric/memory/python-dev/workflow/" + "a-long-topic-name-" * 4 + "end.md",
                                                                    heading="h" * 200, cue="c", kind="solution", scope="project", role="python-dev", title="t",
                                                                    position=12, shared_with=(), projects=(), observed="2026-10-10", text="x" * 4000), 99.9, 1.0, "weak"))
+        check("the floor is measured on an id of 100 characters, the figure the MIN_TOKENS comment names", len(memory_index.section_id(
+            memory_index.Section(slice_id=".agent-fabric/memory/python-dev/workflow/" + "a-long-topic-name-" * 4 + "end.md", heading="", cue="", kind="", scope="",
+                                 role="", title="", position=12, shared_with=(), projects=(), observed="", text=""))) == 100)
         check("the floor holds the worst hit line the formatter can write, with the weak notice and the tail",
               (len(worst) + len(tools.WEAK_NOTICE)) * tools.TOKENS_PER_CHAR + tools.TAIL_TOKENS <= tools.MIN_TOKENS, f"{len(worst)} chars: {worst[:80]}")
         for bad in ("../../etc/passwd", "/etc/passwd", "f:../../../outside", "f:domains/python-dev/domain/link-out", "p:../../x", "nope"):
