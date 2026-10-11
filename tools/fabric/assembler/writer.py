@@ -229,16 +229,18 @@ def write_slice(
         origin = next((run.origins[h] for h in claim.get("evidence", []) if h in run.origins), None)
         if authorised and target and not claim.get("_inferred_target") and replaced_text is not None \
            and section_key(replaced_text) != section_key(rendered):
+            # The slice's own set (patterns_for(klass)), not the strictest: the slice body is substituted with it, so the heading
+            # written here must be the heading the file keeps, or holds() (report.py) cannot find the section again.
             # ADR-050 rule 10: the author's own merge_target replaced a section with other words (a rewrap or a new date is not
             # other words: its key would equal the original's, and the original would be named superseded while live). Listed
             # with the keys the harvest recognises both texts by (corrections.py): the original memory is named to its author,
             # and this correction is not harvested again once applied. Drain-inferred supersedes (an owner's decision, the
             # same-agent rule) are not the author's and are not listed.
-            memory_name, notes = hygiene_substitute(claim["topic"], "applied correction memory name")
+            memory_name, notes = hygiene_substitute(claim["topic"], "applied correction memory name", patterns_for(klass))
             run.redactions.extend(notes)         # names an agent chose, and carried headings, go into a committed report
-            heading_out, notes = hygiene_substitute(heading, "applied correction heading")
+            heading_out, notes = hygiene_substitute(heading, "applied correction heading", patterns_for(klass))
             run.redactions.extend(notes)
-            replaced_out, notes = hygiene_substitute(target, "applied correction replaced heading")
+            replaced_out, notes = hygiene_substitute(target, "applied correction replaced heading", patterns_for(klass))
             run.redactions.extend(notes)
             who = origin if origin and origin.get("agent") and origin["agent"] != "unresolved" else {}
             run.applied_corrections.append({

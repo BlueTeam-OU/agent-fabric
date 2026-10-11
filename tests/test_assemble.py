@@ -1405,18 +1405,25 @@ def test_a_correction_stays_listed_only_while_its_slice_holds_the_text_it_applie
         for n in fs:
             path = os.path.join(d, n)
             if n.endswith(".md") and "X, as first written." in read(path) and n != "INDEX.md":
+                edited = read(path).replace("X, as first written.", "Edited by hand.")       # read first: open(..., "w") truncates
                 with open(path, "w", encoding="utf-8") as fh:
-                    fh.write(read(path).replace("X, as first written.", "Edited by hand."))
+                    fh.write(edited)
+                assert "Edited by hand." in read(path), "precondition: the edit landed"
     set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "elsewhere", "title": "Elsewhere", "body": "Unrelated.", "evidence": ["h4"]}])
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-04").returncode == 0
     assert listed() == [], "a hand-edited section is not the text the entry applied"
     # a rewrap only: nothing replaced
-    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "rewrap", "title": "Kept", "merge_target": "Kept",
-                                      "body": "Untouched.\n\n\n", "evidence": ["h5"]}])
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "rewrap-seed", "title": "Words", "body": "one two three", "evidence": ["h5"]}])
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-05").returncode == 0
-    assert listed() == []
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "rewrap", "title": "Words", "merge_target": "Words",
+                                      "body": "one\ntwo   three", "evidence": ["h5"]}])
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-05").returncode == 0
+    assert "one\ntwo   three" in "".join(alpha_slices(out).values()), "precondition: the rewrapped text replaced the section"
+    assert listed() == [], "only the wrapping changed: same words, no correction"
     # a name an agent chose goes through the hygiene list before it reaches the committed report
-    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "springfield-fix", "title": "Kept, corrected", "merge_target": "Kept",
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "seed", "title": "Seed", "body": "Seed words.", "evidence": ["h6"]}])
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-06").returncode == 0
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "springfield-fix", "title": "Seed, corrected", "merge_target": "Seed",
                                       "body": "Changed words.", "evidence": ["h6"]}])
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-06").returncode == 0
     (entry,) = listed()
@@ -1439,6 +1446,23 @@ def test_a_carried_heading_with_a_banned_term_is_substituted_in_the_applied_corr
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02").returncode == 0
     (entry,) = json.loads(read(report_path(out)))["applied_corrections"]
     assert "Springfield" not in read(report_path(out)) and "redacted" in entry["replaced"], entry
+
+
+def test_a_projects_own_name_in_a_corrected_heading_does_not_end_its_entry(tmp: str) -> None:
+    """A name the project lists with scope "others" is its own: allowed in its slices, withheld elsewhere. The entry's heading
+    must be the one the file keeps, so it is substituted with the slice's set, not the strictest."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "Deploy notes", "body": "First.", "evidence": ["h1"]}])})
+    os.makedirs(os.path.join(working_copy(out), ".agent-fabric"), exist_ok=True)
+    with open(os.path.join(working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+        json.dump({"patterns": [{"pattern": "\\bspringfield\\b", "flags": "i", "label": "own name", "scope": "others"}]}, fh)
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "fix", "title": "Springfield deploy notes", "merge_target": "Deploy notes",
+                                      "body": "Second.", "evidence": ["h2"]}])
+    proc = run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02")
+    assert proc.returncode == 0 and "Springfield deploy notes" in "".join(alpha_slices(out).values()), proc.stderr
+    (entry,) = json.loads(read(report_path(out)))["applied_corrections"]
+    assert entry["heading"] == "Springfield deploy notes" and "applied correction" not in proc.stderr, (entry, proc.stderr)
 
 
 def test_a_correction_of_a_section_in_another_budget_part_is_listed(tmp: str) -> None:
@@ -3643,6 +3667,7 @@ def main() -> int:
         test_the_report_lists_every_applied_correction_once_with_the_keys_the_harvest_reads,
         test_a_correction_stays_listed_only_while_its_slice_holds_the_text_it_applied,
         test_a_carried_heading_with_a_banned_term_is_substituted_in_the_applied_correction_entry,
+        test_a_projects_own_name_in_a_corrected_heading_does_not_end_its_entry,
         test_a_correction_of_a_section_in_another_budget_part_is_listed,
         test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report,
         test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
