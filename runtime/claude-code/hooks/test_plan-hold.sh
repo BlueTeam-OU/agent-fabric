@@ -11,7 +11,7 @@
 # clears; the hold directory must be the login's own, 700, not a symlink;
 # the hook is silent and exits 0 on every input, malformed included. The
 # reader side (gzcoord-inbox --held, and the watch not polling) is in
-# communication/gzcoord/tests.
+# tests/test_gzcoord_protocol.py and tests/test_session_commands.py.
 #
 # Exit 0 all passed, 1 otherwise.
 set -uo pipefail
