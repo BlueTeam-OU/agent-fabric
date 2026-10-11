@@ -373,18 +373,19 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
     if isinstance(policy, str):
         return f"MERGEABLE — the arming policy cannot be read ({policy}); apply the count rule by hand"
     policy = policy or arm_policy.default()
-    if policy["mode"] in ("owner-only", "direct"):
-        return (f"NOT ARMED BY FABRIC-PR — this repository's arming policy is {policy['mode']}: "
-                + ("only the owner merges" if policy["mode"] == "owner-only" else "work reaches it by push, there is nothing to arm"))
+    if policy["mode"] == "owner-only":
+        return f"NOT ARMED BY FABRIC-PR — this repository's arming policy is owner-only: only the owner merges"
     rule = policy["commits"]
     work = commits["work"]
     flag = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}[policy["method"]]
+    # A direct repository has no auto-merge to arm: fabric-pr arm merges it at once, on the same gates.
+    flag += "" if policy["mode"] == "direct" else " --auto"
     # As arm reads it: a minimum above the advice size is not "too big" below the minimum.
     advice_over = max(rule["advice_over"], rule["min"])
     if work > advice_over:
         return f"MERGEABLE — {work} work commits, over {advice_over}: smaller batches next time; arm on the basis"
     if work >= rule["min"]:
-        return f"MERGEABLE — arm: post the basis ({work} work commits, review on head) and gh pr merge {num} {flag} --auto"
+        return f"MERGEABLE — arm: post the basis ({work} work commits, review on head) and gh pr merge {num} {flag}"
     if rule["below_min"] == "refuse":
         return f"MERGEABLE — {work} work commits < {rule['min']}: this repository's policy refuses below the minimum, arm will not arm it"
     return f"MERGEABLE — ask the owner ({work} work commits < {rule['min']}), then arm"
