@@ -1041,13 +1041,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rule 5).
 - It serves only what lint admitted, from git's committed tree: an
   uncommitted slice is refused; never a path outside the roots (§5 rule 6).
-- Calls are counted per login in its state, never the query. The harvest
-  bundle carries the counts and the marks, the drain report lists them; it
-  amends ADR-013 §5 rules 5 and 11 and ADR-029 §5 rule 9, and a note with
-  a credential travels empty. The hook's INDEX line, the launch prompt's
-  memory section and `CLAUDE.md` name the tools (§5 rules 7-8).
+- Calls are counted per login, never the query; the harvest bundle and
+  drain report carry the counts and marks, amending ADR-013 §5 rules 5
+  and 11 and ADR-029 §5 rule 9. The hook, launch prompt and `CLAUDE.md`
+  name the tools (§5 rules 7-8).
 - Automatic capture (claude-mem) was declined: the fabric keeps processed
   slices (§3).
+- A 2026-10-12 — `memory_find` takes `expand: 0|1` (default 0): linked
+  neighbours of strong hits, opt-in (§5 rule 3).
 - Keywords: memory, retrieval, MCP, fabric-memory, memory_find, memory_read,
   memory_index, memory_mark, BM25, cue, INDEX, slice, corpus, mark, recall,
   claude.json, harvest bundle.
