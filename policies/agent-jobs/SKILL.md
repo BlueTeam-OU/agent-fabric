@@ -113,9 +113,9 @@ Every job after a finished one starts in a fresh session (the owner,
   Run it once this session's work is committed and what you learnt is in
   your memory. The launcher starts a new session in that job's working
   copy, with the job in its opening prompt.
-- **This session has worked no job yet** (just launched, by
-  `fabric-fresh --job` or on its own): "continue here". It is already
-  fresh, so take the job in place.
+- **This session has worked no job yet** (launched on its own, not by
+  `fabric-fresh --job`, whose session already has its job active):
+  "continue here". It is already fresh, so take the job in place.
 
 A fresh session costs this conversation's context, and a cold prompt
 cache; that is the point. A launch reads the fabric anew (the prompt,

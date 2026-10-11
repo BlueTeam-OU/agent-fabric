@@ -26,13 +26,16 @@ def session_id() -> str | None:
 
 
 def session_worked(doc: dict, session: str | None) -> str | None:
-    """The first job that went `active` in `session`, or None. Without a
-    session id (an unlaunched shell) nothing can be told apart, so any job
-    that has left `active` counts: fresh is the safe answer."""
+    """The first job with a log entry written in `session`, or None. Every
+    transition records its session, so a session launched with a job already
+    active (fabric-fresh --job) is found when it finishes that job. Without
+    a session id (an unlaunched shell) nothing can be told apart, so any job
+    that has left `active` counts: such a session always says "fresh", even
+    when just launched, which is the safe error."""
     for job in doc["jobs"]:
         if session is None and doc.get("last") == job["id"]:
             return job["id"]
-        if session and any(e.get("state") == "active" and e.get("session") == session for e in job.get("log", [])):
+        if session and any(e.get("session") == session for e in job.get("log", [])):
             return job["id"]
     return None
 
@@ -46,16 +49,17 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
             raise Refused(f"{current['id']} is active ({current['title']}); deliver, block, finish or drop "
                           "it first — one job is active at a time")
     if job["state"] == "active" and state != "active":
-        # The job that just left `active` is what `next` compares against.
+        # Only the no-session-id fallback of `next` reads this.
         doc["last"] = job["id"]
     if state != "blocked":
         job.pop("waits_on", None)
     now = identity.now_iso()
     job["state"] = state
     job["updated"] = now
-    # The session is what `next` reads to know this one has worked a job.
+    # On every transition, not only `active`: a session launched with its job
+    # already active never activates it, and is known by finishing it.
     entry = {"at": now, "state": state, **({"note": fields["note"]} if fields.get("note") else {})}
-    if state == "active" and session_id():
+    if session_id():
         entry["session"] = session_id()
     job.setdefault("log", []).append(entry)
     for key, value in fields.items():
