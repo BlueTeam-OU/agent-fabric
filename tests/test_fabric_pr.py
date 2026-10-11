@@ -97,7 +97,11 @@ def main() -> int:
                   r.returncode == 127 and f"{b}: cannot locate the checkout" in r.stderr and "//" not in r.stderr,
                   (r.stderr, r.returncode))
         r = run([pr, "bogus"], {"AGENT_FABRIC_PYTHON": f"{tmp}/absent"})
-        check("an unknown verb is 2 before Python is looked for", r.returncode == 2, r.returncode)
+        # Wave 9, the one behaviour a port of a dispatching script changes (the coordinator, 2026-10-11, REPLY
+        # 01a12ab1-e9b3-760f-aaf4-cf8e4605dcda): a forwarder checks the pin before it reads a verb, so with no
+        # pinned Python an unknown verb is 127 with the install command, not 2.
+        check("an unknown verb with no pinned Python is 127 and the install command (the pin is checked before the verb)",
+              r.returncode == 127 and "python_pin.py install" in r.stderr and r.stdout == "", (r.returncode, r.stderr))
         r = run([pr, "gate"], {"AGENT_FABRIC_ROOT": "/elsewhere"})
         check("the environment reaches the module as it was (AGENT_FABRIC_ROOT is not set for it)",
               r.stdout.startswith("module=pr_gate.py"), r.stdout)
