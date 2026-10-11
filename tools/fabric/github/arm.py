@@ -69,7 +69,8 @@ the policy names commits.boundary_authority that role holder's --authorization (
 THE ARMING POLICY (tools/fabric/github/arm_policy.py; the 8 and the 16 in the gates below are its defaults): the
 fleet's policies/arming.json with the repository's file in its client's settings repository over it. Read before
 the count rule, and a policy or a comparison with GitHub's settings that cannot be read is exit 2, never the
-default. A repository in mode owner-only or direct is not armed here. A difference between the policy and GitHub
+default. A repository in mode owner-only is not armed here; one in mode direct has no server-side rule to arm under
+(auto-merge off, no ruleset), so the same gates end in an immediate gh pr merge, without --auto, on the head they read. A difference between the policy and GitHub
 in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
 merge methods are allowed, advisory. The minimum is the stated class's, else the author's role's (the
 Fabric-Role trailer every commit of the PR carries, when they agree), else commits.min; a boundary change gets
@@ -210,8 +211,8 @@ What it refuses, in order, and why:
 Then: posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"; a security boundary armed at 8 or more
 without the owner's word adds a sentence saying so), runs `gh pr merge <n> --merge --auto
---match-head-commit <head>` (--squash or --rebase where the policy's method is that) — pinned to the head the gates read —
-and prints the watcher line to run — it is not started here, because
+--match-head-commit <head>` (--squash or --rebase where the policy's method is that; no --auto on a direct
+repository, which merges at once) — pinned to the head the gates read — and prints the watcher line to run — it is not started here, because
 a watcher must be the SESSION's child for its exit to be the
 session's callback.
 
@@ -594,9 +595,6 @@ def arm(argv: list[str]) -> int:
     if policy["mode"] == "owner-only":
         raise refuse(f"{repo}'s arming policy is owner-only: fabric-pr arm never arms it and no word changes that; the mode must"
                      f" change in the repository's file in its client's settings repository (or the owner merges it by hand)")
-    if policy["mode"] == "direct":
-        raise refuse(f"{repo}'s arming policy is direct: it has no server-side rule to arm under and no word changes that; the mode"
-                     f" must change in the repository's file in its client's settings repository (work reaches this one by push)")
     # GitHub's side must be what the policy says it is: arming on a repository whose ruleset lost its required
     # check, or whose auto-merge is off, would rely on rules that are not there. A difference in which merge
     # methods are allowed (the repository's allow_*_merge fields, or a ruleset that allows the policy's method and more) is
@@ -798,9 +796,12 @@ def arm(argv: list[str]) -> int:
     # `work >= floor` restates it here rather than deciding anything.
     if boundary_unwaived and work >= floor and not has_owner_word(basis):
         comment += f" Security boundary, armed on the count rule ({floor} or more work commits) without the owner's word."
+    # A direct repository has auto-merge off and nothing server-side to wait on, so --auto would be refused: the
+    # gates above are the whole hold, and the merge happens now. The checks gate already required a green head there.
+    merge_args = [MERGE_FLAGS[policy["method"]], *([] if policy["mode"] == "direct" else ["--auto"]), "--match-head-commit", head]
     if dry:
         say(f"DRY RUN — would post: {comment}")
-        say(f"DRY RUN — would run: gh pr merge {num} {MERGE_FLAGS[policy['method']]} --auto --match-head-commit {head}")
+        say(f"DRY RUN — would run: gh pr merge {num} {' '.join(merge_args)}")
         return 0
     # The body on stdin: a body is data (gh.py's invariant).
     try:
@@ -811,9 +812,9 @@ def arm(argv: list[str]) -> int:
         # Pinned to the head the gates read: a push between the checks and
         # this call would otherwise arm a head nobody reviewed or waived
         # (re-review of b1a8e41, pre-existing).
-        gh.run(["pr", "merge", num, MERGE_FLAGS[policy["method"]], "--auto", "--match-head-commit", head], what=f"gh pr merge {num}")
+        gh.run(["pr", "merge", num, *merge_args], what=f"gh pr merge {num}")
     except gh.GhError:
-        raise Unanswered(f"gh pr merge --auto failed on #{num}") from None
+        raise Unanswered(f"gh pr merge {' '.join(merge_args[:-2])} failed on #{num}") from None
     # A green PR goes STRAIGHT INTO THE QUEUE on arming, and a queued PR
     # reads autoMergeRequest null — exactly like an unarmed one (a managed project's PR
     # #881). So the read-back is the queue entry OR the arming. On a
@@ -851,6 +852,8 @@ def arm(argv: list[str]) -> int:
     if merged:
         say(f"MERGED #{num} ({title}) — read back merged on head {head[:8]} after the arming; basis posted.")
         return 0
+    if policy["mode"] == "direct":
+        raise Unanswered(f"#{num} reads '{armed}' after gh pr merge on a direct repository, not merged — check gh pr view {num}")
     if armed not in ("armed",) and not armed.startswith("queued"):
         raise Unanswered(f"#{num} reads '{armed}' after gh pr merge --auto — check gh pr view {num}")
     say(f"ARMED #{num} ({title}) — {armed}; basis posted.")
