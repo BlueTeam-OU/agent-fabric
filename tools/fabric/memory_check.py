@@ -307,6 +307,19 @@ class History:
         date, _, subject = rest.partition("\t")
         return {"commit": commit, "date": date, "subject": subject[:100]}
 
+    def diff_since(self, tree: str, path: str, day: str, limit: int) -> str:
+        """What git shows of `path` in the commits after the end of `day` (YYYY-MM-DD, UTC): each commit's line and
+        its patch, oldest first, cut to `limit` characters (a cut says so). Read-only, like the rest. Raises
+        NoHistory when git cannot say."""
+        self.ready(tree)
+        end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
+        r = self._git(tree, "log", "--reverse", "-p", "--no-color", "--no-ext-diff", "--format=commit %h %cs %s",
+                      f"--since={int(end.timestamp())} +0000", "--", path)
+        if r.returncode != 0:
+            raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
+        out = r.stdout
+        return out if len(out) <= limit else out[:limit] + f"\n[the diff is cut here: {len(out) - limit} more characters]"
+
 
 def _in_tree(root: str, path: str) -> str:
     """"ok", "absent" or "escape": whether `path` exists under `root` and, once links are followed, stays inside it.
