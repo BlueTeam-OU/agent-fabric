@@ -40,6 +40,56 @@ def pull_ff(repo: str) -> str:
     return "ok" if r.returncode == 0 else "failed"
 
 
+# ── the fabric checkout's verdict ───────────────────────────────────
+# One judgement for the launcher (which acts on it, keep_fabric_current in
+# launch.py) and for fabric-fresh (which only asks): a session ended by
+# fabric-fresh is relaunched by this same launcher, and a launcher that
+# dies on a checkout it cannot bring current leaves the agent with no
+# session at all (devex-tooling, 2026-10-11). The question is read-only
+# but for the fetch.
+class Verdict:
+    """kind: "skip" (not a git checkout with an origin), "offline",
+    "current", "behind" (a pull may mend it), or "blocked" (a fast-forward
+    cannot succeed; `reason` says why)."""
+    def __init__(self, kind: str, behind: int = 0, reason: str = "") -> None:
+        self.kind, self.behind, self.reason = kind, behind, reason
+
+
+def pull_blocker(repo: str) -> str | None:
+    """Why `pull --ff-only origin main` must fail, or None when it may
+    succeed. A pull ended by the bound is not predictable and not here."""
+    anc = git_status_ok(repo, "merge-base", "--is-ancestor", "HEAD", "origin/main")
+    if not anc:
+        return "it has local commits that origin/main does not contain"
+    try:
+        incoming = git.run(repo, "diff", "--name-only", "-z", "HEAD", "origin/main", check=False)
+        status = git.run(repo, "status", "--porcelain", "-z", check=False)
+    except git.GitError:
+        return None
+    if incoming.returncode != 0 or status.returncode != 0:
+        return None
+    touched = set(filter(None, incoming.stdout.split("\0")))
+    # A -z status entry is "XY path"; a rename is followed by its source as a
+    # separate field, which at worst adds a path that is no change at all.
+    entries = [e for e in status.stdout.split("\0") if e]
+    dirty = {e[3:] for e in entries if len(e) > 3}
+    hit = sorted(touched & dirty)
+    return f"uncommitted changes would be overwritten ({', '.join(hit[:3])})" if hit else None
+
+
+def fabric_verdict(fabric_root: str) -> Verdict:
+    if not (git_status_ok(fabric_root, "rev-parse", "--is-inside-work-tree")
+            and git_status_ok(fabric_root, "remote", "get-url", "origin")):
+        return Verdict("skip")
+    if not git_status_ok(fabric_root, "fetch", "-q", "origin", "main", timeout=FETCH_TIMEOUT_S):
+        return Verdict("offline")
+    behind = behind_count(fabric_root, "HEAD..origin/main")
+    if behind <= 0:
+        return Verdict("current")
+    why = pull_blocker(fabric_root)
+    return Verdict("blocked", behind, why) if why else Verdict("behind", behind)
+
+
 # ── the working copy the session starts in ──────────────────────────
 # Its CLAUDE.md and rules are binding the moment the session loads them,
 # and a clone left on a week-old main gave a session instructions its

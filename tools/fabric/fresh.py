@@ -17,6 +17,8 @@ copy, with the job in its opening prompt. An unknown job is refused
 (exit 2); a working copy that is gone or has uncommitted changes is the
 launcher's to refuse, and it says so and starts in the old directory.
 
+Refused (exit 3) too, --force or not, when the launcher would refuse the relaunch:
+the fabric checkout is behind origin/main and cannot fast-forward.
 Refused (exit 2) when the session was not started by the launcher —
 nothing would bring it back — and (exit 3) when the working copy has
 uncommitted changes, unless --force: a job that is not done has not
@@ -58,6 +60,7 @@ there is no session to stop.
 from __future__ import annotations
 
 import datetime
+import importlib
 import importlib.util
 import json
 import os
@@ -82,6 +85,18 @@ def _identity():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     return mod
+
+
+def _launcher_currency():
+    """launcher/currency.py as the launcher loads it: beside fabric_launcher.base."""
+    launcher = os.path.join(HERE, "launcher")
+    name = "fabric_launcher"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, os.path.join(launcher, "__init__.py"),
+                                                      submodule_search_locations=[launcher])
+        sys.modules[name] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sys.modules[name])  # type: ignore[union-attr]
+    return importlib.import_module(f"{name}.currency")
 
 
 class Usage(Exception):
@@ -128,6 +143,25 @@ def launch_refusal(env: dict) -> str | None:
                 "relaunch once, or end it with /exit")
     return ("this session was launched with its own prompt (or -p); a fresh launch would replay it, "
             "not start anew — end it with /exit")
+
+
+def relaunch_refusal() -> str | None:
+    """Why the launcher would refuse to come back up, or None. The restart
+    runs the launcher again, and it dies on a fabric checkout it cannot
+    bring to origin/main (diverged, or changes in the way of the pull):
+    the session ended here would be gone and nothing would replace it.
+    The launcher's own verdict (launcher/currency.py), not a copy; its
+    AGENT_FABRIC_ALLOW_STALE override is honoured, AGENT_FABRIC_PULLED is
+    not (the restart clears it)."""
+    if os.environ.get("AGENT_FABRIC_ALLOW_STALE") == "1":
+        return None
+    root = os.environ.get("AGENT_FABRIC_ROOT") or FABRIC
+    verdict = _launcher_currency().fabric_verdict(root)
+    if verdict.kind != "blocked":
+        return None
+    return (f"the launcher would refuse the relaunch: agent-fabric at {root} is {verdict.behind} commit(s) behind "
+            f"origin/main and cannot fast-forward ({verdict.reason}); bring it to origin/main first "
+            f"(git -C \"{root}\" status), or pass --force")
 
 
 def job_known(job: str) -> bool:
@@ -281,6 +315,12 @@ def run(argv: list[str]) -> int:
     note, job = opts["note"], opts["job"]
     if job and not job_known(job):
         return 2
+    # Not --force's: it is for work not yet committed, and a relaunch that
+    # dies is the same for committed work.
+    why = relaunch_refusal()
+    if why:
+        say(why)
+        return 3
     if not opts["force"]:
         try:
             top = dirty_toplevel()

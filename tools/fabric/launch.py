@@ -244,7 +244,7 @@ from fabric_launcher.base import VALUE_OPTIONS, PATH_OPTIONS, Refused, die, say 
 from fabric_launcher.base import logical_cwd, helper, stripped, env_with  # noqa: E402, F401
 from fabric_launcher.argv import parse_argv, refuse_passthrough, asks_help, wants_opening  # noqa: E402, F401
 from fabric_launcher.argv import without_resume, resumes, absolute_path_options  # noqa: E402, F401
-from fabric_launcher.currency import git_status_ok, git_text, behind_count, pull_ff  # noqa: E402, F401
+from fabric_launcher.currency import git_status_ok, git_text, behind_count, pull_ff, fabric_verdict  # noqa: E402, F401
 from fabric_launcher.currency import keep_working_copy_current, toplevel  # noqa: E402, F401
 from fabric_launcher.settings import settings_scopes, settings_pins, refuse_pins, refuse_cli_settings  # noqa: E402, F401
 from fabric_launcher.routing import ResolveError, load_routing, resolve, resolve_or_die  # noqa: E402, F401
@@ -280,13 +280,13 @@ from fabric_launcher import gateway  # noqa: E402, F401
 # AGENT_FABRIC_ALLOW_STALE=1 overrides, loudly, for the case where the
 # push itself is what a session is about to do.
 def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
-    if not (git_status_ok(fabric_root, "rev-parse", "--is-inside-work-tree")
-            and git_status_ok(fabric_root, "remote", "get-url", "origin")):
+    verdict = fabric_verdict(fabric_root)
+    if verdict.kind == "skip":
         return
-    if not git_status_ok(fabric_root, "fetch", "-q", "origin", "main", timeout=FETCH_TIMEOUT_S):
+    if verdict.kind == "offline":
         say(f"launch: could not fetch origin/main for {fabric_root} (offline?); launching on what is checked out.")
         return
-    behind = behind_count(fabric_root, "HEAD..origin/main")
+    behind = verdict.behind
     if behind <= 0:
         return
     if os.environ.get("AGENT_FABRIC_ALLOW_STALE") == "1":
@@ -294,7 +294,7 @@ def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
     elif os.environ.get("AGENT_FABRIC_PULLED") == "1":
         die(f"agent-fabric at {fabric_root} is still {behind} commit(s) behind origin/main after a pull; not relaunching again.\n"
             f"  Look at the checkout: git -C \"{fabric_root}\" status")
-    elif (pulled := pull_ff(fabric_root)) == "timeout":
+    elif (pulled := pull_ff(fabric_root) if verdict.kind == "behind" else "failed") == "timeout":
         die(f"agent-fabric at {fabric_root}: git pull did not answer within {git.TIMEOUT_S:g} s; nothing was "
             "relaunched.\n"
             "  A pull ended by the bound may leave .git/index.lock behind. Look:\n"
@@ -306,7 +306,7 @@ def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
         reexec(env_with(AGENT_FABRIC_PULLED="1"), orig_args)
     else:
         die(f"agent-fabric at {fabric_root} is {behind} commit(s) behind origin/main and cannot fast-forward\n"
-            "  (local commits or changes on this checkout). A session runs on the launcher,\n"
+            f"  ({verdict.reason or 'local commits or changes on this checkout'}). A session runs on the launcher,\n"
             "  hooks, prompt and routing of this checkout, so it must be current. Look:\n"
             f"    git -C \"{fabric_root}\" status\n"
             "  and bring it to origin/main, then relaunch.")

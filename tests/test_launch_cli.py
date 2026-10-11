@@ -1134,7 +1134,8 @@ def main() -> int:
             git("commit", "-q", "--allow-empty", "-m", "local-divergence", cwd=fabric)
             rc, out = run("--print")
             check("diverged: refused with the reason, before resolving anything",
-                  rc == 1 and "cannot fast-forward" in out and "resolved profile" not in out, out)
+                  rc == 1 and "cannot fast-forward" in out and "local commits that origin/main does not contain" in out
+                  and "resolved profile" not in out, out)
             git("reset", "-q", "--hard", "origin/main", cwd=fabric)
             origin_ahead("newer3")
             rc, out = run("--print", AGENT_FABRIC_ALLOW_STALE="1")
