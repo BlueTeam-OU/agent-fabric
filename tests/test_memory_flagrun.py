@@ -210,6 +210,27 @@ class Phase(FlagRun):
         o = self.go(send=True, now=NOW + 30 * DAY)
         self.assertEqual(([f.heading for f, _ in o.held], list(o.sent)), (["moved"], [f"{HOST}/rust-dev-01"]))
 
+    def test_a_jobs_answer_that_is_not_a_list_of_job_objects_is_unknown_not_a_crash(self):
+        self.go(send=True)
+        good = {"state": "queued", "title": "t"}
+        for bad in (["an error text"], [good, "x"], "text", {"a": 1}, [{"state": ["queued"], "title": "t"}], [{"state": "queued", "source": "self"}],
+                    [{"state": "queued", "title": 3}], None):
+            with self.subTest(bad=bad):
+                row = {"account": "python-dev-01", "host": HOST, "status": "ok", "op": "jobs", "jobs": {"status": "ok", "jobs": bad}}
+                self.fleet_files(jobs=[row, jobs("python-dev-02", []), jobs("rust-dev-01", [])])
+                fleet = fr.read_fleet([sys.executable, os.path.join(self.work, "ctl.py")])
+                self.assertIsNone(fleet.open_jobs[f"{HOST}/python-dev-01"])
+                o = self.go(send=False, now=NOW + 30 * DAY)
+                self.assertEqual([f.heading for f, _ in o.held], ["moved"], "its flag is held, as for an account that did not answer")
+        self.fleet_files(jobs=[{"account": "python-dev-01", "host": HOST, "status": "ok", "op": "jobs", "jobs": {"status": "ok", "jobs": [good, {"state": "done", "source": None}]}},
+                               jobs("python-dev-02", []), jobs("rust-dev-01", [])])
+        self.assertEqual(fr.read_fleet([sys.executable, os.path.join(self.work, "ctl.py")]).open_jobs[f"{HOST}/python-dev-01"], set(), "the control: well-formed objects are read")
+
+    def test_a_presence_role_that_is_not_a_string_is_no_role_not_a_crash(self):
+        self.fleet_files(presence=[presence("python-dev-01", ["python-dev"], True), presence("rust-dev-01", "rust-dev", False)])
+        fleet = fr.read_fleet([sys.executable, os.path.join(self.work, "ctl.py")])
+        self.assertEqual(fleet.holders, {"rust-dev": [f"{HOST}/rust-dev-01"]})
+
     def test_a_request_that_went_out_but_could_not_be_recorded_says_so_with_its_id(self):
         real = fr.memory_flags.append_ledger
         def full(*a, **k):
