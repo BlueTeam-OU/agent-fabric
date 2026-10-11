@@ -158,15 +158,17 @@ class Watch(unittest.TestCase):
 
     def test_a_command_that_runs_gzcoord_inbox_with_until_delivery_or_wait_is_a_watch(self):
         for argv in (WATCH, ("python3", "/x/gzcoord-inbox", "--wait"), ("/usr/bin/gzcoord-inbox", "--until-delivery"),
-                     ("gzcoord-inbox", "--wait", "--json"), ("fabric-python", "-I", "-u", "/b/gzcoord-inbox", "--until-delivery")):
+                     ("gzcoord-inbox", "--wait", "--json"), ("fabric-python", "-I", "-u", "/b/gzcoord-inbox", "--until-delivery"),
+                     ("python3", "-X", "dev", "-u", "/b/gzcoord-inbox", "--wait"), ("gzcoord-inbox", "-v", "--json", "--wait")):
             self.assertTrue(self.cmd(*argv), argv)
 
     def test_a_command_that_only_mentions_the_words_is_not(self):
         prompt = "Session start: run gzcoord-inbox --until-delivery now"
-        for argv in (("claude", "--resume", "id", "--", prompt), ("/bin/bash", "-c", "eval 'gzcoord-inbox --until-delivery'"),
+        for argv in (("code", "--wait", "/home/a/.local/bin/gzcoord-inbox"), ("tool", "--until-delivery", "gzcoord-inbox"),
+                     ("claude", "--resume", "id", "--", prompt), ("/bin/bash", "-c", "eval 'gzcoord-inbox --until-delivery'"),
                      ("gzcoord-inbox",), ("gzcoord-inbox", "--replay", "7"), ("gzcoord-inbox", "--history"),
                      ("gzcoord-inbox", "--wait=5"), ("gzcoord-inbox", "--until-delivery-x"), ("vim", "gzcoord-inbox"),
-                     ("a", "b", "c", "d", "gzcoord-inbox", "--wait"), ("tail", "--wait", "gzcoord-inbox-log"), ("--until-delivery",), ()):
+                     ("a", "b", "c", "d", "e", "f", "gzcoord-inbox", "--wait"), ("gzcoord-inbox", "a", "b", "c", "d", "e", "f", "g", "h", "--wait"), ("tail", "--wait", "gzcoord-inbox-log"), ("--until-delivery",), ()):
             self.assertFalse(self.cmd(*argv), argv)
         self.assertFalse(fp.runs_inbox_watch(b""))
 
@@ -215,7 +217,8 @@ class Watch(unittest.TestCase):
         t.proc(11, 1000, 50)
         os.remove(os.path.join(t.dir, "11", "cmdline"))        # gone: ENOENT
         s = self.sample(t)
-        self.assertEqual((s.procs, s.unreadable, fp.watch_state(1000, s, 1000)), ({1000: 1}, set(), False))
+        self.assertEqual((s.procs, s.unreadable, fp.watch_state(1000, s, 1000)), ({1000: 2}, set(), False),
+                         "counted as before: its status was read, and its command line has nothing to say")
 
     def test_a_login_with_no_process_is_false_for_a_reader_that_sees_every_process(self):
         t = Tree(self)
@@ -229,6 +232,14 @@ class Watch(unittest.TestCase):
             self.assertEqual(s.hidden, hidden, mounts)
             self.assertEqual(fp.watch_state(2000, s, 1000), False if hidden is False else None, mounts)
             self.assertEqual(fp.watch_state(1000, self.sample(t), 1000), False, "a reader sees its own account's processes whatever hides the rest")
+
+    def test_the_mount_in_effect_is_the_last_proc_line_a_hidepid_over_mount_is_not_missed(self):
+        stacked = "x /proc proc rw 0 0\nproc /proc proc rw,hidepid=invisible 0 0\n"
+        t = Tree(self, stacked)
+        self.assertTrue(fp.proc_hides_others(t.dir, euid=1000, groups=[1000]))
+        self.assertIsNone(fp.watch_state(2000, self.sample(t, {2000}), 1000))
+        t = Tree(self, "proc /proc proc rw,hidepid=2 0 0\nproc /proc proc rw 0 0\n")
+        self.assertFalse(fp.proc_hides_others(t.dir, euid=1000, groups=[1000]), "the later, open mount is the one in effect")
 
     def test_hidepid_does_not_hide_from_root_or_a_member_of_the_gid_group(self):
         hide = mounts_with("hidepid=2,gid=999")
@@ -318,6 +329,12 @@ class Command(unittest.TestCase):
             self.assertEqual((p.returncode, p.stdout), (2, ""), args)
             self.assertEqual(len(p.stderr.strip().splitlines()), 1, args)
             self.assertIn(word, p.stderr)
+
+    def test_the_help_says_what_is_read(self):
+        p = self.run_tool("-h")
+        self.assertEqual(p.returncode, 0)
+        for word in ("inbox_watch", "/proc/mounts", "cmdline", "Never environ"):
+            self.assertIn(word, p.stdout)
 
     def test_a_live_read_of_this_login_finds_this_process(self):
         import pwd

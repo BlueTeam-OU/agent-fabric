@@ -133,7 +133,7 @@ SIDE EFFECT  `prs` and `prs_unplaced` (a default section, riding with prs)
   both sections.
 
 NEVER read: /proc/*/environ, transcripts. A process's command line (/proc/*/cmdline) is read by fleet_proc.py for one
-question only (proc's inbox_watch below) and never kept: its answer is a boolean.
+question only (proc's inbox_watch above) and never kept: its answer is a boolean.
 """
 from __future__ import annotations
 

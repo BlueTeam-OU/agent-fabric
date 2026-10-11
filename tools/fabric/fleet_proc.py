@@ -61,12 +61,16 @@ MAX_INTERVAL_S = 30.0
 # The words of a watch are in the first few arguments; the rest of a command line (a session's prompt) is not looked at.
 CMDLINE_BYTES = 4096
 WATCH_COMMAND = "gzcoord-inbox"
+# The command is among the first arguments (after an interpreter and its flags), the option among the next few.
+COMMAND_WINDOW = 6
+OPTION_WINDOW = 8
 WATCH_OPTIONS = ("--until-delivery", "--wait")
 
 HELP = """usage: fleet_proc.py --json [--login L]... [--interval S]
 
-Per-login CPU%, RSS, swap and process count for this host, from /proc.
-Reads /proc/<pid>/stat and /proc/<pid>/status only."""
+Per-login CPU%, RSS, swap, process count and inbox_watch (is a gzcoord-inbox --until-delivery or --wait
+running) for this host, from /proc. Reads /proc/<pid>/stat and /proc/<pid>/status, /proc/mounts, and for
+inbox_watch the start of /proc/<pid>/cmdline, of which only the yes or no is kept. Never environ."""
 
 
 class Sample:
@@ -113,11 +117,14 @@ def parse_status(text: str) -> dict[str, int]:
 
 def runs_inbox_watch(raw: bytes) -> bool:
     """Whether a command line (NUL-separated, as /proc gives it) is `gzcoord-inbox` run with --until-delivery or --wait:
-    the command among its first arguments (after an interpreter and its flags: `fabric-python -I <path>/gzcoord-inbox
-    --until-delivery`) and the option as a whole argument. A longer argument that contains the words is not one."""
+    the command among its first COMMAND_WINDOW arguments (after an interpreter and its flags: `fabric-python -I
+    <path>/gzcoord-inbox --until-delivery`) and the option, as a whole argument, after it. A longer argument that contains the words is not one."""
     argv = [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
-    return (any(os.path.basename(a) == WATCH_COMMAND for a in argv[:4])
-            and any(a in WATCH_OPTIONS for a in argv[1:8]))
+    for i, a in enumerate(argv[:COMMAND_WINDOW]):
+        if os.path.basename(a) == WATCH_COMMAND:
+            # The option follows the command: `tool --wait …/gzcoord-inbox` names the script, it does not run it.
+            return any(o in WATCH_OPTIONS for o in argv[i + 1:i + 1 + OPTION_WINDOW])
+    return False
 
 
 def proc_hides_others(proc: str, euid: int | None = None, groups: list[int] | None = None) -> bool | None:
@@ -129,18 +136,21 @@ def proc_hides_others(proc: str, euid: int | None = None, groups: list[int] | No
             lines = fh.read().splitlines()
     except OSError:
         return None
+    # The mount in effect is the LAST one listed for /proc: a unit or a container mounts a hidepid procfs over the
+    # original, and the original's line comes first.
+    options = None
     for line in lines:
         parts = line.split()
         if len(parts) >= 4 and parts[1] == "/proc":
             options = dict(o.partition("=")[::2] for o in parts[3].split(","))
-            hidepid = options.get("hidepid", "0")
-            if hidepid in ("0", "off", ""):
-                return False
-            gid = options.get("gid")
-            if (os.geteuid() if euid is None else euid) == 0 or (gid and gid.isdigit() and int(gid) in (os.getgroups() if groups is None else groups)):
-                return False
-            return True
-    return None
+    if options is None:
+        return None
+    if options.get("hidepid", "0") in ("0", "off", ""):
+        return False
+    gid = options.get("gid")
+    if (os.geteuid() if euid is None else euid) == 0 or (gid and gid.isdigit() and int(gid) in (os.getgroups() if groups is None else groups)):
+        return False
+    return True
 
 
 def sample(uids: set[int], proc: str = "/proc", cmdlines: bool = False) -> Sample:
@@ -167,7 +177,7 @@ def sample(uids: set[int], proc: str = "/proc", cmdlines: bool = False) -> Sampl
                     if runs_inbox_watch(fh.read(CMDLINE_BYTES)):
                         s.watching.add(uid)
             except (FileNotFoundError, ProcessLookupError):
-                continue   # exited since its status was read: not a process to count
+                pass   # exited since its status was read: counted as before, and no command line to tell anything by
             except OSError:
                 s.unreadable.add(uid)
         s.ticks.setdefault(uid, {})[pid] = ticks
