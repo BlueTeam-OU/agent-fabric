@@ -297,6 +297,7 @@ class Sweep(Scratch):
         self.assertEqual((doc["status"], row["status"]), ("failed", "failed"))
         self.assertNotIn(self.dir, json.dumps(doc))
         self.assertNotIn("origin", row["why"])
+        self.assertEqual(row["why"], "its state could not be read; nothing deleted (the read exited 2)")
         read = bo.branches(home=self.home, root=HERE, run=run(2), proc=self.proc(), now=NOW)["working_copies"][0]
         self.assertEqual((read["status"], read["why"]), ("failed", "not countable: exit 2"))
 

@@ -237,7 +237,8 @@ def _sweep_one(name: str, copy: str, proc: str, root: str, run: Callable[..., An
     if not isinstance(state, dict) or not isinstance(state.get("worktrees"), list) or not isinstance(state.get("dirty"), int):
         # The working copy's state could not be read: nothing to judge dirty or busy by, so nothing deleted.
         return {**row, "status": "failed", "why": "its state could not be read; nothing deleted"
-                + (f" ({_exit_words(r.returncode)})" if r is not None and r.returncode != 0 else "")}
+                + (f" (the read exited {r.returncode})" if r is not None and r.returncode > 0 else
+                   f" (the read was killed by signal {-r.returncode})" if r is not None and r.returncode < 0 else "")}
     if state["dirty"] > 0:
         return {**row, "status": "skipped", "why": "uncommitted changes"}
     worktrees = [w["path"] for w in state["worktrees"] if isinstance(w, dict) and isinstance(w.get("path"), str)]
