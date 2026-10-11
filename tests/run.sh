@@ -15,6 +15,58 @@ case "$what" in all|static|python|bash) ;; *) echo "tests/run.sh: no section '$w
 fail=0
 run() { echo; echo "== $1"; shift; "$@" || fail=$((fail+1)); }
 
+# The python suites, up to AGENT_FABRIC_TEST_JOBS at a time (default: the
+# cores; 1 is the old serial run). Each suite is independent: it makes its
+# own scratch under this run's TMPDIR, binds port 0 for any socket and gives
+# itself a HOME (the one fixed path, /var/tmp/agent-fabric-<login> in
+# test_launch_cli, is created idempotently).
+# The slowest start first, so the last one started is a short one and not the
+# 3-minute launcher alone at the end. A suite's output is buffered and printed
+# whole when it ends, under the same "== <suite>" header the serial run
+# printed, so the log reads the same but in completion order.
+SLOW_PYTHON_SUITES=(
+    test_launch_cli test_new_agent_cli test_gzcoord_port test_bootstrap_cli
+    test_secret_store test_control_agentd test_gzcoord_protocol test_jobs
+    test_roots_readers test_control_ctl test_pr_review_status_cli test_arm_cli
+    test_session_start test_lint test_assemble
+)
+run_python_suites() {
+    local slots="${AGENT_FABRIC_TEST_JOBS:-$(nproc 2>/dev/null || echo 1)}"
+    [[ "$slots" =~ ^[1-9][0-9]*$ ]] || { echo "tests/run.sh: AGENT_FABRIC_TEST_JOBS='$slots' is not a positive number" >&2; exit 2; }
+    local -a ordered=() started=()
+    local t n running=0
+    for n in "${SLOW_PYTHON_SUITES[@]}"; do
+        [[ -f "tests/$n.py" ]] && ordered+=("tests/$n.py")
+    done
+    for t in tests/test_*.py; do
+        for n in "${ordered[@]}"; do [[ "$n" == "$t" ]] && continue 2; done
+        ordered+=("$t")
+    done
+    # Own process group per suite, so cleanup can end a suite's children too.
+    set -m
+    for t in "${ordered[@]}"; do
+        if (( running >= slots )); then wait -n; running=$((running-1)); flush_python_suites; fi
+        n="$OUT_DIR/$(basename "$t")"
+        started+=("$t")
+        # The status file appears whole (mv) and after the output is complete.
+        ( python3 "$t" >"$n.out" 2>&1; echo $? >"$n.rc.tmp"; mv "$n.rc.tmp" "$n.rc" ) &
+        running=$((running+1))
+    done
+    while (( running > 0 )); do wait -n; running=$((running-1)); flush_python_suites; done
+    set +m
+}
+# Print and account every finished suite not yet printed.
+flush_python_suites() {
+    local t n
+    for t in "${started[@]}"; do
+        n="$OUT_DIR/$(basename "$t")"
+        [[ -f "$n.rc" && ! -f "$n.done" ]] || continue
+        echo; echo "== $t"; cat "$n.out"
+        [[ "$(cat "$n.rc")" == 0 ]] || fail=$((fail+1))
+        : >"$n.done"
+    done
+}
+
 # A test run leaves behind nothing it did not find (the owner,
 # 2026-09-19). The run owns its temporary directory: a fresh one under
 # the account's, exported as TMPDIR so every suite — mktemp, Node's
@@ -28,8 +80,26 @@ run() { echo; echo "== $1"; shift; "$@" || fail=$((fail+1)); }
 # check; test_leak-check.sh is where a planted entry proves it fires.
 # shellcheck source=leak-check.sh
 . "$ROOT/tests/leak-check.sh"
-SCRATCH_DIR="$(mktemp -d "$(leak_dir)/agent-fabric-tests.XXXXXX")" || exit 1
+# The run's directories are made SHORT: a unix socket path is limited to 107
+# bytes, and the account's own TMPDIR (/var/tmp/agent-fabric-<login>/…) plus a
+# suite's nesting overflowed it for gpg's agent and the relay, and truncated
+# paths in assertions (found by the 2026-10-11 parallel trial). The runtime
+# directory is private to the account and short; /tmp is the fallback.
+short_dir() {
+    if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" && -w "$XDG_RUNTIME_DIR" ]]; then
+        printf '%s\n' "$XDG_RUNTIME_DIR"
+    else
+        printf '/tmp\n'
+    fi
+}
+SCRATCH_DIR="$(mktemp -d "$(short_dir)/af-t.XXXXXX")" || exit 1
+# The parallel python suites' buffered output lives beside SCRATCH_DIR, not in
+# it: it is the harness's, and the leak check would name it as a suite's.
+OUT_DIR="$(mktemp -d "$(short_dir)/af-o.XXXXXX")" || exit 1
 export TMPDIR="$SCRATCH_DIR"
+# A suite that block-buffers its stdout shows nothing in a CI log until it
+# ends (the 2026-10-11 audit could not time a case from one).
+export PYTHONUNBUFFERED=1
 # The GZCoord tools speak the READER's language, so a suite that asserts
 # their lines depends on which login runs it: green on a login with no
 # locale directory (CI's) and red on every holder's. The run pins the
@@ -48,7 +118,15 @@ export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=fal
 # and a harness that follows TERM with KILL got no cleanup at all. Bash
 # runs the EXIT trap when it dies of an untrapped signal, so the three
 # traps below only make the status conventional (128+signal).
-trap 'rm -rf "$SCRATCH_DIR"' EXIT
+# The parallel suites run as background process groups (set -m in
+# run_python_suites): a run that dies takes them with it, or they would go on
+# writing into a deleted TMPDIR.
+cleanup() {
+    local pid
+    for pid in $(jobs -p); do kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null; done
+    rm -rf "$SCRATCH_DIR" "$OUT_DIR"
+}
+trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
 scratch_before="$(leak_snapshot "$SCRATCH_DIR")"
 
@@ -56,7 +134,7 @@ if [[ "$what" == all || "$what" == static ]]; then
     run "static (bash -n, shellcheck, ruff)" bash tests/static.sh
 fi
 if [[ "$what" == all || "$what" == python ]]; then
-    for t in tests/test_*.py; do run "$t" python3 "$t"; done
+    run_python_suites
     run "corpus lint" python3 tools/fabric/lint.py
     run "routing check" python3 tools/fabric/routing.py check
 fi
