@@ -1289,8 +1289,6 @@ def _():
         raise Failed("a failing fetch did not raise")
 
 
-# The notification cap: what one --follow event carries.
-
 @case("waitLoop: the late error of an abandoned slice is not the next slice's own")
 def _():
     """A hold that begins mid-slice abandons the fetch; its worker finishes later, after the loop has made the next
@@ -1425,6 +1423,9 @@ def _():
     ok(length(fifty) <= cap)
     ok(re.search(r"\n  … and \d+ more for you \(seq 7\d\d–749\), each read with --replay <seq>$", fifty),
        f"a listing that dropped lines says so: {fifty[-200:]}")
+
+
+# The notification cap: what one --follow event carries.
 
 
 # agent-fabric ADR-037 rule 5: the automatic request intake is built and off.
@@ -1595,9 +1596,21 @@ def _():
         ok(env["AGENT_FABRIC_STATE_DIR"] != "/runner/state" and os.path.isdir(os.path.dirname(env["AGENT_FABRIC_STATE_DIR"])), env["AGENT_FABRIC_STATE_DIR"])
         ok("XDG_STATE_HOME" not in env)
         eq(cmd_env(AGENT_FABRIC_STATE_DIR="/case/state")["AGENT_FABRIC_STATE_DIR"], "/case/state", "a case that names its own keeps it")
-        g = gzmsg_env()    # and so does bin/gzmsg
-        ok(g["HOME"] != os.environ.get("HOME") and g["AGENT_FABRIC_STATE_DIR"].startswith(g["HOME"]) and "XDG_STATE_HOME" not in g, g)
-        ok(gzmsg_cli("new-id").returncode == 0)
+        # and so does bin/gzmsg: the environment gzmsg_cli really hands the process is observed, not assumed
+        seen: dict = {}
+        real_run = subprocess.run
+
+        def spy(argv, **kw):
+            seen["env"] = kw.get("env")
+            return real_run(argv, **kw)
+        subprocess.run = spy
+        try:
+            ok(gzmsg_cli("new-id").returncode == 0)
+        finally:
+            subprocess.run = real_run
+        g = seen["env"]
+        ok(g is not None and g["HOME"] != os.environ.get("HOME") and g["AGENT_FABRIC_STATE_DIR"].startswith(g["HOME"])
+           and g["AGENT_FABRIC_STATE_DIR"] != "/runner/state" and "XDG_STATE_HOME" not in g, g)
     finally:
         for k, v in saved.items():
             if v is None:
