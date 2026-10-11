@@ -72,6 +72,11 @@ class JournalError(Exception):
     """The whole answer, in one line; never a message's content."""
 
 
+class ForeignJournal(JournalError):
+    """The journal belongs to another agent id (a reused login): callers that
+    must tell that from a damaged journal catch this type, never the words."""
+
+
 class IntegrityError(JournalError):
     pass
 
@@ -215,8 +220,8 @@ def open_readonly(path: str | None = None, agent_id: str | None = None) -> sqlit
         except sqlite3.OperationalError as e:
             raise JournalError(f"{path} is not a journal this code can read ({e})") from None
         if len(rows) == 1 and rows[0][0] != owner:
-            raise JournalError(f"{path} belongs to agent {rows[0][0]}, not {owner}: a reused login never reads "
-                               "another agent's history")
+            raise ForeignJournal(f"{path} belongs to agent {rows[0][0]}, not {owner}: a reused login never reads "
+                                 "another agent's history")
         version = _version(path, rows)
         if version > SCHEMA_VERSION:
             raise JournalError(f"{path} is at schema version {version}, newer than this code's "
@@ -273,8 +278,8 @@ def connect(path: str | None = None, agent_id: str | None = None) -> sqlite3.Con
             # The owner before the version: another agent's journal is never
             # migrated by this one.
             if len(rows) == 1 and rows[0][0] != owner:
-                raise JournalError(f"{path} belongs to agent {rows[0][0]}, not {owner}: a reused login never reads "
-                                   "another agent's history")
+                raise ForeignJournal(f"{path} belongs to agent {rows[0][0]}, not {owner}: a reused login never reads "
+                                     "another agent's history")
             version = _version(path, rows)
             if version > SCHEMA_VERSION:
                 raise JournalError(f"{path} is at schema version {version}, newer than this code's "

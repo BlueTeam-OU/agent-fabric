@@ -561,16 +561,14 @@ def episodic_journal(root):
         path = ep.db_path()
         if not os.path.exists(path):
             return {"status": "none", "detail": f"none yet ({path}): it starts with the first message sent or received"}
-        import sqlite3
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
         try:
-            owner = conn.execute("SELECT owner_agent_id FROM meta").fetchone()
+            conn = ep.open_readonly(path)
+        except ep.ForeignJournal as e:
+            return {"status": "foreign", "detail": str(e)}
+        try:
             n, last = conn.execute("SELECT count(*), max(recorded_at) FROM episodes").fetchone()
         finally:
             conn.close()
-        mine = ep.own_agent_id()
-        if owner and mine and owner[0] != mine:
-            return {"status": "foreign", "detail": f"{path} belongs to agent {owner[0]}, not this one ({mine})"}
         return {"status": "ok", "detail": f"{n} episode(s), last {last or '-'} (fabric-history)", "path": path}
     except Exception as e:  # noqa: BLE001 — a status line, never a traceback
         return {"status": "unknown", "detail": str(e)}
