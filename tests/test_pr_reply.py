@@ -15,6 +15,9 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from github import pr_reply  # noqa: E402
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+
+scrub_process_env()
 
 
 def main() -> int:
@@ -191,9 +194,9 @@ def main() -> int:
     # thing that tells a clone named after its repository from an older working copy's.
     with tempfile.TemporaryDirectory() as tmp:
         clone = os.path.join(tmp, "legacy-testclone")
-        subprocess.run(["git", "init", "-q", clone], check=True)
+        subprocess.run(["git", "init", "-q", clone], env=git_env(), check=True)
         subprocess.run(["git", "-C", clone, "remote", "add", "origin", "git@example.com:org/legacy-testclone.git"],
-                       check=True)
+                       env=git_env(), check=True)
         rc, out, verbs, sent = drive("h/legacy-testclone/fix/mine", wc=clone, remote=None)
     check("…and the remote is read from the clone's own origin", rc == 2 and "REPLY" not in verbs)
     rc, out, verbs, sent = drive("h/legacy-old/fix/theirs", wc=legacy)

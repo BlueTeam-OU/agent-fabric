@@ -20,6 +20,9 @@ from datetime import datetime, timedelta, timezone
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from github import pr_reply, pr_sessions as ps, pr_sessions_owner as pso  # noqa: E402
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+
+scrub_process_env()
 
 
 def ago(**delta: float) -> str:
@@ -388,9 +391,9 @@ def main() -> int:
         # The faked remotes above decide; this one is read from a real clone's origin.
         with tempfile.TemporaryDirectory() as tmp:
             clone = os.path.join(tmp, "legacy-testclone")
-            subprocess.run(["git", "init", "-q", clone], check=True)
+            subprocess.run(["git", "init", "-q", clone], env=git_env(), check=True)
             subprocess.run(["git", "-C", clone, "remote", "add", "origin",
-                            "git@example.com:org/legacy-testclone.git"], check=True)
+                            "git@example.com:org/legacy-testclone.git"], env=git_env(), check=True)
             pso.local.toplevel, pso.local.remote_url = (lambda: clone), saved[2]
             read_origin = pso.who_am_i()
         pso.local.toplevel = lambda: None

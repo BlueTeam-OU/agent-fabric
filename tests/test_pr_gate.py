@@ -17,6 +17,9 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from github import pr_gate  # noqa: E402
+from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
+
+scrub_process_env()
 
 CLEAR = {"mergeable": "MERGEABLE", "checks": "green", "unresolved": "0", "queue": "", "armed": "no"}
 
