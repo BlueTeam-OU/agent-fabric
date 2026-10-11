@@ -416,6 +416,8 @@ def main() -> int:
     check("a real unresolved thread is counted", says(r, "unresolved threads  : 1"))
     r = go(reviews=[rev("me", at=T, body=blind_body)], checks=CHECKS_502)
     check("a failed checks lookup reads unknown and leaves the exit alone", r.rc == 0 and says(r, "  checks              : unknown\n"))
+    r = go(reviews=[rev("me", at=T, body=blind_body)], checks=CHECKS_NONE)
+    check("gh's 'no checks reported' reads 0 through a whole run", r.rc == 0 and says(r, "  checks              : 0 pass, 0 other\n"))
     # THE --json CONTRACT: the same answer as fields, the same exit code.
     r = go("--json", reviews=[rev("me", at=T, body=blind_body), rev("somebodyelse", at="2026-08-07T10:01:00Z", body=blind_body)],
            threads_fail=True)
