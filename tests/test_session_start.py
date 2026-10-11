@@ -600,6 +600,41 @@ def test_hook_says_the_job_list(tmp: str) -> None:
         json.dump({"pr:example/none#5": {"state": "cleared", "detail": "merged", "checked_at": time.time()}}, fh)
     ctx = context_of(run_hook({"cwd": here}, env))
     assert "blocker cleared: j2 (pr:example/none#5)" in ctx, ctx
+    # No network: with a queued job from a message (which makes a plain list ask the state stream) and
+    # failing gh/fabric-ctl on PATH, the hook checks nothing and the blocker cache is left as it was.
+    jobs("add", "from a message")
+    jp = os.path.join(state, "agents", id_un(), "jobs.json")
+    doc = json.load(open(jp, encoding="utf-8"))
+    doc["jobs"][-1]["source"] = {"kind": "message", "message_id": "M-1"}
+    # A second, uncleared blocker whose last check is stale: a plain list would check it through gh.
+    doc["jobs"][0]["blockers"] = ["pr:example/none#6"]
+    with open(os.path.join(state, "agents", id_un(), "jobs-blockers.json"), "w", encoding="utf-8") as fh:
+        json.dump({"pr:example/none#5": {"state": "cleared", "detail": "merged", "checked_at": time.time()},
+                   "pr:example/none#6": {"state": "waiting", "detail": "open", "checked_at": 1.0}}, fh)
+    with open(jp, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+    stubs, called = os.path.join(tmp, "stubs"), os.path.join(tmp, "network-called")
+    os.makedirs(stubs)
+    for name in ("gh", "fabric-ctl"):
+        with open(os.path.join(stubs, name), "w", encoding="utf-8") as fh:
+            fh.write(f"#!/bin/sh\necho {name} >> {called}\nexit 1\n")
+        os.chmod(os.path.join(stubs, name), 0o755)
+    cache_path = os.path.join(state, "agents", id_un(), "jobs-blockers.json")
+    before = open(cache_path, encoding="utf-8").read()
+    started = time.monotonic()
+    ctx = context_of(run_hook({"cwd": here}, {**env, "PATH": stubs + os.pathsep + os.environ["PATH"]}))
+    assert "blocker cleared: j2 (pr:example/none#5)" in ctx, ctx
+    assert not os.path.exists(called), open(called, encoding="utf-8").read()
+    assert open(cache_path, encoding="utf-8").read() == before and time.monotonic() - started < 8
+    # The cleared part is bounded: three jobs are named, the rest counted.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("session_start_hook_jobs",
+                                                  os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.py"))
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+    line = hook.jobs_line({"jobs": [{"id": "j1", "state": "active", "title": "t"}]}, None,
+                          [f"j{n} (pr:o/r#{n})" for n in range(2, 7)])[0]
+    assert "blocker cleared: j2 (pr:o/r#2), j3 (pr:o/r#3), j4 (pr:o/r#4), +2 more" in line and "j5" not in line, line
     # A list the hook cannot read never costs the session its start.
     with open(os.path.join(state, "agents", id_un(), "jobs.json"), "w", encoding="utf-8") as fh:
         fh.write("{ not json")
