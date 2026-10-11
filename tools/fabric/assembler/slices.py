@@ -179,7 +179,8 @@ def decode_scalar(text: str) -> str:
 def retire_in_siblings(directory: str, filename: str, target: str,
                        clip: Callable[[str, str], str] = lambda d, _where: d,
                        stem: str | None = None,
-                       is_part: Callable[[str], bool] | None = None) -> list[tuple[str, str]]:
+                       is_part: Callable[[str], bool] | None = None,
+                       removed: dict[str, str] | None = None) -> list[tuple[str, str]]:
     """Remove the section `target` (and its "(n)" siblings) from every
     OTHER budget part of the same topic in `directory`. `filename` is the
     part being written: `<topic>.md`, `<topic>-<n>.md`,
@@ -197,7 +198,9 @@ def retire_in_siblings(directory: str, filename: str, target: str,
     `stem` and `is_part`, when the caller knows the topic, say which
     files are its parts: read off the file name alone, a separate topic
     named `<topic>-2` is a part of `<topic>`, and `<topic>-2.md` as that
-    topic's part one is a part of `<topic>` too."""
+    topic's part one is a part of `<topic>` too.
+
+    `removed`, when given, receives the text of the section `target` itself that was removed (ADR-050 rule 10 keys it)."""
     if stem is None:
         stem = re.sub(r"(-\d+)?\.md$", "", filename)
     if is_part is None:
@@ -213,6 +216,8 @@ def retire_in_siblings(directory: str, filename: str, target: str,
         _meta, sections = read_existing_slice(path)
         victims = [h for h in sections if h == target or re.fullmatch(re.escape(target) + r" \(\d+\)", h)]
         if victims:
+            if removed is not None and target in sections:
+                removed[target] = sections[target]
             touched.append((path, remove_sections(path, victims, [target], clip)))
     return touched
 

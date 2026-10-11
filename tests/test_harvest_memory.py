@@ -303,6 +303,26 @@ def test_an_applied_correction_is_not_harvested_again_and_the_original_it_replac
         report = json.load(fh)
     assert len(report["applied_corrections_skipped"]) == 1 and len(report["superseded_originals"]) == 1, report
     assert report["next_watermark"] >= int(newest * 1000) - 1, "the watermark passes the skipped correction"
+    # the guards: a plain memory whose words are an applied correction's is filed (only a correction is skipped); a correction
+    # whose words are a replaced text is filed (only a plain memory is named); the same words aimed at another heading are
+    # another correction, not the applied one
+    guards = os.path.join(tmp, "guards")
+    os.makedirs(guards)
+    write_memory(guards, "same-words-plain", "project", body=NEW, roles_class="solution")
+    write_memory(guards, "old-words-correction", "project", body=OLD, roles_class="solution")
+    write_memory(guards, "other-heading", "project", body=NEW, roles_class="solution")
+    for name, target in (("old-words-correction", "Old heading"), ("other-heading", "Another heading")):
+        path = os.path.join(guards, f"{name}.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text.replace("roles_class: solution", f"roles_class: solution\n  merge_target: {target}"))
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump(far_back, fh)
+    r = run(guards, os.path.join(tmp, "oguards"), "--working-copy", wc, "--project", "demo", "--host", "hostA")
+    assert r.returncode == 0 and "superseded" not in r.stderr and "applied correction" not in r.stderr, r.stderr
+    got = sorted(c["topic"] for c in claims_of(os.path.join(tmp, "oguards")))
+    assert got == ["old-words-correction", "other-heading", "same-words-plain"], (got, r.stderr)
     # control: with no applied corrections listed, the same memories are all filed and nothing is named
     with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
         json.dump({"watermarks": {f"{LOGIN}@hostA": 1}}, fh)

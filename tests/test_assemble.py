@@ -1347,7 +1347,7 @@ def test_the_report_lists_every_applied_correction_once_with_the_keys_the_harves
         json.dump(claims("alpha", [{"class": "solution", "topic": "other", "title": "Other", "body": "Another.", "evidence": ["h3"]}]), fh)
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-03").returncode == 0
     assert json.loads(read(report_path(out)))["applied_corrections"] == listed, "kept across a later stamp while its slice stands"
-    # a "correction" whose text is the section's own is no replacement: listed, the harvest would name it as its own original
+    # a "correction" whose text is the section's own is no replacement: were it listed, the harvest would name it as its own original
     with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
         json.dump(claims("alpha", [{"class": "solution", "topic": "kept-again", "title": "Kept", "merge_target": "Kept",
                                     "body": "Untouched.", "evidence": ["h2"]}]), fh)
@@ -1375,6 +1375,84 @@ def test_the_report_lists_every_applied_correction_once_with_the_keys_the_harves
     proc = run_assemble(drain2, claims2, out2, "--stamp", "2026-01-02")
     assert proc.returncode == 0 and "A newer text." in "".join(alpha_slices(out2).values()), proc.stderr
     assert json.loads(read(report_path(out2)))["applied_corrections"] == [], "the same-agent supersede is not an author's correction"
+
+
+def test_a_correction_stays_listed_only_while_its_slice_holds_the_text_it_applied(tmp: str) -> None:
+    """A revert, a later correction or a hand edit ends the entry (the harvest would otherwise name a live memory
+    superseded, or skip a correction asserting live text again); a correction of a section that sat in another budget part
+    is listed too; a rewrap is no replacement; a name an agent chose goes through hygiene."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from corrections import memory_key
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "The finding", "body": "X, as first written.", "evidence": ["h1"]},
+        {"class": "solution", "topic": "one", "title": "Kept", "body": "Untouched.", "evidence": ["h1"]}])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    listed = lambda: json.loads(read(report_path(out)))["applied_corrections"]       # noqa: E731
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "fix", "title": "The finding, corrected", "merge_target": "The finding",
+                                      "body": "Y, the correction.", "evidence": ["h2"],
+                                      "anchors": ["tools/a.py::run"], "citations": {"memories": ["other-memory"]}}])
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02").returncode == 0
+    (fix_entry,) = listed()
+    assert fix_entry["applied_key"] == memory_key("Y, the correction."), "key parity holds with anchors and citations on the section"
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "revert", "title": "The finding", "merge_target": "The finding, corrected",
+                                      "body": "X, as first written.", "evidence": ["h3"]}])
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-03").returncode == 0
+    entries = listed()
+    assert [(e["memory"], e["replaced"]) for e in entries] == [("revert", "The finding, corrected")], \
+        "the reverted correction is no longer what the slice holds"
+    # a hand edit of the corrected section ends its entry too
+    for d, _ds, fs in walk_role(out, "alpha"):
+        for n in fs:
+            path = os.path.join(d, n)
+            if n.endswith(".md") and "X, as first written." in read(path) and n != "INDEX.md":
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(read(path).replace("X, as first written.", "Edited by hand."))
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "elsewhere", "title": "Elsewhere", "body": "Unrelated.", "evidence": ["h4"]}])
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-04").returncode == 0
+    assert listed() == [], "a hand-edited section is not the text the entry applied"
+    # a rewrap only: nothing replaced
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "rewrap", "title": "Kept", "merge_target": "Kept",
+                                      "body": "Untouched.\n\n\n", "evidence": ["h5"]}])
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-05").returncode == 0
+    assert listed() == []
+    # a name an agent chose goes through the hygiene list before it reaches the committed report
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "springfield-fix", "title": "Kept, corrected", "merge_target": "Kept",
+                                      "body": "Changed words.", "evidence": ["h6"]}])
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-06").returncode == 0
+    (entry,) = listed()
+    assert "springfield" not in read(report_path(out)).lower() and "redacted" in entry["memory"], entry
+
+
+def test_a_carried_heading_with_a_banned_term_is_substituted_in_the_applied_correction_entry(tmp: str) -> None:
+    """A heading written before a pattern existed stays in the slice as it was; the committed report names it substituted."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "Plain", "body": "First.", "evidence": ["h1"]}])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    (path,) = alpha_slices(out)
+    full = proj(out, "alpha", path)
+    with open(full, encoding="utf-8") as fh:
+        text = fh.read()
+    with open(full, "w", encoding="utf-8") as fh:
+        fh.write(text.replace("## Plain", "## Springfield note"))
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "fix", "title": "Plain again", "merge_target": "Springfield note",
+                                      "body": "Second.", "evidence": ["h2"]}])
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02").returncode == 0
+    (entry,) = json.loads(read(report_path(out)))["applied_corrections"]
+    assert "Springfield" not in read(report_path(out)) and "redacted" in entry["replaced"], entry
+
+
+def test_a_correction_of_a_section_in_another_budget_part_is_listed(tmp: str) -> None:
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "grow", "title": "Big", "body": "y " * 850, "evidence": ["h1"]},
+        {"class": "domain", "topic": "other", "title": "Other", "body": "o", "evidence": ["h2"]}])})
+    assert run_assemble(drain, claims_dir, out, "--budget", "500").returncode == 0
+    set_claims(claims_dir, "alpha", [{"class": "domain", "topic": "grow", "title": "More", "body": "m " * 850, "evidence": ["h1"]}])
+    assert run_assemble(drain, claims_dir, out, "--budget", "500").returncode == 0
+    set_claims(claims_dir, "alpha", [{"class": "domain", "topic": "grow", "title": "More, corrected", "merge_target": "More",
+                                      "body": "Less than thought.", "evidence": ["h3"]}])
+    assert run_assemble(drain, claims_dir, out, "--budget", "500").returncode == 0
+    (entry,) = json.loads(read(report_path(out)))["applied_corrections"]
+    assert (entry["replaced"], entry["heading"]) == ("More", "More, corrected"), entry
 
 
 def test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report(tmp: str) -> None:
@@ -3563,6 +3641,9 @@ def main() -> int:
         test_the_report_lists_review_horizons_from_the_drains_own_read_dates,
         test_a_harvest_whose_read_counts_are_no_counts_does_not_stop_the_drain_and_a_stamp_that_is_no_date_stops_it_first,
         test_the_report_lists_every_applied_correction_once_with_the_keys_the_harvest_reads,
+        test_a_correction_stays_listed_only_while_its_slice_holds_the_text_it_applied,
+        test_a_carried_heading_with_a_banned_term_is_substituted_in_the_applied_correction_entry,
+        test_a_correction_of_a_section_in_another_budget_part_is_listed,
         test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report,
         test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
         test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section,

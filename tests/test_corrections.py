@@ -22,6 +22,11 @@ class BodyKey(unittest.TestCase):
         text = "Before.\n\n*Observed 2026-10-01 (x)*\n\nAfter."
         self.assertNotEqual(section_key(text), section_key("Before.\n\nAfter."))
 
+    def test_an_italic_line_that_only_starts_like_a_tail_is_text(self):
+        self.assertNotEqual(section_key("Fact.\n\n*Observed on staging only*"), section_key("Fact."))
+        self.assertNotEqual(section_key("Fact.\n\n*References are in the ticket*"), section_key("Fact."))
+        self.assertEqual(section_key("Fact.\n\n*Observed 2026-10-01*"), section_key("Fact."))      # the control: the real tail
+
     def test_wrapping_and_spacing_are_not_part_of_the_text(self):
         self.assertEqual(section_key("one two\n   three\tfour\n\n\nfive"), section_key("one two three four five"))
 

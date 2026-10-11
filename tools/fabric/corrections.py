@@ -17,7 +17,9 @@ import hashlib
 import re
 
 BODY_HEADING = re.compile(r"(?m)^(#{2,})(?=[ \t]|$)")
-TAIL_LINE = re.compile(r"\s*\*(?:Observed|Anchors|References)\b[^\n]*\*\s*$")
+# The three tails claim_block writes, in their exact shapes: an italic line of the text that merely starts with the word
+# ("*Observed on staging only*") is text.
+TAIL_LINE = re.compile(r"(?:^|\n)[ \t]*\*(?:Observed \d{4}-\d{2}-\d{2}(?: \([a-z0-9-]+\))?|Anchors: [^\n]*|References: [^\n]*)\*\s*$")
 
 
 def demote_headings(text: str) -> str:
