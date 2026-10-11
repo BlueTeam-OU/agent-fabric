@@ -92,7 +92,7 @@ def main() -> int:
                            ("mcpServers null", '{"mcpServers": null}')):
             path = config(doc)
             rc, out, err = run(path)
-            check(f"{label}: exit 1, one line on stderr, the file untouched", rc == 1 and out == "" and err.count("\n") == 1
+            check(f"{label}: exit 3, one line on stderr, the file untouched", rc == 3 and out == "" and err.count("\n") == 1
                   and open(path, encoding="utf-8").read() == doc and not [f for f in os.listdir(t) if f.endswith(".tmp")], f"{rc} {out!r} {err!r}")
 
         print("the temporary file")

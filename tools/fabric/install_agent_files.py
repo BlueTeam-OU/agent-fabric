@@ -349,10 +349,11 @@ class Installer:
         call = [sys.executable, os.path.join(self.root, "runtime", "mcp", "fabric-memory", "install.py"), claude_json, "set",
                 *(["--dry-run"] if self.dry_run else [])]
         r = subprocess.run(call, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
-        if r.returncode == 1:
-            # The installer's exit 1 is "the file is the login's to fix, nothing written". Bootstrap's contract for
-            # an unusable .claude.json (step 5b, the locale step) is to say it on both streams and go on with exit 0,
-            # never to fail the whole bootstrap over a file the fabric does not own; any other code is a real fault.
+        if r.returncode == 3:
+            # The installer's exit 3 (UNUSABLE) is "the file is the login's to fix, nothing written". Bootstrap's
+            # contract for an unusable .claude.json (step 5b, the locale step's remove path) is to say it on both
+            # streams and go on with exit 0. Any other code, 1 included (an uncaught fault such as an unwritable
+            # directory), is a real fault and fails the step.
             for line in (ln for ln in r.stderr.split("\n") if ln != ""):
                 print(line, file=sys.stderr)
                 say(line)

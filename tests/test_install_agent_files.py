@@ -50,6 +50,8 @@ with open(os.path.join(d, "..", "..", "..", "tools", "fabric", "calls.log"), "a"
     f.write(json.dumps({"tool": "install", "argv": sys.argv[1:]}) + "\\n")
 fail = os.path.join(d, "fail")
 if os.path.exists(fail):
+    if os.path.exists(os.path.join(d, "err.txt")):
+        sys.stderr.write(open(os.path.join(d, "err.txt")).read())
     sys.exit(int(open(fail).read()))
 out = os.path.join(d, "out-" + sys.argv[2] + ".txt")
 if os.path.exists(out):
@@ -287,6 +289,20 @@ def main() -> int:
         r = run(root, home, cfg)
         check("its failure is the installer's: exit 5, no count line, class files already written",
               r.returncode == 5 and "agent files (" not in r.stdout and os.path.isfile(os.path.join(cfg, "agents", "code-low.md")), f"{r.returncode} {r.stdout}")
+
+        root, home, cfg = fixture()
+        put(root, "runtime/mcp/fabric-memory/fail", "3")
+        put(root, "runtime/mcp/fabric-memory/err.txt", "  !  c.json: unusable (top level is not an object); left alone, nothing written\n")
+        r = run(root, home, cfg)
+        check("an unusable .claude.json (exit 3): said on both streams, the run goes on to its summary, exit 0",
+              r.returncode == 0 and "unusable (top level" in r.stdout and "unusable (top level" in r.stderr
+              and r.stdout.splitlines()[-1].startswith("agent files ("), f"{r.returncode} {r.stdout} {r.stderr}")
+        root, home, cfg = fixture()
+        put(root, "runtime/mcp/fabric-memory/fail", "1")
+        put(root, "runtime/mcp/fabric-memory/err.txt", "Traceback (most recent call last):\nPermissionError: [Errno 13] denied\n")
+        r = run(root, home, cfg)
+        check("an installer fault (exit 1, a traceback) fails the run, no count line",
+              r.returncode == 1 and "agent files (" not in r.stdout and "PermissionError" in r.stderr, f"{r.returncode} {r.stdout} {r.stderr}")
 
         # language-culture with a locale file: set and deny-websearch.
         root, home, cfg = fixture()

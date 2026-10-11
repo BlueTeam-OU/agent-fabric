@@ -11,7 +11,8 @@ path. Every other key and server of the file is kept as read; the file is replac
 Prints one line in the installer's shape (+ = !) and exits 0.
 
 A file that is not JSON, whose top level is not an object, or whose mcpServers is present and not an object, is the login's to fix: one line on stderr, nothing
-written, exit 1. Unlike the websearch-locale installer there is no `remove`: the server is for every login.
+written, exit 3 (UNUSABLE: distinct from Python's 1, which any uncaught
+fault such as an unwritable directory exits with, so a caller can tell the login's file from a fault). Unlike the websearch-locale installer there is no `remove`: the server is for every login.
 """
 from __future__ import annotations
 
@@ -24,6 +25,9 @@ NAME = "fabric-memory"
 COMMAND = "fabric-memory-mcp"
 ENTRY = {"type": "stdio", "command": COMMAND, "args": [], "env": {}}
 
+
+
+UNUSABLE = 3   # the file is the login's to fix; nothing written. Never 1, which an uncaught fault exits with.
 
 def load(path: str) -> dict:
     try:
@@ -80,7 +84,7 @@ def main(argv: list[str]) -> int:
         data = load(path)
     except (ValueError, UnicodeDecodeError) as e:
         print(f"  !  {path}: unusable ({e or type(e).__name__}); left alone, nothing written", file=sys.stderr)
-        return 1
+        return UNUSABLE
     servers = data.get("mcpServers") if isinstance(data.get("mcpServers"), dict) else {}
     current = servers.get(NAME)
     if current == ENTRY:
