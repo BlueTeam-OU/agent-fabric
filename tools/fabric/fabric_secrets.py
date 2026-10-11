@@ -19,7 +19,9 @@ THE CONTRACT (frozen from the bash, ADR-040 §5 rule 3)
                                own usage.
   The verb is matched exactly and only as the first argument; its module gets
   the rest. stdout, stderr and exit status are the module's: this process is
-  replaced by it (os.execv). The environment is not read or changed here.
+  replaced by it (os.execv), on the interpreter the forwarder named
+  (AGENT_FABRIC_PYTHON, the one variable read; else sys.executable). The
+  environment is not changed here.
 """
 from __future__ import annotations
 
@@ -38,7 +40,8 @@ def main(argv: list[str]) -> int:
         module = MODULES[verb]
     else:
         rest, module = argv[1:], DEFAULT
-    os.execv(sys.executable, [sys.executable, os.path.join(HERE, module), *rest])
+    py = os.environ.get("AGENT_FABRIC_PYTHON") or sys.executable
+    os.execv(py, [py, os.path.join(HERE, module), *rest])
     return 127  # unreachable: execv returns only by raising
 
 

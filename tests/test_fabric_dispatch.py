@@ -22,6 +22,7 @@ import fabric_locale  # noqa: E402
 import fabric_pr  # noqa: E402
 import fabric_secrets  # noqa: E402
 
+PY = os.environ.get("AGENT_FABRIC_PYTHON") or sys.executable   # what the dispatch modules exec the verb's module on
 FORWARDERS = {"fabric-pr": f"{ROOT}/bin/fabric-pr", "fabric-locale": f"{ROOT}/bin/fabric-locale",
               "fabric-secrets": f"{ROOT}/runtime/provisioning/secrets/fabric-secrets"}
 FAKE_GH = f"{ROOT}/tests/fixtures/fake_gh_auth.py"
@@ -63,7 +64,7 @@ def main() -> int:
         with Execs() as e:
             fabric_pr.main(["fabric-pr", verb, "7", "--x", "a b"])
         check(f"{verb} execs {mod}.py on this interpreter with the rest of argv",
-              e.calls == [(sys.executable, [sys.executable, f"{gh}/{mod}.py", "7", "--x", "a b"])], e.calls)
+              e.calls == [(PY, [PY, f"{gh}/{mod}.py", "7", "--x", "a b"])], e.calls)
     out, err = io.StringIO(), io.StringIO()
     out.buffer = io.BytesIO()
     err.buffer = io.BytesIO()
@@ -80,7 +81,7 @@ def main() -> int:
         with Execs() as e:
             fabric_locale.main(["fabric-locale", verb, "src.md"])
         check(f"{verb} execs lint.py --{verb} with the one path",
-              e.calls == [(sys.executable, [sys.executable, fabric_locale.LINT, f"--{verb}", "src.md"])], e.calls)
+              e.calls == [(PY, [PY, fabric_locale.LINT, f"--{verb}", "src.md"])], e.calls)
         for argv in ([], ["a", "b"]):
             err = io.StringIO()
             with redirect_stderr(err), Execs() as e:
@@ -101,12 +102,12 @@ def main() -> int:
         with Execs() as e:
             fabric_secrets.main(["fabric-secrets", verb, "a", "--b"])
         check(f"{verb} execs {mod} with the rest of argv, the verb dropped",
-              e.calls == [(sys.executable, [sys.executable, f"{here}/{mod}", "a", "--b"])], e.calls)
+              e.calls == [(PY, [PY, f"{here}/{mod}", "a", "--b"])], e.calls)
     for argv in ([], ["sync"], ["status", "--json"], [""], ["Store"], ["bogus", "x"]):
         with Execs() as e:
             fabric_secrets.main(["fabric-secrets", *argv])
         check(f"{argv or 'no argument'}: secrets_sync.py with every argument, the first included",
-              e.calls == [(sys.executable, [sys.executable, f"{here}/secrets_sync.py", *argv])], e.calls)
+              e.calls == [(PY, [PY, f"{here}/secrets_sync.py", *argv])], e.calls)
 
     print("the forwarders — the shape of ADR-040 §5 rule 1")
     for name, path in FORWARDERS.items():
@@ -159,7 +160,33 @@ def main() -> int:
         link = f"{tmp}/fabric-secrets"
         os.symlink(FORWARDERS["fabric-secrets"], link)
         r = subprocess.run([link, "selftest", "--help"], capture_output=True, text=True, env=env, timeout=120)
-        check("found through a symlink", r.returncode in (0, 2) and (r.stdout + r.stderr) != "", (r.returncode, r.stderr[:200]))
+        d = subprocess.run([sys.executable, f"{here}/secret_selftest.py", "--help"], capture_output=True, text=True, env=env, timeout=120)
+        check("found through a symlink: the module's own help, stream for stream",
+              (r.stdout, r.stderr, r.returncode) == (d.stdout, d.stderr, d.returncode) and (d.stdout + d.stderr) != "",
+              (r.returncode, r.stderr[:200]))
+    # A wrapper as the pin: the verb's module runs on it too, as the bash exec'd "$py" for it.
+    with tempfile.TemporaryDirectory(prefix="test_fabric_dispatch.wrap.") as tmp:
+        wrap = f"{tmp}/py-wrapper"
+        with open(wrap, "w", encoding="utf-8") as fh:
+            fh.write(f'#!/bin/sh\nWRAPPED=1 exec "{sys.executable}" "$@"\n')
+        os.chmod(wrap, 0o755)
+        with Execs() as e:
+            os.environ["AGENT_FABRIC_PYTHON"] = wrap
+            try:
+                fabric_pr.main(["fabric-pr", "gate", "1"])
+                fabric_locale.main(["fabric-locale", "digest", "x.md"])
+                fabric_secrets.main(["fabric-secrets", "status"])
+            finally:
+                os.environ.pop("AGENT_FABRIC_PYTHON", None)
+        check("with AGENT_FABRIC_PYTHON naming a wrapper, all three exec the verb's module on the wrapper",
+              [c[0] for c in e.calls] == [wrap] * 3 and all(c[1][0] == wrap for c in e.calls), e.calls)
+    err = io.StringIO()
+    err.buffer = io.BytesIO()
+    with redirect_stderr(err), Execs():
+        rc = fabric_pr.main(["fabric-pr", "x\udcff"])
+    check("a verb that is not UTF-8 is echoed byte for byte in the unknown-verb line, exit 2",
+          rc == 2 and err.buffer.getvalue() == b"fabric-pr: unknown verb 'x\xff'; verbs: " + ", ".join(fabric_pr.VERBS).encode() + b"\n",
+          (rc, err.buffer.getvalue()))
 
     print("fake_gh_auth — the secrets-sync tests' gh")
     with tempfile.TemporaryDirectory(prefix="test_fabric_dispatch.gh.") as tmp:

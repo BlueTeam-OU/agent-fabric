@@ -17,7 +17,8 @@ THE CONTRACT (frozen from the bash, ADR-040 §5 rule 3)
   word: stderr "usage: fabric-locale tokens|digest <source.md>", exit 2. The
   pin check comes first (the forwarder's), so a host without the pin says so
   before any usage error. lint's stdout, stderr and exit status are untouched:
-  this process is replaced by it (os.execv).
+  this process is replaced by it (os.execv), on the interpreter the forwarder
+  named (AGENT_FABRIC_PYTHON, the one variable read; else sys.executable).
 """
 from __future__ import annotations
 
@@ -34,7 +35,8 @@ def main(argv: list[str]) -> int:
         if len(argv) != 3:
             sys.stderr.write(f"usage: fabric-locale {verb} <source.md>\n")
             return 2
-        os.execv(sys.executable, [sys.executable, LINT, f"--{verb}", argv[2]])
+        py = os.environ.get("AGENT_FABRIC_PYTHON") or sys.executable
+        os.execv(py, [py, LINT, f"--{verb}", argv[2]])
     sys.stderr.write("usage: fabric-locale tokens|digest <source.md>\n")
     return 2
 
