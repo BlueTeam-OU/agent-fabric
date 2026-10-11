@@ -73,6 +73,9 @@ cleanup() {
     local pid p i live
     local -a all=()
     for pid in $(jobs -p); do
+        # The watcher is a job too, and must outlive the removal below: TERMed
+        # here, a KILL during the wait would leave the directory to nobody.
+        [[ "$pid" == "${WATCHER_PID:-}" ]] && continue
         all+=("$pid"); while read -r p; do [[ -n "$p" ]] && all+=("$p"); done < <(descendants "$pid")
     done
     (( ${#all[@]} )) && kill -TERM "${all[@]}" 2>/dev/null
@@ -118,6 +121,7 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "no-model-pins guard" python3 tools/fabric/github/run_suite.py policies/test_check_repo_settings_carry_no_model_pins.sh
     run "actions pinned by SHA (this tree)" python3 policies/check_actions_pinned_by_sha.py
     run "attribution (this branch)" env AGENT_FABRIC_ATTRIBUTION_BASE=origin/main python3 tools/fabric/guards/ban_generated_by_attribution.py
+    run "signatures (this branch)" env AGENT_FABRIC_SIGNATURES_BASE=origin/main python3 tools/fabric/guards/ban_unsigned_commits.py
     run "decision-record amendments (this branch)" env AGENT_FABRIC_ADR_BASE=origin/main python3 tools/fabric/adr.py range-check
     run "leak check (what a run left behind)" bash tests/test_leak-check.sh
     run "status line" bash runtime/claude-code/hooks/test_statusline.sh

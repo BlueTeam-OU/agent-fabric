@@ -433,7 +433,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, with no open P1/P2 (§5
   rules 5–6).
 - No machine attribution (§5 rule 7). GitHub settings: §6.
-- A 2026-10-04 — `main`'s ruleset: a PR, CI, signed commits (§5 rule 6).
+- A 2026-10-04 — `main`'s ruleset (§5 rule 6).
 - A 2026-10-05 — the ruleset requires `ci-ok` alone (§5 rule 6).
 - A 2026-10-05 — 8+ work commits arm on the gate alone (§5 rule 4).
 - A 2026-10-06 — one open PR at a time (§5 rule 2).
@@ -441,8 +441,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — a folded PR's review fixes are fixes (§5 rule 3).
 - A 2026-10-09 — results.py reads a fold (§5 rule 3).
 - A 2026-10-09 — a push after the arming disarms it (§5 rule 5).
-- A 2026-10-10 — arm.json `direct`: roles fast-forward main;
-  `pr_paths` and executables by PR, fenced by pre-push (§5 rule 1).
+- A 2026-10-10 — arm.json `direct`: fast-forward main, fenced by
+  pre-push (§5 rule 1).
+- A 2026-10-11 — pre-push refuses unsigned commits (§5 rule 1).
 - Keywords: Answers, Kind, fold, pr-gate, ruleset, direct, pre-push.
 
 ### ADR-020 — The review class is the review (Accepted)
@@ -1123,3 +1124,20 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rules 10-13). Pooling's fit with the provider's terms is open (§6).
 - Keywords: account switch, gateway, usage, land, eject, hysteresis, sticky,
   perishable, soonest reset, 429, exhausted, claudemanager, account-switch.json.
+
+### ADR-053 — A second review engine: Codex reviews beside the review class, one-shot, through the gateway (Proposed)
+
+- `fabric-review --engine codex <PR>`: the review class's blind brief,
+  unchanged, run once by the pinned `codex exec`, read-only, on a `git
+  archive` extract of the head, 20 minutes by default (§5 rules 1-2).
+- Codex goes through a gateway process of its own serving
+  `openai-responses`, base URL its root, key by env only; the session's
+  Anthropic URL and key and the account's `~/.codex` never reach it
+  (§5 rule 3).
+- One JSON object of findings or nothing posted; posted with
+  `fabric-pr post-review <PR> --model codex`, judged like any finding
+  (§5 rules 4-5).
+- The arming policy's `reviews` lists the engines a PR needs
+  (`["claude"]` by default); `fabric-pr arm` refuses until each has
+  reviewed the head with no open P1/P2 (§5 rule 6). Codex is pinned
+  (§5 rule 7).

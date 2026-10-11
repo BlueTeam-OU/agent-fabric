@@ -509,11 +509,17 @@ class PrGate(unittest.TestCase):
         self.assertIn("ask the owner (18 work commits < 20)", self.v(18, arm_policy.validate({"commits": {"min": 20}})))
         self.assertIn("over 20", self.v(21, arm_policy.validate({"commits": {"min": 20}})))
 
-    def test_owner_only_and_direct_are_not_armed_by_fabric_pr(self):
-        for mode, words in (("owner-only", "only the owner merges"), ("direct", "nothing to arm")):
-            text = self.v(20, arm_policy.validate({"mode": mode}))
-            self.assertIn(words, text)
-            self.assertNotIn("arm: post", text)
+    def test_owner_only_is_not_armed_by_fabric_pr(self):
+        text = self.v(20, arm_policy.validate({"mode": "owner-only"}))
+        self.assertIn("only the owner merges", text)
+        self.assertNotIn("arm: post", text)
+
+    def test_direct_is_merged_at_once_on_the_count_rule_with_no_auto(self):
+        text = self.v(10, arm_policy.validate({"mode": "direct"}))
+        self.assertIn("arm: post the basis", text)
+        self.assertIn("--merge", text)
+        self.assertNotIn("--auto", text)
+        self.assertIn("ask the owner", self.v(1, arm_policy.validate({"mode": "direct"})))
 
 
 class PrGateRun(unittest.TestCase):
@@ -961,7 +967,6 @@ class ArmRun(unittest.TestCase):
                 ("a red check", {"checks": "red:ci", "files": ("docs/a.md",)}, "every check on the head must be green first", policy),
                 ("drift", {"drift": ["ruleset 'x' is missing"], "files": ("docs/a.md",)}, "fabric-repo-policy plan", policy),
                 ("owner-only", {"files": ("docs/a.md",)}, "the mode must change in the repository's file", arm_policy.validate({"mode": "owner-only"})),
-                ("direct", {"files": ("docs/a.md",)}, "the mode must change in the repository's file", arm_policy.validate({"mode": "direct"})),
                 ("below_min refuse", {"files": ("docs/a.md",)}, "refuses below the minimum", arm_policy.validate({"commits": {"min": 8, "below_min": "refuse"}}))):
             text = self.refusal(p, **kw) if label != "below_min refuse" else self.refusal(p, work=3, **kw)
             self.assertIn(words, text, label)
@@ -996,11 +1001,82 @@ class ArmRun(unittest.TestCase):
         rc, _ = self.run_arm(p, 2, files=("policies/x.json",), role_trailers=["web-dev"])
         self.assertIn("a security-boundary change under 8", str(rc))
 
-    def test_owner_only_and_direct_are_refused_before_anything_else_is_read(self):
-        for mode, words in (("owner-only", "owner-only"), ("direct", "direct")):
-            rc, _ = self.run_arm(arm_policy.validate({"mode": mode}), 20, basis="the owner's word")
-            self.assertIn(words, str(rc))
-            self.assertTrue(str(rc).startswith("refused"), rc)
+    def test_owner_only_is_refused_before_anything_else_is_read(self):
+        rc, _ = self.run_arm(arm_policy.validate({"mode": "owner-only"}), 20, basis="the owner's word")
+        self.assertIn("owner-only", str(rc))
+        self.assertTrue(str(rc).startswith("refused"), rc)
+
+    def test_direct_merges_at_once_pinned_to_the_head_with_no_auto(self):
+        merged = {"state": "MERGED", "autoMergeRequest": None}
+        p = arm_policy.validate({"mode": "direct", "commits": {"min": 1}})
+        rc, out = self.run_arm(p, 1, live=merged)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("MERGED #7", out)
+        self.assertIn(["pr", "merge", "7", "--merge", "--match-head-commit", self.HEAD], self.ran)
+        self.assertFalse([r for r in self.ran if "--auto" in r], self.ran)
+        _, out = self.run_arm(p, 1, extra=("--dry-run",))
+        self.assertIn(f"would run: gh pr merge 7 --merge --match-head-commit {self.HEAD}", out)
+        self.assertFalse([r for r in self.ran if r[:2] == ["pr", "merge"]], self.ran)
+
+    def test_direct_keeps_every_gate(self):
+        p = arm_policy.validate({"mode": "direct", "commits": {"min": 8}})
+        merged = {"state": "MERGED", "autoMergeRequest": None}
+        for label, kw, words in (
+                ("a red check", {"checks": "red:ci", "basis": "the owner's word"}, "every check on the head must be green first"),
+                ("no review of a boundary head", {"reviewed": False, "basis": "the owner's word", "files": ("policies/x.json",)},
+                 "dispatch the review class on"),
+                ("an open thread on a boundary", {"unresolved": 1, "basis": "the owner's word", "files": ("policies/x.json",)},
+                 "answer and resolve them first"),
+                # Not a boundary file: a direct repository merges at once, so the head's review and its
+                # threads are gated for every PR there (review of #212, F1).
+                ("no review of a non-boundary head", {"reviewed": False, "basis": "the owner's word"},
+                 "a PR on a direct repository (merged at once) with no review-class review"),
+                ("an open thread on a non-boundary PR", {"unresolved": 1, "basis": "the owner's word"},
+                 "a PR on a direct repository (merged at once) with 1 unresolved"),
+                ("under the minimum without the word", {}, "on the owner's word")):
+            rc, _ = self.run_arm(p, 3, live=merged, **kw)
+            self.assertTrue(str(rc).startswith("refused"), (label, rc))
+            self.assertIn(words, str(rc), label)
+            self.assertFalse([r for r in self.ran if r[:2] == ["pr", "merge"]], label)
+        rc, out = self.run_arm(p, 3, basis="the owner's word", live=merged)
+        self.assertEqual(rc, 0, out)
+        # A required check named in a direct policy holds nothing on GitHub (no ruleset): green is still waited for.
+        with_checks = arm_policy.validate({"mode": "direct", "commits": {"min": 1}, "required_checks": [{"context": "ci"}]})
+        # A waiver lifts the boundary's gate, never a direct repository's review gate (re-review of #212, 1).
+        with mock.patch.object(arm, "verify_waiver", return_value=("h/holder", "m1")):
+            rc, _ = self.run_arm(p, 9, files=("policies/x.json",), reviewed=False, live=merged, waiver_role="architect-cto",
+                                 extra=("--no-boundary", "not a boundary", "--waiver", "m1"))
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertFalse([r for r in self.ran if r[:2] == ["pr", "merge"]], "waived")
+        # ...and still lifts the boundary minimum: a waived, reviewed boundary PR under 8 merges on a direct repository.
+        low = arm_policy.validate({"mode": "direct", "commits": {"min": 1}})
+        with mock.patch.object(arm, "verify_waiver", return_value=("h/holder", "m1")):
+            rc, out = self.run_arm(low, 1, files=("policies/x.json",), live=merged, waiver_role="architect-cto",
+                                   extra=("--no-boundary", "not a boundary", "--waiver", "m1"))
+        self.assertEqual(rc, 0, out)
+        # No check at all on a direct head: it merges on the head's review (the owner's rule for CI-less repositories).
+        no_ci = arm_policy.validate({"mode": "direct", "commits": {"min": 1}})
+        rc, out = self.run_arm(no_ci, 1, checks="none-yet", live=merged)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("no check on the head", out)
+        rc, _ = self.run_arm(no_ci, 1, checks="none-yet", reviewed=False, live=merged)
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        # A repository with no required check that is not direct still waits for green.
+        auto_none = arm_policy.validate({"mode": "auto", "commits": {"min": 1}})
+        rc, _ = self.run_arm(auto_none, 1, checks="none-yet", live=merged)
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        for checks in ("red:ci", "pending", "none-yet"):
+            rc, _ = self.run_arm(with_checks, 3, checks=checks, live=merged)
+            self.assertTrue(str(rc).startswith("refused"), (checks, rc))
+            self.assertIn("is direct", str(rc))
+            self.assertFalse([r for r in self.ran if r[:2] == ["pr", "merge"]], checks)
+
+    def test_direct_that_does_not_read_back_merged_is_unanswered(self):
+        p = arm_policy.validate({"mode": "direct", "commits": {"min": 1}})
+        for live in ({"autoMergeRequest": None}, {"autoMergeRequest": {"enabledAt": "x"}}):
+            rc, _ = self.run_arm(p, 1, live=live)
+            self.assertTrue(str(rc).startswith("unanswered"), rc)
+            self.assertIn("direct repository, not merged", str(rc))
 
     def test_the_merge_command_uses_the_policys_method(self):
         for method in ("merge", "squash", "rebase"):
@@ -1096,7 +1172,7 @@ class ArmRun(unittest.TestCase):
 
     def test_the_mode_is_judged_before_the_settings_are_compared_or_the_commits_listed(self):
         called = []
-        for mode in ("owner-only", "direct"):
+        for mode in ("owner-only",):
             with mock.patch.object(arm, "author_role", side_effect=lambda *a, **k: called.append("role")):
                 # The comparison stub fails: were it made first, the run would end unanswered, not refused.
                 rc, _ = self.run_arm(arm_policy.validate({"mode": mode}), 20, basis="the owner's word", drift_error="HTTP 403")
