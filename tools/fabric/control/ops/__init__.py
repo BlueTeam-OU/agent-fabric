@@ -59,7 +59,7 @@ from .memory import MEMORY_PART_BYTES, memory_slug, memory_dirs, memory  # noqa:
 
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
        "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "tools-install", "local", "local-prune",
-       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install"]
+       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", "branches", "branches-sweep"]
 
 # Answered for any placed account, not only an operator: whether a session
 # is running is what every sender needs before it writes to one, and it
@@ -107,6 +107,11 @@ def _local(ctx: Mapping[str, Any]) -> Any:
     return local(home=ctx.get("home"), root=ctx.get("root"))
 
 
+def _branches(ctx: Mapping[str, Any]) -> Any:
+    from control.branches_op import branches
+    return branches(home=ctx.get("home"), root=ctx.get("root"))
+
+
 def _host(ctx: Mapping[str, Any]) -> Any:
     # The machine now, and the pressure this daemon sampled up to now (pressure.py).
     from control.pressure import memory_pressure
@@ -140,6 +145,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     # One scan per daemon however many ask at once (the daemon's disk keeper).
     "disk": lambda c: c["disk_cached"]() if c.get("disk_cached") else disk(c.get("home"), **(c.get("disk_opts") or {})),
     "local": _local,
+    "branches": _branches,
     "jobs": _jobs,
     "harness": _harness,
     "inbox": _inbox,

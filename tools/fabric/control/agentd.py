@@ -112,6 +112,7 @@ else:
 from control import gateway as gateway_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
 from control.jobs import jobs_add  # noqa: E402
+from control.branches_op import branches_sweep  # noqa: E402
 from control.local import local_prune  # noqa: E402
 from control.pool import POOL_FILE, pool_add, pool_claim, pool_holder, pool_list, role_from_stream  # noqa: E402
 from control.secrets import secrets_sync  # noqa: E402
@@ -220,8 +221,9 @@ ACTION_CLOCK_SKEW_MS = 60 * 1000
 ACCOUNTS_CACHE_MS = 5 * 60 * 1000
 # Reads that run beside the read loop, like the actions: each can take
 # minutes, and the loop must keep answering behind it. `gateway` hashes
-# the installed binary and runs it, up to ten seconds.
-BESIDE_LOOP_OPS = ["disk", "gateway"]
+# the installed binary and runs it, up to ten seconds; `branches` asks git of every working copy of the account
+# (a status per copy and per linked worktree), up to a minute each.
+BESIDE_LOOP_OPS = ["disk", "gateway", "branches"]
 # One disk scan per daemon, shared by every request that arrives while it
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).
@@ -607,6 +609,8 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {"gateway-install": gateway_mod.gateway_install(request, home=home, root=root, **(ctx.get("gateway_install_opts") or {}))}
     elif op == "local-prune":
         data = {"local-prune": local_prune(request, home=home, root=root)}
+    elif op == "branches-sweep":
+        data = {"branches-sweep": branches_sweep(request, home=home, root=root, **(ctx.get("branches_opts") or {}))}
     elif op == "secrets-selftest":
         data = {"secrets-selftest": secrets_selftest(request, home=home, root=root, **(ctx.get("selftest_opts") or {}))}
     else:

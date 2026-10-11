@@ -9,6 +9,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login|all> upgrade claude [--version V] | upgrade fabric
     fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]
     fabric-ctl <login|all> presence | jobs | tools | local | local-prune | secrets-selftest
+    fabric-ctl <login|all> branches [--sweep]
     fabric-ctl <login|all> tools-install <tool>
     fabric-ctl <login|all> gateway | gateway-install --version V
     fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
@@ -99,6 +100,7 @@ from control.jobs import check_job_args
 from control.selftest import SELFTEST_BUDGET_S
 from control.sessions import SESSION_ID
 from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, public_key_from, sign_request
+from control.branches_op import BRANCHES_SWEEP_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, VERSION_RE, pinned_version
@@ -123,6 +125,8 @@ USAGE = (
     "       fabric-ctl <login|all> secrets-selftest\n"
     "       fabric-ctl <login|all> local\n"
     "       fabric-ctl <login|all> local-prune\n"
+    "       fabric-ctl <login|all> branches   (each account, per working copy: the last sweep, its local branches and worktrees, how many are wholly on the default branch; no fetch, nothing changed)\n"
+    "       fabric-ctl <login|all> branches --sweep   (an action: the account runs fabric-branches --sweep in each working copy with no uncommitted change and no build or suite running in it)\n"
     "       fabric-ctl <login|all> states [--follow] [--json]\n"
     "       fabric-ctl keygen [--force]")
 
@@ -297,7 +301,7 @@ def placements(registry: str | None = None) -> list[dict]:
 def parse_args(argv: list[str]) -> dict:
     out: dict = {"targets": [], "op": "status", "json": False, "timeout": None, "out": None, "days": None, "piece": None, "version": None,
                  "force": False, "expect": None, "restart": False, "title": None, "topic": None, "project": None, "priority": None,
-                 "role": None, "follow": False, "tool": None}
+                 "role": None, "follow": False, "tool": None, "sweep": False}
     i = 0
     n = len(argv)
 
@@ -341,6 +345,8 @@ def parse_args(argv: list[str]) -> dict:
             out["expect"] = a[9:]
         elif a == "--restart":
             out["restart"] = True
+        elif a == "--sweep":
+            out["sweep"] = True
         elif a == "--follow":
             out["follow"] = True
         elif a == "--topic":
@@ -376,12 +382,17 @@ def parse_args(argv: list[str]) -> dict:
         else:
             out["targets"].append(a)
         i += 1
+    if out["sweep"] and out["op"] != "branches":
+        raise CtlError("--sweep goes with branches only")
+    if out.pop("sweep"):
+        out["op"] = "branches-sweep"   # a read and an action are two ops: only the second is signed
     op = out["op"]
     if out["timeout"] is None:
         out["timeout"] = (5 if op == "ping" else 120 if op == "memory" else 60 if op == "tokens" else 300 if op == "accounts"
                           else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
                           else 240 if op == "secrets-sync" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
+                          else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
                           else SELFTEST_BUDGET_S if op == "secrets-selftest" else 20)
     if op == "upgrade" and out["piece"] not in PIECES:
         raise CtlError(f"upgrade takes a piece: {', '.join(PIECES)}")
@@ -602,14 +613,15 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
-                    **{k: g(k) for k in ("harness", "inbox") if dig(d, k) is not UNDEFINED}})
+                    **{k: g(k) for k in ("harness", "inbox") if dig(d, k) is not UNDEFINED},
+                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep")) if dig(d, op) is not UNDEFINED}})
     return out
 
 
 # What counts as success for each action; anything else fails the run.
 ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added"], "local-prune": ["pruned", "clean"],
              "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"],
-             "gateway-install": ["installed", "current"]}
+             "gateway-install": ["installed", "current"], "branches-sweep": ["swept"]}
 
 
 def targets_of(targets: list[str], placed: list[dict]) -> dict:
@@ -781,6 +793,61 @@ def _table_local(op: str, rs: list) -> list[str]:
             p = dig(f, "permissions")
             other = "-" if is_empty(dig(f, "keys")) else " ".join(esc(k) for k in f["keys"])
             lines.append(f"{head} {env}  allow {S(dig(p, 'allow'))}/deny {S(dig(p, 'deny'))}/ask {S(dig(p, 'ask'))}  {other}")
+    return lines
+
+
+def _age_words(seconds: Any) -> str:
+    if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or seconds < 0:
+        return "?"
+    return f"{int(seconds // 86400)}d" if seconds >= 86400 else f"{int(seconds // 3600)}h" if seconds >= 3600 else f"{int(seconds // 60)}m"
+
+
+def _cell(v: Any) -> str:
+    """A count an account sent: an integer as itself, anything else escaped text."""
+    return str(v) if isinstance(v, int) and not isinstance(v, bool) else esc(S(v)) if v is not None else "?"
+
+
+def _names(v: Any, total: Any) -> str:
+    if v is None:
+        return "?"
+    if not isinstance(v, list) or not v:
+        return "-"
+    more = f" (+{total - len(v)} more)" if isinstance(total, int) and not isinstance(total, bool) and total > len(v) else ""
+    return " ".join(esc(x) for x in v) + more
+
+
+def _table_branches(op: str, rs: list) -> list[str]:
+    """Per account, per working copy. What an account sent reaches this terminal escaped (esc)."""
+    sweep = op == "branches-sweep"
+    head = (f"{pad_end('account', 22)} {pad_end('working copy', 18)} {pad_end('status', 8)} "
+            + ("deleted / kept / why" if sweep else "last sweep  branches  merged  worktrees  removable  fetched  dirty"))
+    lines = [head]
+    for r in rs:
+        u = r.get("branchesSweep") if sweep else r.get("branches")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        rows = dig(u, "working_copies")
+        if not isinstance(rows, list):
+            lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('', 18)} {esc(nullish(dig(u, 'status'), 'no status'))}  {esc(nullish(dig(u, 'reason'), ''))}"))
+            continue
+        if not rows:
+            lines.append(f"{pad_end(r['account'], 22)} {pad_end('-', 18)} none")
+            continue
+        for i, w in enumerate(rows):
+            lead = f"{pad_end('' if i else r['account'], 22)} {pad_end(esc(dig(w, 'working_copy')), 18)} {pad_end(esc(dig(w, 'status')), 8)}"
+            if dig(w, "status") not in ("ok", "swept") and not (sweep and T(dig(w, "deleted"))):
+                lines.append(trim_end(f"{lead} {esc(nullish(dig(w, 'why'), ''))}"))
+            elif sweep:
+                why = f"  ({esc(dig(w, 'why'))})" if T(dig(w, "why")) else ""
+                lines.append(trim_end(f"{lead} deleted {_names(dig(w, 'deleted'), dig(w, 'deleted_total'))}; kept {_names(dig(w, 'kept'), dig(w, 'kept_total'))}"
+                                      f"; worktrees removed {_names(dig(w, 'worktrees_removed'), None)}, kept {_names(dig(w, 'worktrees_kept'), None)}{why}"))
+            else:
+                last = dig(w, "last_sweep")
+                lines.append(trim_end(f"{lead} {pad_end(esc(last) if isinstance(last, str) else 'never', 11)} {pad_end(_cell(dig(w, 'branches')), 9)} "
+                                      f"{pad_end(_cell(dig(w, 'merged')), 7)} {pad_end(_cell(dig(w, 'worktrees')), 10)} {pad_end(_cell(dig(w, 'removable_worktrees')), 10)} "
+                                      f"{pad_end(_age_words(dig(w, 'fetched_age_s')), 8)} {'yes' if dig(w, 'dirty') is True else 'no'}"
+                                      + (f"  ({dig(w, 'unknown')} not counted)" if isinstance(dig(w, 'unknown'), int) and not isinstance(dig(w, 'unknown'), bool) and dig(w, 'unknown') else "")))
     return lines
 
 
@@ -1450,6 +1517,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_secrets_sync(rs)
     elif op in ("local", "local-prune"):
         lines = _table_local(op, rs)
+    elif op in ("branches", "branches-sweep"):
+        lines = _table_branches(op, rs)
     elif op == "jobs":
         lines = _table_jobs(rs)
     elif op == "tools":
