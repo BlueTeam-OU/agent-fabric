@@ -185,7 +185,8 @@ def main() -> int:
             ep.connect(agent_id=AGENT_B)
             check("another agent id is refused the journal (a reused login)", False)
         except ep.JournalError as e:
-            check("another agent id is refused the journal (a reused login)", "belongs to agent" in str(e), e)
+            check("another agent id is refused the journal (a reused login)",
+                  isinstance(e, ep.ForeignJournal) and "belongs to agent" in str(e), e)
         os.environ["AGENT_FABRIC_SECRET_STORE"] = os.path.join(tmp, "no-store")
         try:
             ep.connect(os.path.join(tmp, "other.db"))
@@ -399,7 +400,7 @@ def main() -> int:
             ep.open_readonly(agent_id=AGENT_B)
             msg_ = None
         except ep.JournalError as e:
-            msg_ = str(e)
+            msg_ = str(e) if isinstance(e, ep.ForeignJournal) else None
         check("another agent's journal is refused, as connect() refuses it", bool(msg_) and "belongs to agent" in msg_, msg_)
         old = os.path.join(tmp, "old", "episodic.db")
         os.makedirs(os.path.dirname(old))

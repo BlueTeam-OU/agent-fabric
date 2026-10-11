@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = os.path.join(HERE, "policies", "githooks")
 sys.path.insert(0, os.path.join(HERE, "tests"))
 from instance_fixtures import own_instance_tree, write_json, write_registry  # noqa: E402
+from signing_fixture import drop_key, make_key  # noqa: E402
 own_instance_tree()
 
 T = tempfile.mkdtemp(prefix="test_githooks_prepush.")
@@ -33,6 +34,8 @@ REMOTE = f"{T}/remote.git"
 REPO = f"{T}/repo"
 HOME = f"{T}/home"
 os.makedirs(HOME)
+# The hook refuses unsigned commits in every project, so the fixtures sign.
+GNUPG, KEY = make_key(T)
 LOGIN = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
 HOST = subprocess.run(["hostname", "-s"], capture_output=True, text=True, check=True).stdout.strip()
 ZERO = "0" * 40
@@ -59,12 +62,12 @@ def env() -> dict:
     e = {k: v for k, v in os.environ.items()
          if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_", "GIT_", "XDG_")) and k != "CLAUDECODE"}
     e.update(HOME=HOME, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
-             AGENT_FABRIC_STATE_DIR=STATE, AGENT_FABRIC_OPERATOR=OPERATOR)
+             AGENT_FABRIC_STATE_DIR=STATE, AGENT_FABRIC_OPERATOR=OPERATOR, GNUPGHOME=GNUPG)
     return e
 
 
 def git(*args: str, cwd: str = REPO) -> tuple:
-    p = subprocess.run(["git", "-c", "commit.gpgsign=false", *args], cwd=cwd, env=env(),
+    p = subprocess.run(["git", "-c", "commit.gpgsign=true", "-c", f"user.signingkey={KEY}", *args], cwd=cwd, env=env(),
                        capture_output=True, text=True)
     return p.returncode, p.stdout, p.stderr
 
@@ -259,6 +262,24 @@ def run() -> None:
                {"boundary": {"paths": "x", "cases": ["x"]}, "direct": {**DIRECT, "pr_paths": "("}})
     check("a pr_paths that does not compile: refused", push() == 1 and "direct is not usable" in err, err)
 
+    print("a push to a URL checks only commits no remote-tracking ref has")
+    bind("backend-dev"); fixture("plain")
+    # An unsigned ancestor that a remote-tracking ref already holds.
+    put("content/old.md", "x\n")
+    git("add", "-A")
+    git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-qm", "old unsigned")
+    git("-c", "core.hooksPath=/dev/null", "push", "-q", "origin", "main")
+    git("checkout", "-q", "-b", "feat")
+    commit("content/new.md")
+    rc, _, e = git("push", "-q", f"file://{REMOTE}", "feat")
+    check("a new branch to a URL, signed over a tracked unsigned ancestor: passes", rc == 0, e)
+    git("checkout", "-q", "-b", "feat2")
+    put("content/u.md", "x\n")
+    git("add", "-A")
+    git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-qm", "new unsigned")
+    rc, _, e = git("push", "-q", f"file://{REMOTE}", "feat2")
+    check("a new unsigned commit to a URL: still refused", rc == 1 and "unsigned" in e.lower(), e)
+
     print("a working copy that is no managed project")
     bind("backend-dev"); fixture("direct")
     os.remove(f"{REPO}/.agent-fabric-project")
@@ -296,6 +317,7 @@ try:
     shipped_patterns()
     run()
 finally:
+    drop_key(GNUPG)
     shutil.rmtree(T, ignore_errors=True)
 print(f"{fails} failed" if fails else "all passed")
 sys.exit(1 if fails else 0)

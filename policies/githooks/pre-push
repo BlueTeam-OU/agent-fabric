@@ -10,7 +10,8 @@
 #
 # fabric-pr arm never sees a direct push, and the server cannot read a
 # binding, so the keyboard is where the role can be checked for real. Every
-# other project, agent-fabric included, passes untouched. Installed per
+# other project, agent-fabric included, gets no direct-push rule, but every
+# project's push is checked for unsigned commits. Installed per
 # checkout like pre-commit (core.hooksPath); --no-verify bypasses it, which
 # is a choice, not an accident. The decision is tools/fabric/githooks_prepush.py.
 set -uo pipefail

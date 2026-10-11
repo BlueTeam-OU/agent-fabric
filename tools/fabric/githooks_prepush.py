@@ -8,8 +8,12 @@ project's default branch, except for a change to a file matching
 review (agent-fabric ADR-019 §5 rule 1). fabric-pr arm never sees a direct
 push, so this hook, at the keyboard, is the only place the rule is enforced.
 
+Before any of that, in every project: a push that adds an unsigned commit is
+refused (tools/fabric/guards/ban_unsigned_commits.py).
+
 A project that is not managed, or whose arm.json has no `direct` key, gets
-no rule from here at all: exit 0, silent. Every other doubt about a managed
+no direct-push rule from here: exit 0, silent unless it adds an unsigned
+commit. Every other doubt about a managed
 direct project refuses, because a boundary this hook could not read must not
 read as absent. The one exception is a working copy whose project marker is
 unusable: the project, and so the default branch, is unknown, so only a push
@@ -33,6 +37,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
+from guards import ban_unsigned_commits  # noqa: E402
 import workingcopy  # noqa: E402
 
 FABRIC_ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -136,7 +141,31 @@ def _changed(remote_name: str, branch: str, local: str, remote: str) -> list[tup
     return changed
 
 
+def _signed(lines: list[str]) -> None:
+    """Every commit the refs add carries a signature git can read, in every
+    project (ban_unsigned_commits says why). Before the direct-push rules,
+    which most projects do not have; this one is for all."""
+    found: list[tuple[str, str]] = []
+    for line in lines:
+        fields = line.split()
+        if len(fields) != 4 or ZERO.match(fields[1]):
+            continue
+        _, local, _, remote = fields
+        # A new branch adds what no remote-tracking ref already has: every
+        # one, not only remote_name's, because a push to a URL (or to a remote
+        # with no tracking refs) names no remote, and then the whole history
+        # would be walked, root commit included.
+        scope = [local, "--not", "--remotes"] if ZERO.match(remote) else [f"{remote}..{local}"]
+        try:
+            found += ban_unsigned_commits.unsigned(".", *scope)
+        except ban_unsigned_commits.git.GitError as e:
+            raise Refused(f"the signatures of the pushed commits could not be read ({e})") from None
+    if found:
+        raise Refused(ban_unsigned_commits.refusal(found))
+
+
 def check(remote_name: str, lines: list[str]) -> None:
+    _signed(lines)
     try:
         info = workingcopy.resolve(os.getcwd())
     except SystemExit as e:

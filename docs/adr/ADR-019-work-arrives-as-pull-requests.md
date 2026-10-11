@@ -101,7 +101,8 @@ not on a pipe's exit status.
    styles, tokens, fonts, images, content and pages do not. A direct
    push is always a fast-forward. `policies/githooks/pre-push`
    refuses a direct push that breaks this; in a project without
-   `direct` it does nothing. Declared today for brand-comms on
+   `direct` it applies no direct-push rule, and still refuses a push
+   that adds an unsigned commit, as in every project. Declared today for brand-comms on
    blueteam.ee, gzapi.ge, gzapp.decks and gzapi.brand, where one agent
    writes copy a commit at a time and the band, the gate and the
    branch cost more than they catch.
@@ -248,3 +249,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-09 | results.py reads a folded PR's review fixes | §5 rule 3: the after-the-fact split reads a fold too; the PR description's interim naming of a folded PR's fixes is withdrawn |
 | 2026-10-09 | A push after the arming takes auto-merge off | §5 rule 5: an arming holds for its head; `.github/workflows/disarm-on-push.yml` takes auto-merge off an arming older than a push and comments |
 | 2026-10-10 | Brand repositories commit straight to main | §5 rule 1: a project's arm.json `direct` names the roles that push to the default branch and the `pr_paths` that still need a pull request; policies/githooks/pre-push enforces it |
+| 2026-10-11 | pre-push also checks signatures in every project | §5 rule 1: the hook refuses a push that adds an unsigned commit in any project; without `direct` it applies no other rule |

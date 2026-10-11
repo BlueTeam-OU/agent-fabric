@@ -563,13 +563,13 @@ def episodic_journal(root):
         if not os.path.exists(path):
             return {"status": "none", "detail": f"none yet ({path}): it starts with the first message sent or received"}
         # The one reader's door (ADR-041): read-only, the path quoted, and the owner and the schema version checked
-        # BEFORE anything is counted.
+        # BEFORE anything is counted. Another agent's journal is said as that, by its type, not as an unreadable one.
         try:
             conn = ep.open_readonly(path)
+        except ep.ForeignJournal as e:
+            return {"status": "foreign", "detail": str(e)}
         except ep.JournalError as e:
-            # Another agent's journal is said as that, not as an unreadable one; the reason carries both ids. open_readonly
-            # has no type for it, so its words are what is matched (tests/test_episodic.py pins "belongs to agent").
-            return {"status": "foreign" if "belongs to agent" in str(e) else "unknown", "detail": str(e)}
+            return {"status": "unknown", "detail": str(e)}
         try:
             n, last = conn.execute("SELECT count(*), max(recorded_at) FROM episodes").fetchone()
         finally:
