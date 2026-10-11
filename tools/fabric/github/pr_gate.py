@@ -379,8 +379,10 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
     rule = policy["commits"]
     work = commits["work"]
     flag = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}[policy["method"]]
-    if work > rule["advice_over"]:
-        return f"MERGEABLE — {work} work commits, over {rule['advice_over']}: smaller batches next time; arm on the basis"
+    # As arm reads it: a minimum above the advice size is not "too big" below the minimum.
+    advice_over = max(rule["advice_over"], rule["min"])
+    if work > advice_over:
+        return f"MERGEABLE — {work} work commits, over {advice_over}: smaller batches next time; arm on the basis"
     if work >= rule["min"]:
         return f"MERGEABLE — arm: post the basis ({work} work commits, review on head) and gh pr merge {num} {flag} --auto"
     if rule["below_min"] == "refuse":

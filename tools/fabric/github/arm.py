@@ -484,7 +484,8 @@ def arm(argv: list[str]) -> int:
         raise refuse(f"{repo}'s arming policy is direct: it has no server-side rule to arm under, work reaches it by push")
     # GitHub's side must be what the policy says it is: arming on a repository whose ruleset lost its required
     # check, or whose auto-merge is off, would rely on rules that are not there. A difference in which merge
-    # methods are allowed is said and does not stop the arming (repo_policy.ADVISORY_FIELDS). One that cannot be
+    # methods are allowed (the repository's allow_*_merge fields, or a ruleset that allows the policy's method and more) is
+    # said and does not stop the arming; a ruleset without the policy's method does. One that cannot be
     # read is exit 2, never "no difference".
     try:
         found = repo_policy.check(repo, policy)

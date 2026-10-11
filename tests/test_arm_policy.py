@@ -138,6 +138,10 @@ class Document(unittest.TestCase):
                     {"commits": {"classes": {"docs": {"paths": "^d", "min": 3.0}}}}, {"description": "why"}):
             arm_policy.validate(doc)
         self.assertIsInstance(arm_policy.validate({"commits": {"min": 3.0}})["commits"]["min"], int)
+        p = arm_policy.validate({"commits": {"roles": {"web-dev": {"min": 2.0}}, "classes": {"docs": {"paths": "^d", "min": 3.0}}},
+                                 "queue": {"build": 4.0}})
+        for value in (p["commits"]["roles"]["web-dev"]["min"], p["commits"]["classes"]["docs"]["min"], p["queue"]["build"]):
+            self.assertIsInstance(value, int)
 
     def test_what_the_schema_refuses_the_loader_refuses(self):
         for doc in ({"$schema": "x"}, {"description": 5}, {"description": ""}, {"commits": {"min": 1.5}}, {"commits": {"min": float("inf")}},
@@ -145,8 +149,9 @@ class Document(unittest.TestCase):
             with self.assertRaises(arm_policy.PolicyError, msg=repr(doc)):
                 arm_policy.validate(doc)
 
-    def test_the_two_rules_the_schema_cannot_say_are_the_loaders_a_regex_that_compiles_and_class_names_distinct_in_lower_case(self):
-        for bad in ({"docs": {"paths": "(", "min": 1}}, {"Docs": {"paths": "a", "min": 1}, "docs": {"paths": "b", "min": 1}}):
+    def test_the_rules_the_schema_cannot_say_are_the_loaders_a_regex_that_compiles_class_names_distinct_in_lower_case_and_without_a_newline(self):
+        for bad in ({"docs": {"paths": "(", "min": 1}}, {"Docs": {"paths": "a", "min": 1}, "docs": {"paths": "b", "min": 1}},
+                    {"a\nb": {"paths": "x", "min": 1}}):
             with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
                 arm_policy.validate({"commits": {"classes": bad}})
 
@@ -489,6 +494,14 @@ class PrGate(unittest.TestCase):
         self.assertIn("refuses below the minimum", text)
         self.assertNotIn("ask the owner", text)
 
+    def test_a_minimum_above_the_advice_size_is_not_too_big_below_the_minimum_as_arm_reads_it(self):
+        for policy in ({"commits": {"min": 20}}, {"commits": {"min": 20, "below_min": "refuse"}}):
+            text = self.v(18, arm_policy.validate(policy))
+            self.assertNotIn("over 16", text)
+            self.assertNotIn("arm on the basis", text)
+        self.assertIn("ask the owner (18 work commits < 20)", self.v(18, arm_policy.validate({"commits": {"min": 20}})))
+        self.assertIn("over 20", self.v(21, arm_policy.validate({"commits": {"min": 20}})))
+
     def test_owner_only_and_direct_are_not_armed_by_fabric_pr(self):
         for mode, words in (("owner-only", "only the owner merges"), ("direct", "nothing to arm")):
             text = self.v(20, arm_policy.validate({"mode": mode}))
@@ -814,9 +827,9 @@ class ArmRun(unittest.TestCase):
     def test_the_mode_is_judged_before_the_settings_are_compared_or_the_commits_listed(self):
         called = []
         for mode in ("owner-only", "direct"):
-            with mock.patch.object(arm.repo_policy, "check", side_effect=lambda *a, **k: called.append("check")), \
-                    mock.patch.object(arm, "author_role", side_effect=lambda *a, **k: called.append("role")):
-                rc, _ = self.run_arm(arm_policy.validate({"mode": mode}), 20, basis="the owner's word")
+            with mock.patch.object(arm, "author_role", side_effect=lambda *a, **k: called.append("role")):
+                # The comparison stub fails: were it made first, the run would end unanswered, not refused.
+                rc, _ = self.run_arm(arm_policy.validate({"mode": mode}), 20, basis="the owner's word", drift_error="HTTP 403")
             self.assertTrue(str(rc).startswith("refused"), rc)
         self.assertEqual(called, [])
 
