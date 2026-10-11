@@ -101,9 +101,12 @@ def main() -> int:
     check("per_hit, from_top and total each bound the neighbours (2 a hit by default, 4 in all)", len(wide.neighbours([hit(many[0])])) == mi.PER_HIT == 2
           and len(wide.neighbours([hit(many[0])], per_hit=5)) == mi.MAX_NEIGHBOURS == 4, len(wide.neighbours([hit(many[0])], per_hit=5)))
     check("only the top from_top hits seed", ix.neighbours([hit(lonely), seed], from_top=1) == [])
+    shared = index_of(section("p", "`x/y.py`", topic="tp"), section("q", "`x/y.py`", topic="tq"))
+    check("by default only direct links are followed: a section sharing only a path is no neighbour",
+          shared.neighbours([hit(shared.sections[0])]) == [] and len(shared.neighbours([hit(shared.sections[0])], kinds=mi.KEY_KINDS)) == 1)
     check("a kind left out of kinds gives no edge of it", ix.neighbours([seed], kinds=("cocite",)) == [])
     two_ways = index_of(section("a", "[[b]] `x/y.py`", topic="ta"), section("b", "`x/y.py`", topic="tb"), section("c", "[[a]]", topic="tc"))
-    ranked = two_ways.neighbours([hit(two_ways.sections[0])])
+    ranked = two_ways.neighbours([hit(two_ways.sections[0])], kinds=mi.KEY_KINDS)
     check("two kinds of edge outweigh one: the section linked twice comes first", [mi.section_id(n.section) for n in ranked][0] == mi.section_id(two_ways.sections[1])
           and len(ranked[0].via) == 2, ranked)
     same_slice = index_of(section("only", "[[only]] x"), section("only", "y", heading="second", position=2))

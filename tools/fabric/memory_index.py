@@ -142,6 +142,9 @@ CITED_PATH = re.compile(rf"`([A-Za-z0-9_.][A-Za-z0-9_./-]*/[A-Za-z0-9_.-]+\.{PAT
 LINK = re.compile(r"\[\[([A-Za-z0-9][A-Za-z0-9._-]*)\]\]")
 CLASS_PREFIX = re.compile(r"^(?:workflow|solution|domain|intersection|rationale|threads)-")
 KEY_KINDS = ("direct", "cocite", "path", "symbol", "topic")
+# What an expansion follows unless asked otherwise: measured on #210, direct links carried all the recovered and all the useful
+# neighbours; co-citation, shared paths and topics were mostly noise.
+DEFAULT_KINDS = ("direct",)
 EDGE_WEIGHT = {"direct": 4.0, "cocite": 1.0, "path": 3.0, "symbol": 3.0, "topic": 1.0}
 EXPAND_FROM, PER_HIT, MAX_NEIGHBOURS = 3, 2, 4
 
@@ -275,7 +278,7 @@ class Index:
         return graph
 
     def neighbours(self, hits: list[Hit], from_top: int = EXPAND_FROM, per_hit: int = PER_HIT, total: int = MAX_NEIGHBOURS,
-                   kinds: tuple[str, ...] = KEY_KINDS, seed_bands: tuple[str, ...] = ("strong",)) -> list[Neighbour]:
+                   kinds: tuple[str, ...] = DEFAULT_KINDS, seed_bands: tuple[str, ...] = ("strong",)) -> list[Neighbour]:
         """One hop out from the top strong hits (a weak hit is a guess, and its neighbours a guess of a guess): the sections
         linked to one, from other slices than any hit's or than each other's, ranked below the hits (by the seed's rank, then
         by the weight of the edges, a rarer key weighing more). An opt-in expansion of find(); the hits are untouched."""
