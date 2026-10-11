@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import time
 import re
 import subprocess
 import sys
@@ -284,9 +285,9 @@ def main() -> int:
 
         gen = {"device": 1, "inode": 2, "mtime_sec": 3, "mtime_nsec": 4}
         gen2 = {**gen, "inode": 9}
-        entry = {"source": {"token_file": "/t"}, "generation": gen, "read_at": 5,
-                 "usage": {"five_hour": {"utilization": 0.42, "reset": 6, "surpassed_threshold": None},
-                           "seven_day": {"utilization": 0.9, "reset": 7, "surpassed_threshold": 0.75}, "status": "allowed_warning"}}
+        entry = {"source": {"token_file": "/t"}, "generation": gen, "read_at": int(time.time()) - 30,
+                 "usage": {"five_hour": {"utilization": 0.42, "reset": int(time.time()) + 3600, "surpassed_threshold": None},
+                           "seven_day": {"utilization": 0.9, "reset": int(time.time()) + 86400, "surpassed_threshold": 0.75}, "status": "allowed_warning"}}
         dead = subprocess.Popen([sys.executable, "-c", "pass"])
         dead.wait()
         rc, out, err = usage("--gateway", login)
@@ -325,6 +326,13 @@ def main() -> int:
         put("gateway-generations.json", "not json")
         row = json.loads(usage("--json", "--gateway", login)[1].splitlines()[0])
         check("a join file that is not JSON is unreadable, not 'account unknown'", row["status"] == "unreadable", row)
+        import usage as usage_mod
+        gone = {"account": login, "status": "ok", "source": {"token_file": "/t"}, "setup_token": None, "read_at": 1,
+                "usage": {"five_hour": {"utilization": 0.95, "reset": 2}, "seven_day": ["not", "a", "window"], "status": "x\x1b[31m"}}
+        text = usage_mod.gateway_text(gone)
+        check("a window that ended since the reading reads reset, not its old percentage; a malformed window is a dash",
+              "reset" in text and "95%" not in text and "  -  " in text, text)
+        check("what an account wrote is shown escaped, with the age of the reading", "\x1b" not in text and "\\x1b" in text and "ago" in text, text)
         rc, out, err = usage("--help")
         check("--help names --gateway", "--gateway" in out, out)
 

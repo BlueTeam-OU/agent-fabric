@@ -13,6 +13,7 @@ import http.server
 import io
 import json
 import os
+import time
 import stat
 import subprocess
 import sys
@@ -712,9 +713,9 @@ class Read(Case):
 
 class Usage(Case):
     """What the launcher relayed of the gateway's usage (launcher/gateway_usage.py), as `gateway` reports it."""
-    ENTRY = {"source": {"token_file": "/t"}, "generation": {"device": 1, "inode": 2, "mtime_sec": 3, "mtime_nsec": 4}, "read_at": 5,
-             "usage": {"five_hour": {"utilization": 0.42, "reset": 6, "surpassed_threshold": None},
-                       "seven_day": {"utilization": 0.9, "reset": 7, "surpassed_threshold": 0.75}, "status": "allowed_warning"}}
+    ENTRY = {"source": {"token_file": "/t"}, "generation": {"device": 1, "inode": 2, "mtime_sec": 3, "mtime_nsec": 4}, "read_at": int(time.time()) - 30,
+             "usage": {"five_hour": {"utilization": 0.42, "reset": int(time.time()) + 3600, "surpassed_threshold": None},
+                       "seven_day": {"utilization": 0.9, "reset": int(time.time()) + 86400, "surpassed_threshold": 0.75}, "status": "allowed_warning"}}
 
     def put(self, doc) -> None:
         os.makedirs(self.state, exist_ok=True)
@@ -767,10 +768,18 @@ class Usage(Case):
                 {**row, "account": "c", "gateway": {k: v for k, v in row["gateway"].items() if k != "usage"}},
                 {**row, "account": "d", "gateway": {**row["gateway"], "usage": {"status": "ok", "fetched_at": "T", "credentials": []}}}]
         lines = ctl.table("gateway", rows).split("\n")
-        self.assertIn("usage: 5h 42% 7d 90% allowed_warning; no reading yet (asked T)", lines[1])
+        self.assertRegex(lines[1], r"usage: 5h 42% 7d 90% allowed_warning \(read 3\ds ago\); no reading yet \(asked T\)")
         self.assertIn("usage: stale (the gateway is gone)", lines[2])
         self.assertNotIn("usage", lines[3], "an account that relayed nothing is the row it was")
         self.assertIn("usage: no source yet", lines[4])
+
+    def test_a_window_that_ended_since_the_reading_is_not_shown_as_its_old_percentage(self):
+        gone = {**self.ENTRY, "read_at": 1, "usage": {"five_hour": {"utilization": 0.95, "reset": 2},
+                                                      "seven_day": {"utilization": 0.9, "reset": int(time.time()) + 60}}}
+        row = {"account": "a", "status": "ok", "gateway": {"status": "ok", "usage": {"status": "ok", "fetched_at": "T", "credentials": [gone]}}}
+        line = ctl.table("gateway", [row]).split("\n")[1]
+        self.assertIn("5h reset 7d 90%", line)
+        self.assertNotIn("95%", line, "the relay's fresh fetched_at does not make the old window current")
 
 
 class Wiring(Case):

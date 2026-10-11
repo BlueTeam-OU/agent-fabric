@@ -78,6 +78,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -296,9 +297,21 @@ def gateway_rows(login: str, host: str, line: str) -> list[dict]:
     return rows or status("no-source-yet")
 
 
+def epoch_s(x) -> float | None:
+    """A timestamp the gateway wrote, as seconds since the epoch; milliseconds are told by size."""
+    if not isinstance(x, (int, float)) or isinstance(x, bool) or x < 0:
+        return None
+    return x / 1000 if x > 1e11 else float(x)
+
+
+def printable(x) -> str:
+    """What an account wrote, with control characters shown escaped, never sent to the terminal."""
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", lambda m: f"\\x{ord(m.group()):02x}", str(x)) if x is not None else ""
+
+
 def gateway_text(r: dict) -> str:
     if r["status"] not in ("ok",):
-        return f"{r['account']:<22} {'-':<34} {r['status']}{('  ' + r['reason']) if r.get('reason') else ''}"
+        return f"{r['account']:<22} {'-':<34} {r['status']}{('  ' + printable(r['reason'])) if r.get('reason') else ''}"
     src = r["source"] if isinstance(r["source"], dict) else {}
     where = src.get("token_file") or (f"fixed:{src['fixed']}" if src.get("fixed") else "?")
     who = f"setup-token {r['setup_token']}" if r["setup_token"] else "account unknown"
@@ -306,11 +319,21 @@ def gateway_text(r: dict) -> str:
     if u is None:
         return f"{r['account']:<22} {who:<34} no reading yet  ({where})"
     five, seven = (u.get("five_hour") or {}), (u.get("seven_day") or {})
+    now = time.time()
 
-    def pct(x):
+    def pct(w):
+        if not isinstance(w, dict):
+            return "-"
+        # A window that ended since the reading says nothing about the window now running: the
+        # relay refreshes fetched_at every minute, so only the gateway's own read_at/reset age it.
+        if epoch_s(w.get("reset")) is not None and epoch_s(w["reset"]) <= now:
+            return "reset"
+        x = w.get("utilization")
         return f"{round(x * 100, 1):g}%" if isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0 else "-"
-    return (f"{r['account']:<22} {who:<34} {pct(five.get('utilization')):>7}  {pct(seven.get('utilization')):>7}  "
-            f"{u.get('status') or '-'}  ({where})")
+    read = epoch_s(r.get("read_at"))
+    age = f"read {int(max(now - read, 0))}s ago" if read is not None else "read at unknown time"
+    return (f"{r['account']:<22} {who:<34} {pct(five):>7}  {pct(seven):>7}  "
+            f"{printable(u.get('status')) or '-'}  ({printable(where)}; {age})")
 
 
 def run_gateway(hx: str, placed: list[tuple[str, str]], logins: list[str], as_json: bool) -> int:

@@ -1341,16 +1341,16 @@ echo "CLAUDE-USAGE:$(cat "$u" 2>/dev/null || echo none)"
         rm(gw_log)
         t0 = time.monotonic()
         run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "ok"})
-        base = time.monotonic() - t0
+        base_s = time.monotonic() - t0
         rm(gw_log)
         t0 = time.monotonic()
         rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "silentcontrol"})
         took = time.monotonic() - t0
         # The fake harness itself waits up to 4 s for a usage file a silent gateway never lets exist; the ask's own
-        # timeout is 10 s, so a session held for it would show as base + 10 and more.
+        # timeout is 10 s, so a session held for it would show as base_s + 10 and more.
         check("a gateway that never answers the ask does not hold the end of the session (the ask is cut with the session)",
-              rc == 0 and took < base + 6 and not os.path.exists(f"{agent_dir}/gateway-usage.json"),
-              f"rc={rc} silent={took:.1f}s normal={base:.1f}s\n{out[-300:]}")
+              rc == 0 and took < base_s + 6 and not os.path.exists(f"{agent_dir}/gateway-usage.json"),
+              f"rc={rc} silent={took:.1f}s normal={base_s:.1f}s\n{out[-300:]}")
         check("the provider stamp stays the routing column and the transport is stamped as the gateway",
               has(r"CLAUDE-PROVIDER:anthropic$", out) and has(r"CLAUDE-TRANSPORT:gateway$", out), out)
         check("…and recorded beside the provider, so a resume comes back through the gateway; the agent files were installed for anthropic",
