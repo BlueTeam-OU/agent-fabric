@@ -55,6 +55,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | Claude Code mods; managed settings; where the guards live; the fleet's own mods | ADR-043 |
 | the operator over ssh; sshd; enter-ssh; host keys; known_hosts; fabric-ssh-hosts | ADR-048 |
 | a stale slice; anchors; memory_check; a flag for the role's holder; review horizons; a lesson, not a record | ADR-050 |
+| when a gateway session changes Claude account; land and eject thresholds; perishable quota; the switch controller | ADR-052 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1074,3 +1075,27 @@ its record disagree, the record wins. Look it up, never read it whole:
   they are. Amends ADR-013, ADR-014.
 - Keywords: stale, anchors, memory_check, maybe-stale, stale-hard, flag,
   memory_mark, horizon, lesson, record, retire, shared_with, drain report.
+
+### ADR-052 — The account-switch policy for gateway sessions: sticky, with hysteresis, soonest reset first, perishable moves rate-limited, decided by the controller (Proposed)
+
+- The switch controller, in the coordinator's account, moves a gateway
+  session's login by the `fabric-accounts assign` path; the gateway only
+  reports usage and serves the token file it is given (§2, §5 rule 9).
+- Inputs: the gateway's `{"op":"usage"}` reading joined to an account by
+  generation; a stale one probed (ADR-031 rule 9); `null` unknown (§5 rule 1).
+- Exhausted: `status` rejected/rate_limited, utilisation 1 or more, or a 429
+  classified exhausted; a transient 429 moves nothing (§5 rule 2).
+- Sticky: moved only for exhaustion (at once), an eject threshold, or a
+  perishable move; never for a preference (§5 rules 3-5).
+- Target: under both land thresholds, soonest seven-day reset; else most
+  headroom, logged `relaxed`, owner told; all exhausted, nothing moves,
+  never a login's own sign-in (§5 rule 6).
+- Perishable: an account resetting within 24 h at or below 0.60 takes one
+  idle session, one move per pool per 30 min (§5 rule 7). Eject and
+  perishable moves only at `idle` (§5 rule 8).
+- Numbers, pool and mode (`off`, `advise`, `act`; first `advise`) in
+  `routing/policies/account-switch.json`; every move logged with reason and
+  readings, shown in `fabric-status` and the Deck; gateway sessions only
+  (§5 rules 10-13). Pooling's fit with the provider's terms is open (§6).
+- Keywords: account switch, gateway, usage, land, eject, hysteresis, sticky,
+  perishable, soonest reset, 429, exhausted, claudemanager, account-switch.json.
