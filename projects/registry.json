@@ -177,6 +177,44 @@
         {"name": "npm", "proof": "npm --version", "why": "the site's package manager (package-lock.json); npm run build writes dist/", "where": "host"}
       ]
     },
+    "settings-blueteam": {
+      "client": "blueteam",
+      "title": "agent-fabric-settings (BlueTeam-OU) — the organisation's per-repository arming policies",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/agent-fabric-settings.git",
+        "https://github.com/BlueTeam-OU/agent-fabric-settings"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/settings-blueteam/integration",
+      "license": "LicenseRef-agent-fabric-settings-Proprietary",
+      "note": "BlueTeam-OU's private settings repository: it holds the organisation's per-repository arming policies (repos/<repo>.json), which fabric-pr arm and fabric-repo-policy read from its default branch on GitHub, never from a working copy, so a PR in a project cannot change the rules it is armed under. Owned by devex-tooling, who runs plan and apply after a change merges; the fleet default and the schema stay in agent-fabric (policies/arming.json, identities/schemas/arming.schema.json). Registered on the owner's instruction, 2026-10-11.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
+        {"name": "fabric-python", "proof": "fabric-python --version", "version": "3.13", "why": "fabric-repo-policy plan and apply, which read these policies (runtime/python.json)", "where": "host"}
+      ]
+    },
+    "settings-gzapi": {
+      "client": "blueteam",
+      "title": "agent-fabric-settings (gzapi-org) — the organisation's per-repository arming policies",
+      "remotes": [
+        "git@github.com:gzapi-org/agent-fabric-settings.git",
+        "https://github.com/gzapi-org/agent-fabric-settings"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/settings-gzapi/integration",
+      "license": "LicenseRef-agent-fabric-settings-Proprietary",
+      "note": "gzapi-org's private settings repository: it holds the organisation's per-repository arming policies (repos/<repo>.json), which fabric-pr arm and fabric-repo-policy read from its default branch on GitHub, never from a working copy, so a PR in a project cannot change the rules it is armed under. Owned by devex-tooling, who runs plan and apply after a change merges; the fleet default and the schema stay in agent-fabric (policies/arming.json, identities/schemas/arming.schema.json). Registered on the owner's instruction, 2026-10-11.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
+        {"name": "fabric-python", "proof": "fabric-python --version", "version": "3.13", "why": "fabric-repo-policy plan and apply, which read these policies (runtime/python.json)", "where": "host"}
+      ]
+    },
     "interweave": {
       "client": "gzapi",
       "title": "InterWeave — peer-to-peer transport for Claude Code Channels and first-party clients",
