@@ -263,6 +263,18 @@ def pr_counts_hook() -> dict:
         "timeout": 5}]}
 
 
+# A session about to go idle without an inbox watch is sent back once to
+# arm it (hooks/watch-on-stop.py, 2026-10-11). One Stop entry, by script name.
+WATCH_ON_STOP = "watch-on-stop.py"
+
+
+def watch_on_stop_hook() -> dict:
+    return {"hooks": [{
+        "type": "command",
+        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", WATCH_ON_STOP)}"',
+        "timeout": 5}]}
+
+
 def with_one(hooks: dict, event: str, script: str, entry: dict) -> dict:
     """`hooks` with exactly one entry for `script` on `event`, the current
     one; every other entry kept as it was."""
@@ -282,7 +294,8 @@ def with_one(hooks: dict, event: str, script: str, entry: dict) -> dict:
 
 
 def with_fabric_hooks(hooks: dict) -> dict:
-    return with_one(with_freshness(with_session_state(with_memory_check(hooks))), "Stop", PR_COUNTS, pr_counts_hook())
+    hooks = with_one(with_freshness(with_session_state(with_memory_check(hooks))), "Stop", PR_COUNTS, pr_counts_hook())
+    return with_one(hooks, "Stop", WATCH_ON_STOP, watch_on_stop_hook())
 
 
 # The environment override is for a test, which must never write the
