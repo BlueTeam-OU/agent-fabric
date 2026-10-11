@@ -162,7 +162,8 @@ def main() -> int:
         except Exception:  # noqa: BLE001 — a report oddity must not cost the session its start
             pass
         try:
-            lines += jobs_line(identity.read_jobs(ctx["agent"]), ctx["working_copy"], cleared_jobs())
+            doc = identity.read_jobs(ctx["agent"])
+            lines += jobs_line(doc, ctx["working_copy"], cleared_jobs(doc))
         except (Exception, SystemExit):  # noqa: BLE001 — a job list it cannot read must not cost the session its start
             pass
         try:
@@ -267,12 +268,16 @@ def tools_line(project: str | None, state_dir: str, now: float | None = None) ->
             f"a host tool is the owner's to install, an account tool is said to the owner, never installed by a session."]
 
 
-def cleared_jobs() -> list[str]:
+def cleared_jobs(doc: dict) -> list[str]:
     """"j12 (pr:o/r#5)" for each job whose checkable blockers have all
-    cleared, read from fabric-jobs' cache: --cached checks nothing, so no
-    network and no wait. Empty when it cannot be read."""
+    cleared, read from fabric-jobs' blocker cache. `--stored` checks no
+    blocker and does not ask the state stream, so no network and no wait
+    (`--cached` still asks the stream about a queued job from a message).
+    No subprocess when no blocked job has a blocker. Empty when unreadable."""
+    if not any(j.get("state") == "blocked" and j.get("blockers") for j in doc.get("jobs") or []):
+        return []
     try:
-        p = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-jobs"), "list", "--json", "--cached"],
+        p = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-jobs"), "list", "--json", "--stored"],
                            capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL, check=False)
         rows = json.loads(p.stdout) if p.returncode == 0 else []
         return [f"{j['id']} ({', '.join(b['spec'] for b in j.get('blockers') or [])})"
@@ -294,7 +299,9 @@ def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = N
         return []
     waiting = ", ".join(f"{n} {what}" for n, what in ((queued, "queued"), (blocked, "blocked")) if n) or "nothing waiting"
     if cleared:
-        waiting += f"; blocker cleared: {', '.join(cleared)}"
+        # Bounded: this line is read at every start, however many jobs cleared.
+        more = f", +{len(cleared) - 3} more" if len(cleared) > 3 else ""
+        waiting += f"; blocker cleared: {', '.join(cleared[:3])}{more}"
     if not active:
         return [f"agent-fabric: jobs — none active; {waiting}. `fabric-jobs next` starts the next one "
                 f"and says whether it needs a fresh session."]

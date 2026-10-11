@@ -137,9 +137,9 @@ Why these choices:
    and all must clear. `list`, `next` and `block` re-check a blocker at
    most every ten minutes and never one that cleared; a job whose
    blockers have all cleared reads "blocker cleared", is listed first
-   and is taken first by `next`, and `--cached` reads the cache without
-   checking, which the session-start hook uses to name such jobs
-   (A 2026-10-12).
+   and is taken first by `next`, and `--stored` reads the cache without
+   checking a blocker or reaching the state stream, which the session-start
+   hook uses to name such jobs (A 2026-10-12).
 9. A role has an open pool, held by the coordinator's control agent, so
    that one process orders every claim. A job is added to it by a signed
    action; a placed agent lists its role's pool and claims a job from it.
