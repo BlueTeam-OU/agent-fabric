@@ -38,6 +38,7 @@ class Job(_JobKeys, total=False):
     reason: str
     priority: str
     waits_on: str
+    blockers: list[str]
 
 
 def _load(name: str, path: str):

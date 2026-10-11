@@ -3,16 +3,29 @@ A part of tools/fabric/jobs.py, whose docstring is the contract."""
 from __future__ import annotations
 
 import os
+from fabric_jobs import blockers as bl
 from fabric_jobs.base import PRIORITIES, Stale
 from fabric_jobs.ranking import named, stored_priority, waiters
 
 
-def line(job: dict, waits: dict[str, list[str]] | None = None, stale: Stale | None = None) -> str:
+def blockers_note(job: dict, cache: dict | None) -> str:
+    """What the checkable blockers of a blocked job say, from the cache: "blocker cleared: <what>" when all have
+    cleared, else each with its state. Nothing for a job with none, or when no cache was read."""
+    if cache is None or not bl.specs_of(job):
+        return ""
+    states = bl.states_of(job, cache)
+    if all(s["state"] == "cleared" for s in states):
+        return f" — blocker cleared: {', '.join(s['spec'] for s in states)}"
+    return " — " + ", ".join(f"{s['spec']} {s['state']}" + (f" ({s['detail']})" if s["state"] != "unknown" and s.get("detail") else "")
+                             for s in states)
+
+
+def line(job: dict, waits: dict[str, list[str]] | None = None, stale: Stale | None = None, cache: dict | None = None) -> str:
     where = job.get("project") or os.path.basename(job.get("working_copy") or "") or "(no project)"
     topic = f" [{job['topic']}]" if job.get("topic") else ""
     extra = ""
     if job["state"] == "blocked" and job.get("blocked_on"):
-        extra = f" — on {job['blocked_on']}"
+        extra = f" — on {job['blocked_on']}" + blockers_note(job, cache)
     elif job.get("artifacts"):
         extra = f" — {', '.join(job['artifacts'])}"
     who = waiters(job, waits)
@@ -21,7 +34,7 @@ def line(job: dict, waits: dict[str, list[str]] | None = None, stale: Stale | No
     return f"{job['id']:<5} {job['state']:<9} {stored_priority(job) or '?':<8} {where}{topic}: {job['title']}{extra}"
 
 
-def show(job: dict) -> str:
+def show(job: dict, cache: dict | None = None) -> str:
     src = job.get("source") or {}
     origin = src.get("kind", "self")
     if src.get("from"):
@@ -33,7 +46,11 @@ def show(job: dict) -> str:
         ("priority", stored_priority(job) or f"{job.get('priority')!r} (none of {', '.join(PRIORITIES)})"),
         ("project", job.get("project") or "-"), ("working copy", job.get("working_copy") or "-"),
         ("topic", job.get("topic") or "-"), ("source", origin),
-        ("blocked on", job.get("blocked_on")), ("artifacts", ", ".join(job.get("artifacts") or []) or None),
+        ("blocked on", job.get("blocked_on")),
+        ("blockers", "; ".join(f"{b['spec']} {b['state']}" + (f" ({b['detail']})" if b["state"] != "unknown" and b.get("detail") else "")
+                               + (f", checked {b['checked_at']}" if b.get("checked_at") else ", not checked")
+                               for b in bl.states_of(job, cache)) if cache is not None and bl.specs_of(job) else None),
+        ("artifacts", ", ".join(job.get("artifacts") or []) or None),
         ("reason", job.get("reason")), ("created", job.get("created")), ("updated", job.get("updated")),
     ]
     return "\n".join(f"{k + ':':<14}{v}" for k, v in rows if v)
