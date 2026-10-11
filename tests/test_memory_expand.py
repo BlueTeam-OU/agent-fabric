@@ -71,6 +71,14 @@ def main() -> int:
     check("a path held by more sections than KEY_DF_CAP links nothing", not index_of(*crowd)._edges())
     cite_crowd = [section(f"cite-crowd-{n}", "See [[a-popular-memory]].", topic=f"c{n}") for n in range(mi.KEY_DF_CAP + 1)]
     check("a memory cited by more sections than KEY_DF_CAP co-cites none of them", not index_of(*cite_crowd)._edges())
+    pop = section("a-popular-memory", "The memory everyone cites.", topic="pop")
+    check("a memory cited by more sections than KEY_DF_CAP is directly linked to none of them", not index_of(pop, *cite_crowd)._edges())
+    pop_edges = index_of(pop, *cite_crowd[:mi.KEY_DF_CAP])._edges()
+    check("…and cited by exactly KEY_DF_CAP, to all of them (and they co-cite each other)", len(pop_edges.get(0, {})) == mi.KEY_DF_CAP and len(pop_edges) == mi.KEY_DF_CAP + 1)
+    named_twice = index_of(*(section("a-popular-memory", f"x{n}", heading=f"cue {n}", position=n + 1, topic="pop") for n in range(mi.KEY_DF_CAP + 2)),
+                           section("one-citer", "See [[a-popular-memory]]."))
+    check("a name held by more sections than KEY_DF_CAP (a slice of many sections) is linked to a citer by KEY_DF_CAP of them at most",
+          len(named_twice._edges().get(mi.KEY_DF_CAP + 2, {})) == mi.KEY_DF_CAP, len(named_twice._edges().get(mi.KEY_DF_CAP + 2, {})))
     cite_fits = [section(f"cite-fit-{n}", "See [[a-popular-memory]].", topic=f"c{n}") for n in range(mi.KEY_DF_CAP)]
     check("…and by exactly KEY_DF_CAP co-cites them all", len(index_of(*cite_fits)._edges()) == mi.KEY_DF_CAP)
     fits = [section(f"fit-{n}", "See `tests/shared.sh`.", topic=f"t{n}") for n in range(mi.KEY_DF_CAP)]

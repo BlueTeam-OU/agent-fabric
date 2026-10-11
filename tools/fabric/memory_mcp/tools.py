@@ -13,7 +13,7 @@ from memory_mcp import marks
 DEFAULT_LIMIT, MAX_LIMIT = 8, 20
 FIND_TOKENS, READ_TOKENS, MAX_TOKENS = 200, 1500, 8000
 MIN_TOKENS = 100        # a reply smaller than this cannot hold one hit line (a clipped heading and an id, ~65 tokens), the weak notice and the tail. The
-                        # floor is measured on an id of 100 characters (tests/test_memory_mcp.py; the corpus's longest was 88 on 2026-10-11): ids past ~165 would not fit
+                        # floor is measured on an id of 100 characters (tests/test_memory_mcp.py; the corpus's longest was 88 on 2026-10-11): ids past ~155 would not fit
 RELATED = 2
 NEIGHBOUR_TOKENS = 130     # what `expand: 1` may add to a find, on top of max_tokens: about two lines
 MAX_TRY_WORDS, MAX_TRY_LEN = 8, 40
@@ -121,16 +121,8 @@ def _try(index: Index, query: str) -> str:
     return "no sections match; try: " + ", ".join((near or vocab)[:6])
 
 
-def find(index: Index, session: Session, args: dict) -> tuple[str, list[str]]:
-    query = _text(args.get("query"), "query", True) or ""
-    role = _text(args.get("role"), "role") or session.role
-    project = _text(args.get("project"), "project") or session.project
-    limit = _int(args.get("limit"), "limit", DEFAULT_LIMIT, 1, MAX_LIMIT)
-    budget = _int(args.get("max_tokens"), "max_tokens", FIND_TOKENS, MIN_TOKENS, MAX_TOKENS)
-    expand = _int(args.get("expand"), "expand", 0, 0, 1)
-    hits = index.find(query, role, project)
-    if not hits:
-        return _try(index, query), []
+def shown_hits(hits: list[mi.Hit], limit: int, budget: int) -> tuple[list[mi.Hit], list[mi.Hit]]:
+    """The hits a find shows within its limit and token budget, and the rest."""
     shown: list[mi.Hit] = []
     rest: list[mi.Hit] = []
     spent = _cost(WEAK_NOTICE)
@@ -141,22 +133,41 @@ def find(index: Index, session: Session, args: dict) -> tuple[str, list[str]]:
             continue
         shown.append(hit)
         spent += cost
+    return shown, rest
+
+
+def expansion(index: Index, shown: list[mi.Hit], **kw) -> list[mi.Neighbour]:
+    """What `expand: 1` adds to the shown hits: their neighbours, as many as fit the allowance of their own (the budget is spent
+    on hits first, and the default 200 tokens holds three lines, so neighbours inside it would never show)."""
+    linked: list[mi.Neighbour] = []
+    room = NEIGHBOUR_TOKENS
+    for n in index.neighbours(shown, **kw):
+        cost = _cost(_neighbour_line(n))
+        if cost > room:
+            break
+        linked.append(n)
+        room -= cost
+    return linked
+
+
+def find(index: Index, session: Session, args: dict) -> tuple[str, list[str]]:
+    query = _text(args.get("query"), "query", True) or ""
+    role = _text(args.get("role"), "role") or session.role
+    project = _text(args.get("project"), "project") or session.project
+    limit = _int(args.get("limit"), "limit", DEFAULT_LIMIT, 1, MAX_LIMIT)
+    budget = _int(args.get("max_tokens"), "max_tokens", FIND_TOKENS, MIN_TOKENS, MAX_TOKENS)
+    expand = _int(args.get("expand"), "expand", 0, 0, 1)
+    hits = index.find(query, role, project)
+    if not hits:
+        return _try(index, query), []
+    shown, rest = shown_hits(hits, limit, budget)
     lines = [_hit_line(h) for h in shown]
     if shown[0].band != "strong":
         lines.insert(0, WEAK_NOTICE)
     # An opt-in expansion (a spike, measured in tests/memory_expand_measure.py): the sections linked to the strong hits, after the
-    # hits and never in place of one, in an allowance of their own: the budget is spent on hits first (the default 200 tokens holds
-    # three lines), so neighbours inside it would never show.
-    linked: list[mi.Neighbour] = []
-    if expand:
-        room = NEIGHBOUR_TOKENS
-        for n in index.neighbours(shown):
-            cost = _cost(_neighbour_line(n))
-            if cost > room:
-                break
-            linked.append(n)
-            room -= cost
-        lines.extend(_neighbour_line(n) for n in linked)
+    # hits and never in place of one.
+    linked = expansion(index, shown) if expand else []
+    lines.extend(_neighbour_line(n) for n in linked)
     if rest:
         scopes: dict[str, int] = {}
         for h in rest:

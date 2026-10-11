@@ -134,7 +134,8 @@ def band(score: float, coverage: float, margin: float) -> str:
 # for the part after :: of an anchor, link:<name> for each [[name]] it links, name:<name> for its own slice's file name (as the
 # memory it was drained from was called), topic:<role>/<topic>. The edges are of five kinds: "direct" (one links the memory the
 # other is named for), "cocite" (both link the same third), "path", "symbol" and "topic" (the same key held). A key held by
-# more than KEY_DF_CAP sections links everything to everything and gives no edge.
+# more than KEY_DF_CAP sections links everything to everything and gives no edge, a link too: a memory cited by more than that is cited by
+# habit, and the edge builder is bounded by the cap squared per key, not by the corpus.
 KEY_DF_CAP = 8
 PATH_EXT = r"(?:py|sh|md|json|mjs|js|ts|yml|yaml|toml|txt|cfg|ini|service|timer)"
 CITED_PATH = re.compile(rf"`([A-Za-z0-9_.][A-Za-z0-9_./-]*/[A-Za-z0-9_.-]+\.{PATH_EXT})(?:::[^`]*|:\d+)?`")
@@ -257,11 +258,12 @@ class Index:
                 graph.setdefault(j, {}).setdefault(i, []).append((kind, key, held))
         for key, held in holders.items():
             kind, _, name = key.partition(":")
-            if kind == "link":                                  # who cites it, against who is named for it and who else cites it
+            if kind == "link" and len(held) <= KEY_DF_CAP:      # who cites it, against who is named for it and who else cites it
+                named = holders.get("name:" + name, [])
                 for i in held:
-                    for j in holders.get("name:" + name, []):
+                    for j in named[:KEY_DF_CAP]:
                         add(i, j, "direct", name, 2)
-                if 2 <= len(held) <= KEY_DF_CAP:
+                if 2 <= len(held):
                     for n, i in enumerate(held):
                         for j in held[n + 1:]:
                             add(i, j, "cocite", name, len(held))
