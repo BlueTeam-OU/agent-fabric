@@ -109,10 +109,14 @@ class Restart(unittest.TestCase):
 
     def test_it_refuses_beside_an_upgrade_or_a_secrets_sync_and_stops_nothing(self):
         fake = Session([5])
-        for kw, word in (({"upgrading": lambda: True}, "an upgrade is running"), ({"syncing": lambda: True}, "a secrets-sync is running")):
+        for kw, word in (({"syncing": lambda: True}, "a secrets-sync is running"), ({}, "an upgrade is running")):
+            if not kw:
+                up._running = True
+                self.addCleanup(setattr, up, "_running", False)
             r = self.run_restart(fake, **kw)
             self.assertEqual(r["status"], "failed")
             self.assertIn(word, r["reason"])
+        self.assertEqual(up._sync_restarting, 0, "a refused restart holds nothing")
         self.assertEqual(fake.signals, [])
         self.assertFalse(os.path.exists(self.marker))
 
@@ -123,15 +127,41 @@ class Restart(unittest.TestCase):
             self.assertEqual(self.run_restart(fake)["status"], "failed")
         self.assertEqual(self.run_restart(fake)["status"], "restarted")
 
-    def test_while_restarting_an_upgrade_is_told_busy_and_the_flag_is_released(self):
+    def test_while_restarting_an_upgrade_is_told_busy_from_the_first_slow_step_to_the_end_and_the_hold_is_released(self):
+        # An upgrade that arrives while pgrep runs (up to 30 s), while the signal is sent and while the stop is awaited.
         seen = []
+        busy = lambda: seen.append(up.upgrade({"args": {"piece": "claude"}}))   # noqa: E731
         fake = Session([5])
         kill = fake.kill
-        fake.kill = lambda p, s: (seen.append(up.upgrade({"args": {"piece": "claude"}})), kill(p, s))[1]
+        fake.kill = lambda p, s: (busy(), kill(p, s))[1]
+
+        def pgrep(_argv):
+            busy()
+            raise OSError("no pgrep")   # the answer does not matter; the upgrade arrived during the wait for it
+        R.restart(REQ, me="h/py", directory=self.dir, pgrep=pgrep)
         self.run_restart(fake)
-        self.assertEqual(seen[0]["status"], "busy")
-        self.assertIn("restarting", seen[0]["note"])
-        self.assertNotIn("busy", up.upgrade({"args": {"piece": "bogus"}}).get("status", ""), "released afterwards")
+        self.assertEqual([r["status"] for r in seen], ["busy", "busy"])
+        self.assertTrue(all("restarting" in r["note"] for r in seen))
+        self.assertEqual(up._sync_restarting, 0)
+
+    def test_a_secrets_sync_restart_beside_it_neither_stops_the_session_nor_clears_the_hold(self):
+        inside, gate = threading.Event(), threading.Event()
+        fake = Session([5])
+        kill = fake.kill
+        fake.kill = lambda p, s: (inside.set(), gate.wait(5), kill(p, s))[2]
+        t = threading.Thread(target=lambda: self.run_restart(fake))
+        t.start()
+        try:
+            self.assertTrue(inside.wait(5))
+            # What secrets-sync does at its stop point: take its hold, then ask whether a restart is running.
+            self.assertTrue(R.running(), "secrets-sync refuses beside a restart")
+            up.restart_in_flight(True)
+            up.restart_in_flight(False)
+            self.assertEqual(up.upgrade({"args": {"piece": "claude"}})["status"], "busy", "its release does not clear ours")
+        finally:
+            gate.set()
+            t.join(5)
+        self.assertFalse(R.running())
 
     def test_a_pgrep_that_cannot_tell_is_a_failure_not_no_session(self):
         def pgrep(_argv):
@@ -163,7 +193,9 @@ class Restart(unittest.TestCase):
         t = threading.Thread(target=lambda: first.append(self.run_restart(fake)))
         t.start()
         self.assertTrue(inside.wait(5))
-        self.assertEqual(R.restart(REQ, sessions=[6])["status"], "busy")
+        other = Session([6])
+        self.assertEqual(R.restart(REQ, me="h/py", directory=self.dir, sessions=[6], kill=other.kill, alive=other.alive)["status"], "busy")
+        self.assertEqual(other.signals, [])
         gate.set()
         t.join(5)
         self.assertEqual(first[0]["status"], "restarted")

@@ -262,8 +262,8 @@ def run_session(cmd: list[str]) -> int:
 
 
 # ── back on the new version: the restart an action asked for ─────────
-# The control agent's `upgrade` or `secrets-sync --restart`
-# (runtime/control/{upgrade,secrets}.mjs) writes
+# The control agent's `upgrade`, `secrets-sync --restart` or `restart`
+# (tools/fabric/control/{upgrade,secrets,restart}.py) writes
 # $STATE_DIR/restart.json, then stops this session with SIGTERM — the
 # harness's graceful shutdown. This process is still in the session's
 # terminal, so it is the one that can bring the session back: it waits
