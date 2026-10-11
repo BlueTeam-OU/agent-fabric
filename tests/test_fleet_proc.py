@@ -159,7 +159,8 @@ class Watch(unittest.TestCase):
     def test_a_command_that_runs_gzcoord_inbox_with_until_delivery_or_wait_is_a_watch(self):
         for argv in (WATCH, ("python3", "/x/gzcoord-inbox", "--wait"), ("/usr/bin/gzcoord-inbox", "--until-delivery"),
                      ("gzcoord-inbox", "--wait", "--json"), ("fabric-python", "-I", "-u", "/b/gzcoord-inbox", "--until-delivery"),
-                     ("python3", "-X", "dev", "-u", "/b/gzcoord-inbox", "--wait"), ("gzcoord-inbox", "-v", "--json", "--wait")):
+                     ("python3", "-X", "dev", "-u", "/b/gzcoord-inbox", "--wait"), ("gzcoord-inbox", "-v", "--json", "--wait"),
+                     ("a", "b", "c", "d", "e", "gzcoord-inbox", "--wait"), ("gzcoord-inbox", "a", "b", "c", "d", "e", "f", "g", "--wait")):
             self.assertTrue(self.cmd(*argv), argv)
 
     def test_a_command_that_only_mentions_the_words_is_not(self):
