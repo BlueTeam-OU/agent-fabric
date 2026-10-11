@@ -74,7 +74,10 @@ kill -KILL -- "-$KPID" 2>/dev/null
 wait "$KPID" 2>/dev/null
 for _ in $(seq 50); do [[ -z "$(ls -A "$RUNTMP2")" ]] && break; sleep 0.1; done
 [[ -z "$(ls -A "$RUNTMP2")" ]] && ok "a group KILL leaves no directory behind" || bad "directory left after KILL" "$(ls -A "$RUNTMP2")"
-if pgrep -g "$KPID" >/dev/null; then bad "processes left in the killed group" "$(pgrep -g "$KPID" -a)"; pkill -KILL -g "$KPID"; else ok "and no process of the group survives"; fi
+# A zombie is dead, only not yet reaped: a container with no init as PID 1
+# never reaps the orphans, so only processes that still run count.
+alive_in_group() { ps -e -o pgid=,stat=,pid=,args= | awk -v g="$1" '$1 == g && $2 !~ /^Z/'; }
+if [[ -n "$(alive_in_group "$KPID")" ]]; then bad "processes left in the killed group" "$(alive_in_group "$KPID")"; pkill -KILL -g "$KPID"; else ok "and no process of the group survives"; fi
 
 echo; echo "leak-check: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
