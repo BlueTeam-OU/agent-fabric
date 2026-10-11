@@ -152,14 +152,18 @@ serve as the parity oracle for each port, unchanged.
      are repointed; `send.mjs`'s journal already runs the pin
      (ADR-041) (A 2026-10-01).
 5. The script's existing bash test runs against the shim, as the parity
-   oracle, in the port's pull request, its assertions unchanged. Three
+   oracle, in the port's pull request, its assertions unchanged. Four
    things in it may follow the port: its mock of `gh` may learn the
    transport `gh.py` uses beside the one it served, and the extended mock
    still passes the bash original; a case that reads the
    implementation's source, a constant or a scan, reads the module
    (A 2026-10-01); and a fixture that copies the scripts it runs copies
    their modules beside them, adding files and changing no assertion
-   (A 2026-10-01). The same pull request deletes the bash implementation,
+   (A 2026-10-01). A fourth: a forwarder checks the pin before the module
+   reads its verb, so a case that gives an unknown verb on a host
+   without the pin expects the forwarder's 127 and its install line,
+   not the bash original's usage error; the case says so and cites this
+   rule (A 2026-10-11). The same pull request deletes the bash implementation,
    adds Python tests for the internals and removes the entry from the
    allowlist.
 6. GitHub and git are called through `tools/fabric/gh.py` and
