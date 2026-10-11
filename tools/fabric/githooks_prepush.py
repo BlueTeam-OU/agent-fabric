@@ -12,7 +12,8 @@ Before any of that, in every project: a push that adds an unsigned commit is
 refused (tools/fabric/guards/ban_unsigned_commits.py).
 
 A project that is not managed, or whose arm.json has no `direct` key, gets
-no rule from here at all: exit 0, silent. Every other doubt about a managed
+no direct-push rule from here: exit 0, silent unless it adds an unsigned
+commit. Every other doubt about a managed
 direct project refuses, because a boundary this hook could not read must not
 read as absent. The one exception is a working copy whose project marker is
 unusable: the project, and so the default branch, is unknown, so only a push
@@ -140,18 +141,21 @@ def _changed(remote_name: str, branch: str, local: str, remote: str) -> list[tup
     return changed
 
 
-def _signed(remote_name: str, lines: list[str]) -> None:
+def _signed(lines: list[str]) -> None:
     """Every commit the refs add carries a signature git can read, in every
-    project (ban_unsigned_commits says why). Before the direct-push rules:
-    those pass untouched for most projects, and this one is for all."""
+    project (ban_unsigned_commits says why). Before the direct-push rules,
+    which most projects do not have; this one is for all."""
     found: list[tuple[str, str]] = []
     for line in lines:
         fields = line.split()
         if len(fields) != 4 or ZERO.match(fields[1]):
             continue
         _, local, _, remote = fields
-        # A new branch adds what the remote's refs do not already have.
-        scope = [local, "--not", f"--remotes={remote_name}"] if ZERO.match(remote) else [f"{remote}..{local}"]
+        # A new branch adds what no remote-tracking ref already has: every
+        # one, not only remote_name's, because a push to a URL (or to a remote
+        # with no tracking refs) names no remote, and then the whole history
+        # would be walked, root commit included.
+        scope = [local, "--not", "--remotes"] if ZERO.match(remote) else [f"{remote}..{local}"]
         try:
             found += ban_unsigned_commits.unsigned(".", *scope)
         except ban_unsigned_commits.git.GitError as e:
@@ -161,7 +165,7 @@ def _signed(remote_name: str, lines: list[str]) -> None:
 
 
 def check(remote_name: str, lines: list[str]) -> None:
-    _signed(remote_name, lines)
+    _signed(lines)
     try:
         info = workingcopy.resolve(os.getcwd())
     except SystemExit as e:
