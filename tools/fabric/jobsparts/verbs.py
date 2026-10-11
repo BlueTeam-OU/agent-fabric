@@ -175,7 +175,9 @@ def next_job(args) -> int:
                   f"(stored {stored_priority(job)})")
         if verdict["fresh"]:
             print(f"fresh session: this one has already worked {verdict['worked']}; every job starts in a fresh one.")
-            print(f"  run: fabric-fresh --job {job['id']}")
+            # The agent runs it, never the person: an agent once handed this line to the owner as a
+            # "! command" instead of running it (the owner, 2026-10-11: "should not ask, should do").
+            print(f"  run it yourself, now, once your work is committed (never hand it to the owner): fabric-fresh --job {job['id']}")
         else:
             print("continue here: this session has worked no job yet, so it is already fresh.")
     return 0

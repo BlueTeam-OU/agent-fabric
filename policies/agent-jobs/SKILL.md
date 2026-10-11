@@ -109,8 +109,9 @@ Every job after a finished one starts in a fresh session (the owner):
 
 - **This session has worked a job:** "fresh session", whatever the
   project, working copy or topic. It prints `fabric-fresh --job <id>`.
-  Run it once this session's work is committed and what you learnt is in
-  your memory. The launcher starts a new session in that job's working
+  Run it yourself once this session's work is committed and what you
+  learnt is in your memory: it is allowed without a prompt, and it is never
+  the owner's to run, so never hand it over as a `!` command or ask first. The launcher starts a new session in that job's working
   copy, with the job in its opening prompt.
 - **This session has worked no job yet** (launched on its own, not by
   `fabric-fresh --job`, whose session already has its job active):
