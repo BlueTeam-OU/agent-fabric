@@ -1042,6 +1042,12 @@ class ArmRun(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         # A required check named in a direct policy holds nothing on GitHub (no ruleset): green is still waited for.
         with_checks = arm_policy.validate({"mode": "direct", "commits": {"min": 1}, "required_checks": [{"context": "ci"}]})
+        # A waiver lifts the boundary's gate, never a direct repository's review gate (re-review of #212, 1).
+        with mock.patch.object(arm, "verify_waiver", return_value=("h/holder", "m1")):
+            rc, _ = self.run_arm(p, 9, files=("policies/x.json",), reviewed=False, live=merged, waiver_role="architect-cto",
+                                 extra=("--no-boundary", "not a boundary", "--waiver", "m1"))
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertFalse([r for r in self.ran if r[:2] == ["pr", "merge"]], "waived")
         # No check at all on a direct head: it merges on the head's review (the owner's rule for CI-less repositories).
         no_ci = arm_policy.validate({"mode": "direct", "commits": {"min": 1}})
         rc, out = self.run_arm(no_ci, 1, checks="none-yet", live=merged)

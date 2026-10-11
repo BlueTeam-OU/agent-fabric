@@ -72,7 +72,8 @@ fleet's policies/arming.json with the repository's file in its client's settings
 the count rule, and a policy or a comparison with GitHub's settings that cannot be read is exit 2, never the
 default. A repository in mode owner-only is not armed here; one in mode direct has no server-side rule to arm under
 (auto-merge off, no ruleset), so the same gates end in an immediate gh pr merge, without --auto, on the head
-they read. A difference between the policy and GitHub in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
+they read; there every PR, boundary or not and waived or not, needs the review of its head and no open
+thread, and a head with no check at all merges on that review alone. A difference between the policy and GitHub in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
 merge methods are allowed, advisory. The minimum is the stated class's, else the author's role's (the
 Fabric-Role trailer every commit of the PR carries, when they agree), else commits.min; a boundary change gets
 max(commits.min, commits.boundary_min) whatever role or class; commits.below_min "refuse" is a refusal the owner's
@@ -656,7 +657,9 @@ def arm(argv: list[str]) -> int:
             login, mid = verify_waiver(waiver, num, repo, head, session, waiver_role, refuse)
             waived_by = f"Boundary gate waived by {login} ({mid}): {no_boundary}."
             say(f"boundary gate WAIVED by {login}, {waiver_role} ({mid}): {no_boundary}")
-        else:
+        # A waiver lifts the boundary's gate only; on a direct repository the PR still merges at once,
+        # so its head's review and threads are read whatever the waiver says (re-review of #212, 1).
+        if direct or not (is_boundary and waiver):
             rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"),
                                  [num, "-q", "--json"])
             if rc == 2:
@@ -690,7 +693,7 @@ def arm(argv: list[str]) -> int:
             say(f"the current head {head} has the review class's review, and no unresolved thread")
             # Its owner's word follows the count (gate 5): only under the repository's minimum (8
             # by default), and there no class stands in for it.
-            boundary_unwaived = is_boundary
+            boundary_unwaived = is_boundary and not waiver
 
     # 5. the count rule, from pr-gate's classifier
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])
