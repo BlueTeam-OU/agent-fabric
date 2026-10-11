@@ -43,6 +43,9 @@
     "gzcoord-send": ["communication/gzcoord/scripts/send.mjs"],
     "gzmsg": ["communication/gzcoord/scripts/gzmsg.mjs"]
   },
+  "also_allowed": {
+    "moli fetch": "reads one web page to stdout (ADR-051). No command of the fabric and not linked by bootstrap: the tool is installed by fabric-tools. `moli serve` is deliberately absent: it opens a CDP port with no authentication, so it asks"
+  },
   "not_allowed": {
     "fabric-genimage": "every run spends on the OpenAI account (the owner, 2026-10-07): a person approves each one, so no session spends unattended",
     "fabric-lease": "runs whatever command follows `--`: an allow rule for it would allow every command, so it asks as any command does",

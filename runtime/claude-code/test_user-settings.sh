@@ -122,6 +122,8 @@ jq -e '.ask == ["Bash(gzcoord-send *)"] and .deny == ["Bash(rm *)"]' <<<"$perm" 
     && ok "…the account's ask and deny rules are untouched (an ask still wins)" || bad "ask/deny changed" "$perm"
 jq -e '[.allow[] | select(. == "Bash(fabric-lease *)" or . == "Bash(fabric-host *)")] | length == 0' <<<"$perm" >/dev/null \
     && ok "…and fabric-lease and fabric-host, which run other commands, get none" || bad "wrapper allowed" "$perm"
+jq -e '(.allow | index("Bash(moli fetch *)")) != null and ([.allow[] | select(startswith("Bash(moli"))] == ["Bash(moli fetch *)"])' <<<"$perm" >/dev/null \
+    && ok "…moli fetch is allowed (also_allowed) and moli serve is not (ADR-051)" || bad "moli rules" "$perm"
 out="$(run "$S")"; [[ "$out" == "  =  "* ]] && ok "…and a second run changes nothing" || bad "not idempotent" "$out"
 # An account the earlier bootstrap already settled — every other key in
 # place, no allow rule yet — still gets the rules: a check that ignored
