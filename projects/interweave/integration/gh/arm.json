@@ -36,5 +36,5 @@
     }
   },
   "waiver_role": "architect-cto",
-  "arm_command": "tools/gh/arm.sh"
+  "arm_command": "fabric-pr arm"
 }
