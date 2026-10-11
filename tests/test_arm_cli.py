@@ -24,6 +24,8 @@ import subprocess
 import sys
 import tempfile
 from unittest import mock
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # gzapp's and InterWeave's files as the projects hold them, frozen (tests/fixtures/gzapp-gh/README.md):
@@ -774,17 +776,19 @@ def main() -> int:
         operator = f"{sandbox}/operator"
         os.makedirs(f"{operator}/projects/interweave/integration/gh")
         iw_remote = "git@github.com:fixture-org/interweave.git"
+        # A registered project with no arm.json of its own: found, then refused, never judged by another's rules.
+        bare_remote = "git@github.com:fixture-org/bare.git"
         with open(f"{operator}/projects/registry.json", "w") as fh:
-            json.dump({"projects": {"interweave": {"remotes": [iw_remote]}}}, fh)
+            json.dump({"projects": {"interweave": {"remotes": [iw_remote]}, "bare": {"remotes": [bare_remote]}}}, fh)
         shutil.copy(IW_CONFIG, f"{operator}/projects/interweave/integration/gh/arm.json")
         os.makedirs(f"{operator}/identities/roles")
         shutil.copy(os.path.join(FIXTURES, "gzcoord-operator", "identities", "roles", "catalog.json"), f"{operator}/identities/roles/catalog.json")
         by_remote = {"AGENT_FABRIC_OPERATOR": operator}
         clones = {}
-        for name, url in (("iw", iw_remote), ("stranger", "git@github.com:nobody/unregistered.git")):
+        for name, url in (("iw", iw_remote), ("bare", bare_remote), ("stranger", "git@github.com:nobody/unregistered.git")):
             d = f"{sandbox}/{name}"
-            subprocess.run(["git", "init", "-q", d], env=base_env, check=True, timeout=30)
-            subprocess.run(["git", "-C", d, "remote", "add", "origin", url], env=base_env, check=True, timeout=30)
+            subprocess.run(["git", "init", "-q", d], env=git_env(base_env), check=True, timeout=30)
+            subprocess.run(["git", "-C", d, "remote", "add", "origin", url], env=git_env(base_env), check=True, timeout=30)
             clones[name] = d
         reset(); set_pr(me, "plain", ["crates/transport/libp2p/src/dialing.rs"]); set_gate(9)
         rc, out = cli("7", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote)
@@ -794,6 +798,11 @@ def main() -> int:
         rc, out = cli("7", "--basis", "b", fixture_rules=False, cwd=clones["stranger"], env=by_remote)
         check("a clone of an unregistered remote: exit 2, nothing armed",
               rc == 2 and "no project found" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = cli("7", "--basis", "b", fixture_rules=False, cwd=clones["bare"], env=by_remote)
+        check("a clone of a registered project with no arm.json: exit 2, the file named, nothing armed",
+              rc == 2 and "declares no arm.json" in out and "projects/bare/integration/gh/arm.json" in out
+              and "pr merge" not in calls(), out)
 
     print("test_arm_cli: " + ("OK" if not fails else f"FAILED — {fails}"))
     return 1 if fails else 0

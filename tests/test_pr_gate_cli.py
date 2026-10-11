@@ -19,6 +19,8 @@ import re
 import subprocess
 import sys
 import tempfile
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = [os.path.join(ROOT, "bin", "fabric-pr"), "gate"]
@@ -92,7 +94,7 @@ def main() -> int:
         os.makedirs(f"{sandbox}/bin")
 
         def git(*args: str, cwd: str = repo, ok: bool = False) -> str:
-            r = subprocess.run(["git", *args], cwd=cwd, env=base_env, stdout=subprocess.PIPE,
+            r = subprocess.run(["git", *args], cwd=cwd, env=git_env(base_env), stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL, text=True, timeout=60)
             if r.returncode and not ok:
                 raise RuntimeError(f"git {' '.join(args)}: exit {r.returncode}")
@@ -114,8 +116,8 @@ def main() -> int:
         # A repository with an origin: main, and a branch of work, a fix, a
         # fix whose Answers: trailer is folded, and a merge. What counts as
         # which is tests/test_pr_gate.py's; here it is read through git.
-        subprocess.run(["git", "init", "-q", "--bare", origin], env=base_env, check=True, timeout=30)
-        subprocess.run(["git", "init", "-q", "-b", "main", repo], env=base_env, check=True, timeout=30)
+        subprocess.run(["git", "init", "-q", "--bare", origin], env=git_env(base_env), check=True, timeout=30)
+        subprocess.run(["git", "init", "-q", "-b", "main", repo], env=git_env(base_env), check=True, timeout=30)
         for k, v in (("user.email", "t@example.invalid"), ("user.name", "t"), ("commit.gpgsign", "false"),
                      ("tag.gpgSign", "false")):
             git("config", k, v)
