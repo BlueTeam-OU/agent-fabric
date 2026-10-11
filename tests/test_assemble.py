@@ -2501,7 +2501,7 @@ def test_two_headings_share_a_cue_when_more_than_half_of_the_shorter_ones_tokens
     assert shares_cue("Issue Merged", "ISSUE, merged!"), "case and punctuation are no cue"
     assert shares_cue("Überprüfung der Leitung", "Leitung der Überprüfung"), "non-ASCII letters are tokens, not separators"
     assert shares_cue("設定 変更 完了", "設定 変更 未了"), "a heading with no ASCII letter has cue tokens too"
-    assert not shares_cue("Überprüfung", "Leitung"), "and two different non-ASCII words share nothing"
+    assert not shares_cue("Grüße", "Gruß"), "two different non-ASCII words share nothing (ASCII fragments would share 'gr')"
     assert not shares_cue("", "Anything") and not shares_cue("Anything", "") and not shares_cue("!!!", "???")
 
 
