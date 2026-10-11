@@ -65,7 +65,8 @@ jobs:
           # interpreter.
           - { section: bash, python: '3.13', node: '20' }
           - { section: bash, python: '3.14', node: '22' }
-    # Measured 7-9.5 min for the whole run on 2026-09-29, 19-23 min a section on 2026-10-11; the cap is for a
+    # Measured 7-9.5 min for the whole run on 2026-09-29; 18-25 min each python section on 2026-10-11 (the bash
+    # sections take under a minute); the cap is for a
     # hang, not a budget, so it sits well above the slowest healthy run.
     timeout-minutes: 40
     steps:
