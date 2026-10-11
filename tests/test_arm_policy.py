@@ -575,6 +575,12 @@ def grant(sender="h/arch", to="h/me", kind="DECISION", field="AUTHORIZES", targe
     return (0 if addressed else 2), json.dumps({"addressed": addressed, "type": kind, "sender": sender, "metadata": meta})
 
 
+def fleet_of(*rows):
+    """`fabric-ctl all presence --json` for (login, role, online) rows, as (rc, text)."""
+    return 0, "\n".join(json.dumps({"account": login, "host": "h", "status": "ok", "presence": {"status": "ok", "online": online, "role": role}})
+                        for login, role, online in rows)
+
+
 def presence_of(role="architect-cto", login="arch", host="h", status="ok"):
     return 0, json.dumps({"account": login, "host": host, "status": status, "presence": {"status": "ok", "role": role}})
 
@@ -585,8 +591,8 @@ class ArmRun(unittest.TestCase):
 
     def run_arm(self, policy, work, files=("docs/a.md",), basis="reviewed", body="", boundary_re=r"^policies/", classes=None,
                 load_error=None, extra=(), load_fn=None, drift=(), drift_error=None, role_trailers=None, checks="green", live=None,
-                replay=None, presence=None, unresolved=0, reviewed=True):
-        pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": "h/me/feat/x", "headRefOid": self.HEAD, "body": body, "title": "t"}
+                replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x"):
+        pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "headRefOid": self.HEAD, "body": body, "title": "t"}
         gate = [{"commits_known": True, "work_commits": work, "checks": checks}]
         review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}] if reviewed else []}, "unresolved_threads": unresolved}
         self.reads = reads = []
@@ -600,7 +606,9 @@ class ArmRun(unittest.TestCase):
                 reads.append(("replay", list(args)))
                 return replay if replay is not None else (1, "")
             if "fabric-ctl" in what:
-                reads.append(("presence", list(args)))
+                reads.append(("fleet" if args[:1] == ["all"] else "presence", list(args)))
+                if args[:1] == ["all"]:
+                    return fleet if fleet is not None else (1, "")
                 return presence if presence is not None else (1, "")
             return (0, json.dumps(review if "review-status" in what else gate))
 
@@ -627,7 +635,7 @@ class ArmRun(unittest.TestCase):
                 "state": "OPEN", "headRefOid": self.HEAD, "autoMergeRequest": {"enabledAt": "x"}, "mergeQueueEntry": None, **(live or {})}}}))
             st.enter_context(mock.patch.object(arm.pr_gate, "session_prefix", return_value="h/me"))
             st.enter_context(mock.patch.object(arm, "config_path", return_value="x"))
-            st.enter_context(mock.patch.object(arm, "load_config", return_value=(re.compile(boundary_re), None, classes, None)))
+            st.enter_context(mock.patch.object(arm, "load_config", return_value=(re.compile(boundary_re), None, classes, waiver_role)))
             st.enter_context(mock.patch.object(arm, "run_reader", side_effect=reader))
             st.enter_context(mock.patch.object(arm.arm_policy, "load", load))
             st.enter_context(mock.patch.object(arm.repo_policy, "check", check))
@@ -774,6 +782,7 @@ class ArmRun(unittest.TestCase):
     def test_an_authority_the_policy_does_not_name_or_the_catalogue_does_not_hold_stops_the_arming(self):
         rc, _ = self.authorized(policy=arm_policy.validate({"commits": {"min": 1}}))
         self.assertIn("names no boundary_authority", str(rc))
+        self.assertIn("ask the owner", str(rc), "the policy names nobody else, so the owner is who to ask")
         self.assertTrue(str(rc).startswith("refused"), rc)
         self.assertEqual(self.reads, [])
         rc, _ = self.authorized(policy=arm_policy.validate({"commits": {"min": 1, "boundary_authority": "no-such-role"}}))
@@ -817,9 +826,107 @@ class ArmRun(unittest.TestCase):
         self.assertIn("arms only on the owner's word", str(rc), "without --authorization the owner's word is still asked")
 
     def test_authorization_needs_its_reference(self):
-        for argv in (["7", "--basis", "b", "--authorization"], ["7", "--basis", "b", "--authorization", "--dry-run"]):
-            with self.assertRaises(arm.Unanswered):
-                arm.arm(argv)
+        policy = arm_policy.default()
+        for extra in (("--authorization",), ("--authorization", "--dry-run")):
+            rc, _ = self.run_arm(policy, 9, extra=extra)
+            self.assertTrue(str(rc).startswith("unanswered"), (extra, rc))
+            self.assertIn("--authorization needs the authorization's MESSAGE-ID or relay seq", str(rc))
+
+    def test_an_authorization_for_a_change_that_needs_the_owners_word_says_so_not_that_none_is_needed(self):
+        rc, out = self.run_arm(arm_policy.validate({"commits": {"min": 8, "boundary_authority": "architect-cto"}}), 3,
+                               extra=(*self.AUTH, "--dry-run"))
+        self.assertIn("arms only on the owner's word", str(rc))
+        self.assertIn("an authorization stands in only for a security-boundary change, and this one needs the owner's word", out)
+        self.assertNotIn("no authorization is needed", out)
+
+    def test_the_pull_requests_own_author_cannot_authorize_it(self):
+        policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
+        rc, _ = self.run_arm(policy, 3, files=("policies/x.json",), branch="h/arch/feat/x", extra=("--any-owner", *self.AUTH, "--dry-run"),
+                             replay=grant(sender="h/arch"), presence=presence_of())
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertIn("the pull request's own author", str(rc))
+        rc, out = self.run_arm(policy, 3, files=("policies/x.json",), branch="h/other/feat/x", extra=("--any-owner", *self.AUTH, "--dry-run"),
+                               replay=grant(sender="h/arch"), presence=presence_of())
+        self.assertEqual(rc, 0, out)
+
+    BOUNDARY = ("policies/x.json",)
+
+    def refusal(self, policy, work=3, **kw):
+        kw.setdefault("files", self.BOUNDARY)
+        rc, _ = self.run_arm(policy, work, **kw)
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        return str(rc)
+
+    def test_a_boundary_refusal_names_the_authority_the_holders_running_now_and_the_line_to_ask_for(self):
+        policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
+        text = self.refusal(policy, fleet=fleet_of(("arch1", "architect-cto", True), ("arch2", "architect-cto", True), ("dev", "web-dev", True)))
+        self.assertIn("ask a architect-cto holder with a session running now (arch1, arch2)", text)
+        self.assertIn(f"`AUTHORIZES: O/R#7@{self.HEAD[:8]}`", text)
+        self.assertIn("--authorization <id>", text)
+        self.assertNotIn("dev", text.split("running now")[1].split(")")[0])
+        self.assertIn("or ask the owner", text)
+
+    def test_with_no_holder_running_the_refusal_says_so_and_who_knows(self):
+        policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
+        text = self.refusal(policy, fleet=fleet_of(("dev", "web-dev", True), ("arch1", "architect-cto", False)))
+        self.assertIn("none has a session running now", text)
+        self.assertIn("fabric-coordinator knows who holds it", text)
+        self.assertNotIn("(arch1", text)
+
+    def test_with_the_fleet_unreadable_the_refusal_says_so(self):
+        policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
+        text = self.refusal(policy, fleet=(1, ""))
+        self.assertIn("who holds it could not be read", text)
+
+    def test_a_policy_with_no_authority_sends_a_boundary_refusal_to_the_owner_and_names_the_word(self):
+        text = self.refusal(arm_policy.validate({"commits": {"min": 1}}))
+        self.assertIn("ask the owner: their word (\"arm <n>\", relayed to you) goes in the basis as \"the owner's word\"", text)
+        self.assertNotIn("AUTHORIZES", text)
+        self.assertEqual([r for r in self.reads if r[0] == "fleet"], [])
+
+    def test_a_pull_request_under_the_minimum_that_is_no_boundary_change_names_the_owner_and_the_word(self):
+        text = self.refusal(arm_policy.validate({"commits": {"min": 8}}), files=("docs/a.md",))
+        self.assertIn("ask the owner", text)
+        self.assertIn("arm <n>", text)
+        text = self.refusal(arm_policy.validate({"commits": {"min": 8, "classes": {"big": {"paths": r"^x/", "min": 10}}}}), work=9,
+                            files=("x/a",), body="Class: big", classes={"big": r"^x/"})
+        self.assertIn("ask the owner", text)
+
+    def test_a_rejected_authorization_says_whom_to_ask_for_another(self):
+        policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
+        text = self.refusal(policy, extra=(*self.AUTH,), replay=grant(target="O/R#7@0123456789ab"), presence=presence_of(),
+                            fleet=fleet_of(("arch1", "architect-cto", True)))
+        self.assertIn("head 0123456789ab", text)
+        self.assertIn("ask a architect-cto holder with a session running now (arch1)", text)
+        self.assertIn(f"`AUTHORIZES: O/R#7@{self.HEAD[:8]}`", text)
+
+    def test_a_rejected_waiver_says_the_waiver_role_its_holders_and_the_waives_line(self):
+        text = self.refusal(arm_policy.validate({"commits": {"min": 1}}), extra=("--no-boundary", "why", "--waiver", "w-1"), waiver_role="architect-cto",
+                            replay=grant(field="WAIVES"), presence=presence_of(role="web-dev"), fleet=fleet_of(("arch1", "architect-cto", True)))
+        self.assertIn("who holds web-dev, not architect-cto", text)
+        self.assertIn("ask a architect-cto holder with a session running now (arch1)", text)
+        self.assertIn(f"`WAIVES: O/R#7@{self.HEAD[:8]}`", text)
+        self.assertIn("--waiver <id>", text)
+
+    def test_a_refusal_no_word_can_lift_says_what_must_change_and_names_no_person_to_ask(self):
+        policy = arm_policy.validate({"commits": {"min": 1}})
+        for label, kw, words, p in (
+                ("no review of the head", {"reviewed": False}, "dispatch the review class on", policy),
+                ("an open thread", {"unresolved": 2}, "answer and resolve them first", policy),
+                ("a red check", {"checks": "red:ci", "files": ("docs/a.md",)}, "every check on the head must be green first", policy),
+                ("drift", {"drift": ["ruleset 'x' is missing"], "files": ("docs/a.md",)}, "fabric-repo-policy plan", policy),
+                ("owner-only", {"files": ("docs/a.md",)}, "the mode must change in the repository's file", arm_policy.validate({"mode": "owner-only"})),
+                ("direct", {"files": ("docs/a.md",)}, "the mode must change in the repository's file", arm_policy.validate({"mode": "direct"})),
+                ("below_min refuse", {"files": ("docs/a.md",)}, "refuses below the minimum", arm_policy.validate({"commits": {"min": 8, "below_min": "refuse"}}))):
+            text = self.refusal(p, **kw) if label != "below_min refuse" else self.refusal(p, work=3, **kw)
+            self.assertIn(words, text, label)
+            self.assertNotIn("ask the owner", text, label)
+            self.assertNotIn("ask a ", text, label)
+
+    def test_the_holders_come_from_one_fleet_read_by_a_program_with_an_argument_list(self):
+        policy = arm_policy.validate({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
+        self.refusal(policy, fleet=fleet_of(("arch1", "architect-cto", True)))
+        self.assertEqual([r for r in self.reads if r[0] == "fleet"], [("fleet", ["all", "presence", "--json"])])
 
     def test_the_authors_role_minimum_applies_when_every_commit_is_stamped_with_it(self):
         p = arm_policy.validate({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
