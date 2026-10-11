@@ -171,7 +171,9 @@ REFUSES, fail-closed, before spawning anything:
   - merged review model not review-grade
   - pass-through args carrying --settings or --setting-sources
     (ori's own provider fence uses --settings; a caller's one would
-    override it and the session could silently leave OpenRouter)
+    override it and the session could silently leave OpenRouter). On anthropic
+    and gateway --settings is allowed, and refused when it carries a model pin
+    (the same test as every settings scope)
   - any settings scope (the managed-policy file, ~/.claude/settings.json,
     ~/.claude/settings.local.json, $CLAUDE_CONFIG_DIR/settings.json, the
     launch working copy's and $PWD's .claude/settings{,.local}.json)
@@ -244,7 +246,7 @@ from fabric_launcher.argv import parse_argv, refuse_passthrough, asks_help, want
 from fabric_launcher.argv import without_resume, resumes, absolute_path_options  # noqa: E402, F401
 from fabric_launcher.currency import git_status_ok, git_text, behind_count, pull_ff  # noqa: E402, F401
 from fabric_launcher.currency import keep_working_copy_current, toplevel  # noqa: E402, F401
-from fabric_launcher.settings import settings_scopes, settings_pins, refuse_pins  # noqa: E402, F401
+from fabric_launcher.settings import settings_scopes, settings_pins, refuse_pins, refuse_cli_settings  # noqa: E402, F401
 from fabric_launcher.routing import ResolveError, load_routing, resolve, resolve_or_die  # noqa: E402, F401
 from fabric_launcher.routing import is_broker_url, drop_broker_env, set_pins, ori_auth_ok  # noqa: E402, F401
 from fabric_launcher.routing import check_ori_auth, caller_value, effort_for  # noqa: E402, F401
@@ -419,8 +421,10 @@ def launch(argv: list[str]) -> int:
             die("the ori CLI is not on PATH.")
     elif not shutil.which("claude"):
         die("claude is not on PATH.")
-    refuse_passthrough(args)
+    refuse_passthrough(args, provider)
     refuse_pins(settings_scopes(home, cwd), local_override)
+    if provider != "openrouter":
+        refuse_cli_settings(args, cwd, local_override)
 
     # ── resolve ─────────────────────────────────────────────────────────
     try:
