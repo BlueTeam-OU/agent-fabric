@@ -146,6 +146,5 @@ Each is at most 12 lines of code, has no `case` or loop, and does one thing: fin
 | `runtime/provisioning/new-agent-worker.sh` | 21 | 5 |
 | `runtime/provisioning/new-agent.sh` | 15 | 3 |
 | `runtime/provisioning/secrets/store-enroll.sh` | 15 | 3 |
-| `tests/fixtures/gzapp-gh/arm.sh` | 18 | 7 |
 
-Totals: 97 files, 3937 lines; ports 37 files, 2580 lines; pre-Python 14 files, 600 lines; forwarders 46 files, 757 lines.
+Totals: 96 files, 3919 lines; ports 37 files, 2580 lines; pre-Python 14 files, 600 lines; forwarders 45 files, 739 lines (the gzapp-gh arm.sh fixture is deleted in #202, not ported).
