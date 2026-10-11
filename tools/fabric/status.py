@@ -556,16 +556,20 @@ def inbox_state(drift, root, ctx, relay=None, home=None):
 def episodic_journal(root):
     """This agent's episodic journal (ADR-041): where it is, how many
     episodes, the last one. Read-only (episodic.open_readonly): never created or written here; another
-    agent's journal, a newer one or one that cannot be read is `unknown` with the reason."""
+    agent's journal is `foreign`, and a newer one or one that cannot be read is `unknown`, each with the reason."""
     try:
         ep = load("fabric_episodic", os.path.join(root, "tools", "fabric", "episodic.py"))
         path = ep.db_path()
         if not os.path.exists(path):
             return {"status": "none", "detail": f"none yet ({path}): it starts with the first message sent or received"}
         # The one reader's door (ADR-041): read-only, the path quoted, and the owner and the schema version checked
-        # BEFORE anything is counted. Another agent's journal and a newer one are refused there, and read here as
-        # any journal that cannot be read: unknown, with the reason.
-        conn = ep.open_readonly(path)
+        # BEFORE anything is counted.
+        try:
+            conn = ep.open_readonly(path)
+        except ep.JournalError as e:
+            # Another agent's journal is said as that, not as an unreadable one; the reason carries both ids. open_readonly
+            # has no type for it, so its words are what is matched (tests/test_episodic.py pins "belongs to agent").
+            return {"status": "foreign" if "belongs to agent" in str(e) else "unknown", "detail": str(e)}
         try:
             n, last = conn.execute("SELECT count(*), max(recorded_at) FROM episodes").fetchone()
         finally:
