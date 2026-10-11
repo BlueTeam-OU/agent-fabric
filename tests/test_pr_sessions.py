@@ -56,7 +56,7 @@ def drive(argv: list[str], rows: list[dict], threads: dict | None = None, who: t
     """(exit status, stdout and stderr merged, what reached gh) of `fabric-pr
     sessions argv` run in-process: `gh pr list` answers rows, `gh api graphql`
     answers the `threads` data (None: the call fails), the session is `who`.
-    Faithful where it matters, as the CLI suite's gh is: GraphQL returns only
+    Faithful where it matters: GraphQL returns only
     what the query asked for, so a fixture's pageInfo is served only to a query
     that selects hasNextPage, and only the PRs the query named."""
     seen: dict = {"state": None, "limit": None, "looked_up": None}

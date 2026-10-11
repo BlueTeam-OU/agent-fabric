@@ -21,13 +21,7 @@ reported "none" after a FAILED lookup, an argument parser that spun
 forever on a missing operand, and bot branches attributed to a session
 named after the bot.
 
-The mock is faithful where it matters: GraphQL returns only what the
-query asked for, so a fixture's pageInfo is served only to a query that
-selects hasNextPage. Fixture timestamps are relative to now: the script
-derives a /lastDate cutoff from the real clock, and a pinned fixture ages
-out of its window on a date certain, failing a required check with
-nothing in the diff to explain why. Plain script: prints ok/FAIL, exit 1
-on any failure."""
+Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
 import datetime
@@ -59,14 +53,10 @@ if a[:1] == ["api"]:
     if "--input" in a:
         src = a[a.index("--input") + 1]
         query = json.load(sys.stdin if src == "-" else open(src)).get("query", "")
+    if "reviewThreads" not in query:
+        print("mock gh: no thread query on --input", file=sys.stderr)
+        sys.exit(1)
     doc = json.load(open(os.path.join(d, "graphql.json")))
-    # GRAPHQL RETURNS ONLY WHAT THE QUERY ASKED FOR: a fixture that
-    # volunteers pageInfo the query never requested lets the script pass
-    # while asking the real API for a field it then reads as absent.
-    if "hasNextPage" not in query:
-        for pr in ((doc.get("data") or {}).get("repository") or {}).values():
-            if isinstance(pr, dict) and isinstance(pr.get("reviewThreads"), dict):
-                pr["reviewThreads"].pop("pageInfo", None)
     print(json.dumps(doc))
     sys.exit(0)
 print("mock gh: unhandled " + (a[0] if a else ""), file=sys.stderr)
@@ -82,14 +72,11 @@ def thread(resolved: bool, author: str) -> dict:
     return {"isResolved": resolved, "comments": {"nodes": [{"author": {"login": author}}]}}
 
 
-def gql(prs: dict, paged: bool = False) -> dict:
-    """{"data": {"repository": {"p<n>": …}}} from {n: (author, [threads], has_next)}."""
+def gql(prs: dict) -> dict:
+    """{"data": {"repository": {"p<n>": …}}} from {n: (author, [threads])}."""
     repo = {}
-    for n, (author, threads, has_next) in prs.items():
-        rt: dict = {"nodes": threads}
-        if paged:
-            rt = {"pageInfo": {"hasNextPage": has_next}, "nodes": threads}
-        repo[f"p{n}"] = {"number": n, "author": {"login": author}, "reviewThreads": rt}
+    for n, (author, threads) in prs.items():
+        repo[f"p{n}"] = {"number": n, "author": {"login": author}, "reviewThreads": {"nodes": threads}}
     return {"data": {"repository": repo}}
 
 
@@ -153,9 +140,9 @@ def main() -> int:
             # #30 — one unresolved thread, reviewer spoke last  → "1!"
             # #29 — one unresolved thread, PR AUTHOR spoke last → "1" (no bang)
             # #28 — threads exist but all resolved              → "-"
-            write("graphql.json", gql({30: ("andreabenetton", [thread(False, "some-reviewer")], False),
-                                       29: ("andreabenetton", [thread(False, "andreabenetton")], False),
-                                       28: ("andreabenetton", [thread(True, "some-reviewer")], False)}))
+            write("graphql.json", gql({30: ("andreabenetton", [thread(False, "some-reviewer")]),
+                                       29: ("andreabenetton", [thread(False, "andreabenetton")]),
+                                       28: ("andreabenetton", [thread(True, "some-reviewer")])}))
 
         print("pr-sessions: default scope, the text table")
         default_pr_list()
@@ -215,9 +202,9 @@ def main() -> int:
             pr(41, "OPEN", "dependabot/nuget/apps/backend_dotnet/dotnet-minor-patch-04e2", "bump", ago(hours=2)),
             pr(42, "OPEN", f"{me}/feat/real", "real", ago(hours=3)),
             pr(43, "OPEN", "renovate/npm/vite-6.x", "bump", ago(hours=4))])
-        write("graphql.json", gql({40: ("app/dependabot", [], False),
-                                   41: ("app/dependabot", [thread(False, "reviewer[bot]")], False),
-                                   42: ("andreabenetton", [], False), 43: ("app/renovate", [], False)}))
+        write("graphql.json", gql({40: ("app/dependabot", []),
+                                   41: ("app/dependabot", [thread(False, "reviewer[bot]")]),
+                                   42: ("andreabenetton", []), 43: ("app/renovate", [])}))
 
         def plant_role(role: str) -> str:
             d = f"{sandbox}/state-{role}"
