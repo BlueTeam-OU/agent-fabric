@@ -62,12 +62,10 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
             return {"filename": new, "previous_filename": old} if old else {"filename": f}
         return 0, json.dumps([[entry(f) for f in pr["files"]]]), ""
     # The arming policy's reads (arming step C), which only the CLI layer makes: the repository's commits (no
-    # Fabric-Role trailer, so no role unless `commits_role` stamps them), its client's settings repository with no
+    # Fabric-Role trailer, so no role), its client's settings repository with no
     # file for it (the fleet policy), and GitHub's side as that policy renders it.
     if line.startswith("api repos/gzapi-org/gzapp/pulls/7/commits"):
-        role = (_state(s, "commits_role", "") or "").strip()
-        msg = "a commit" + (f"\n\nFabric-Role: {role}" if role else "")
-        return 0, json.dumps([[{"parents": [{}], "commit": {"message": msg}}]]), ""
+        return 0, json.dumps([[{"parents": [{}], "commit": {"message": "a commit"}}]]), ""
     if line.startswith("api repos/gzapi-org/agent-fabric-settings/contents/"):
         return 1, "", "gh: Not Found (HTTP 404)"
     if line.startswith("api repos/gzapi-org/agent-fabric-settings "):
