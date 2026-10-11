@@ -802,6 +802,11 @@ def _age_words(seconds: Any) -> str:
     return f"{int(seconds // 86400)}d" if seconds >= 86400 else f"{int(seconds // 3600)}h" if seconds >= 3600 else f"{int(seconds // 60)}m"
 
 
+def _cell(v: Any) -> str:
+    """A count an account sent: an integer as itself, anything else escaped text."""
+    return str(v) if isinstance(v, int) and not isinstance(v, bool) else esc(S(v)) if v is not None else "?"
+
+
 def _names(v: Any, total: Any) -> str:
     if v is None:
         return "?"
@@ -839,10 +844,10 @@ def _table_branches(op: str, rs: list) -> list[str]:
                                       f"; worktrees removed {_names(dig(w, 'worktrees_removed'), None)}, kept {_names(dig(w, 'worktrees_kept'), None)}{why}"))
             else:
                 last = dig(w, "last_sweep")
-                lines.append(trim_end(f"{lead} {pad_end(esc(last) if isinstance(last, str) else 'never', 11)} {pad_end(S(dig(w, 'branches')), 9)} "
-                                      f"{pad_end(S(dig(w, 'merged')), 7)} {pad_end(S(dig(w, 'worktrees')), 10)} {pad_end(S(dig(w, 'removable_worktrees')), 10)} "
+                lines.append(trim_end(f"{lead} {pad_end(esc(last) if isinstance(last, str) else 'never', 11)} {pad_end(_cell(dig(w, 'branches')), 9)} "
+                                      f"{pad_end(_cell(dig(w, 'merged')), 7)} {pad_end(_cell(dig(w, 'worktrees')), 10)} {pad_end(_cell(dig(w, 'removable_worktrees')), 10)} "
                                       f"{pad_end(_age_words(dig(w, 'fetched_age_s')), 8)} {'yes' if dig(w, 'dirty') is True else 'no'}"
-                                      + (f"  ({S(dig(w, 'unknown'))} not counted)" if isinstance(dig(w, 'unknown'), int) and dig(w, 'unknown') else "")))
+                                      + (f"  ({dig(w, 'unknown')} not counted)" if isinstance(dig(w, 'unknown'), int) and not isinstance(dig(w, 'unknown'), bool) and dig(w, 'unknown') else "")))
     return lines
 
 

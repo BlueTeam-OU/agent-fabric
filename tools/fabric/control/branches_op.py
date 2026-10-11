@@ -38,14 +38,18 @@ from control.ops import util
 
 READ_TIMEOUT_S = 60
 # branches.py's fetch alone may take 600 s: one copy's bound; the op's budget is for all of them.
-SWEEP_TIMEOUT_S = 700
-BRANCHES_SWEEP_BUDGET_S = 1800
+SWEEP_TIMEOUT_S = 1500
+BRANCHES_SWEEP_BUDGET_S = 3600
 NAME_MAX = 200
 LIST_MAX = 50
 # A build or suite by the name it runs under. Closed: a process outside it is not a reason to skip a sweep.
-RUNNERS = frozenset({"cargo", "rustc", "pytest", "npm", "pnpm", "yarn", "make", "gradle", "mvn", "flutter", "dart",
-                     "tox", "go", "ninja", "cmake", "tsc"})
-TEST_SCRIPT = re.compile(r"(?:^|/)tests?/(?:run\.sh|test_[^/]*\.py)$|(?:^|/)test_[^/]*\.(?:py|sh)$")
+RUNNERS = frozenset({"cargo", "rustc", "pytest", "npm", "npx", "pnpm", "yarn", "make", "gradle", "mvn", "flutter", "dart",
+                     "tox", "go", "ninja", "cmake", "tsc", "dotnet", "jest", "vitest", "mocha", "rake", "bundle"})
+# A script by what it is for: the suites (tests/run.sh, tests/test_*.py), the static checks (tools/checks/*.sh).
+TEST_SCRIPT = re.compile(r"(?:^|/)tests?/(?:run\.sh|test_[^/]*\.py)$|(?:^|/)test_[^/]*\.(?:py|sh)$|(?:^|/)checks/[^/]*\.sh$"
+                         r"|(?:^|/)static\.sh$")
+# `python -m unittest` and `python -m pytest`: the module is the runner.
+MODULE_RUNNERS = frozenset({"unittest", "pytest"})
 DELETED = re.compile(r"deleted (\S+) \([0-9a-f]+\)")
 # The line a sweep says last about what it left: names separated by spaces (a branch name has none).
 OWED = re.compile(r"kept, with commits off \S+: (.*) — work still owed, or the person's decision")
@@ -110,6 +114,8 @@ def runner_of(argv: list[str]) -> str | None:
         return None
     words = [os.path.basename(argv[0])]
     if words[0] in ("bash", "sh", "python", "python3", "fabric-python", "node") or words[0].startswith("python"):
+        if "-m" in argv[1:-1] and argv[argv.index("-m") + 1] in MODULE_RUNNERS:
+            return argv[argv.index("-m") + 1]
         script = next((a for a in argv[1:] if not a.startswith("-")), "")
         words.append(script)
     for w in words:
@@ -136,7 +142,8 @@ def in_use(procs: list[dict], worktrees: list[str]) -> list[str]:
 
 
 def _child(copy: str, args: list[str], timeout: float, keep: list[str], root: str, run: Callable[..., Any]) -> Any:
-    env = {**os.environ, "AGENT_FABRIC_BRANCHES_KEEP": "\n".join(keep)}
+    # GIT_OPTIONAL_LOCKS=0: a read must not take the index lock an agent's concurrent `git add` wants.
+    env = {**os.environ, "AGENT_FABRIC_BRANCHES_KEEP": "\n".join(keep), "GIT_OPTIONAL_LOCKS": "0"}
     return run([sys.executable, _tool(root), *args], cwd=copy, capture_output=True, text=True, errors="replace",
                timeout=timeout, check=False, stdin=subprocess.DEVNULL, env=env)
 
@@ -153,8 +160,8 @@ def _report_one(name: str, copy: str, procs: list[dict] | None, root: str, run: 
     except OSError as e:
         return {"working_copy": name, "status": "failed", "why": f"cannot run: {type(e).__name__}"}
     if r.returncode != 0:
-        why = (r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1]
-        return {"working_copy": name, "status": "failed", "why": why[:NAME_MAX]}
+        return {"working_copy": name, "status": "failed", "why": "not countable: " + _exit_words(r.returncode)
+                if r.returncode != 2 else "not countable: no origin, or no default branch known"}
     try:
         d = util.loads(r.stdout)
         branches, wts = d["branches"], d["worktrees"]
@@ -163,7 +170,8 @@ def _report_one(name: str, copy: str, procs: list[dict] | None, root: str, run: 
         merged = sum(1 for b in branches if b["ahead"] == 0)
         unknown = sum(1 for b in branches if b["ahead"] is None) + sum(1 for w in wts if w["ahead"] is None)
         used = set(in_use(procs, [os.path.realpath(w["path"]) for w in wts])) if procs is not None else set()
-        removable = sum(1 for w in wts if w["ahead"] == 0 and not w["kept_because"] and os.path.realpath(w["path"]) not in used)
+        removable = (sum(1 for w in wts if w["ahead"] == 0 and not w["kept_because"] and os.path.realpath(w["path"]) not in used)
+                     if procs is not None else None)
         fetched = d["fetched_at"]
         return {"working_copy": name, "status": "ok", "default": _name(d["default"]), "dirty": d["dirty"] > 0,
                 "last_sweep": d["last_sweep"] if isinstance(d["last_sweep"], str) else None,
@@ -210,8 +218,10 @@ def _worktrees_left(copy: str, keep: list[str], root: str, run: Callable[..., An
         return None
 
 
-def _sweep_one(name: str, copy: str, procs: list[dict] | None, root: str, run: Callable[..., Any]) -> dict:
+def _sweep_one(name: str, copy: str, proc: str, root: str, run: Callable[..., Any]) -> dict:
     row = {"working_copy": name}
+    # Read again for each copy and once more just before its sweep: an earlier copy may have taken minutes.
+    procs = processes(proc)
     if procs is None:
         return {**row, "status": "skipped", "why": "busy: unknown (the process table cannot be read)"}
     try:
@@ -221,7 +231,7 @@ def _sweep_one(name: str, copy: str, procs: list[dict] | None, root: str, run: C
         r, state = None, None
     if r is not None and r.returncode == 2:
         # The tool refuses what is not a sweepable copy (no origin, no default branch): said, and the sweep goes on.
-        return {**row, "status": "refused", "why": ((r.stderr.strip().splitlines() or ["refused"])[-1])[:NAME_MAX]}
+        return {**row, "status": "refused", "why": "not sweepable: no origin, or no default branch known"}
     if not isinstance(state, dict) or not isinstance(state.get("worktrees"), list) or not isinstance(state.get("dirty"), int):
         # The working copy's state could not be read: nothing to judge dirty or busy by, so nothing deleted.
         return {**row, "status": "failed", "why": "its state could not be read; nothing deleted"}
@@ -232,6 +242,12 @@ def _sweep_one(name: str, copy: str, procs: list[dict] | None, root: str, run: C
     runner = busy_runner(procs, roots)
     if runner:
         return {**row, "status": "skipped", "why": f"busy: {runner}"}
+    procs = processes(proc)
+    if procs is None:
+        return {**row, "status": "skipped", "why": "busy: unknown (the process table cannot be read)"}
+    runner = busy_runner(procs, roots)
+    if runner:
+        return {**row, "status": "skipped", "why": f"busy: {runner}"}
     standing = set(in_use(procs, [os.path.realpath(w) for w in worktrees]))
     try:
         r = _child(copy, ["--sweep"], SWEEP_TIMEOUT_S, [w for w in worktrees if os.path.realpath(w) in standing], root, run)
@@ -239,14 +255,21 @@ def _sweep_one(name: str, copy: str, procs: list[dict] | None, root: str, run: C
         return {**row, "status": "failed", "why": f"no end in {SWEEP_TIMEOUT_S} s; what it deleted is deleted"}
     except OSError as e:
         return {**row, "status": "failed", "why": f"cannot run: {type(e).__name__}"}
-    said = (r.stderr.strip().splitlines() or [""])[-1][:NAME_MAX]
-    if r.returncode == 2:
-        return {**row, "status": "refused", "why": said or "refused"}
     keep = [w for w in worktrees if os.path.realpath(w) in standing]
     out = {**row, **_parse_sweep(r.stdout), "worktrees_kept": _worktrees_left(copy, keep, root, run)}
     if r.returncode == 0:
         return {**out, "status": "swept"}
-    return {**out, "status": "swept", "why": said or f"exit {r.returncode}", "recorded": False}
+    # Only a clean exit is a sweep. The precheck above already told a copy the tool refuses from one it does not,
+    # so a 2 here is a git call or a fetch that failed or timed out inside the tool; 1 is a sweep it could not
+    # record; a negative code is a kill. What was deleted before it is still reported. The words are fixed:
+    # the tool's stderr names paths, and no path leaves the account.
+    return {**out, "status": "failed", "why": _exit_words(r.returncode)}
+
+
+def _exit_words(code: int) -> str:
+    if code < 0:
+        return f"killed by signal {-code}"
+    return {1: "swept but the sweep could not be recorded", 2: "a git call or the fetch failed or timed out"}.get(code, f"exit {code}")
 
 
 def takes_no_arguments(request: Any) -> bool:
@@ -266,6 +289,5 @@ def branches_sweep(request: Any, home: str | None = None, root: str | None = Non
         return {"status": "refused", "reason": "branches-sweep takes no arguments"}
     home = os.path.expanduser("~") if home is None else home
     root = _default_root(home) if root is None else root
-    procs = processes(proc)
-    rows = [_sweep_one(n, p, procs, root, run) for n, p in working_copies(home)]
+    rows = [_sweep_one(n, p, proc, root, run) for n, p in working_copies(home)]
     return {"status": "failed" if any(r["status"] == "failed" for r in rows) else "swept", "working_copies": rows}

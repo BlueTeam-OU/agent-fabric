@@ -38,7 +38,9 @@ class Scratch(unittest.TestCase):
         bindir = os.path.join(self.dir, "bin")
         os.makedirs(bindir)
         with open(os.path.join(bindir, "gh"), "w") as fh:
-            fh.write("#!/bin/sh\nexit 1\n")       # a pull request lookup that fails at once: "?" in the report
+            # Every branch has a MERGED pull request, as when GitHub squashed it: the sweep must still keep a branch
+            # with a commit off main (the count cannot prove it merged, the person can).
+            fh.write("#!/bin/sh\necho '[{\"number\":1,\"state\":\"MERGED\"}]'\n")
         os.chmod(os.path.join(bindir, "gh"), 0o755)
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "GIT_"))}
         env.update(PATH=bindir + os.pathsep + os.environ["PATH"], AGENT_FABRIC_STATE_DIR=self.state, GIT_CONFIG_GLOBAL=os.devnull,
@@ -261,6 +263,84 @@ class Sweep(Scratch):
             self.assertEqual(self.sweep(request=bad)["status"], "refused", bad)
         self.assertIn("merged", self.branches(alpha))
 
+    def fake(self, sweep_rc: int, stderr: str = "", stdout: str = ""):
+        """A `run` that answers the --sweep child with a given exit and stderr and everything else for real."""
+        def run(cmd, **kw):
+            if cmd[-1] == "--sweep":
+                return subprocess.CompletedProcess(cmd, sweep_rc, stdout, stderr)
+            return subprocess.run(cmd, **kw)
+        return run
+
+    def test_only_a_clean_exit_is_a_sweep_and_what_a_failure_says_names_no_path(self):
+        self.clone("alpha")
+        for rc, words in ((1, "could not be recorded"), (2, "failed or timed out"), (-9, "killed by signal 9"), (3, "exit 3")):
+            doc = bo.branches_sweep({"op": "branches-sweep"}, home=self.home, root=HERE, proc=self.proc(),
+                                    run=self.fake(rc, f"Traceback...\nValueError: no such file '{self.dir}/agents'"))
+            row = doc["working_copies"][0]
+            self.assertEqual((doc["status"], row["status"]), ("failed", "failed"), rc)
+            self.assertIn(words, row["why"])
+            self.assertNotIn(self.dir, json.dumps(doc))
+
+    def test_a_refusal_at_the_precheck_says_fixed_words_whatever_the_tool_printed(self):
+        self.clone("alpha")
+
+        def run(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, 2, "", f"fabric-branches: cannot read '{self.dir}/projects/registry.json'")
+        row = bo.branches_sweep({"op": "branches-sweep"}, home=self.home, root=HERE, run=run, proc=self.proc())["working_copies"][0]
+        self.assertEqual((row["status"], row["why"]), ("refused", "not sweepable: no origin, or no default branch known"))
+        read = bo.branches(home=self.home, root=HERE, run=run, proc=self.proc(), now=NOW)["working_copies"][0]
+        self.assertEqual((read["status"], read["why"]), ("failed", "not countable: no origin, or no default branch known"))
+
+    def test_a_sweep_that_cannot_record_itself_is_failed_with_what_it_deleted_still_said(self):
+        alpha = self.clone("alpha")
+        with open(self.state, "w") as fh:         # a file where the state directory must be: the record cannot be written
+            fh.write("x")
+        doc = self.sweep()
+        row = self.row(doc, "alpha")
+        self.assertEqual((doc["status"], row["status"], row["deleted"]), ("failed", "failed", ["merged"]))
+        self.assertNotIn("merged", self.branches(alpha))
+        self.assertNotIn(self.dir, json.dumps(doc))
+
+    def test_a_build_that_starts_after_the_first_look_is_seen_before_that_copys_sweep(self):
+        alpha = self.clone("alpha")
+        proc = self.proc()
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd[-1])
+            out = subprocess.run(cmd, **kw)
+            if len(calls) == 1:                    # the precheck is done: a suite starts in the copy
+                self.proc((os.path.realpath(alpha), ["python3", "-m", "unittest", "discover"]))
+            return out
+        row = bo.branches_sweep({"op": "branches-sweep"}, home=self.home, root=HERE, proc=proc, run=run)["working_copies"][0]
+        self.assertEqual((row["status"], row["why"]), ("skipped", "busy: unittest"))
+        self.assertEqual(calls, ["--json"])
+        self.assertIn("merged", self.branches(alpha))
+
+    def test_every_child_runs_with_optional_git_locks_off(self):
+        self.clone("alpha")
+        seen = []
+
+        def run(cmd, **kw):
+            seen.append(kw["env"].get("GIT_OPTIONAL_LOCKS"))
+            return subprocess.run(cmd, **kw)
+        bo.branches(home=self.home, root=HERE, run=run, proc=self.proc(), now=NOW)
+        bo.branches_sweep({"op": "branches-sweep"}, home=self.home, root=HERE, run=run, proc=self.proc())
+        self.assertEqual(set(seen), {"0"})
+
+    def test_a_process_table_that_cannot_be_read_leaves_removable_unknown_not_zero(self):
+        alpha = self.clone("alpha")
+        self.git(alpha, "worktree", "add", "-q", os.path.join(self.dir, "wt-merged"), "merged")
+        r = self.row(bo.branches(home=self.home, root=HERE, proc=os.path.join(self.dir, "no-proc"), now=NOW), "alpha")
+        self.assertIsNone(r["removable_worktrees"])
+        text = ctl.table("branches", ctl.rows([{"login": "a", "host": "h", "address": "h/a"}],
+                                              [{"kind": "reply", "from": "h/a", "op": "branches", "latency_ms": 1,
+                                                "data": {"branches": {"status": "ok", "working_copies": [r]}}}]))
+        self.assertIn("?", text.splitlines()[1])
+
+    def test_the_read_runs_beside_the_loop(self):
+        self.assertIn("branches", agentd.BESIDE_LOOP_OPS)
+
     def test_a_timeout_is_a_failed_row_and_the_sweep_goes_on(self):
         self.clone("alpha")
         calls = []
@@ -318,6 +398,14 @@ class Runners(unittest.TestCase):
                            (["flutter", "test"], "flutter"), (["npm", "test"], "npm"), (["make"], "make")):
             self.assertEqual(bo.runner_of(argv), want, argv)
 
+    def test_the_builds_and_suites_the_fleet_runs_that_the_first_list_missed(self):
+        for argv, want in ((["dotnet", "test"], "dotnet"), (["python3", "-m", "unittest", "discover"], "unittest"),
+                           (["python3", "-m", "pytest", "-q"], "pytest"), (["bash", "-e", "tools/checks/static.sh"], "static.sh"), (["bash", "tools/checks/lint-all.sh"], "lint-all.sh"),
+                           (["node", "/x/node_modules/.bin/jest"], "jest"), (["npx", "vitest"], "npx"), (["bash", "tests/run.sh"], "run.sh")):
+            self.assertEqual(bo.runner_of(argv), want, argv)
+        self.assertIsNone(bo.runner_of(["python3", "-m", "http.server"]))
+        self.assertIsNone(bo.runner_of(["python3", "-m"]))
+
     def test_shells_harnesses_editors_and_a_script_that_is_not_a_test_are_not(self):
         for argv in (["bash"], ["-bash"], ["claude", "--resume"], ["python3", "tools/fabric/fleet.py"], ["vim", "tests/notes.txt"], ["git", "status"],
                      ["sleep", "30"], [], ["python3"], ["fabric-python", "-I", "/x/gzcoord-inbox", "--until-delivery"]):
@@ -371,6 +459,17 @@ class Ctl(unittest.TestCase):
         lines = ctl.table("branches-sweep", self.rows("branches-sweep", doc)).splitlines()
         self.assertIn("deleted x y; kept owed", lines[1])
         self.assertIn("busy: cargo", lines[2])
+
+    def test_the_read_tables_counts_are_escaped_too(self):
+        hostile = "\x1b]0;pwned\x07"
+        w = {"working_copy": "a", "status": "ok", "last_sweep": hostile, "dirty": False, "fetched_age_s": 1, "branches": hostile,
+             "merged": hostile, "worktrees": hostile, "removable_worktrees": hostile, "unknown": hostile}
+        text = ctl.table("branches", self.rows("branches", {"status": "ok", "working_copies": [w]}))
+        self.assertNotIn("\x1b", text)
+        self.assertNotIn("\x07", text)
+        w.update(branches=3, merged=True, worktrees=None)
+        text = ctl.table("branches", self.rows("branches", {"status": "ok", "working_copies": [w]}))
+        self.assertIn("3", text.splitlines()[1])
 
     def test_what_an_account_sends_is_escaped_in_the_table(self):
         hostile = "evil\x1b]0;pwned\x07name"
