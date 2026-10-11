@@ -35,6 +35,7 @@
     "fabric-fleet": "bin/fabric-fleet",
     "fabric-plan": "bin/fabric-plan",
     "fabric-repo-settings": "bin/fabric-repo-settings",
+    "fabric-repo-policy": "bin/fabric-repo-policy",
     "fabric-ssh-hosts": "bin/fabric-ssh-hosts"
   },
   "replaces": {
