@@ -1042,6 +1042,17 @@ class ArmRun(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         # A required check named in a direct policy holds nothing on GitHub (no ruleset): green is still waited for.
         with_checks = arm_policy.validate({"mode": "direct", "commits": {"min": 1}, "required_checks": [{"context": "ci"}]})
+        # No check at all on a direct head: it merges on the head's review (the owner's rule for CI-less repositories).
+        no_ci = arm_policy.validate({"mode": "direct", "commits": {"min": 1}})
+        rc, out = self.run_arm(no_ci, 1, checks="none-yet", live=merged)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("no check on the head", out)
+        rc, _ = self.run_arm(no_ci, 1, checks="none-yet", reviewed=False, live=merged)
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        # A repository with no required check that is not direct still waits for green.
+        auto_none = arm_policy.validate({"mode": "auto", "commits": {"min": 1}})
+        rc, _ = self.run_arm(auto_none, 1, checks="none-yet", live=merged)
+        self.assertTrue(str(rc).startswith("refused"), rc)
         for checks in ("red:ci", "pending"):
             rc, _ = self.run_arm(with_checks, 3, checks=checks, live=merged)
             self.assertTrue(str(rc).startswith("refused"), (checks, rc))

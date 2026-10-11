@@ -788,11 +788,17 @@ def arm(argv: list[str]) -> int:
     if policy["mode"] == "direct" or not policy["required_checks"]:
         checks = str(row.get("checks"))
         held = "is direct" if policy["mode"] == "direct" else "has no required check"
-        if checks != "green":
+        # The owner's rule for a direct repository with no CI at all (blueteam.ee, gzapi.ge, gzapp.decks,
+        # gzapi.brand): a head with no check merges on the review of its head and no open thread, both gated
+        # above for every direct PR; a check that exists must still be green.
+        if policy["mode"] == "direct" and checks == "none-yet":
+            say("direct repository with no check on the head: it merges on the review of its head alone")
+        elif checks != "green":
             raise refuse(f"{repo} {held}, so nothing but this gate keeps a red or unfinished head from"
                          f" merging: every check on the head must be green first (pr-gate reads {checks})")
-        say("direct repository: every check on the head is green" if policy["mode"] == "direct"
-            else "no required check on this repository: every check on the head is green")
+        else:
+            say("direct repository: every check on the head is green" if policy["mode"] == "direct"
+                else "no required check on this repository: every check on the head is green")
 
     comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}{f', role: {role}' if by_role else ''}, head {head[:8]}."
     if waived_by:
