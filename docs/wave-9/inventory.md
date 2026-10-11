@@ -6,7 +6,7 @@ The lane is who may commit the port: `python-dev` is the contributor entry of `p
 
 ## Batches
 
-A batch is one pull request: the module, the forwarder, the bash test running unchanged against it as the oracle (rule 5), then the bash test replaced by a Python one case for case, and the allowlist entries removed. Batches 1 to 9 are independent; batch 10 is last, because `tests/run.sh` runs the bash suites the others retire.
+A batch is one pull request: the module, the forwarder, the bash test running unchanged against it as the oracle (rule 5), then the bash test replaced by a Python one case for case, and the allowlist entries removed. Batches 1 to 9 are independent; batch 10 is last, because `tests/run.sh` runs the bash suites the others retire. The parallel runner `tests/run.sh` gained in #202 stays bash until then: porting the runner while it still runs the suites the other batches retire would port it twice; batch 10 ports it whole, the parallelism included.
 
 | batch | what | files | lines | lane |
 |---|---|---|---|---|
