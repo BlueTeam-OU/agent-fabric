@@ -21,7 +21,7 @@ run() { echo; echo "== $1"; shift; "$@" || fail=$((fail+1)); }
 # os.tmpdir(), Python's tempfile — writes there and nowhere else. At the
 # end, every entry in it is a failure named by path: seventy such
 # directories per run had accumulated to 120 MB before anyone looked
-# (tests/scratch.mjs). The directory itself goes when the run ends,
+# (ADR-021). The directory itself goes when the run ends,
 # however it ends; and because it is this run's alone, a second run, a
 # pip install or an editor writing into the account's directory at the
 # same time is never mistaken for a leak. tests/leak-check.sh is the
