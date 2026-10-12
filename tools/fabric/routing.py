@@ -419,6 +419,11 @@ PROVIDERS = tuple(ADAPTERS)
 # layers name one. An engine provider (openai) is routed like the others and
 # launches nothing.
 LAUNCH_PROVIDERS = tuple(n for n, a in ADAPTERS.items() if a.launch)
+# Where a resolved openai level actually leaves: fabric-review --engine codex
+# sends it on its own gateway only; the environment's gateway gets a level
+# only when one is asked for (review of #224, F2). Printed beside the level by
+# fabric-status and fabric-model, so neither claims more than is sent.
+ENGINE_EFFORT_NOTE = "sent on --gateway chatgpt"
 
 
 def effort_spelling(provider: str, level: str | None) -> list[str]:

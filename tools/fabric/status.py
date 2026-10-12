@@ -398,7 +398,8 @@ def build_report(root, environ=None, cred_environ=None):
             try:
                 r = routing.resolve(klass, name, binding.get("role"), ctx["agent"], local, root=root)
                 eff = routing.effort_phrase(r.get("effort"))
-                engines[f"{name} {klass}"] = r["composite"] + " (from %s)" % r["source"] + (" " + eff if eff else "")
+                engines[f"{name} {klass}"] = r["composite"] + " (from %s)" % r["source"] + (
+                    " %s (%s)" % (eff, routing.ENGINE_EFFORT_NOTE) if eff else "")
             except (KeyError, ValueError) as exc:
                 engines[f"{name} {klass}"] = "unresolved: %s" % exc
     checks = routing.check(root)

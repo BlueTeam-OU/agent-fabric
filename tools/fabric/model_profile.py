@@ -224,6 +224,8 @@ def print_list(provider: str, rows: dict[str, Any]) -> None:
             # asked -> served whenever they differ, the same phrasing
             # --print and fabric-status use (routing.effort_phrase).
             level = routing.effort_phrase(e).removeprefix("effort ") or "(no level configured for this class)"
+            if not routing.ADAPTERS[provider].launch and e.get("level"):
+                level += f" ({routing.ENGINE_EFFORT_NOTE})"
             print(f"  {target:18} {level:38} {row['source'] or '-'}")
             continue
         if row["via"] == "harness":

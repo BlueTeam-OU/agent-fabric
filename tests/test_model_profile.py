@@ -293,6 +293,7 @@ def test_the_codex_engine_column_lists_and_sets_review_only(f: Fixture) -> None:
     j = json.loads(f.run("list", "--json").stdout)
     assert set(j["providers"]) == {"openrouter", "anthropic", "openai"}, j["providers"].keys()
     assert j["providers"]["openai"]["code-review-effort"]["model"] == "high", j["providers"]["openai"]
+    assert "high (sent on --gateway chatgpt)" in p.stdout, p.stdout
     p = f.run("set", "--provider", "openai", "code-low", "gpt-6.1-sol")
     assert p.returncode == 1 and "not a target on openai" in p.stderr, p.stderr
     p = f.run("set", "--provider", "openai", "session", "gpt-6.1-sol")
