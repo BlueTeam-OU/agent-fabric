@@ -1164,7 +1164,8 @@ def case_model_profiles_take_an_openai_layer_for_the_review_only() -> None:
         for layer, why in (({"session": "gpt-6.1-sol"}, "routing/profiles.json"),
                            ({"capabilities": {"code-high": "gpt-6.1-sol"}}, "routing/profiles.json"),
                            ({"capabilities": {"code-review": "claude-opus-5-5"}}, "routing/profiles.json"),
-                           ({"capabilities": {"code-review": "gpt-unadmitted"}}, "review-grade")):
+                           ({"capabilities": {"code-review": "gpt-unadmitted"}}, "review-grade"),
+                           ({"effort": {"code-review": "max"}}, "routing/profiles.json")):
             doc["agents"]["web-dev-01"]["providers"] = {"openai": layer}
             write_profiles(fabric, doc)
             code, out = run_lint(fabric)
