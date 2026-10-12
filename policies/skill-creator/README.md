@@ -21,6 +21,7 @@ Things to know before using it:
   standard library. That is why this is vendored upstream code and not
   fabric code: ADR-040 (standard library only) governs the fabric's own
   Python, not a third party's.
-- Bootstrap installs `SKILL.md` alone into `~/.claude/skills/skill-creator/`
-  (`SKILLS` in `tools/fabric/bootstrap.py`); the scripts, agents,
-  references and viewer stay in this checkout, so run them from here by path.
+- Bootstrap's `TREE_SKILLS` (`tools/fabric/bootstrap.py`) installs the whole
+  tree into `~/.claude/skills/skill-creator/`, for the `fabric-coordinator`
+  and `architect-cto` roles only; for any other role it is not installed and
+  an earlier copy is removed (a file the fabric did not write keeps it).
