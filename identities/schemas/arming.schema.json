@@ -83,6 +83,8 @@
         }
       }
     },
+    "reviews": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["claude", "codex"]}, "description": "The review engines whose review of the current head every PR needs before fabric-pr arm arms it, with no open P1 or P2 (agent-fabric ADR-053 rule 6): claude is the review class's review, codex one posted with --model codex. A list replaces the fleet's, never merges."},
+    "boundary_reviews": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["claude", "codex"]}, "description": "The engines a security-boundary change needs in addition to reviews (a waived boundary is judged as none)."},
     "bots": {
       "type": "object",
       "description": "What a bot's PRs may be armed without a person.",
