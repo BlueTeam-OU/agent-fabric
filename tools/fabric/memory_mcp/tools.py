@@ -281,7 +281,7 @@ TOOLS = {
                      "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
                      "max_tokens": {"type": "integer", "minimum": MIN_TOKENS, "maximum": MAX_TOKENS},
                      "expand": {"type": "integer", "minimum": 0, "maximum": 1,
-                                "description": "1 adds, after the hits, the sections linked to the strong ones (a shared path, a [[link]]); default 0"}},
+                                "description": "1 adds, after the hits, the sections that link, or are linked by, the strong ones through a [[link]]; default 0"}},
                     ["query"]),
     "memory_read": (read, "Sections by id (from memory_find), each with its provenance and its related slices' cue lines, cut at "
                           "max_tokens; a slice id alone lists its sections.",

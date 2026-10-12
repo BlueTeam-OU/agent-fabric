@@ -89,7 +89,8 @@ def main() -> int:
         print(f"{label:30s} {r['with_neighbours']:>6d}/{r['queries']:<5d} {r['mean_added']:>6.2f} (max {r['max_added']}) {r['mean_tokens']:>12.1f} {r['recovered']:>6d}/{r['expected']:<2d} {judged:>21s}")
     row("no expansion", {**base, "with_neighbours": 0, "mean_added": 0, "max_added": 0, "mean_tokens": 0, "recovered": 0,
                           "useful": 0, "related": 0, "noise": 0, "unlabelled": 0})
-    row("expand 1 (defaults)", base)
+    row("expand 1 (defaults: direct)", base)
+    row("  all kinds of key", run(index, queries, kinds=mi.KEY_KINDS))
     row("  seeds: weak hits too", run(index, queries, seed_bands=("strong", "weak")))
     row("  from the top hit only", run(index, queries, from_top=1))
     row("  one per hit", run(index, queries, per_hit=1))
