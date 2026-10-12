@@ -14,6 +14,7 @@ adapter, and is computed here every time, never stored.
 
     routing.py resolve code-high                      # openrouter by default
     routing.py resolve code-high --provider anthropic
+    routing.py resolve code-review --provider openai  # the Codex review engine's model
     routing.py table [--provider P]
     routing.py check                                  # validate the canonical files
     routing.py shim <model>                           # the family shim a bare model id needs, if any
@@ -21,6 +22,12 @@ adapter, and is computed here every time, never stored.
     routing.py pins [--provider P] [--me]             # the file-pinned classes (the review class): <class> <alias> <model>
     routing.py efforts [--provider P] [--me]          # every class's level: <class> <level|-> <outcome>
     routing.py session-effort [--provider P] [--me]   # the session's level, or nothing
+
+Three providers. `openrouter` and `anthropic` are the two Claude Code launch
+paths and serve every class; `openai` is the Codex review engine (agent-fabric
+ADR-053), an `engine` resolution: it serves code-review alone, launches no
+session, exports nothing, and its level rides Codex's command line
+(effort_spelling). LAUNCH_PROVIDERS are the first two.
 
 Profile layers (routing/profiles.json and the agent's local override) may
 override a class's model and name the session's; the shim is looked up on
@@ -62,6 +69,10 @@ HARNESS_REF = re.compile(r"^(haiku|sonnet|opus|fable)$")
 # provider's column holds when the fabric decides a tier's model on the
 # vanilla path rather than leaving it to the harness's own default.
 NATIVE_ID = re.compile(r"^claude-[a-z0-9.-]+(\[1m\])?$")
+# An OpenAI model id as Codex names it (`codex exec --model gpt-…`): bare, no
+# vendor prefix — the openai column's vocabulary, as a native claude-… id is
+# the anthropic column's.
+OPENAI_ID = re.compile(r"^(gpt|o[0-9]|codex)[a-z0-9.-]*$")
 PRESET = re.compile(r"^@preset/[a-z0-9-]+$")
 COMPOSITE = re.compile(r"^~?[a-z0-9-]+/[a-z0-9.-]+(:[a-z]+)?(\[1m\])?(@preset/[a-z0-9-]+)?$")
 
@@ -77,6 +88,18 @@ class ProviderAdapter:
     pattern: re.Pattern        # a capability model reference
     runtime: re.Pattern        # what the launcher may hand to --model (a composite on the broker)
     describe: str
+    # The classes this provider serves; None is every class. A launch path
+    # (Claude Code on the broker or plain claude) serves all five, because a
+    # session dispatches any of them. A one-shot engine serves what it runs:
+    # binding a class nobody runs there would be a model the fabric names and
+    # never uses, and check() refuses it rather than let it read as a decision.
+    serves: frozenset[str] | None = None
+    # A launch path has a session, profile sessions, exports and agent
+    # files; an engine has none of them.
+    launch: bool = True
+
+    def serves_class(self, klass: str) -> bool:
+        return self.serves is None or klass in self.serves
 
     def is_model(self, value: Any) -> bool:
         return isinstance(value, str) and bool(self.pattern.fullmatch(value))
@@ -249,7 +272,37 @@ class AnthropicAdapter(ProviderAdapter):
         return "anthropic/" + model
 
 
-ADAPTERS: dict[str, ProviderAdapter] = {a.name: a for a in (OpenRouterAdapter(), AnthropicAdapter())}
+class OpenAIAdapter(ProviderAdapter):
+    """The Codex review engine's provider (agent-fabric ADR-053): `fabric-review
+    --engine codex` runs `codex exec --model <id>` one-shot through a gateway
+    of its own. Codex is review-only today, so the column binds code-review and
+    nothing else, and there is no session, export or agent file: the model and
+    the level reach Codex on its command line."""
+    name, resolution = "openai", "engine"
+    pattern, runtime = OPENAI_ID, OPENAI_ID
+    describe = f"an OpenAI model id as Codex names it, bare ({OPENAI_ID.pattern})"
+    serves = frozenset({"code-review"})
+    launch = False
+    # Codex CLI has no --effort and no per-agent file: the level rides the one
+    # run's config, `-c model_reasoning_effort="<level>"` (ADR-006 §6), spelled
+    # by effort_spelling() below.
+    effort_channel = "session"
+    # Codex 0.162.1's model_reasoning_effort takes six levels — every level of
+    # the scale but max. gpt-6.1-sol is the decided model (the owner,
+    # 2026-10-12) and is listed by name; the catch-all is Codex's own
+    # vocabulary for a model given by --model, whose per-model set nobody has
+    # measured: it stops a `max` from reaching Codex as a value it refuses, and
+    # it claims no more than Codex's config does.
+    effort_by_model = (
+        ("gpt-6.1-sol*", ("none", "minimal", "low", "medium", "high", "xhigh"), {}),
+        ("*", ("none", "minimal", "low", "medium", "high", "xhigh"), {}),
+    )
+
+    def openrouter_id(self, model: str) -> str:
+        return "openai/" + model
+
+
+ADAPTERS: dict[str, ProviderAdapter] = {a.name: a for a in (OpenRouterAdapter(), AnthropicAdapter(), OpenAIAdapter())}
 
 
 def adapter(provider: str) -> ProviderAdapter:
@@ -362,6 +415,23 @@ def effort_phrase(effort: dict[str, Any] | None) -> str:
 
 
 PROVIDERS = tuple(ADAPTERS)
+# The providers a Claude Code session launches on: each has a session, and its
+# layers name one. An engine provider (openai) is routed like the others and
+# launches nothing.
+LAUNCH_PROVIDERS = tuple(n for n, a in ADAPTERS.items() if a.launch)
+
+
+def effort_spelling(provider: str, level: str | None) -> list[str]:
+    """The argv words that carry `level` on a provider whose channel is the
+    run's command line — Codex: `-c model_reasoning_effort="<level>"` — or []
+    when there is no level to send. An agent-file channel is written by
+    install-agent-files.sh, never spelled here."""
+    ad = adapter(provider)
+    if not level:
+        return []
+    if ad.effort_channel != "session":
+        raise ValueError(f"{provider} carries effort by {ad.effort_channel!r}, not on a command line")
+    return ["-c", f"model_reasoning_effort={json.dumps(level)}"]
 LAYERS = ("defaults", "role", "agent", "local")
 LOCAL_OVERRIDE = "model-profile.local.json"
 
@@ -440,15 +510,25 @@ def normalize_layer(layer: Any, where: str = "", root: str | None = None) -> dic
             if key not in ("session", "capabilities", "effort"):
                 raise ValueError(f"{p}.{key}: not a field of a provider layer (session, capabilities, effort); "
                                  "a class is set under capabilities, a tier alias is never named")
+        ad = ADAPTERS[provider]
+
+        def served(name: str, field: str) -> str:
+            klass(name, field)
+            if not ad.serves_class(name):
+                raise ValueError(f"{field}: {name!r} is not served on {provider} "
+                                 f"(it serves {', '.join(sorted(ad.serves or ()))})")
+            return name
         if "session" in body:
+            if not ad.launch:
+                raise ValueError(f"{p}.session: {provider} launches no session; it is a review engine")
             out[provider]["session"] = session(provider, body["session"], p + ".session")
         for name, model in _object(body.get("capabilities"), p + ".capabilities").items():
-            out[provider]["capabilities"][klass(name, p + ".capabilities")] = \
-                ADAPTERS[provider].model(model, f"{p}.capabilities.{name}")
+            out[provider]["capabilities"][served(name, p + ".capabilities")] = \
+                ad.model(model, f"{p}.capabilities.{name}")
         # Effort is layered like a model (the owner, 2026-09-23), but its
         # vocabulary is the fabric's — a level, never a provider spelling.
         for name, lvl in _object(body.get("effort"), p + ".effort").items():
-            out[provider]["effort"][klass(name, p + ".effort")] = level(lvl, f"{p}.effort.{name}")
+            out[provider]["effort"][served(name, p + ".effort")] = level(lvl, f"{p}.effort.{name}")
     return out
 
 
@@ -517,6 +597,9 @@ def resolve(capability: str, provider: str = "openrouter", role: str | None = No
     prov = caps["providers"].get(provider)
     if prov is None:
         raise KeyError(f"unknown provider {provider!r}; known: {sorted(caps['providers'])}")
+    if provider in ADAPTERS and not ADAPTERS[provider].serves_class(capability):
+        raise KeyError(f"provider {provider!r} serves only {', '.join(sorted(ADAPTERS[provider].serves or ()))}, "
+                       f"not {capability!r}")
     model = prov["models"].get(capability)
     source = f"capabilities.providers.{provider}"
     override = merged_provider(provider, role, agent, local, root)["capabilities"].get(capability)
@@ -542,6 +625,13 @@ def resolve(capability: str, provider: str = "openrouter", role: str | None = No
                 "effort": effort_for(capability, provider, model, role, agent, local, root)}
     if not model:
         raise KeyError(f"provider {provider!r} binds no model to {capability!r}")
+    if prov["resolution"] == "engine":
+        # The model goes on the engine's own command line: no shim (that is a
+        # Claude Code wire-protocol fix), no tier alias, no export, no file.
+        return {"capability": capability, "provider": provider, "model": model, "shim": None,
+                "composite": model, "resolution": "engine", "source": source,
+                "alias": None, "pinned": True, "via": "engine",
+                "effort": effort_for(capability, provider, model, role, agent, local, root)}
     shim = shim_for(model, load_shims(root), harness)
     return {"capability": capability, "provider": provider, "model": model, "shim": shim,
             "composite": composite(model, shim), "resolution": "model-id", "source": source,
@@ -581,6 +671,8 @@ def resolve_session(role: str | None = None, agent: str | None = None,
     says nothing about plain claude and is skipped, and the skip is
     reported. A model of another vendor cannot run there, so none at all
     is refused rather than mistranslated."""
+    if not adapter(provider).launch:
+        raise KeyError(f"provider {provider!r} launches no session; it is a review engine (agent-fabric ADR-053)")
     merged = merged_provider(provider, role, agent, local, root)
     entry = merged["session"]
     broker = merged_provider("openrouter", role, agent, local, root)["session"] if provider == "anthropic" else None
@@ -615,6 +707,8 @@ def session_effort(provider: str = "anthropic", role: str | None = None, agent: 
     whose level to take, as routing/profiles.json's own `session` may name
     a class. Naming the class keeps the session's thinking with the
     session's model, so one edit moves both."""
+    if not adapter(provider).launch:
+        return None
     doc = load_effort(root)
     want = doc.get("session")
     if not want:
@@ -628,12 +722,20 @@ def session_effort(provider: str = "anthropic", role: str | None = None, agent: 
     return served
 
 
-def review_grade_ok(model: str, root: str | None = None) -> bool:
+def review_grade_ok(model: str, root: str | None = None, provider: str | None = None) -> bool:
     """Admitted by routing/policies/review-grade.json, whose entries are
-    OpenRouter ids; a native id (claude-…) is the same model spelled as
-    plain claude names it, so it is compared under `anthropic/`."""
-    if ADAPTERS["anthropic"].is_model(model):
-        model = ADAPTERS["anthropic"].openrouter_id(model)
+    vendor/model ids; a provider's own spelling is compared as its adapter's
+    openrouter_id: a native id (claude-…) under `anthropic/`, a Codex id
+    (gpt-…) under `openai/`. Without `provider`, a bare id is recognised by
+    the one non-broker adapter whose vocabulary it is (the two are disjoint)."""
+    if provider is not None:
+        if provider != "openrouter" and ADAPTERS[provider].is_model(model):
+            model = ADAPTERS[provider].openrouter_id(model)
+    else:
+        for ad in ADAPTERS.values():
+            if ad.name != "openrouter" and ad.is_model(model):
+                model = ad.openrouter_id(model)
+                break
     return model in (load_review_grade(root).get("models") or [])
 
 
@@ -654,9 +756,14 @@ def check(root: str | None = None) -> list[str]:
         for klass, model in (prov.get("models") or {}).items():
             if klass not in classes:
                 findings.append(f"capabilities.json: providers.{name} binds unknown class {klass!r}")
+            elif not ad.serves_class(klass):
+                findings.append(f"capabilities.json: providers.{name} binds {klass!r}, which {name} does not serve "
+                                f"(it serves {', '.join(sorted(ad.serves or ()))}); a model nothing runs is not a "
+                                "decision")
+                continue
             findings += ad.column_findings(klass, model, f"capabilities.json: providers.{name}")
         for klass in classes:
-            if klass not in (prov.get("models") or {}):
+            if ad.serves_class(klass) and klass not in (prov.get("models") or {}):
                 findings.append(f"capabilities.json: providers.{name} binds no model to {klass!r}")
     for entry in load_shims(root):
         if not PRESET.fullmatch(entry.get("shim") or ""):
@@ -682,7 +789,7 @@ def check(root: str | None = None) -> list[str]:
     for name, prov in (caps.get("providers") or {}).items():
         model = (prov.get("models") or {}).get(grade.get("capability"))
         if model and name in ADAPTERS and ADAPTERS[name].is_model(model):
-            if not review_grade_ok(model, root):
+            if not review_grade_ok(model, root, name):
                 findings.append(f"capabilities.json: providers.{name}.{grade.get('capability')} {model!r} "
                                 "is not in routing/policies/review-grade.json")
     # The Claude Code binding: every class rides a harness tier alias (the
@@ -747,10 +854,51 @@ def check(root: str | None = None) -> list[str]:
         ack = ((effort.get("providers") or {}).get(provider, {}).get("classes") or {})
         notes = ((effort.get("providers") or {}).get(provider, {}).get("notes") or {})
         base = (effort.get("classes") or {})
+        # `chosen`: the classes whose entry under providers.<p>.classes is a
+        # level DECIDED for that provider, not a fit of the class's level to a
+        # model that admits less. An acknowledgement is re-judged against the
+        # model (it goes stale when the model moves); a choice is judged on
+        # whether the model takes it exactly, since a choice the model then
+        # fits to something else would be the silent re-tuning this file
+        # exists to stop. The Codex engine's `high` (the owner, 2026-10-12)
+        # is the first: the review class asks medium everywhere else.
+        chosen = (effort.get("providers") or {}).get(provider, {}).get("chosen") or []
+        if not isinstance(chosen, list):
+            findings.append(f"routing/effort.json: providers.{provider}.chosen is {chosen!r}, not a list of classes")
+            chosen = []
+        for klass in chosen:
+            if klass not in ack:
+                findings.append(f"routing/effort.json: providers.{provider}.chosen names {klass!r}, which has no "
+                                f"level in providers.{provider}.classes")
+        for klass in sorted(set(ack) - classes):
+            findings.append(f"routing/effort.json: providers.{provider}.classes.{klass} is not a capability class")
+        for klass in sorted(set(ack) & classes):
+            if not ADAPTERS[provider].serves_class(klass):
+                findings.append(f"routing/effort.json: providers.{provider}.classes.{klass}: {provider} does not "
+                                f"serve {klass}; a level for a class nothing runs there is not a decision")
         for klass in classes:
             try:
                 res = resolve(klass, provider, root=root)
             except KeyError:
+                continue
+            if klass in chosen:
+                if klass not in notes:
+                    findings.append(
+                        f"routing/effort.json: providers.{provider}.classes.{klass} is chosen with no matching "
+                        f"entry in providers.{provider}.notes — a provider's own level needs its reason.")
+                if ack[klass] is not None and ack[klass] not in scale:
+                    findings.append(f"routing/effort.json: providers.{provider}.classes.{klass} is "
+                                    f"{ack[klass]!r}, not one of {', '.join(scale)}")
+                    continue
+                if res["via"] == "harness" or not res.get("model"):
+                    continue
+                served, _ = adapter(provider).effort_for(res["model"], ack[klass], scale) \
+                    if ack[klass] else (None, "unset")
+                if served != ack[klass]:
+                    findings.append(
+                        f"routing/effort.json: providers.{provider}.classes.{klass} chooses {ack[klass]!r}, and "
+                        f"{res['model']} on {provider} gives {served!r}; a chosen level is one the model takes "
+                        "as it is — re-decide it for this model.")
                 continue
             if klass in ack:
                 # An acknowledgement is a committed statement about a
@@ -814,6 +962,12 @@ def check(root: str | None = None) -> list[str]:
         # base level, so it is honoured here directly: when the session
         # rides that class's own model, the class's decision is the
         # session's too (#57 re-review N1).
+        if not ADAPTERS[provider].launch:
+            # An engine has no session to judge (resolve_session refuses it).
+            if "session" in ((effort.get("providers") or {}).get(provider, {}) or {}):
+                findings.append(f"routing/effort.json: providers.{provider}.session: {provider} launches no "
+                                "session; delete it (and its note)")
+            continue
         sess_want = sess
         if sess in base:
             try:
@@ -936,6 +1090,8 @@ def main(argv: list[str] | None = None) -> int:
         # a coding class only warns (the owner, 2026-09-23).
         role, agent, local = _whose(args)
         for klass in load_capabilities(root)["classes"]:
+            if not adapter(args.provider).serves_class(klass):
+                continue  # an engine provider lists the classes it runs, nothing else
             e = resolve(klass, args.provider, role, agent, local, root=root).get("effort") or {}
             print(f"{klass} {e.get('level') or '-'} {e.get('outcome') or 'unset'}")
         return 0
@@ -968,7 +1124,13 @@ def main(argv: list[str] | None = None) -> int:
         print("routing: clean" if not findings else f"routing: {len(findings)} finding(s)")
         return 1 if findings else 0
     if args.cmd == "resolve":
-        res = resolve(args.capability, args.provider, args.role, args.agent, root=root)
+        try:
+            res = resolve(args.capability, args.provider, args.role, args.agent, root=root)
+        except (KeyError, ValueError) as exc:
+            # One line a caller can quote: an unknown provider or class, a
+            # column that binds nothing, a malformed layer.
+            print(f"routing: {exc.args[0] if exc.args else exc}", file=sys.stderr)
+            return 1
         if args.json:
             print(json.dumps(res, indent=2, sort_keys=True))
         else:
@@ -976,8 +1138,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     caps = load_capabilities(root)
     for klass in caps["classes"]:
+        if not adapter(args.provider).serves_class(klass):
+            continue
         res = resolve(klass, args.provider, args.role, args.agent, root=root)
         print(f"{klass:12} -> {res['model']:32} shim: {res['shim'] or '-':28} => {res['composite']}")
+    if not adapter(args.provider).launch:
+        return 0  # an engine has no session
     s = resolve_session(args.role, args.agent, root=root, provider=args.provider)
     print(f"{'session':12} -> {s['model']:32} shim: {s['shim'] or '-':28} => {s['composite']}")
     return 0

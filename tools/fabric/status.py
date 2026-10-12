@@ -45,7 +45,8 @@ launch role stamp), one `DRIFT` line per drift, `project`, `session`,
 `jobs`, a blank line, `api`, `session model`, `session effort` (only when
 asked or stamped), `launch profile` (only when stamped), `pins`,
 `credentials`, `claude sign-in`, a blank line, `capabilities on <provider>`
-and one line per class, `routing`, `memory` (only when there is something
+and one line per class, one `review engine <provider> <class>` line per
+class an engine provider serves (the Codex engine's openai column), `routing`, `memory` (only when there is something
 to count), `moveto` (only when installed), `journal`, `python`, `agentd`
 (what the account's installed control agent unit runs), `control plane`.
 
@@ -55,7 +56,8 @@ list or null), session_effort ({asked, reported, launched} or null),
 undrained_memories ({drainable, no_roles_class, since, dir} or null), jobs
 ({active, queued, blocked, delivered} or {error}), api ({provider, path,
 base_url_host, session_model, launch_profile, pins, credentials,
-claude_sign_in}), capabilities ({class: line}), routing_check ("clean" or
+claude_sign_in}), capabilities ({class: line}), engines ({"<provider> <class>":
+line}, the engine providers' classes), routing_check ("clean" or
 a list), host_tools ({moveto, python, journal, agentd}; agentd's status
 python, refused, drift, none or unknown), control_plane.
 """
@@ -380,6 +382,25 @@ def build_report(root, environ=None, cred_environ=None):
                           "launched": environ.get("AGENT_FABRIC_LAUNCH_EFFORT")}
     except (KeyError, ValueError):
         pass
+    # --- the engine providers: routed, never launched ------------------------
+    # The openai column is the Codex review engine's (agent-fabric ADR-053):
+    # no session runs on it, so it is not "capabilities on <provider>", but
+    # what `fabric-review --engine codex` would run is as much this login's
+    # routing as the session's classes are, layers included.
+    engines = {}
+    for name in routing.PROVIDERS:
+        ad = routing.ADAPTERS[name]
+        if ad.launch or name not in (routing.load_capabilities(root).get("providers") or {}):
+            continue
+        for klass in routing.load_capabilities(root)["classes"]:
+            if not ad.serves_class(klass):
+                continue
+            try:
+                r = routing.resolve(klass, name, binding.get("role"), ctx["agent"], local, root=root)
+                eff = routing.effort_phrase(r.get("effort"))
+                engines[f"{name} {klass}"] = r["composite"] + " (from %s)" % r["source"] + (" " + eff if eff else "")
+            except (KeyError, ValueError) as exc:
+                engines[f"{name} {klass}"] = "unresolved: %s" % exc
     checks = routing.check(root)
 
     undrained = undrained_memories(ctx, root)
@@ -455,6 +476,7 @@ def build_report(root, environ=None, cred_environ=None):
                 "credentials": credentials or "none visible in the environment",
                 "claude_sign_in": claude_sign_in(sign_env, sign_file, environ)},
         "capabilities": classes,
+        "engines": engines,
         "routing_check": "clean" if not checks else checks,
         "host_tools": {"moveto": moveto, "python": python, "journal": journal, "agentd": agentd, "claude": claude, "inbox": inbox},
         "control_plane": root,
@@ -624,6 +646,9 @@ def render(report, base):
     p(f"capabilities on {provider} (fabric-model list for every choice, per provider, with its source):")
     for k, v in report["capabilities"].items():
         p(f"  {k:12} {v}")
+    for k, v in (report.get("engines") or {}).items():
+        # "openai code-review": the Codex review engine's column, never a launch.
+        p(f"review engine {k} {v}  (fabric-review --engine codex)")
     checks = report["routing_check"]
     p(f"routing      {checks if isinstance(checks, str) else str(len(checks)) + ' finding(s): ' + '; '.join(checks)}")
     if undrained:

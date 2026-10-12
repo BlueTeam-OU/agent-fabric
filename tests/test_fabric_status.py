@@ -207,6 +207,12 @@ def main() -> int:
                 "pins         none (harness defaults)", "credentials  none visible in the environment", "claude sign-in own /login (none recorded)", "",
                 "capabilities on anthropic (fabric-model list for every choice, per provider, with its source):",
                 "  code-low     haiku", "routing      clean", "control plane /r"])
+            report["engines"] = {"openai code-review": "gpt-6.1-sol (from capabilities.providers.openai) effort high"}
+            check("an engine provider's class follows the capabilities, named as the Codex engine's",
+                  status.render(report, "")[-4:-1] == [
+                      "  code-low     haiku",
+                      "review engine openai code-review gpt-6.1-sol (from capabilities.providers.openai) effort high"
+                      "  (fabric-review --engine codex)", "routing      clean"])
             report.update(launched_role="r", drift=["d1", "d2"], undrained_memories={"drainable": 1, "no_roles_class": 2, "since": "the last drain", "dir": "/m"},
                           session_effort={"asked": "high", "reported": "high", "launched": None}, routing_check=["f1", "f2"])
             report["host_tools"] = {"moveto": {"installed": True, "status": "drift", "detail": "behind"}}
@@ -384,7 +390,7 @@ def main() -> int:
         obj = json.loads(b.stdout)
         check("--json is one object with the frozen keys", list(obj) == [
             "agent", "host", "placement", "role", "project", "working_copy", "session", "binding_updated", "launched_role",
-            "launch_prompt_digest", "drift", "session_effort", "undrained_memories", "jobs", "api", "capabilities", "routing_check",
+            "launch_prompt_digest", "drift", "session_effort", "undrained_memories", "jobs", "api", "capabilities", "engines", "routing_check",
             "host_tools", "control_plane"])
         check("…whose api keys are frozen too", list(obj["api"]) == [
             "provider", "path", "base_url_host", "session_model", "launch_profile", "pins", "credentials", "claude_sign_in"])

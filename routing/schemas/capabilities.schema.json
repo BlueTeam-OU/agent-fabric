@@ -53,10 +53,11 @@
           "additionalProperties": false,
           "properties": {
             "resolution": {
-              "description": "harness: values are native model ids the harness resolves, or null for its own default of the tier the class rides. model-id: values are canonical vendor/model ids the launcher resolves, shims applied.",
+              "description": "harness: values are native model ids the harness resolves, or null for its own default of the tier the class rides. model-id: values are canonical vendor/model ids the launcher resolves, shims applied. engine: values are the model id a one-shot engine is run with on its own command line (the openai column: Codex, a bare gpt-… id); no session, export, shim or agent file, and the provider's adapter (tools/fabric/routing.py) says which classes it serves — a class it does not serve is absent here, never null.",
               "enum": [
                 "harness",
-                "model-id"
+                "model-id",
+                "engine"
               ]
             },
             "description": {
@@ -67,7 +68,7 @@
               "additionalProperties": false,
               "patternProperties": {
                 "^[a-z][a-z0-9-]*$": {
-                  "description": "A canonical model id (vendor/model) on a model-id provider; on a harness provider a native model id (claude-…) that pins the class, or null for the harness's own current model of the tier the class rides. Never a tier alias — which alias a class rides is runtime/claude-code/aliases.json's — and never a composite: `@preset/...` is a shim and is attached at runtime.",
+                  "description": "A canonical model id (vendor/model) on a model-id provider; on a harness provider a native model id (claude-…) that pins the class, or null for the harness's own current model of the tier the class rides; on an engine provider the engine's own bare id (gpt-…). Never a tier alias — which alias a class rides is runtime/claude-code/aliases.json's — and never a composite: `@preset/...` is a shim and is attached at runtime.",
                   "type": [
                     "string",
                     "null"

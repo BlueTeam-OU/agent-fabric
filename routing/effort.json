@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "CAPABILITY CLASS -> REASONING EFFORT. The third dimension, beside CLASS -> MODEL (routing/capabilities.json) and MODEL FAMILY -> SHIM (routing/shims.json), and kept here for the same reason they are kept apart: one file, one decision. How much thinking a class gets is a property of the WORK, so it is one vocabulary here and not a column per provider; how a provider SPELLS it is that provider's adapter (tools/fabric/routing.py), and whether a given model admits a level is the adapter's per-model table. Effort exists as a routed value because it was not one: every model the fabric had pinned happened to default to `high`, and Opus 5.5 was the first that did not — moving code-high to it would have dropped every session a level with no commit and nothing to review (docs/live-checks/2026-09-23-opus-5-5.md). A model's own default is never the fabric's decision.",
+  "description": "CAPABILITY CLASS -> REASONING EFFORT. The third dimension, beside CLASS -> MODEL (routing/capabilities.json) and MODEL FAMILY -> SHIM (routing/shims.json), and kept here for the same reason they are kept apart: one file, one decision. How much thinking a class gets is a property of the WORK, so it is one vocabulary here and not a column per provider; how a provider SPELLS it is that provider's adapter (tools/fabric/routing.py), and whether a given model admits a level is the adapter's per-model table. Effort exists as a routed value because it was not one: every model the fabric had pinned happened to default to `high`, and Opus 5.5 was the first that did not — moving code-high to it would have dropped every session a level with no commit and nothing to review (docs/live-checks/2026-09-23-opus-5-5.md). A model's own default is never the fabric's decision. A provider may also hold a level CHOSEN for it (providers.<p>.chosen lists the classes): a decision, with its note, that the model must take as it is — the Codex engine's code-review at high (the owner, 2026-10-12) — beside the acknowledgements, which record what a model's narrower set makes of the class's own level.",
   "levels": [
     "none",
     "minimal",
@@ -34,6 +34,17 @@
       "notes": {
         "code-low": "code-low asks for medium (the owner, 2026-09-25: every class at medium); z-ai/glm-5.3-flash distinguishes only low/high/max, and the nearest level at or below medium is low, so low is what it serves. Written down because that is a level lost, and a lost level is a commit.",
         "all": "Every other class asks medium and its broker model has no medium: z-ai/glm-5.2 (code-medium) and deepseek/deepseek-v4-pro-0813 (code-high, code-plan, code-review) are served high, the vendors' documented mapping, one level above what the class asks. Nothing is lost there, so no override. On the broker code-high, code-plan and code-review therefore differ in neither model nor effort. That is true of today's broker column, not a property of the design."
+      }
+    },
+    "openai": {
+      "classes": {
+        "code-review": "high"
+      },
+      "chosen": [
+        "code-review"
+      ],
+      "notes": {
+        "code-review": "high, chosen for this provider (the owner, 2026-10-12, in the coordinator's session), not fitted: the review class asks medium elsewhere, and gpt-6.1-sol takes medium as it is. On Codex the owner chose high for the contrarian reviewer — a second engine is there to find what the first missed, and a review reads a whole change — and because Codex's own default on the ChatGPT plan was `none` (a `codex exec` on the owner's team plan printed \"reasoning effort: none\", 2026-10-12), so sending no level would hand the review the least thinking there is. Listed in `chosen`, so routing.py check judges it as a decision the model must take exactly rather than as an acknowledged downgrade. It reaches Codex as -c model_reasoning_effort=\"high\" (tools/fabric/routing.py effort_spelling), on fabric-review --engine codex --gateway chatgpt; the environment's gateway sends a level only when --effort or AGENT_FABRIC_CODEX_EFFORT asks for one (review of #224, F2)."
       }
     }
   }

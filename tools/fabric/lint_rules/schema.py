@@ -315,12 +315,14 @@ def model_profile_findings(root: str, doc: dict[str, Any], known_roles: set[str]
                 continue
             if not routing.ADAPTERS[provider].is_model(model):
                 continue  # an alias is the harness's choice, ungated
-            if not routing.review_grade_ok(model, root):
+            if not routing.review_grade_ok(model, root, provider):
                 findings.append(f"{where}: {label} resolves {gated} on {provider} to {model!r}, which is not in "
                                 "routing/policies/review-grade.json; the review class would run on it")
-    # The bottom layer must give every provider a session: the launcher
-    # refuses a path with none rather than guess one.
-    for provider in routing.PROVIDERS:
+    # The bottom layer must give every launch path a session: the launcher
+    # refuses a path with none rather than guess one. An engine provider
+    # (openai, the Codex review engine) launches no session; its review gate
+    # is the loop above, which covers every provider.
+    for provider in routing.LAUNCH_PROVIDERS:
         try:
             routing.resolve_session(root=root, provider=provider)
         except (KeyError, ValueError) as exc:

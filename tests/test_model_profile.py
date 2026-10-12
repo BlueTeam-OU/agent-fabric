@@ -274,6 +274,38 @@ def test_a_write_waits_for_the_agent_lock(f: Fixture) -> None:
     assert [n for n in os.listdir(lock_dir) if n.startswith(".tmp-")] == [], "a temporary was left beside the file"
 
 
+def test_the_codex_engine_column_lists_and_sets_review_only(f: Fixture) -> None:
+    """The openai column (the Codex review engine, the owner 2026-10-12) is
+    listed beside the launch paths with its source, has no session, takes
+    code-review and its level only, is gated by the review grade, and
+    touches no agent file: Codex reads it at its next run."""
+    fixture_routing = os.path.join(f.env["AGENT_FABRIC_ROOT"], "routing")
+    for name, key in (("capabilities.json", "providers"), ("effort.json", "providers")):
+        live = json.load(open(os.path.join(ROOT, "routing", name), encoding="utf-8"))
+        path = os.path.join(fixture_routing, name)
+        doc = json.load(open(path, encoding="utf-8"))
+        doc[key]["openai"] = live[key]["openai"]
+        json.dump(doc, open(path, "w", encoding="utf-8"))
+    p = f.run("list", "--provider", "openai")
+    assert p.returncode == 0, p.stderr
+    assert "provider openai" in p.stdout and "gpt-6.1-sol" in p.stdout and "capabilities.providers.openai" in p.stdout, p.stdout
+    assert "session" not in p.stdout and "code-low" not in p.stdout, p.stdout
+    j = json.loads(f.run("list", "--json").stdout)
+    assert set(j["providers"]) == {"openrouter", "anthropic", "openai"}, j["providers"].keys()
+    assert j["providers"]["openai"]["code-review-effort"]["model"] == "high", j["providers"]["openai"]
+    p = f.run("set", "--provider", "openai", "code-low", "gpt-6.1-sol")
+    assert p.returncode == 1 and "not a target on openai" in p.stderr, p.stderr
+    p = f.run("set", "--provider", "openai", "session", "gpt-6.1-sol")
+    assert p.returncode == 1 and "not a target on openai" in p.stderr, p.stderr
+    p = f.run("set", "--provider", "openai", "code-review", "gpt-5-mini")
+    assert p.returncode == 1 and "review-grade.json" in p.stderr and not os.path.exists(f.local), p.stderr
+    before = f.reviewer_model()
+    p = f.run("set", "--provider", "openai", "code-review", "gpt-6.1-sol")
+    assert p.returncode == 0 and "next fabric-review --engine codex" in p.stdout, p.stdout + p.stderr
+    assert f.read() == {"providers": {"openai": {"capabilities": {"code-review": "gpt-6.1-sol"}}}}, f.read()
+    assert f.reviewer_model() == before, "an engine choice writes no agent file"
+
+
 def main() -> int:
     cases = [
         test_list_shows_both_providers_with_sources,
@@ -287,6 +319,7 @@ def main() -> int:
         test_a_malformed_local_file_is_refused_not_rewritten,
         test_seed_copies_the_merged_defaults_as_pins,
         test_effort_is_a_target_that_layers_like_a_model,
+        test_the_codex_engine_column_lists_and_sets_review_only,
     ]
     failures = 0
     for case in cases:

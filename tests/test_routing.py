@@ -198,7 +198,8 @@ def test_a_layer_is_validated_in_its_provider_vocabulary() -> None:
     # A layer carries effort beside capabilities now (the owner, 2026-09-23):
     # effort is layered like a model id, in the fabric's own vocabulary.
     assert routing.normalize_layer({}) == {"openrouter": {"capabilities": {}, "effort": {}},
-                                           "anthropic": {"capabilities": {}, "effort": {}}}
+                                           "anthropic": {"capabilities": {}, "effort": {}},
+                                           "openai": {"capabilities": {}, "effort": {}}}
     refused({"providers": {"anthropic": {"effort": {"code-high": "enormous"}}}}, "not an effort level")
     refused({"providers": {"anthropic": {"effort": {"turbo": "high"}}}}, "not a capability class")
 
@@ -389,7 +390,8 @@ def test_each_provider_validates_a_reference_through_its_adapter(tmp: str) -> No
     in capabilities.json with no adapter, or a resolution the adapter does
     not have, is a finding rather than an unguarded branch."""
     a = routing.ADAPTERS
-    assert set(a) == set(routing.PROVIDERS) == {"openrouter", "anthropic"}
+    assert set(a) == set(routing.PROVIDERS) == {"openrouter", "anthropic", "openai"}
+    assert routing.LAUNCH_PROVIDERS == ("openrouter", "anthropic"), "openai is an engine: no session, no launch"
     assert a["openrouter"].is_model("z-ai/glm-5.3") and a["openrouter"].is_model("anthropic/claude-opus-5[1m]")
     assert not a["openrouter"].is_model("claude-opus-5") and not a["openrouter"].is_model("opus")
     assert a["anthropic"].is_model("claude-opus-5[1m]") and not a["anthropic"].is_model("anthropic/claude-opus-5")
@@ -407,6 +409,158 @@ def test_each_provider_validates_a_reference_through_its_adapter(tmp: str) -> No
     findings = routing.check(root)
     assert any("providers.vertex has no adapter" in f for f in findings), findings
     assert any("providers.anthropic.resolution is 'model-id'" in f for f in findings), findings
+
+
+def test_the_openai_column_is_the_codex_engine_and_serves_review_only(tmp: str) -> None:
+    """The owner, 2026-10-12: an `openai` provider whose code-review is
+    gpt-6.1-sol at high. Codex is review-only (ADR-053), so the column binds
+    nothing else, and check() refuses a coding class bound there rather than
+    let a model nobody runs read as a decision."""
+    root = scratch_root(tmp, distinct=False)
+    res = routing.resolve("code-review", "openai", root=root)
+    assert (res["model"], res["composite"], res["shim"], res["via"], res["alias"], res["resolution"]) == \
+        ("gpt-6.1-sol", "gpt-6.1-sol", None, "engine", None, "engine"), res
+    assert res["effort"] == {"level": "high", "intent": "high", "outcome": "applied", "how": "session",
+                             "source": "effort.json:providers.openai"}, res["effort"]
+    for klass in ("code-low", "code-medium", "code-high", "code-plan"):
+        try:
+            routing.resolve(klass, "openai", root=root)
+        except KeyError as exc:
+            assert "serves only code-review" in str(exc), exc
+        else:
+            raise AssertionError(f"{klass} resolved on openai")
+    try:
+        routing.resolve_session(root=root, provider="openai")
+    except KeyError as exc:
+        assert "launches no session" in str(exc), exc
+    else:
+        raise AssertionError("openai resolved a session")
+    assert routing.session_effort("openai", root=root) is None
+    assert routing.check(root) == []
+    set_model(root, "openai", "code-low", "gpt-6.1-sol")
+    assert any("binds 'code-low', which openai does not serve" in f for f in routing.check(root)), routing.check(root)
+    path = os.path.join(root, "routing", "capabilities.json")
+    caps = json.load(open(path, encoding="utf-8"))
+    caps["providers"]["openai"]["models"] = {}
+    json.dump(caps, open(path, "w", encoding="utf-8"))
+    assert any("providers.openai binds no model to 'code-review'" in f for f in routing.check(root)), routing.check(root)
+    caps["providers"]["openai"]["models"] = {"code-review": "openai/gpt-6.1-sol"}
+    json.dump(caps, open(path, "w", encoding="utf-8"))
+    assert any("not an OpenAI model id as Codex names it" in f for f in routing.check(root)), routing.check(root)
+
+
+def test_the_openai_review_model_is_graded_under_openai(tmp: str) -> None:
+    """review-grade.json names vendor/model ids; the openai column names
+    Codex's bare id, compared as openai/<id> the way a native Claude id is
+    compared as anthropic/<id>."""
+    root = scratch_root(tmp, distinct=False)
+    assert "openai/gpt-6.1-sol" in routing.load_review_grade(root)["models"]
+    assert routing.ADAPTERS["openai"].openrouter_id("gpt-6.1-sol") == "openai/gpt-6.1-sol"
+    assert routing.review_grade_ok("gpt-6.1-sol", root, "openai")
+    assert routing.review_grade_ok("gpt-6.1-sol", root), "a bare Codex id is recognised without the provider"
+    assert not routing.review_grade_ok("gpt-6.1-sol", root, "openrouter"), "on the broker an id carries its vendor"
+    assert not routing.review_grade_ok("gpt-5-mini", root, "openai")
+    set_model(root, "openai", "code-review", "gpt-5-mini")
+    assert any("providers.openai.code-review 'gpt-5-mini' is not in routing/policies/review-grade.json" in f
+               for f in routing.check(root)), routing.check(root)
+
+
+def test_a_chosen_level_is_a_decision_the_model_takes_as_it_is(tmp: str) -> None:
+    """The review class asks medium; on openai the owner chose high. Written
+    as a plain acknowledgement it would read as one gone stale (gpt-6.1-sol
+    takes medium as it is), so `chosen` marks it a decision: it needs its
+    note, and the model must take it without a fit."""
+    root = scratch_root(tmp, distinct=False)
+    path = os.path.join(root, "routing", "effort.json")
+    doc = json.load(open(path, encoding="utf-8"))
+    assert doc["providers"]["openai"]["classes"] == {"code-review": "high"}
+    assert doc["providers"]["openai"]["chosen"] == ["code-review"]
+    assert doc["classes"]["code-review"] == "medium", "the class asks medium; high is openai's own"
+
+    def findings(edit) -> list[str]:
+        d = json.loads(json.dumps(doc))
+        edit(d["providers"]["openai"])
+        json.dump(d, open(path, "w", encoding="utf-8"))
+        return routing.check(root)
+
+    stale = findings(lambda o: o.pop("chosen"))
+    assert any("acknowledgement was written for a different model" in f for f in stale), stale
+    assert any("is chosen with no matching entry" in f for f in findings(lambda o: o["notes"].clear()))
+    assert any("chooses 'max'" in f and "gives 'xhigh'" in f
+               for f in findings(lambda o: o["classes"].update({"code-review": "max"})))
+    assert any("chosen names 'code-low'" in f for f in findings(lambda o: o["chosen"].append("code-low")))
+    assert any("openai does not serve code-low" in f
+               for f in findings(lambda o: o["classes"].update({"code-low": "low"})))
+    assert any("launches no session" in f for f in findings(lambda o: o.update(session="high")))
+    assert findings(lambda o: None) == []
+
+
+def test_codex_spells_a_level_on_its_command_line() -> None:
+    """ADR-006 §6: Codex has no --effort and no agent file; its adapter's
+    channel is the run's command line, -c model_reasoning_effort=<level>."""
+    a = routing.ADAPTERS["openai"]
+    assert a.effort_channel == "session"
+    assert routing.effort_spelling("openai", "high") == ["-c", 'model_reasoning_effort="high"']
+    assert routing.effort_spelling("openai", None) == []
+    try:
+        routing.effort_spelling("anthropic", "high")
+    except ValueError as exc:
+        assert "agent-file" in str(exc), exc
+    else:
+        raise AssertionError("an agent-file channel was spelled on a command line")
+    scale = list(routing.load_effort().get("levels") or [])
+    assert a.effort_levels("gpt-6.1-sol") == ("none", "minimal", "low", "medium", "high", "xhigh")
+    assert a.effort_for("gpt-6.1-sol", "max", scale) == ("xhigh", "approximated"), "Codex has no max"
+    assert a.effort_for("gpt-test", "high", scale) == ("high", "applied"), "a --model id gets Codex's own six"
+    assert a.is_model("gpt-6.1-sol") and a.is_model("o3") and not a.is_model("openai/gpt-6.1-sol")
+    assert not a.is_model("claude-opus-5-5")
+
+
+def test_an_engine_layer_names_only_what_the_engine_runs() -> None:
+    """A layer may route the engine's class on openai (fabric-model set
+    --provider openai code-review …), never a session or a coding class."""
+    ok = routing.normalize_layer({"providers": {"openai": {"capabilities": {"code-review": "gpt-6.1-sol"},
+                                                             "effort": {"code-review": "xhigh"}}}})
+    assert ok["openai"]["capabilities"] == {"code-review": "gpt-6.1-sol"} and ok["openai"]["effort"] == {"code-review": "xhigh"}
+    for layer, why in (({"session": "gpt-6.1-sol"}, "launches no session"),
+                       ({"capabilities": {"code-high": "gpt-6.1-sol"}}, "not served on openai"),
+                       ({"effort": {"code-low": "low"}}, "not served on openai"),
+                       ({"capabilities": {"code-review": "claude-opus-5-5"}}, "not an OpenAI model id")):
+        try:
+            routing.normalize_layer({"providers": {"openai": layer}})
+        except ValueError as exc:
+            assert why in str(exc), (layer, exc)
+        else:
+            raise AssertionError(f"{layer} was accepted on openai")
+
+
+def test_the_capability_column_validates_against_its_schema() -> None:
+    """lint reads routing/capabilities.json against its schema; the engine
+    resolution is the schema's third."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from lint_rules.schema import validate_json
+    schema = json.load(open(os.path.join(ROOT, "routing", "schemas", "capabilities.schema.json"), encoding="utf-8"))
+    doc = json.load(open(os.path.join(ROOT, "routing", "capabilities.json"), encoding="utf-8"))
+    assert validate_json(schema, doc, "capabilities") == []
+    assert "engine" in schema["properties"]["providers"]["patternProperties"]["^[a-z][a-z0-9-]*$"][
+        "properties"]["resolution"]["enum"]
+    doc["providers"]["openai"]["resolution"] = "codex"
+    assert validate_json(schema, doc, "capabilities") != []
+
+
+def test_resolve_names_why_it_cannot_answer(tmp: str) -> None:
+    """`routing.py resolve` is what a caller quotes when it refuses: one line
+    and exit 1, never a traceback."""
+    root = scratch_root(tmp, distinct=False)
+    proc = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "routing.py"), "resolve", "code-low",
+                           "--provider", "openai"], capture_output=True, text=True,
+                          env={**os.environ, "AGENT_FABRIC_ROOT": root})
+    assert proc.returncode == 1 and proc.stderr.strip() == \
+        "routing: provider 'openai' serves only code-review, not 'code-low'", proc.stderr
+    proc = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "routing.py"), "resolve",
+                           "code-review", "--provider", "openai"], capture_output=True, text=True,
+                          env={**os.environ, "AGENT_FABRIC_ROOT": root})
+    assert proc.returncode == 0 and proc.stdout == "gpt-6.1-sol\n", proc.stdout + proc.stderr
 
 
 def test_composite_is_derived_not_stored() -> None:
@@ -591,6 +745,13 @@ def main() -> int:
         test_no_model_pinned_is_not_a_claim_about_a_model,
         test_effort_names_every_class,
         test_each_provider_validates_a_reference_through_its_adapter,
+        test_the_openai_column_is_the_codex_engine_and_serves_review_only,
+        test_the_openai_review_model_is_graded_under_openai,
+        test_a_chosen_level_is_a_decision_the_model_takes_as_it_is,
+        test_codex_spells_a_level_on_its_command_line,
+        test_an_engine_layer_names_only_what_the_engine_runs,
+        test_the_capability_column_validates_against_its_schema,
+        test_resolve_names_why_it_cannot_answer,
         test_composite_is_derived_not_stored,
         test_a_non_glm_model_gets_no_shim,
         test_shim_follows_the_family_of_the_merged_model,

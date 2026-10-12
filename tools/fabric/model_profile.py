@@ -8,9 +8,13 @@
     model_profile.py seed [--provider P]               copy the merged repo defaults into the local layer
     model_profile.py apply                             re-install the agent files (the review pin)
 
-    targets, on either provider: session  code-low  code-medium  code-high  code-plan  code-review
+    targets, on a launch path (openrouter, anthropic):
+             session  code-low  code-medium  code-high  code-plan  code-review
+    on openai, the Codex review engine (agent-fabric ADR-053): code-review only
+    each class also takes <class>-effort, a level
     models: an OpenRouter id (z-ai/glm-5.3) on openrouter; a native Claude id
-            (claude-opus-5[1m]) on anthropic; the session may also name a class.
+            (claude-opus-5[1m]) on anthropic; a bare Codex id (gpt-6.1-sol) on
+            openai; the session may also name a class.
 
 Installed as bin/fabric-model. The AGENT is the Linux login
 (runtime/identity.py) and the ROLE is its binding; the file written is
@@ -73,7 +77,12 @@ CLASSES = tuple(routing.load_capabilities()["classes"])
 # same shape — and the model's own name stays what it always was.
 EFFORT_SUFFIX = "-effort"
 EFFORT_TARGETS = tuple(k + EFFORT_SUFFIX for k in CLASSES)
-TARGETS = {p: ("session",) + CLASSES + EFFORT_TARGETS for p in routing.PROVIDERS}
+# An engine provider (openai: the Codex review engine) has no session and
+# serves only its own classes; a launch path takes every target.
+TARGETS = {p: (("session",) if routing.ADAPTERS[p].launch else ())
+           + tuple(k for k in CLASSES if routing.ADAPTERS[p].serves_class(k))
+           + tuple(k + EFFORT_SUFFIX for k in CLASSES if routing.ADAPTERS[p].serves_class(k))
+           for p in routing.PROVIDERS}
 fabric_writes = _load("fabric_writes", os.path.join(HERE, "fabric_writes.py"))
 
 
@@ -87,6 +96,13 @@ install_agent_files = _load("install_agent_files", os.path.join(HERE, "install_a
 
 PROVIDER_OF_THIS_SESSION = (os.environ.get("AGENT_FABRIC_LAUNCH_PROVIDER") or install_agent_files.last_launch_provider()
                             or "anthropic")
+
+
+def columns() -> list[str]:
+    """The providers with a column in routing/capabilities.json: an adapter
+    without one (a tree from before the openai column) has nothing to list."""
+    present = routing.load_capabilities().get("providers") or {}
+    return [p for p in routing.PROVIDERS if p in present]
 
 
 class Refusal(Exception):
@@ -174,12 +190,15 @@ def write_local(path: str, local: dict[str, Any]) -> None:
 def resolved(provider: str, role: str | None, agent: str, local: dict[str, Any]) -> dict[str, Any]:
     """Every target of the provider as {"model", "source", ...}."""
     rows: dict[str, Any] = {}
-    try:
-        s = routing.resolve_session(role, agent, local, provider=provider)
-        rows["session"] = {"model": s["composite"], "source": s["source"], "capability": s.get("capability")}
-    except KeyError as exc:
-        rows["session"] = {"model": None, "source": None, "error": str(exc)}
+    if routing.ADAPTERS[provider].launch:
+        try:
+            s = routing.resolve_session(role, agent, local, provider=provider)
+            rows["session"] = {"model": s["composite"], "source": s["source"], "capability": s.get("capability")}
+        except KeyError as exc:
+            rows["session"] = {"model": None, "source": None, "error": str(exc)}
     for klass in CLASSES:
+        if not routing.ADAPTERS[provider].serves_class(klass):
+            continue
         r = routing.resolve(klass, provider, role, agent, local)
         rows[klass] = {"model": r["composite"], "source": r["source"], "via": r["via"],
                        "pinned": r["pinned"]}
@@ -190,7 +209,8 @@ def resolved(provider: str, role: str | None, agent: str, local: dict[str, Any])
 
 
 def print_list(provider: str, rows: dict[str, Any]) -> None:
-    print(f"provider {provider}")
+    print(f"provider {provider}" + ("" if routing.ADAPTERS[provider].launch
+                                    else "  (the Codex review engine: fabric-review --engine codex)"))
     for target, row in rows.items():
         if row.get("error"):
             print(f"  {target:18} (unresolved: {row['error']})")
@@ -210,7 +230,7 @@ def print_list(provider: str, rows: dict[str, Any]) -> None:
             model, source, how = "(harness default for its tier)", "-", ""
         else:
             model, source = row["model"], row["source"]
-            how = "  via the agent file" if row["via"] == "file" else ""
+            how = {"file": "  via the agent file", "engine": "  on the engine's command line"}.get(row["via"], "")
         print(f"  {target:18} {model:38} {source}{how}")
 
 
@@ -221,7 +241,7 @@ def check_review_gate(provider: str, role: str | None, agent: str, local: dict[s
     r = routing.resolve(gated, provider, role, agent, local)
     if not r["pinned"]:
         return
-    if not routing.review_grade_ok(r["model"]):
+    if not routing.review_grade_ok(r["model"], provider=provider):
         raise Refusal(f"{gated} on {provider} would resolve to {r['model']!r}, which is not in "
                       "routing/policies/review-grade.json. A review's failure mode is a green PR that "
                       "merges, so the reviewer's model is policy, not a cost dial; extend the grade "
@@ -245,7 +265,7 @@ def apply_agent_files(quiet: bool = False) -> int:
 
 def cmd_list(args: argparse.Namespace, ctx: dict[str, Any], path: str) -> int:
     local = read_local(path)
-    providers = [args.provider] if args.provider else list(routing.PROVIDERS)
+    providers = [args.provider] if args.provider else columns()
     report = {"agent": ctx["agent"], "role": ctx["role"], "local": path,
               "providers": {p: resolved(p, ctx["role"], ctx["agent"], local) for p in providers}}
     if args.json:
@@ -290,6 +310,9 @@ def _change(ctx: dict[str, Any], path: str, provider: str, target: str, model: s
         phrase = routing.effort_phrase(e)
         print("  %s (%s)" % (phrase, e.get("source")) if phrase
               else "  no effort: this model expresses none, so the class runs on its own default")
+    if not routing.ADAPTERS[provider].launch:
+        print("  takes effect at the next fabric-review --engine codex (no launch, no agent file)")
+        return 0
     if target == "code-review" and provider == PROVIDER_OF_THIS_SESSION:
         return apply_agent_files()
     print("  takes effect at the next launch (runtime/openrouter/launch)")
@@ -308,7 +331,7 @@ def cmd_seed(args: argparse.Namespace, ctx: dict[str, Any], path: str) -> int:
     """The merged result, written in as explicit choices."""
     with identity.agent_lock(ctx["agent"]):
         local, notes = migrate(read_local(path))
-        providers = [args.provider] if args.provider else list(routing.PROVIDERS)
+        providers = [args.provider] if args.provider else columns()
         new = local
         written: list[str] = []
         for provider in providers:
