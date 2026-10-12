@@ -46,6 +46,7 @@ DELIBERATE = {
     "tests/memory_expand_measure.py": "the linked-sections measurement (ADR-049 follow-up) reads the operator's own committed corpus on purpose: not a test, a report of that corpus",
     "tests/test_memory_expected_hits.py": "the offline expected-hit set (ADR-049 rule 7) is run against the operator's own committed corpus: the hits are a fact of that corpus",
     "tests/test_arm_policy.py": "the operator's fleet default arming policy loads through arm_policy and is the built-in default, and agrees with its schema: the operator's own file",
+    "tests/test_host_check.py": "the gzapp host probe is the project's own integration file (instance data): its test runs the operator's script on purpose, and a stripped copy has none to run",
     "tests/test_githooks_prepush.py": "the brand projects' committed direct.pr_paths send secret-shaped files to a pull request and design files direct: the operator's own files",
 }
 
