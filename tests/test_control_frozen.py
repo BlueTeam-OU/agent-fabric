@@ -11,7 +11,10 @@ ctl's argv and every table over answered, forged and partial replies, upgrade's
 argument check and marker bytes, the sessions' state records, the queue's CLI.
 The cases of sign, protocol, presence, pool, jobs and gzcoord are frozen in
 the test_control_* file of each module. A new input has no Node to ask: it is a
-case of its own with an expected value written by hand."""
+case of its own with an expected value written by hand. The three cases that
+render the tokens table were re-frozen when its `hit` column was added: those
+elements hold Python's text, which differs from the Node's by that column only.
+Every element the Node refused (a `threw` entry) stays as the Node left it."""
 from __future__ import annotations
 
 import json

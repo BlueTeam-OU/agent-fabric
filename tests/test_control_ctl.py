@@ -218,25 +218,38 @@ class Tables(unittest.TestCase):
     def test_tokens_table_grouped_by_claude_account_each_logins_share_the_broker_column_apart_a_login_without_records_named(self):
         expected = placed("a", "b", "c", "d")
 
-        def tok(claude, broker, top):
+        def tok(claude, broker, top, hit=None):
             return {"status": "ok", "days": 7, "files": 1, "requests": {"session": 1, "subagent": 0},
                     "models": {top: {"equiv": claude, "requests": 1, "input": 0, "cache_write": 0, "cache_read": 0, "output": 0, "path": "claude"}},
-                    "claude": {"requests": 3, "input": 0, "cache_write": 0, "cache_read": 4000000, "output": 5000, "equiv": claude},
+                    "claude": {"requests": 3, "input": 0, "cache_write": 0, "cache_read": 4000000, "output": 5000, "equiv": claude, "cache_hit": hit},
                     "broker": {"requests": 2, "input": 0, "cache_write": 0, "cache_read": 0, "output": 0, "equiv": broker}}
 
         def treply(login, email, t):
             return reply(login, "tokens", {"identity": {"claude_account": {"email": email} if email else None}, "tokens": t})
-        rs = ctl.rows(expected, [treply("a", "x@y.z", tok(3000000, 100000, "claude-opus-5")), treply("b", "x@y.z", tok(1000000, 0, "claude-sonnet-5")),
+        rs = ctl.rows(expected, [treply("a", "x@y.z", tok(3000000, 100000, "claude-opus-5", 0.9)), treply("b", "x@y.z", tok(1000000, 0, "claude-sonnet-5", 0.9996)),
                                  treply("c", "q@y.z", tok(500, 0, "claude-opus-5")), treply("d", "x@y.z", {"status": "no-records", "days": 7})])
         t = ctl.table("tokens", rs)
-        self.assertRegex(t, re.compile(r"^account\s+status\s+claude account\s+share\s+claude equiv.*top model \(7 days\)", re.M))
-        self.assertRegex(t, re.compile(r"^a\s+ok\s+x@y.z\s+75%\s+3.0M\s+3\s+4.0M\s+5k\s+100k\s+2\s+claude-opus-5 3.0M$", re.M))
-        self.assertRegex(t, re.compile(r"^b\s+ok\s+x@y.z\s+25%\s+1.0M", re.M))
+        self.assertRegex(t, re.compile(r"^account\s+status\s+claude account\s+share\s+claude equiv.*cache read\s+hit\s+output.*top model \(7 days\)", re.M))
+        self.assertRegex(t, re.compile(r"^c\s+ok\s+q@y.z\s+100%\s+500\s+3\s+4.0M\s+-\s+5k", re.M), "no hit (None): a dash")
+        self.assertRegex(t, re.compile(r"^a\s+ok\s+x@y.z\s+75%\s+3.0M\s+3\s+4.0M\s+90%\s+5k\s+100k\s+2\s+claude-opus-5 3.0M$", re.M))
+        self.assertRegex(t, re.compile(r"^b\s+ok\s+x@y.z\s+25%\s+1.0M\s+3\s+4.0M\s+100%\s+5k", re.M), "a whole percent, rounded")
         self.assertRegex(t, re.compile(r"= x@y.z\s+100%\s+4.0M\s+6$", re.M), "an account with two logins gets a sum line")
         self.assertRegex(t, re.compile(r"^c\s+ok\s+q@y.z\s+100%\s+500\b", re.M), "the only login on its account holds all of it")
         self.assertNotIn("= q@y.z", t, "no sum line for one login")
         self.assertRegex(t, re.compile(r"^d\s+ok\s+x@y.z\s+tokens no-records$", re.M))
         self.assertLess(t.index("q@y.z"), t.index("x@y.z"), "accounts in order")
+
+
+    def test_tokens_table_a_cache_hit_that_is_not_a_finite_number_is_a_dash_not_a_crash(self):
+        # review of #221, F2: an integer past a double parses as Infinity; every other cell of the row prints something.
+        for bad in (float("inf"), float("-inf"), float("nan")):
+            t = {"status": "ok", "days": 7, "files": 1, "requests": {"session": 1, "subagent": 0},
+                 "models": {"claude-opus-5": {"equiv": 10, "requests": 1, "input": 0, "cache_write": 0, "cache_read": 0, "output": 0, "path": "claude"}},
+                 "claude": {"requests": 3, "input": 0, "cache_write": 0, "cache_read": 4, "output": 5, "equiv": 10, "cache_hit": bad},
+                 "broker": {"requests": 0, "input": 0, "cache_write": 0, "cache_read": 0, "output": 0, "equiv": 0}}
+            rs = ctl.rows(placed("a"), [reply("a", "tokens", {"identity": {"claude_account": {"email": "x@y.z"}}, "tokens": t})])
+            out = ctl.table("tokens", rs)
+            self.assertRegex(out, re.compile(r"^a\s+ok\s+x@y.z\s+100%\s+10\s+3\s+4\s+-\s+5\b", re.M), repr(bad))
 
 
 def tar_with(manifest: dict, filler: int = 1200) -> bytes:

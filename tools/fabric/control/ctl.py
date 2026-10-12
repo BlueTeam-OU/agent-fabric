@@ -1445,13 +1445,18 @@ def _table_tokens(rs: list) -> list[str]:
     for r in oks:
         by_account.setdefault(S(nullish(r["email"], "(no Claude account)")), []).append(r)
 
+    def hit(f: Any) -> str:
+        # a whole percent of the claude path's cache hit; '-' when no prompt tokens (None) or an older answer without the field
+        # not finite: a reply integer past a double reads as Infinity (js.json_parse), and no cell may take the table down
+        return "-" if isinstance(f, bool) or not isinstance(f, (int, float)) or not math.isfinite(f) else f"{math.floor(100 * f + 0.5)}%"
+
     def claude(r: dict, key: str) -> Any:
         return dig(r["tokens"], "claude", key)
 
     def broker(r: dict, key: str) -> Any:
         return dig(r["tokens"], "broker", key)
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('claude account', 30)} {pad_start('share', 6)}  {pad_start('claude equiv', 12)} "
-             f"{pad_start('requests', 8)} {pad_start('cache read', 10)} {pad_start('output', 8)}  {pad_start('broker equiv', 12)} {pad_start('requests', 8)}  top model ({S(days)} days)"]
+             f"{pad_start('requests', 8)} {pad_start('cache read', 10)} {pad_start('hit', 4)} {pad_start('output', 8)}  {pad_start('broker equiv', 12)} {pad_start('requests', 8)}  top model ({S(days)} days)"]
     for email, group in sorted(by_account.items(), key=lambda kv: collate(kv[0])):
         total: Any = 0
         for r in group:
@@ -1469,7 +1474,7 @@ def _table_tokens(rs: list) -> list[str]:
             else:
                 share = "     -"
             lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(email, 30)} {share}  {pad_start(M(claude(r, 'equiv')), 12)} "
-                                  f"{pad_start(S(claude(r, 'requests')), 8)} {pad_start(M(claude(r, 'cache_read')), 10)} {pad_start(M(claude(r, 'output')), 8)}  "
+                                  f"{pad_start(S(claude(r, 'requests')), 8)} {pad_start(M(claude(r, 'cache_read')), 10)} {pad_start(hit(claude(r, 'cache_hit')), 4)} {pad_start(M(claude(r, 'output')), 8)}  "
                                   f"{pad_start(M(broker(r, 'equiv')), 12)} {pad_start(S(broker(r, 'requests')), 8)}  {top[0] + ' ' + M(dig(top[1], 'equiv')) if top else '-'}"))
         if len(group) > 1:
             requests: Any = 0

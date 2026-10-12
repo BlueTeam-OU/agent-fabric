@@ -400,6 +400,17 @@ def equivalent(u: Mapping[str, float], ratios: Mapping[str, float] = TOKEN_RATIO
                          + u["cache_read"] * ratios["cache_read"] + u["output"] * ratios["output"])
 
 
+def cache_hit(u: Mapping[str, float]) -> float | None:
+    # The share of the prompt tokens served from the prompt cache. A session
+    # that switches accounts, or a launch whose prompt prefix changed, reads
+    # nothing and writes it all again: it shows here as a low hit rate
+    # (ADR-052 measured a switch costing cache_read 0 / cache_creation
+    # 34,616). The transcripts do not split 5-minute from 1-hour writes, so
+    # this is one number, not a per-lifetime one.
+    total = u["input"] + u["cache_write"] + u["cache_read"]
+    return round(u["cache_read"] / total, 3) if total else None
+
+
 def transcripts(root: str) -> list[tuple[str, str]] | None:
     """Every session transcript under ~/.claude/projects and the subagent
     transcripts beside each, as (path, "session"|"subagent"); None when the
@@ -502,11 +513,13 @@ def tokens(home: str | None = None, days: float = TOKENS_DAYS, now: float | None
     paths: dict[str, dict[str, Any]] = {"claude": {k: 0 for k in _COUNTS}, "broker": {k: 0 for k in _COUNTS}}
     for model, t in models.items():
         t["equiv"] = equivalent(t)
+        t["cache_hit"] = cache_hit(t)
         t["path"] = "broker" if "/" in model else "claude"
         for k in _COUNTS:
             paths[t["path"]][k] += t[k]
     for t in paths.values():
         t["equiv"] = equivalent(t)
+        t["cache_hit"] = cache_hit(t)
     ordered = dict(sorted(models.items(), key=lambda kv: -kv[1]["equiv"]))
     return {"status": "ok", "days": days, "files": read, "requests": kinds,
             "first": util.iso_ms(first) if first else None, "last": util.iso_ms(last) if last else None,
