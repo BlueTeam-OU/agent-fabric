@@ -207,6 +207,14 @@ def main() -> int:
         set_pr(f"{me}/feat/thing")
         invoke("findings", "552", "--model", "opus")
         check("records the model", "<!-- model: opus -->" in body_of(), body_of())
+        check("…and calls it the review class's", "the review class, dispatched" in body_of(), body_of())
+        set_pr(f"{me}/feat/thing")
+        invoke("findings", "552", "--model", "codex")
+        check("the second engine's is marked the same", body_of().split("\n")[:2]
+              == ["<!-- agent-fabric-review v1 -->", "<!-- model: codex -->"], body_of())
+        check("…and names Codex, never the review class (ADR-053)",
+              "Codex, the second review engine" in body_of() and "the review class, dispatched" not in body_of(),
+              body_of())
         set_pr(f"{me}/feat/thing")
         invoke("findings", "552")
         check("no model line when unset", "<!-- model:" not in body_of(), body_of())

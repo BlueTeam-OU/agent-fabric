@@ -9,6 +9,10 @@
 #   fabric-review next REQUEST (--report F | --pr PR) [--head REV] [--keep-lenses]
 #                                       the re-review's request, derived and rendered
 #                                       (tools/fabric/review_rounds.py)
+#   fabric-review --engine codex PR REQUEST [--model M] [--timeout MIN] [--no-post]
+#                                       the second engine: Codex reviews the PR's head
+#                                       one-shot and posts (tools/fabric/review_codex.py,
+#                                       agent-fabric ADR-053)
 #
 # Then dispatch, exactly as the guard requires (it never reads the prompt):
 #
@@ -32,7 +36,8 @@ case "${1:-}" in
     brief) shift; exec "$py" "$ROOT/tools/fabric/review_brief.py" render "$@" ;;
     check|lenses) exec "$py" "$ROOT/tools/fabric/review_brief.py" "$@" ;;
     save|next) exec "$py" "$ROOT/tools/fabric/review_rounds.py" "$@" ;;
-    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    "") sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
-    *) echo "fabric-review: unknown command $1 (brief | check | lenses | save | next)" >&2; exit 2 ;;
+    --engine) shift; exec "$py" "$ROOT/tools/fabric/review_codex.py" "$@" ;;
+    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    "") sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    *) echo "fabric-review: unknown command $1 (brief | check | lenses | save | next | --engine)" >&2; exit 2 ;;
 esac
