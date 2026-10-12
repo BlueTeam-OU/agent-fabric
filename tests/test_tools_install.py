@@ -383,41 +383,175 @@ def main() -> int:
         decl = tools_install.declarations(real, "codex")
         check("agent-fabric declares codex as an account tool", [pid for pid, _ in decl] == ["agent-fabric"], decl)
         pin = decl[0][1]["install"] if decl else {}
-        check("the member is the one the gateway's CI runs (its CODEX_BIN), so a wrong one cannot pass the stand-in below",
-              pin.get("member") == "package/vendor/x86_64-unknown-linux-musl/bin/codex", pin.get("member"))
+        root = "package/vendor/x86_64-unknown-linux-musl"
+        # Measured on the pinned tarball (2026-10-12): Codex spawns bin/codex-code-mode-host beside its resolved
+        # executable for every tool call, and uses codex-path/rg (bwrap where the host has none) only through
+        # codex-package.json. Installed as bin/codex alone it ran no command at all.
+        check("the pin is a tree: the vendor directory, its entrypoint the binary the gateway's CI runs (its CODEX_BIN)",
+              pin.get("root") == root and pin.get("entrypoint") == "bin/codex" and "member" not in pin, pin)
+        check("the tree holds the tool host, the layout manifest and the helpers it names",
+              {"bin/codex", "bin/codex-code-mode-host", "codex-package.json", "codex-path/rg", "codex-resources/bwrap"}
+              <= set(pin.get("members") or []), pin.get("members"))
+        check("…and not the voice resources a review never uses",
+              not any("voice" in m for m in pin.get("members") or []), pin.get("members"))
         check("the pin is one the installer can act on, at the released version",
               tools_install.check_pin(pin) is None and pin.get("version") == "0.162.1" and decl[0][1].get("version") == "0.162.1", pin)
         check("the proof's first line, as Codex prints it, is the pinned version",
               tools_install.prints_version("codex-cli 0.162.1", pin.get("version", "")) and not tools_install.prints_version("codex-cli 0.162.10", pin.get("version", "")))
-        # The real digest is the gateway CI's (its "Install Codex" step); here a
-        # stand-in tarball of the same layout proves the member path unpacks.
+
+        print("a tree pin — the npm layout, stood in for")
         fake = b'#!/bin/sh\necho "codex-cli 0.162.1"\n'
-        npm = tgz({pin.get("member", "?"): fake, "package/package.json": b"{}"})
-        fake_reg = {"projects": {"agent-fabric": {"tools": [{**decl[0][1], "proof": "codex --version",
-                                                              "install": {**pin, "sha256": sha(npm)}}]}}} if decl else {}
+        members = pin.get("members") or []
+        layout = {f"{root}/{m}": (fake if m == "bin/codex" else f"helper {m}\n".encode()) for m in members}
+        extra = {f"{root}/codex-resources/voice/bin/codex-voice-host": b"voice", "package/package.json": b"{}",
+                 "package/README.md": b"x"}
+        npm = tgz({**layout, **extra})
+        # tgz marks every member executable; the manifest's real mode is 0644.
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            for name, data in {**layout, **extra}.items():
+                info = tarfile.TarInfo(name)
+                info.size, info.mode = len(data), (0o4755 if name.endswith("/rg") else 0o644 if name.endswith(".json") else 0o755)
+                tar.addfile(info, io.BytesIO(data))
+        npm = buf.getvalue()
+
+        def codex_reg(body: bytes, **over: object) -> dict:
+            p = {**pin, "sha256": sha(body), **over}
+            return {"projects": {"agent-fabric": {"tools": [{**decl[0][1], "proof": "codex --version",
+                                                             "install": {k: v for k, v in p.items() if v is not None}}]}}}
+
+        def tree_files(home: str) -> list[str]:
+            base = os.path.join(home, ".local", "lib")
+            return sorted(os.path.relpath(os.path.join(d, f), base) for d, _, fs in os.walk(base) for f in fs)
+
+        def tree_entries(home: str) -> list[str]:
+            base = os.path.join(home, ".local", "lib")
+            return sorted(os.path.relpath(os.path.join(d, n), base) for d, ds, fs in os.walk(base) for n in ds + fs)
+        tree = lambda home: os.path.join(home, ".local", "lib", "agent-fabric-tools", "codex", "0.162.1")  # noqa: E731
         home = account("agent-fabric")
-        r = tools_install.install("codex", reg=fake_reg, home=home, fetch=serving(npm))
-        check("a tarball of the npm layout installs the member as codex",
-              r["status"] == "installed" and listing(home) == ["codex"], (r, listing(home)))
+        r = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=serving(npm))
+        link = os.path.join(home, ".local", "bin", "codex")
+        check("installed, ~/.local/bin/codex the path it names",
+              r["status"] == "installed" and r.get("path") == link and listing(home) == ["codex"], (r, listing(home)))
+        check("~/.local/bin/codex is a symlink to the tree's entrypoint",
+              os.path.islink(link) and os.readlink(link) == os.path.join(tree(home), "bin", "codex"), os.path.realpath(link))
+        check("every member is placed at its own path under the versioned tree, and nothing else",
+              tree_files(home) == sorted(f"agent-fabric-tools/codex/0.162.1/{m}" for m in members), tree_files(home))
+        check("the voice resources and the package's other files are not placed",
+              not any("voice" in f or "package.json" in f.replace("codex-package.json", "") for f in tree_files(home)), tree_files(home))
+        check("the members keep their content",
+              all(open(os.path.join(tree(home), m), "rb").read() == layout[f"{root}/{m}"] for m in members))
+        modes = {m: os.stat(os.path.join(tree(home), m)).st_mode & 0o7777 for m in members}
+        check("an executable member is 0755, the manifest 0644, and a setuid bit is never kept",
+              modes.get("bin/codex") == 0o755 and modes.get("codex-package.json") == 0o644 and modes.get("codex-path/rg") == 0o755, modes)
+        r = subprocess.run([link, "--version"], capture_output=True, text=True, timeout=30)
+        check("the link runs the tree's codex", r.stdout.strip() == "codex-cli 0.162.1", r)
+        again = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=never)
+        check("a second run is current and fetches nothing", again["status"] == "current", again)
+        os.unlink(os.path.join(tree(home), "bin", "codex-code-mode-host"))
+        again = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=serving(npm))
+        check("a tree missing a member is not current: it is installed again, whole",
+              again["status"] == "installed" and os.path.isfile(os.path.join(tree(home), "bin", "codex-code-mode-host"))
+              and tree_files(home) == sorted(f"agent-fabric-tools/codex/0.162.1/{m}" for m in members), (again, tree_files(home)))
+        check("…and the tree it replaced leaves no set-aside copy",
+              sorted(os.listdir(os.path.dirname(tree(home)))) == ["0.162.1"], os.listdir(os.path.dirname(tree(home))))
+
+        print("a tree pin — the single-file install of the same version is not current")
         home = account("agent-fabric")
-        r = tools_install.install("codex", reg=fake_reg, home=home, fetch=serving(npm + b"x"))
-        check("a tarball that is not the pinned one is refused by the hash, nothing placed",
-              r["status"] == "failed" and listing(home) == [], (r, listing(home)))
+        with open(os.path.join(home, ".local", "bin", "codex"), "wb") as fh:
+            fh.write(fake)
+        os.chmod(os.path.join(home, ".local", "bin", "codex"), 0o755)
+        r = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=serving(npm))
+        check("codex 0.162.1 alone in ~/.local/bin (it prints the version) is replaced by the tree",
+              r["status"] == "installed" and os.path.islink(os.path.join(home, ".local", "bin", "codex"))
+              and listing(home) == ["codex"], (r, listing(home)))
+
+        print("a tree pin — an upgrade removes the older version's tree")
+        old_tree = os.path.join(home, ".local", "lib", "agent-fabric-tools", "codex", "0.161.0")
+        os.makedirs(os.path.join(old_tree, "bin"))
+        open(os.path.join(old_tree, "bin", "codex"), "w").close()
+        os.unlink(os.path.join(tree(home), "codex-package.json"))
+        r = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=serving(npm))
+        check("only the pinned version's tree is left", r["status"] == "installed"
+              and sorted(os.listdir(os.path.dirname(tree(home)))) == ["0.162.1"], (r, os.listdir(os.path.dirname(tree(home)))))
+
+        print("a tree pin — failures leave nothing of the run, and the previous install stands")
+        home = account("agent-fabric")
+        r = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=serving(npm + b"x"))
+        check("a tarball that is not the pinned one is refused by the hash: nothing unpacked or placed",
+              r["status"] == "failed" and "sha256" in r["reason"] and listing(home) == [] and tree_entries(home) == [],
+              (r, listing(home), tree_entries(home)))
+        partial = tgz({k: v for k, v in layout.items() if not k.endswith("codex-code-mode-host")})
+        r = tools_install.install("codex", reg=codex_reg(partial), home=home, fetch=serving(partial))
+        check("an archive without one of the members: failed, named, and no member of the others is left behind",
+              r["status"] == "failed" and "codex-code-mode-host" in r["reason"] and listing(home) == [] and tree_entries(home) == [],
+              (r, listing(home), tree_entries(home)))
+        linked = tgz({k: v for k, v in layout.items() if not k.endswith("/rg")}, link=f"{root}/codex-path/rg")
+        r = tools_install.install("codex", reg=codex_reg(linked), home=home, fetch=serving(linked))
+        check("a member that is a symlink in the archive: failed, nothing left",
+              r["status"] == "failed" and "not a regular file" in r["reason"] and tree_entries(home) == [], (r, tree_entries(home)))
+        liar = tgz({**layout, f"{root}/bin/codex": b'#!/bin/sh\necho "codex-cli 9.9.9"\n'})
+        r = tools_install.install("codex", reg=codex_reg(liar), home=home, fetch=serving(liar))
+        check("a tree whose entrypoint proves another version: failed, nothing left",
+              r["status"] == "failed" and "does not prove" in r["reason"] and listing(home) == [] and tree_entries(home) == [],
+              (r, listing(home), tree_entries(home)))
+        r = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=serving(npm))
+        check("the same account installs the good tree afterwards (positive control)", r["status"] == "installed", r)
+        os.unlink(os.path.join(tree(home), "codex-package.json"))   # not current, so the next run fetches
+        r = tools_install.install("codex", reg=codex_reg(liar), home=home, fetch=serving(liar))
+        check("a bad tree over an install: failed, and the installed tree and its link are as they were",
+              r["status"] == "failed" and os.path.realpath(os.path.join(home, ".local", "bin", "codex")) == os.path.join(os.path.realpath(tree(home)), "bin", "codex")
+              and tree_files(home) == sorted(f"agent-fabric-tools/codex/0.162.1/{m}" for m in members if m != "codex-package.json")
+              and listing(home) == ["codex"], (r, tree_entries(home), listing(home)))
+
+        print("a tree pin — refused before any fetch")
+        home = account("agent-fabric")
+        for label, over in (("a member and a tree", {"member": f"{root}/bin/codex"}),
+                            ("no entrypoint", {"entrypoint": None}),
+                            ("no root", {"root": None}),
+                            ("an entrypoint that is not a member", {"entrypoint": "bin/other"}),
+                            ("members that are not a list", {"members": "bin/codex"}),
+                            ("no members", {"members": []}),
+                            ("a member climbing out", {"members": [*members, "../x"]}),
+                            ("an absolute member", {"members": [*members, "/etc/x"]}),
+                            ("a member twice", {"members": [*members, "bin/codex"]}),
+                            ("a member inside another", {"members": [*members, "bin/codex/x"]}),
+                            ("a root climbing out", {"root": "package/../x"}),
+                            ("a version that is a path", {"version": "0.162.1/../../x"})):
+            r = tools_install.install("codex", reg=codex_reg(npm, **over), home=home, fetch=never)
+            check(f"{label}: refused, nothing written", r["status"] == "refused" and listing(home) == [] and tree_entries(home) == [],
+                  (r, tree_entries(home)))
+
+        print("a tree pin — a killed run's staged and set-aside trees are swept, a live one's kept")
+        home = account("agent-fabric")
+        tooldir = os.path.join(home, ".local", "lib", "agent-fabric-tools", "codex")
+        dead = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, timeout=30).stdout.strip()
+        for name in (f".0.162.1.{dead}.tmp", f".0.162.1.{dead}.old", f".0.162.1.{os.getpid()}.tmp"):
+            os.makedirs(os.path.join(tooldir, name, "bin"))
+        tools_install.sweep_trees(tooldir)
+        check("the dead run's go, the live one's stays", sorted(os.listdir(tooldir)) == [f".0.162.1.{os.getpid()}.tmp"], os.listdir(tooldir))
 
         print("the size bound — a member past it is refused before it is placed; one under it, larger than its archive, installs")
+        single = {k: v for k, v in pin.items() if k not in tools_install.TREE_FIELDS}
+        single["member"] = f"{root}/bin/codex"
         saved_bound = tools_install.MAX_ASSET_BYTES
         tools_install.MAX_ASSET_BYTES = 4096
         try:
             for size, want in ((5000, "failed"), (3000, "installed")):
                 body = b'#!/bin/sh\necho "codex-cli 0.162.1"\n' + b"#" * size
-                arc = tgz({pin.get("member", "?"): body})
+                arc = tgz({single["member"]: body})
                 bound_reg = {"projects": {"agent-fabric": {"tools": [{**decl[0][1], "proof": "codex --version",
-                                                                      "install": {**pin, "sha256": sha(arc)}}]}}}
+                                                                      "install": {**single, "sha256": sha(arc)}}]}}}
                 home = account("agent-fabric")
                 r = tools_install.install("codex", reg=bound_reg, home=home, fetch=serving(arc))
                 check(f"a {size}-byte member under a 4096-byte bound is {want}, and a refusal places nothing",
                       r["status"] == want and (listing(home) == ["codex"] if want == "installed" else listing(home) == [] and "is over" in str(r)),
                       (r, listing(home)))
+            arc = tgz({**{f"{root}/{m}": b"#" * 1500 for m in members}, f"{root}/bin/codex": fake})
+            home = account("agent-fabric")
+            r = tools_install.install("codex", reg=codex_reg(arc), home=home, fetch=serving(arc))
+            check("a tree whose members together pass the bound is refused, nothing left",
+                  r["status"] == "failed" and "over" in r["reason"] and tree_entries(home) == [] and listing(home) == [], (r, tree_entries(home)))
         finally:
             tools_install.MAX_ASSET_BYTES = saved_bound
 

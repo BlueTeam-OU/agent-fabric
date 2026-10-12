@@ -80,9 +80,11 @@
         {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
          "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
                      "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}},
-        {"name": "codex", "proof": "codex --version", "version": "0.162.1", "why": "the second review engine, fabric-review --engine codex (ADR-053 rule 7): the pinned Codex CLI, the npm platform tarball checked by sha256 before unpacking, the same build the gateway's CI runs end to end", "where": "account",
+        {"name": "codex", "proof": "codex --version", "version": "0.162.1", "why": "the second review engine, fabric-review --engine codex (ADR-053 rule 7): the pinned Codex CLI, the npm platform tarball checked by sha256 before unpacking, installed as its vendor tree (codex-code-mode-host runs every tool call; codex-package.json points it at its rg and bwrap; the voice resources are left out), the same build the gateway's CI runs end to end", "where": "account",
          "install": {"version": "0.162.1", "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.162.1-linux-x64.tgz",
-                     "sha256": "7417711678b464eee70664126e39e88bb3c84c2928da0e71f14b56e04ff5c09f", "member": "package/vendor/x86_64-unknown-linux-musl/bin/codex"}}
+                     "sha256": "7417711678b464eee70664126e39e88bb3c84c2928da0e71f14b56e04ff5c09f", "root": "package/vendor/x86_64-unknown-linux-musl",
+                     "members": ["bin/codex", "bin/codex-code-mode-host", "codex-package.json", "codex-path/rg", "codex-resources/bwrap", "codex-resources/zsh/bin/zsh"],
+                     "entrypoint": "bin/codex"}}
       ]
     },
     "kutaisi-shop-transit": {
