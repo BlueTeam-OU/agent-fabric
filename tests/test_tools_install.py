@@ -357,6 +357,9 @@ def main() -> int:
         r = subprocess.run([sys.executable, "-c", probe, os.path.join(ROOT, "tools", "fabric")], capture_output=True, text=True, timeout=60)
         check("the handler is not the default by the time install runs", r.returncode == 0 and r.stdout.startswith("False\n"), (r.returncode, r.stdout, r.stderr[:200]))
 
+        print("the size bound admits the pinned Codex CLI (a 158 MiB tarball around a 281 MiB binary)")
+        check("the bound is above the largest pinned asset", tools_install.MAX_ASSET_BYTES >= 300 * 1024 * 1024, tools_install.MAX_ASSET_BYTES)
+
         print("the https-only redirect")
         h = tools_install._HttpsOnly()
         try:

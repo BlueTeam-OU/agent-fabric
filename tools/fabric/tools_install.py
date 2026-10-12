@@ -53,7 +53,9 @@ SHA256 = re.compile(r"[0-9a-f]{64}")
 # A relative path whose every part is a plain name: a release tarball may keep
 # its binary one directory down, and no part can be "..", empty or absolute.
 MEMBER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*")
-MAX_ASSET_BYTES = 128 * 1024 * 1024
+# Held in memory whole, so it is a bound on the account's memory, not on the tool: the pinned Codex CLI is a
+# 158 MiB tarball around a 281 MiB binary (ADR-053 rule 7), which the earlier 128 MiB refused.
+MAX_ASSET_BYTES = 512 * 1024 * 1024
 FETCH_TIMEOUT_S = 120
 
 Fetch = Callable[[str], bytes]
