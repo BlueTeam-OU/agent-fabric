@@ -83,7 +83,21 @@ def prove(proof: str) -> tuple[str, str]:
     return "ok", first[:120]
 
 
-def check(projects: list[str], role: str | None, reg: dict) -> list[dict]:
+def tree_incomplete(tool: dict, home: str) -> bool:
+    """A tool pinned as a tree whose ~/.local/bin entry is not that whole tree.
+    Its proof alone cannot tell: the single-file Codex 0.162.1 printed the
+    pinned version and ran no command (2026-10-12)."""
+    import tools_install  # here, not at the top: tools_install imports this module
+    pin = tool.get("install")
+    if tool.get("where") != "account" or not isinstance(pin, dict) or not tools_install.is_tree(pin):
+        return False
+    if tools_install.check_pin(pin) is not None:
+        return False  # a pin that cannot be acted on is --install's to refuse, not the check's to judge
+    return not tools_install.tree_in_place(home, tool["name"], pin)
+
+
+def check(projects: list[str], role: str | None, reg: dict, home: str | None = None) -> list[dict]:
+    home = os.path.expanduser("~") if home is None else home
     rows = []
     for pid in projects:
         for tool in (reg.get("projects", {}).get(pid, {}).get("tools") or []):
@@ -91,6 +105,10 @@ def check(projects: list[str], role: str | None, reg: dict) -> list[dict]:
             if roles and role not in roles:
                 continue
             status, found = prove(tool["proof"])
+            if status == "ok" and tree_incomplete(tool, home):
+                status = "incomplete"
+                found = (f"{found} — ~/.local/bin/{tool['name']} is not the pinned tree; "
+                         f"fabric-tools --install {tool['name']}")
             rows.append({"project": pid, "name": tool["name"], "status": status, "found": found,
                          "version": tool.get("version", ""), "where": tool.get("where", ""),
                          "optional": bool(tool.get("optional")), "why": tool.get("why", "")})

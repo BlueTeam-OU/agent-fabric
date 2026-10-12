@@ -76,6 +76,54 @@ def main() -> int:
     finally:
         identity.current_agent, identity.read_binding = agent, binding
 
+    # A tree pin: the proof printing the version is not enough (review of #229) — the single-file Codex
+    # 0.162.1 did, and ran no command.
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="test_tools_check.") as home:
+        bindir = os.path.join(home, ".local", "bin")
+        os.makedirs(bindir)
+        script = '#!/bin/sh\necho "treetool 1.0"\n'
+        pin = {"version": "1.0", "url": "https://example.invalid/t.tgz", "sha256": "0" * 64, "root": "pkg",
+               "members": ["bin/treetool", "lib.txt"], "entrypoint": "bin/treetool"}
+        tree_reg = {"projects": {"demo": {"tools": [{"name": "treetool", "proof": "treetool --version", "version": "1.0",
+                                                     "why": "w", "where": "account", "install": pin}]}}}
+        with open(os.path.join(bindir, "treetool"), "w") as fh:
+            fh.write(script)
+        os.chmod(os.path.join(bindir, "treetool"), 0o755)
+        saved_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{bindir}:{saved_path}"
+        try:
+            row = tc.check(["demo"], None, tree_reg, home=home)[0]
+            check("a tree pin whose ~/.local/bin entry is a lone file: incomplete, with the --install hint",
+                  row["status"] == "incomplete" and "fabric-tools --install treetool" in row["found"]
+                  and "treetool 1.0" in row["found"], row)
+            tree = os.path.join(home, ".local", "lib", "agent-fabric-tools", "treetool", "1.0")
+            os.makedirs(os.path.join(tree, "bin"))
+            os.rename(os.path.join(bindir, "treetool"), os.path.join(tree, "bin", "treetool"))
+            os.symlink(os.path.join(tree, "bin", "treetool"), os.path.join(bindir, "treetool"))
+            row = tc.check(["demo"], None, tree_reg, home=home)[0]
+            check("…a link into a tree missing a member: incomplete", row["status"] == "incomplete", row)
+            open(os.path.join(tree, "lib.txt"), "w").close()
+            row = tc.check(["demo"], None, tree_reg, home=home)[0]
+            check("…the whole tree linked: ok (positive control)", row["status"] == "ok" and row["found"] == "treetool 1.0", row)
+            os.unlink(os.path.join(tree, "lib.txt"))
+            real_reg, real_home = tc.registry, os.environ.get("HOME")
+            tc.registry, os.environ["HOME"] = (lambda: tree_reg), home
+            try:
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    rc = tc.main(["--project", "demo", "--role", "python-dev"])
+            finally:
+                tc.registry = real_reg
+                if real_home is None:
+                    os.environ.pop("HOME", None)
+                else:
+                    os.environ["HOME"] = real_home
+            check("fabric-tools: an incomplete tree is a failure, exit 1, the hint printed",
+                  rc == 1 and "incomplete" in out.getvalue() and "fabric-tools --install treetool" in out.getvalue(), (rc, out.getvalue()))
+        finally:
+            os.environ["PATH"] = saved_path
+
     real = tc.registry
     tc.registry = lambda: REG
     try:
