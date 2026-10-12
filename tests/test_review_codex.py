@@ -348,8 +348,6 @@ def main() -> int:
         check("codex exec with --sandbox read-only", argv[:1] == ["exec"]
               and argv[argv.index("--sandbox") + 1] == "read-only", argv)
         check("--json: the event stream is what shows the run read the code", "--json" in argv, argv)
-        check("Codex's log lines on stderr are kept apart: a log line does not stop a run that read the code",
-              "a log line" not in r.stdout and "WARN" not in r.stderr, (r.stdout, r.stderr))
         check("--output-schema hands it the answer schema",
               argv[argv.index("--output-schema") + 1] == review_codex.SCHEMA_PATH, argv)
         check("the model is asked for by name", argv[argv.index("--model") + 1] == "gpt-test", argv)
@@ -399,6 +397,28 @@ def main() -> int:
               "Codex" in body_first and "`gpt-test`" in body_first and head[:12] in body_first, b)
         check("the findings are there, P1 first",
               "**P1** `app.py:1`" in b and b.index("**P1**") < b.index("**P3**"), b)
+
+        # run_codex itself, its scratch kept: the CLI removes the scratch, so only here can the two files be read
+        # (review of #229, F2).
+        print("Codex's stdout is the event stream alone; its log lines on stderr are kept apart")
+        set_pr(); mode("ok")
+        kept = tempfile.mkdtemp(prefix="run-codex.", dir=tmp)
+        os.makedirs(os.path.join(kept, "head"))
+        answer_text = review_codex.run_codex(os.path.join(fakebin, "codex"), "gpt-test", os.path.join(kept, "head"), kept,
+                                             {"PATH": os.environ.get("PATH", "")}, "brief", 60)
+        with open(os.path.join(kept, "codex-events.jsonl"), encoding="utf-8") as fh:
+            lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+
+        def is_json(line: str) -> bool:
+            try:
+                return isinstance(json.loads(line), dict)
+            except ValueError:
+                return False
+        check("every line of the events file is one JSON event, and there are some",
+              bool(lines) and all(is_json(ln) for ln in lines), lines)
+        with open(os.path.join(kept, "codex.log"), encoding="utf-8") as fh:
+            check("the log line went to codex.log", "WARN codex_core: a log line" in fh.read())
+        check("…and the run, which read the code, gives its answer", '"P1"' in answer_text, answer_text)
 
         print("the account id and the effort")
         acct = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
