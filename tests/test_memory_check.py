@@ -88,7 +88,8 @@ class Verdicts(Tree):
 
     def test_a_path_under_git_is_not_a_repository_path_in_a_clone_or_a_worktree(self):
         os.makedirs(os.path.join(self.tree, ".git", "objects"))     # a clone: .git is a directory
-        self.slice("a", ("lock", "a commit can hold `.git/objects/maintenance.lock` for a while"))
+        self.slice("a", ("lock", "a commit can hold `.git/objects/maintenance.lock` for a while, "
+                                  "and a sibling `../gzapp/.git/hooks/pre-push`"))
         (row,) = self.report()["sections"]
         self.assertEqual(row["paths"], [])
         shutil.rmtree(os.path.join(self.tree, ".git"))

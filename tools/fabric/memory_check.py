@@ -181,7 +181,8 @@ def known_dirs(tree: str) -> set[str]:
     """The tree's top directories a citation may start with. Never `.git`: what is
     under it is git's own state of one checkout (a lock, a hook), not a path of the
     repository, and a worktree's `.git` is a file, so it would be judged in a clone
-    and passed over in a worktree of the same commit."""
+    and passed over in a worktree of the same commit. cited() drops a `.git`
+    component anywhere else (a sibling's `../NAME/.git/...`) for the same reason."""
     try:
         return {e for e in os.listdir(tree) if e != ".git" and os.path.isdir(os.path.join(tree, e))}
     except OSError as e:
@@ -235,6 +236,8 @@ def cited(text: str, known: set[str]) -> list[str]:
             continue
         if lead == 0 and rest[0] not in known:
             continue                          # `HELLO/GOODBYE`, `P1/P2`, `origin/main`: not a directory of the tree
+        if ".git" in rest:
+            continue                          # git's own state of one checkout, here or a sibling's (known_dirs says why)
         if ".." in rest or (lead and (lead != 1 or len(rest) < 2)):
             continue                          # only a leading `../NAME/rest` is a path; a `..` inside one is not one we resolve
         found.setdefault(path, None)
