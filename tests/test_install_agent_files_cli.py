@@ -77,6 +77,9 @@ INSTALL = os.path.abspath(os.environ.get("INSTALL_AGENT_FILES")
                           or os.path.join(HERE, "runtime", "claude-code", "install-agent-files.sh"))
 if not os.path.isfile(INSTALL):
     sys.exit(f"test: script under test not found at {INSTALL}")
+# A .py entry (the port itself, or its shim) runs on the interpreter that runs
+# this file; anything else is run by bash.
+IS_PY = INSTALL.endswith(".py")
 
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 SUFFIX = LOGIN.rsplit("-", 1)[-1]
@@ -128,7 +131,15 @@ class Fixture(unittest.TestCase):
         shutil.copytree(os.path.join(HERE, "routing"), routing, ignore=shutil.ignore_patterns(*ROUTING_OPERATOR_IGNORE))
         write_routing_overlay(routing)
         shutil.copy(os.path.join(cc, "aliases.json"), os.path.join(self.fabric, "runtime", "claude-code"))
-        shutil.copy(INSTALL, os.path.join(self.fabric, "runtime", "claude-code", "install-agent-files.sh"))
+        # The entry sits in the fixture where it sits in the checkout (a .py
+        # entry finds its sibling modules from its own location); a script
+        # from outside the checkout takes the shim's place.
+        rel = os.path.relpath(INSTALL, HERE)
+        if rel.startswith(os.pardir):
+            rel = os.path.join("runtime", "claude-code", "install-agent-files.sh")
+        self.entry = os.path.join(self.fabric, rel)
+        os.makedirs(os.path.dirname(self.entry), exist_ok=True)
+        shutil.copy(INSTALL, self.entry)
         shutil.copytree(os.path.join(cc, "agents"), os.path.join(self.fabric, "runtime", "claude-code", "agents"))
         shutil.copy(os.path.join(HERE, "runtime", "identity.py"), os.path.join(self.fabric, "runtime"))
         mem = os.path.join(self.fabric, "runtime", "mcp", "fabric-memory")
@@ -161,7 +172,7 @@ class Fixture(unittest.TestCase):
                 "AGENT_FABRIC_PYTHON": PYTHON}
 
     def run_raw(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
-        return subprocess.run(["bash", os.path.join(self.fabric, "runtime", "claude-code", "install-agent-files.sh"), *args],
+        return subprocess.run([PYTHON if IS_PY else "bash", self.entry, *args],
                               capture_output=True, text=True, env=env or self.env(), cwd=self.sandbox,
                               timeout=TIMEOUT_S, check=False)
 
@@ -214,6 +225,7 @@ class WorkerInstall(Fixture):
         self.assertFalse(os.path.exists(self.dest), p.stdout)
         self.assertNotIn("Traceback", p.stderr)
 
+    @unittest.skipIf(IS_PY, "the pin check is the bash shim's")
     def test_missing_pin_is_exit_127(self) -> None:
         # The shim's own words, the bash's: absent pin, one line, 127. A port
         # that keeps the shim keeps this; a port that drops the pin edits it.
@@ -313,7 +325,7 @@ class RoleChange(Fixture):
         self.run_install()
         self.assertTrue(os.path.isfile(self.dest))
         shutil.rmtree(os.path.dirname(self.worker))
-        other = os.path.join(self.fabric, "identities", "roles", "language-culture", "locale", "xx")
+        other = os.path.join(self.fabric, "identities", "roles", "language-culture", "locale", f"{SUFFIX}-other")
         write(os.path.join(other, "worker.md"), WORKER_BODY)
         out = self.run_install()
         self.assertFalse(os.path.exists(self.dest), out)

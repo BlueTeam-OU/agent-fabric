@@ -55,6 +55,8 @@ own_instance_tree()
 INSTALL = os.path.abspath(os.environ.get("LANGID_INSTALL") or os.path.join(HERE, "runtime", "langid", "install.sh"))
 if not os.path.isfile(INSTALL):
     sys.exit(f"test: script under test not found at {INSTALL}")
+# A .py entry runs on the interpreter that runs this file; anything else by bash.
+ARGV0 = [sys.executable] if INSTALL.endswith(".py") else ["bash"]
 with open(os.path.join(HERE, "runtime", "langid", "detector.json"), encoding="utf-8") as _fh:
     PACKAGE = json.load(_fh)["package"]
 TIMEOUT_S = 60
@@ -88,7 +90,7 @@ class Langid(unittest.TestCase):
     def run_install(self, *args: str, pip: str | None = None, path: str | None = None) -> subprocess.CompletedProcess:
         env = {"PATH": path or self.path, "HOME": self.home, "LANG": "C.UTF-8", "TMPDIR": self.sandbox,
                "AGENT_FABRIC_LANGID_DIR": self.dir, "AGENT_FABRIC_LANGID_PIP": self.pip if pip is None else pip}
-        return subprocess.run(["bash", INSTALL, *args], capture_output=True, text=True, env=env, cwd=self.sandbox,
+        return subprocess.run([*ARGV0, INSTALL, *args], capture_output=True, text=True, env=env, cwd=self.sandbox,
                               timeout=TIMEOUT_S, check=False)
 
     def out(self, *args: str, **kw: str) -> str:
