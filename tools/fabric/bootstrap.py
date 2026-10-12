@@ -559,14 +559,23 @@ class Bootstrap:
                 continue
             if not os.path.isdir(dest):
                 continue
-            # Only a copy the fabric wrote: a skill of the same name that a
-            # person or a plugin put there is not ours to delete.
-            if not fabric_writes.written(os.path.join(dest, "SKILL.md")):
-                say(f"  =  {dest} (kept: not written by the fabric)")
+            # Only files the fabric wrote: a skill of the same name, or a file
+            # added beside ours, by a person or a plugin is not ours to delete,
+            # and it keeps the directory.
+            found = [os.path.join(d, f) for d, _, fs in os.walk(dest) for f in fs]
+            foreign = [f for f in found if not fabric_writes.written(f)]
+            if foreign:
+                say(f"  =  {dest} (kept: {len(foreign)} file(s) not written by the fabric)")
             elif self.dry_run:
                 say(f"  -  {dest} (would remove: role is {role or 'unbound'})")
             else:
-                shutil.rmtree(dest)
+                for f in found:
+                    os.remove(f)
+                for d, _, _ in sorted(os.walk(dest), reverse=True):
+                    try:
+                        os.rmdir(d)
+                    except OSError:
+                        pass
                 say(f"  -  {dest} (removed: role is {role or 'unbound'})")
                 self.changed += 1
 
