@@ -1102,7 +1102,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   against about 990 MB.
 - Keywords: moli, web, browser, fetch, markdown, serve, CDP, Playwright,
   Chrome, internet, page, untrusted, hidden DOM, pin.
-### ADR-052 — The account-switch policy for gateway sessions: sticky, with hysteresis, soonest reset first, perishable moves rate-limited, decided by the controller (Proposed)
+### ADR-052 — The account-switch policy for gateway sessions: sticky, with hysteresis, soonest reset first, perishable moves rate-limited, decided by the controller (Accepted)
 
 - The switch controller, in the coordinator's account, moves a gateway
   session's login by the `fabric-accounts assign` path; the gateway only

@@ -473,7 +473,7 @@
       "number": "052",
       "file": "ADR-052-account-switch-policy-for-gateway-sessions.md",
       "title": "The account-switch policy for gateway sessions: sticky, with hysteresis, soonest reset first, perishable moves rate-limited, decided by the controller",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-11",
       "pillar": "P7",
       "amendments": 0
