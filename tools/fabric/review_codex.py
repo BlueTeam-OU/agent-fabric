@@ -96,10 +96,12 @@ ENV_BASE_URL, ENV_KEY, ENV_MODEL, ENV_BIN = (
 ENV_ACCOUNT_ID, ENV_EFFORT = "AGENT_FABRIC_CODEX_ACCOUNT_ID", "AGENT_FABRIC_CODEX_EFFORT"
 # The ChatGPT account id is a UUID; the shape is checked because it is written into config.toml as a header value.
 ACCOUNT_ID = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
-# Codex's model_reasoning_effort values (codex 0.162.1). A review reads a whole change: its default on the ChatGPT
-# plan is `none`, so the engine asks for `high` unless told otherwise.
+# Codex's model_reasoning_effort values (codex 0.162.1). On the ChatGPT backend the engine asks for `high` unless
+# told otherwise: a review reads a whole change, and a `codex exec` on the owner's ChatGPT team plan (2026-10-12)
+# printed "reasoning effort: none" for its default model. The environment's gateway sends no level unless one is
+# asked for, as before the --gateway path existed (review of #224, F2).
 EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
-DEFAULT_EFFORT = "high"
+GATEWAY_EFFORT = "high"
 # Codex's environment is built from these and nothing else: a denylist of
 # the session's credentials would miss the next one a launcher adds. Locale
 # and CA settings only; HOME, TMPDIR and CODEX_HOME are the scratch's.
@@ -195,9 +197,12 @@ def account_id(environ: dict[str, str]) -> str | None:
     return value
 
 
-def effort(environ: dict[str, str], flag: str | None) -> str:
-    """--effort, else AGENT_FABRIC_CODEX_EFFORT, else high; one of Codex's levels."""
-    value = (flag or environ.get(ENV_EFFORT) or DEFAULT_EFFORT).strip()
+def effort(environ: dict[str, str], flag: str | None, default: str | None) -> str | None:
+    """--effort, else AGENT_FABRIC_CODEX_EFFORT, else `default` (None: Codex's own); one of Codex's levels."""
+    value = flag or environ.get(ENV_EFFORT) or default
+    if value is None:
+        return None
+    value = value.strip()
     if value not in EFFORTS:
         raise Refused(f"reasoning effort {value!r} is not one of {', '.join(EFFORTS)}")
     return value
@@ -314,13 +319,13 @@ def child_env(environ: dict[str, str], scratch: str, home: str, key: str) -> dic
 # --- running Codex once ------------------------------------------------------
 
 def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str, str], prompt: str,
-              timeout_s: float, effort_level: str = DEFAULT_EFFORT) -> str:
+              timeout_s: float, effort_level: str | None = None) -> str:
     """Codex's last message, or FailedReview. Its process group is ended on
     every way out, so nothing it started outlives the scratch."""
     answer = os.path.join(scratch, "last-message.json")
     log = os.path.join(scratch, "codex.log")
     argv = [binary, "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--cd", workdir, "--model", model,
-            "-c", f"model_reasoning_effort={_toml_str(effort_level)}",
+            *(["-c", f"model_reasoning_effort={_toml_str(effort_level)}"] if effort_level else []),
             "--output-schema", SCHEMA_PATH, "--output-last-message", answer, "--color", "never", "-"]
     with open(log, "wb") as logf:
         p = subprocess.Popen(argv, cwd=workdir, env=env, stdin=subprocess.PIPE, stdout=logf, stderr=subprocess.STDOUT,
@@ -458,7 +463,7 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
         settings(environ, model_flag)   # every missing setting named at once, before anything else
         account_id(environ)
     model, binary = codex_settings(environ, model_flag)
-    level = effort(environ, effort_flag)
+    level = effort(environ, effort_flag, GATEWAY_EFFORT if gateway else None)
     req, brief = load_request(request, allow_rationale)
     repo = req["repository"]
     head = range_head(req)
@@ -543,7 +548,7 @@ def main(argv: list[str] | None = None) -> int:
         print("fabric-review: --codex-home names the sign-in a --gateway reads; without --gateway it means nothing",
               file=sys.stderr)
         return 2
-    if opts.get("--effort", DEFAULT_EFFORT) not in EFFORTS:
+    if "--effort" in opts and opts["--effort"] not in EFFORTS:
         print(f"fabric-review: --effort {opts['--effort']!r}: one of {', '.join(EFFORTS)}", file=sys.stderr)
         return 2
     for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):

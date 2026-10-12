@@ -270,8 +270,8 @@ def main() -> int:
               and 'env_key = "AGENT_FABRIC_CODEX_KEY"' in cfg, cfg)
         check("…and never the key itself", "gw-local-key-123" not in cfg, cfg)
         check("no account id set: no http_headers in config.toml", "http_headers" not in cfg and "ChatGPT-Account-ID" not in cfg, cfg)
-        check("the reasoning effort is high by default, as a -c override",
-              argv[argv.index("-c") + 1] == 'model_reasoning_effort="high"', argv)
+        check("the environment's gateway: no reasoning level unless one is asked for, as before (review of #224, F2)",
+              not any(a.startswith("model_reasoning_effort") for a in argv) and "-c" not in argv, argv)
 
         after_codex = os.stat(codex_marker)
         check("~/.codex is untouched", (after_codex.st_mtime_ns, after_codex.st_size)

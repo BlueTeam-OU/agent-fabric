@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import contextlib
 import json
 import os
 import pwd
@@ -57,7 +58,13 @@ if mode == "exit4":
     sys.exit(4)
 ready = {"event": "ready", "gateway_version": "0.3.0-fake", "runtime_contract": 1, "plan_schema": plan["schema_version"],
          "listener": "http://127.0.0.1:47011", "plan_digest": "sha256:" + hashlib.sha256(plan_bytes).hexdigest()}
-signal.signal(signal.SIGTERM, lambda *a: (note(event="term"), sys.exit(0)))
+def on_term(*a):
+    note(event="term")
+    if mode == "drain":   # a slow drain: the reviewer's stop() is still waiting when the next signal comes
+        open(os.path.join(S, "gw-draining"), "w").close()
+        time.sleep(3)
+    sys.exit(0)
+signal.signal(signal.SIGTERM, on_term)
 os.write(int(args["--ready-fd"]), (json.dumps(ready) + "\n").encode())
 os.close(int(args["--ready-fd"]))
 while True:
@@ -320,6 +327,25 @@ def main() -> int:
         sv = (events("serve") or [{}])[0]
         check("exit 143, nothing posted", p.returncode == 143 and not posted(), (p.returncode, err))
         check("the gateway is gone and the token removed", gone(sv.get("pid", 0)) and runtime_clean(), os.listdir(run_dir))
+
+        # A signal while the gateway drains used to cut the cleanup short and leave the token (review of #224, F1).
+        print("SIGTERM while the gateway is being stopped: the token is still removed")
+        write_signin(); reset(gw_mode="drain")
+        for n in ("gw-draining",):
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(os.path.join(state, n))
+        p = subprocess.Popen([REVIEW, "--engine", "codex", "7", req, "--gateway", "chatgpt", "--no-post"], env=env0, cwd=repo,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        for _ in range(400):
+            if os.path.exists(os.path.join(state, "gw-draining")):
+                break
+            time.sleep(0.05)
+        drained = os.path.exists(os.path.join(state, "gw-draining"))
+        p.send_signal(signal.SIGTERM)
+        _, err = p.communicate(timeout=60)
+        sv = (events("serve") or [{}])[0]
+        check("the signal came while the gateway drained, and the token and scratch are gone",
+              drained and gone(sv.get("pid", 0)) and runtime_clean(), (drained, p.returncode, err[-300:], os.listdir(run_dir)))
 
         print("the gateway fails to start: nothing posted, Codex never ran")
         write_signin(); reset(gw_mode="exit4")

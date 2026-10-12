@@ -44,6 +44,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import stat
 import sys
 import tempfile
@@ -259,6 +260,15 @@ def serve(prep: Prepared, model: str, environ: dict[str, str]):
             raise Refused(f"{e}{' The gateway said: ' + log if log else ''} Nothing was posted.") from None
         yield {ENV_BASE_URL: gw.listener, ENV_KEY: gw.key, ENV_ACCOUNT_ID: prep.signin.account_id}
     finally:
-        if gw is not None:
-            gw_mod.stop(gw)
-        shutil.rmtree(scratch, ignore_errors=True)
+        # The token goes first, and no signal may cut this short: stop() waits for the gateway to drain, and a
+        # signal raised into that wait once skipped the removal and left the token on disk (review of #224, F1).
+        # A signal that arrives meanwhile is delivered when the mask is lifted, after the scratch is gone.
+        blocked = signal.pthread_sigmask(signal.SIG_BLOCK, (signal.SIGTERM, signal.SIGHUP, signal.SIGINT))
+        try:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(os.path.join(scratch, TOKEN_NAME))
+            if gw is not None:
+                gw_mod.stop(gw)
+            shutil.rmtree(scratch, ignore_errors=True)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
