@@ -299,15 +299,22 @@ def model_profile_findings(root: str, doc: dict[str, Any], known_roles: set[str]
     grade = routing.load_review_grade(root)
     gated = grade.get("capability", "code-review")
     try:
-        routing.load_capabilities(root)
+        columns = routing.load_capabilities(root).get("providers") or {}
     except (OSError, KeyError, ValueError):
         return findings
+    # Every launch path is judged whether or not its column is there (a missing
+    # one is a finding of its own); an engine provider only where the tree
+    # has its column. The routing code and the routing data can come from two
+    # trees — this checkout's code over an AGENT_FABRIC_ROOT, or a --fabric,
+    # from before the openai column — and an adapter the data has never heard
+    # of is not a defect of the profiles (tests/run.sh, 2026-10-12).
+    providers = [p for p in routing.PROVIDERS if routing.ADAPTERS[p].launch or p in columns]
     rows = [("defaults", None, None)]
     rows += [("roles", name, None) for name in (doc.get("roles") or {})]
     rows += [("agents", None, name) for name in (doc.get("agents") or {})]
     for layer, role, agent in rows:
         label = layer if layer == "defaults" else f"{layer}.{role or agent}"
-        for provider in routing.PROVIDERS:
+        for provider in providers:
             try:
                 model = routing.resolve(gated, provider, role, agent, None, root)["model"]
             except (KeyError, ValueError) as exc:
