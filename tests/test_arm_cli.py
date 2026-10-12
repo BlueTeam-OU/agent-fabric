@@ -129,7 +129,9 @@ def review_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
     if rc == 2:
         return 2, "", ""
     blind = rd("blind") if rd("blind") is not None else ("abcdef01" if rc == 0 else "")
-    rows = lambda t: [{"login": "someone", "commit_sha8": x, "at": "2026-09-25T00:00:00Z"} for x in (t or "").split() if x]
+    # An entry is a sha8, or <sha8>:<engine> for a review posted by that engine (none: the review class's).
+    rows = lambda t: [{"login": "someone", "commit_sha8": x.split(":")[0], "at": "2026-09-25T00:00:00Z",
+                       **({"engine": x.split(":")[1]} if ":" in x else {})} for x in (t or "").split() if x]
     out = {"state": "OPEN", "head": "abcdef0123456789", "head_reviewed": rc == 0,
            "independent": {"count": len(rows(rd("independent"))), "rows": rows(rd("independent"))},
            "unresolved_threads": json.loads(rd("unresolved", "0")),
@@ -262,7 +264,7 @@ def main() -> int:
             rc, out, _ = MOCKS[os.path.basename(head[0])](state, list(args), "")
             return rc, out
 
-        def run(*args: str, fixture_rules: bool = True, env: dict | None = None) -> tuple[int, str]:
+        def run(*args: str, fixture_rules: bool = True, env: dict | None = None, policy: dict | None = None) -> tuple[int, str]:
             """arm.main() in this process, the same environment as the CLI's: gh and the readers are the mocks'
             functions, and the arming policy and GitHub's side (read by the CLI layer) are the fleet default with
             no drift. (exit, stdout and stderr in the order written.)"""
@@ -272,7 +274,7 @@ def main() -> int:
                 st.enter_context(mock.patch.object(arm.common, "apply_project_env"))
                 st.enter_context(mock.patch.object(gh, "run", gh_run))
                 st.enter_context(mock.patch.object(arm, "run_reader", reader))
-                st.enter_context(mock.patch.object(arm_policy, "load", lambda repo, **kw: arm_policy.default()))
+                st.enter_context(mock.patch.object(arm_policy, "load", lambda repo, **kw: policy or arm_policy.default()))
                 st.enter_context(mock.patch.object(repo_policy, "check", lambda repo, policy, api=None: []))
                 st.enter_context(contextlib.redirect_stdout(buf))
                 st.enter_context(contextlib.redirect_stderr(buf))
@@ -561,6 +563,40 @@ def main() -> int:
         rc, out = run("7", "--basis", "two commits", env=denv)
         check("…the same PR reviewed but not waived: refused without the owner's word",
               rc == 1 and "whatever class is stated" in out, out)
+
+        print("arm: the policy's reviews — each required engine has reviewed the current head (ADR-053 rule 6)")
+        both = dict(arm_policy.default(), reviews=["claude", "codex"])
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b")
+        check("the default (claude only) arms a PR with no review at all, as before", rc == 0 and "ARMED #7" in out, out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
+        rc, out = run("7", "--basis", "b", policy=both)
+        check("codex required, only the claude review of the head: refused, naming codex",
+              rc == 1 and "by the codex engine" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
+        rc, out = run("7", "--basis", "b", policy=both)
+        check("codex required, only the codex review: refused, naming claude", rc == 1 and "by the claude engine" in out, out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
+        rc, out = run("7", "--basis", "b", policy=both)
+        check("both engines reviewed the head: armed", rc == 0 and "ARMED #7" in out and "each required engine" in out, out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 12345678:codex")
+        rc, out = run("7", "--basis", "b", policy=both)
+        check("a codex review of an older head does not count", rc == 1 and "by the codex engine" in out, out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
+        put("unresolved", "1")
+        rc, out = run("7", "--basis", "b", policy=both)
+        check("both reviewed but a thread (a P1 or P2 of either engine) is open: refused",
+              rc == 1 and "unresolved review thread" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
+        rc, out = run("7", "--basis", "b", policy=dict(arm_policy.default(), reviews=["codex"]))
+        check("a policy naming only codex needs only codex", rc == 0 and "ARMED #7" in out, out)
+        bnd = dict(arm_policy.default(), boundary_reviews=["claude", "codex"])
+        reset(); set_pr(me, "plain", mig); set_gate(9); put("review_rc", "0")
+        rc, out = run("7", "--basis", "b", policy=bnd)
+        check("boundary_reviews: a boundary change reviewed by claude alone is refused for codex", rc == 1 and "by the codex engine" in out, out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b", policy=bnd)
+        check("…and a PR outside the boundary is not asked for it", rc == 0 and "ARMED #7" in out, out)
 
         print("arm: gate 5 — the classes that arm under 8 without asking")
         reset(); set_pr("develop-qzapp/me/docs/x", "Wording.\n\nClass: docs-only",

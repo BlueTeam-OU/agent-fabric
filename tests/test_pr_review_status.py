@@ -308,7 +308,11 @@ def main() -> int:
           list(doc) == ["pr", "state", "merge_state", "head", "head_reviewed", "independent", "blind", "not_trusted",
                         "no_review_coming", "marked_by_others", "verdicts", "self", "unresolved_threads", "unresolved_paths", "checks"])
     check("pr is a number, a cause carries a null reason", doc["pr"] == 77 and doc["no_review_coming"] == {"cause": "head-moved", "reason": None})
-    check("rows carry the 8-character sha", doc["blind"]["rows"] == [{"login": "me", "commit_sha8": "abc123de", "at": "2026-08-07T10:00:00Z"}])
+    check("rows carry the 8-character sha", doc["blind"]["rows"] == [{"login": "me", "commit_sha8": "abc123de", "at": "2026-08-07T10:00:00Z", "engine": "claude"}])
+    marker = "<!-- agent-fabric-review v1 -->"
+    check("a review posted with --model codex is the codex engine, any other the review class's",
+          [rs.engine_of({"body": b}) for b in (f"{marker}\n<!-- model: codex -->\nx", f"{marker}\n<!-- model: fable -->\nx", f"{marker}\nx",
+                                              f"{marker}\nx\n<!-- model: codex -->")] == ["codex", "claude", "claude", "claude"])
     unknown = json.loads(rs.render_json(ctx, rs.Probe(head=HEAD), rs.Extras([], None, 0, 0), "", ""))
     check("unknown threads are null, never 0", unknown["unresolved_threads"] is None and unknown["no_review_coming"] is None)
     check("the text is not --json's", "\n  " in rs.render_json(ctx, rs.Probe(head=HEAD), x, "", "") and "ü" in rs.render_json(ctx, rs.Probe(head=HEAD, state="ü"), x, "", ""))
