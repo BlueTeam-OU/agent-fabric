@@ -38,6 +38,9 @@ import subprocess
 import sys
 
 import hook_harness as h
+from instance_fixtures import own_instance_tree  # noqa: E402
+
+own_instance_tree()
 
 ENTRY = h.entry("SESSION_START_HOOK", "session-start.sh")
 T = h.sandbox("test_session_start_hook_cli.")
