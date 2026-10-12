@@ -6,7 +6,7 @@ import ast
 import os
 import re
 
-from .base import _tracked
+from .base import _is_under, _not_ours, _tracked
 
 
 def _ends_in_dollar(pattern: str) -> bool:
@@ -282,7 +282,8 @@ def regex_dollar_findings(root: str) -> list[str]:
     findings = []
     tracked = _tracked(root)
     resolver = _Resolver(root, set(tracked))
-    for rel in sorted(r for r in tracked if r.endswith(".py")):
+    not_ours = _not_ours(root)
+    for rel in sorted(r for r in tracked if r.endswith(".py") and not _is_under(r, not_ours)):
         mod = resolver.module(rel)
         if mod is None:
             continue
