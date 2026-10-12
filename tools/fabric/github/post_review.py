@@ -64,7 +64,8 @@ Usage:
   EOF
 
 Options:
-  --model <name>   record which model produced the review (default: unset)
+  --model <name>   record which model produced the review (default: unset);
+                   `codex` is the second engine's (agent-fabric ADR-053)
   --dry-run        show what would be posted, send nothing
   -h, --help
 
@@ -249,8 +250,12 @@ def run(argv: list[str], stdin) -> int:
         header += f"\n<!-- model: {model} -->"
     if carve_out:
         header += "\n<!-- posted by the locale carve-out's merger -->"
+    # The second engine (agent-fabric ADR-053) is not the review class, and
+    # its review must not say it is; the marker and its reading are the same.
+    who = ("Codex, the second review engine, run once against this head" if model == "codex"
+           else "the review class, dispatched against this head")
     full_body = f"""{header}
-**Blind review** — the review class, dispatched against this head with a
+**Blind review** — {who} with a
 brief of facts and none of the author's session context. Its findings
 are judged before they are answered; the judgement follows in the PR.
 
