@@ -9,7 +9,25 @@ wired. The hook runs after every Bash tool call; a non-zero exit or stray
 stdout on a malformed payload would turn a cosmetic feature into a broken
 session. Each case runs the REAL script against a throwaway git repo.
 
-The hook under test is $TAB_TITLE_HOOK, default the one the bash test runs.
+The hook under test is $TAB_TITLE_HOOK, default the tracked one, run as the
+harness runs it: a program with the payload on stdin (Wave 9 batch 7: the
+same file runs unchanged against the port, ADR-040 rule 5).
+
+Cases of test_tab-title.sh as ported: the title is <agent> <working-copy>/
+<branch>; this working copy's legacy prefix and this agent's prefix are
+stripped, another clone's is not; a detached HEAD shows the short SHA; a
+linked worktree reports the main clone and its branch; outside a repository
+nothing, exit 0; a valid payload exits 0; a malformed payload ({}, not JSON,
+empty) exits 0; the source holds no raw control bytes. Added in batch 7: the
+exact bytes (ESC ] 0 ; title BEL, one key, nothing on stderr); a cwd inside a
+subdirectory; a cwd that is no directory falls back to $PWD; a repository
+with no commit; no jq: exit 0 and nothing (with the positive control).
+
+Mutations, each failing here: --git-common-dir replaced by --show-toplevel
+(the linked-worktree case); the prefix strip removed (the two prefix cases);
+the strip applied to every host prefix (the other-clone case); `exit 0`
+removed from the end (the no-jq case); the `[ -d "$dir" ]` fallback removed
+(the bad-cwd case).
 
 Exit codes: 0 all assertions passed, 1 one or more failed."""
 from __future__ import annotations
@@ -29,6 +47,7 @@ if not os.path.isfile(HOOK):
 T = tempfile.mkdtemp(prefix="test_tab_title_cli.")
 HOME = f"{T}/home"
 fails = 0
+last_stderr = ""
 
 
 def check(label: str, good: bool, detail: str = "") -> None:
@@ -50,8 +69,10 @@ def clean_env() -> dict[str, str]:
 
 
 def hook(payload: str, cwd: str | None = None) -> tuple[int, str]:
-    p = subprocess.run(["bash", HOOK], input=payload.encode(), env=clean_env(), cwd=cwd,
-                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=60)
+    p = subprocess.run([HOOK], input=payload.encode(), env=clean_env(), cwd=cwd,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+    global last_stderr
+    last_stderr = p.stderr.decode("utf-8", "surrogateescape")
     return p.returncode, p.stdout.decode("utf-8", "surrogateescape")
 
 
@@ -145,6 +166,30 @@ def main() -> int:
               f"{agent} my-clone/main", title_of(run_hook(linked)[1]))
     subprocess.run(["git", "-C", repo, "worktree", "remove", "--force", linked], env=clean_env(),
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Exactly what the harness allowlists: one key, OSC 0, the title, BEL.
+    git("checkout", "-q", "-b", "plain-branch", repo=repo)
+    rc, out = run_hook(repo)
+    check("the output is exactly {terminalSequence: ESC ] 0 ; title BEL}, and stderr is empty",
+          rc == 0 and json.loads(out) == {"terminalSequence": f"\x1b]0;{agent} my-clone/plain-branch\x07"} and last_stderr == "", f"{out!r} {last_stderr!r}")
+    sub = f"{repo}/deeper/still"
+    os.makedirs(sub)
+    assert_eq("a cwd inside a subdirectory titles the repository's top level", f"{agent} my-clone/plain-branch", title_of(run_hook(sub)[1]))
+    rc, out = hook(json.dumps({"cwd": f"{T}/no/such/dir"}), cwd=repo)
+    assert_eq("a cwd that is no directory falls back to $PWD", f"{agent} my-clone/plain-branch", title_of(out))
+    rc, out = hook(json.dumps({"cwd": repo}), cwd="/")
+    assert_eq("…and the payload's cwd wins over $PWD", f"{agent} my-clone/plain-branch", title_of(out))
+    fresh = f"{sandbox}/fresh"
+    os.makedirs(fresh)
+    git("-c", "init.defaultBranch=trunk", "init", "-q", repo=fresh)
+    assert_eq("a repository with no commit yet still has its branch", f"{agent} fresh/trunk", title_of(run_hook(fresh)[1]))
+    bare = f"{T}/bare"
+    os.makedirs(bare)
+    for name in ("bash", "env", "git", "id", "hostname", "dirname", "readlink", "basename", "cat"):
+        os.symlink(shutil.which(name) or sys.exit(f"test: {name} is required"), f"{bare}/{name}")
+    p = subprocess.run([HOOK], input=json.dumps({"cwd": repo}).encode(), env={**clean_env(), "PATH": bare}, capture_output=True, timeout=60)
+    check("without jq: exit 0 and nothing on stdout (a failing hook errors on every Bash call)", p.returncode == 0 and p.stdout == b"", f"rc={p.returncode} out={p.stdout!r}")
+    check("…and the same payload with jq emits (the control)", run_hook(repo)[1] != "")
 
     # Outside a repo there is no title to set, and saying so with an empty body
     # is how a hook declines: any stdout here would be parsed as a directive.
