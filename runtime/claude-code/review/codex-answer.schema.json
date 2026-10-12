@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-fabric:codex-review-answer",
+  "title": "The answer of the second review engine (agent-fabric ADR-053 rule 4)",
+  "description": "What `fabric-review --engine codex` accepts from Codex: one JSON object whose findings each carry a level, the place, the failure scenario, the expected behaviour and the fix. Anything else is a failed review and nothing is posted. The same file is handed to `codex exec --output-schema`, so it stays inside the subset OpenAI's strict structured outputs accept: every property required, no additional properties, a type on every value, and `pattern` rather than `minLength` for a non-empty string. An empty findings list is a clean review.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["findings"],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["level", "file", "line", "scenario", "expected", "fix"],
+        "properties": {
+          "level": {"type": "string", "enum": ["P1", "P2", "P3"], "description": "P1 breaks a requirement or invariant on a path that runs; P2 a defect a reachable input or state triggers; P3 everything worth fixing that is neither."},
+          "file": {"type": "string", "pattern": "\\S", "description": "The path the finding is about, relative to the repository's root."},
+          "line": {"type": "integer", "minimum": 1, "description": "The line in that file at the reviewed head."},
+          "scenario": {"type": "string", "pattern": "\\S", "description": "The inputs or state and the steps that make it fail, concretely."},
+          "expected": {"type": "string", "pattern": "\\S", "description": "What must happen instead, by the brief's requirements and invariants."},
+          "fix": {"type": "string", "pattern": "\\S", "description": "The smallest change that makes it hold."}
+        }
+      }
+    }
+  }
+}
