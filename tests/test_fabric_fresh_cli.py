@@ -87,6 +87,12 @@ def main() -> int:
                         "commit", "-q", "-m", "a"], check=True, timeout=30)
         envs = {"AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_FRESH_KILL": f"{bin_}/record-kill",
                 "AGENT_FABRIC_FRESH_COMM": "claude-fake", "AGENT_FABRIC_LAUNCH_OPENING": "1"}
+        # The fabric checkout the launcher's verdict is asked of: no git
+        # at all (the verdict is "skip") until the currency cases below,
+        # never this tree, whose origin the suite must not fetch.
+        fab = f"{t}/fabric"
+        os.makedirs(fab)
+        envs["AGENT_FABRIC_ROOT"] = fab
         launched = {"AGENT_FABRIC_LAUNCH_PROFILE": "p", **envs}
 
         def run(argv: list[str], env: dict, cwd: str | None = None) -> tuple[int, str]:
@@ -182,6 +188,87 @@ def main() -> int:
         check("a listed job: its id in the marker, and said",
               rc == 0 and good and "starts a fresh one for job j1" in out, f"rc={rc}\n{out} {read(marker)}")
         rm(marker, killed)
+
+        print("fabric-fresh: refused where the launcher would refuse the relaunch")
+        origin, other = f"{t}/origin.git", f"{t}/other"
+        gitc = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+
+        def g(repo: str, *a: str) -> None:
+            subprocess.run([*gitc, "-C", repo, *a], check=True, timeout=60, stdout=subprocess.DEVNULL)
+        g(fab, "init", "-q", "-b", "main")
+        put(f"{fab}/a", "1\n", 0o644)
+        put(f"{fab}/b", "1\n", 0o644)
+        g(fab, "add", "-A")
+        g(fab, "commit", "-q", "-m", "base")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", origin], check=True, timeout=30)
+        g(fab, "remote", "add", "origin", origin)
+        g(fab, "push", "-q", "origin", "main")
+        subprocess.run(["git", "clone", "-q", origin, other], check=True, timeout=60, stderr=subprocess.DEVNULL)
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("a current checkout: the relaunch is fine", rc == 0 and os.path.exists(killed), f"rc={rc}\n{out}")
+        rm(killed, marker)
+        put(f"{other}/a", "2\n", 0o644)
+        g(other, "commit", "-q", "-am", "newer")
+        g(other, "push", "-q", "origin", "main")
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind and fast-forwardable: the launcher pulls, so fine", rc == 0 and os.path.exists(killed), f"rc={rc}\n{out}")
+        rm(killed, marker)
+        put(f"{fab}/b", "local\n", 0o644)
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, a dirty file the pull does not touch: still fine", rc == 0 and os.path.exists(killed), f"rc={rc}\n{out}")
+        rm(killed, marker)
+        put(f"{fab}/a", "local\n", 0o644)
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, a dirty file the pull overwrites: exit 3, nothing stopped, no marker",
+              rc == 3 and "would refuse the relaunch" in out and "uncommitted changes would be overwritten (a)" in out
+              and not os.path.exists(killed) and not os.path.exists(marker), f"rc={rc}\n{out}")
+        rc, out = run([f"{bin_}/claude", "--force"], clean_env(**launched))
+        check("…--force does not override it", rc == 3 and not os.path.exists(killed), f"rc={rc}\n{out}")
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched, AGENT_FABRIC_ALLOW_STALE="1"))
+        check("…nor does AGENT_FABRIC_ALLOW_STALE=1 here: the launcher's environment is not this process's",
+              rc == 3 and not os.path.exists(killed), f"rc={rc}\n{out}")
+        subprocess.run(["git", "-C", fab, "checkout", "-q", "--", "a", "b"], check=True, timeout=30)
+        # The pull's changes as git lists them with rename detection off:
+        # an incoming rename b -> b2 writes b's removal, and a new directory
+        # collides with an untracked file inside it.
+        g(other, "mv", "b", "b2")
+        os.makedirs(f"{other}/newdir")
+        put(f"{other}/newdir/x", "1\n", 0o644)
+        g(other, "add", "-A")
+        g(other, "commit", "-q", "-m", "rename and new dir")
+        g(other, "push", "-q", "origin", "main")
+        put(f"{fab}/b", "local\n", 0o644)
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, a dirty file the pull renames away: exit 3",
+              rc == 3 and "overwritten (b" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        subprocess.run(["git", "-C", fab, "checkout", "-q", "--", "b"], check=True, timeout=30)
+        os.makedirs(f"{fab}/newdir")
+        put(f"{fab}/newdir/x", "mine\n", 0o644)
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, an untracked file inside a directory the pull adds: exit 3",
+              rc == 3 and "newdir/x" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        shutil.rmtree(f"{fab}/newdir")
+        # An untracked file where the pull needs a directory (newdir is the
+        # pull's), and an untracked directory where it puts a file.
+        put(f"{fab}/newdir", "a file\n", 0o644)
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, an untracked file where the pull adds a directory: exit 3",
+              rc == 3 and "overwritten (newdir" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        rm(f"{fab}/newdir")
+        g(fab, "mv", "a", "a-moved")
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, a staged rename whose source the pull modifies: exit 3, the source named",
+              rc == 3 and "overwritten (a" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        g(fab, "reset", "-q", "--hard")
+        g(fab, "commit", "-q", "--allow-empty", "-m", "local")
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind with a local commit: exit 3, said why, nothing stopped",
+              rc == 3 and "local commits that origin/main does not contain" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        g(fab, "remote", "set-url", "origin", f"{t}/nonexistent.git")
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("origin unreachable: the launcher launches on what is checked out, so fine",
+              rc == 0 and os.path.exists(killed), f"rc={rc}\n{out}")
+        rm(killed, marker)
 
         print("fabric-fresh: no claude above it")
         rc, out = run([CMD], clean_env(**launched), cwd=wc)
