@@ -660,6 +660,12 @@ class Languages(Base):
 
 
 class Tokens(Base):
+    def test_cache_hit_is_the_read_share_of_every_prompt_token_none_when_there_are_none(self):
+        self.assertEqual(ops.cache_hit({"input": 10, "cache_write": 0, "cache_read": 90}), 0.9)
+        self.assertEqual(ops.cache_hit({"input": 1, "cache_write": 0, "cache_read": 2}), 0.667, "three decimals")
+        self.assertEqual(ops.cache_hit({"input": 0, "cache_write": 5, "cache_read": 0}), 0.0, "all written, none read: a cold cache is 0, not None")
+        self.assertIsNone(ops.cache_hit({"input": 0, "cache_write": 0, "cache_read": 0, "output": 9}), "output is not a prompt token")
+
     def test_per_model_deduplicated_by_request_in_the_window_direct_and_broker_apart_synthetic_dropped(self):
         h = self.home()
         now = datetime(2026, 9, 19, 12, tzinfo=timezone.utc).timestamp() * 1000
@@ -686,11 +692,12 @@ class Tokens(Base):
         self.assertEqual((t["status"], t["days"]), ("ok", 7))
         self.assertEqual(t["requests"], {"session": 2, "subagent": 1})
         self.assertEqual(list(t["models"]), ["z-ai/glm-5.3", "claude-opus-5", "claude-sonnet-5"], "ordered by equivalents (525, 335, 41), synthetic absent")
-        self.assertEqual(t["models"]["claude-opus-5"], {"requests": 1, "input": 10, "cache_write": 100, "cache_read": 1000, "output": 20, "equiv": 335, "path": "claude"})
+        self.assertEqual(t["models"]["claude-opus-5"], {"requests": 1, "input": 10, "cache_write": 100, "cache_read": 1000, "output": 20, "equiv": 335, "cache_hit": 0.901, "path": "claude"})
+        self.assertEqual(t["models"]["claude-sonnet-5"]["cache_hit"], 0.98, "50 of 51")
         self.assertEqual(ops.equivalent({"input": 10, "cache_write": 100, "cache_read": 1000, "output": 20}), 10 + 125 + 100 + 100)
-        self.assertEqual(t["models"]["z-ai/glm-5.3"], {"requests": 1, "input": 500, "cache_write": 0, "cache_read": 0, "output": 5, "equiv": 525, "path": "broker"})
-        self.assertEqual(t["claude"], {"requests": 2, "input": 11, "cache_write": 100, "cache_read": 1050, "output": 27, "equiv": 335 + 41})
-        self.assertEqual(t["broker"], {"requests": 1, "input": 500, "cache_write": 0, "cache_read": 0, "output": 5, "equiv": 525})
+        self.assertEqual(t["models"]["z-ai/glm-5.3"], {"requests": 1, "input": 500, "cache_write": 0, "cache_read": 0, "output": 5, "equiv": 525, "cache_hit": 0.0, "path": "broker"})
+        self.assertEqual(t["claude"], {"requests": 2, "input": 11, "cache_write": 100, "cache_read": 1050, "output": 27, "equiv": 335 + 41, "cache_hit": 0.904})
+        self.assertEqual(t["broker"], {"requests": 1, "input": 500, "cache_write": 0, "cache_read": 0, "output": 5, "equiv": 525, "cache_hit": 0.0})
         self.assertIs(t["ratios"], ops.TOKEN_RATIOS)
         self.assertEqual((t["first"], t["last"]), (iso(now - 2 * DAY), iso(now - DAY)))
         self.assertNotIn("SECRET-TEXT", json.dumps(t), "counts only")

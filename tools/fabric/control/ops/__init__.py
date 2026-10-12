@@ -50,7 +50,7 @@ from . import util  # noqa: F401 — first: it puts tools/fabric on sys.path
 from .identity import identity, fabric, session, presence  # noqa: F401
 from .usage import (USAGE_URL, MESSAGES_URL, PROBE_MODEL, usage, windows_from_headers, ACCOUNTS_TIMEOUT_MS,  # noqa: F401
                     ACCOUNT_SLUG, accounts_dir, take_read_lock, account_slugs, claude_bin, parse_usage_report,
-                    read_account, accounts, TOKEN_RATIOS, TOKENS_DAYS, equivalent, tokens)
+                    read_account, accounts, TOKEN_RATIOS, TOKENS_DAYS, equivalent, cache_hit, tokens)
 from .keys import KEY_NAMES, keys, STORE_ROW, store_refusal, SIGNING_ROW, signing_secret  # noqa: F401
 from .host import host, DISK_TIMEOUT_MS, DISK_MAX_BUFFER, DISK_TOP, disk  # noqa: F401
 from .activity import (script_counts, langid_cmd, languages, recall_kind, recall, notes_dir, script,  # noqa: F401
