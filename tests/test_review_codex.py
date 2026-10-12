@@ -17,7 +17,7 @@ import tempfile
 import time
 
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
-from instance_fixtures import own_instance_tree  # noqa: E402
+from instance_fixtures import own_instance_tree, write_routing_overlay  # noqa: E402
 
 own_instance_tree()
 scrub_process_env()
@@ -137,6 +137,10 @@ def main() -> int:
           body.index("**P1**") < body.index("**P3**") and "Findings: 1 P1, 1 P3." in body, body)
     check("a multi-line field stays on its item's line", "**Scenario:** two lines" in body, body)
     check("no findings is said", "No findings." in review_codex.render_review("m", "a" * 40, "b..c", []))
+    check("the first line names the level sent", "**effort:** `high`" in review_codex.render_review(
+        "m", "a" * 40, "b..c", [], "high").split("\n")[0])
+    check("…or that none was", "**effort:** Codex's default" in review_codex.render_review(
+        "m", "a" * 40, "b..c", []).split("\n")[0])
 
     tmp = tempfile.mkdtemp(prefix="test_review_codex.")
     try:
@@ -194,10 +198,20 @@ def main() -> int:
             with open(os.path.join(state, "mode"), "w") as f:
                 f.write(m)
 
+        # The routing overlay and the review grade are the fixture's (instance data, ADR-045), and this login's
+        # state (its binding, its local layer) a directory of the test's own: routing answers from the engine's
+        # committed column, the openai one included, and nothing the real account has set.
+        operator = os.path.join(tmp, "operator")
+        os.makedirs(os.path.join(operator, "routing"))
+        write_routing_overlay(os.path.join(operator, "routing"))
+        fabric_state = os.path.join(tmp, "fabric-state")
+        local_layer = os.path.join(fabric_state, "agents", pwd.getpwuid(os.geteuid()).pw_name, "model-profile.local.json")
+        os.makedirs(os.path.dirname(local_layer))
         env0 = {k: v for k, v in os.environ.items()
                 if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "ANTHROPIC_", "CLAUDE", "OPENAI_", "CODEX_"))}
         env0.update(PATH=f"{fakebin}:{env0.get('PATH', '')}", GH_STATE=state, GH_REPO="fixture-org/fixture",
-                    HOME=home, TMPDIR=scratch, AGENT_FABRIC_ROOT=ROOT,
+                    HOME=home, TMPDIR=scratch, AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_OPERATOR=operator,
+                    AGENT_FABRIC_STATE_DIR=fabric_state,
                     AGENT_FABRIC_CODEX_BASE_URL="http://127.0.0.1:18080",
                     AGENT_FABRIC_CODEX_KEY="gw-local-key-123", AGENT_FABRIC_CODEX_MODEL="gpt-test",
                     # What a session carries and Codex must never see.
@@ -389,12 +403,52 @@ def main() -> int:
             for s_, h in old_handlers.items():
                 signal.signal(s_, h)
 
+        print("the model and its level from routing: the openai column's code-review")
+        no_model = {k: v for k, v in env0.items() if k != "AGENT_FABRIC_CODEX_MODEL"}
+        set_pr(); mode("empty")
+        r = run("7", req, "--no-post", env=no_model)
+        rec = record() if codex_ran() else {"argv": []}
+        check("no --model and no AGENT_FABRIC_CODEX_MODEL: routing's model runs (gpt-6.1-sol, the owner, 2026-10-12)",
+              r.returncode == 0 and rec["argv"][rec["argv"].index("--model") + 1] == "gpt-6.1-sol", r.stderr)
+        check("…and the review's first line names it", "`gpt-6.1-sol`" in r.stdout.split("\n")[0], r.stdout[:300])
+        check("the environment's gateway still gets no level unless one is asked for (review of #224, F2)",
+              not any(a.startswith("model_reasoning_effort") for a in rec["argv"]) and "-c" not in rec["argv"]
+              and "**effort:** Codex's default" in r.stdout.split("\n")[0], rec["argv"])
+        set_pr(); mode("empty")
+        r = run("7", req, "--no-post", "--effort", "medium", env=no_model)
+        check("--effort still names the level beside a routed model",
+              'model_reasoning_effort="medium"' in record()["argv"], r.stderr)
+        for label, layer, why in (
+                ("a local layer naming a model routing does not take on openai",
+                 {"providers": {"openai": {"capabilities": {"code-review": "claude-opus-5-5"}}}}, "not an OpenAI model id"),
+                ("a local layer giving openai a class it does not serve",
+                 {"providers": {"openai": {"capabilities": {"code-low": "gpt-6.1-sol"}}}}, "not served on openai"),
+                ("a routed model outside the review grade",
+                 {"providers": {"openai": {"capabilities": {"code-review": "gpt-unadmitted"}}}}, "review-grade.json")):
+            with open(local_layer, "w") as f:
+                json.dump(layer, f)
+            set_pr(); mode("ok")
+            r = run("7", req, env=no_model)
+            check(f"{label}: refused, naming why", r.returncode == 1 and "refused" in r.stderr
+                  and "routing answer" in r.stderr and why in r.stderr, r.stderr)
+            check(f"{label}: codex never ran, nothing posted", not codex_ran() and not posted())
+            set_pr(); mode("empty")
+            r = run("7", req, "--no-post")
+            check(f"{label}: an explicit model does not read routing on the environment's gateway",
+                  r.returncode == 0 and "`gpt-test`" in r.stdout.split("\n")[0], r.stderr)
+        with open(local_layer, "w") as f:
+            json.dump({"providers": {"openai": {"capabilities": {"code-review": "gpt-6.1-sol"}}}}, f)
+        set_pr(); mode("empty")
+        r = run("7", req, "--no-post", env=no_model)
+        check("an admitted model in the local layer is what runs", r.returncode == 0
+              and "`gpt-6.1-sol`" in r.stdout.split("\n")[0], r.stderr)
+        os.remove(local_layer)
+
         print("refusals: nothing runs, nothing is posted")
         for label, change, why in (
                 ("no base URL", {"AGENT_FABRIC_CODEX_BASE_URL": None}, "AGENT_FABRIC_CODEX_BASE_URL"),
                 ("no key", {"AGENT_FABRIC_CODEX_KEY": None}, "AGENT_FABRIC_CODEX_KEY"),
                 ("an empty key", {"AGENT_FABRIC_CODEX_KEY": ""}, "AGENT_FABRIC_CODEX_KEY"),
-                ("no model", {"AGENT_FABRIC_CODEX_MODEL": None}, "AGENT_FABRIC_CODEX_MODEL"),
                 ("a base URL with a path", {"AGENT_FABRIC_CODEX_BASE_URL": "http://127.0.0.1:18080/v1"}, "root"),
                 ("the session's Anthropic base URL", {"AGENT_FABRIC_CODEX_BASE_URL": "http://127.0.0.1:9999/"},
                  "ANTHROPIC_BASE_URL"),

@@ -1131,6 +1131,47 @@ def case_model_profiles_schema_is_enforced() -> None:
         assert "routing/profiles.json" in out, f"the file went unnamed:\n{out}"
 
 
+def case_model_profiles_without_an_engine_column_are_not_judged_on_it() -> None:
+    """The routing code may be newer than the routing data it reads (a tree
+    from before the openai column, through --fabric or AGENT_FABRIC_ROOT):
+    an engine provider the data has no column for is not a defect of every
+    profile row. tests/run.sh's corpus lint found four such findings,
+    2026-10-12."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        path = os.path.join(fabric, "routing", "capabilities.json")
+        caps = json.load(open(path, encoding="utf-8"))
+        caps["providers"].pop("openai")
+        json.dump(caps, open(path, "w", encoding="utf-8"))
+        write_profiles(fabric, PROFILES)
+        code, out = run_lint(fabric)
+        assert code == 0 and "unknown provider" not in out and "on openai" not in out, out
+
+
+def case_model_profiles_take_an_openai_layer_for_the_review_only() -> None:
+    """A committed layer may route the Codex engine (providers.openai): its
+    code-review model and level, review-graded; never a session or a coding
+    class."""
+    import copy
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        doc = copy.deepcopy(PROFILES)
+        doc["agents"]["web-dev-01"]["providers"] = {
+            "openai": {"capabilities": {"code-review": "gpt-6.1-sol"}, "effort": {"code-review": "xhigh"}}}
+        write_profiles(fabric, doc)
+        code, out = run_lint(fabric)
+        assert code == 0, f"an admitted openai layer tripped the linter:\n{out}"
+        for layer, why in (({"session": "gpt-6.1-sol"}, "routing/profiles.json"),
+                           ({"capabilities": {"code-high": "gpt-6.1-sol"}}, "routing/profiles.json"),
+                           ({"capabilities": {"code-review": "claude-opus-5-5"}}, "routing/profiles.json"),
+                           ({"capabilities": {"code-review": "gpt-unadmitted"}}, "review-grade"),
+                           ({"effort": {"code-review": "max"}}, "routing/profiles.json")):
+            doc["agents"]["web-dev-01"]["providers"] = {"openai": layer}
+            write_profiles(fabric, doc)
+            code, out = run_lint(fabric)
+            assert code == 1 and why in out, f"{layer} passed:\n{out}"
+
+
 def _write_license_layout(fabric: str, registry: dict, reuse_toml: str, licenses: tuple = ("Apache-2.0",),
                           clients: bool = True) -> None:
     """`clients=False` writes the registry as given, for a case that judges
@@ -2484,6 +2525,8 @@ def main() -> int:
         case_model_profiles_agents_are_logins,
         case_model_profiles_unknown_role_is_refused,
         case_model_profiles_schema_is_enforced,
+        case_model_profiles_without_an_engine_column_are_not_judged_on_it,
+        case_model_profiles_take_an_openai_layer_for_the_review_only,
         case_the_repository_is_one_license,
         case_every_client_with_a_project_names_a_settings_repository,
         case_every_project_names_a_defined_client,

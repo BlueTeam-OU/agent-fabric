@@ -145,9 +145,28 @@ given one of two ways:
   and `AGENT_FABRIC_CODEX_KEY`, with `AGENT_FABRIC_CODEX_ACCOUNT_ID` as the
   optional header.
 
-Either way the model is `--model` or `AGENT_FABRIC_CODEX_MODEL`, and the
-reasoning effort `high` unless `--effort` or `AGENT_FABRIC_CODEX_EFFORT`
-names another (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`).
+The model and its reasoning level are routed, like the review class's
+(ADR-005, ADR-006): the `openai` provider in `routing/capabilities.json`,
+whose one class is `code-review` — `gpt-6.1-sol`, the owner's decision of
+2026-10-12 — merged with the login's layers as `fabric-model list
+--provider openai` shows them, and admitted by
+`routing/policies/review-grade.json` as `openai/gpt-6.1-sol`; its level
+is `routing/effort.json`'s `providers.openai` — `high`, chosen for the
+contrarian reviewer where the review class asks `medium`, and because
+Codex's own default on the ChatGPT plan was `none` — sent as
+`-c model_reasoning_effort="high"`. `python3 tools/fabric/routing.py
+resolve code-review --provider openai` prints the model, and
+`fabric-status` prints the column as its `review engine` line. A routing
+answer that cannot be read, or a routed model outside the review grade,
+refuses before anything runs.
+
+`--model` or `AGENT_FABRIC_CODEX_MODEL` names another model for one run,
+and `--effort` or `AGENT_FABRIC_CODEX_EFFORT` another level (`none`,
+`minimal`, `low`, `medium`, `high`, `xhigh`). Without them, the routed
+level is sent on `--gateway chatgpt`, the backend the column was decided
+for; the environment's gateway gets a level only when one is asked for
+(review of #224, F2). The posted review's first line names the model that
+ran and the level sent.
 Tests: `tests/test_review_codex.py`, `tests/test_review_gateway.py`.
 
 ## Who enforces what

@@ -35,7 +35,7 @@
           "$ref": "#/$defs/openrouter_capabilities"
         },
         "providers": {
-          "description": "Per-provider choices for this layer; the vocabulary differs per provider, so each has its own shape.",
+          "description": "Per-provider choices for this layer; the vocabulary differs per provider, so each has its own shape. openai is the Codex review engine's (agent-fabric ADR-053): no session, code-review only.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -44,6 +44,9 @@
             },
             "anthropic": {
               "$ref": "#/$defs/anthropic_layer"
+            },
+            "openai": {
+              "$ref": "#/$defs/openai_layer"
             }
           }
         },
@@ -142,6 +145,44 @@
             },
             "code-review": {
               "$ref": "#/$defs/native_id"
+            }
+          }
+        }
+      }
+    },
+    "openai_id": {
+      "description": "An OpenAI model id as Codex names it, bare (gpt-6.1-sol); routing/policies/review-grade.json admits it as openai/<id>.",
+      "type": "string",
+      "pattern": "^(gpt|o[0-9]|codex)[a-z0-9.-]*$"
+    },
+    "openai_layer": {
+      "description": "The Codex review engine's choices for this layer (routing/capabilities.json providers.openai): the code-review model as a bare Codex id, and its effort level. No session — the engine launches none — and no coding class: the engine runs the review alone. The merged model MUST be review-grade.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code-review": {
+              "$ref": "#/$defs/openai_id"
+            }
+          }
+        },
+        "effort": {
+          "description": "The level, in routing/effort.json's vocabulary; Codex takes none..xhigh.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code-review": {
+              "enum": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ]
             }
           }
         }

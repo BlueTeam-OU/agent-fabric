@@ -7,6 +7,23 @@ door).
     fabric-review --engine codex PR REQUEST[.yaml|.json] [--gateway chatgpt [--codex-home DIR]]
                   [--model M] [--effort LEVEL] [--timeout MIN] [--allow-rationale] [--no-post]
 
+THE MODEL AND ITS LEVEL come from routing (agent-fabric ADR-005, ADR-006):
+the openai column's code-review in routing/capabilities.json — gpt-6.1-sol,
+the owner's decision of 2026-10-12 — merged with this login's layers as
+`fabric-model list` shows them (routing/profiles.json, the local layer
+bin/fabric-model writes), and admitted by routing/policies/review-grade.json;
+its level from routing/effort.json (high on openai, chosen by the owner the
+same day), fitted to the model by tools/fabric/routing.py's openai adapter
+and spelled `-c model_reasoning_effort="<level>"`. --model or
+AGENT_FABRIC_CODEX_MODEL names another model for one run, --effort or
+AGENT_FABRIC_CODEX_EFFORT another level; routing is read only for what they
+leave unnamed, and a routing answer that cannot be read (no openai column, a
+malformed layer, a model outside the review grade) refuses, saying why,
+before anything runs. The routed level is sent on --gateway chatgpt, the
+backend the openai column was decided for; the environment's gateway, whose
+backend the fabric does not know, gets a level only when one is asked for
+(review of #224, F2).
+
 THE GATEWAY, one of two ways. With --gateway chatgpt, review_gateway.py
 starts one for this review from the ChatGPT sign-in in DIR (default
 ~/.codex-chatgpt), provides the two settings below and the account id, and
@@ -20,19 +37,22 @@ settings come from the environment:
   AGENT_FABRIC_CODEX_KEY       that gateway's local key; it reaches Codex as
                                this variable in Codex's environment, never in
                                a file or an argument
-  AGENT_FABRIC_CODEX_MODEL     the model Codex asks the gateway for (--model
-                               overrides); a posted review names it
+  AGENT_FABRIC_CODEX_MODEL     optional: a model for this run instead of the
+                               routed one (--model overrides it); a posted
+                               review names whichever ran
   AGENT_FABRIC_CODEX_BIN       the codex binary (default: `codex` on PATH)
   AGENT_FABRIC_CODEX_ACCOUNT_ID  optional: a ChatGPT account id (a UUID),
                                sent by Codex as the provider's
                                ChatGPT-Account-ID header (config.toml's
                                http_headers); the ChatGPT backend needs it
                                beside the token, and it is no secret
-  AGENT_FABRIC_CODEX_EFFORT    Codex's model_reasoning_effort (--effort
-                               overrides): none, minimal, low, medium, high
-                               or xhigh; high by default, passed as -c
-Missing the base URL, the key or the model refuses before anything runs, and
-posts nothing.
+  AGENT_FABRIC_CODEX_EFFORT    optional: Codex's model_reasoning_effort for
+                               this run (--effort overrides it): none,
+                               minimal, low, medium, high or xhigh, passed
+                               as -c; without it, routing's level on
+                               --gateway chatgpt and none here
+Missing the base URL or the key refuses before anything runs, and posts
+nothing.
 
 WHAT RUNS. The brief is review_brief.render() of REQUEST, byte for byte, with
 the engine's answer-shape section appended and nothing else (rule 1). The
@@ -55,8 +75,8 @@ WHAT IS POSTED. Codex's last message must be ONE JSON object valid against
 runtime/claude-code/review/codex-answer.schema.json (also handed to
 --output-schema). Anything else — no message, prose, a fence, two objects, a
 finding without a fix — is a failed review: nothing is posted and the reason
-is said (rule 4). A valid answer is rendered with the engine and model on its
-first line and posted by `fabric-pr post-review PR --model codex` from the
+is said (rule 4). A valid answer is rendered with the engine, the model and the level sent on
+its first line and posted by `fabric-pr post-review PR --model codex` from the
 request's repository; --no-post prints it instead. Rule 5 is the reader's:
 each finding is judged by the review class before it is answered.
 
@@ -81,6 +101,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import review_brief  # noqa: E402
 import review_gateway  # noqa: E402
+import routing  # noqa: E402
 from lint_rules.schema import validate_json  # noqa: E402 — the fleet's no-dependency validator (ADR-040)
 
 # The engine's own files, beside this one: the schema is the contract this
@@ -96,12 +117,13 @@ ENV_BASE_URL, ENV_KEY, ENV_MODEL, ENV_BIN = (
 ENV_ACCOUNT_ID, ENV_EFFORT = "AGENT_FABRIC_CODEX_ACCOUNT_ID", "AGENT_FABRIC_CODEX_EFFORT"
 # The ChatGPT account id is a UUID; the shape is checked because it is written into config.toml as a header value.
 ACCOUNT_ID = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
-# Codex's model_reasoning_effort values (codex 0.162.1). On the ChatGPT backend the engine asks for `high` unless
-# told otherwise: a review reads a whole change, and a `codex exec` on the owner's ChatGPT team plan (2026-10-12)
-# printed "reasoning effort: none" for its default model. The environment's gateway sends no level unless one is
-# asked for, as before the --gateway path existed (review of #224, F2).
+# Codex's model_reasoning_effort values (codex 0.162.1), what --effort and AGENT_FABRIC_CODEX_EFFORT may name. What
+# is sent when neither names one is routing's (routing/effort.json, providers.openai), on --gateway chatgpt only:
+# the environment's gateway sends no level unless one is asked for, as before the --gateway path existed (review
+# of #224, F2).
 EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
-GATEWAY_EFFORT = "high"
+# The class the engine runs and the routing column it reads (routing/capabilities.json providers.openai).
+CAPABILITY, PROVIDER = "code-review", "openai"
 # Codex's environment is built from these and nothing else: a denylist of
 # the session's credentials would miss the next one a launcher adds. Locale
 # and CA settings only; HOME, TMPDIR and CODEX_HOME are the scratch's.
@@ -137,18 +159,9 @@ class _Signalled(BaseException):
 
 # --- settings ----------------------------------------------------------------
 
-def settings(environ: dict[str, str], model_flag: str | None) -> tuple[str, str, str, str]:
-    """(base_url, key, model, codex binary), or Refused naming every missing one."""
-    base = (environ.get(ENV_BASE_URL) or "").strip()
-    key = environ.get(ENV_KEY) or ""
-    model = (model_flag or environ.get(ENV_MODEL) or "").strip()
-    missing = [n for n, v in ((ENV_BASE_URL, base), (ENV_KEY, key), (ENV_MODEL + " or --model", model)) if not v]
-    if missing:
-        raise Refused(f"not set: {', '.join(missing)} — the Codex engine runs only through a gateway serving "
-                      "openai-responses, with its local key (agent-fabric ADR-053 rule 3); nothing was run or posted")
-    base, key = gateway_settings(environ)
-    model, binary = codex_settings(environ, model_flag)
-    return base, key, model, binary
+def settings(environ: dict[str, str]) -> tuple[str, str]:
+    """(base_url, key) of the environment's gateway, or Refused naming every missing one."""
+    return gateway_settings(environ)
 
 
 def gateway_settings(environ: dict[str, str]) -> tuple[str, str]:
@@ -174,11 +187,64 @@ def gateway_settings(environ: dict[str, str]) -> tuple[str, str]:
     return base.rstrip("/"), key
 
 
-def codex_settings(environ: dict[str, str], model_flag: str | None) -> tuple[str, str]:
-    """(model, codex binary): what Codex is asked for and what runs it, both needed before any gateway starts."""
+class Route:
+    """This login's routing for the engine: code-review on openai, merged with its layers, as `fabric-model list`
+    resolves it. Read only when an override leaves something unnamed; Refused when it cannot be read."""
+
+    def __init__(self) -> None:
+        why = "the routing answer for code-review on openai cannot be read"
+        try:
+            identity = _identity()
+            self.agent = identity.current_agent()
+            self.role = identity.read_binding(self.agent).get("role")
+            # The local layer's path from the identity beside this file, never another tree's: routing's own
+            # local_override_path loads runtime/identity.py from the routing root, which a test may point elsewhere.
+            self.local = routing.load_local(path=os.path.join(identity.agent_state_dir(self.agent),
+                                                              routing.LOCAL_OVERRIDE))
+            self.resolved = routing.resolve(CAPABILITY, PROVIDER, self.role, self.agent, self.local)
+        except (KeyError, ValueError, OSError) as e:
+            raise Refused(f"{why}: {e.args[0] if isinstance(e, KeyError) and e.args else e} — or name the model "
+                          f"and the level for this run (--model or {ENV_MODEL}, --effort or {ENV_EFFORT}); nothing "
+                          "was run or posted") from None
+        except SystemExit as e:  # runtime/identity.py refuses a broken binding by exiting
+            raise Refused(f"{why}: {e} — nothing was run or posted") from None
+
+    def model(self) -> str:
+        """The routed model, when it is the one that runs. The review grade gates it as the launcher gates the
+        review class's (routing/policies/review-grade.json): a layer is where an unreviewed model would otherwise
+        arrive. An explicit --model is the operator's own for one run, names itself on the posted review, and is
+        not gated — nor refused for a routed model it replaces."""
+        model = self.resolved["model"]
+        if not routing.review_grade_ok(model, provider=PROVIDER):
+            raise Refused(f"the routing answer for {CAPABILITY} on {PROVIDER} is {model!r} (from "
+                          f"{self.resolved['source']}), which routing/policies/review-grade.json does not admit; "
+                          "nothing was run or posted")
+        return model
+
+    def effort(self, model: str) -> str | None:
+        """Routing's level for `model` — the routed one, or an override, fitted by the openai adapter — or None
+        when it knows of none to send."""
+        try:
+            e = routing.effort_for(CAPABILITY, PROVIDER, model, self.role, self.agent, self.local)
+        except (KeyError, ValueError) as err:
+            raise Refused(f"the routed reasoning level cannot be read: {err}; nothing was run or posted") from None
+        return e.get("level")
+
+
+def _identity():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identity.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+def codex_settings(environ: dict[str, str], model_flag: str | None, route: Route | None = None) -> tuple[str, str]:
+    """(model, codex binary): what Codex is asked for and what runs it, both needed before any gateway starts. The
+    model is --model, else AGENT_FABRIC_CODEX_MODEL, else routing's (`route`, read here if not given)."""
     model = (model_flag or environ.get(ENV_MODEL) or "").strip()
     if not model:
-        raise Refused(f"not set: {ENV_MODEL} or --model — a posted review names its model; nothing was run or posted")
+        model = (route or Route()).model()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", model):
         raise Refused(f"model {model!r} is not a model name")
     binary = environ.get(ENV_BIN) or shutil.which("codex", path=environ.get("PATH")) or ""
@@ -197,9 +263,9 @@ def account_id(environ: dict[str, str]) -> str | None:
     return value
 
 
-def effort(environ: dict[str, str], flag: str | None, default: str | None) -> str | None:
-    """--effort, else AGENT_FABRIC_CODEX_EFFORT, else `default` (None: Codex's own); one of Codex's levels."""
-    value = flag or environ.get(ENV_EFFORT) or default
+def effort(environ: dict[str, str], flag: str | None, routed: str | None) -> str | None:
+    """--effort, else AGENT_FABRIC_CODEX_EFFORT, else `routed` (None: Codex's own); one of Codex's levels."""
+    value = flag or environ.get(ENV_EFFORT) or routed
     if value is None:
         return None
     value = value.strip()
@@ -325,7 +391,7 @@ def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str
     answer = os.path.join(scratch, "last-message.json")
     log = os.path.join(scratch, "codex.log")
     argv = [binary, "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--cd", workdir, "--model", model,
-            *(["-c", f"model_reasoning_effort={_toml_str(effort_level)}"] if effort_level else []),
+            *routing.effort_spelling(PROVIDER, effort_level),
             "--output-schema", SCHEMA_PATH, "--output-last-message", answer, "--color", "never", "-"]
     with open(log, "wb") as logf:
         p = subprocess.Popen(argv, cwd=workdir, env=env, stdin=subprocess.PIPE, stdout=logf, stderr=subprocess.STDOUT,
@@ -416,12 +482,15 @@ def _one_line(s: str) -> str:
     return " ".join(s.split())
 
 
-def render_review(model: str, head: str, rng: str, findings: list[dict]) -> str:
-    """The body post-review gets. Its first line names the engine and model
-    (rule 4); post-review puts its marker above it."""
+def render_review(model: str, head: str, rng: str, findings: list[dict], effort_level: str | None = None) -> str:
+    """The body post-review gets. Its first line names the engine, the model
+    that ran (rule 4) and the level sent, or that none was; post-review puts
+    its marker above it."""
     order = {"P1": 0, "P2": 1, "P3": 2}
     counts = {lv: sum(f["level"] == lv for f in findings) for lv in order}
-    out = [f"**Engine:** Codex · **model:** `{model}` — the second review engine (agent-fabric ADR-053), "
+    level = f"`{effort_level}`" if effort_level else "Codex's default"
+    out = [f"**Engine:** Codex · **model:** `{model}` · **effort:** {level} — the second review engine "
+           "(agent-fabric ADR-053), "
            f"head `{head[:12]}`, range `{rng}`.",
            "",
            "Each finding is judged by the review class before it is answered (ADR-053 rule 5).",
@@ -460,10 +529,14 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
     """With `gateway` None the gateway is the environment's (ENV_BASE_URL, ENV_KEY); with "chatgpt",
     review_gateway.py starts one of its own for this review and stops it before anything is posted."""
     if gateway is None:
-        settings(environ, model_flag)   # every missing setting named at once, before anything else
+        settings(environ)   # every missing setting named at once, before anything else
         account_id(environ)
-    model, binary = codex_settings(environ, model_flag)
-    level = effort(environ, effort_flag, GATEWAY_EFFORT if gateway else None)
+    explicit_model = bool((model_flag or environ.get(ENV_MODEL) or "").strip())
+    explicit_effort = bool(effort_flag or environ.get(ENV_EFFORT))
+    # Routing is read only for what the overrides leave unnamed, and before anything starts: its refusal is one.
+    route = Route() if not explicit_model or (gateway and not explicit_effort) else None
+    model, binary = codex_settings(environ, model_flag, route)
+    level = effort(environ, effort_flag, route.effort(model) if gateway and route else None)
     req, brief = load_request(request, allow_rationale)
     repo = req["repository"]
     head = range_head(req)
@@ -490,7 +563,7 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
             shutil.rmtree(scratch, ignore_errors=True)
     if not no_post and pr_head(repo, pr) != head:
         raise Refused(f"PR #{pr} moved while Codex read {head[:12]}; nothing posted — run it on the new head")
-    body = render_review(model, head, req["range"], findings)
+    body = render_review(model, head, req["range"], findings, level)
     if no_post:
         sys.stdout.write(body)
         return 0

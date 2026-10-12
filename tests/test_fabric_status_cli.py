@@ -110,6 +110,11 @@ def main() -> int:
         out = status()
         check("the bound role", has(r"^role         db-admin", out), out)
         check("no launch stamp: no drift line, no 'launched as'", "DRIFT" not in out and "launched as" not in out, out)
+        check("the Codex engine's column, as build_report resolves it, and where its level is sent",
+              has(r"^review engine openai code-review gpt-6\.1-sol \(from capabilities\.providers\.openai\) "
+                  r"effort high \(sent on --gateway chatgpt\)  \(fabric-review --engine codex\)$", out), out)
+        check("…and in --json", json_of(status("--json")).get("engines") == {
+            "openai code-review": "gpt-6.1-sol (from capabilities.providers.openai) effort high (sent on --gateway chatgpt)"})
 
         print("fabric-status: launched as the bound role, prompt intact")
         out = status(AGENT_FABRIC_LAUNCH_ROLE="db-admin", AGENT_FABRIC_LAUNCH_PROMPT_DIGEST=digest,

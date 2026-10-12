@@ -20,7 +20,7 @@ import tempfile
 import time
 
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
-from instance_fixtures import own_instance_tree  # noqa: E402
+from instance_fixtures import own_instance_tree, write_routing_overlay  # noqa: E402
 
 own_instance_tree()
 scrub_process_env()
@@ -211,10 +211,15 @@ def main() -> int:
                 with open(os.path.join(state, n), "w") as f:
                     f.write(v)
 
+        # Routing's operator half and this login's state are the test's own (see test_review_codex.py).
+        operator = os.path.join(tmp, "operator")
+        os.makedirs(os.path.join(operator, "routing"))
+        write_routing_overlay(os.path.join(operator, "routing"))
         env0 = {k: v for k, v in os.environ.items()
                 if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "ANTHROPIC_", "CLAUDE", "OPENAI_", "CODEX_", "XDG_RUNTIME"))}
         env0.update(PATH=f"{fakebin}:{env0.get('PATH', '')}", GH_STATE=state, GH_REPO="fixture-org/fixture",
                     HOME=home, TMPDIR=scratch, XDG_RUNTIME_DIR=run_dir, AGENT_FABRIC_ROOT=ROOT,
+                    AGENT_FABRIC_OPERATOR=operator, AGENT_FABRIC_STATE_DIR=os.path.join(tmp, "fabric-state"),
                     AGENT_FABRIC_GW_BIN=os.path.join(fakebin, "fake-gateway"), AGENT_FABRIC_GW_READY_TIMEOUT_S="10",
                     AGENT_FABRIC_CODEX_MODEL="gpt-test-6",
                     ANTHROPIC_BASE_URL="http://127.0.0.1:9999", ANTHROPIC_API_KEY="sk-ant-session",
@@ -291,7 +296,8 @@ def main() -> int:
         check("the key is not in config.toml or Codex's argv", key and key not in cfg and key not in json.dumps(rec.get("argv")))
         check("no token of the sign-in reaches Codex", no_secret_in(json.dumps(rec)))
         check("no session credential reaches Codex", "sk-ant-session" not in json.dumps(cenv))
-        check("the effort is high", 'model_reasoning_effort="high"' in rec.get("argv", []), rec.get("argv"))
+        check("the effort is routing's high (routing/effort.json providers.openai), fitted to the model that runs",
+              'model_reasoning_effort="high"' in rec.get("argv", []), rec.get("argv"))
         check("the gateway was stopped (SIGTERM) and is gone", events("term") != [] and gone(sv.get("pid", 0)), read("gw.log"))
         check("the token file and its directory are removed", not os.path.exists(sv.get("token_file", "/")) and runtime_clean(),
               os.listdir(run_dir))
@@ -396,9 +402,32 @@ def main() -> int:
         check("no runtime directory: refused, nothing served or posted", r.returncode == 1 and "runtime directory" in r.stderr
               and not events("serve") and not codex_ran() and not posted(), r.stderr)
         write_signin(); reset()
+        r = run("--no-post", env={k: v for k, v in env0.items() if k != "AGENT_FABRIC_CODEX_MODEL"})
+        rec = json.loads(read("codex-run.json") or "{}")
+        argv = rec.get("argv", [])
+        check("no model named: routing's gpt-6.1-sol is what the gateway routes and Codex asks for, at high",
+              r.returncode == 0 and "--model" in argv and argv[argv.index("--model") + 1] == "gpt-6.1-sol"
+              and 'model_reasoning_effort="high"' in argv and "`gpt-6.1-sol` · **effort:** `high`" in r.stdout, r.stderr)
+        check("…and the plan routes that model", '"gpt-6.1-sol"' in read("plan-seen.json"), read("plan-seen.json")[:300])
+        write_signin(); reset()
+        r = run("--no-post", "--effort", "low", env={k: v for k, v in env0.items() if k != "AGENT_FABRIC_CODEX_MODEL"})
+        check("--effort outranks routing's level", r.returncode == 0
+              and 'model_reasoning_effort="low"' in json.loads(read("codex-run.json") or "{}").get("argv", []), r.stderr)
+        write_signin(); reset()
+        bad = {"providers": {"openai": {"capabilities": {"code-review": "gpt-unadmitted"}}}}
+        layer = os.path.join(tmp, "fabric-state", "agents", pwd.getpwuid(os.geteuid()).pw_name, "model-profile.local.json")
+        os.makedirs(os.path.dirname(layer), exist_ok=True)
+        with open(layer, "w") as f:
+            json.dump(bad, f)
         r = run(env={k: v for k, v in env0.items() if k != "AGENT_FABRIC_CODEX_MODEL"})
-        check("no model: refused before the gateway is asked", r.returncode == 1 and "AGENT_FABRIC_CODEX_MODEL" in r.stderr
-              and read("gw.log") == "", r.stderr)
+        check("a routing answer that cannot be used: refused before the gateway is asked", r.returncode == 1
+              and "review-grade.json" in r.stderr and read("gw.log") == "" and not codex_ran(), r.stderr)
+        write_signin(); reset()
+        r = run("--no-post")
+        check("…but an explicit model runs, ungated, and routing still gives it the level",
+              r.returncode == 0 and 'model_reasoning_effort="high"' in json.loads(read("codex-run.json") or "{}").get("argv", [])
+              and "`gpt-test-6`" in r.stdout, r.stderr)
+        os.remove(layer)
         check("the runtime directory is clean after every case", runtime_clean(), os.listdir(run_dir))
     finally:
         subprocess.run(["chmod", "-R", "u+w", tmp], check=False)

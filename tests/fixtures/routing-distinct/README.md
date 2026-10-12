@@ -16,7 +16,9 @@ only) and the dispatch guard's suite.
 `profiles.json` and `policies/review-grade.json` are the operator half
 (ADR-045 §5 rule 2: the routing overlay and the review grade are
 instance data), frozen on 2026-10-08 from the live files with the
-profile's roles and agents emptied, so `tests/test_launch_cli.py`
+profile's roles and agents emptied (the grade gained the Codex engine's
+`openai/gpt-6.1-sol` on 2026-10-12, so the committed openai column
+checks clean against it), so `tests/test_launch_cli.py`
 builds its fixture fabric without reading the live ones; so do
 `tests/test_routing.py`, `tests/test_model_profile.py` and
 `tests/test_fabric_status_cli.py` (`instance_fixtures.write_routing_overlay`).

@@ -5,7 +5,8 @@
 # defaults. Writes only $STATE_DIR/model-profile.local.json (and the
 # account's agent files, for the review pin); never a committed file.
 #
-#   agent-fabric/bin/fabric-model list [--provider openrouter|anthropic]
+#   agent-fabric/bin/fabric-model list [--provider openrouter|anthropic|openai]
+#   agent-fabric/bin/fabric-model set --provider openai code-review gpt-6.1-sol   (the Codex review engine)
 #   agent-fabric/bin/fabric-model set --provider anthropic code-high claude-opus-5[1m]
 #   agent-fabric/bin/fabric-model set --provider openrouter session z-ai/glm-5.3
 #   agent-fabric/bin/fabric-model unset --provider anthropic code-high

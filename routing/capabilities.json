@@ -45,6 +45,13 @@
         "code-plan": "deepseek/deepseek-v4-pro-0813",
         "code-review": "deepseek/deepseek-v4-pro-0813"
       }
+    },
+    "openai": {
+      "resolution": "engine",
+      "description": "The Codex review engine (agent-fabric ADR-053): `fabric-review --engine codex` runs `codex exec --model <id>` one-shot, through a gateway of its own, and reads its model and level from here (tools/fabric/review_codex.py; --model / AGENT_FABRIC_CODEX_MODEL override). A value is an OpenAI model id as Codex names it, bare (gpt-…); routing/policies/review-grade.json admits it as openai/<id>, as it admits a native Claude id as anthropic/<id>. Decision 2026-10-12 (the owner, in the coordinator's session): an `openai` provider is created in routing, and the Codex engine's model is gpt-6.1-sol, at reasoning level high (routing/effort.json). ONLY code-review is bound, and on purpose: Codex is review-only today (ADR-053 §2, one-shot beside the review class) and no session, export or agent file runs on this provider, so a model for code-low..code-plan would be a decision nobody uses. The adapter (tools/fabric/routing.py OpenAIAdapter) declares that it serves code-review alone, and routing.py check refuses a coding class bound here; a coding class on OpenAI is a new decision, with a harness that runs it, not a cell to fill in.",
+      "models": {
+        "code-review": "gpt-6.1-sol"
+      }
     }
   }
 }

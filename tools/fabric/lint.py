@@ -16,7 +16,8 @@ have been committed at all.
 
 Checks:
   schemas    the role catalogue, every project taxonomy, the routing
-             profiles and every slice's frontmatter validate
+             capability column and profiles, and every slice's
+             frontmatter validate
   identity   every role directory is catalogued; charter, brief and recall
              are the only authored classes; payload is well-shaped
   index      every (project, role) index lists every slice the role has —
@@ -640,6 +641,18 @@ def main() -> int:
     findings += review_lens_findings(root)
 
     findings += i18n_default_dictionary_findings()
+
+    # --- the capability column, against its schema ---------------------------
+    # routing.py check judges each cell through its provider's adapter; the
+    # schema is what says which resolutions exist (harness, model-id, engine),
+    # and nothing read the column against it until the openai provider
+    # added the third (2026-10-12).
+    caps_schema = load_schema(root, os.path.join("routing", "schemas"), "capabilities")
+    caps_path = os.path.join(root, "routing", "capabilities.json")
+    if caps_schema and os.path.exists(caps_path):
+        caps_doc = load_json(caps_path, "routing/capabilities.json", findings)
+        if caps_doc is not None:
+            findings += validate_json(caps_schema, caps_doc, "routing/capabilities.json")
 
     # --- routing profiles --------------------------------------------------
     profiles_schema = load_schema(root, os.path.join("routing", "schemas"), "model-profiles")
