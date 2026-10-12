@@ -51,8 +51,10 @@ WHERE ADR-052 IS SILENT, chosen here (and said in the policy's `why` where it is
     target's: moving a session off quota that perishes sooner would spend the wrong quota.
   * In advise, rule 7's rate limit and min_stay_s count the `would` lines, so the log shows what act would do,
     the rate limit holding back a second candidate included; in act they count `did`.
-  * A decision that holds (the same login, rule, from and to as the last logged for it) is logged once, not
-    every run; it is logged again once it stops holding and comes back.
+  * A decision that holds (the same mode, login, rule, from and to as the last logged for it) is logged once,
+    not every run; it is logged again once it stops holding and comes back. The mode is part of it, so a
+    `would` of advise is made after the switch to act; a `failed` move is not recorded, so it is tried again;
+    a `did` is, so a run whose identity read still shows the old account does not assign it a second time.
   * The owner is told by a `tell: true` line in the log, which fabric-status and `fabric-ctl ... switch` show.
   * act runs `fabric-accounts assign <login> <account> --no-restart`: a gateway session needs no restart (the
     sync replaces its token file), and --no-restart guarantees no plain-claude session is ever stopped by it.
@@ -64,6 +66,7 @@ from __future__ import annotations
 import datetime
 import fcntl
 import json
+import math
 import os
 import re
 import subprocess
@@ -90,24 +93,49 @@ FIRST_TICK_S = 120
 
 # ── readings ────────────────────────────────────────────────────────
 
+# What another account relayed is data, not trusted: a value outside these is unknown (None), never a number
+# the rules act on. A utilisation is a share, 1 all of it, above 1 surpassed (the gateway's contract): past
+# UTIL_MAX it is no reading. A timestamp outside 2001..2100 is no time: it would overflow a date or make an
+# account "reset soonest" for ever.
+UTIL_MAX = 100.0
+# A stamp this far ahead of the controller's clock is no time: clamped to age 0 it would read fresh for ever,
+# never be probed, and outrank every real reading. The hosts keep NTP time; a minute covers their drift.
+SKEW_S = 60.0
+EPOCH_MIN_S, EPOCH_MAX_S = 1e9, 4.1e9
+
+
 def _num(v: Any) -> float | None:
-    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    """A finite JSON number, else None: inf, NaN, a bool or a string is unknown."""
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except OverflowError:
+        return None   # an integer past a double
+    return f if math.isfinite(f) else None
+
+
+def share(v: Any) -> float | None:
+    """A utilisation: finite, from 0 to UTIL_MAX; else unknown."""
+    n = _num(v)
+    return n if n is not None and 0 <= n <= UTIL_MAX else None
 
 
 def epoch_s(v: Any) -> float | None:
-    """A gateway timestamp (Unix seconds; milliseconds told by size) or an ISO time, as seconds."""
+    """A gateway timestamp (Unix seconds; milliseconds told by size) or an ISO time, as seconds, within
+    EPOCH_MIN_S..EPOCH_MAX_S; anything else is None."""
     n = _num(v)
     if n is not None:
-        return None if n < 0 else (n / 1000 if n > 1e11 else n)
-    if isinstance(v, str) and v:
+        n = n / 1000 if n > 1e11 else n
+    elif isinstance(v, str) and v:
         try:
             t = datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
-        except ValueError:
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=datetime.timezone.utc)
+            n = t.timestamp()
+        except (ValueError, OverflowError):
             return None
-        if t.tzinfo is None:
-            t = t.replace(tzinfo=datetime.timezone.utc)
-        return t.timestamp()
-    return None
+    return n if n is not None and EPOCH_MIN_S <= n <= EPOCH_MAX_S else None
 
 
 def iso(s: float) -> str:
@@ -120,7 +148,7 @@ def reading_from_gateway(entry: dict, login: str) -> dict:
 
     def win(k: str) -> dict:
         w = u.get(k) if isinstance(u.get(k), dict) else {}
-        return {"utilization": _num(w.get("utilization")), "reset": epoch_s(w.get("reset"))}
+        return {"utilization": share(w.get("utilization")), "reset": epoch_s(w.get("reset"))}
     mark = entry.get("exhausted")
     mark = {"at": epoch_s(mark.get("at")), "reset": epoch_s(mark.get("reset"))} if isinstance(mark, dict) else None
     status = u.get("status") if isinstance(u.get("status"), str) else None
@@ -138,7 +166,7 @@ def reading_from_probe(row: dict, login: str, now: float) -> dict | None:
     def win(w: Any) -> dict:
         w = w if isinstance(w, dict) else {}
         pct = _num(w.get("utilization"))
-        return {"utilization": None if pct is None else round(pct / 100, 4), "reset": epoch_s(w.get("resets_at"))}
+        return {"utilization": None if pct is None else share(round(pct / 100, 4)), "reset": epoch_s(w.get("resets_at"))}
     five, seven = win(row.get("five_hour")), win(row.get("seven_day"))
     if five["utilization"] is None and seven["utilization"] is None:
         return None
@@ -146,23 +174,42 @@ def reading_from_probe(row: dict, login: str, now: float) -> dict | None:
             "transient_429": None, "read_at": now, "via": "probe", "from": login}
 
 
-def freshest(readings: Iterable[dict]) -> dict | None:
-    """Per account: the reading taken last; an exhaustion mark from any of its entries is kept with it, the
-    latest one, since a 2xx clears it only on the entry it was received on."""
-    rs = [r for r in readings if r]
+def ahead(stamp: float | None, now: float) -> bool:
+    return stamp is not None and stamp > now + SKEW_S
+
+
+def freshest(readings: Iterable[dict], now: float) -> dict | None:
+    """Per account: the reading taken last, with the newest exhaustion mark of any of its entries that is no
+    older than that reading. A reading or a mark stamped ahead of `now` is no reading (the account is then
+    probed).
+
+    Exhaustion is the account's, not the entry's: the gateway's contract (plan-v0 README, "Usage (s11)")
+    marks a 429 exhausted "when its neutral reading says the account's limit is spent", and keeps the mark
+    per entry only because it knows no accounts, clearing it on that entry's own next 2xx. So a mark counts
+    for the whole account until a later reading of the same account, from any entry, answers otherwise: a
+    reading taken after the mark is the account being served, and outranks it. The best reading's own mark
+    always stands (its entry has not been cleared); a later reading that is itself spent is exhaustion by
+    its own status or utilisation (rule 2)."""
+    rs = [r for r in readings if r and not ahead(r.get("read_at"), now)]
+    rs = [{**r, "exhausted": None} if r.get("exhausted") and ahead(r["exhausted"].get("at"), now) else r for r in rs]
     if not rs:
         return None
     best = max(rs, key=lambda r: r["read_at"] if r["read_at"] is not None else float("-inf"))
-    marks = [r["exhausted"] for r in rs if r.get("exhausted")]
-    if marks and not best.get("exhausted"):
-        best = {**best, "exhausted": max(marks, key=lambda m: m["at"] if m["at"] is not None else float("-inf"))}
-    return best
+    if best.get("exhausted"):
+        return best
+    after = best["read_at"] if best["read_at"] is not None else float("-inf")
+    marks = [r["exhausted"] for r in rs if r.get("exhausted") and r["exhausted"].get("at") is not None
+             and r["exhausted"]["at"] >= after]
+    return {**best, "exhausted": max(marks, key=lambda m: m["at"])} if marks else best
 
 
 class View:
     """What one account's reading lets the rules know now; None wherever it is unknown."""
 
     def __init__(self, slug: str, reading: dict | None, now: float, max_age: float):
+        if reading and (ahead(reading.get("read_at"), now)
+                        or (reading.get("exhausted") and ahead(reading["exhausted"].get("at"), now))):
+            reading = None   # stamped in the future: unknown, never fresh for ever
         self.slug, self.reading, self.now, self.max_age = slug, reading, now, max_age
         r = reading or {}
         read_at = r.get("read_at")
@@ -470,8 +517,10 @@ def take_lock(state: str) -> int | None:
     return fd
 
 
-def _key(d: dict) -> str:
-    return json.dumps([d["rule"], d["reason"], d["from"], d.get("to"), d["outcome"]])
+def _key(d: dict, mode: str) -> str:
+    """What makes two runs' decisions for a login the same one. The mode is in it: a move logged `would` in
+    advise is a new decision once the policy says act, and is made."""
+    return json.dumps([mode, d["rule"], d["reason"], d["from"], d.get("to"), d["outcome"]])
 
 
 def _side(slug: str | None, fps: dict[str, str]) -> dict | None:
@@ -479,28 +528,35 @@ def _side(slug: str | None, fps: dict[str, str]) -> dict | None:
 
 
 def to_lines(decisions: list[dict], *, mode: str, policy: dict, views: dict[str, View], fps: dict[str, str],
-             at: float, last: dict) -> list[tuple[dict, dict]]:
-    """(decision, log line) for each move and each told hold, unless the same one was the last logged for its
-    login; `last` (login -> key) is updated in place, and a login with nothing to log is forgotten."""
+             at: float, last: dict) -> tuple[list[tuple[dict, dict, str]], set[str]]:
+    """([(decision, log line, key)] for each move and each told hold that is not the same one as the last
+    recorded for its login, the logins that had one). Nothing is recorded here: `remember` does, after the
+    lines were made, so a move that failed is never recorded and is tried again at the next run."""
     out = []
     seen = set()
     for d in decisions:
         if d["outcome"] == "move" or (d["outcome"] == "hold" and d.get("tell")):
             seen.add(d["login"])
-            k = _key(d)
+            k = _key(d, mode)
             if last.get(d["login"]) == k:
-                continue
-            last[d["login"]] = k
+                continue   # logged (and in act, made) already: a lagging identity read must not assign again
             accounts = [a for a in (d["from"], d.get("to")) if a] if d["outcome"] == "move" else list(policy["pool"]["accounts"])
             out.append((d, switch_log.line(
                 v=switch_log.VERSION, at=iso(at), mode=mode, outcome="would" if d["outcome"] == "move" else "held",
                 pool=policy["pool"]["name"], login=d["login"], sessions=d.get("sessions", []), rule=d["rule"],
                 reason=d["reason"], relaxed=bool(d.get("relaxed")), **{"from": _side(d["from"], fps)},
                 to=_side(d.get("to"), fps), readings={a: views[a].logged() for a in accounts},
-                tell=bool(d.get("tell")), why=d["why"])))
+                tell=bool(d.get("tell")), why=d["why"]), k))
+    return out, seen
+
+
+def remember(last: dict, pending: list[tuple[dict, dict, str]], logged: list[dict], seen: set[str]) -> None:
+    """Record each logged line's key for its login, except a `failed` one; forget a login with nothing to log."""
+    for (d, _line, k), line in zip(pending, logged):
+        if line["outcome"] != "failed":
+            last[d["login"]] = k
     for login in [lg for lg in last if lg not in seen]:
         del last[login]
-    return out
 
 
 def would(lines: list[tuple[dict, dict]]) -> list[dict]:
@@ -601,8 +657,12 @@ def run(*, record: bool, root: str | None = None, state: str | None = None, poli
         t = now()
         ts = (templates or _templates)()
         fps = {x["account"]: x.get("token_sha256_12") for x in ts}
-        pool = policy["pool"]["accounts"]
-        missing = [a for a in pool if not fps.get(a)]
+        missing = [a for a in policy["pool"]["accounts"] if not fps.get(a)]
+        # A pool account with no template in this store cannot be assigned (fabric-accounts assign refuses it):
+        # it leaves the pool for this run, so no rule reads it, targets it or probes it, a reading kept from
+        # before included.
+        pool = [a for a in policy["pool"]["accounts"] if fps.get(a)]
+        policy = {**policy, "pool": {**policy["pool"], "accounts": pool}}
         ask = ctl or ctl_path(root)
         readings, logins = gather(ask, ts)
         st = read_state(state)
@@ -611,13 +671,13 @@ def run(*, record: bool, root: str | None = None, state: str | None = None, poli
         for a, kept in st["probed"].items():
             if a in pool and isinstance(kept, dict):
                 readings.setdefault(a, []).append(kept)
-        views = {a: View(a, freshest(readings.get(a, [])), t, policy["reading_max_age_s"]) for a in pool}
+        views = {a: View(a, freshest(readings.get(a, []), t), t, policy["reading_max_age_s"]) for a in pool}
         for a in probe_due(views, pool, st["probes"], t, policy["probe_min_interval_s"]):
             got = probe(a, logins, ask, t)
             st["probes"][a] = t
             if got:
                 st["probed"][a] = got
-                views[a] = View(a, freshest([*readings.get(a, []), got]), t, policy["reading_max_age_s"])
+                views[a] = View(a, freshest([*readings.get(a, []), got], t), t, policy["reading_max_age_s"])
         history = [h for h in (switch_log.tail(state, 500) or []) if h.get("outcome") == ("did" if mode == "act" else "would")]
         decisions = decide(policy, views, logins, history, t)
         say(f"  mode {mode}, pool {policy['pool']['name']}")
@@ -634,13 +694,15 @@ def run(*, record: bool, root: str | None = None, state: str | None = None, poli
         if not record:
             write_state(state, {**read_state(state), "probes": st["probes"], "probed": st["probed"]})
             return 0
-        lines = to_lines(decisions, mode=mode, policy=policy, views=views, fps=fps, at=t, last=st["last"])
+        pending, seen = to_lines(decisions, mode=mode, policy=policy, views=views, fps=fps, at=t, last=st["last"])
+        lines = [(d, line) for d, line, _k in pending]
         if mode == "act":
             # The only place the assign path is built: advise never holds it.
             logged = act(lines, make_assign(root))
         else:
             logged = would(lines)
         switch_log.append(state, logged)
+        remember(st["last"], pending, logged, seen)
         write_state(state, st)
         return 1 if any(x["outcome"] == "failed" for x in logged) else 0
     finally:

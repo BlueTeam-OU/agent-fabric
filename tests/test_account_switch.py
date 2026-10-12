@@ -215,12 +215,47 @@ class Readings(unittest.TestCase):
         empty = sw.reading_from_gateway({"source": {"token_file": "/t"}, "usage": None, "read_at": None}, "x")
         self.assertIsNone(empty["five_hour"]["utilization"], "null is unknown, never 0")
 
-    def test_the_freshest_reading_counts_and_an_exhaustion_mark_is_kept(self):
-        old = {**reading(0.9, 0.9, age=500), "exhausted": {"at": NOW - 400, "reset": NOW + 600}}
+    def test_the_freshest_reading_counts_and_an_exhaustion_mark_is_the_accounts(self):
         new = reading(0.1, 0.1, age=10)
-        got = sw.freshest([old, new])
+        marked = {**reading(0.9, 0.9, age=500), "exhausted": {"at": NOW - 5, "reset": NOW + 600}}
+        got = sw.freshest([marked, new], NOW)
         self.assertEqual(got["five_hour"]["utilization"], 0.1)
-        self.assertTrue(View("a", got, NOW, 600).exhausted)
+        self.assertTrue(View("a", got, NOW, 600).exhausted, "a mark newer than the best reading, from another entry, counts")
+        older = {**reading(0.9, 0.9, age=500), "exhausted": {"at": NOW - 400, "reset": NOW + 600}}
+        self.assertFalse(View("a", sw.freshest([older, new], NOW), NOW, 600).exhausted,
+                         "a later healthy reading of the same account outranks an older mark")
+        own = {**reading(0.1, 0.1, age=10), "exhausted": {"at": NOW - 400, "reset": NOW + 600}}
+        self.assertTrue(View("a", sw.freshest([own, reading(0.1, 0.1, age=20)], NOW), NOW, 600).exhausted,
+                        "the best reading's own mark stands: the gateway has not cleared it")
+
+    def test_a_usage_answer_exactly_as_the_gateways_contract_documents_it(self):
+        """agent-fabric-gateway architecture/contracts/plan-v0/README.md, "Usage (s11)", its example verbatim;
+        the field names checked against that README and the 0.3.0 CHANGELOG on its origin/main (2026-10-12)."""
+        answer = json.loads('''{"event":"usage","credentials":[
+  {"source":{"token_file":"/run/user/1000/agent-fabric/gateway/claude-subscription.token"},
+   "generation":{"device":64769,"inode":1234,"mtime_sec":1760123456,"mtime_nsec":0},
+   "read_at":1760123460,
+   "usage":{
+     "five_hour":{"utilization":0.42,"reset":1760130000,"surpassed_threshold":null},
+     "seven_day":{"utilization":0.9,"reset":1760500000,"surpassed_threshold":0.75},
+     "status":"allowed_warning","reset":1760130000,
+     "representative_claim":"five_hour","overage_status":"rejected",
+     "overage_utilization":0.0,"fallback":null,
+     "malformed":[],
+     "family":"anthropic",
+     "windows":[{"minutes":300,"used":0.42,"reset":1760130000},
+                {"minutes":10080,"used":0.9,"reset":1760500000}],
+     "state":{"value":"warning","reset":null,"derived":false}},
+   "exhausted":{"at":1760123470,"reset":1760130000},
+   "transient_429":2}]}''')
+        r = sw.reading_from_gateway(answer["credentials"][0], "x")
+        self.assertEqual((r["five_hour"], r["seven_day"], r["status"], r["status_reset"], r["exhausted"], r["transient_429"], r["read_at"]),
+                         ({"utilization": 0.42, "reset": 1760130000.0}, {"utilization": 0.9, "reset": 1760500000.0}, "allowed_warning",
+                          1760130000.0, {"at": 1760123470.0, "reset": 1760130000.0}, 2, 1760123460.0))
+        at = 1760123480.0
+        v = View("a", sw.freshest([r], at), at, 600)
+        self.assertEqual((v.exhausted, v.exhausted_why, v.u5, v.u7), (True, "a 429 classified exhausted", 0.42, 0.9))
+        self.assertFalse(View("a", sw.freshest([r], 1760130001.0), 1760130001.0, 10 ** 6).exhausted, "past its reset it is over")
 
     def test_gather_joins_generations_to_templates_and_reads_the_session_kinds(self):
         templates = [{"account": a, "token_sha256_12": fp} for a, fp in FPS.items() if a != "own"]
@@ -241,6 +276,69 @@ class Readings(unittest.TestCase):
         self.assertEqual((by["gw"]["account"], by["gw"]["gateway"], by["gw"]["state_known"]), ("acct-a", True, True))
         self.assertEqual((by["plain"]["account"], by["plain"]["gateway"], by["plain"]["state_known"]), ("acct-b", False, False))
         self.assertIsNone(by["silent"]["account"])
+
+
+class Ahead(unittest.TestCase):
+    """A stamp ahead of the controller's clock is no reading (F1)."""
+
+    def test_a_reading_from_the_future_is_unknown_and_probed(self):
+        future = reading(1.0, 0.5, r5=None, age=-3600)
+        self.assertEqual(of(decide({**HEALTHY, "acct-a": future}, [login("x")]), "x"), {}, "no rule-4 move on it")
+        v = views({**HEALTHY, "acct-a": future})
+        self.assertIn("acct-a", sw.probe_due(v, POLICY["pool"]["accounts"], {}, NOW, 1800))
+        real = reading(0.2, 0.3, age=100)
+        self.assertIs(sw.freshest([future, real], NOW), real, "it does not outrank a real reading")
+        self.assertEqual(sw.freshest([reading(0.2, 0.3, age=-30)], NOW)["read_at"], NOW + 30, "within the skew it counts")
+
+    def test_an_exhaustion_mark_from_the_future_is_no_exhaustion(self):
+        r = reading(0.2, 0.3, mark={"at": NOW + 3600, "reset": None})
+        self.assertFalse(View("a", r, NOW, 600).exhausted)
+        self.assertFalse(View("a", sw.freshest([r], NOW), NOW, 600).exhausted)
+
+
+class Untrusted(unittest.TestCase):
+    """What another account relayed is data: a value that is not a finite, sane number is unknown (F3)."""
+
+    def entry(self, five=None, seven=None):
+        return {"source": {"token_file": "/t"}, "read_at": int(NOW) - 30,
+                "usage": {"five_hour": five or {"utilization": 0.2, "reset": int(NOW) + 3600},
+                          "seven_day": seven or {"utilization": 0.3, "reset": int(NOW) + 5 * 86400}, "status": "allowed"}}
+
+    def test_bad_numbers_read_as_unknown(self):
+        for bad in (float("inf"), float("nan"), -5, 1e300, True, "0.5"):
+            with self.subTest(utilization=bad):
+                r = sw.reading_from_gateway(self.entry(five={"utilization": bad, "reset": int(NOW) + 3600}), "x")
+                self.assertIsNone(r["five_hour"]["utilization"])
+            with self.subTest(reset=bad):
+                r = sw.reading_from_gateway(self.entry(seven={"utilization": 0.3, "reset": bad}), "x")
+                self.assertIsNone(r["seven_day"]["reset"])
+        self.assertIsNone(sw.epoch_s(10 ** 400), "an integer past a double")
+        self.assertIsNone(sw.epoch_s("9999-12-31T23:59:59Z"))
+
+    def test_bad_numbers_neither_move_nor_become_a_target(self):
+        inf = json.loads('{"utilization": Infinity, "reset": %d}' % (NOW + 3600))
+        nan = json.loads('{"utilization": NaN, "reset": %d}' % (NOW + 3600))
+        a_inf = sw.reading_from_gateway({**self.entry(five=inf), "read_at": int(NOW) - 30}, "x")
+        self.assertEqual(of(decide({**HEALTHY, "acct-a": a_inf}, [login("x")]), "x"), {}, "Infinity is not exhaustion")
+        exhausted = {**HEALTHY, "acct-a": reading(1.0, 0.5),
+                     "acct-b": sw.reading_from_gateway(self.entry(five=nan), "x"),
+                     "acct-c": sw.reading_from_gateway(self.entry(seven={"utilization": 0.3, "reset": -5}), "x")}
+        d = of(decide(exhausted, [login("x")]), "x")
+        self.assertNotEqual(d.get("to"), "acct-b", "a NaN utilisation is no relaxed target")
+        self.assertNotEqual((d.get("to"), d.get("relaxed")), ("acct-c", False), "a reset of -5 is not the soonest")
+
+    def test_one_accounts_overflowing_reset_does_not_stop_the_run(self):
+        bad = {**EXHAUSTED, "seven_day": {"utilization": 0.5, "reset": 1e300}}
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "p.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump(TWO, fh)
+            out = []
+            rc = sw.run(record=True, root=d, state=d, policy_file=p, ctl=Fleet(bad),
+                        templates=lambda: [{"account": a, "token_sha256_12": FPS[a]} for a in ("acct-a", "acct-b")],
+                        make_assign=lambda root: 1 / 0, now=lambda: NOW, say=out.append)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(switch_log.tail(d)[-1]["outcome"], "would", "the exhausted login is still decided")
 
 
 class Fleet:
@@ -338,6 +436,53 @@ class Runs(unittest.TestCase):
         self.assertEqual(calls, [("gw", "acct-b")])
         e = self.log()[-1]
         self.assertEqual((e["mode"], e["outcome"], e["assign"]["exit"]), ("act", "did", 0))
+
+    def counting(self, exits):
+        calls = []
+
+        def make(root):
+            def assign(login_, account):
+                calls.append((login_, account))
+                return {"exit": exits[min(len(calls), len(exits)) - 1], "output": []}
+            return assign
+        return calls, make
+
+    def test_a_would_of_advise_is_made_after_the_switch_to_act(self):
+        self.run_once(Fleet(EXHAUSTED))
+        calls, make = self.counting([0])
+        self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act")
+        self.assertEqual(calls, [("gw", "acct-b")], "the decision advise logged is made once act is committed")
+        self.assertEqual([e["outcome"] for e in self.log()], ["would", "did"])
+
+    def test_a_failed_assign_is_tried_again_at_the_next_run(self):
+        calls, make = self.counting([1, 0])
+        self.assertEqual(self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act"), 1)
+        self.assertEqual(self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act"), 0)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([e["outcome"] for e in self.log()], ["failed", "did"])
+
+    def test_a_move_made_is_not_made_again_while_the_identity_read_lags(self):
+        calls, make = self.counting([0])
+        self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act")
+        self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act")   # identity still says acct-a
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([e["outcome"] for e in self.log()], ["did"])
+
+    def test_a_pool_account_with_no_template_is_never_a_target(self):
+        os.makedirs(self.state, exist_ok=True)
+        roomy = {"five_hour": {"utilization": 0.1, "reset": NOW + H}, "seven_day": {"utilization": 0.1, "reset": NOW + 3 * D},
+                 "status": None, "status_reset": None, "exhausted": None, "transient_429": None, "read_at": NOW - 30,
+                 "via": "probe", "from": "onb"}
+        sw.write_state(self.state, {"probes": {"acct-b": NOW - 30}, "probed": {"acct-b": roomy}, "last": {}})
+        fleet = Fleet(EXHAUSTED)
+        rc = sw.run(record=True, root=self.dir.name, state=self.state, policy_file=self.policy(), ctl=fleet,
+                    templates=lambda: [{"account": "acct-a", "token_sha256_12": FPS["acct-a"]}],
+                    make_assign=lambda root: 1 / 0, now=lambda: NOW, say=self.out.append)
+        self.assertEqual(rc, 0, self.out)
+        e = self.log()[-1]
+        self.assertEqual((e["outcome"], e["to"]), ("held", None), "the reading kept from before is not a way in")
+        self.assertNotIn(["onb", "usage"], fleet.asked, "and it is not probed")
+        self.assertTrue(any("no template for acct-b" in line for line in self.out), self.out)
 
     def test_act_says_a_failed_assign_and_assumes_nothing(self):
         make = lambda root: (lambda lg, a: {"exit": 1, "output": ["failed"]})  # noqa: E731
