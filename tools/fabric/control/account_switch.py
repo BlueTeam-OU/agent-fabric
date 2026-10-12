@@ -96,6 +96,9 @@ FIRST_TICK_S = 120
 # UTIL_MAX it is no reading. A timestamp outside 2001..2100 is no time: it would overflow a date or make an
 # account "reset soonest" for ever.
 UTIL_MAX = 100.0
+# A stamp this far ahead of the controller's clock is no time: clamped to age 0 it would read fresh for ever,
+# never be probed, and outrank every real reading. The hosts keep NTP time; a minute covers their drift.
+SKEW_S = 60.0
 EPOCH_MIN_S, EPOCH_MAX_S = 1e9, 4.1e9
 
 
@@ -169,10 +172,16 @@ def reading_from_probe(row: dict, login: str, now: float) -> dict | None:
             "transient_429": None, "read_at": now, "via": "probe", "from": login}
 
 
-def freshest(readings: Iterable[dict]) -> dict | None:
+def ahead(stamp: float | None, now: float) -> bool:
+    return stamp is not None and stamp > now + SKEW_S
+
+
+def freshest(readings: Iterable[dict], now: float) -> dict | None:
     """Per account: the reading taken last; an exhaustion mark from any of its entries is kept with it, the
-    latest one, since a 2xx clears it only on the entry it was received on."""
-    rs = [r for r in readings if r]
+    latest one, since a 2xx clears it only on the entry it was received on. A reading or a mark stamped
+    ahead of `now` is no reading (the account is then probed)."""
+    rs = [r for r in readings if r and not ahead(r.get("read_at"), now)]
+    rs = [{**r, "exhausted": None} if r.get("exhausted") and ahead(r["exhausted"].get("at"), now) else r for r in rs]
     if not rs:
         return None
     best = max(rs, key=lambda r: r["read_at"] if r["read_at"] is not None else float("-inf"))
@@ -186,6 +195,9 @@ class View:
     """What one account's reading lets the rules know now; None wherever it is unknown."""
 
     def __init__(self, slug: str, reading: dict | None, now: float, max_age: float):
+        if reading and (ahead(reading.get("read_at"), now)
+                        or (reading.get("exhausted") and ahead(reading["exhausted"].get("at"), now))):
+            reading = None   # stamped in the future: unknown, never fresh for ever
         self.slug, self.reading, self.now, self.max_age = slug, reading, now, max_age
         r = reading or {}
         read_at = r.get("read_at")
@@ -634,13 +646,13 @@ def run(*, record: bool, root: str | None = None, state: str | None = None, poli
         for a, kept in st["probed"].items():
             if a in pool and isinstance(kept, dict):
                 readings.setdefault(a, []).append(kept)
-        views = {a: View(a, freshest(readings.get(a, [])), t, policy["reading_max_age_s"]) for a in pool}
+        views = {a: View(a, freshest(readings.get(a, []), t), t, policy["reading_max_age_s"]) for a in pool}
         for a in probe_due(views, pool, st["probes"], t, policy["probe_min_interval_s"]):
             got = probe(a, logins, ask, t)
             st["probes"][a] = t
             if got:
                 st["probed"][a] = got
-                views[a] = View(a, freshest([*readings.get(a, []), got]), t, policy["reading_max_age_s"])
+                views[a] = View(a, freshest([*readings.get(a, []), got], t), t, policy["reading_max_age_s"])
         history = [h for h in (switch_log.tail(state, 500) or []) if h.get("outcome") == ("did" if mode == "act" else "would")]
         decisions = decide(policy, views, logins, history, t)
         say(f"  mode {mode}, pool {policy['pool']['name']}")

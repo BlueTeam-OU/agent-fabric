@@ -218,7 +218,7 @@ class Readings(unittest.TestCase):
     def test_the_freshest_reading_counts_and_an_exhaustion_mark_is_kept(self):
         old = {**reading(0.9, 0.9, age=500), "exhausted": {"at": NOW - 400, "reset": NOW + 600}}
         new = reading(0.1, 0.1, age=10)
-        got = sw.freshest([old, new])
+        got = sw.freshest([old, new], NOW)
         self.assertEqual(got["five_hour"]["utilization"], 0.1)
         self.assertTrue(View("a", got, NOW, 600).exhausted)
 
@@ -241,6 +241,24 @@ class Readings(unittest.TestCase):
         self.assertEqual((by["gw"]["account"], by["gw"]["gateway"], by["gw"]["state_known"]), ("acct-a", True, True))
         self.assertEqual((by["plain"]["account"], by["plain"]["gateway"], by["plain"]["state_known"]), ("acct-b", False, False))
         self.assertIsNone(by["silent"]["account"])
+
+
+class Ahead(unittest.TestCase):
+    """A stamp ahead of the controller's clock is no reading (F1)."""
+
+    def test_a_reading_from_the_future_is_unknown_and_probed(self):
+        future = reading(1.0, 0.5, r5=None, age=-3600)
+        self.assertEqual(of(decide({**HEALTHY, "acct-a": future}, [login("x")]), "x"), {}, "no rule-4 move on it")
+        v = views({**HEALTHY, "acct-a": future})
+        self.assertIn("acct-a", sw.probe_due(v, POLICY["pool"]["accounts"], {}, NOW, 1800))
+        real = reading(0.2, 0.3, age=100)
+        self.assertIs(sw.freshest([future, real], NOW), real, "it does not outrank a real reading")
+        self.assertEqual(sw.freshest([reading(0.2, 0.3, age=-30)], NOW)["read_at"], NOW + 30, "within the skew it counts")
+
+    def test_an_exhaustion_mark_from_the_future_is_no_exhaustion(self):
+        r = reading(0.2, 0.3, mark={"at": NOW + 3600, "reset": None})
+        self.assertFalse(View("a", r, NOW, 600).exhausted)
+        self.assertFalse(View("a", sw.freshest([r], NOW), NOW, 600).exhausted)
 
 
 class Untrusted(unittest.TestCase):
