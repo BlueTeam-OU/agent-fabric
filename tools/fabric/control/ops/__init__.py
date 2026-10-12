@@ -59,7 +59,8 @@ from .memory import MEMORY_PART_BYTES, memory_slug, memory_dirs, memory  # noqa:
 
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
        "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "tools-install", "local", "local-prune",
-       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", "branches", "branches-sweep", "restart"]
+       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", "branches", "branches-sweep", "restart",
+       "switch"]
 
 # Answered for any placed account, not only an operator: whether a session
 # is running is what every sender needs before it writes to one, and it
@@ -112,6 +113,19 @@ def _branches(ctx: Mapping[str, Any]) -> Any:
     return branches(home=ctx.get("home"), root=ctx.get("root"))
 
 
+def _switch(ctx: Mapping[str, Any]) -> Any:
+    """The switch controller's move log on this account (ADR-052 rule 12; control/switch_log.py): the policy's
+    mode and the log's tail. Only the coordinator's account keeps one; any other answers "none"."""
+    from control import switch_log, switch_policy
+    import roots
+    opts = ctx.get("switch_opts") or {}
+    try:
+        mode = switch_policy.load(opts.get("policy") or roots.routing_policy(switch_policy.NAME, engine=ctx.get("root")))["mode"]
+    except switch_policy.PolicyError:
+        mode = None
+    return switch_log.section(opts.get("state") or util.state_dir(), mode)
+
+
 def _host(ctx: Mapping[str, Any]) -> Any:
     # The machine now, and the pressure this daemon sampled up to now (pressure.py).
     from control.pressure import memory_pressure
@@ -151,6 +165,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "inbox": _inbox,
     "tools": _tools,
     "gateway": _gateway,
+    "switch": _switch,
     "accounts": lambda c: c["accounts_cached"]() if c.get("accounts_cached") else accounts(c.get("home"), **(c.get("accounts_opts") or {})),
 }
 

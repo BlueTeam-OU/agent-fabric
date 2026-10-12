@@ -429,6 +429,7 @@ def build_report(root, environ=None, cred_environ=None):
     inbox = inbox_state(drift, root, ctx)
     journal = episodic_journal(root)
     agentd = agentd_implementation(root, ctx["agent"], environ)
+    switch = account_switch(root, ctx["state_dir"])
 
     # --- placement: is this account on the host the registry says? ----------
     # The registry records where an account was provisioned; a session on
@@ -456,7 +457,8 @@ def build_report(root, environ=None, cred_environ=None):
                 "claude_sign_in": claude_sign_in(sign_env, sign_file, environ)},
         "capabilities": classes,
         "routing_check": "clean" if not checks else checks,
-        "host_tools": {"moveto": moveto, "python": python, "journal": journal, "agentd": agentd, "claude": claude, "inbox": inbox},
+        "host_tools": {"moveto": moveto, "python": python, "journal": journal, "agentd": agentd, "claude": claude, "inbox": inbox,
+                       "account_switch": switch},
         "control_plane": root,
     }
     return report, base
@@ -579,6 +581,29 @@ def episodic_journal(root):
         return {"status": "unknown", "detail": str(e)}
 
 
+def account_switch(root, state_dir, policy=None):
+    """The switch controller's last decision and the last thing it told the owner (ADR-052 rule 12), from
+    its move log (control/switch_log.py). Only the account that runs the controller keeps one, the
+    coordinator's; elsewhere None and no line is printed."""
+    try:
+        sl = load("fabric_switch_log", os.path.join(root, "tools", "fabric", "control", "switch_log.py"))
+        lines = sl.tail(state_dir, 50)
+        if lines is None:
+            return {"status": "unknown", "detail": f"{sl.path(state_dir)} cannot be read"}
+        if not lines:
+            return None
+        sp = load("fabric_switch_policy", os.path.join(root, "tools", "fabric", "control", "switch_policy.py"))
+        try:
+            mode = sp.load(policy or roots.routing_policy(sp.NAME, engine=root))["mode"]
+        except sp.PolicyError as e:
+            mode = f"not run ({e})"
+        told = [e for e in lines if e.get("tell")]
+        return {"status": "ok", "mode": mode, "detail": f"{mode}; last {sl.words(lines[-1])}",
+                "told": sl.words(told[-1]) if told else None}
+    except Exception as e:  # noqa: BLE001 — a status line, never a traceback
+        return {"status": "unknown", "detail": str(e)[:200]}
+
+
 def render(report, base):
     """The human report, as lines."""
     out = []
@@ -645,6 +670,11 @@ def render(report, base):
     if agentd:
         p(f"agentd       {agentd['detail']}" if agentd["status"] == "python"
           else f"agentd       {agentd['status'].upper()}: {agentd['detail']}")
+    switch = report["host_tools"].get("account_switch")
+    if switch:
+        p(f"switch       {switch['detail']}" if switch["status"] == "ok" else f"switch       {switch['status'].upper()}: {switch['detail']}")
+        if switch.get("told"):
+            p(f"switch told  {switch['told']}  (fabric-accounts switch --log)")
     p(f"control plane {report['control_plane']}")
     return out
 
