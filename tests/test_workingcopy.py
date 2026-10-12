@@ -107,7 +107,8 @@ def test_blueteam_projects_resolve_under_both_github_orgs() -> None:
     with open(path, encoding="utf-8") as fh:
         registry = json.load(fh)
     for pid, repo in (("agent-fabric", "agent-fabric"), ("agent-fabric-gateway", "agent-fabric-gateway"),
-                      ("herdr", "agent-fabric-herdr"), ("radicle-spike", "radicle-spike")):
+                      ("herdr", "agent-fabric-herdr"), ("radicle-spike", "radicle-spike"),
+                      ("interweave", "InterWeave")):
         for url in (f"git@github.com:gzapi-org/{repo}.git", f"https://github.com/BlueTeam-OU/{repo}",
                     f"git@github.com:blueteam-ou/{repo}.git"):
             assert wc.project_for_remote(url, registry) == pid, (url, pid)
