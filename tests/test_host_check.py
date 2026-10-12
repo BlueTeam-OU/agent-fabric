@@ -23,7 +23,8 @@ The contract, a test method each:
       cannot be sandboxed, so the line is asserted against what this host
       has, both forms accepted; the MISSING form names devex-tooling's
       installer so the person knows whom to ask
-  test_probe_is_executable_and_runs_under_bash_without_a_shebang_dependency
+  test_probe_is_executable_for_the_worker — the worker runs it only if X_OK
+  test_a_single_missing_tool_is_named_alone
   test_environment_is_not_read — no variable of the session changes a line
 
 Mutations this fails on (planted on the source as formatted, 2026-10-12; all killed):

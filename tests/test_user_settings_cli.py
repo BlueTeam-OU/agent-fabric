@@ -254,8 +254,17 @@ class MemoryWriteCheck(Base):
         self.assertEqual(d["hooks"]["Stop"][0]["hooks"][0]["command"], "stop.sh")
 
     def test_memory_check_second_run_changes_nothing(self) -> None:
-        self.run_s(self.s)
+        # On the file the first run rewrote (the account's own hook, an old
+        # path, a Stop hook), not on a fresh one: the merge of the account's
+        # entries must be idempotent too.
+        self.put_json({"hooks": {"PostToolUse": [
+            {"matcher": "Bash", "hooks": [{"type": "command", "command": "mine.sh"}]},
+            {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": f'python3 "/old/place/runtime/claude-code/hooks/{MEMORY_CHECK}"'}]}],
+            "Stop": [{"hooks": [{"type": "command", "command": "stop.sh"}]}]}})
+        self.assertTrue(self.run_s(self.s).startswith("  +  "))
         self.assertEqual(self.run_s(self.s), self.current)
+        cmds = [h["command"] for e in self.entries(self.doc()) for h in e["hooks"]]
+        self.assertEqual(cmds.count("mine.sh"), 1, cmds)
 
     def test_memory_check_sharing_an_entry_keeps_the_neighbour(self) -> None:
         # A hand-merged entry holding the check beside a hook of the account's

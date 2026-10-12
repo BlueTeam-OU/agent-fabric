@@ -30,8 +30,7 @@ Added where a refactor could break the contract and the bash test is silent:
 
 Mutations this fails on (planted on the source as formatted, 2026-10-12; all killed):
   - the old model left on disk: test_installed_once_...
-  - a dry run that creates the directory: test_dry_run_writes_nothing
-  - the pip status not checked (success claimed): test_package_that_cannot_...
+  - a dry run that creates the directory: test_dry_run_creates_no_directory
   - the import check after the install dropped: test_pip_that_succeeds_but_...
   - rc forced to 0: the two exit-1 tests
   - the idempotence check dropped (pip rerun): test_present_venv_with_pycld2_makes_no_pip_call
@@ -113,13 +112,18 @@ class Langid(unittest.TestCase):
         self.assertIn(f"=  {self.dir}/venv", self.out())
 
     def test_dry_run_writes_nothing(self) -> None:
-        os.makedirs(self.sandbox, exist_ok=True)
         self.fakevenv()
         out = self.out("--dry-run")
         self.assertIn("would create", out)
         self.assertFalse(os.path.exists(self.installed))
 
+    def test_dry_run_creates_no_directory(self) -> None:
+        p = self.run_install("--dry-run")
+        self.assertIn("would create", p.stdout)
+        self.assertFalse(os.path.exists(self.dir), "a dry run made the target directory")
+
     def test_package_that_cannot_be_installed_is_said_exit_1(self) -> None:
+        self.fakevenv()         # a venv is present and only pip fails, as in the bash case
         p = self.run_install(pip="/bin/false")
         out = p.stdout + p.stderr
         self.assertEqual(p.returncode, 1, out)
@@ -184,6 +188,7 @@ class Langid(unittest.TestCase):
         self.assertFalse(os.path.exists(self.pip_log))
 
     def test_no_traceback_on_any_failure(self) -> None:
+        self.fakevenv()
         for kw in ({"pip": "/bin/false"}, {"pip": os.path.join(self.sandbox, "absent-pip")}):
             with self.subTest(**kw):
                 p = self.run_install(**kw)
