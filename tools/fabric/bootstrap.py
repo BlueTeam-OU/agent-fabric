@@ -243,6 +243,13 @@ SKILLS = (("subagent-dispatch", "policies/subagent-dispatch/SKILL.md"),
           ("moli-web", "policies/moli-web/SKILL.md"),
           ("gzcoord-send", "communication/gzcoord/skills/gzcoord-send/SKILL.md"),
           ("gzcoord-receive", "communication/gzcoord/skills/gzcoord-receive/SKILL.md"))
+# Skills that are a directory (SKILL.md beside references/, scripts/ ...) and
+# belong to some roles only: (name, source directory, the roles that get the
+# whole tree). An account bound to another role, or to none, gets no copy and
+# loses one a bootstrap wrote before its role changed. skill-creator is
+# Anthropic's, vendored unchanged; it is for writing skills, which only the
+# fabric's own authors do.
+TREE_SKILLS = (("skill-creator", "policies/skill-creator", ("fabric-coordinator", "architect-cto")),)
 
 
 class Stop(Exception):
@@ -487,6 +494,7 @@ class Bootstrap:
         # sending a message, and receiving one (the watch, and what a delivery is).
         for name, rel in SKILLS:
             self.put_file(os.path.join(self.claude_home, "skills", name, "SKILL.md"), rel)
+        self.tree_skills(self.role())
         self.checkout_hooks()
         trusted = self.working_copy_hooks()
         self.trust(trusted)
@@ -525,6 +533,41 @@ class Bootstrap:
         except ValueError as e:
             raise Stop(1, f"bootstrap: {dest}: {e}; the workspace settings are not written") from None
         self.put(dest, (json.dumps(doc, indent=2) + "\n").encode())
+
+    def role(self) -> str:
+        """The role this account's binding holds, "" when none: the binding
+        alone, as install_agent_files reads it."""
+        env = {**os.environ, "AGENT_FABRIC_ROOT": self.root}
+        try:
+            r = subprocess.run([sys.executable, self.src("runtime/identity.py"), "--role"], env=env, check=False,
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        except OSError:
+            return ""
+        return r.stdout.decode("utf-8", "surrogateescape").rstrip("\n") if r.returncode == 0 else ""
+
+    def tree_skills(self, role: str) -> None:
+        for name, rel, roles in TREE_SKILLS:
+            dest = os.path.join(self.claude_home, "skills", name)
+            if role in roles:
+                src = self.src(rel)
+                for d, dirs, files in os.walk(src):
+                    dirs.sort()
+                    for f in sorted(files):
+                        full = os.path.join(d, f)
+                        self.put_file(os.path.join(dest, os.path.relpath(full, src)), os.path.relpath(full, self.root))
+                continue
+            if not os.path.isdir(dest):
+                continue
+            # Only a copy the fabric wrote: a skill of the same name that a
+            # person or a plugin put there is not ours to delete.
+            if not fabric_writes.written(os.path.join(dest, "SKILL.md")):
+                say(f"  =  {dest} (kept: not written by the fabric)")
+            elif self.dry_run:
+                say(f"  -  {dest} (would remove: role is {role or 'unbound'})")
+            else:
+                shutil.rmtree(dest)
+                say(f"  -  {dest} (removed: role is {role or 'unbound'})")
+                self.changed += 1
 
     def retire_role_command(self) -> None:
         # 3. The /role command is retired (owner, 2026-09-15): a role is bound from

@@ -15,3 +15,20 @@ path = ["**"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Andrea Benetton"
 SPDX-License-Identifier = "Apache-2.0"
+
+# Vendored, unchanged: Anthropic's skill-creator skill. Upstream
+# https://github.com/anthropics/skills, path skills/skill-creator, commit
+# dbd4588f9e1033efb41dad4bef2f7947c8993d44 (its LICENSE.txt is Apache-2.0).
+# The README beside it is ours and falls under the aggregate annotation.
+[[annotations]]
+path = ["policies/skill-creator/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "Anthropic, PBC"
+SPDX-License-Identifier = "Apache-2.0"
+SPDX-FileContributor = "https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/skill-creator"
+
+[[annotations]]
+path = ["policies/skill-creator/README.md"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Andrea Benetton"
+SPDX-License-Identifier = "Apache-2.0"

@@ -165,6 +165,7 @@ live in each agent's own state, and no agent reads another's.
 | **harness adapter** | the launcher, hooks, agent files and settings that turn all of the above into a Claude Code session, on plain Claude or through OpenRouter | `runtime/openrouter/launch`, `runtime/claude-code/` | ADR-008, ADR-022 |
 | **project binding** | which roles, domains and path rules apply to each managed repository, and each role's remit there | `<working copy>/.agent-fabric/` in the project (`taxonomy.json`, `roles/`); the fabric's own under `.agent-fabric/` here | ADR-004, ADR-011 |
 | **policy and guards** | who may change what, enforced by a commit hook, a CI check and a suite case | `policies/` | ADR-018, ADR-019, ADR-020 |
+| **skills** | procedures every login gets, installed by bootstrap into `~/.claude/skills/`; `skill-creator` (Anthropic's, vendored) is for `fabric-coordinator` and `architect-cto` only, to write new skills | `policies/<skill>/`, `communication/gzcoord/skills/`, `tools/fabric/bootstrap.py` | |
 | **credentials** | each login's secrets in its own encrypted store, put where the tools read them; never in a file here or in a message | `bin/fabric-secrets` | ADR-038, ADR-039 |
 | **hosts and resources** | provisioning an account, running a command on its host, one holder per shared host resource | `runtime/provisioning/`, `runtime/hostexec/`, `bin/fabric-lease` | ADR-010 |
 
