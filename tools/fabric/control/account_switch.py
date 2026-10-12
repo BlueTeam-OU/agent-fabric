@@ -180,8 +180,8 @@ def ahead(stamp: float | None, now: float) -> bool:
 
 def freshest(readings: Iterable[dict], now: float) -> dict | None:
     """Per account: the reading taken last, with the newest exhaustion mark of any of its entries that is no
-    older than that reading. A reading or a mark stamped ahead of `now` is no reading (the account is then
-    probed).
+    older than that reading. A reading stamped ahead of `now` is no reading (the account is then probed); a
+    mark stamped ahead is dropped and its reading kept.
 
     Exhaustion is the account's, not the entry's: the gateway's contract (plan-v0 README, "Usage (s11)")
     marks a 429 exhausted "when its neutral reading says the account's limit is spent", and keeps the mark
