@@ -11,6 +11,7 @@ import http.client
 import io
 import json
 import os
+import pwd
 import signal
 import socket
 import subprocess
@@ -89,6 +90,10 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="test_tools_install.") as tmp:
         saved_path = os.environ.get("PATH", "")
+        # Not the real account's ~/.local/bin: a tool the account already has there answers a proof as current
+        # and the install under test never runs (a Codex installed by hand failed two cases, review of #222).
+        real_bin = os.path.realpath(os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".local", "bin"))
+        scrubbed_path = ":".join(d for d in saved_path.split(":") if os.path.realpath(d) != real_bin)
         n = 0
 
         def account(*projects: str, old: bytes | None = None) -> str:
@@ -107,7 +112,7 @@ def main() -> int:
                 with open(os.path.join(home, ".local", "bin", "faketool"), "wb") as fh:
                     fh.write(old)
                 os.chmod(os.path.join(home, ".local", "bin", "faketool"), 0o755)
-            os.environ["PATH"] = f"{home}/.local/bin:{saved_path}"
+            os.environ["PATH"] = f"{home}/.local/bin:{scrubbed_path}"
             return home
 
         def run(home: str, reg: dict, fetch=never) -> dict:
@@ -294,7 +299,7 @@ def main() -> int:
             """(exit status, a temporary was seen, anything was fetched)."""
             proc = subprocess.Popen([sys.executable, "-c", driver, os.path.join(ROOT, "tools", "fabric"),
                                      json.dumps(registry(("pa", entry(slow)))), home, slow.hex(), at],
-                                    env={**os.environ, "HOME": home, "PATH": f"{home}/.local/bin:{saved_path}"},
+                                    env={**os.environ, "HOME": home, "PATH": f"{home}/.local/bin:{scrubbed_path}"},
                                     stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             seen = False
             deadline = time.time() + 30
@@ -398,6 +403,23 @@ def main() -> int:
         r = tools_install.install("codex", reg=fake_reg, home=home, fetch=serving(npm + b"x"))
         check("a tarball that is not the pinned one is refused by the hash, nothing placed",
               r["status"] == "failed" and listing(home) == [], (r, listing(home)))
+
+        print("the size bound — a member past it is refused before it is placed; one under it, larger than its archive, installs")
+        saved_bound = tools_install.MAX_ASSET_BYTES
+        tools_install.MAX_ASSET_BYTES = 4096
+        try:
+            for size, want in ((5000, "failed"), (3000, "installed")):
+                body = b'#!/bin/sh\necho "codex-cli 0.162.1"\n' + b"#" * size
+                arc = tgz({pin.get("member", "?"): body})
+                bound_reg = {"projects": {"agent-fabric": {"tools": [{**decl[0][1], "proof": "codex --version",
+                                                                      "install": {**pin, "sha256": sha(arc)}}]}}}
+                home = account("agent-fabric")
+                r = tools_install.install("codex", reg=bound_reg, home=home, fetch=serving(arc))
+                check(f"a {size}-byte member under a 4096-byte bound is {want}, and a refusal places nothing",
+                      r["status"] == want and (listing(home) == ["codex"] if want == "installed" else listing(home) == [] and "is over" in str(r)),
+                      (r, listing(home)))
+        finally:
+            tools_install.MAX_ASSET_BYTES = saved_bound
 
         print("fabric-tools --install — the command")
         os.environ["PATH"] = saved_path
