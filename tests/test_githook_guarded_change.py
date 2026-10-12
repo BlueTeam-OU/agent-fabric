@@ -33,7 +33,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from githook_fixtures import GITHOOKS_DIR, GIT_ENV, Repo, call_library  # noqa: E402
+from githook_fixtures import GITHOOKS_DIR, Repo, call_library  # noqa: E402
 
 LIB = os.path.join(GITHOOKS_DIR, "guarded-change.sh")
 SCRIPT = ('guarded_change "$1"; printf "%s\\n" "$guarded_what"; for p in "${guarded[@]+"${guarded[@]}"}"; do printf "%s\\n" "$p"; done')
