@@ -344,7 +344,7 @@ def install_tree(tool: str, entry: dict, body: bytes, home: str) -> dict:
     bindir = os.path.join(home, ".local", "bin")
     target = os.path.join(bindir, tool)
     link_tmp = os.path.join(bindir, f".{tool}.{os.getpid()}.tmp")
-    placed = False
+    placed = moved = False
     try:
         os.makedirs(bindir, mode=0o755, exist_ok=True)
         os.makedirs(tooldir, mode=0o755, exist_ok=True)
@@ -362,13 +362,14 @@ def install_tree(tool: str, entry: dict, body: bytes, home: str) -> dict:
         if os.path.lexists(final):
             os.rename(final, aside)
         os.rename(stage, final)
-        stage = ""
+        stage, moved = "", True
         os.symlink(os.path.join(final, pin["entrypoint"]), link_tmp)
         os.replace(link_tmp, target)
         link_tmp = ""
         placed = True
     except OSError as e:
-        return {"status": "failed", "tool": tool, "reason": f"{e.filename or target}: {e.strerror or e}"}
+        # The second path, when there is one, is what was written to (a symlink's or a rename's destination).
+        return {"status": "failed", "tool": tool, "reason": f"{e.filename2 or e.filename or target}: {e.strerror or e}"}
     finally:
         if stage:
             shutil.rmtree(stage, ignore_errors=True)
@@ -377,10 +378,12 @@ def install_tree(tool: str, entry: dict, body: bytes, home: str) -> dict:
                 os.unlink(link_tmp)
             except OSError:
                 pass
+        if moved and not placed:
+            # The new tree took its version's place but the link never reached it: it goes, and the
+            # previous tree (if any) is put back below, where the link still expects it (review of #229, F1).
+            shutil.rmtree(final, ignore_errors=True)
         if os.path.lexists(aside):
-            # The new tree took the version's place (whatever the link did next), so the old one goes;
-            # if the new one never got there, the old one is put back where the link expects it.
-            if os.path.lexists(final):
+            if placed:
                 shutil.rmtree(aside, ignore_errors=True)
             else:
                 try:

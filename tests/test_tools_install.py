@@ -504,6 +504,37 @@ def main() -> int:
               and tree_files(home) == sorted(f"agent-fabric-tools/codex/0.162.1/{m}" for m in members if m != "codex-package.json")
               and listing(home) == ["codex"], (r, tree_entries(home), listing(home)))
 
+        print("a tree pin — the link step fails: the new tree goes, the previous one stands (review of #229, F1)")
+        home = account("agent-fabric")
+        bindir = os.path.join(home, ".local", "bin")
+        os.chmod(bindir, 0o555)
+        try:
+            r = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=serving(npm))
+        finally:
+            os.chmod(bindir, 0o755)
+        check("~/.local/bin not writable: failed, the reason names ~/.local/bin, and no tree is left",
+              r["status"] == "failed" and r["reason"].startswith(bindir + "/") and "agent-fabric-tools" not in r["reason"]
+              and listing(home) == [] and tree_entries(home) == [], (r, listing(home), tree_entries(home)))
+        r = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=serving(npm))
+        check("…the same account installs once it is writable (positive control)", r["status"] == "installed", r)
+        os.unlink(os.path.join(tree(home), "codex-package.json"))   # not current, so the next run fetches
+        before = tree_files(home)
+        os.chmod(bindir, 0o555)
+        try:
+            r = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=serving(npm))
+        finally:
+            os.chmod(bindir, 0o755)
+        check("over an install: failed, the previous tree put back as it was, its link still resolving into it",
+              r["status"] == "failed" and tree_files(home) == before
+              and os.path.realpath(os.path.join(bindir, "codex")) == os.path.join(os.path.realpath(tree(home)), "bin", "codex")
+              and sorted(os.listdir(os.path.dirname(tree(home)))) == ["0.162.1"], (r, tree_entries(home)))
+        home = account("agent-fabric")
+        os.makedirs(os.path.join(home, ".local", "bin", "codex"))
+        r = tools_install.install("codex", reg=codex_reg(npm), home=home, fetch=serving(npm))
+        check("~/.local/bin/codex a directory: failed, named, no tree and no temporary left",
+              r["status"] == "failed" and r["reason"].startswith(os.path.join(home, ".local", "bin", "codex") + ":")
+              and listing(home) == ["codex"] and tree_entries(home) == [], (r, listing(home), tree_entries(home)))
+
         print("a tree pin — refused before any fetch")
         home = account("agent-fabric")
         for label, over in (("a member and a tree", {"member": f"{root}/bin/codex"}),
