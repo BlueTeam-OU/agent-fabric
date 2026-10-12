@@ -138,6 +138,12 @@ CAPABILITY, PROVIDER = "code-review", "openai"
 # and CA settings only; HOME, TMPDIR and CODEX_HOME are the scratch's.
 CHILD_ENV_PASS = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TZ", "TERM", "SSL_CERT_FILE", "SSL_CERT_DIR")
 MAX_ANSWER_BYTES = 1 << 20
+# Codex's own egress, outside the gateway: with the plugin feature on a run executes `git ls-remote` and `git fetch` of a GitHub plugin
+# repository and opens other connections (strace, codex 0.162.1, a local gateway: 11 git executions and 7 non-loopback connects in 30 s).
+# `plugins = false` alone ended all of it in that trial (no git, loopback only); the other features that reach out are switched off
+# beside it, so a later version that moves the fetch to one of them does not reopen it. A feature a version does not know is ignored.
+EGRESS_FEATURES = ("plugins", "remote_plugin", "plugin_sharing", "apps", "in_app_updates")
+SANDBOX_PROOF_TIMEOUT_S = 60
 # The answer-shape section is the only text the engine adds to the brief
 # (ADR-053 rule 1): where it stands and what to answer, never anything
 # about the change.
@@ -372,6 +378,7 @@ def codex_home(scratch: str, base_url: str, account: str | None = None) -> str:
         f.write(f"model_provider = {_toml_str(PROVIDER_ID)}\n"
                 'approval_policy = "never"\nsandbox_mode = "read-only"\n\n'
                 '[history]\npersistence = "none"\n\n'
+                "[features]\n" + "".join(f"{name} = false\n" for name in EGRESS_FEATURES) + "\n"
                 f"[model_providers.{PROVIDER_ID}]\n"
                 f'name = "agent-fabric gateway (openai-responses)"\n'
                 f"base_url = {_toml_str(base_url)}\n"
@@ -392,6 +399,25 @@ def child_env(environ: dict[str, str], scratch: str, home: str, key: str) -> dic
 
 
 # --- running Codex once ------------------------------------------------------
+
+def prove_sandbox(binary: str, workdir: str, env: dict[str, str]) -> None:
+    """The read-only sandbox must start and must refuse a write, or the review does not run. Codex's sandbox is bubblewrap, which needs
+    unprivileged user namespaces; a host that refuses them (CI's Ubuntu 24.04) fails the review with one line and runs nothing wider:
+    no fallback to a sandbox that writes or to none, and nothing in this module names one (ADR-053 rule 2)."""
+    probe = os.path.join(workdir, ".fabric-write-probe")
+    for label, command in (("start", ["/bin/true"]),
+                           ("refuse a write", ["/bin/sh", "-c", 'touch "$1" 2>/dev/null && exit 7; exit 0', "sh", probe])):
+        try:
+            done = subprocess.run([binary, "sandbox", "-P", ":read-only", "-C", workdir, "--", *command], env=env, cwd=workdir,
+                                  capture_output=True, stdin=subprocess.DEVNULL, timeout=SANDBOX_PROOF_TIMEOUT_S, check=False)
+        except subprocess.TimeoutExpired:
+            raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
+        if done.returncode != 0:
+            why = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", done.stderr.decode("utf-8", "replace").replace(env.get(ENV_KEY, "\0"), "[key]"))[-200:].strip()
+            raise FailedReview(f"the read-only sandbox cannot {label} (exit {done.returncode}: {why}); no wider one is used")
+    if os.path.lexists(probe):
+        raise FailedReview("the sandbox let a write through; no review is run in a writable tree")
+
 
 def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str, str], prompt: str,
               timeout_s: float, effort_level: str | None = None) -> str:
@@ -655,6 +681,7 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
             extract(repo, head, workdir)
             env = child_env(environ, scratch, codex_home(scratch, base_url, account_id(env_run)), key)
             prompt = brief.rstrip("\n") + "\n" + ANSWER_SHAPE
+            prove_sandbox(binary, workdir, env)
             findings = parse_answer(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level))
         finally:
             shutil.rmtree(scratch, ignore_errors=True)

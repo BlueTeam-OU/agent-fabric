@@ -33,6 +33,19 @@ FAKE_CODEX = r'''#!%(python)s
 import json, os, subprocess, sys, time
 S = %(state)r
 argv = sys.argv[1:]
+if argv[:1] == ["sandbox"]:
+    with open(os.path.join(S, "sandbox-calls"), "a") as f:
+        f.write(json.dumps(argv) + "\n")
+    smode = open(os.path.join(S, "sandbox-mode")).read().strip() if os.path.exists(os.path.join(S, "sandbox-mode")) else "ok"
+    cmd = argv[argv.index("--") + 1:]
+    if smode == "fail":
+        print("bwrap: No permissions to create a new namespace " + os.environ.get("AGENT_FABRIC_CODEX_KEY", ""), file=sys.stderr)
+        sys.exit(1)
+    if smode == "sleep":
+        time.sleep(300)
+    if cmd[0] == "/bin/true" or smode != "writable":
+        sys.exit(0)
+    sys.exit(subprocess.run(cmd).returncode)     # nothing refuses the write: the probe's touch succeeds and says 7
 prompt = sys.stdin.read()
 rec = {"argv": argv, "env": dict(os.environ), "cwd": os.getcwd(), "prompt": prompt,
        "cwd_files": sorted(os.listdir(".")),
@@ -286,7 +299,7 @@ def main() -> int:
         def set_pr(oid: str = head) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
                 json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid}, f)
-            for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild"):
+            for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode"):
                 if os.path.exists(os.path.join(state, n)):
                     os.remove(os.path.join(state, n))
 
@@ -422,6 +435,40 @@ def main() -> int:
         with open(os.path.join(kept, "codex.log"), encoding="utf-8") as fh:
             check("the log line went to codex.log", "WARN codex_core: a log line" in fh.read())
         check("…and the run, which read the code, gives its answer", '"P1"' in answer_text, answer_text)
+
+        print("the sandbox is proved before the run, no wider one is used, Codex's own egress is off")
+        set_pr(); mode("ok")
+        r = run("7", req)
+        check("a review runs", r.returncode == 0, r.stderr + r.stdout)
+        with open(os.path.join(state, "sandbox-calls")) as f:
+            probes = [json.loads(line) for line in f]
+        check("two probes in the extract, read-only profile: a command starts, a write is refused",
+              len(probes) == 2 and all(p[:3] == ["sandbox", "-P", ":read-only"] for p in probes)
+              and probes[0][-1] == "/bin/true" and "touch" in probes[1][-3] + probes[1][-4]
+              and probes[0][probes[0].index("-C") + 1] == record()["cwd"], probes)
+        cfg = record()["config"] or ""
+        check("config.toml switches off the plugin, app and update features (Codex's own fetch from GitHub)",
+              "[features]\n" in cfg and all(f"{name} = false\n" in cfg.split("[features]\n", 1)[1] for name in review_codex.EGRESS_FEATURES)
+              and "plugins = false\n" in cfg, cfg)
+        with open(review_codex.__file__, encoding="utf-8") as fh:
+            module_source = fh.read()
+        check("the module names no wider sandbox mode",
+              not any(w in module_source for w in ("danger", "workspace-write", "full-access", "--yolo", "bypass")))
+        for label, smode, text in (("a sandbox that cannot start", "fail",
+                                    "the read-only sandbox cannot start (exit 1: bwrap: No permissions to create a new namespace [key]); no wider one is used"),
+                                   ("a sandbox that lets a write through", "writable", "the read-only sandbox cannot refuse a write (exit 7")):
+            set_pr(); mode("ok")
+            with open(os.path.join(state, "sandbox-mode"), "w") as f:
+                f.write(smode)
+            r = run("7", req)
+            check(f"{label}: exit 1, said in one line, codex exec never started, nothing posted, the scratch removed",
+                  r.returncode == 1 and text in r.stderr and not codex_ran() and not posted() and scratch_empty(),
+                  (r.returncode, r.stderr[-400:], codex_ran(), posted(), os.listdir(scratch)))
+            check(f"{label}: the key is not in the message", "gw-local-key-123" not in r.stderr, r.stderr)
+        set_pr(); mode("ok")
+        with open(os.path.join(state, "sandbox-mode"), "w") as f:
+            f.write("ok")
+        check("the positive control: with a sandbox that behaves, the same review is posted", run("7", req).returncode == 0 and posted())
 
         print("the account id and the effort")
         acct = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
