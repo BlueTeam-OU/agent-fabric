@@ -186,7 +186,7 @@ not on a pipe's exit status.
   | auto-merge | on (it waits for the ruleset's required checks) |
   | delete branch on merge, suggest updating branches | off |
   | web commit sign-off | not required |
-  | ruleset on `main` | `tools/fabric/github-ruleset-main.json`: deletion and force-push refused; a pull request (merge commits only, no approval count); one CI check required, `ci-ok`, which fails unless `static` and every `guards-and-suites` and `platform-smoke` leg succeeded; signed commits required. No merge queue, no branch protection beside it |
+  | ruleset on `main` | `tools/fabric/github-ruleset-main.json`: deletion and force-push refused; a pull request (merge commits only, no approval count); one CI check required, `ci-ok`, which fails unless `static`, `reuse` and every `guards-and-suites` and `platform-smoke` leg succeeded; signed commits required. No merge queue, no branch protection beside it |
   | Actions | enabled, all actions allowed, SHA pinning not required; default workflow permissions read, may not approve pull requests |
   | secrets, variables, environments, self-hosted runners | none |
   | code scanning | CodeQL default setup (actions, JavaScript/TypeScript, Python), weekly and on every PR |

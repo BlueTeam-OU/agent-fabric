@@ -36,6 +36,22 @@ jobs:
       - run: sudo apt-get install -y --no-install-recommends shellcheck && python3 -m pip install --quiet --disable-pip-version-check ruff==0.16.7
       - run: bash tests/static.sh
 
+  reuse:
+    # The repository stays REUSE 3.3 compliant: a file whose own SPDX header
+    # names a licence missing from LICENSES/, or a LICENSES/ text no file
+    # uses, fails here. A foreign file with no header is still Apache-2.0 by
+    # REUSE.toml's "**" annotation and passes: that is a review's to catch.
+    # reuse pinned by version, as ruff is above; ci-ok needs it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - run: python3 -m pip install --quiet --disable-pip-version-check reuse==6.2.0
+      - run: reuse lint
+
   guards-and-suites:
     # The bash suites and the guards on the oldest and newest interpreters.
     # The Python suites are not here: they run once per interpreter an agent
@@ -180,7 +196,7 @@ jobs:
     # cancelled must make this one fail, not skip it (a skipped required
     # check reads as passing).
     if: always()
-    needs: [static, guards-and-suites, platform-smoke]
+    needs: [static, reuse, guards-and-suites, platform-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
