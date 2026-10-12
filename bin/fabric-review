@@ -9,10 +9,10 @@
 #   fabric-review next REQUEST (--report F | --pr PR) [--head REV] [--keep-lenses]
 #                                       the re-review's request, derived and rendered
 #                                       (tools/fabric/review_rounds.py)
-#   fabric-review --engine codex PR REQUEST [--model M] [--timeout MIN] [--no-post]
+#   fabric-review --engine codex PR REQUEST [--gateway chatgpt] [--model M] [--timeout MIN] [--no-post]
 #                                       the second engine: Codex reviews the PR's head
-#                                       one-shot and posts (tools/fabric/review_codex.py,
-#                                       agent-fabric ADR-053)
+#                                       one-shot and posts, through a gateway of its own
+#                                       (tools/fabric/review_codex.py, agent-fabric ADR-053)
 #
 # Then dispatch, exactly as the guard requires (it never reads the prompt):
 #
