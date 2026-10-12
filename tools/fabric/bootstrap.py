@@ -241,6 +241,7 @@ SKILLS = (("subagent-dispatch", "policies/subagent-dispatch/SKILL.md"),
           ("agent-jobs", "policies/agent-jobs/SKILL.md"),
           ("own-secrets", "policies/own-secrets/SKILL.md"),
           ("moli-web", "policies/moli-web/SKILL.md"),
+          ("repo-lifecycle", "policies/repo-lifecycle/SKILL.md"),
           ("gzcoord-send", "communication/gzcoord/skills/gzcoord-send/SKILL.md"),
           ("gzcoord-receive", "communication/gzcoord/skills/gzcoord-receive/SKILL.md"))
 
