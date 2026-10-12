@@ -19,6 +19,15 @@
         "member": "agent-fabric-gateway-0.2.0-x86_64-unknown-linux-gnu/agent-fabric-gateway",
         "reports": {"gateway_version": "0.2.0", "runtime_contract": 1, "plan_schemas": [0]}
       }
+    },
+    "0.3.0": {
+      "x86_64": {
+        "url": "https://api.github.com/repos/BlueTeam-OU/agent-fabric-gateway/releases/assets/634336964",
+        "name": "agent-fabric-gateway-0.3.0-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "46770c20023ec4e2b3ba2d6516e8ee0c0d5d9cd1b4bb7f74d7b51adc549faa4e",
+        "member": "agent-fabric-gateway-0.3.0-x86_64-unknown-linux-gnu/agent-fabric-gateway",
+        "reports": {"gateway_version": "0.3.0", "runtime_contract": 1, "plan_schemas": [0, 1]}
+      }
     }
   }
 }
