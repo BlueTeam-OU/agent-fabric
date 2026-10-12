@@ -655,7 +655,7 @@ def main() -> int:
             findings += validate_json(caps_schema, caps_doc, "routing/capabilities.json")
 
     # --- routing profiles --------------------------------------------------
-    profiles_schema =load_schema(root, os.path.join("routing", "schemas"), "model-profiles")
+    profiles_schema = load_schema(root, os.path.join("routing", "schemas"), "model-profiles")
     profiles_path = roots.routing_profiles(engine=root)
     if profiles_schema and os.path.exists(profiles_path):
         profiles = load_json(profiles_path, "routing/profiles.json", findings)
