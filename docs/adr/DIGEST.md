@@ -1126,7 +1126,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: account switch, gateway, usage, land, eject, hysteresis, sticky,
   perishable, soonest reset, 429, exhausted, claudemanager, account-switch.json.
 
-### ADR-053 — A second review engine: Codex reviews beside the review class, one-shot, through the gateway (Proposed)
+### ADR-053 — A second review engine: Codex reviews beside the review class, one-shot, through the gateway (Accepted)
 
 - `fabric-review --engine codex <PR>`: the review class's blind brief,
   unchanged, run once by the pinned `codex exec`, read-only, on a `git
