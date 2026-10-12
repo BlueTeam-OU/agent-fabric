@@ -195,6 +195,13 @@ What it refuses, in order, and why:
      The relay does not authenticate senders: this stops mistakes, not
      a forger. The comment records who waived it, the message
      and the reason. A PR that matches no boundary ignores a waiver;
+  4b. the review engines (the policy's `reviews`: ["claude"] by default, which adds
+     nothing to gate 4; a list naming "codex" needs, for EVERY PR, a review of the
+     CURRENT head by each engine named, claude's being the review class's
+     `fabric-pr post-review --model fable` and codex's one posted with --model codex,
+     and no unresolved review thread (an open P1 or P2 of either engine). The
+     refusal names the engine still missing. `boundary_reviews` adds engines for a
+     security-boundary change not waived; agent-fabric ADR-053 rule 6.)
   5. the count rule (fabric-pr gate's classifier; the 8 and the 16 here are
      the default numbers of the repository's arming policy, tools/fabric/
      github/arm_policy.py: the fleet's, with the settings repository's file for
@@ -493,6 +500,38 @@ def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, rol
     return verify_grant(waiver, num, repo, head, session, waiver_role_checked(role), refuse, word="waiver", field="WAIVES")
 
 
+def check_engines(num: str, head: str, engines: list[str], refuse) -> None:
+    """Refuse until every engine in `engines` has a review of `head` and no review thread is open (an open P1 or P2
+    of either engine is an unresolved thread, as in the review-class gate). The refusal names the engine missing."""
+    rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"), [num, "-q", "--json"])
+    if rc == 2:
+        raise Unanswered(f"pr-review-status could not answer for #{num} (exit 2)")
+    try:
+        rs = json.loads(out)
+    except ValueError:
+        rs = None
+    rows = rs.get("blind", {}).get("rows") if isinstance(rs, dict) and isinstance(rs.get("blind"), dict) else None
+    if not isinstance(rows, list):
+        raise Unanswered(f"pr-review-status --json carried no blind.rows for #{num} — cannot judge the review engines")
+    # A row with no engine is the review class's: reviews posted before the field existed were all Claude's.
+    have = {r.get("engine", "claude") for r in rows if isinstance(r, dict) and r.get("commit_sha8") == head[:8]}
+    for engine in engines:
+        if engine not in have:
+            how = "fabric-review --engine codex (posted with fabric-pr post-review --model codex)" if engine == "codex" \
+                else "the review class (fabric-pr post-review --model fable)"
+            raise refuse(f"this repository's arming policy requires a review by the {engine} engine of the current head"
+                         f" {head}, and there is none (a review of an older head does not count): run {how} on it,"
+                         f" then arm (engines required: {', '.join(engines)})")
+    unresolved = rs.get("unresolved_threads")
+    if not isinstance(unresolved, int) or isinstance(unresolved, bool):
+        raise Unanswered(f"pr-review-status reported no unresolved_threads count for #{num} (null: the lookup"
+                         f" failed) — cannot judge the open findings")
+    if unresolved != 0:
+        raise refuse(f"{unresolved} unresolved review thread(s) on a PR that needs the {', '.join(engines)} review(s):"
+                     f" answer and resolve them first (no open P1 or P2 from either engine)")
+    say(f"the current head {head} has the review of each required engine ({', '.join(engines)}), and no unresolved thread")
+
+
 def arm(argv: list[str]) -> int:
     num = basis = no_boundary = waiver = authorization = ""
     boundary = any_owner = dry = False
@@ -676,7 +715,11 @@ def arm(argv: list[str]) -> int:
             if not isinstance(rows, list):
                 raise Unanswered(f"pr-review-status --json carried no blind.rows for #{num} — cannot judge the review-class review")
             unresolved = rs.get("unresolved_threads")
-            if not any(isinstance(r, dict) and r.get("commit_sha8") == head[:8] for r in rows):
+            # The review class's review is the claude engine's; a Codex review of the head is the second
+            # engine's, counted by gate 4b only (review of #220, F1). A reader that predates the field
+            # carries none: those rows are the review class's.
+            if not any(isinstance(r, dict) and r.get("commit_sha8") == head[:8] and r.get("engine", "claude") == "claude"
+                       for r in rows):
                 # An independent or automated review is not the boundary's
                 # review: the reader counts any non-author review object
                 # (a managed project's PR #930 blind review, F1).
@@ -695,6 +738,13 @@ def arm(argv: list[str]) -> int:
             # Its owner's word follows the count (gate 5): only under the repository's minimum (8
             # by default), and there no class stands in for it.
             boundary_unwaived = is_boundary and not waiver
+
+    # 4b. the review engines the policy requires (ADR-053 rule 6). ["claude"], the default, adds nothing: the
+    # review-class gate above (boundary or direct) is then the only one, exactly as before. Anything else needs
+    # EACH engine's review of the current head, and no open thread from either.
+    engines = arm_policy.required_engines(policy, is_boundary and not waiver)
+    if engines != ["claude"]:
+        check_engines(num, head, engines, refuse)
 
     # 5. the count rule, from pr-gate's classifier
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])

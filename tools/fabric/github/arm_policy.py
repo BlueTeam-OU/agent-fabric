@@ -77,9 +77,14 @@ DEFAULT: dict[str, Any] = {
     "delete_branch_on_merge": False,
     "queue": {},
     "commits": {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}},
+    "reviews": ["claude"],
+    "boundary_reviews": ["claude"],
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
 }
+# The review engines (agent-fabric ADR-053 rule 6): "claude" is the review class's `fabric-pr post-review ... --model
+# fable`; "codex" is one posted with `--model codex`.
+ENGINES = ("claude", "codex")
 # `description` is for the reader of the file (the schema allows it, a non-empty string, and nothing else beside the keys).
 IGNORED_KEYS = ("description",)
 
@@ -212,6 +217,10 @@ def validate(doc: Any, where: str = "the policy") -> dict:
             raise PolicyError(f"{where}: commits.roles.{slug} is not {{\"min\": a whole number of at least 1}}")
         _whole(spec, "min")
     c["classes"] = normalize_classes(c["classes"], f"{where}: commits.classes")
+    for key in ("reviews", "boundary_reviews"):
+        engines = p[key]
+        if not isinstance(engines, list) or not engines or any(e not in ENGINES for e in engines) or len(set(engines)) != len(engines):
+            raise PolicyError(f"{where}: {key} is a non-empty list of distinct engines drawn from {', '.join(ENGINES)}")
     bots = _only_keys(p["bots"], ("dependabot",), f"{where}: bots")
     if "dependabot" in bots:
         d = _only_keys(bots["dependabot"], ("arm", "ecosystems"), f"{where}: bots.dependabot")
@@ -372,6 +381,13 @@ def threshold(policy: dict, role: str | None, cls: str | None, boundary: bool) -
         return c["classes"][cls]["min"]
     spec = c["roles"].get(role) if role else None
     return spec["min"] if spec else c["min"]
+
+
+def required_engines(policy: dict, boundary: bool) -> list[str]:
+    """The review engines this pull request needs, in ENGINES order: the policy's `reviews`, and for a security-boundary
+    change not waived also its `boundary_reviews` (a waived boundary is judged as no boundary, as for the count)."""
+    wanted = set(policy["reviews"]) | (set(policy["boundary_reviews"]) if boundary else set())
+    return [e for e in ENGINES if e in wanted]
 
 
 def ruleset_name(policy: dict) -> str:

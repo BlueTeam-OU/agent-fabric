@@ -1,7 +1,8 @@
 # ADR-053 — A second review engine: Codex reviews beside the review class, one-shot, through the gateway
 
 **Date:** 2026-10-11
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-12, in the session ("adr 053 accepted")
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the review class's engines (ADR-005, ADR-020); `fabric-review --engine codex` (`tools/fabric/review_codex.py`, to be built); the arming policy's `reviews` rule (`identities/schemas/arming.schema.json`, `policies/arming.json`); the Codex pin in `projects/registry.json`; the launcher's Codex profile; the review-brief skill
 **Pillar:** P1
@@ -115,7 +116,7 @@ second vendor's model.
 
 ## 8. Decision Status
 
-Proposed. It waits on the owner's acceptance, and in practice on the
+Accepted (the header names the owner's word). It waits in practice on the
 gateway's Stage 6 (the Responses gateway and the ChatGPT credential
 held by the gateway) and the launcher's Codex profile.
 

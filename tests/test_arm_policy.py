@@ -192,8 +192,10 @@ class RealFiles(unittest.TestCase):
                  {"bots": {"dependabot": {"arm": ["patch", "minor"], "ecosystems": ["npm_and_yarn", "pip"]}}},
                  {"github": {"ruleset": "r", "branch": "main"}}, {"mode": "owner-only"}, {"mode": "direct"}, {"commits": {"below_min": "refuse"}},
                  {"commits": {"min": 20}}, {"queue": {"merge_min": 6}}, {"required_checks": [{"context": "c", "app": "Foo"}]},
-                 {"github": {"ruleset": " "}}, {"commits": {"min": 1.0}}, {"description": "why"}]
+                 {"github": {"ruleset": " "}}, {"commits": {"min": 1.0}}, {"description": "why"},
+                 {"reviews": ["claude", "codex"]}, {"reviews": ["codex"], "boundary_reviews": ["claude", "codex"]}]
         invalid = [{"mode": "auto", "autoo": True}, {"queue": {"depth": 3}}, {"mode": "squash"}, {"method": "fast-forward"},
+                   {"reviews": []}, {"reviews": ["gemini"]}, {"reviews": "codex"}, {"reviews": ["codex", "codex"]}, {"boundary_reviews": ["x"]},
                    {"commits": {"below_min": "warn"}}, {"commits": {"min": 0}}, {"commits": {"boundary_min": 0}}, {"commits": {"boundary_min": 2.5}}, {"commits": {"boundary_authority": "Architect"}}, {"commits": {"roles": {"devex-tooling": {"min": 0}}}},
                    {"commits": {"roles": {"Devex Tooling": {"min": 2}}}}, {"commits": {"classes": {"docs": {"min": 1}}}},
                    {"queue": {"grouping": "some"}}, {"queue": {"build": 2.5}}, {"required_checks": [{"app": "github-actions"}]},
@@ -345,6 +347,10 @@ class Load(Scratch):
         self.load(api)
         self.assertEqual(len(api.asked), 2, "no cache, no reuse: nothing is kept between runs")
 
+    def test_a_repository_file_overrides_the_fleets_reviews(self):
+        self.assertEqual(self.load(Api(contents({"reviews": ["claude", "codex"]})))["reviews"], ["claude", "codex"])
+        self.assertEqual(self.load(Api(error=ghe(404, "Not Found")))["reviews"], ["claude"])
+
     def test_a_repository_may_raise_the_boundary_minimum_and_never_lower_it_below_the_fleets(self):
         for repo_value, want in ((3, 8), (8, 8), (12, 12)):
             api = Api(contents({"commits": {"boundary_min": repo_value}}))
@@ -362,6 +368,25 @@ class Load(Scratch):
             json.dump(CLIENTS, fh)
         with mock.patch.object(workingcopy, "load_registry", return_value=REGISTRY):
             self.assertEqual(arm_policy.load("O/R", root=self.dir, api=Api(contents({"commits": {"min": 4}})))["commits"]["min"], 4)
+
+
+class Reviews(Scratch):
+    """The `reviews` rule (agent-fabric ADR-053 rule 6): which engines a PR needs. arm.py's refusals are test_arm_cli's."""
+
+    def test_the_default_needs_the_review_class_only(self):
+        self.assertEqual(arm_policy.default()["reviews"], ["claude"])
+        self.assertEqual(arm_policy.required_engines(arm_policy.default(), False), ["claude"])
+        self.assertEqual(arm_policy.required_engines(arm_policy.default(), True), ["claude"])
+
+    def test_a_list_replaces_the_fleets_and_never_merges(self):
+        self.assertEqual(arm_policy.validate({"reviews": ["codex"]})["reviews"], ["codex"])
+        self.assertEqual(arm_policy.required_engines(arm_policy.validate({"reviews": ["codex"]}), False), ["codex"])
+
+    def test_the_boundary_adds_its_engines_only_when_it_is_judged(self):
+        p = arm_policy.validate({"boundary_reviews": ["claude", "codex"]})
+        self.assertEqual(arm_policy.required_engines(p, False), ["claude"])
+        self.assertEqual(arm_policy.required_engines(p, True), ["claude", "codex"])
+
 
 
 class Threshold(unittest.TestCase):

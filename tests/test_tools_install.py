@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import http.client
 import io
+import json
 import os
 import signal
 import socket
@@ -276,7 +277,6 @@ def main() -> int:
         check("an install sweeps what a killed run left", r["status"] == "installed" and listing(home) == ["faketool"], (r, listing(home)))
 
         print("SIGTERM, through fabric-tools --install itself")
-        import json
         slow = b"#!/bin/sh\nsleep 30\n"
         driver = ("import sys, json, time; sys.path.insert(0, sys.argv[1]); import tools_install, tools_check, workingcopy\n"
                   "reg = json.loads(sys.argv[2]); home = sys.argv[3]\n"
@@ -368,6 +368,33 @@ def main() -> int:
         follows = h.redirect_request(urllib.request.Request("https://example.invalid/a"), io.BytesIO(), 302, "Found", {},
                                      "https://cdn.example.invalid/b")
         check("...and one that stays on https is followed (positive control)", follows is not None and follows.full_url == "https://cdn.example.invalid/b", follows)
+
+        print("codex — the pin the registry carries (ADR-053 rule 7)")
+        with open(os.path.join(ROOT, "projects", "registry.json")) as fh:  # this tree's, not the account's resolved one
+            real = json.load(fh)
+        decl = tools_install.declarations(real, "codex")
+        check("agent-fabric declares codex as an account tool", [pid for pid, _ in decl] == ["agent-fabric"], decl)
+        pin = decl[0][1]["install"] if decl else {}
+        check("the member is the one the gateway's CI runs (its CODEX_BIN), so a wrong one cannot pass the stand-in below",
+              pin.get("member") == "package/vendor/x86_64-unknown-linux-musl/bin/codex", pin.get("member"))
+        check("the pin is one the installer can act on, at the released version",
+              tools_install.check_pin(pin) is None and pin.get("version") == "0.162.1" and decl[0][1].get("version") == "0.162.1", pin)
+        check("the proof's first line, as Codex prints it, is the pinned version",
+              tools_install.prints_version("codex-cli 0.162.1", pin.get("version", "")) and not tools_install.prints_version("codex-cli 0.162.10", pin.get("version", "")))
+        # The real digest is the gateway CI's (its "Install Codex" step); here a
+        # stand-in tarball of the same layout proves the member path unpacks.
+        fake = b'#!/bin/sh\necho "codex-cli 0.162.1"\n'
+        npm = tgz({pin.get("member", "?"): fake, "package/package.json": b"{}"})
+        fake_reg = {"projects": {"agent-fabric": {"tools": [{**decl[0][1], "proof": "codex --version",
+                                                              "install": {**pin, "sha256": sha(npm)}}]}}} if decl else {}
+        home = account("agent-fabric")
+        r = tools_install.install("codex", reg=fake_reg, home=home, fetch=serving(npm))
+        check("a tarball of the npm layout installs the member as codex",
+              r["status"] == "installed" and listing(home) == ["codex"], (r, listing(home)))
+        home = account("agent-fabric")
+        r = tools_install.install("codex", reg=fake_reg, home=home, fetch=serving(npm + b"x"))
+        check("a tarball that is not the pinned one is refused by the hash, nothing placed",
+              r["status"] == "failed" and listing(home) == [], (r, listing(home)))
 
         print("fabric-tools --install — the command")
         os.environ["PATH"] = saved_path

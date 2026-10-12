@@ -90,7 +90,8 @@ Options:
                          instead of the report (the exit code is the
                          same): state, merge_state, head,
                          head_reviewed, the three buckets as
-                         {count, rows}, marked_by_others, not_trusted,
+                         {count, rows; a blind row also names its
+                         engine, claude or codex}, marked_by_others, not_trusted,
                          no_review_coming ({cause, reason} or null),
                          verdicts, unresolved_threads (null when the
                          lookup failed), checks {pass, other} (both

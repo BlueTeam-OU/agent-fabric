@@ -6,6 +6,7 @@ import json
 from typing import TYPE_CHECKING
 from github.review_status.base import out, jstr, sha8, jkey, login_of
 from github.review_status.probe import Probe, Extras
+from github.review_status.verdicts import engine_of
 
 if TYPE_CHECKING:
     from github.pr_review_status import Ctx
@@ -20,7 +21,8 @@ def render_json(ctx: "Ctx", p: Probe, x: Extras, cause: str, reason: str) -> str
     def rows(reviews, *keys):
         shape = {"login": lambda r: login_of(r), "state": lambda r: r.get("state"),
                  "association": lambda r: r.get("author_association"),
-                 "commit_sha8": lambda r: sha8(r.get("commit_id")), "at": lambda r: r.get("submitted_at")}
+                 "commit_sha8": lambda r: sha8(r.get("commit_id")), "at": lambda r: r.get("submitted_at"),
+                 "engine": engine_of}
         return [{k: shape[k](r) for k in keys} for r in reviews]
 
     try:
@@ -31,7 +33,7 @@ def render_json(ctx: "Ctx", p: Probe, x: Extras, cause: str, reason: str) -> str
         "pr": pr_number, "state": p.state, "merge_state": p.mergest, "head": p.head,
         "head_reviewed": "yes" if p.head_reviewed else "no",
         "independent": {"count": len(b.independent), "rows": rows(b.independent, "login", "state", "commit_sha8", "at")},
-        "blind": {"count": len(b.blind), "rows": rows(b.blind, "login", "commit_sha8", "at")},
+        "blind": {"count": len(b.blind), "rows": rows(b.blind, "login", "commit_sha8", "at", "engine")},
         "not_trusted": {"count": len(b.outsiders), "rows": rows(b.outsiders, "login", "association", "commit_sha8", "at")},
         "no_review_coming": None if not cause else {"cause": cause, "reason": reason or None},
         "marked_by_others": {"count": len(b.marked_others), "rows": rows(b.marked_others, "login", "commit_sha8", "at")},
@@ -58,7 +60,8 @@ def head_evidence(p: Probe) -> str:
 
     r = at_head(p.buckets.blind)
     if r:
-        return (f" — the review class's blind review of {jstr(sha8(r.get('commit_id')))}, {jstr(r.get('submitted_at'))}"
+        who = "Codex's review" if engine_of(r) == "codex" else "the review class's blind review"
+        return (f" — {who} of {jstr(sha8(r.get('commit_id')))}, {jstr(r.get('submitted_at'))}"
                 " (posted under the account every session pushes as)")
     r = at_head(p.buckets.independent)
     if r:
@@ -83,7 +86,9 @@ def render_text(ctx: "Ctx", p: Probe, x: Extras) -> None:
         out(f"      - {jstr(v['login'])}  commit={jstr(sha8(v['sha']))}  {jstr(v['at'])}")
     out(f"  blind reviews       : {len(b.blind)}" + ("   (the review class — coverage)" if b.blind else ""))
     for r in b.blind:
-        out(f"      - {jstr(login_of(r))}  commit={jstr(sha8(r.get('commit_id')))}  {jstr(r.get('submitted_at'))}")
+        # Only a second engine is named: the review class's lines stay as they were.
+        eng = "  engine=codex" if engine_of(r) == "codex" else ""
+        out(f"      - {jstr(login_of(r))}  commit={jstr(sha8(r.get('commit_id')))}  {jstr(r.get('submitted_at'))}{eng}")
     if b.outsiders:
         out(f"  not trusted         : {len(b.outsiders)}   (NOT coverage — not the owner, a member, a collaborator or a configured reviewer)")
         for r in b.outsiders:
