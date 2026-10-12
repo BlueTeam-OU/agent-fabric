@@ -1,6 +1,6 @@
 ---
 name: repo-lifecycle
-description: "Move a managed repository to another GitHub organisation or rename it, or import a repository as a new managed project: two ordered checklists that say who does each step (the owner's hand, fabric-coordinator, devex-tooling, the project's agents) and why the order matters. Load it whenever the owner says a repository moves, is transferred, renamed, imported, adopted or made a managed project, even if no one says 'skill'; before editing projects/registry.json, projects/clients.json or policies/auto-mode.json for a repository's name; when a clone's origin or a push names a repository that has changed (HTTP 307 on a write); and when fabric-pr arm refuses for a missing settings file."
+description: "Move a managed repository to another GitHub organisation or rename it, or import a repository as a new managed project: two ordered checklists that say who does each step (the owner's hand, fabric-coordinator, devex-tooling, the project's agents) and why the order matters. Load it whenever the owner says a repository moves, is transferred, renamed, imported, adopted or made a managed project, even if no one says 'skill'; before editing projects/registry.json, projects/clients.json or policies/auto-mode.json for a repository's name; when a clone's origin or a push names a repository that has changed (HTTP 307 on a write); and when fabric-pr arm refuses with an error naming a client's settings repository."
 ---
 
 # Moving and importing a repository
@@ -73,8 +73,7 @@ ruleset, the arm refuses on drift).
    to an agent-fabric main commit at or after the step 6 merge AND adds
    `repos/<repo>.json` (new client) or removes it (old client); either
    alone fails CI. Same client, renamed repository: rename the file.
-   **Nobody
-   runs a `fabric-repo-policy` apply until the file has landed**: an
+   **Nobody applies the policy by hand until the file has landed**: an
    apply under the fleet default would replace the queue, required checks
    and rulesets with the default.
 8. **Owner:** transfer or rename on GitHub, then what a transfer does not
@@ -163,8 +162,11 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
 9. **Read-back, fabric-coordinator:** `python3 tools/fabric/lint.py
    --no-siblings`; `fabric-adr lookup <topic>` for each decision the
    project touches; `fabric-repo-policy verify <owner/repo>`; the first
-   `fabric-pr arm` reads the project's file (an error naming the settings
-   repository means step 5 or the client is wrong). Then message the
+   `fabric-pr arm` reads the project's file (a missing file is no error: a
+   404 falls to the fleet policy, a drift refusal or a plan against the
+   fleet ruleset, so step 5 not landed shows there; an error naming the
+   settings repository means the client or its `settings_repo` is wrong or
+   unreadable). Then message the
    roles that work there.
 
 Not automated yet: the entry, the integration directory and the
