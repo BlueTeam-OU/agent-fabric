@@ -4,11 +4,16 @@ PR's head one-shot, with the review class's brief, through a gateway of its
 own (agent-fabric ADR-053 rules 1-5; bin/fabric-review --engine is the front
 door).
 
-    fabric-review --engine codex PR REQUEST[.yaml|.json] [--model M] [--timeout MIN]
-                  [--allow-rationale] [--no-post]
+    fabric-review --engine codex PR REQUEST[.yaml|.json] [--gateway chatgpt [--codex-home DIR]]
+                  [--model M] [--effort LEVEL] [--timeout MIN] [--allow-rationale] [--no-post]
 
-SETTINGS, from the environment only (the launcher's Codex profile sets them;
-until it does, every run refuses, ADR-053 §6):
+THE GATEWAY, one of two ways. With --gateway chatgpt, review_gateway.py
+starts one for this review from the ChatGPT sign-in in DIR (default
+~/.codex-chatgpt), provides the two settings below and the account id, and
+stops it before anything is posted; every refusal of its (the sign-in, a
+token with too little life left, a gateway without plan schema 1 or the
+openai-responses protocol) comes before it starts. Without --gateway, the
+settings come from the environment:
   AGENT_FABRIC_CODEX_BASE_URL  the ROOT of a gateway process serving
                                openai-responses (http(s)://host:port, no path:
                                Codex posts /responses to the root, ADR-053 §1)
@@ -18,6 +23,14 @@ until it does, every run refuses, ADR-053 §6):
   AGENT_FABRIC_CODEX_MODEL     the model Codex asks the gateway for (--model
                                overrides); a posted review names it
   AGENT_FABRIC_CODEX_BIN       the codex binary (default: `codex` on PATH)
+  AGENT_FABRIC_CODEX_ACCOUNT_ID  optional: a ChatGPT account id (a UUID),
+                               sent by Codex as the provider's
+                               ChatGPT-Account-ID header (config.toml's
+                               http_headers); the ChatGPT backend needs it
+                               beside the token, and it is no secret
+  AGENT_FABRIC_CODEX_EFFORT    Codex's model_reasoning_effort (--effort
+                               overrides): none, minimal, low, medium, high
+                               or xhigh; high by default, passed as -c
 Missing the base URL, the key or the model refuses before anything runs, and
 posts nothing.
 
@@ -52,6 +65,7 @@ exit 0 posted (or printed); 1 refused or a failed review, nothing posted;
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -66,6 +80,7 @@ from urllib.parse import urlsplit
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import review_brief  # noqa: E402
+import review_gateway  # noqa: E402
 from lint_rules.schema import validate_json  # noqa: E402 — the fleet's no-dependency validator (ADR-040)
 
 # The engine's own files, beside this one: the schema is the contract this
@@ -78,6 +93,15 @@ DEFAULT_TIMEOUT_MIN = 20.0
 PROVIDER_ID = "fabric-gateway"
 ENV_BASE_URL, ENV_KEY, ENV_MODEL, ENV_BIN = (
     "AGENT_FABRIC_CODEX_BASE_URL", "AGENT_FABRIC_CODEX_KEY", "AGENT_FABRIC_CODEX_MODEL", "AGENT_FABRIC_CODEX_BIN")
+ENV_ACCOUNT_ID, ENV_EFFORT = "AGENT_FABRIC_CODEX_ACCOUNT_ID", "AGENT_FABRIC_CODEX_EFFORT"
+# The ChatGPT account id is a UUID; the shape is checked because it is written into config.toml as a header value.
+ACCOUNT_ID = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
+# Codex's model_reasoning_effort values (codex 0.162.1). On the ChatGPT backend the engine asks for `high` unless
+# told otherwise: a review reads a whole change, and a `codex exec` on the owner's ChatGPT team plan (2026-10-12)
+# printed "reasoning effort: none" for its default model. The environment's gateway sends no level unless one is
+# asked for, as before the --gateway path existed (review of #224, F2).
+EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
+GATEWAY_EFFORT = "high"
 # Codex's environment is built from these and nothing else: a denylist of
 # the session's credentials would miss the next one a launcher adds. Locale
 # and CA settings only; HOME, TMPDIR and CODEX_HOME are the scratch's.
@@ -122,6 +146,19 @@ def settings(environ: dict[str, str], model_flag: str | None) -> tuple[str, str,
     if missing:
         raise Refused(f"not set: {', '.join(missing)} — the Codex engine runs only through a gateway serving "
                       "openai-responses, with its local key (agent-fabric ADR-053 rule 3); nothing was run or posted")
+    base, key = gateway_settings(environ)
+    model, binary = codex_settings(environ, model_flag)
+    return base, key, model, binary
+
+
+def gateway_settings(environ: dict[str, str]) -> tuple[str, str]:
+    """(base_url, key) of the gateway, checked: its root, and neither the session's URL nor its credential."""
+    base = (environ.get(ENV_BASE_URL) or "").strip()
+    key = environ.get(ENV_KEY) or ""
+    missing = [n for n, v in ((ENV_BASE_URL, base), (ENV_KEY, key)) if not v]
+    if missing:
+        raise Refused(f"not set: {', '.join(missing)} — the Codex engine runs only through a gateway serving "
+                      "openai-responses, with its local key (agent-fabric ADR-053 rule 3); nothing was run or posted")
     parts = urlsplit(base)
     if (parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password
             or parts.path not in ("", "/") or parts.query or parts.fragment):
@@ -134,12 +171,41 @@ def settings(environ: dict[str, str], model_flag: str | None) -> tuple[str, str,
         raise Refused(f"{ENV_BASE_URL} is the session's ANTHROPIC_BASE_URL; Codex needs its own Responses gateway")
     if key in {environ.get(n) or "" for n in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")} - {""}:
         raise Refused(f"{ENV_KEY} is the session's Anthropic credential; Codex takes its gateway's local key")
+    return base.rstrip("/"), key
+
+
+def codex_settings(environ: dict[str, str], model_flag: str | None) -> tuple[str, str]:
+    """(model, codex binary): what Codex is asked for and what runs it, both needed before any gateway starts."""
+    model = (model_flag or environ.get(ENV_MODEL) or "").strip()
+    if not model:
+        raise Refused(f"not set: {ENV_MODEL} or --model — a posted review names its model; nothing was run or posted")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", model):
         raise Refused(f"model {model!r} is not a model name")
     binary = environ.get(ENV_BIN) or shutil.which("codex", path=environ.get("PATH")) or ""
     if not binary or not os.access(binary, os.X_OK):
         raise Refused(f"no codex binary ({ENV_BIN}, or `codex` on PATH); nothing was run or posted")
-    return base.rstrip("/"), key, model, binary
+    return model, binary
+
+
+def account_id(environ: dict[str, str]) -> str | None:
+    """AGENT_FABRIC_CODEX_ACCOUNT_ID, UUID-shaped, or None when unset or empty."""
+    value = (environ.get(ENV_ACCOUNT_ID) or "").strip()
+    if not value:
+        return None
+    if not ACCOUNT_ID.fullmatch(value):
+        raise Refused(f"{ENV_ACCOUNT_ID} is not an account id (a UUID); nothing was run or posted")
+    return value
+
+
+def effort(environ: dict[str, str], flag: str | None, default: str | None) -> str | None:
+    """--effort, else AGENT_FABRIC_CODEX_EFFORT, else `default` (None: Codex's own); one of Codex's levels."""
+    value = flag or environ.get(ENV_EFFORT) or default
+    if value is None:
+        return None
+    value = value.strip()
+    if value not in EFFORTS:
+        raise Refused(f"reasoning effort {value!r} is not one of {', '.join(EFFORTS)}")
+    return value
 
 
 # --- the request and the head ------------------------------------------------
@@ -217,11 +283,16 @@ def _toml_str(s: str) -> str:
     return json.dumps(s)  # a JSON string is a valid TOML basic string for what is written here
 
 
-def codex_home(scratch: str, base_url: str) -> str:
+def codex_home(scratch: str, base_url: str, account: str | None = None) -> str:
     """An isolated CODEX_HOME: the gateway as the one provider, the key read
-    from ENV_KEY in Codex's environment, nothing persisted that outlives it."""
+    from ENV_KEY in Codex's environment, nothing persisted that outlives it.
+    With an account id, the provider sends it as ChatGPT-Account-ID on every
+    request: the ChatGPT backend needs it beside the bearer token, the gateway
+    passes it through (it strips only credential carriers), and it is not a
+    secret, so a static header is where it belongs."""
     home = os.path.join(scratch, "codex-home")
     os.makedirs(home, mode=0o700)
+    headers = f"http_headers = {{ {_toml_str('ChatGPT-Account-ID')} = {_toml_str(account)} }}\n" if account else ""
     with open(os.path.join(home, "config.toml"), "w", encoding="utf-8") as f:
         f.write(f"model_provider = {_toml_str(PROVIDER_ID)}\n"
                 'approval_policy = "never"\nsandbox_mode = "read-only"\n\n'
@@ -230,7 +301,8 @@ def codex_home(scratch: str, base_url: str) -> str:
                 f'name = "agent-fabric gateway (openai-responses)"\n'
                 f"base_url = {_toml_str(base_url)}\n"
                 'wire_api = "responses"\n'
-                f"env_key = {_toml_str(ENV_KEY)}\n")
+                f"env_key = {_toml_str(ENV_KEY)}\n"
+                + headers)
     return home
 
 
@@ -247,12 +319,13 @@ def child_env(environ: dict[str, str], scratch: str, home: str, key: str) -> dic
 # --- running Codex once ------------------------------------------------------
 
 def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str, str], prompt: str,
-              timeout_s: float) -> str:
+              timeout_s: float, effort_level: str | None = None) -> str:
     """Codex's last message, or FailedReview. Its process group is ended on
     every way out, so nothing it started outlives the scratch."""
     answer = os.path.join(scratch, "last-message.json")
     log = os.path.join(scratch, "codex.log")
     argv = [binary, "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--cd", workdir, "--model", model,
+            *(["-c", f"model_reasoning_effort={_toml_str(effort_level)}"] if effort_level else []),
             "--output-schema", SCHEMA_PATH, "--output-last-message", answer, "--color", "never", "-"]
     with open(log, "wb") as logf:
         p = subprocess.Popen(argv, cwd=workdir, env=env, stdin=subprocess.PIPE, stdout=logf, stderr=subprocess.STDOUT,
@@ -382,23 +455,39 @@ def post(repo: str, pr: str, body: str) -> int:
 # --- the run -----------------------------------------------------------------
 
 def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float, allow_rationale: bool,
-           no_post: bool, environ: dict[str, str]) -> int:
-    base_url, key, model, binary = settings(environ, model_flag)
+           no_post: bool, environ: dict[str, str], gateway: str | None = None, signin_home: str | None = None,
+           effort_flag: str | None = None) -> int:
+    """With `gateway` None the gateway is the environment's (ENV_BASE_URL, ENV_KEY); with "chatgpt",
+    review_gateway.py starts one of its own for this review and stops it before anything is posted."""
+    if gateway is None:
+        settings(environ, model_flag)   # every missing setting named at once, before anything else
+        account_id(environ)
+    model, binary = codex_settings(environ, model_flag)
+    level = effort(environ, effort_flag, GATEWAY_EFFORT if gateway else None)
     req, brief = load_request(request, allow_rationale)
     repo = req["repository"]
     head = range_head(req)
     if pr_head(repo, pr) != head:
         raise Refused(f"the request's head {head[:12]} is not PR #{pr}'s head: a review is posted against the PR's "
                       "head, so it must be the one read (update the request's range)")
-    scratch = tempfile.mkdtemp(prefix="fabric-review-codex.", dir=scratch_root(repo, environ))
-    try:
-        workdir = os.path.join(scratch, "head")
-        extract(repo, head, workdir)
-        env = child_env(environ, scratch, codex_home(scratch, base_url), key)
-        prompt = brief.rstrip("\n") + "\n" + ANSWER_SHAPE
-        findings = parse_answer(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60))
-    finally:
-        shutil.rmtree(scratch, ignore_errors=True)
+    root = scratch_root(repo, environ)
+    # Every refusal of the gateway's (the sign-in, its token's lifetime, the installed gateway) comes before it starts.
+    provider = (review_gateway.serve(review_gateway.prepare(gateway, environ, signin_home, timeout_min * 60), model, environ)
+                if gateway else contextlib.nullcontext({}))
+    with provider as provided:
+        # What the gateway provides lives in this dict and Codex's environment only, never os.environ: the
+        # post's child (fabric-pr) and anything else this process starts never inherit the local key.
+        env_run = {**environ, **provided}
+        base_url, key = gateway_settings(env_run)
+        scratch = tempfile.mkdtemp(prefix="fabric-review-codex.", dir=root)
+        try:
+            workdir = os.path.join(scratch, "head")
+            extract(repo, head, workdir)
+            env = child_env(environ, scratch, codex_home(scratch, base_url, account_id(env_run)), key)
+            prompt = brief.rstrip("\n") + "\n" + ANSWER_SHAPE
+            findings = parse_answer(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level))
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
     if not no_post and pr_head(repo, pr) != head:
         raise Refused(f"PR #{pr} moved while Codex read {head[:12]}; nothing posted — run it on the new head")
     body = render_review(model, head, req["range"], findings)
@@ -414,8 +503,8 @@ def _raise_signal(signum, _frame):
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    usage = ("usage: fabric-review --engine codex PR REQUEST [--model M] [--timeout MINUTES] "
-             "[--allow-rationale] [--no-post]")
+    usage = ("usage: fabric-review --engine codex PR REQUEST [--gateway chatgpt [--codex-home DIR]] [--model M] "
+             "[--effort LEVEL] [--timeout MINUTES] [--allow-rationale] [--no-post]")
     if args[:1] in (["-h"], ["--help"]):
         print(__doc__)
         return 0
@@ -429,7 +518,7 @@ def main(argv: list[str] | None = None) -> int:
     pos: list[str] = []
     while args:
         a = args.pop(0)
-        if a in ("--model", "--timeout"):
+        if a in ("--model", "--timeout", "--gateway", "--codex-home", "--effort"):
             if not args:
                 print(f"fabric-review: {a} needs a value\n{usage}", file=sys.stderr)
                 return 2
@@ -451,13 +540,25 @@ def main(argv: list[str] | None = None) -> int:
     if not 0 < timeout_min <= 24 * 60:
         print(f"fabric-review: --timeout {opts.get('--timeout')!r} is not a number of minutes", file=sys.stderr)
         return 2
+    if "--gateway" in opts and opts["--gateway"] not in review_gateway.GATEWAYS:
+        print(f"fabric-review: --gateway {opts['--gateway']!r}: the gateways are: {', '.join(review_gateway.GATEWAYS)}",
+              file=sys.stderr)
+        return 2
+    if "--codex-home" in opts and "--gateway" not in opts:
+        print("fabric-review: --codex-home names the sign-in a --gateway reads; without --gateway it means nothing",
+              file=sys.stderr)
+        return 2
+    if "--effort" in opts and opts["--effort"] not in EFFORTS:
+        print(f"fabric-review: --effort {opts['--effort']!r}: one of {', '.join(EFFORTS)}", file=sys.stderr)
+        return 2
     for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(s, _raise_signal)
     try:
         return review(pos[0], pos[1], model_flag=opts.get("--model"), timeout_min=timeout_min,
                       allow_rationale=flags["--allow-rationale"], no_post=flags["--no-post"],
-                      environ=dict(os.environ))
-    except Refused as e:
+                      environ=dict(os.environ), gateway=opts.get("--gateway"), signin_home=opts.get("--codex-home"),
+                      effort_flag=opts.get("--effort"))
+    except (Refused, review_gateway.Refused) as e:
         print(f"fabric-review: refused: {e}", file=sys.stderr)
         return 1
     except FailedReview as e:

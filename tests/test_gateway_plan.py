@@ -178,6 +178,79 @@ def main() -> int:
     check("a route id is a schema-valid slug however the model is spelled", all(gp.validate(
         {**anth.doc, "routes": [{**anth.doc["routes"][0], "route_id": gp.slug(m)}]}) == [] for m in (long_model, "A/B@c:d", "..", "!!!")))
 
+    print("schema 1: the Codex review's openai-responses plan")
+    fix1 = os.path.join(HERE, "tests", "fixtures", "gateway-plan-v1")
+    with open(os.path.join(fix1, "schema.json"), encoding="utf-8") as fh:
+        schema1 = json.load(fh)
+    with open(os.path.join(fix1, "openai-responses.plan.json"), encoding="utf-8") as fh:
+        example1 = json.load(fh)
+    check("the module's schema 1 is the gateway's, annotations aside", gp.SCHEMA_V1 == schema1)
+    v0_plus = copy.deepcopy(schema)
+    v0_plus["properties"]["schema_version"] = {"const": 1}
+    for part in ("listeners", "backends"):
+        v0_plus["properties"][part]["items"]["properties"]["protocol"] = {"enum": ["anthropic", "openai-responses"]}
+    check("schema 1 is schema 0 with schema_version 1 and the second protocol, nothing else", v0_plus == schema1)
+    check("the gateway's frozen schema-1 plan passes schema 1", gp.validate(example1, 1) == [], str(gp.validate(example1, 1)))
+    check("…and schema 0 refuses it (its version and its protocol)", gp.validate(example1) != [])
+    check("a session plan that says schema_version 1 is still refused under 0", gp.validate({**example, "schema_version": 1}) != [])
+    check("an unknown schema version is a problem, not a crash", gp.validate(example1, 7) != [])
+    broken1 = {
+        "a listener of another protocol": lambda d: d["listeners"][0].update(protocol="grpc"),
+        "an anthropic backend behind a responses listener": lambda d: d["backends"][0].update(protocol="anthropic"),
+        "a second listener of the other protocol": lambda d: d["listeners"].append(
+            {**copy.deepcopy(d["listeners"][0]), "ingress_id": "other", "protocol": "anthropic"}),
+        "a companion header on the responses profile": lambda d: d["auth_profiles"][0].update(
+            companion_headers=[{"name": "ChatGPT-Account-ID", "value": "x"}]),
+    }
+    for label, fn in broken1.items():
+        doc1 = copy.deepcopy(example1)
+        fn(doc1)
+        check(f"schema 1: {label} is refused", gp.validate(doc1, 1) != [], "passed")
+    tok = "/run/user/4242/agent-fabric/review-codex.x/chatgpt.token"
+    rp = gp.build_responses("gpt-test-1.5", tok, session="s1")
+    check("build_responses: the plan validates under schema 1", gp.validate(rp.doc, 1) == [], str(gp.validate(rp.doc, 1)))
+    check("build_responses: the listener and the backend speak openai-responses, the backend is ChatGPT's codex path",
+          rp.doc["listeners"][0]["protocol"] == rp.doc["backends"][0]["protocol"] == "openai-responses"
+          and rp.doc["backends"][0]["base_url"] == "https://chatgpt.com/backend-api/codex"
+          and rp.doc["listeners"][0]["bind"] == "127.0.0.1:0" and rp.doc["listeners"][0]["harness_auth"] == {"source": "fd"})
+    check("build_responses: a file profile on the token file, Authorization Bearer, no companion header",
+          rp.doc["auth_profiles"] == [{"profile_id": "chatgpt-subscription", "source": "file", "path": tok,
+                                       "header": "Authorization", "prefix": "Bearer "}] and rp.token_file == tok, str(rp.doc["auth_profiles"]))
+    check("build_responses: one identity route for the model",
+          [(r["source"]["model_selector"], r["target"]["model"]) for r in rp.doc["routes"]] == [("gpt-test-1.5", "gpt-test-1.5")]
+          and rp.selectors == [{"selector": "gpt-test-1.5", "model": "gpt-test-1.5", "route_id": rp.doc["routes"][0]["route_id"]}])
+    check("build_responses: bytes, digest and stability",
+          json.loads(rp.bytes) == rp.doc and rp.digest == "sha256:" + hashlib.sha256(rp.bytes).hexdigest()
+          and gp.build_responses("gpt-test-1.5", tok, session="s1").bytes == rp.bytes)
+    for label, args in (("a model with a space", ("gpt x", tok)), ("a relative token file", ("m", "chatgpt.token")),
+                        ("a token file not in normal form", ("m", "/run/user/1/../x.token")), ("an empty model", ("", tok))):
+        try:
+            gp.build_responses(*args)
+            msg = ""
+        except gp.PlanError as e:
+            msg = str(e)
+        check(f"build_responses: {label} is a PlanError", msg != "", msg)
+
+    print("the session's plans are the bytes they were before schema 1 existed")
+    # The v0 document assembled here independently, the way the generator wrote it before build_responses and
+    # SCHEMA_V1 were added: any change to the session's plan bytes shows as a mismatch.
+    for provider in ("anthropic", "openrouter"):
+        plan = gp.build(ME, "python-dev", provider, session="s1", uid=4242)
+        backend = gp.BACKENDS[provider]
+        profile = ({"profile_id": "claude-subscription", "source": "file", "path": gateway_token.token_path(4242),
+                    "header": "Authorization", "prefix": "Bearer ", "companion_headers": [{"name": "anthropic-beta", "value": "oauth-2025-04-20"}]}
+                   if provider == "anthropic" else
+                   {"profile_id": "openrouter-key", "source": "env", "name": "OPENROUTER_API_KEY", "header": "Authorization", "prefix": "Bearer "})
+        expected = {"schema_version": 0, "session": {"opaque_id": f"{ME}:s1"},
+                    "listeners": [{"ingress_id": "claude", "protocol": "anthropic", "bind": "127.0.0.1:0", "harness_auth": {"source": "fd"}}],
+                    "backends": [{"backend_id": backend["backend_id"], "protocol": "anthropic", "base_url": backend["base_url"]}],
+                    "auth_profiles": [profile],
+                    "routes": [{"route_id": s["route_id"], "ingress_id": "claude", "source": {"model_selector": s["selector"]},
+                                "target": {"backend_id": backend["backend_id"], "model": s["selector"]}, "auth_profile_id": profile["profile_id"]}
+                               for s in plan.selectors],
+                    "defaults": {"unknown_route": {"status": 400, "error_type": "invalid_request_error"}}}
+        check(f"{provider}: byte for byte the v0 document", plan.bytes == (json.dumps(expected, indent=2, ensure_ascii=False) + "\n").encode())
+
     print("write and the command")
     with tempfile.TemporaryDirectory() as t:
         path = gp.write(anth, os.path.join(t, "plan.json"))

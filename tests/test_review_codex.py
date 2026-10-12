@@ -269,6 +269,10 @@ def main() -> int:
               and 'base_url = "http://127.0.0.1:18080"' in cfg and 'wire_api = "responses"' in cfg
               and 'env_key = "AGENT_FABRIC_CODEX_KEY"' in cfg, cfg)
         check("…and never the key itself", "gw-local-key-123" not in cfg, cfg)
+        check("no account id set: no http_headers in config.toml", "http_headers" not in cfg and "ChatGPT-Account-ID" not in cfg, cfg)
+        check("the environment's gateway: no reasoning level unless one is asked for, as before (review of #224, F2)",
+              not any(a.startswith("model_reasoning_effort") for a in argv) and "-c" not in argv, argv)
+
         after_codex = os.stat(codex_marker)
         check("~/.codex is untouched", (after_codex.st_mtime_ns, after_codex.st_size)
               == (before_codex.st_mtime_ns, before_codex.st_size))
@@ -285,6 +289,30 @@ def main() -> int:
               "Codex" in body_first and "`gpt-test`" in body_first and head[:12] in body_first, b)
         check("the findings are there, P1 first",
               "**P1** `app.py:1`" in b and b.index("**P1**") < b.index("**P3**"), b)
+
+        print("the account id and the effort")
+        acct = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+        set_pr(); mode("empty")
+        r = run("7", req, "--no-post", "--effort", "xhigh", env={**env0, "AGENT_FABRIC_CODEX_ACCOUNT_ID": acct})
+        rec = record()
+        cfg = rec["config"] or ""
+        check("exit 0", r.returncode == 0, r.stderr)
+        check("the account id reaches config.toml as the provider's ChatGPT-Account-ID header",
+              f'http_headers = {{ "ChatGPT-Account-ID" = "{acct}" }}' in cfg
+              and cfg.index("http_headers") > cfg.index("[model_providers.fabric-gateway]"), cfg)
+        check("…and only there: not in Codex's environment or argv",
+              acct not in json.dumps(rec["env"]) and acct not in json.dumps(rec["argv"]), rec["env"])
+        check("--effort sets the level", 'model_reasoning_effort="xhigh"' in rec["argv"], rec["argv"])
+        set_pr(); mode("empty")
+        r = run("7", req, "--no-post", env={**env0, "AGENT_FABRIC_CODEX_EFFORT": "low"})
+        check("AGENT_FABRIC_CODEX_EFFORT sets it too", 'model_reasoning_effort="low"' in record()["argv"], r.stderr)
+        set_pr(); mode("ok")
+        r = run("7", req, "--effort", "extreme")
+        check("an unknown --effort is a usage error, nothing runs", r.returncode == 2 and not codex_ran(), r.stderr)
+        r = run("7", req, "--codex-home", home)
+        check("--codex-home without --gateway is a usage error", r.returncode == 2 and not codex_ran(), r.stderr)
+        r = run("7", req, "--gateway", "openai")
+        check("an unknown --gateway is a usage error", r.returncode == 2 and "chatgpt" in r.stderr and not codex_ran(), r.stderr)
 
         print("--no-post prints the review and posts nothing")
         set_pr(); mode("empty")
@@ -371,7 +399,10 @@ def main() -> int:
                 ("the session's Anthropic base URL", {"AGENT_FABRIC_CODEX_BASE_URL": "http://127.0.0.1:9999/"},
                  "ANTHROPIC_BASE_URL"),
                 ("the session's Anthropic key", {"AGENT_FABRIC_CODEX_KEY": "sk-ant-session"}, "Anthropic credential"),
-                ("no codex binary", {"AGENT_FABRIC_CODEX_BIN": os.path.join(tmp, "no-codex")}, "no codex binary")):
+                ("no codex binary", {"AGENT_FABRIC_CODEX_BIN": os.path.join(tmp, "no-codex")}, "no codex binary"),
+                ("an account id that is not a UUID", {"AGENT_FABRIC_CODEX_ACCOUNT_ID": 'x" }\nmodel = "evil'},
+                 "AGENT_FABRIC_CODEX_ACCOUNT_ID"),
+                ("an unknown effort level", {"AGENT_FABRIC_CODEX_EFFORT": "max"}, "reasoning effort")):
             set_pr(); mode("ok")
             env = {k: v for k, v in env0.items() if not (k in change and change[k] is None)}
             env.update({k: v for k, v in change.items() if v is not None})

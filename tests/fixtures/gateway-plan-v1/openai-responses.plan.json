@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "session": { "opaque_id": "synthetic-responses-session" },
+  "listeners": [
+    {
+      "ingress_id": "codex",
+      "protocol": "openai-responses",
+      "bind": "127.0.0.1:0",
+      "harness_auth": { "source": "fd" }
+    }
+  ],
+  "backends": [
+    {
+      "backend_id": "openai",
+      "protocol": "openai-responses",
+      "base_url": "https://api.openai.com/v1"
+    }
+  ],
+  "auth_profiles": [
+    {
+      "profile_id": "openai-key",
+      "source": "env",
+      "name": "OPENAI_API_KEY",
+      "header": "Authorization",
+      "prefix": "Bearer "
+    }
+  ],
+  "routes": [
+    {
+      "route_id": "codex-model",
+      "ingress_id": "codex",
+      "source": { "model_selector": "synthetic-responses-model" },
+      "target": { "backend_id": "openai", "model": "synthetic-responses-model" },
+      "auth_profile_id": "openai-key"
+    }
+  ],
+  "defaults": {
+    "unknown_route": { "status": 400, "error_type": "invalid_request_error" }
+  }
+}
