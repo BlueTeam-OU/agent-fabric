@@ -243,6 +243,51 @@ class Readings(unittest.TestCase):
         self.assertIsNone(by["silent"]["account"])
 
 
+class Untrusted(unittest.TestCase):
+    """What another account relayed is data: a value that is not a finite, sane number is unknown (F3)."""
+
+    def entry(self, five=None, seven=None):
+        return {"source": {"token_file": "/t"}, "read_at": int(NOW) - 30,
+                "usage": {"five_hour": five or {"utilization": 0.2, "reset": int(NOW) + 3600},
+                          "seven_day": seven or {"utilization": 0.3, "reset": int(NOW) + 5 * 86400}, "status": "allowed"}}
+
+    def test_bad_numbers_read_as_unknown(self):
+        for bad in (float("inf"), float("nan"), -5, 1e300, True, "0.5"):
+            with self.subTest(utilization=bad):
+                r = sw.reading_from_gateway(self.entry(five={"utilization": bad, "reset": int(NOW) + 3600}), "x")
+                self.assertIsNone(r["five_hour"]["utilization"])
+            with self.subTest(reset=bad):
+                r = sw.reading_from_gateway(self.entry(seven={"utilization": 0.3, "reset": bad}), "x")
+                self.assertIsNone(r["seven_day"]["reset"])
+        self.assertIsNone(sw.epoch_s(10 ** 400), "an integer past a double")
+        self.assertIsNone(sw.epoch_s("9999-12-31T23:59:59Z"))
+
+    def test_bad_numbers_neither_move_nor_become_a_target(self):
+        inf = json.loads('{"utilization": Infinity, "reset": %d}' % (NOW + 3600))
+        nan = json.loads('{"utilization": NaN, "reset": %d}' % (NOW + 3600))
+        a_inf = sw.reading_from_gateway({**self.entry(five=inf), "read_at": int(NOW) - 30}, "x")
+        self.assertEqual(of(decide({**HEALTHY, "acct-a": a_inf}, [login("x")]), "x"), {}, "Infinity is not exhaustion")
+        exhausted = {**HEALTHY, "acct-a": reading(1.0, 0.5),
+                     "acct-b": sw.reading_from_gateway(self.entry(five=nan), "x"),
+                     "acct-c": sw.reading_from_gateway(self.entry(seven={"utilization": 0.3, "reset": -5}), "x")}
+        d = of(decide(exhausted, [login("x")]), "x")
+        self.assertNotEqual(d.get("to"), "acct-b", "a NaN utilisation is no relaxed target")
+        self.assertNotEqual((d.get("to"), d.get("relaxed")), ("acct-c", False), "a reset of -5 is not the soonest")
+
+    def test_one_accounts_overflowing_reset_does_not_stop_the_run(self):
+        bad = {**EXHAUSTED, "seven_day": {"utilization": 0.5, "reset": 1e300}}
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "p.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump(TWO, fh)
+            out = []
+            rc = sw.run(record=True, root=d, state=d, policy_file=p, ctl=Fleet(bad),
+                        templates=lambda: [{"account": a, "token_sha256_12": FPS[a]} for a in ("acct-a", "acct-b")],
+                        make_assign=lambda root: 1 / 0, now=lambda: NOW, say=out.append)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(switch_log.tail(d)[-1]["outcome"], "would", "the exhausted login is still decided")
+
+
 class Fleet:
     """The three fleet reads and the probe, as fabric-ctl --json rows; records what was asked."""
 

@@ -64,6 +64,7 @@ from __future__ import annotations
 import datetime
 import fcntl
 import json
+import math
 import os
 import re
 import subprocess
@@ -90,24 +91,46 @@ FIRST_TICK_S = 120
 
 # ── readings ────────────────────────────────────────────────────────
 
+# What another account relayed is data, not trusted: a value outside these is unknown (None), never a number
+# the rules act on. A utilisation is a share, 1 all of it, above 1 surpassed (the gateway's contract): past
+# UTIL_MAX it is no reading. A timestamp outside 2001..2100 is no time: it would overflow a date or make an
+# account "reset soonest" for ever.
+UTIL_MAX = 100.0
+EPOCH_MIN_S, EPOCH_MAX_S = 1e9, 4.1e9
+
+
 def _num(v: Any) -> float | None:
-    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    """A finite JSON number, else None: inf, NaN, a bool or a string is unknown."""
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except OverflowError:
+        return None   # an integer past a double
+    return f if math.isfinite(f) else None
+
+
+def share(v: Any) -> float | None:
+    """A utilisation: finite, from 0 to UTIL_MAX; else unknown."""
+    n = _num(v)
+    return n if n is not None and 0 <= n <= UTIL_MAX else None
 
 
 def epoch_s(v: Any) -> float | None:
-    """A gateway timestamp (Unix seconds; milliseconds told by size) or an ISO time, as seconds."""
+    """A gateway timestamp (Unix seconds; milliseconds told by size) or an ISO time, as seconds, within
+    EPOCH_MIN_S..EPOCH_MAX_S; anything else is None."""
     n = _num(v)
     if n is not None:
-        return None if n < 0 else (n / 1000 if n > 1e11 else n)
-    if isinstance(v, str) and v:
+        n = n / 1000 if n > 1e11 else n
+    elif isinstance(v, str) and v:
         try:
             t = datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
-        except ValueError:
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=datetime.timezone.utc)
+            n = t.timestamp()
+        except (ValueError, OverflowError):
             return None
-        if t.tzinfo is None:
-            t = t.replace(tzinfo=datetime.timezone.utc)
-        return t.timestamp()
-    return None
+    return n if n is not None and EPOCH_MIN_S <= n <= EPOCH_MAX_S else None
 
 
 def iso(s: float) -> str:
@@ -120,7 +143,7 @@ def reading_from_gateway(entry: dict, login: str) -> dict:
 
     def win(k: str) -> dict:
         w = u.get(k) if isinstance(u.get(k), dict) else {}
-        return {"utilization": _num(w.get("utilization")), "reset": epoch_s(w.get("reset"))}
+        return {"utilization": share(w.get("utilization")), "reset": epoch_s(w.get("reset"))}
     mark = entry.get("exhausted")
     mark = {"at": epoch_s(mark.get("at")), "reset": epoch_s(mark.get("reset"))} if isinstance(mark, dict) else None
     status = u.get("status") if isinstance(u.get("status"), str) else None
@@ -138,7 +161,7 @@ def reading_from_probe(row: dict, login: str, now: float) -> dict | None:
     def win(w: Any) -> dict:
         w = w if isinstance(w, dict) else {}
         pct = _num(w.get("utilization"))
-        return {"utilization": None if pct is None else round(pct / 100, 4), "reset": epoch_s(w.get("resets_at"))}
+        return {"utilization": None if pct is None else share(round(pct / 100, 4)), "reset": epoch_s(w.get("resets_at"))}
     five, seven = win(row.get("five_hour")), win(row.get("seven_day"))
     if five["utilization"] is None and seven["utilization"] is None:
         return None
