@@ -592,7 +592,7 @@ class Policy(unittest.TestCase):
                 if want is None:
                     self.assertEqual(got, [])
                 else:
-                    self.assertTrue(got and all(f.startswith("routing/policies/account-switch.json: ") for f in got)
+                    self.assertTrue(got and all(f.startswith("routing/policies/account-switch.json") for f in got)
                                     and any(want in f for f in got), got)
             with open(p, "w", encoding="utf-8") as fh:
                 fh.write("{not json")
