@@ -5,7 +5,7 @@ topic: "repo-moved-to-blueteam-ou"
 description: "from 2026-10-09 agent-fabric answers as BlueTeam-OU/agent-fabric; API writes through gzapi-org/ fail with HTTP 307 until the clone's origin is updated by the next fabric upgrade"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

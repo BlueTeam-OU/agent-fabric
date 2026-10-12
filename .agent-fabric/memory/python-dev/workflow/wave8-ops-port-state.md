@@ -5,7 +5,7 @@ topic: "wave8-ops-port-state"
 description: "j8 (Wave 8 ops port) — MERGED as #135; what it holds, what it left to others, lessons"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

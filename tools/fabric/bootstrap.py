@@ -31,6 +31,9 @@ Writes, idempotently, and only machine-local files:
   ~/.claude/skills/own-secrets/SKILL.md
   ~/.claude/skills/moli-web/SKILL.md
   ~/.claude/skills/gzcoord-send/SKILL.md, gzcoord-receive/SKILL.md
+  ~/.claude/skills/repo-lifecycle/SKILL.md
+  ~/.claude/skills/skill-creator/    the whole vendored tree (TREE_SKILLS), for the
+                                     fabric-coordinator and architect-cto roles only
                                      the dispatch policy as a loadable skill, from policies/
   ~/.local/bin/<name>                every command a session runs, by name
                                      (runtime/claude-code/commands.json)
@@ -241,8 +244,16 @@ SKILLS = (("subagent-dispatch", "policies/subagent-dispatch/SKILL.md"),
           ("agent-jobs", "policies/agent-jobs/SKILL.md"),
           ("own-secrets", "policies/own-secrets/SKILL.md"),
           ("moli-web", "policies/moli-web/SKILL.md"),
+          ("repo-lifecycle", "policies/repo-lifecycle/SKILL.md"),
           ("gzcoord-send", "communication/gzcoord/skills/gzcoord-send/SKILL.md"),
           ("gzcoord-receive", "communication/gzcoord/skills/gzcoord-receive/SKILL.md"))
+# Skills that are a directory (SKILL.md beside references/, scripts/ ...) and
+# belong to some roles only: (name, source directory, the roles that get the
+# whole tree). An account bound to another role, or to none, gets no copy and
+# loses one a bootstrap wrote before its role changed. skill-creator is
+# Anthropic's, vendored unchanged; it is for writing skills, which only the
+# fabric's own authors do.
+TREE_SKILLS = (("skill-creator", "policies/skill-creator", ("fabric-coordinator", "architect-cto")),)
 
 
 class Stop(Exception):
@@ -487,6 +498,7 @@ class Bootstrap:
         # sending a message, and receiving one (the watch, and what a delivery is).
         for name, rel in SKILLS:
             self.put_file(os.path.join(self.claude_home, "skills", name, "SKILL.md"), rel)
+        self.tree_skills(self.role())
         self.checkout_hooks()
         trusted = self.working_copy_hooks()
         self.trust(trusted)
@@ -525,6 +537,50 @@ class Bootstrap:
         except ValueError as e:
             raise Stop(1, f"bootstrap: {dest}: {e}; the workspace settings are not written") from None
         self.put(dest, (json.dumps(doc, indent=2) + "\n").encode())
+
+    def role(self) -> str:
+        """The role this account's binding holds, "" when none: the binding
+        alone, as install_agent_files reads it."""
+        env = {**os.environ, "AGENT_FABRIC_ROOT": self.root}
+        try:
+            r = subprocess.run([sys.executable, self.src("runtime/identity.py"), "--role"], env=env, check=False,
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        except OSError:
+            return ""
+        return r.stdout.decode("utf-8", "surrogateescape").rstrip("\n") if r.returncode == 0 else ""
+
+    def tree_skills(self, role: str) -> None:
+        for name, rel, roles in TREE_SKILLS:
+            dest = os.path.join(self.claude_home, "skills", name)
+            if role in roles:
+                src = self.src(rel)
+                for d, dirs, files in os.walk(src):
+                    dirs.sort()
+                    for f in sorted(files):
+                        full = os.path.join(d, f)
+                        self.put_file(os.path.join(dest, os.path.relpath(full, src)), os.path.relpath(full, self.root))
+                continue
+            if not os.path.isdir(dest):
+                continue
+            # Only files the fabric wrote: a skill of the same name, or a file
+            # added beside ours, by a person or a plugin is not ours to delete,
+            # and it keeps the directory.
+            found = [os.path.join(d, f) for d, _, fs in os.walk(dest) for f in fs]
+            foreign = [f for f in found if not fabric_writes.written(f)]
+            if foreign:
+                say(f"  =  {dest} (kept: {len(foreign)} file(s) not written by the fabric)")
+            elif self.dry_run:
+                say(f"  -  {dest} (would remove: role is {role or 'unbound'})")
+            else:
+                for f in found:
+                    os.remove(f)
+                for d, _, _ in sorted(os.walk(dest), reverse=True):
+                    try:
+                        os.rmdir(d)
+                    except OSError:
+                        pass
+                say(f"  -  {dest} (removed: role is {role or 'unbound'})")
+                self.changed += 1
 
     def retire_role_command(self) -> None:
         # 3. The /role command is retired (owner, 2026-09-15): a role is bound from

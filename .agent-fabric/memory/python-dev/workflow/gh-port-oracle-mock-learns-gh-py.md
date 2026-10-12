@@ -5,7 +5,7 @@ topic: "gh-port-oracle-mock-learns-gh-py"
 description: "porting a managed project's tools/gh/*.sh into tools/fabric/github — its bash oracle's gh mock answers the --jq transport, so it fails 100% against a gh.py port until the mock learns gh.py's calls"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

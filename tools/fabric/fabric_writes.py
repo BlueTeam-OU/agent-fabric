@@ -103,6 +103,15 @@ def record(dest: str, content: bytes) -> None:
         pass
 
 
+def written(dest: str) -> bool:
+    """`dest` holds exactly what the fabric last wrote there."""
+    try:
+        with open(dest, "rb") as f:
+            return _load().get(os.path.abspath(dest)) == _sha(f.read())
+    except OSError:
+        return False
+
+
 def _backups(dest: str) -> list[str]:
     base = dest + SUFFIX
     found = [base] if os.path.lexists(base) else []

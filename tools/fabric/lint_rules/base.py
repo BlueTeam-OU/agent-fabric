@@ -51,3 +51,20 @@ def _git():
 def _tracked(root: str) -> list[str]:
     r = _git().run(root, "ls-files", "-z", check=False, timeout=60)
     return [f for f in r.stdout.split("\0") if f] if r.returncode == 0 else []
+
+
+def _not_ours(root: str) -> tuple[str, ...]:
+    """The paths ruff.toml's `exclude` names: third-party or archived code
+    the fabric does not rewrite (a vendored skill, the retired transport).
+    One list, so a Python rule of lint cannot hold code to a standard ruff
+    already exempts it from."""
+    import tomllib
+    try:
+        with open(os.path.join(root, "ruff.toml"), "rb") as f:
+            return tuple(e.rstrip("/") for e in tomllib.load(f).get("exclude", []))
+    except (OSError, tomllib.TOMLDecodeError):
+        return ()
+
+
+def _is_under(rel: str, prefixes: tuple[str, ...]) -> bool:
+    return any(rel == p or rel.startswith(p + "/") for p in prefixes)

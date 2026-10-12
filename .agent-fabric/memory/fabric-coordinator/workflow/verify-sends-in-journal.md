@@ -5,7 +5,7 @@ topic: "verify-sends-in-journal"
 description: "A plan or summary saying requests were 'routed' is not a send: read back my journal (fabric-history) before telling the owner work was routed"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

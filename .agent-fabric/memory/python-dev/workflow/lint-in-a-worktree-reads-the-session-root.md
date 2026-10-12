@@ -5,7 +5,7 @@ topic: "lint-in-a-worktree-reads-the-session-root"
 description: "tools/fabric/lint.py run from a contributor worktree with the session's AGENT_FABRIC_ROOT lints ~/projects/agent-fabric (main), not the worktree — a green \"lint clean\" that is not about your branch"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
@@ -30,8 +30,8 @@ it failed on the committed tree (the control) and passed on the fix.
 session's root it is lint of main, which proves nothing about the branch.
 **How to apply:** in a worktree, run `env -u AGENT_FABRIC_ROOT python3
 tools/fabric/lint.py` (and every test the same way). Related:
-[[suites-inherit-launch-stamps]].
+[[run-suites-as-ci-before-push]].
 
-*References: suites-inherit-launch-stamps*
+*References: run-suites-as-ci-before-push*
 
 *Observed 2026-10-03 (python-dev)*

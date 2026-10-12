@@ -14,12 +14,7 @@ origin:
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
-  - agent: user
-    host: "develop-qzapp"
-    project: "agent-fabric"
-    working_copy: "agent-fabric"
 derived_from:
-  - a72ca37133badf25
   - f58b9bf384d40aca
 ---
 

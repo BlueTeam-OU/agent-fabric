@@ -5,7 +5,7 @@ topic: "bash-signal-cleanup-traps"
 description: "Writing cleanup for a CI shell script, or a self-test that signals one: EXIT trap suffices for INT/TERM; & jobs start with INT ignored"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

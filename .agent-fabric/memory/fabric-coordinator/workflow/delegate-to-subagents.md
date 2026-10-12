@@ -5,7 +5,7 @@ topic: "delegate-to-subagents"
 description: "The owner wants the coordinator to run more work through asynchronous subagents (2026-10-09): delegate implementation, reviews and investigations, keep myself on coordination"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

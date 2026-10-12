@@ -5,7 +5,7 @@ topic: "exec-inherits-python-ignored-signals"
 description: "a Python wrapper that os.exec's a command, or a test that probes signal dispositions — SIGPIPE/SIGXFSZ are SIG_IGN after Python start-up"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

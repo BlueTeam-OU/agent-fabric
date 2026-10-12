@@ -5,7 +5,7 @@ topic: "roots-stage2-state"
 description: "after #128 (merged 2026-10-09, d5a18cff): the tests-read-fixtures guard, strip_instance, and what is queued next (j63, j64)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

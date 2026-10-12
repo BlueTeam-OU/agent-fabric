@@ -3,7 +3,7 @@ role: "devex-tooling"
 class: index
 description: "What devex-tooling knows and where it lives."
 tier: 1
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 ---
 
 # devex-tooling — knowledge index
@@ -55,6 +55,11 @@ control plane checked out beside it.
 ## solution
 
 - [`.agent-fabric/memory/devex-tooling/solution.md`](.agent-fabric/memory/devex-tooling/solution.md) — tests/run.sh in agent-fabric reports test_gzcoord_compose FAILED when run as the devex-tooling login — pre-existing, not a regression
+
+## workflow
+
+- [`.agent-fabric/memory/devex-tooling/workflow/cli-suite-audit-pattern.md`](.agent-fabric/memory/devex-tooling/workflow/cli-suite-audit-pattern.md) — how to cut a slow agent-fabric CLI test suite to smoke cases without losing a contract, and the trap a blind review caught
+- [`.agent-fabric/memory/devex-tooling/workflow/review-class-leaves-run-user-scratch.md`](.agent-fabric/memory/devex-tooling/workflow/review-class-leaves-run-user-scratch.md) — a code-review dispatch that exports trees for mutation runs cannot delete them; the session removes /run/user/<uid>/rv.*
 
 ## recall
 

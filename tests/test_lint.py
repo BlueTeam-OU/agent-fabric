@@ -1916,6 +1916,27 @@ def case_a_dollar_anchored_pattern_is_not_called_with_match() -> None:
         assert all("fullmatch" in f for f in got), got
 
 
+def case_a_dollar_anchored_pattern_in_code_ruff_excludes_is_not_ours() -> None:
+    """A path ruff.toml excludes (a vendored skill) is third-party code: the
+    rule skips it as ruff does, and still reads the file beside it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    bad = "import re\ndef f(s):\n    return re.match(r'^y$', s)\n"
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        write(os.path.join(root, "ruff.toml"), 'exclude = ["vendor/skill", "old/"]\n')
+        write(os.path.join(root, "vendor", "skill", "scripts", "v.py"), bad)
+        write(os.path.join(root, "old", "o.py"), bad)
+        write(os.path.join(root, "vendor", "skill2.py"), bad)  # a prefix of a name is not the directory
+        write(os.path.join(root, "tools", "ours.py"), bad)
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        got = lint.regex_dollar_findings(root)
+        assert sorted(f.split(" ")[0] for f in got) == ["tools/ours.py:3:", "vendor/skill2.py:3:"], got
+
+
 def case_a_dollar_anchored_pattern_in_every_shape_and_scope() -> None:
     """Review of #140: an f-string pattern, an inline re.compile(...).match,
     a class attribute through self., cls. and the class's name, and a
@@ -2475,6 +2496,7 @@ def main() -> int:
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,
         case_a_dollar_anchored_pattern_is_not_called_with_match,
+        case_a_dollar_anchored_pattern_in_code_ruff_excludes_is_not_ours,
         case_a_dollar_anchored_pattern_is_followed_across_imports,
         case_a_dollar_anchored_pattern_in_every_shape_and_scope,
         case_a_dollar_anchored_pattern_in_nested_scopes,

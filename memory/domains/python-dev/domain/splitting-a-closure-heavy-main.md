@@ -5,7 +5,7 @@ topic: "splitting-a-closure-heavy-main"
 description: "splitting a long Python main() of nested closures into modules - state object first, then byte-identical moves a verifier proves; survivors checked on the base"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "commit-kind-trailer"
 description: "Every commit in a managed checkout must declare its kind in the trailers — \"Kind: work\" or \"Answers: <findings>\" for a review fix — or the commit-msg hook refuses it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

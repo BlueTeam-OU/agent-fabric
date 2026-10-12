@@ -5,7 +5,7 @@ topic: "suite-red-check-df-first"
 description: a suite red in files you did not touch — check df / before diagnosing; /var/tmp is the shared root fs
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

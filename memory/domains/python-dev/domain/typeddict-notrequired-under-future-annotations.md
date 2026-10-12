@@ -5,7 +5,7 @@ topic: "typeddict-notrequired-under-future-annotations"
 description: "typing a dict-convention record in this fabric — NotRequired is silently required under `from __future__ import annotations`; hold each type to real values by test"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 41e2d84915aaa886
+  - b025042b7fe1cf39
 ---
 
 ## typing a dict-convention record in this fabric — NotRequired is silently required under `from __future__ import annotations`; hold each type to real values by test
@@ -34,11 +35,11 @@ and this one was wrong from the start.
 **How to apply:** for every TypedDict, write a structural test that builds
 the REAL value. Use the CLI or the function on scratch state, every outcome
 or shape. Assert that `__required_keys__` <= keys <= required | optional.
-Mutate both ways: a producer that adds a key, and a type that drops one. A
-JSDoc typedef gets the same treatment through its keys exported as data
-(runtime/control/protocol.mjs ENVELOPE_KEYS). See
+Mutate both ways: a producer that adds a key, and a type that drops one. The
+control plane's envelope kinds do the same through their keys exported as data
+(ENVELOPE_KEYS in tools/fabric/control/protocol.py; the Node JSDoc typedef it first covered is gone). See
 [[splitting-a-closure-heavy-main]].
 
 *References: splitting-a-closure-heavy-main*
 
-*Observed 2026-10-06 (python-dev)*
+*Observed 2026-10-11 (python-dev)*

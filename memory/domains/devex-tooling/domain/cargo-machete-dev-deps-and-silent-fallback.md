@@ -5,20 +5,21 @@ topic: "cargo-machete-dev-deps-and-silent-fallback"
 description: "cargo-machete 0.9.2: default mode never reads [dev-dependencies]; --with-metadata does, but exits 0 silently when cargo metadata fails — resolve metadata yourself first"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
     project: gzapp
     working_copy: gzapp
 derived_from:
+  - 4378f4156eb9254f
   - 6ff0a1f7d20a2db7
   - b77804dde7bfb6bc
 ---
 
 ## cargo-machete 0.9.2: default mode never reads [dev-dependencies]; --with-metadata does, but exits 0 silently when cargo metadata fails — resolve metadata yourself first
 
-Measured 2026-09-28 on InterWeave 07b5d4bd with cargo-machete 0.9.2:
+Measured 2026-09-28 on InterWeave 07b5d4bd with cargo-machete 0.9.2; re-checked against InterWeave origin/main 2026-10-11 (the guard's header still states each point below):
 
 - The default (text-grep) mode does not judge `[dev-dependencies]` at all:
   2 hits by default, 4 with `--with-metadata`; the 2 extra were real unused
@@ -34,12 +35,8 @@ Measured 2026-09-28 on InterWeave 07b5d4bd with cargo-machete 0.9.2:
 - Pass the workspace members' dirs as paths to scope out spikes/vendored
   crates instead of ignore entries.
 
-Guard: InterWeave `tools/checks/check_unused_dependencies.sh` (#142, 5e117d99).
-#142 MERGED 2026-09-28 14:08Z (e5807d99): guard + pedantic + toolchain 1.98.1,
-p2p-network-dev-01's 17-commit supply folded. Review P2 was a self-test that
-could not catch losing the member filter (sandbox .packages held only members);
-fixed with a [patch]ed non-member that has its own [workspace] table.
-Next: architect-cto-01 Stage 13 D1 (verify_fixture_vectors ipc-v2-length-prefix-v1)
-onto their docs/stage-13-opening branch once pushed; D2-D5 onto p2p's batches.
+Guard: `tools/checks/check_unused_dependencies.sh` in the InterWeave repository (not agent-fabric), added by InterWeave #142 (merged 2026-09-28); its self-test is `test_check_unused_dependencies.sh` beside it. The #142 review's P2 was a self-test that could not catch losing the member filter (the sandbox's .packages held only members); fixed with a [patch]ed non-member that has its own [workspace] table.
 
-*Observed 2026-09-28 (devex-tooling)*
+*Observed 2026-10-11 (devex-tooling)*
+
+*Observed 2026-10-11 (devex-tooling)*
