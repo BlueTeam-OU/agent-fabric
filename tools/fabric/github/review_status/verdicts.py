@@ -12,6 +12,19 @@ from github.review_status.config import TRUSTED_ASSOCIATIONS, Config
 VERDICT_SHA = re.compile(r"Reviewed commit:[^`]*`(?P<sha>[0-9a-f]{7,40})`", re.IGNORECASE)
 
 
+# post_review writes `<!-- model: <name> -->` on the line after the marker; "codex" is the second engine
+# (agent-fabric ADR-053), anything else, or no model, is the review class's own.
+MODEL_LINE = re.compile(r"^<!-- model: (?P<model>[^>]*?) -->$", re.MULTILINE)
+
+
+def engine_of(review: dict) -> str:
+    """"codex" for a review posted with `--model codex`, else "claude". Read from the header only (the first
+    two lines), never the body's text, which quotes code and may carry such a line."""
+    header = "\n".join((review.get("body") or "").split("\n")[:2])
+    m = MODEL_LINE.search(header)
+    return "codex" if m and m.group("model").strip().lower() == "codex" else "claude"
+
+
 PASS_LINE = re.compile(r"\spass\s")
 
 

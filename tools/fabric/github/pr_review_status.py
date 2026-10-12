@@ -143,7 +143,7 @@ from github.review_status.config import TRUSTED_ASSOCIATIONS, POSIX_CLASSES, oni
 from github.review_status.config import compile_re, logins, Config, read_config  # noqa: E402, F401
 from github.review_status.verdicts import VERDICT_SHA, PASS_LINE, Buckets, classify  # noqa: E402, F401
 from github.review_status.verdicts import verdicts_of, newest, refusal_of, request_of  # noqa: E402, F401
-from github.review_status.verdicts import head_covered  # noqa: E402, F401
+from github.review_status.verdicts import head_covered, engine_of  # noqa: E402, F401
 from github.review_status.probe import PR_FIELDS, TIMELINE_QUERY, THREADS_QUERY  # noqa: E402, F401
 from github.review_status.probe import THREAD_PAGES, review_threads, Probe, head_born  # noqa: E402, F401
 from github.review_status.probe import formal_request_at, probe, no_review_coming, Extras  # noqa: E402, F401
