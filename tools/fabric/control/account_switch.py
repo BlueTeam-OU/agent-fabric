@@ -177,18 +177,28 @@ def ahead(stamp: float | None, now: float) -> bool:
 
 
 def freshest(readings: Iterable[dict], now: float) -> dict | None:
-    """Per account: the reading taken last; an exhaustion mark from any of its entries is kept with it, the
-    latest one, since a 2xx clears it only on the entry it was received on. A reading or a mark stamped
-    ahead of `now` is no reading (the account is then probed)."""
+    """Per account: the reading taken last, with the newest exhaustion mark of any of its entries that is no
+    older than that reading. A reading or a mark stamped ahead of `now` is no reading (the account is then
+    probed).
+
+    Exhaustion is the account's, not the entry's: the gateway's contract (plan-v0 README, "Usage (s11)")
+    marks a 429 exhausted "when its neutral reading says the account's limit is spent", and keeps the mark
+    per entry only because it knows no accounts, clearing it on that entry's own next 2xx. So a mark counts
+    for the whole account until a later reading of the same account, from any entry, answers otherwise: a
+    reading taken after the mark is the account being served, and outranks it. The best reading's own mark
+    always stands (its entry has not been cleared); a later reading that is itself spent is exhaustion by
+    its own status or utilisation (rule 2)."""
     rs = [r for r in readings if r and not ahead(r.get("read_at"), now)]
     rs = [{**r, "exhausted": None} if r.get("exhausted") and ahead(r["exhausted"].get("at"), now) else r for r in rs]
     if not rs:
         return None
     best = max(rs, key=lambda r: r["read_at"] if r["read_at"] is not None else float("-inf"))
-    marks = [r["exhausted"] for r in rs if r.get("exhausted")]
-    if marks and not best.get("exhausted"):
-        best = {**best, "exhausted": max(marks, key=lambda m: m["at"] if m["at"] is not None else float("-inf"))}
-    return best
+    if best.get("exhausted"):
+        return best
+    after = best["read_at"] if best["read_at"] is not None else float("-inf")
+    marks = [r["exhausted"] for r in rs if r.get("exhausted") and r["exhausted"].get("at") is not None
+             and r["exhausted"]["at"] >= after]
+    return {**best, "exhausted": max(marks, key=lambda m: m["at"])} if marks else best
 
 
 class View:

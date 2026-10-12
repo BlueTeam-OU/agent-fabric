@@ -215,12 +215,47 @@ class Readings(unittest.TestCase):
         empty = sw.reading_from_gateway({"source": {"token_file": "/t"}, "usage": None, "read_at": None}, "x")
         self.assertIsNone(empty["five_hour"]["utilization"], "null is unknown, never 0")
 
-    def test_the_freshest_reading_counts_and_an_exhaustion_mark_is_kept(self):
-        old = {**reading(0.9, 0.9, age=500), "exhausted": {"at": NOW - 400, "reset": NOW + 600}}
+    def test_the_freshest_reading_counts_and_an_exhaustion_mark_is_the_accounts(self):
         new = reading(0.1, 0.1, age=10)
-        got = sw.freshest([old, new], NOW)
+        marked = {**reading(0.9, 0.9, age=500), "exhausted": {"at": NOW - 5, "reset": NOW + 600}}
+        got = sw.freshest([marked, new], NOW)
         self.assertEqual(got["five_hour"]["utilization"], 0.1)
-        self.assertTrue(View("a", got, NOW, 600).exhausted)
+        self.assertTrue(View("a", got, NOW, 600).exhausted, "a mark newer than the best reading, from another entry, counts")
+        older = {**reading(0.9, 0.9, age=500), "exhausted": {"at": NOW - 400, "reset": NOW + 600}}
+        self.assertFalse(View("a", sw.freshest([older, new], NOW), NOW, 600).exhausted,
+                         "a later healthy reading of the same account outranks an older mark")
+        own = {**reading(0.1, 0.1, age=10), "exhausted": {"at": NOW - 400, "reset": NOW + 600}}
+        self.assertTrue(View("a", sw.freshest([own, reading(0.1, 0.1, age=20)], NOW), NOW, 600).exhausted,
+                        "the best reading's own mark stands: the gateway has not cleared it")
+
+    def test_a_usage_answer_exactly_as_the_gateways_contract_documents_it(self):
+        """agent-fabric-gateway architecture/contracts/plan-v0/README.md, "Usage (s11)", its example verbatim;
+        the field names checked against that README and the 0.3.0 CHANGELOG on its origin/main (2026-10-12)."""
+        answer = json.loads('''{"event":"usage","credentials":[
+  {"source":{"token_file":"/run/user/1000/agent-fabric/gateway/claude-subscription.token"},
+   "generation":{"device":64769,"inode":1234,"mtime_sec":1760123456,"mtime_nsec":0},
+   "read_at":1760123460,
+   "usage":{
+     "five_hour":{"utilization":0.42,"reset":1760130000,"surpassed_threshold":null},
+     "seven_day":{"utilization":0.9,"reset":1760500000,"surpassed_threshold":0.75},
+     "status":"allowed_warning","reset":1760130000,
+     "representative_claim":"five_hour","overage_status":"rejected",
+     "overage_utilization":0.0,"fallback":null,
+     "malformed":[],
+     "family":"anthropic",
+     "windows":[{"minutes":300,"used":0.42,"reset":1760130000},
+                {"minutes":10080,"used":0.9,"reset":1760500000}],
+     "state":{"value":"warning","reset":null,"derived":false}},
+   "exhausted":{"at":1760123470,"reset":1760130000},
+   "transient_429":2}]}''')
+        r = sw.reading_from_gateway(answer["credentials"][0], "x")
+        self.assertEqual((r["five_hour"], r["seven_day"], r["status"], r["status_reset"], r["exhausted"], r["transient_429"], r["read_at"]),
+                         ({"utilization": 0.42, "reset": 1760130000.0}, {"utilization": 0.9, "reset": 1760500000.0}, "allowed_warning",
+                          1760130000.0, {"at": 1760123470.0, "reset": 1760130000.0}, 2, 1760123460.0))
+        at = 1760123480.0
+        v = View("a", sw.freshest([r], at), at, 600)
+        self.assertEqual((v.exhausted, v.exhausted_why, v.u5, v.u7), (True, "a 429 classified exhausted", 0.42, 0.9))
+        self.assertFalse(View("a", sw.freshest([r], 1760130001.0), 1760130001.0, 10 ** 6).exhausted, "past its reset it is over")
 
     def test_gather_joins_generations_to_templates_and_reads_the_session_kinds(self):
         templates = [{"account": a, "token_sha256_12": fp} for a, fp in FPS.items() if a != "own"]
