@@ -418,7 +418,9 @@ def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str
                 _end_group(p)
     run = read_events(events)
     if p.returncode != 0:
-        raise FailedReview(f"codex exited {p.returncode}: {run.failed or _tail(log)}")
+        # Codex's turn message is the backend's text, untrusted: one line, bounded, as judge_run says it.
+        raise FailedReview(f"codex exited {p.returncode}: "
+                           + (_one_line(run.failed)[:500] if run.failed else _tail(log)))
     judge_run(run)
     if os.path.isfile(answer):
         with open(answer, "rb") as f:

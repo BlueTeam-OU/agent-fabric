@@ -110,6 +110,9 @@ elif mode == "turnfailed":
     ev({"type": "error", "message": "stream disconnected before completion: error sending request"})
     ev({"type": "turn.failed", "error": {"message": "stream disconnected before completion: error sending request"}})
     sys.exit(1)
+elif mode == "turnfailed-long":
+    ev({"type": "turn.failed", "error": {"message": "first line\nsecond line " + "x" * 2000}})
+    sys.exit(1)
 elif mode == "prose":
     answer("Looks good to me! No findings.")
 elif mode == "fence":
@@ -474,6 +477,14 @@ def main() -> int:
             check("the reason is said", "nothing posted" in r.stderr and why in r.stderr, r.stderr)
             check("nothing posted", not posted())
             check("the scratch is removed", scratch_empty(), os.listdir(scratch))
+
+        print("a failed turn's message is the backend's text: said on one line, bounded (review of #229, F3)")
+        set_pr(); mode("turnfailed-long")
+        r = run("7", req)
+        said = next((ln for ln in r.stderr.splitlines() if "codex exited 1" in ln), "")
+        check("exit 1, nothing posted, the message on the reason's line and cut",
+              r.returncode == 1 and not posted() and "first line second line" in said and "x" * 600 not in r.stderr
+              and "second line" not in r.stderr.replace(said, ""), r.stderr[:800])
 
         print("the time budget: Codex and what it started are ended, the scratch removed")
         set_pr(); mode("sleep")

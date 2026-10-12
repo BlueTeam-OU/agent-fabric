@@ -39,9 +39,12 @@ entrypoint with every member in place: a single-file install of the same
 version is replaced, never kept as current.
 
 The verdict, one per run:
-  current    the tool's proof already prints the pinned version
-  installed  fetched, hash verified, proved from its temporary file, then
-             moved into ~/.local/bin in one rename
+  current    the tool's proof already prints the pinned version (a tree
+             pin: and ~/.local/bin/<tool> resolves into its whole tree)
+  installed  fetched, hash verified, proved from its temporary file (a
+             tree: its staged tree), then moved into ~/.local/bin in one
+             rename (a tree: renamed into its version's directory, then
+             ~/.local/bin/<tool> switched to a link into it)
   skipped    this account has no working copy of a project that declares
              the tool (the Doppler CLI stays off every other account: the
              owner, 2026-10-08) — nothing was looked up, fetched or written
