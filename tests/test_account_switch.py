@@ -437,6 +437,37 @@ class Runs(unittest.TestCase):
         e = self.log()[-1]
         self.assertEqual((e["mode"], e["outcome"], e["assign"]["exit"]), ("act", "did", 0))
 
+    def counting(self, exits):
+        calls = []
+
+        def make(root):
+            def assign(login_, account):
+                calls.append((login_, account))
+                return {"exit": exits[min(len(calls), len(exits)) - 1], "output": []}
+            return assign
+        return calls, make
+
+    def test_a_would_of_advise_is_made_after_the_switch_to_act(self):
+        self.run_once(Fleet(EXHAUSTED))
+        calls, make = self.counting([0])
+        self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act")
+        self.assertEqual(calls, [("gw", "acct-b")], "the decision advise logged is made once act is committed")
+        self.assertEqual([e["outcome"] for e in self.log()], ["would", "did"])
+
+    def test_a_failed_assign_is_tried_again_at_the_next_run(self):
+        calls, make = self.counting([1, 0])
+        self.assertEqual(self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act"), 1)
+        self.assertEqual(self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act"), 0)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([e["outcome"] for e in self.log()], ["failed", "did"])
+
+    def test_a_move_made_is_not_made_again_while_the_identity_read_lags(self):
+        calls, make = self.counting([0])
+        self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act")
+        self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act")   # identity still says acct-a
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([e["outcome"] for e in self.log()], ["did"])
+
     def test_act_says_a_failed_assign_and_assumes_nothing(self):
         make = lambda root: (lambda lg, a: {"exit": 1, "output": ["failed"]})  # noqa: E731
         self.assertEqual(self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act"), 1)

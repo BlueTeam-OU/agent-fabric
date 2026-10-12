@@ -51,8 +51,10 @@ WHERE ADR-052 IS SILENT, chosen here (and said in the policy's `why` where it is
     target's: moving a session off quota that perishes sooner would spend the wrong quota.
   * In advise, rule 7's rate limit and min_stay_s count the `would` lines, so the log shows what act would do,
     the rate limit holding back a second candidate included; in act they count `did`.
-  * A decision that holds (the same login, rule, from and to as the last logged for it) is logged once, not
-    every run; it is logged again once it stops holding and comes back.
+  * A decision that holds (the same mode, login, rule, from and to as the last logged for it) is logged once,
+    not every run; it is logged again once it stops holding and comes back. The mode is part of it, so a
+    `would` of advise is made after the switch to act; a `failed` move is not recorded, so it is tried again;
+    a `did` is, so a run whose identity read still shows the old account does not assign it a second time.
   * The owner is told by a `tell: true` line in the log, which fabric-status and `fabric-ctl ... switch` show.
   * act runs `fabric-accounts assign <login> <account> --no-restart`: a gateway session needs no restart (the
     sync replaces its token file), and --no-restart guarantees no plain-claude session is ever stopped by it.
@@ -515,8 +517,10 @@ def take_lock(state: str) -> int | None:
     return fd
 
 
-def _key(d: dict) -> str:
-    return json.dumps([d["rule"], d["reason"], d["from"], d.get("to"), d["outcome"]])
+def _key(d: dict, mode: str) -> str:
+    """What makes two runs' decisions for a login the same one. The mode is in it: a move logged `would` in
+    advise is a new decision once the policy says act, and is made."""
+    return json.dumps([mode, d["rule"], d["reason"], d["from"], d.get("to"), d["outcome"]])
 
 
 def _side(slug: str | None, fps: dict[str, str]) -> dict | None:
@@ -524,28 +528,35 @@ def _side(slug: str | None, fps: dict[str, str]) -> dict | None:
 
 
 def to_lines(decisions: list[dict], *, mode: str, policy: dict, views: dict[str, View], fps: dict[str, str],
-             at: float, last: dict) -> list[tuple[dict, dict]]:
-    """(decision, log line) for each move and each told hold, unless the same one was the last logged for its
-    login; `last` (login -> key) is updated in place, and a login with nothing to log is forgotten."""
+             at: float, last: dict) -> tuple[list[tuple[dict, dict, str]], set[str]]:
+    """([(decision, log line, key)] for each move and each told hold that is not the same one as the last
+    recorded for its login, the logins that had one). Nothing is recorded here: `remember` does, after the
+    lines were made, so a move that failed is never recorded and is tried again at the next run."""
     out = []
     seen = set()
     for d in decisions:
         if d["outcome"] == "move" or (d["outcome"] == "hold" and d.get("tell")):
             seen.add(d["login"])
-            k = _key(d)
+            k = _key(d, mode)
             if last.get(d["login"]) == k:
-                continue
-            last[d["login"]] = k
+                continue   # logged (and in act, made) already: a lagging identity read must not assign again
             accounts = [a for a in (d["from"], d.get("to")) if a] if d["outcome"] == "move" else list(policy["pool"]["accounts"])
             out.append((d, switch_log.line(
                 v=switch_log.VERSION, at=iso(at), mode=mode, outcome="would" if d["outcome"] == "move" else "held",
                 pool=policy["pool"]["name"], login=d["login"], sessions=d.get("sessions", []), rule=d["rule"],
                 reason=d["reason"], relaxed=bool(d.get("relaxed")), **{"from": _side(d["from"], fps)},
                 to=_side(d.get("to"), fps), readings={a: views[a].logged() for a in accounts},
-                tell=bool(d.get("tell")), why=d["why"])))
+                tell=bool(d.get("tell")), why=d["why"]), k))
+    return out, seen
+
+
+def remember(last: dict, pending: list[tuple[dict, dict, str]], logged: list[dict], seen: set[str]) -> None:
+    """Record each logged line's key for its login, except a `failed` one; forget a login with nothing to log."""
+    for (d, _line, k), line in zip(pending, logged):
+        if line["outcome"] != "failed":
+            last[d["login"]] = k
     for login in [lg for lg in last if lg not in seen]:
         del last[login]
-    return out
 
 
 def would(lines: list[tuple[dict, dict]]) -> list[dict]:
@@ -679,13 +690,15 @@ def run(*, record: bool, root: str | None = None, state: str | None = None, poli
         if not record:
             write_state(state, {**read_state(state), "probes": st["probes"], "probed": st["probed"]})
             return 0
-        lines = to_lines(decisions, mode=mode, policy=policy, views=views, fps=fps, at=t, last=st["last"])
+        pending, seen = to_lines(decisions, mode=mode, policy=policy, views=views, fps=fps, at=t, last=st["last"])
+        lines = [(d, line) for d, line, _k in pending]
         if mode == "act":
             # The only place the assign path is built: advise never holds it.
             logged = act(lines, make_assign(root))
         else:
             logged = would(lines)
         switch_log.append(state, logged)
+        remember(st["last"], pending, logged, seen)
         write_state(state, st)
         return 1 if any(x["outcome"] == "failed" for x in logged) else 0
     finally:
