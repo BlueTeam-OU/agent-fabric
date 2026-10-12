@@ -77,11 +77,22 @@ sudo are in the loop.
 | `local-prune` | *action*: per-clone settings entries that duplicate a synced secret, removed (rule 15) |
 | `secrets-selftest` | *action*: a canary through the account's store and back (rule 17) |
 | `tools-install` | *action*: the one tool named, installed from the release its project pins (`projects/registry.json` `install`: version, https url, sha256), hash checked before a byte is unpacked; skipped on an account with no working copy of a project that declares it (`tools/fabric/tools_install.py`) |
-| `gateway` | read: the installed agent-fabric-gateway's version and runtime contract as the binary reports them, and the release digest its install marker recorded (not compared with `runtime/gateway.json`: after the pin moves, `gateway-install` is what brings an account to it) |
+| `gateway` | read: the installed agent-fabric-gateway's version and runtime contract as the binary reports them, and the release digest its install marker recorded (not compared with `runtime/gateway.json`: after the pin moves, `gateway-install` is what brings an account to it); beside a live usage relay also `setup_tokens`, one per relayed entry in order, the setup-token fingerprint its generation is joined to in the account's `gateway-generations.json` or null, and `sessions`, `{status: ok|unknown, gateway: N, other: M}`, how many running harness sessions are on the gateway transport and how many are not (ADR-052) |
+| `switch` | read, operator only: the switch controller's policy mode and the last lines of its move log (`<state>/account-switch.jsonl`, ADR-052 rule 11); only the coordinator's account keeps one, any other answers `{"status": "none"}` |
 | `gateway-install` | *action*: the pinned gateway release (`runtime/gateway.json`), its SHA-256 checked before anything is extracted, the one pinned member only, run with `--version --json` and required to match the pin before it is renamed into `~/.local/bin` (`tools/fabric/control/gateway.py`) |
 | `pool-add` | *action*, on the pool's holder only: a job on a role's pool (ADR-037 rule 9) |
 | `status` | identity, usage, keys, fabric and session together |
 
+- **The switch controller** (ADR-052) runs in the coordinator's control
+  agent, on the host operator's account only: a timer every `interval_s`
+  of `routing/policies/account-switch.json`, one run at a time under an
+  exclusive flock (`<state>/account-switch.lock`) shared with a person's
+  `fabric-accounts switch --tick`. A run asks the fleet with the
+  coordinator's ordinary reads (`identity`, `gateway`, `states`, and
+  `usage` on one login of a stale account, ADR-031 rule 9's probe). It
+  moves only in mode `act`, and only by `fabric-accounts assign <login>
+  <account> --no-restart`, whose signed `secrets-sync` is the existing
+  action; mode `off` asks nothing.
 - **The coordinator's side** is `bin/fabric-ctl <login|all> <op>`: one
   request, the replies read until every placed address has answered or
   the timeout is spent, and a row for each — silence included.
@@ -317,3 +328,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-09 | tools-install installs a pinned account tool | §2 table: the `tools-install` row; §5 rule 3: its one argument, checked by `TOOL_NAME`; rule 12: the `disk` and `tools-install` budgets |
 | 2026-10-10 | The gateway is installed and read through the control plane | §2 table: `gateway` and `gateway-install`; §5 rule 3: its one `version` argument; rule 12: its budget |
 | 2026-10-09 | Fleet views read through fleet.py, with two Stage 1 bridges | §2: the host executor's read of closed jobs is a named fallback for the fleet views until `jobs --all` exists (ADR-046) |
+| 2026-10-12 | The switch controller in the coordinator's agent; gateway carries joined accounts and session kinds; switch read | §2 table: `gateway` gains `setup_tokens` and `sessions`, a `switch` row; §2: the switch controller's run in the coordinator's agent (ADR-052 §8 piece 4) (say which § and rule) |
