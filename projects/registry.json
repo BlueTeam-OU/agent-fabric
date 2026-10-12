@@ -251,12 +251,16 @@
         "git@github.com:gzapi-org/InterWeave.git",
         "https://github.com/gzapi-org/InterWeave"
       ],
+      "moved_from": [
+        "git@github.com:gzapi-org/InterWeave.git",
+        "https://github.com/gzapi-org/InterWeave"
+      ],
       "default_branch": "main",
       "taxonomy": ".agent-fabric/taxonomy.json",
       "memory": ".agent-fabric/memory",
       "integration": "projects/interweave/integration",
       "license": "Apache-2.0",
-      "note": "A Rust workspace on libp2p: one PeerId, many EndpointIds, signed GossipSub broadcast, a directed protocol, replaceable discovery, Kademlia, AutoNAT v2 / Circuit Relay v2 / DCUtR. Worked by the owner's own login until 2026-09-17, when the CEO made it a managed project with one new role, p2p-network-dev (the code), architect-cto holding its decision records and stage gates, devex-tooling its CI. Its merge queue stays on (the owner, 2026-09-17). Moved from gzapi-org to BlueTeam-OU on 2026-10-12; the old remotes stay listed for clones not yet re-pointed.",
+      "note": "A Rust workspace on libp2p: one PeerId, many EndpointIds, signed GossipSub broadcast, a directed protocol, replaceable discovery, Kademlia, AutoNAT v2 / Circuit Relay v2 / DCUtR. Worked by the owner's own login until 2026-09-17, when the CEO made it a managed project with one new role, p2p-network-dev (the code), architect-cto holding its decision records and stage gates, devex-tooling its CI. Its merge queue stays on (the owner, 2026-09-17). Moved from gzapi-org to BlueTeam-OU on 2026-10-12; bootstrap re-points a clone still on the old remote (moved_from).",
       "tools": [
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
