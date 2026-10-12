@@ -44,20 +44,72 @@ with open(os.path.join(S, "codex-calls"), "a") as f:
     f.write("run\n")
 mode = open(os.path.join(S, "mode")).read().strip()
 out = argv[argv.index("--output-last-message") + 1]
-def answer(text):
-    with open(out, "w") as f:
-        f.write(text)
+# The JSONL events of `codex exec --json` (codex 0.162.1), as a run against a stand-in Responses endpoint
+# printed them: stdout carries only these; Codex's own log lines go to stderr.
+n = [0]
+def ev(doc):
+    print(json.dumps(doc), flush=True)
+def item(kind, **kw):
+    n[0] += 1
+    ev({"type": "item.completed", "item": {"id": f"item_{n[0]}", "type": kind, **kw}})
+def command(cmd, code=0):
+    full = "/bin/bash -lc '" + cmd + "'"
+    ev({"type": "item.started", "item": {"id": f"item_{n[0] + 1}", "type": "command_execution", "command": full,
+                                         "aggregated_output": "", "exit_code": None, "status": "in_progress"}})
+    item("command_execution", command=full, aggregated_output="2 app.py\n" if code == 0 else "no such file\n",
+         exit_code=code, status="completed" if code == 0 else "failed")
+def answer(text, file=True, commands=1):
+    ev({"type": "thread.started", "thread_id": "01a13195-6c03-7e02-94f7-7a304e1e64d6"})
+    ev({"type": "turn.started"})
+    for _ in range(commands):
+        command("wc -l app.py")
+    if file:
+        with open(out, "w") as f:
+            f.write(text)
+    item("agent_message", text=text)
+    ev({"type": "turn.completed", "usage": {"input_tokens": 20, "cached_input_tokens": 0, "output_tokens": 10}})
+OK = json.dumps({"findings": [
+    {"level": "P3", "file": "app.py", "line": 2, "scenario": "a\nmulti-line scenario", "expected": "e3", "fix": "f3"},
+    {"level": "P1", "file": "app.py", "line": 1, "scenario": "s1", "expected": "e1", "fix": "f1"}]})
+HOST = ("Code Mode is unavailable because failed to spawn code-mode host /home/u/.local/bin/codex-code-mode-host: "
+        "host executable was not found. Code mode will fail closed; enable `features.code_mode_host` and install "
+        "`codex-code-mode-host`.")
 if mode == "sleep":
     p = subprocess.Popen(["sleep", "300"])
     with open(os.path.join(S, "grandchild"), "w") as f:
         f.write(str(p.pid))
     time.sleep(300)
 elif mode == "ok":
-    answer(json.dumps({"findings": [
-        {"level": "P3", "file": "app.py", "line": 2, "scenario": "a\nmulti-line scenario", "expected": "e3", "fix": "f3"},
-        {"level": "P1", "file": "app.py", "line": 1, "scenario": "s1", "expected": "e1", "fix": "f1"}]}))
+    print("2026-10-12T10:00:00Z  WARN codex_core: a log line, on stderr", file=sys.stderr)
+    answer(OK)
 elif mode == "empty":
     answer('{"findings": []}')
+elif mode == "retried":
+    ev({"type": "thread.started", "thread_id": "t"})
+    ev({"type": "error", "message": "Reconnecting... 1/5 (stream disconnected before completion: error sending request)"})
+    answer('{"findings": []}')
+elif mode == "eventonly":
+    answer('{"findings": []}', file=False)
+elif mode == "nohost":
+    # The live defect (2026-10-12): the tool host missing, no command run, an empty answer from the brief alone.
+    print("ERROR codex_core::tools::router: error=failed to spawn code-mode host", file=sys.stderr)
+    ev({"type": "thread.started", "thread_id": "t"})
+    item("error", message=HOST)
+    answer('{"findings": []}', commands=0)
+elif mode == "nocommand":
+    answer('{"findings": []}', commands=0)
+elif mode == "cmdfailed":
+    ev({"type": "turn.started"})
+    command("cat nope", code=1)
+    answer('{"findings": []}', commands=0)
+elif mode == "othererror":
+    item("error", message="something else went wrong")
+    answer('{"findings": []}')
+elif mode == "turnfailed":
+    ev({"type": "turn.started"})
+    ev({"type": "error", "message": "stream disconnected before completion: error sending request"})
+    ev({"type": "turn.failed", "error": {"message": "stream disconnected before completion: error sending request"}})
+    sys.exit(1)
 elif mode == "prose":
     answer("Looks good to me! No findings.")
 elif mode == "fence":
@@ -68,7 +120,12 @@ elif mode == "exit1":
     print("backend said no", file=sys.stderr)
     sys.exit(3)
 elif mode == "noanswer":
-    pass
+    ev({"type": "turn.started"})
+    command("wc -l app.py")
+    ev({"type": "turn.completed", "usage": {}})
+elif mode == "noevents":
+    with open(out, "w") as f:
+        f.write('{"findings": []}')
 '''
 
 GH_MOCK = r"""#!/usr/bin/env bash
@@ -126,6 +183,42 @@ def main() -> int:
                         ("NaN", '{"findings": [{"level": "P1", "file": "a", "line": NaN, "scenario": "s", '
                                 '"expected": "e", "fix": "f"}]}')):
         check(f"refused: {label}", verdict(text) != "ok", verdict(text))
+
+    print("the run: what codex exec --json printed, judged (streams captured from codex 0.162.1, stand-in endpoint)")
+    real_ok = (
+        '{"type":"thread.started","thread_id":"01a13195-6c03-7e02-94f7-7a304e1e64d6"}\n{"type":"turn.started"}\n'
+        '{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/bash -lc \'wc -l a.txt\'",'
+        '"aggregated_output":"","exit_code":null,"status":"in_progress"}}\n'
+        '{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/bash -lc \'wc -l a.txt\'",'
+        '"aggregated_output":"1 a.txt\\n","exit_code":0,"status":"completed"}}\n'
+        '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\\"findings\\": []}"}}\n'
+        '{"type":"turn.completed","usage":{"input_tokens":20,"cached_input_tokens":0,"cache_write_input_tokens":0,'
+        '"output_tokens":10,"reasoning_output_tokens":0}}\n')
+    real_nohost = (
+        '{"type":"thread.started","thread_id":"01a13193-6df1-7772-8636-3ea789abff73"}\n'
+        '{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Code Mode is unavailable because failed '
+        'to spawn code-mode host /home/u/.local/bin/codex-code-mode-host: host executable was not found. Code mode will '
+        'fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`."}}\n{"type":"turn.started"}\n'
+        '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\\"findings\\": []}"}}\n'
+        '{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"cache_write_input_tokens":0,'
+        '"output_tokens":5,"reasoning_output_tokens":0}}\n')
+
+    def judged(stream: str) -> str:
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
+            fh.write(stream)
+        try:
+            review_codex.judge_run(review_codex.read_events(fh.name))
+            return "ok"
+        except review_codex.FailedReview as e:
+            return str(e)
+        finally:
+            os.unlink(fh.name)
+    check("a run that ran a command and answered is accepted", judged(real_ok) == "ok", judged(real_ok))
+    check("the live defect: the tool host missing is refused, and named",
+          "its tool host is missing (codex-code-mode-host)" in judged(real_nohost), judged(real_nohost))
+    no_cmd = "\n".join(ln for ln in real_ok.splitlines() if "command_execution" not in ln)
+    check("a run with no command is refused", "ran no command" in judged(no_cmd), judged(no_cmd))
+    check("a stream that is not JSON shows nothing, and is refused", "printed no events" in judged("not json\n"))
 
     print("the posted body: engine and model on its first line, findings P1 first")
     body = review_codex.render_review("gpt-x", "a" * 40, "b..c", [
@@ -254,6 +347,9 @@ def main() -> int:
         argv = rec["argv"]
         check("codex exec with --sandbox read-only", argv[:1] == ["exec"]
               and argv[argv.index("--sandbox") + 1] == "read-only", argv)
+        check("--json: the event stream is what shows the run read the code", "--json" in argv, argv)
+        check("Codex's log lines on stderr are kept apart: a log line does not stop a run that read the code",
+              "a log line" not in r.stdout and "WARN" not in r.stderr, (r.stdout, r.stderr))
         check("--output-schema hands it the answer schema",
               argv[argv.index("--output-schema") + 1] == review_codex.SCHEMA_PATH, argv)
         check("the model is asked for by name", argv[argv.index("--model") + 1] == "gpt-test", argv)
@@ -335,9 +431,22 @@ def main() -> int:
               and "No findings." in r.stdout, r.stderr + r.stdout)
         check("nothing posted", not posted())
 
+        for m in ("retried", "eventonly"):
+            print(f"a run that read the code ({m}) is posted")
+            set_pr(); mode(m)
+            r = run("7", req)
+            check("exit 0, posted, no findings said", r.returncode == 0 and posted() and "No findings." in payload_body(),
+                  r.stderr)
+
         for m, why in (("prose", "not one JSON object"), ("fence", "not one JSON object"),
-                       ("badschema", "codex-answer.schema.json"), ("exit1", "exited 3"),
-                       ("noanswer", "wrote no answer")):
+                       ("badschema", "codex-answer.schema.json"), ("exit1", "exited 3: backend said no"),
+                       ("noanswer", "without an agent message"),
+                       ("nohost", "Codex ran no command: its tool host is missing (codex-code-mode-host)"),
+                       ("nocommand", "ran no command that succeeded (0 failed)"),
+                       ("cmdfailed", "ran no command that succeeded (1 failed)"),
+                       ("othererror", "something else went wrong"),
+                       ("turnfailed", "exited 1: stream disconnected"),
+                       ("noevents", "printed no events")):
             print(f"a failed review ({m}): nothing posted, the reason said")
             set_pr(); mode(m)
             r = run("7", req)

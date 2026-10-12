@@ -167,6 +167,19 @@ level is sent on `--gateway chatgpt`, the backend the column was decided
 for; the environment's gateway gets a level only when one is asked for
 (review of #224, F2). The posted review's first line names the model that
 ran and the level sent.
+
+A review is posted only from a run that read the code. Codex runs with
+`--json`, and its event stream must show no `error` item (Codex's "Model
+metadata for X not found" included: the routed model is in its catalog), no failed turn,
+at least one command that completed with exit code 0, and a final agent
+message that is the schema's answer; anything else is a failed review,
+nothing posted, the reason said. A missing tool host is named as such:
+Codex runs every tool call through `codex-code-mode-host` beside its own
+executable, and installed as `bin/codex` alone it ran no command and
+answered `{"findings": []}` from the brief, which was posted as a clean
+review (2026-10-12). `fabric-tools --install codex` installs the pinned
+tarball's vendor tree under `~/.local/lib/agent-fabric-tools/codex/<version>/`,
+with `~/.local/bin/codex` a link to it (`tools/fabric/tools_install.py`).
 Tests: `tests/test_review_codex.py`, `tests/test_review_gateway.py`.
 
 ## Who enforces what

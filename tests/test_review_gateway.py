@@ -85,16 +85,29 @@ with open(os.path.join(S, "codex-run.json"), "w") as f:
     json.dump(rec, f)
 mode = open(os.path.join(S, "codex-mode")).read().strip()
 out = argv[argv.index("--output-last-message") + 1]
+# `codex exec --json` events (codex 0.162.1) on stdout: a command it ran, then its answer.
+def ev(doc):
+    print(json.dumps(doc), flush=True)
+def answer(text, commands=1):
+    ev({"type": "thread.started", "thread_id": "t"})
+    ev({"type": "turn.started"})
+    if commands:
+        ev({"type": "item.completed", "item": {"id": "item_0", "type": "command_execution", "command": "/bin/bash -lc 'cat app.py'",
+                                               "aggregated_output": "print(1)\n", "exit_code": 0, "status": "completed"}})
+    with open(out, "w") as f:
+        f.write(text)
+    ev({"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": text}})
+    ev({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}})
 if mode == "sleep":
     with open(os.path.join(S, "codex-sleeping"), "w") as f:
         f.write(str(os.getpid()))
     time.sleep(300)
 elif mode == "ok":
-    with open(out, "w") as f:
-        f.write(json.dumps({"findings": [{"level": "P2", "file": "app.py", "line": 1, "scenario": "s", "expected": "e", "fix": "f"}]}))
+    answer(json.dumps({"findings": [{"level": "P2", "file": "app.py", "line": 1, "scenario": "s", "expected": "e", "fix": "f"}]}))
 elif mode == "prose":
-    with open(out, "w") as f:
-        f.write("Looks fine.")
+    answer("Looks fine.")
+elif mode == "nocommand":
+    answer('{"findings": []}', commands=0)
 '''
 
 GH_MOCK = r"""#!/usr/bin/env bash
@@ -311,6 +324,14 @@ def main() -> int:
         r = run()
         sv = (events("serve") or [{}])[0]
         check("exit 1, nothing posted", r.returncode == 1 and not posted() and "nothing posted" in r.stderr, r.stderr)
+        check("the gateway is gone and the token removed", gone(sv.get("pid", 0)) and runtime_clean())
+
+        print("a run that read nothing: refused, not posted as a clean review")
+        write_signin(); reset(codex_mode="nocommand")
+        r = run()
+        sv = (events("serve") or [{}])[0]
+        check("exit 1, nothing posted, the reason said", r.returncode == 1 and not posted()
+              and "ran no command" in r.stderr and "nothing posted" in r.stderr, r.stderr)
         check("the gateway is gone and the token removed", gone(sv.get("pid", 0)) and runtime_clean())
 
         print("the time budget: the same")

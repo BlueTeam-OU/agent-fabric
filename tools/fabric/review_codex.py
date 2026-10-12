@@ -71,6 +71,15 @@ api.openai.com. The scratch lives under the account's temporary directory
 the places the review class's bash guard refuses to read — and is removed on
 every path: success, refusal, failure, timeout, and SIGTERM/SIGHUP/SIGINT.
 
+WHAT THE RUN MUST SHOW. Codex runs with --json, its stdout the JSONL event
+stream (its own log lines on stderr, kept apart), and the run is a failed
+review unless that stream shows it read the code: no `error` item (the
+missing tool host, codex-code-mode-host, is named as such), no failed turn,
+at least one command_execution that completed with exit code 0, and a final
+agent message. A Codex installed without its tool host ran no command and
+answered {"findings": []} from the brief alone, which was posted as a clean
+review (2026-10-12); a run that read nothing is never posted.
+
 WHAT IS POSTED. Codex's last message must be ONE JSON object valid against
 runtime/claude-code/review/codex-answer.schema.json (also handed to
 --output-schema). Anything else — no message, prose, a fence, two objects, a
@@ -386,15 +395,18 @@ def child_env(environ: dict[str, str], scratch: str, home: str, key: str) -> dic
 
 def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str, str], prompt: str,
               timeout_s: float, effort_level: str | None = None) -> str:
-    """Codex's last message, or FailedReview. Its process group is ended on
-    every way out, so nothing it started outlives the scratch."""
+    """Codex's last message, or FailedReview: also when its event stream
+    shows it read nothing (read_events). Its process group is ended on every
+    way out, so nothing it started outlives the scratch."""
     answer = os.path.join(scratch, "last-message.json")
+    events = os.path.join(scratch, "codex-events.jsonl")
     log = os.path.join(scratch, "codex.log")
-    argv = [binary, "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--cd", workdir, "--model", model,
-            *routing.effort_spelling(PROVIDER, effort_level),
+    argv = [binary, "exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--cd", workdir,
+            "--model", model, *routing.effort_spelling(PROVIDER, effort_level),
             "--output-schema", SCHEMA_PATH, "--output-last-message", answer, "--color", "never", "-"]
-    with open(log, "wb") as logf:
-        p = subprocess.Popen(argv, cwd=workdir, env=env, stdin=subprocess.PIPE, stdout=logf, stderr=subprocess.STDOUT,
+    # stdout is the JSONL event stream and nothing else; Codex's own log lines go to stderr, kept apart.
+    with open(events, "wb") as evf, open(log, "wb") as logf:
+        p = subprocess.Popen(argv, cwd=workdir, env=env, stdin=subprocess.PIPE, stdout=evf, stderr=logf,
                              start_new_session=True)
         try:
             try:
@@ -404,15 +416,98 @@ def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str
         finally:
             if p.poll() is None or _group_alive(p.pid):
                 _end_group(p)
+    run = read_events(events)
     if p.returncode != 0:
-        raise FailedReview(f"codex exited {p.returncode}: {_tail(log)}")
-    if not os.path.isfile(answer):
+        raise FailedReview(f"codex exited {p.returncode}: {run.failed or _tail(log)}")
+    judge_run(run)
+    if os.path.isfile(answer):
+        with open(answer, "rb") as f:
+            raw = f.read(MAX_ANSWER_BYTES + 1)
+    elif run.last_message is not None:
+        raw = run.last_message.encode("utf-8")
+    else:
         raise FailedReview(f"codex wrote no answer: {_tail(log)}")
-    with open(answer, "rb") as f:
-        raw = f.read(MAX_ANSWER_BYTES + 1)
     if len(raw) > MAX_ANSWER_BYTES:
         raise FailedReview(f"the answer is over {MAX_ANSWER_BYTES} bytes")
     return raw.decode("utf-8", "replace")
+
+
+class CodexRun:
+    """What `codex exec --json` said it did: its error items, its commands, its last agent message."""
+
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+        self.commands = 0            # command_execution items completed with exit code 0
+        self.commands_failed = 0     # ...completed otherwise
+        self.last_message: str | None = None
+        self.failed: str | None = None   # turn.failed's message
+        self.events = 0
+
+
+def read_events(path: str) -> CodexRun:
+    """The JSONL stream of `codex exec --json` (codex 0.162.1): thread.started,
+    turn.started, item.started/item.completed with item.type command_execution
+    (status completed|failed, exit_code), agent_message (text) or error
+    (message), turn.completed or turn.failed (error.message). A top-level
+    {"type": "error"} is a transient retry ("Reconnecting... 1/5"): what it
+    leads to is turn.failed or not, so only that counts. A line that is not
+    JSON is skipped, never trusted."""
+    run = CodexRun()
+    try:
+        f = open(path, encoding="utf-8", errors="replace")
+    except OSError:
+        return run
+    with f:
+        for line in f:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(ev, dict):
+                continue
+            run.events += 1
+            kind, item = ev.get("type"), ev.get("item")
+            if kind == "turn.failed":
+                err = ev.get("error")
+                run.failed = str(err.get("message") if isinstance(err, dict) else err or "the turn failed")
+            if kind != "item.completed" or not isinstance(item, dict):
+                continue
+            if item.get("type") == "error":
+                run.errors.append(str(item.get("message") or "(no message)"))
+            elif item.get("type") == "command_execution":
+                if item.get("status") == "completed" and item.get("exit_code") == 0:
+                    run.commands += 1
+                else:
+                    run.commands_failed += 1
+            elif item.get("type") == "agent_message" and isinstance(item.get("text"), str):
+                run.last_message = item["text"]
+    return run
+
+
+def judge_run(run: CodexRun) -> None:
+    """FailedReview unless the run read the code: an answer from a run that ran
+    no command is an answer from the brief alone, and 'no findings' from it
+    would be posted as a clean review (2026-10-12: every Codex review so far,
+    its tool host missing, answered {"findings": []} this way)."""
+    if run.failed:
+        raise FailedReview(f"Codex's turn failed: {_one_line(run.failed)[:500]}")
+    if not run.events:
+        raise FailedReview("Codex printed no events (codex exec --json); it cannot be shown to have read anything")
+    host = next((e for e in run.errors if "code-mode host" in e or "codex-code-mode-host" in e), None)
+    if host:
+        raise FailedReview("Codex ran no command: its tool host is missing (codex-code-mode-host); install Codex whole "
+                           f"with `fabric-tools --install codex` — Codex said: {_one_line(host)[:400]}")
+    # Every error item refuses, Codex's "Model metadata for `X` not found" among them: it falls back to generic
+    # metadata for a model outside its catalog, and the routed model (gpt-6.1-sol, routing/capabilities.json's
+    # openai column) is in the catalog of the pinned 0.162.1, so on the routed path it is a misconfiguration.
+    if run.errors:
+        raise FailedReview(f"Codex reported an error during the run, so its answer is not trusted: "
+                           f"{'; '.join(_one_line(e)[:300] for e in run.errors[:3])}")
+    if not run.commands:
+        raise FailedReview(f"Codex ran no command that succeeded ({run.commands_failed} failed), so it read none of "
+                           "the code; an answer from the brief alone is not a review")
+    if run.last_message is None:
+        raise FailedReview("Codex's run ended without an agent message")
 
 
 def _group_alive(pgid: int) -> bool:
