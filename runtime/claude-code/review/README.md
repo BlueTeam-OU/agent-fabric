@@ -122,6 +122,34 @@ engines a pull request needs is the arming policy's `reviews`
 `tools/fabric/review_codex.py`, its answer schema in
 `runtime/claude-code/review/codex-answer.schema.json` (agent-fabric ADR-053).
 
+Codex reaches its model through a gateway of its own (ADR-053 rule 3),
+given one of two ways:
+
+- `--gateway chatgpt [--codex-home DIR]`: the review starts one for itself
+  and stops it before posting (`tools/fabric/review_gateway.py`). It reads
+  the ChatGPT sign-in in `DIR/auth.json`, by default `~/.codex-chatgpt`
+  (never `~/.codex`, and not the session's `CODEX_HOME`), and refuses when
+  its access token has under 30 minutes left, or under the review's time
+  budget when that is longer: refresh it with `CODEX_HOME=DIR codex exec`
+  once, or sign in again. The installed gateway must list plan schema 1
+  and the `openai-responses` protocol in `--version --json`, or it is
+  refused by name before anything starts. The access token goes into a
+  0600 file in a 0700 directory under `$XDG_RUNTIME_DIR`, which the
+  schema-1 plan (`gateway_plan.build_responses`: the ChatGPT backend
+  `https://chatgpt.com/backend-api/codex`, one identity route for the
+  model) names and the gateway reads on each attempt; the directory is
+  removed when the review ends, however it ends. Codex gets the gateway's
+  root and local key, and the sign-in's account id as the provider's
+  `ChatGPT-Account-ID` header in its `config.toml`; never the token.
+- without `--gateway`: from the environment, `AGENT_FABRIC_CODEX_BASE_URL`
+  and `AGENT_FABRIC_CODEX_KEY`, with `AGENT_FABRIC_CODEX_ACCOUNT_ID` as the
+  optional header.
+
+Either way the model is `--model` or `AGENT_FABRIC_CODEX_MODEL`, and the
+reasoning effort `high` unless `--effort` or `AGENT_FABRIC_CODEX_EFFORT`
+names another (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`).
+Tests: `tests/test_review_codex.py`, `tests/test_review_gateway.py`.
+
 ## Who enforces what
 
 | guarantee | how |
