@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "description": "When the switch controller moves a gateway session's login between Claude accounts (agent-fabric ADR-052 §5; the controller is tools/fabric/control/account_switch.py, run in the coordinator's account). Policy, fabric-coordinator's (policies/AUTHORITY.md): every number of §5, the pool and the mode are here, never constants in code (rule 10). `mode` is off (the controller decides nothing and logs nothing), advise (each move it would make is logged as `would`, none made) or act (it moves by the fabric-accounts assign path and logs `did`); committed as advise, and act follows only §8's live checks, by a commit. The pool names the coordinator's account templates by slug (fabric-accounts templates), never a token. The land, eject, perishable and min_stay_s values are the starting values §5 rule 10 proposes. reading_max_age_s, probe_min_interval_s and interval_s are numbers ADR-052 leaves open; they were chosen when the controller was built, and each says so and why in `why`. Shape: routing/schemas/account-switch.schema.json; tools/fabric/lint.py judges it with tools/fabric/control/switch_policy.py, the same judge the controller runs on.",
+  "mode": "advise",
+  "pool": {
+    "name": "claude",
+    "accounts": ["claude-pzhuy-8alias-com", "andrea-benetton-blueteam-ge"]
+  },
+  "land": {"five_hour": 0.90, "seven_day": 0.97},
+  "eject": {"five_hour": 0.97, "seven_day": 0.995},
+  "perishable": {"within_hours": 24, "max_utilization": 0.60, "min_interval_s": 1800},
+  "min_stay_s": 7200,
+  "reading_max_age_s": 600,
+  "probe_min_interval_s": 1800,
+  "interval_s": 300,
+  "why": {
+    "land": "ADR-052 rule 10's starting values. New sessions stop landing on an account at its land threshold, and a session already there is moved only at the higher eject threshold: keeping the two decisions apart stops an account near its land threshold from flapping sessions in and out at every reading (§4). The seven-day value is higher because that window resets far off: spending it close to full is the point of soonest-reset-first.",
+    "eject": "ADR-052 rule 10's starting values. A switch costs one cold cache (34,616 tokens written again in gateway live check 6), so a move must buy more than a cache write; reaching the eject threshold buys it, because past it the session is about to be refused (§4). Exhaustion (a utilisation of 1, or a refusing status) moves at once whatever these say (rule 4).",
+    "perishable": "ADR-052 rules 7 and 10: a seven-day window that resets within 24 hours at or below 0.60 used is quota that perishes unclaimed, cost with no verified result (§4, P7), so one idle session may be moved onto it. At most one such move per pool per 1,800 s (claudemanager's 30 minutes): never a herd, or the fleet would move at once onto one account and cross its threshold together (§4).",
+    "min_stay_s": "ADR-052 rule 10's starting value: a session moved in the last two hours is not moved again by a perishable move (rule 7), so one session does not pay the cold cache twice in a row for a preference.",
+    "reading_max_age_s": "Left open by ADR-052 (rule 1 names it); chosen at build. The launcher relays the gateway's reading every 60 s and the gateway takes one from every response, so a working session's account is never this old; a reading ten minutes old belongs to an account no session is using, and only that account needs ADR-031 rule 9's probe. A five-hour window moves little in ten minutes at the fleet's rate.",
+    "probe_min_interval_s": "Left open by ADR-052 (rule 1 names it); chosen at build. Each probe spends one output token of the account (§6), and an account no session uses changes only by use elsewhere, so it is read at most twice an hour: the same 30 minutes as the perishable rate, the fastest any proactive decision acts on it.",
+    "interval_s": "Not a number ADR-052 names; chosen at build. How often the controller decides. Five minutes keeps an exhausted session's wait for its move (rule 4, at once) within one prompt-cache lifetime, and each run is three fleet reads on the control channel (identity, gateway, states) plus at most one probe per stale account, which a shorter period would multiply for no better decision."
+  }
+}
