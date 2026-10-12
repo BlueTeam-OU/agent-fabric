@@ -4,8 +4,8 @@ guards unless the live binding holds the owning role (or a carve-out admits it),
 (Wave 9 batch 4; ADR-040 rule 5). It has no bash test of its own; tests/test_githooks_cli.py drives it through `git commit` and pins the
 fence, the locale carve-out and the Kind: rule (about seventy checks, GITHOOKS_DIR convention). This file adds what that one does not pin,
 driving the hook as git does - by path, from the repository, with the message file as its one argument - so it runs unchanged against the
-bash today and against the Python module later. The hook is ONE constant, HOOK (GITHOOKS_DIR/commit-msg; GITHOOKS_DIR overrides the
-directory); the login the hook sees is a stand-in `id` first on PATH (githook_fixtures.LOGIN), so the file passes on any account. The fabric under test is a scratch root holding a COPY of the hooks, its own policies/authority.json, and links to the real
+bash today and against the Python module later. The seam is ONE constant, githook_fixtures.GITHOOKS_DIR (the directory under test, default policies/githooks; the GITHOOKS_DIR
+environment variable overrides it), and the hook is its commit-msg file; the login the hook sees is a stand-in `id` first on PATH (githook_fixtures.LOGIN), so the file passes on any account. The fabric under test is a scratch root holding a COPY of the hooks, its own policies/authority.json, and links to the real
 runtime/ and tools/ (githook_fixtures.Fabric), so each case chooses the owner role, the contributors and the binding.
 
 Carried here (each is a method): the banned-attribution family (a trailer in any case or indented, a mid-line mention is no trailer, the

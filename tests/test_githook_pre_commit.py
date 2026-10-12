@@ -4,7 +4,7 @@ itself, `.agent-fabric/` in a managed project) unless the live binding holds the
 ADR-040 rule 5). It has no bash test of its own; tests/test_githooks_cli.py drives it through `git commit` and pins the fence, the amend,
 the fold of main, the locale carve-out's merge and the decision-record check. This file adds what that one does not pin, driving the hook
 as git does - by path, from the repository, no arguments, the staged index as its input - so it runs unchanged against the bash today and
-against the Python module later. The hook is ONE constant, HOOK (GITHOOKS_DIR/pre-commit; GITHOOKS_DIR overrides the directory). The fabric
+against the Python module later. The seam is ONE constant, githook_fixtures.GITHOOKS_DIR (the directory under test, default policies/githooks; the GITHOOKS_DIR environment variable overrides it), and the hook is its pre-commit file. The fabric
 under test is a scratch root with a COPY of the hooks, its own policies/authority.json and links to the real runtime/ and tools/
 (githook_fixtures.Fabric); the binding is a file in a scratch state directory.
 
