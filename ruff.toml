@@ -3,7 +3,9 @@
 # these are the classes that turn a green suite into a broken tool on the
 # path the suite did not take.
 line-length = 200
-exclude = ["node_modules", "communication/gzcoord/history"]
+# policies/skill-creator is Anthropic's skill, vendored unchanged (its README
+# names the commit): its scripts are third-party code, not ours to rewrite.
+exclude = ["node_modules", "communication/gzcoord/history", "policies/skill-creator"]
 
 [lint]
 select = ["E9", "F63", "F7", "F82", "F401", "F811", "F821", "F841"]

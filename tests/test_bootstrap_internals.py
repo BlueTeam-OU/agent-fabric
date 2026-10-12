@@ -471,13 +471,60 @@ def agentd_unit_install(T: str) -> None:
           agentd_unit.python_refusal() == "" or "python_pin.py install" in agentd_unit.python_refusal())
 
 
+def tree_skills(T: str) -> None:
+    print("skills: a directory skill goes to its roles only")
+    s = Scratch(T, "tree-skills")
+    try:
+        projects, root = fabric(s)
+        src = os.path.join(root, "policies", "skill-creator")
+        for rel in ("SKILL.md", "LICENSE.txt", "scripts/run.py", "references/schemas.md"):
+            put(os.path.join(src, rel), f"upstream {rel}\n")
+        single = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "skills", "agent-jobs", "SKILL.md")
+        put(single, "a single-file skill\n")
+        dest = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "skills", "skill-creator")
+        files = ("SKILL.md", "LICENSE.txt", "scripts/run.py", "references/schemas.md")
+
+        b = bootstrap.Bootstrap(projects, False, root)
+        quiet(b.tree_skills, "python-dev")
+        check("another role: no copy", not os.path.exists(dest))
+        quiet(b.tree_skills, "")
+        check("no role: no copy", not os.path.exists(dest))
+        for role in ("fabric-coordinator", "architect-cto"):
+            shutil.rmtree(dest, ignore_errors=True)
+            quiet(b.tree_skills, role)
+            check(f"{role}: the whole tree, subdirectories too",
+                  all(open(os.path.join(dest, f)).read() == f"upstream {f}\n" for f in files))
+        quiet(b.tree_skills, "python-dev")
+        check("a copy left from before is removed when the role no longer matches", not os.path.exists(dest))
+        check("a single-file skill is not touched", open(single).read() == "a single-file skill\n")
+
+        quiet(b.tree_skills, "architect-cto")
+        put(os.path.join(dest, "SKILL.md"), "a person's own version\n")
+        _, out, _ = quiet(b.tree_skills, "python-dev")
+        check("a skill of that name the fabric did not write is kept, and said",
+              os.path.isfile(os.path.join(dest, "SKILL.md")) and "kept: not written by the fabric" in out, out)
+
+        shutil.rmtree(dest)
+        quiet(b.tree_skills, "architect-cto")
+        d = bootstrap.Bootstrap(projects, True, root)
+        _, out, _ = quiet(d.tree_skills, "python-dev")
+        check("dry run: said as would remove, kept", os.path.isdir(dest) and "would remove" in out, out)
+
+        put(os.path.join(root, "runtime", "identity.py"),
+            "import sys\nprint('architect-cto' if sys.argv[1:] == ['--role'] else '')\n")
+        check("role(): the binding's role from identity.py --role", b.role() == "architect-cto", b.role())
+        check("SKILLS: the single-file entries are pairs", all(len(e) == 2 for e in bootstrap.SKILLS))
+    finally:
+        s.close()
+
+
 def main() -> int:
     T = os.path.realpath(tempfile.mkdtemp(prefix="test_bootstrap_internals."))
     try:
         for case in (glob_order, workspace_settings_not_an_object, role_command_dry_run, agent_files_failure,
                      commands_unreadable,
                      checkout_among_working_copies, moved_origin_repointed, work_tree_answer, user_manager, relay_holder, journal_bound,
-                     agentd_unit_install):
+                     agentd_unit_install, tree_skills):
             case(T)
     finally:
         shutil.rmtree(T, ignore_errors=True)
