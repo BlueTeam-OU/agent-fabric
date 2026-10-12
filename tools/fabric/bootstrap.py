@@ -31,6 +31,9 @@ Writes, idempotently, and only machine-local files:
   ~/.claude/skills/own-secrets/SKILL.md
   ~/.claude/skills/moli-web/SKILL.md
   ~/.claude/skills/gzcoord-send/SKILL.md, gzcoord-receive/SKILL.md
+  ~/.claude/skills/repo-lifecycle/SKILL.md
+  ~/.claude/skills/skill-creator/    the whole vendored tree (TREE_SKILLS), for the
+                                     fabric-coordinator and architect-cto roles only
                                      the dispatch policy as a loadable skill, from policies/
   ~/.local/bin/<name>                every command a session runs, by name
                                      (runtime/claude-code/commands.json)
