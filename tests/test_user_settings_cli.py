@@ -31,7 +31,7 @@ The bash test's cases, each a test method here:
     test_malformed_post_tool_use_is_refused_untouched (both shapes, both modes),
     test_unparseable_entry_in_the_list_is_kept
   bootstrap runs it
-    test_bootstrap_wiring (calls it; retired writer gone; refused write counted)
+    test_bootstrap_wiring (calls it; the retired writer is gone)
   a flag is never a path
     test_help_prints_usage_on_stdout_and_writes_nothing (--help, -h),
     test_unknown_flag_is_refused_by_name (--verbose, -x, -),
@@ -324,7 +324,8 @@ class BootstrapWiring(unittest.TestCase):
             src = fh.read()
         self.assertIn('"runtime/claude-code/user-settings.py", path', src, "bootstrap calls it on the login's user settings")
         self.assertNotIn("attribution-off", src, "bootstrap still names the retired writer")
-        self.assertIn("self.failed += 1", src, "a refused write is counted, not read as already current")
+        # That a refused write is counted, not read as already current, is
+        # tests/test_bootstrap_cli.py's (a source grep for the counter could not fail: it occurs 16 times).
 
 
 class Flags(Base):
