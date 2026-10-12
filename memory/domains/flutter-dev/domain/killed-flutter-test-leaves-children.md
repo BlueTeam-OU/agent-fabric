@@ -5,7 +5,7 @@ topic: "killed-flutter-test-leaves-children"
 description: A flutter test run killed by the harness (timeout, OOM) leaves its dartvm and frontend_server children alive for hours, and they are what starve the next run.
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"
@@ -51,4 +51,4 @@ Related: [[pkill-f-matches-your-own-shell]].
 
 *References: pkill-f-matches-your-own-shell*
 
-*Observed 2026-09-17 (flutter-dev)*
+*Observed 2026-10-10 (flutter-dev)*

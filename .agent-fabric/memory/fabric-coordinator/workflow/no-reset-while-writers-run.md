@@ -5,7 +5,7 @@ topic: "no-reset-while-writers-run"
 description: "Never git reset --hard / checkout the clone while a background process (provisioning, store-enroll, a suite) may be writing tracked files into it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

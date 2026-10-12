@@ -5,7 +5,7 @@ topic: "cleanup-spares-live-logs"
 description: "Before deleting logs or scratch in $TMPDIR during a clean-up, check no background task of this session still writes them"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

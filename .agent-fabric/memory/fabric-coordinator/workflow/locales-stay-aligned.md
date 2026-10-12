@@ -5,7 +5,7 @@ topic: "locales-stay-aligned"
 description: "The owner's rule (2026-10-07) that every language-culture locale carries every translation another locale has; ge must match ru"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

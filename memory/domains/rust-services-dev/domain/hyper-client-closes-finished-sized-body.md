@@ -5,7 +5,7 @@ topic: "hyper-client-closes-finished-sized-body"
 description: "A test proving the gateway closed an upstream connection must leave that response's body unfinished — hyper's client closes a fully-received sized body itself"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "roots-seam-method"
 description: "How the engine/operator roots seam (tools/fabric/roots.py, runtime/control/roots.mjs, PR #119) was built and what the review found — the engine= trap and fixture rules"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

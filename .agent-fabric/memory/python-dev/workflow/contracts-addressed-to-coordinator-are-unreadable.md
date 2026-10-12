@@ -5,7 +5,7 @@ topic: "contracts-addressed-to-coordinator-are-unreadable"
 description: "a REQUEST telling you to read port contracts \"with gzcoord-inbox --replay <seq>\" — replay withholds the body of any message not addressed to you; ask the author to resend TO you"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

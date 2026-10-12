@@ -5,7 +5,7 @@ topic: "check-constraints-fire-in-name-order"
 description: "A test asserting WHICH CHECK refused a row must make the row violate only that one — Postgres evaluates a row's CHECKs alphabetically by name and reports the first."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "db-admin"
     host: "develop-qzapp"

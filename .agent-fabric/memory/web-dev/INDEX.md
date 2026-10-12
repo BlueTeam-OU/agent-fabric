@@ -3,7 +3,7 @@ role: "web-dev"
 class: index
 description: "What web-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 ---
 
 # web-dev — knowledge index
@@ -37,6 +37,14 @@ control plane checked out beside it.
 - [`memory/domains/web-dev/domain/vite-workspace-import-boundary.md`](memory/domains/web-dev/domain/vite-workspace-import-boundary.md) — Vite rejects a relative import that crosses the pnpm workspace package root, even though the target file exists on disk
 - [`memory/domains/web-dev/domain/vitest-fake-timers-ordering.md`](memory/domains/web-dev/domain/vitest-fake-timers-ordering.md) — vi.useFakeTimers() cannot advance a setTimeout already registered on the real clock
 - [`memory/shared/domain-claude-code-attribution-reminder.md`](memory/shared/domain-claude-code-attribution-reminder.md) — The attribution key is written by runtime/claude-code/user-settings.py, run from tools/fabric/bootstrap.py (shared)
+
+## solution
+
+- [`.agent-fabric/memory/web-dev/solution.md`](.agent-fabric/memory/web-dev/solution.md) — A MapLibre paint colour taken from a gzapp design token must be converted to sRGB first — the tokens are OKLCH and MapLibre rejects the layer
+
+## workflow
+
+- [`.agent-fabric/memory/web-dev/workflow.md`](.agent-fabric/memory/web-dev/workflow.md) — Before reading gzapp code for a claim or a build, branch from origin/main — the local main checkout can be thousands of commits behind
 
 ## recall
 

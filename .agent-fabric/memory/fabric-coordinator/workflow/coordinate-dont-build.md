@@ -5,7 +5,7 @@ topic: "coordinate-dont-build"
 description: Before writing code in the fabric, check whose entry it is — the owner wants me coordinating, designing and delegating, not developing scripts
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

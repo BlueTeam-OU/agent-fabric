@@ -5,7 +5,7 @@ topic: "gzapp-security-boundary-standing-word"
 description: "Owner 2026-10-05 — the standing \"over 8 commits arm without my authorization\" covers gzapp security-boundary PRs too (8–16 work commits)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

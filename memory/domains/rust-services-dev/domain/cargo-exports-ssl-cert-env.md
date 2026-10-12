@@ -5,7 +5,7 @@ topic: "cargo-exports-ssl-cert-env"
 description: "cargo sets SSL_CERT_FILE/SSL_CERT_DIR for every child; rustls-native-certs then reads them instead of the host store"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"

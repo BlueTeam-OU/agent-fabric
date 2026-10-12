@@ -5,7 +5,7 @@ topic: "delegate-check-never-list"
 description: "Before assigning fabric work to a contributor, check the paths against CONTRIBUTOR_NEVER and its entry's excluding list"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

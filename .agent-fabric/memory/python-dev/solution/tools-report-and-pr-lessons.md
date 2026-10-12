@@ -5,7 +5,7 @@ topic: "tools-report-and-pr-lessons"
 description: "What the tools report (#123) built, and what two PRs taught about main moving under an open PR, review loops and CI flakes"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

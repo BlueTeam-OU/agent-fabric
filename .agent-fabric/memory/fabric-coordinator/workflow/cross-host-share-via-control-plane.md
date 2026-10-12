@@ -5,7 +5,7 @@ topic: "cross-host-share-via-control-plane"
 description: "Agents may be on different hosts: whatever is shared travels through the control plane (fabric-ctl) or a git repository, never a host-local read (fabric-host run --as, another account's state, a scratchpad path)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

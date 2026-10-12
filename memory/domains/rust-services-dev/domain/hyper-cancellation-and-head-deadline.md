@@ -5,7 +5,7 @@ topic: "hyper-cancellation-and-head-deadline"
 description: "What hyper 1.x itself does on body drop and idle connections, and how gateway tests separate it from the gateway's own guards"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"
