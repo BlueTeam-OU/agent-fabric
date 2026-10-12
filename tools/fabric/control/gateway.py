@@ -643,14 +643,56 @@ def usage(state: str, alive: Callable[[int], bool] = pid_alive) -> dict | None:
     return {**base, "status": "ok", "credentials": entries}
 
 
+def joined(state: str, entries: list) -> list:
+    """Per relayed entry, the setup-token fingerprint its generation is joined to in this account's
+    gateway-generations.json (control/gateway_switch.py writes it at each sync), or None: the gateway names no
+    account, and an entry whose generation no sync recorded stays unknown, never a guess (ADR-052 rule 1)."""
+    from control import gateway_switch
+    join = gateway_switch.read_join(state)
+    out = []
+    for e in entries:
+        gen = e.get("generation") if isinstance(e, dict) else None
+        prints = [j.get("fingerprint") for j in join if gen is not None and j.get("generation") == gen]
+        out.append(prints[-1] if prints and isinstance(prints[-1], str) else None)
+    return out
+
+
+def session_kinds(pids: Callable[[], list[int]] | None = None,
+                  env_of: Callable[[int], dict] | None = None) -> dict:
+    """How many of this account's running sessions are on the gateway and how many are not (plain claude, the
+    broker): the switch controller moves a login only when every one is on the gateway (ADR-052 rule 13), so
+    an account that cannot tell is "unknown", never "all gateway"."""
+    from control import secrets, upgrade
+    try:
+        running = (pids or upgrade.session_pids)()
+    except Exception as e:  # noqa: BLE001 — pgrep missing, timed out or unreadable all mean "cannot tell"
+        return {"status": "unknown", "reason": str(e)[:120]}
+    kinds = {"status": "ok", "gateway": 0, "other": 0}
+    for pid in running:
+        try:
+            env = (env_of or secrets.session_env)(pid)
+        except OSError:
+            return {"status": "unknown", "reason": f"the environment of session pid {pid} cannot be read"}
+        on_gateway = env.get("transport") == "gateway" and env.get("provider") in (None, "anthropic")
+        kinds["gateway" if on_gateway else "other"] += 1
+    return kinds
+
+
 def gateway(home: str | None = None, state: str | None = None, run: Callable[..., Any] = subprocess.run,
-            root: str | None = None, alive: Callable[[int], bool] = pid_alive) -> dict:
+            root: str | None = None, alive: Callable[[int], bool] = pid_alive,
+            sessions: Callable[[], dict] = session_kinds) -> dict:
     """What is installed on this account, from the file and what it reports; with `usage` beside it
-    when the launcher has relayed any, whatever the binary's own state."""
+    when the launcher has relayed any, whatever the binary's own state. Beside a live relay
+    (status "ok"), what the switch controller reads (ADR-052): `setup_tokens`, each entry's joined
+    fingerprint in the entries' order, and `sessions`, how many running sessions are on the gateway."""
     state = util.state_dir() if state is None else state
     out = installed(home, state, run, root)
     relayed = usage(state, alive)
-    return {**out, "usage": relayed} if relayed is not None else out
+    if relayed is None:
+        return out
+    if relayed.get("status") == "ok":
+        return {**out, "usage": relayed, "setup_tokens": joined(state, relayed["credentials"]), "sessions": sessions()}
+    return {**out, "usage": relayed}
 
 
 def installed(home: str | None, state: str, run: Callable[..., Any], root: str | None) -> dict:
