@@ -468,6 +468,22 @@ class Runs(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual([e["outcome"] for e in self.log()], ["did"])
 
+    def test_a_pool_account_with_no_template_is_never_a_target(self):
+        os.makedirs(self.state, exist_ok=True)
+        roomy = {"five_hour": {"utilization": 0.1, "reset": NOW + H}, "seven_day": {"utilization": 0.1, "reset": NOW + 3 * D},
+                 "status": None, "status_reset": None, "exhausted": None, "transient_429": None, "read_at": NOW - 30,
+                 "via": "probe", "from": "onb"}
+        sw.write_state(self.state, {"probes": {"acct-b": NOW - 30}, "probed": {"acct-b": roomy}, "last": {}})
+        fleet = Fleet(EXHAUSTED)
+        rc = sw.run(record=True, root=self.dir.name, state=self.state, policy_file=self.policy(), ctl=fleet,
+                    templates=lambda: [{"account": "acct-a", "token_sha256_12": FPS["acct-a"]}],
+                    make_assign=lambda root: 1 / 0, now=lambda: NOW, say=self.out.append)
+        self.assertEqual(rc, 0, self.out)
+        e = self.log()[-1]
+        self.assertEqual((e["outcome"], e["to"]), ("held", None), "the reading kept from before is not a way in")
+        self.assertNotIn(["onb", "usage"], fleet.asked, "and it is not probed")
+        self.assertTrue(any("no template for acct-b" in line for line in self.out), self.out)
+
     def test_act_says_a_failed_assign_and_assumes_nothing(self):
         make = lambda root: (lambda lg, a: {"exit": 1, "output": ["failed"]})  # noqa: E731
         self.assertEqual(self.run_once(Fleet(EXHAUSTED), make_assign=make, mode="act"), 1)

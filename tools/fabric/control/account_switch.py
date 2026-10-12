@@ -657,8 +657,12 @@ def run(*, record: bool, root: str | None = None, state: str | None = None, poli
         t = now()
         ts = (templates or _templates)()
         fps = {x["account"]: x.get("token_sha256_12") for x in ts}
-        pool = policy["pool"]["accounts"]
-        missing = [a for a in pool if not fps.get(a)]
+        missing = [a for a in policy["pool"]["accounts"] if not fps.get(a)]
+        # A pool account with no template in this store cannot be assigned (fabric-accounts assign refuses it):
+        # it leaves the pool for this run, so no rule reads it, targets it or probes it, a reading kept from
+        # before included.
+        pool = [a for a in policy["pool"]["accounts"] if fps.get(a)]
+        policy = {**policy, "pool": {**policy["pool"], "accounts": pool}}
         ask = ctl or ctl_path(root)
         readings, logins = gather(ask, ts)
         st = read_state(state)
