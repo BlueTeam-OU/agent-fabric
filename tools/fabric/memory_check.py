@@ -178,8 +178,12 @@ def read_corpus(corpus: str) -> list[dict]:
 
 
 def known_dirs(tree: str) -> set[str]:
+    """The tree's top directories a citation may start with. Never `.git`: what is
+    under it is git's own state of one checkout (a lock, a hook), not a path of the
+    repository, and a worktree's `.git` is a file, so it would be judged in a clone
+    and passed over in a worktree of the same commit."""
     try:
-        return {e for e in os.listdir(tree) if os.path.isdir(os.path.join(tree, e))}
+        return {e for e in os.listdir(tree) if e != ".git" and os.path.isdir(os.path.join(tree, e))}
     except OSError as e:
         raise Refused(f"cannot read the tree {tree}: {e.strerror or e}") from None
 
