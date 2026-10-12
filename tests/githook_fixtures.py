@@ -40,10 +40,12 @@ class Repo:
 
     def write(self, rel: str, text: str, append: bool = False) -> None:
         full = os.path.join(self.path, rel)
-        os.makedirs(os.path.dirname(full), exist_ok=True)
-        # the checkout is never a scratch file: a path that resolves outside this repository's own temporary root is a test bug
+        # the checkout is never a scratch file: a path that resolves outside this repository's own temporary root is a test bug. Judged
+        # BEFORE any directory is made (realpath resolves the links that exist and leaves the rest as written), or the refusal itself
+        # would have created the directory beyond the link.
         if not os.path.realpath(full).startswith(os.path.realpath(self.root) + os.sep):
             raise AssertionError(f"{rel} resolves outside the scratch root: {os.path.realpath(full)}")
+        os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "a" if append else "w", encoding="utf-8") as fh:
             fh.write(text)
 

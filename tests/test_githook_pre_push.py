@@ -2,8 +2,8 @@
 """policies/githooks/pre-push: a forwarder. git runs a file by path, so the hook stays a file; the decision (who may push what where) is
 tools/fabric/githooks_prepush.py's, pinned by tests/test_githooks_prepush.py through the real hook against a real remote (Wave 9 batch 4;
 ADR-040 rule 5). What the forwarder itself owes, and nothing else tests, is this file's subject; the module is a recording stand-in here, in
-a scratch fabric root that holds a COPY of the hook, so each case chooses what the module answers. The hook is ONE constant, HOOK
-(GITHOOKS_DIR/pre-push; GITHOOKS_DIR overrides the directory), run as git runs it: by path, from the repository, with the remote's name and
+a scratch fabric root that holds a COPY of the hook, so each case chooses what the module answers. The seam is ONE constant, githook_fixtures.GITHOOKS_DIR
+(the directory under test, default policies/githooks; the GITHOOKS_DIR environment variable overrides it; the hook is its pre-push file), run as git runs it: by path, from the repository, with the remote's name and
 URL as arguments and the ref lines on stdin.
 
 The contract the forwarder keeps (each is a method): the arguments reach the module verbatim, spaces, an empty argument and non-ASCII
