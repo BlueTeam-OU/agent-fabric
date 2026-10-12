@@ -9,7 +9,12 @@ The slowest start first, so the last one started is a short one and not the
 3-minute launcher alone at the end. A suite's output is buffered and printed
 whole when it ends, under the "== <suite>" header the serial run printed, so
 the log reads the same but in completion order. Exit status: 1 if any suite
-failed, 2 for a bad AGENT_FABRIC_TEST_JOBS.
+failed, 2 for a bad AGENT_FABRIC_TEST_JOBS. The last line of stdout is
+`FAILED_SUITES=<n>`, n the number of suites that exited non-zero (0 when none),
+so run.sh can say how many failed and not only that one did; it is not printed
+for the exit 2, where nothing ran, nor when the runner itself fails or is killed
+(a suite that cannot be started raises out of its worker; a signal ends the
+process): a missing line is "unknown, at least one", never 0.
 
 run.sh starts this in the background (`&`, then `wait`), so a trap fires at
 once; bash starts an async command with INT and QUIT ignored, and every suite
@@ -65,6 +70,8 @@ def main() -> int:
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=int(slots)) as pool:
         list(pool.map(run, ordered_suites()))
+    # A suite's output is written whole and may end without a newline: the count starts a line of its own.
+    print(f"\nFAILED_SUITES={failed}")
     return 1 if failed else 0
 
 
