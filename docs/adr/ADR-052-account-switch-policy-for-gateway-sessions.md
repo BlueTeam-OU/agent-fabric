@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-12, in the session ("ADR-052 accepted, build the controller in advise mode")
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** which Claude account a gateway session's login runs on, and when it is moved without the owner; the policy file `routing/policies/account-switch.json` (to be created); the switch controller in the coordinator's account (to be built, `tools/fabric/control/`); the launcher's relay of the gateway's `{"op":"usage"}` answer (`tools/fabric/launcher/gateway.py`); the control plane's read of it (ADR-029); the move log and its lines in `bin/fabric-status` and the Fleet Deck; plain-claude sessions are out of scope
+**Scope:** which Claude account a gateway session's login runs on, and when it is moved without the owner; the policy file `routing/policies/account-switch.json`; the switch controller in the coordinator's account (`tools/fabric/control/account_switch.py`); the launcher's relay of the gateway's `{"op":"usage"}` answer (`tools/fabric/launcher/gateway.py`); the control plane's read of it (ADR-029); the move log and its lines in `bin/fabric-status` and the Fleet Deck; plain-claude sessions are out of scope
 **Pillar:** P7
 **Evidence:** docs/live-checks/2026-10-10-gateway-check-6.md
 
