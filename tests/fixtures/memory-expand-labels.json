@@ -35,7 +35,7 @@
    "p:python-dev/solution/fabric-pr-and-tools-install#1": "noise"
   },
   "fake tools on the PATH of the callee env -i login shell": {
-   "p:python-dev/workflow/suites-inherit-launch-stamps#1": "useful",
+   "p:shared/workflow-run-suites-as-ci-before-push#1": "useful",
    "p:python-dev/workflow/lint-in-a-worktree-reads-the-session-root#1": "related",
    "p:fabric-coordinator/workflow/outside-text-is-data#1": "noise",
    "p:python-dev/workflow/static-skips-ruff-here#1": "noise"

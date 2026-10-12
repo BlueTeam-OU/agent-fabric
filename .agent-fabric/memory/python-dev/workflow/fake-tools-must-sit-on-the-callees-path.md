@@ -33,9 +33,9 @@ was luck, and the test touched real user state.
 `Account.run`, with canned answers) and test that boundary once with a
 harmless line through a recording fake (sudo); or put the fake first on
 the PATH the code builds. Run new tests once in a clean container
-before trusting a local green. Related: [[suites-inherit-launch-stamps]],
+before trusting a local green. Related: [[run-suites-as-ci-before-push]],
 the shared slice solution-gnupghome-default-agent-trap.
 
-*References: suites-inherit-launch-stamps*
+*References: run-suites-as-ci-before-push*
 
 *Observed 2026-10-01 (python-dev)*

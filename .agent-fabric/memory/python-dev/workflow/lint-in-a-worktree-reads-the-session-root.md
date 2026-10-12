@@ -30,8 +30,8 @@ it failed on the committed tree (the control) and passed on the fix.
 session's root it is lint of main, which proves nothing about the branch.
 **How to apply:** in a worktree, run `env -u AGENT_FABRIC_ROOT python3
 tools/fabric/lint.py` (and every test the same way). Related:
-[[suites-inherit-launch-stamps]].
+[[run-suites-as-ci-before-push]].
 
-*References: suites-inherit-launch-stamps*
+*References: run-suites-as-ci-before-push*
 
 *Observed 2026-10-03 (python-dev)*

@@ -27,9 +27,9 @@ CI's.
 `python3 -m venv $SCRATCH/ruffenv && $SCRATCH/ruffenv/bin/pip install ruff`
 (CI installs it unpinned; match the version the coordinator reports), then
 `ruff check --no-cache .` in the worktree, and remove the venv. Read static's
-"!" lines, not only its summary. Related: [[suites-inherit-launch-stamps]],
+"!" lines, not only its summary. Related: [[run-suites-as-ci-before-push]],
 [[review-before-suite-and-numeric-guards]].
 
-*References: review-before-suite-and-numeric-guards, suites-inherit-launch-stamps*
+*References: review-before-suite-and-numeric-guards, run-suites-as-ci-before-push*
 
 *Observed 2026-10-07 (python-dev)*
