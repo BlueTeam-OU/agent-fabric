@@ -5,7 +5,7 @@ topic: "trailer-block-must-be-one-line-per-key"
 description: "before writing a commit message with Answers:/Fabric-Role: trailers — a wrapped trailer value hides Fabric-Role from git, and the authority guard fails"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

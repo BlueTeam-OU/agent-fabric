@@ -5,7 +5,7 @@ topic: "chain-message-fill-to-send"
 description: "compose → fill → gzcoord-send must be one && chain; a failed fill step otherwise sends the empty skeleton, which the validator accepts"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "forge-port-oracle-runs"
 description: "How to run a managed project's bash test as the oracle for a forge-script port into agent-fabric, with no clone of that project on this login"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

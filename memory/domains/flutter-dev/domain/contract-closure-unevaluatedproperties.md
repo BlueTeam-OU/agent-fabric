@@ -5,7 +5,7 @@ topic: "contract-closure-unevaluatedproperties"
 description: To tell whether a gzapp contract closes an object, check unevaluatedProperties — additionalProperties alone is wrong wherever the schema uses $ref.
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"
@@ -96,4 +96,4 @@ on the strength of the general rule alone.
 
 *References: verify-against-the-artifact*
 
-*Observed 2026-09-19 (flutter-dev)*
+*Observed 2026-10-10 (flutter-dev)*

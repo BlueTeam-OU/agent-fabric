@@ -5,7 +5,7 @@ topic: "setup-python-replaces-the-jobs-python3"
 description: "actions/setup-python puts its python3 first for every later step; suites needing the runner's modules (PyYAML) break — use update-environment false and a per-suite PATH"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

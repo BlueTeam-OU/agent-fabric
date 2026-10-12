@@ -3,7 +3,7 @@ role: "flutter-dev"
 class: index
 description: "What flutter-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 ---
 
 # flutter-dev — knowledge index
@@ -28,6 +28,7 @@ control plane checked out beside it.
 
 - [`memory/domains/flutter-dev/domain/contract-closure-unevaluatedproperties.md`](memory/domains/flutter-dev/domain/contract-closure-unevaluatedproperties.md) — To tell whether a gzapp contract closes an object, check unevaluatedProperties — additionalProperties alone is wrong wherever the schema uses $ref.
 - [`memory/domains/flutter-dev/domain/dart-gotchas.md`](memory/domains/flutter-dev/domain/dart-gotchas.md) — Dart null-aware map-entry operator binds to the value, not the key
+- [`memory/domains/flutter-dev/domain/flutter-attach-baseline.md`](memory/domains/flutter-dev/domain/flutter-attach-baseline.md) — flutter attach takes the CURRENT source as what the device runs: edits made before attaching never hot-reload; attach first, then edit
 - [`memory/domains/flutter-dev/domain/killed-flutter-test-leaves-children.md`](memory/domains/flutter-dev/domain/killed-flutter-test-leaves-children.md) — A flutter test run killed by the harness (timeout, OOM) leaves its dartvm and frontend_server children alive for hours, and they are what starve the next run.
 - [`memory/domains/flutter-dev/domain/locked-phone-ble-scan.md`](memory/domains/flutter-dev/domain/locked-phone-ble-scan.md) — A locked Android phone hears the beacon only with a FILTERED scan, renewed, and a beacon advertising fast enough — measured 2026-09-28 on the bench phone
 - [`memory/domains/flutter-dev/domain/regex-source-scan-gotchas.md`](memory/domains/flutter-dev/domain/regex-source-scan-gotchas.md) — A quote-exclusion character class breaks on delimiter-swapped literals; use a tempered token, require unicode:true for \p{L}, and scan whole files for multi-line matches

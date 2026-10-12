@@ -5,13 +5,14 @@ topic: "host-freeze-2026-10-04"
 description: A silent journald plus no OOM line means memory exhaustion into zram thrash; oomd and 10G/12G caps applied; agentd samples memory pressure
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 8b9ef2b52544bc5e
   - 8f8b18b0c6b5c7bc
   - e2cc8b436b047df6
 ---
@@ -24,8 +25,8 @@ The owner applied, as root: `systemctl enable --now systemd-oomd`; `/etc/systemd
 
 **Diagnosing a later freeze** without root: `journalctl -b -1` shows only your own user journal. Ask the owner for `sudo journalctl -b -1 -o short-monotonic`; a wall-clock gap whose monotonic time also jumps means the qube ran and did not log.
 
-**Data for a post-mortem:** the control agent samples `/proc/pressure/memory` and free memory every minute into a ring in its state dir (runtime/control/pressure.mjs, tools/fabric/control/pressure.py, the `memory_pressure` host op); `fabric-ctl host` prints it as the `memory:` line.
+**Data for a post-mortem:** the control agent samples `/proc/pressure/memory` and free memory every minute into a ring (`memory-pressure.json`) in its state dir. The code is `tools/fabric/control/pressure.py` (the Node `pressure.mjs` is gone), served by the `memory_pressure` host op in `tools/fabric/control/ops/__init__.py`; `fabric-ctl host` prints it as the `memory:` line (`tools/fabric/control/ctl.py`).
 
 Heavy builds under a capped `fabric-lease heavy-build` is an intention only: no lease name or rule in the tree names it.
 
-*Observed 2026-10-10 (fabric-coordinator)*
+*Observed 2026-10-11 (fabric-coordinator)*

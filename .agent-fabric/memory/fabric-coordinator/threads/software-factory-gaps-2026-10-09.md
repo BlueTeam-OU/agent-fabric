@@ -5,7 +5,7 @@ topic: "software-factory-gaps-2026-10-09"
 description: "Candidate fabric changes from the software-factory article, each with what this fabric showed on 2026-10-09 — open, none adopted; the charter's bar is observed recurrence"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

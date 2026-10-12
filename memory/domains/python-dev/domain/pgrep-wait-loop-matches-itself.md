@@ -5,7 +5,7 @@ topic: "pgrep-wait-loop-matches-itself"
 description: "an until-pgrep -f wait loop whose pattern is in its own command line never ends"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

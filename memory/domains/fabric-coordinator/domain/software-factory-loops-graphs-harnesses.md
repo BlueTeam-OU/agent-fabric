@@ -5,7 +5,7 @@ topic: "software-factory-loops-graphs-harnesses"
 description: "Ivo Kund's \"software factory\" (2026-09-11) — planning and execution loops, a dependency graph, a harness, an outer loop; what it claims and where the fabric already matches"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: user
     host: "develop-qzapp"

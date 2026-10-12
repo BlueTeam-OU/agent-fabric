@@ -5,7 +5,7 @@ topic: "git-signing-key-for-agent-accounts"
 description: "python-dev-03's commits failed 'No secret key' until the owner provided the signing key; push needs the gh credential helper"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

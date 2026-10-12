@@ -5,7 +5,7 @@ topic: "check-authority-excluding-before-planning"
 description: "before planning code on a control-plane path, read python-dev's \"excluding\" in policies/authority.json — an assignment does not admit the path"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
