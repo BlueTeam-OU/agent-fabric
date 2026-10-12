@@ -1,4 +1,5 @@
-"""Shared plumbing of the hook contract tests (tests/test_*_hook_cli.py,
+"""Shared plumbing of the hook contract tests (tests/test_model_fallback_note_cli.py,
+test_plan_hold_cli.py, test_statusline_cli.py, test_session_start_hook_cli.py,
 test_tab_title_cli.py): drive a Claude Code hook the way the harness does and
 read back its exit status and streams.
 

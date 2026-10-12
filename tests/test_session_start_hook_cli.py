@@ -111,7 +111,8 @@ def main() -> int:
         t.check("another export in the file is kept, ours appended after it", fh.read().startswith("export KEEP=1\nexport AGENT_FABRIC_ROOT="))
 
     t.group("a root that is already set is the root exported")
-    awkward = "/tmp/a b/it's $HOME/\"q\""
+    # Inside the sandbox: a fixed path in the shared /tmp would let another login plant the module the hook loads.
+    awkward = os.path.join(T, "a b", "it's $HOME", '"q"')
     quoted = os.path.join(T, "claude-env-quoted")
     r = start(CLAUDE_ENV_FILE=quoted, AGENT_FABRIC_ROOT=awkward)
     t.check("…quoted, so spaces, quotes and a dollar survive being sourced", r.rc == 0 and exported(quoted) == awkward, f"{exported(quoted)!r}")

@@ -39,6 +39,8 @@ import subprocess
 import sys
 import tempfile
 
+import hook_harness
+
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.environ.get("TAB_TITLE_HOOK") or os.path.join(HERE, "runtime", "claude-code", "hooks", "tab-title.sh")
 if not os.path.isfile(HOOK):
@@ -60,12 +62,9 @@ def check(label: str, good: bool, detail: str = "") -> None:
 
 
 def clean_env() -> dict[str, str]:
-    # GIT_* (GIT_DIR, GIT_INDEX_FILE from a run inside a hook) and XDG_* (a real
-    # git config or binding) would point the fixture at the caller's (review of #83).
-    e = {k: v for k, v in os.environ.items()
-         if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_", "GIT_", "XDG_")) and k != "CLAUDECODE"}
-    e.update(HOME=HOME, XDG_STATE_HOME=f"{T}/state", XDG_CONFIG_HOME=f"{T}/config")
-    return e
+    # Built from nothing (BASH_ENV, SHELLOPTS, the locale and the caller's git
+    # config would otherwise reach the hook and the fixture; review of #83).
+    return hook_harness.env(HOME, XDG_CONFIG_HOME=f"{T}/config")
 
 
 def hook(payload: str, cwd: str | None = None) -> tuple[int, str]:
