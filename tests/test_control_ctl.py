@@ -240,6 +240,18 @@ class Tables(unittest.TestCase):
         self.assertLess(t.index("q@y.z"), t.index("x@y.z"), "accounts in order")
 
 
+    def test_tokens_table_a_cache_hit_that_is_not_a_finite_number_is_a_dash_not_a_crash(self):
+        # review of #221, F2: an integer past a double parses as Infinity; every other cell of the row prints something.
+        for bad in (float("inf"), float("-inf"), float("nan")):
+            t = {"status": "ok", "days": 7, "files": 1, "requests": {"session": 1, "subagent": 0},
+                 "models": {"claude-opus-5": {"equiv": 10, "requests": 1, "input": 0, "cache_write": 0, "cache_read": 0, "output": 0, "path": "claude"}},
+                 "claude": {"requests": 3, "input": 0, "cache_write": 0, "cache_read": 4, "output": 5, "equiv": 10, "cache_hit": bad},
+                 "broker": {"requests": 0, "input": 0, "cache_write": 0, "cache_read": 0, "output": 0, "equiv": 0}}
+            rs = ctl.rows(placed("a"), [reply("a", "tokens", {"identity": {"claude_account": {"email": "x@y.z"}}, "tokens": t})])
+            out = ctl.table("tokens", rs)
+            self.assertRegex(out, re.compile(r"^a\s+ok\s+x@y.z\s+100%\s+10\s+3\s+4\s+-\s+5\b", re.M), repr(bad))
+
+
 def tar_with(manifest: dict, filler: int = 1200) -> bytes:
     """A tar as the harvester writes it: manifest.json first (ustar header, size in octal), then padding."""
     body = (json.dumps(manifest) + "\n").encode()

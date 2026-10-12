@@ -1447,7 +1447,8 @@ def _table_tokens(rs: list) -> list[str]:
 
     def hit(f: Any) -> str:
         # a whole percent of the claude path's cache hit; '-' when no prompt tokens (None) or an older answer without the field
-        return "-" if isinstance(f, bool) or not isinstance(f, (int, float)) else f"{math.floor(100 * f + 0.5)}%"
+        # not finite: a reply integer past a double reads as Infinity (js.json_parse), and no cell may take the table down
+        return "-" if isinstance(f, bool) or not isinstance(f, (int, float)) or not math.isfinite(f) else f"{math.floor(100 * f + 0.5)}%"
 
     def claude(r: dict, key: str) -> Any:
         return dig(r["tokens"], "claude", key)
