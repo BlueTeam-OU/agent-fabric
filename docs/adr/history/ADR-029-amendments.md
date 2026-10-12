@@ -133,3 +133,7 @@ ADR-046's fleet views read closed jobs, which no operation returns until after t
 ### Amendment 2026-10-10 — The gateway is installed and read through the control plane
 
 python-dev-03's #176 (gateway-switch s4) added the `gateway-install` action and the `gateway` read; its review left the record to the coordinator. The owner armed it on 2026-10-10 and the first live install put 0.1.0, verified against the pin, on all 25 accounts.
+
+### Amendment 2026-10-12 — The switch controller in the coordinator's agent; gateway carries joined accounts and session kinds; switch read
+
+ADR-052 (accepted by the owner on 2026-10-12, who asked for the controller in `advise` mode) says ADR-029's op table is amended when its pieces are built. The controller is built (`tools/fabric/control/account_switch.py`): the `gateway` read gains the joined setup-token fingerprints and the sessions' transports it needs, the operator read `switch` shows the mode and the move log, and the controller's run in the coordinator's agent is described. Nothing moves an account until the policy's mode is `act`, a later commit after ADR-052 §8's live checks.

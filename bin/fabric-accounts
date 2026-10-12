@@ -10,6 +10,8 @@
 #                                     fabric-ctl <logins> secrets-sync --expect <fp> --restart: each account
 #                                     applies it, proves it, and resumes a running session on it
 #   fabric-accounts templates         each template's fingerprint, in the coordinator's store
+#   fabric-accounts switch [--tick | --log [N]]
+#                                     the switch controller (ADR-052): what it would do now; one run; its move log
 #
 # The control daemon keeps these sign-ins alive and answers
 # `fabric-ctl <login> accounts`; this is the setup and the local look.

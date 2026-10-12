@@ -781,6 +781,35 @@ class Usage(Case):
         self.assertIn("5h reset 7d 90%", line)
         self.assertNotIn("95%", line, "the relay's fresh fetched_at does not make the old window current")
 
+    def test_a_live_relay_carries_each_entrys_joined_fingerprint_and_the_sessions_kinds(self):
+        """What the switch controller reads (ADR-052 rules 1 and 13)."""
+        from control import gateway_switch
+        self.release()
+        other = {**self.ENTRY, "generation": {"device": 9, "inode": 9, "mtime_sec": 9, "mtime_nsec": 9}}
+        self.put({"version": 1, "gateway_pid": 4242, "fetched_at": "T", "credentials": [self.ENTRY, other, {"source": {"fixed": "k"}, "generation": None}]})
+        gateway_switch.record(self.state, self.ENTRY["generation"], "aaaaaaaaaaaa", "t1")
+        kinds = {"status": "ok", "gateway": 1, "other": 0}
+        got = gw.gateway(home=self.home, state=self.state, root=self.root, alive=lambda p: True, sessions=lambda: kinds)
+        self.assertEqual(got["setup_tokens"], ["aaaaaaaaaaaa", None, None], "an unjoined generation stays unknown")
+        self.assertEqual(got["sessions"], kinds)
+        gone = gw.gateway(home=self.home, state=self.state, root=self.root, alive=lambda p: False, sessions=lambda: 1 / 0)
+        self.assertNotIn("sessions", gone, "beside a stale relay nothing is read for the controller")
+        self.assertNotIn("setup_tokens", gone)
+
+    def test_session_kinds_tell_gateway_from_plain_and_broker_and_unknown_from_none(self):
+        envs = {1: {"transport": "gateway", "provider": "anthropic"}, 2: {"transport": None, "provider": None},
+                3: {"transport": "gateway", "provider": "openrouter"}}
+        self.assertEqual(gw.session_kinds(lambda: [1, 2, 3], envs.__getitem__), {"status": "ok", "gateway": 1, "other": 2})
+        self.assertEqual(gw.session_kinds(lambda: [], envs.__getitem__), {"status": "ok", "gateway": 0, "other": 0})
+
+        def unreadable(pid):
+            raise PermissionError("no")
+        self.assertEqual(gw.session_kinds(lambda: [1], unreadable)["status"], "unknown")
+
+        def no_pgrep():
+            raise FileNotFoundError("pgrep")
+        self.assertEqual(gw.session_kinds(no_pgrep)["status"], "unknown", "cannot tell is never 'all gateway'")
+
 
 class Wiring(Case):
     def test_the_op_is_an_operator_action_and_the_read_an_operator_read(self):

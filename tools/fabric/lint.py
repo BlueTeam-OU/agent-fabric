@@ -27,6 +27,8 @@ Checks:
   shared     a shared slice really is shared (two or more owners)
   profiles   every review-grade gate in routing/profiles.json holds, and
              every role row names a catalogued role
+  switch     routing/policies/account-switch.json has its schema's shape and
+             passes the judge the switch controller runs (ADR-052 §5 rule 10)
   hygiene    no person's name (people by role: the CEO, the owner, an
              agent by its login — policies/hygiene.json), no city or
              country names, no external project names (each project's
@@ -95,6 +97,7 @@ from fabric_lint_rules.prompts import protected_token_findings  # noqa: E402, F4
 from fabric_lint_rules.schema import SCHEMA_KEYWORDS, _SCHEMA_MAPS, _json_equal, _json_type  # noqa: E402, F401
 from fabric_lint_rules.schema import _structural_check, fabric_settings_findings, load_json  # noqa: E402, F401
 from fabric_lint_rules.schema import load_schema, model_profile_findings, python_pin_findings  # noqa: E402, F401
+from fabric_lint_rules.schema import account_switch_findings  # noqa: E402, F401
 from fabric_lint_rules.schema import schema_keyword_findings, validate_json  # noqa: E402, F401
 from fabric_lint_rules.regex import regex_dollar_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import BASH_LINE_LIMIT, BASH_SHEBANG, _is_bash, bash_size_findings  # noqa: E402, F401
@@ -664,6 +667,7 @@ def main() -> int:
             findings += schema_findings
             if not schema_findings:
                 findings += model_profile_findings(root, profiles, known_roles)
+    findings += account_switch_findings(root, roots.routing_policy("account-switch.json", engine=root))
 
     # --- role identities ---------------------------------------------------
     template_schema = load_schema(root, schemas, "role-template")

@@ -16,6 +16,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <login|all> states [--follow] [--json]
+    fabric-ctl <coordinator> switch
     fabric-ctl keygen [--force]
 
 A login becomes an address through the registry's placement
@@ -131,6 +132,7 @@ USAGE = (
     "       fabric-ctl <login|all> branches   (each account, per working copy: the last sweep, its local branches and worktrees, how many are wholly on the default branch; no fetch, nothing changed)\n"
     "       fabric-ctl <login|all> branches --sweep   (an action: the account runs fabric-branches --sweep in each working copy with no uncommitted change and no build or suite running in it)\n"
     "       fabric-ctl <login|all> states [--follow] [--json]\n"
+    "       fabric-ctl <coordinator> switch   (the account switch controller's mode and move log, ADR-052; any other account has none)\n"
     "       fabric-ctl keygen [--force]")
 
 FETCH_TIMEOUT_S = 60
@@ -616,7 +618,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
-                    **{k: g(k) for k in ("harness", "inbox") if dig(d, k) is not UNDEFINED},
+                    **{k: g(k) for k in ("harness", "inbox", "switch") if dig(d, k) is not UNDEFINED},
                     **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep")) if dig(d, op) is not UNDEFINED}})
     return out
 
@@ -986,6 +988,25 @@ def _table_gateway(rs: list) -> list[str]:
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
                                   f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(S(nullish(dig(u, 'contract'), '-')), 8)} {digest}{why}"
                                   f"{'  ' + words if words else ''}")))
+    return lines
+
+
+def _table_switch(rs: list) -> list[str]:
+    """The switch controller's mode and the last lines of its move log (control/switch_log.py), one block an
+    account; an account that keeps no log says none."""
+    from control import switch_log
+    lines = [f"{pad_end('account', 22)} {pad_end('mode', 7)} move log"]
+    for r in rs:
+        u = r.get("switch")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        status = S(nullish(dig(u, "status"), "no status"))
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'mode'), '-')), 7)} "
+                                  f"{'no move logged' if status == 'none' else status}")))
+        for e in arr(dig(u, "lines")) if status == "ok" else []:
+            if isinstance(e, dict):
+                lines.append(esc("  " + switch_log.words(e)))
     return lines
 
 
@@ -1547,6 +1568,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_tools_install(rs)
     elif op == "gateway":
         lines = _table_gateway(rs)
+    elif op == "switch":
+        lines = _table_switch(rs)
     elif op == "gateway-install":
         lines = _table_gateway_install(rs)
     elif op == "restart":

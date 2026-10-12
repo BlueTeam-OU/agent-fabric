@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-fabric:routing:account-switch",
+  "title": "The account-switch policy for gateway sessions",
+  "description": "Committed at routing/policies/account-switch.json (agent-fabric ADR-052 §5 rule 10), written by fabric-coordinator. The shape only: tools/fabric/control/switch_policy.py adds what a schema cannot say (land below eject, distinct accounts, a reason for every number), and lint and the controller both run it.",
+  "type": "object",
+  "required": ["version", "description", "mode", "pool", "land", "eject", "perishable", "min_stay_s",
+               "reading_max_age_s", "probe_min_interval_s", "interval_s", "why"],
+  "additionalProperties": false,
+  "$defs": {
+    "share": {"type": "number", "minimum": 0, "maximum": 1},
+    "windows": {
+      "type": "object",
+      "required": ["five_hour", "seven_day"],
+      "additionalProperties": false,
+      "properties": {
+        "five_hour": {"$ref": "#/$defs/share"},
+        "seven_day": {"$ref": "#/$defs/share"}
+      }
+    },
+    "seconds": {"type": "integer", "minimum": 0},
+    "reason": {"type": "string", "minLength": 1}
+  },
+  "properties": {
+    "version": {"const": 1},
+    "description": {"type": "string", "minLength": 1},
+    "mode": {
+      "description": "off: no decision, no log. advise: each move it would make is logged (`would`), none made. act: moved by the fabric-accounts assign path (`did`). Committed as advise; act only after ADR-052 §8's live checks.",
+      "enum": ["off", "advise", "act"]
+    },
+    "pool": {
+      "type": "object",
+      "required": ["name", "accounts"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"},
+        "accounts": {
+          "description": "The coordinator's account templates by slug (fabric-accounts templates). Never a token; a move never leaves this list (rule 6).",
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"}
+        }
+      }
+    },
+    "land": {"description": "Rule 6: an account at or above either is not a target.", "$ref": "#/$defs/windows"},
+    "eject": {"description": "Rule 5: a session on an account at or above either is moved at its next idle.", "$ref": "#/$defs/windows"},
+    "perishable": {
+      "type": "object",
+      "required": ["within_hours", "max_utilization", "min_interval_s"],
+      "additionalProperties": false,
+      "properties": {
+        "within_hours": {"type": "number", "minimum": 0, "maximum": 168},
+        "max_utilization": {"$ref": "#/$defs/share"},
+        "min_interval_s": {"$ref": "#/$defs/seconds"}
+      }
+    },
+    "min_stay_s": {"$ref": "#/$defs/seconds"},
+    "reading_max_age_s": {"$ref": "#/$defs/seconds"},
+    "probe_min_interval_s": {"$ref": "#/$defs/seconds"},
+    "interval_s": {"$ref": "#/$defs/seconds"},
+    "why": {
+      "description": "Why each number is that number: ADR-052's reason, or, where the record leaves it open, the reason it was chosen.",
+      "type": "object",
+      "required": ["land", "eject", "perishable", "min_stay_s", "reading_max_age_s", "probe_min_interval_s", "interval_s"],
+      "additionalProperties": false,
+      "properties": {
+        "land": {"$ref": "#/$defs/reason"},
+        "eject": {"$ref": "#/$defs/reason"},
+        "perishable": {"$ref": "#/$defs/reason"},
+        "min_stay_s": {"$ref": "#/$defs/reason"},
+        "reading_max_age_s": {"$ref": "#/$defs/reason"},
+        "probe_min_interval_s": {"$ref": "#/$defs/reason"},
+        "interval_s": {"$ref": "#/$defs/reason"}
+      }
+    }
+  }
+}

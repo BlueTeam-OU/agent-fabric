@@ -359,3 +359,30 @@ def load_json(path: str, where: str, findings: list[str]) -> Any:
     except ValueError as exc:
         findings.append(f"{where}: not valid JSON ({exc})")
         return None
+
+
+def account_switch_findings(root: str, policy: str) -> list[str]:
+    """routing/policies/account-switch.json (agent-fabric ADR-052 §5 rule 10): its schema, then the judge the
+    switch controller itself runs (tools/fabric/control/switch_policy.py, loaded by path from this engine), so
+    a policy lint passes is one the controller will run on. `policy` is the file (roots.routing_policy), the
+    schema the engine's under `root`. An absent file is not judged: with no policy the controller moves
+    nothing and says so."""
+    where = "routing/policies/account-switch.json"
+    path = policy
+    if not os.path.exists(path):
+        return []
+    findings: list[str] = []
+    doc = load_json(path, where, findings)
+    if doc is None:
+        return findings
+    schema = load_schema(root, os.path.join("routing", "schemas"), "account-switch")
+    if schema is None:
+        findings.append("routing/schemas/account-switch.schema.json: missing, and the policy is judged against it")
+    else:
+        findings += validate_json(schema, doc, where)
+    engine = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    spec = importlib.util.spec_from_file_location("fabric_switch_policy", os.path.join(engine, "control", "switch_policy.py"))
+    judge = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(judge)
+    findings += [f"{where}: {p}" for p in judge.problems(doc)]
+    return findings
