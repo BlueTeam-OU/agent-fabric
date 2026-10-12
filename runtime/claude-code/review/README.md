@@ -118,8 +118,9 @@ the PR's head, then posts the findings with `fabric-pr post-review <PR>
 shape above do not apply, and the Claude review still has to be dispatched.
 A finding it posts is judged by the review class like any other. Which
 engines a pull request needs is the arming policy's `reviews`
-(`policies/arming.json`); the engine, its answer schema and its settings are in
-`tools/fabric/review_codex.py` (agent-fabric ADR-053).
+(`policies/arming.json`); the engine and its settings are in
+`tools/fabric/review_codex.py`, its answer schema in
+`runtime/claude-code/review/codex-answer.schema.json` (agent-fabric ADR-053).
 
 ## Who enforces what
 

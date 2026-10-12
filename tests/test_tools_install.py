@@ -375,6 +375,8 @@ def main() -> int:
         decl = tools_install.declarations(real, "codex")
         check("agent-fabric declares codex as an account tool", [pid for pid, _ in decl] == ["agent-fabric"], decl)
         pin = decl[0][1]["install"] if decl else {}
+        check("the member is the one the gateway's CI runs (its CODEX_BIN), so a wrong one cannot pass the stand-in below",
+              pin.get("member") == "package/vendor/x86_64-unknown-linux-musl/bin/codex", pin.get("member"))
         check("the pin is one the installer can act on, at the released version",
               tools_install.check_pin(pin) is None and pin.get("version") == "0.162.1" and decl[0][1].get("version") == "0.162.1", pin)
         check("the proof's first line, as Codex prints it, is the pinned version",

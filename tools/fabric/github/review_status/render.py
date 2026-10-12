@@ -60,7 +60,8 @@ def head_evidence(p: Probe) -> str:
 
     r = at_head(p.buckets.blind)
     if r:
-        return (f" — the review class's blind review of {jstr(sha8(r.get('commit_id')))}, {jstr(r.get('submitted_at'))}"
+        who = "Codex's review" if engine_of(r) == "codex" else "the review class's blind review"
+        return (f" — {who} of {jstr(sha8(r.get('commit_id')))}, {jstr(r.get('submitted_at'))}"
                 " (posted under the account every session pushes as)")
     r = at_head(p.buckets.independent)
     if r:
@@ -85,7 +86,9 @@ def render_text(ctx: "Ctx", p: Probe, x: Extras) -> None:
         out(f"      - {jstr(v['login'])}  commit={jstr(sha8(v['sha']))}  {jstr(v['at'])}")
     out(f"  blind reviews       : {len(b.blind)}" + ("   (the review class — coverage)" if b.blind else ""))
     for r in b.blind:
-        out(f"      - {jstr(login_of(r))}  commit={jstr(sha8(r.get('commit_id')))}  {jstr(r.get('submitted_at'))}")
+        # Only a second engine is named: the review class's lines stay as they were.
+        eng = "  engine=codex" if engine_of(r) == "codex" else ""
+        out(f"      - {jstr(login_of(r))}  commit={jstr(sha8(r.get('commit_id')))}  {jstr(r.get('submitted_at'))}{eng}")
     if b.outsiders:
         out(f"  not trusted         : {len(b.outsiders)}   (NOT coverage — not the owner, a member, a collaborator or a configured reviewer)")
         for r in b.outsiders:

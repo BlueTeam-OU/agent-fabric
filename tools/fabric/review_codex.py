@@ -366,7 +366,14 @@ def render_review(model: str, head: str, rng: str, findings: list[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+# Set once the post's child may have started: a signal after it cannot say "nothing posted", and a review
+# cannot be unsent (post_review.py).
+_posting = False
+
+
 def post(repo: str, pr: str, body: str) -> int:
+    global _posting
+    _posting = True
     r = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-pr"), "post-review", pr, "--model", ENGINE],
                        cwd=repo, input=body, text=True, timeout=180)
     return r.returncode
@@ -460,7 +467,8 @@ def main(argv: list[str] | None = None) -> int:
         print("fabric-review: the request does not render:\n  " + "\n  ".join(e.problems), file=sys.stderr)
         return 1
     except _Signalled as e:
-        print(f"fabric-review: stopped by signal {e.args[0]}; the scratch is removed, nothing posted", file=sys.stderr)
+        print(f"fabric-review: stopped by signal {e.args[0]}; the scratch is removed, "
+              + ("the review may have been posted: look at the PR" if _posting else "nothing posted"), file=sys.stderr)
         return 128 + int(e.args[0])
     except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as e:
         print(f"fabric-review: {e}; nothing posted", file=sys.stderr)

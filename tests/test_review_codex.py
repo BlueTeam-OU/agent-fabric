@@ -335,6 +335,32 @@ def main() -> int:
         check("Codex's own children are ended", not os.path.exists(f"/proc/{gc}")
               or open(f"/proc/{gc}/stat").read().split()[2] == "Z", gc)
 
+        # A signal after the post's child started cannot claim "nothing posted" (review of #220, F4): main() itself,
+        # with review() standing in for a run that was signalled once posting began.
+        print("a signal while posting: it says the review may have been posted")
+        import contextlib
+        import io
+
+        def signalled_after(posting):
+            def fake(*a, **k):
+                review_codex._posting = posting
+                raise review_codex._Signalled(15)
+            return fake
+        saved_review, saved_posting = review_codex.review, review_codex._posting
+        old_handlers = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
+        try:
+            for posting, want, refuse in ((True, "may have been posted", "nothing posted"), (False, "nothing posted", "may have")):
+                review_codex.review = signalled_after(posting)
+                buf = io.StringIO()
+                with contextlib.redirect_stderr(buf):
+                    rc = review_codex.main(["codex", "7", req])
+                check(f"posting={posting}: exit 143 and the words follow the flag",
+                      rc == 143 and want in buf.getvalue() and refuse not in buf.getvalue(), (rc, buf.getvalue()))
+        finally:
+            review_codex.review, review_codex._posting = saved_review, saved_posting
+            for s_, h in old_handlers.items():
+                signal.signal(s_, h)
+
         print("refusals: nothing runs, nothing is posted")
         for label, change, why in (
                 ("no base URL", {"AGENT_FABRIC_CODEX_BASE_URL": None}, "AGENT_FABRIC_CODEX_BASE_URL"),

@@ -296,6 +296,10 @@ def main() -> int:
     check("8 characters of a sha, null staying null", rs.sha8(HEAD) == "abc123de" and rs.sha8(None) is None)
     pb = rs.Probe(head=HEAD, head_reviewed=True, buckets=rs.Buckets(blind=[review("me")]))
     check("the head line names the blind review", "blind review of abc123de" in rs.head_evidence(pb))
+    cx = dict(review("me"), body="<!-- agent-fabric-review v1 -->\n<!-- model: codex -->\nx")
+    pcx = rs.Probe(head=HEAD, head_reviewed=True, buckets=rs.Buckets(blind=[cx]))
+    check("a codex review's head line names Codex, not the review class (review of #220, F2)",
+          "Codex's review of abc123de" in rs.head_evidence(pcx) and "review class" not in rs.head_evidence(pcx))
     pi = rs.Probe(head=HEAD, head_reviewed=True, buckets=rs.Buckets(independent=[review("someone")]))
     check("...or the independent one", rs.head_evidence(pi).startswith(" — an independent review (someone, abc123de"))
     check("...or says a verdict comment", rs.head_evidence(rs.Probe(head=HEAD, head_reviewed=True)) == " — a verdict comment on this head")

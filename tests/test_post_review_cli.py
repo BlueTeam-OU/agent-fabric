@@ -216,6 +216,10 @@ def main() -> int:
               "Codex, the second review engine" in body_of() and "the review class, dispatched" not in body_of(),
               body_of())
         set_pr(f"{me}/feat/thing")
+        invoke("findings", "552", "--model", "Codex")
+        check("--model Codex is captioned as Codex too, as the status reader counts it (review of #220, F3)",
+              "Codex, the second review engine" in body_of() and "the review class, dispatched" not in body_of(), body_of())
+        set_pr(f"{me}/feat/thing")
         invoke("findings", "552")
         check("no model line when unset", "<!-- model:" not in body_of(), body_of())
 

@@ -230,7 +230,7 @@ or lost, so it is rendered, not improvised:
    reviewer's conclusions.
 3. **One agent per PR**, on the exact `base..head` (or a diff file in
    the scratchpad when the range is not yet pushed).
-   When the repository's arming policy lists `codex` under `reviews`, the same
+   When the repository's arming policy lists `codex` under `reviews` (or, for a security-boundary change, `boundary_reviews`), the same
    request also goes to `fabric-review --engine codex <PR> request.yaml`
    (agent-fabric ADR-053): a child process, not a dispatch, posted as
    `--model codex`.

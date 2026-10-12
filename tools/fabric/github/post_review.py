@@ -252,7 +252,7 @@ def run(argv: list[str], stdin) -> int:
         header += "\n<!-- posted by the locale carve-out's merger -->"
     # The second engine (agent-fabric ADR-053) is not the review class, and
     # its review must not say it is; the marker and its reading are the same.
-    who = ("Codex, the second review engine, run once against this head" if model == "codex"
+    who = ("Codex, the second review engine, run once against this head" if (model or "").strip().lower() == "codex"
            else "the review class, dispatched against this head")
     full_body = f"""{header}
 **Blind review** — {who} with a
