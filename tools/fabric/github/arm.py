@@ -715,7 +715,11 @@ def arm(argv: list[str]) -> int:
             if not isinstance(rows, list):
                 raise Unanswered(f"pr-review-status --json carried no blind.rows for #{num} — cannot judge the review-class review")
             unresolved = rs.get("unresolved_threads")
-            if not any(isinstance(r, dict) and r.get("commit_sha8") == head[:8] for r in rows):
+            # The review class's review is the claude engine's; a Codex review of the head is the second
+            # engine's, counted by gate 4b only (review of #220, F1). A reader that predates the field
+            # carries none: those rows are the review class's.
+            if not any(isinstance(r, dict) and r.get("commit_sha8") == head[:8] and r.get("engine", "claude") == "claude"
+                       for r in rows):
                 # An independent or automated review is not the boundary's
                 # review: the reader counts any non-author review object
                 # (a managed project's PR #930 blind review, F1).

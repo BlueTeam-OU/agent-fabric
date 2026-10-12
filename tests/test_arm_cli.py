@@ -597,6 +597,16 @@ def main() -> int:
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
         rc, out = run("7", "--basis", "b", policy=bnd)
         check("…and a PR outside the boundary is not asked for it", rc == 0 and "ARMED #7" in out, out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
+        rc, out = run("7", "--basis", "b")
+        check("the default policy: a codex review of the head is not the boundary's review-class review (review of #220, F1)",
+              rc == 1 and "no review-class review" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
+        rc, out = run("7", "--basis", "b", policy=dict(arm_policy.default(), mode="direct"))
+        check("…nor a direct repository's", rc == 1 and "no review-class review" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
+        rc, out = run("7", "--basis", "b")
+        check("…while the review class's own review of the head, beside a codex one, still arms", rc == 0 and "ARMED #7" in out, out)
 
         print("arm: gate 5 — the classes that arm under 8 without asking")
         reset(); set_pr("develop-qzapp/me/docs/x", "Wording.\n\nClass: docs-only",
