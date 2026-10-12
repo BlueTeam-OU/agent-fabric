@@ -811,6 +811,11 @@ def main(argv: list[str] | None = None) -> int:
         pressure_sampler = pressure.sampler()
         pressure_sampler.tick()
         Ticker("memory pressure", pressure_sampler.tick, pressure.SAMPLE_INTERVAL_MS / 1000, first_s=pressure.SAMPLE_INTERVAL_MS / 1000).start()
+        # The account switch controller (ADR-052) runs where the templates are, the coordinator's account: the
+        # host operator's. Its own lock keeps one run at a time beside a person's `fabric-accounts switch --tick`.
+        if me["address"] in operator_addresses():
+            from control import account_switch
+            account_switch.start(Ticker, _stderr)
         # What the account's sessions are doing, posted when it changes
         # (sessions.py); first at start, so a restart re-says it.
         states = sessions.StateWatcher(address=me["address"], post=state_poster(call, cfg, me["address"]),

@@ -22,6 +22,10 @@ pinned Python: `python3 tools/fabric/control/accounts.py`.
   fabric-accounts templates         each template's token fingerprint in the coordinator's store,
                                     to name the account behind a login's `setup-token <sha>`
                                     (fabric-ctl, fabric-status)
+  fabric-accounts switch [--tick | --log [N]]
+                                    the switch controller (ADR-052; control/account_switch.py): what it
+                                    would do now (nothing logged or moved); one run (--tick, what the
+                                    control agent's timer runs); the move log's tail (--log)
 
 Prints no token: a sign-in is described by its email, its expiry and whether
 a refresh token is held — never by a value.
@@ -49,6 +53,7 @@ from control.ops import util  # noqa: E402
 from control.ops.usage import ACCOUNT_SLUG, account_slugs, accounts, accounts_dir, claude_bin, take_read_lock  # noqa: E402
 
 USAGE = """usage: fabric-accounts login <account> | list | read | templates | assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
+       fabric-accounts switch [--tick | --log [N]]
   <account>: lowercase letters, digits and hyphens — the account's email with @ and . as -,
              e.g. claude-pzhuy-8alias-com (the template's name: CLAUDE_ACCOUNT_<ACCOUNT> in the
              coordinator's store)"""
@@ -178,6 +183,9 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: dic
     arg = argv[1] if len(argv) > 1 else None
     directory = accounts_dir(home, env)
     root = fabric_root(env)
+    if cmd == "switch":
+        from control import account_switch
+        return account_switch.main(argv[1:])
     if cmd == "list" and len(argv) == 1:
         print("\n".join(list_lines(directory)))
         return 0
