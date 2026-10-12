@@ -19,7 +19,7 @@ SPDX-License-Identifier = "Apache-2.0"
 # Vendored, unchanged: Anthropic's skill-creator skill. Upstream
 # https://github.com/anthropics/skills, path skills/skill-creator, commit
 # dbd4588f9e1033efb41dad4bef2f7947c8993d44 (its LICENSE.txt is Apache-2.0).
-# The README beside it is ours and falls under the aggregate annotation.
+# The README beside it is ours and has its own override below.
 [[annotations]]
 path = ["policies/skill-creator/**"]
 precedence = "override"

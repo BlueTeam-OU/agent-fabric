@@ -1,6 +1,6 @@
 ---
 name: repo-lifecycle
-description: "Move a managed repository to another GitHub organisation or rename it, or import a repository as a new managed project: two ordered checklists that say who does each step (the owner's hand, fabric-coordinator, devex-tooling, the project's agents) and why the order matters. Load it whenever the owner says a repository moves, is transferred, renamed, imported, adopted or made a managed project, even if no one says 'skill'; before editing projects/registry.json, projects/clients.json or policies/auto-mode.json for a repository's name; when a clone's origin or a push names a repository that has changed (HTTP 307 on a write); and when fabric-pr arm refuses for a missing settings file."
+description: "Move a managed repository to another GitHub organisation or rename it, or import a repository as a new managed project: two ordered checklists that say who does each step (the owner's hand, fabric-coordinator, devex-tooling, the project's agents) and why the order matters. Load it whenever the owner says a repository moves, is transferred, renamed, imported, adopted or made a managed project, even if no one says 'skill'; before editing projects/registry.json, projects/clients.json or policies/auto-mode.json for a repository's name; when a clone's origin or a push names a repository that has changed (HTTP 307 on a write); and when fabric-pr arm refuses with an error naming a client's settings repository."
 ---
 
 # Moving and importing a repository
@@ -65,12 +65,17 @@ ruleset, the arm refuses on drift).
    project, so both names are proved to resolve to it. Run both tests.
 6. **Merge the registry PR first.** Tell the project's agents that arms
    refuse until step 7 lands, and why (fail closed, correct).
-7. **devex-tooling:** add `repos/<repo>.json` to the new client's settings
-   repository (its CI passes only after step 6), then remove it from the
-   old one. Same client, renamed repository: rename the file. **Nobody
-   runs a `fabric-repo-policy` apply until the file has landed**: an apply
-   under the fleet default would replace the queue, required checks and
-   rulesets with the default.
+7. **devex-tooling:** one PR per settings repository. Each settings
+   repository validates against its pinned agent-fabric commit
+   (`AGENT_FABRIC_REF` in its `.github/workflows/validate.yml`; its
+   `tools/validate_policies.py` reads `projects/registry.json` and
+   `clients.json` from that checkout). So the PR sets `AGENT_FABRIC_REF`
+   to an agent-fabric main commit at or after the step 6 merge AND adds
+   `repos/<repo>.json` (new client) or removes it (old client); either
+   alone fails CI. Same client, renamed repository: rename the file.
+   **Nobody applies the policy by hand until the file has landed**: an
+   apply under the fleet default would replace the queue, required checks
+   and rulesets with the default.
 8. **Owner:** transfer or rename on GitHub, then what a transfer does not
    carry: Actions secrets and variables, deploy keys, apps, webhooks,
    team access. Rulesets, branch protection and workflows travel with it.
@@ -132,8 +137,12 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    `roles/<role>.md` remits for the roles that work there (copy one from
    a sibling; charters are never copied), `memory/` (a drain fills it),
    `fabric-ref` (one line, a full commit id of this repository, ADR-011).
-5. **devex-tooling:** `repos/<repo>.json` in the client's `settings_repo`.
-   Its CI passes only once step 2 is merged. Then `fabric-repo-policy plan
+5. **devex-tooling:** one PR in the client's `settings_repo`. It validates
+   against its pinned agent-fabric commit (`AGENT_FABRIC_REF` in
+   `.github/workflows/validate.yml`; `tools/validate_policies.py` reads
+   `projects/registry.json` and `clients.json` from that checkout). So the
+   PR sets `AGENT_FABRIC_REF` to an agent-fabric main commit at or after
+   the step 2 merge AND adds `repos/<repo>.json`; either alone fails CI. Then `fabric-repo-policy plan
    <owner/repo>`; apply by hand only when the file is on the settings
    repository's default branch.
 6. **fabric-coordinator**, `policies/auto-mode.json`: name the repository
@@ -153,8 +162,11 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
 9. **Read-back, fabric-coordinator:** `python3 tools/fabric/lint.py
    --no-siblings`; `fabric-adr lookup <topic>` for each decision the
    project touches; `fabric-repo-policy verify <owner/repo>`; the first
-   `fabric-pr arm` reads the project's file (an error naming the settings
-   repository means step 5 or the client is wrong). Then message the
+   `fabric-pr arm` reads the project's file (a missing file is no error: a
+   404 falls to the fleet policy, a drift refusal or a plan against the
+   fleet ruleset, so step 5 not landed shows there; an error naming the
+   settings repository means the client or its `settings_repo` is wrong or
+   unreadable). Then message the
    roles that work there.
 
 Not automated yet: the entry, the integration directory and the

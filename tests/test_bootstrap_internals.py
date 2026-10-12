@@ -502,9 +502,20 @@ def tree_skills(T: str) -> None:
         put(os.path.join(dest, "SKILL.md"), "a person's own version\n")
         _, out, _ = quiet(b.tree_skills, "python-dev")
         check("a skill of that name the fabric did not write is kept, and said",
-              os.path.isfile(os.path.join(dest, "SKILL.md")) and "kept: not written by the fabric" in out, out)
+              os.path.isfile(os.path.join(dest, "SKILL.md")) and "kept: 1 file(s) not written by the fabric" in out, out)
 
         shutil.rmtree(dest)
+        quiet(b.tree_skills, "architect-cto")
+        extra = os.path.join(dest, "scripts", "mine.py")
+        put(extra, "a person's file\n")
+        _, out, _ = quiet(b.tree_skills, "python-dev")
+        check("a file the fabric did not write keeps the directory, and is said",
+              os.path.isfile(extra) and "kept: 1 file(s) not written" in out
+              and os.path.isfile(os.path.join(dest, "SKILL.md")), out)
+        os.remove(extra)
+        quiet(b.tree_skills, "python-dev")
+        check("only fabric-written files left: removed with the directory", not os.path.exists(dest))
+
         quiet(b.tree_skills, "architect-cto")
         d = bootstrap.Bootstrap(projects, True, root)
         _, out, _ = quiet(d.tree_skills, "python-dev")
