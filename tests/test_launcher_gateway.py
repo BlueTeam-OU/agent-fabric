@@ -58,6 +58,26 @@ def main() -> int:
             msg = refused(gateway.check_version, script("bad", body))
             check(f"{label}: refused, nothing started", wants in msg and "Nothing started" in msg, msg)
         check("a missing binary: refused", "cannot run" in refused(gateway.check_version, os.path.join(tmp, "absent")))
+
+        print("the version check for another schema and a protocol (the Codex review's gateway)")
+        stage6 = script("stage6", "print('{\"gateway_version\":\"0.3.0\",\"runtime_contract\":1,\"plan_schemas\":[0,1],"
+                                  "\"protocols\":[\"anthropic\",\"openai-responses\"]}')")
+        v = gateway.check_version(stage6, plan_schema=1, protocol="openai-responses")
+        check("schema 1 and openai-responses served: returned", v["gateway_version"] == "0.3.0", v)
+        for label, body, wants in (
+                ("a 0.2.0 gateway: plan schema 0 alone, no protocols", "print('{\"gateway_version\":\"0.2.0\",\"runtime_contract\":1,\"plan_schemas\":[0]}')",
+                 "not 1"),
+                ("schema 1 read but no protocols listed", "print('{\"gateway_version\":\"0.2.9\",\"runtime_contract\":1,\"plan_schemas\":[0,1]}')",
+                 "lists no protocols, not openai-responses"),
+                ("schema 1 read, anthropic served alone", "print('{\"gateway_version\":\"0.2.9\",\"runtime_contract\":1,\"plan_schemas\":[0,1],\"protocols\":[\"anthropic\"]}')",
+                 "serves protocols ['anthropic'], not openai-responses"),
+                ("protocols that is not a list", "print('{\"gateway_version\":\"0.2.9\",\"runtime_contract\":1,\"plan_schemas\":[0,1],\"protocols\":\"openai-responses\"}')",
+                 "lists no protocols")):
+            msg = refused(gateway.check_version, script("bad6", body), plan_schema=1, protocol="openai-responses")
+            check(f"{label}: refused by name, nothing started", wants in msg and "Nothing started" in msg, msg)
+        check("the session's check asks for no protocol: a gateway listing none still passes",
+              gateway.check_version(script("ok0", "print('{\"gateway_version\":\"0.2.0\",\"runtime_contract\":1,\"plan_schemas\":[0]}')"))
+              ["gateway_version"] == "0.2.0")
         check("a hung --version: refused at the bound", "did not answer within" in refused(
             gateway.check_version, script("hang", "import time\ntime.sleep(30)"), 1))
 
@@ -87,6 +107,14 @@ def main() -> int:
                                    ("a malformed digest", {"plan_digest": "nope"}, "no plan digest"),
                                    ("another event", {"event": "starting"}, "not a READY record")):
             check(f"{label}: refused", wants in parse_raises(**over), parse_raises(**over))
+        line1 = (json.dumps({**good, "plan_schema": 1}) + "\n").encode()
+        check("a READY for schema 1 parses when schema 1 was written", gateway._parse_ready(line1, digest, 1)["plan_schema"] == 1)
+        try:
+            gateway._parse_ready((json.dumps(good) + "\n").encode(), digest, 1)
+            got = ""
+        except gateway._Refuse as e:
+            got = str(e)
+        check("a READY for schema 0 when schema 1 was written: refused", "plan schema 0, not 1" in got, got)
         try:
             gateway._parse_ready(b"not json\n", digest)
             got = ""

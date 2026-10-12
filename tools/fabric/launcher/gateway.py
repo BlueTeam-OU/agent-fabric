@@ -58,6 +58,7 @@ from fabric_launcher.base import BROKER_ENV, _load, die, say
 # (the gateway repository's architecture/contracts/plan-v0/README.md). A contract
 # the gateway reports and this tuple lacks is refused before anything starts.
 SUPPORTED_RUNTIME_CONTRACTS = (1,)
+# The session's plan schema; a caller writing another names it (check_version, start).
 PLAN_SCHEMA = 0
 VERSION_TIMEOUT_S = 30
 READY_TIMEOUT_S = 30
@@ -133,9 +134,17 @@ def _which(name: str, path: str) -> str | None:
     return None
 
 
-def check_version(binary: str, timeout: float = VERSION_TIMEOUT_S) -> dict:
+def check_version(binary: str, timeout: float = VERSION_TIMEOUT_S, *, plan_schema: int = PLAN_SCHEMA,
+                  protocol: str | None = None) -> dict:
     """`<binary> --version --json`, refused unless its runtime_contract and plan
-    schemas are ones this launcher supports. Nothing is started before this."""
+    schemas are ones this launcher supports. Nothing is started before this.
+
+    `plan_schema` is the schema the caller's plan is written in: the session's
+    is PLAN_SCHEMA; the Codex review (tools/fabric/review_gateway.py) writes 1.
+    `protocol`, when given, must be in the answer's `protocols`: a schema the
+    gateway reads is not a protocol it serves (the plan README, "Schema 1"),
+    and a gateway older than the field serves `anthropic` alone, so a missing
+    list refuses any protocol asked for by name. The session asks for none."""
     try:
         r = subprocess.run([binary, "--version", "--json"], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                            errors="replace", timeout=timeout)
@@ -155,9 +164,15 @@ def check_version(binary: str, timeout: float = VERSION_TIMEOUT_S) -> dict:
     if doc["runtime_contract"] not in SUPPORTED_RUNTIME_CONTRACTS:
         die(f"the installed gateway {doc['gateway_version']} speaks runtime contract {doc['runtime_contract']}; "
             f"this launcher supports {', '.join(map(str, SUPPORTED_RUNTIME_CONTRACTS))}. Nothing started.")
-    if not any(type(s) is int and s == PLAN_SCHEMA for s in doc["plan_schemas"]):
-        die(f"the installed gateway {doc['gateway_version']} accepts plan schemas {doc['plan_schemas']}, not {PLAN_SCHEMA}, "
+    if not any(type(s) is int and s == plan_schema for s in doc["plan_schemas"]):
+        die(f"the installed gateway {doc['gateway_version']} accepts plan schemas {doc['plan_schemas']}, not {plan_schema}, "
             "the one the plan generator writes. Nothing started.")
+    if protocol is not None:
+        served = doc.get("protocols")
+        if not isinstance(served, list) or protocol not in [p for p in served if isinstance(p, str)]:
+            listed = "lists no protocols" if not isinstance(served, list) else f"serves protocols {served}"
+            die(f"the installed gateway {doc['gateway_version']} {listed}, not {protocol}, the one this run needs. "
+                "Nothing started.")
     return doc
 
 
@@ -203,9 +218,10 @@ def _read_ready(fd: int, proc: subprocess.Popen, timeout: float) -> bytes:
 
 
 def start(binary: str, plan_path: str, log_path: str, version: dict, *, ready_timeout: float = READY_TIMEOUT_S,
-          launcher_pid: int | None = None) -> Gateway:
+          launcher_pid: int | None = None, plan_schema: int = PLAN_SCHEMA) -> Gateway:
     """Start the gateway on `plan_path` and wait for READY; the harness starts
-    only after this returns. A start that fails stops what it started."""
+    only after this returns. A start that fails stops what it started.
+    `plan_schema` is the plan's schema_version, which READY must repeat."""
     digest = plan_digest(plan_path)
     key = secrets.token_hex(32)
     launcher_pid = os.getpid() if launcher_pid is None else launcher_pid
@@ -242,7 +258,7 @@ def start(binary: str, plan_path: str, log_path: str, version: dict, *, ready_ti
             what = ("closed its READY channel and kept running" if code is None
                     else EXIT_MEANING.get(code, f"exit {code}"))
             raise _Refuse(f"the gateway stopped before READY ({what}; its log: {log_path})")
-        ready = _parse_ready(line, digest)
+        ready = _parse_ready(line, digest, plan_schema)
     except _Refuse as why:
         mine.close()
         _kill(proc)
@@ -257,7 +273,7 @@ class _Refuse(Exception):
     pass
 
 
-def _parse_ready(line: bytes, digest: str) -> dict:
+def _parse_ready(line: bytes, digest: str, plan_schema: int = PLAN_SCHEMA) -> dict:
     try:
         doc = json.loads(line.decode("utf-8"))
     except ValueError:
@@ -266,8 +282,8 @@ def _parse_ready(line: bytes, digest: str) -> dict:
         raise _Refuse("the gateway's first line was not a READY record")
     if type(doc.get("runtime_contract")) is not int or doc["runtime_contract"] not in SUPPORTED_RUNTIME_CONTRACTS:
         raise _Refuse(f"READY names runtime contract {doc.get('runtime_contract')!r}, which this launcher does not support")
-    if type(doc.get("plan_schema")) is not int or doc["plan_schema"] != PLAN_SCHEMA:
-        raise _Refuse(f"READY names plan schema {doc.get('plan_schema')!r}, not {PLAN_SCHEMA}")
+    if type(doc.get("plan_schema")) is not int or doc["plan_schema"] != plan_schema:
+        raise _Refuse(f"READY names plan schema {doc.get('plan_schema')!r}, not {plan_schema}")
     listener = doc.get("listener")
     if not isinstance(listener, str) or not LISTENER.fullmatch(listener) or int(LISTENER.fullmatch(listener).group(1)) > 65535:
         raise _Refuse(f"READY names a listener that is not loopback http: {listener!r}")
