@@ -243,9 +243,11 @@
       ]
     },
     "interweave": {
-      "client": "gzapi",
+      "client": "blueteam",
       "title": "InterWeave — peer-to-peer transport for Claude Code Channels and first-party clients",
       "remotes": [
+        "git@github.com:BlueTeam-OU/InterWeave.git",
+        "https://github.com/BlueTeam-OU/InterWeave",
         "git@github.com:gzapi-org/InterWeave.git",
         "https://github.com/gzapi-org/InterWeave"
       ],
@@ -254,7 +256,7 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/interweave/integration",
       "license": "Apache-2.0",
-      "note": "A Rust workspace on libp2p: one PeerId, many EndpointIds, signed GossipSub broadcast, a directed protocol, replaceable discovery, Kademlia, AutoNAT v2 / Circuit Relay v2 / DCUtR. Worked by the owner's own login until 2026-09-17, when the CEO made it a managed project with one new role, p2p-network-dev (the code), architect-cto holding its decision records and stage gates, devex-tooling its CI. Its merge queue stays on (the owner, 2026-09-17).",
+      "note": "A Rust workspace on libp2p: one PeerId, many EndpointIds, signed GossipSub broadcast, a directed protocol, replaceable discovery, Kademlia, AutoNAT v2 / Circuit Relay v2 / DCUtR. Worked by the owner's own login until 2026-09-17, when the CEO made it a managed project with one new role, p2p-network-dev (the code), architect-cto holding its decision records and stage gates, devex-tooling its CI. Its merge queue stays on (the owner, 2026-09-17). Moved from gzapi-org to BlueTeam-OU on 2026-10-12; the old remotes stay listed for clones not yet re-pointed.",
       "tools": [
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
