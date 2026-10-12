@@ -20,9 +20,15 @@ route for: it is named in `skipped`, never guessed.
 
 CONTRACT
   build(login, ...) -> Plan(doc, bytes, digest, selectors, skipped, token_file, warnings)
-  validate(doc) -> list of "path: why" — empty when the plan passes the schema (the gateway's plan-v0 schema, kept
-                   here as data) and the rules no schema can say (unique identifiers, every reference declared, one
-                   route per selector). It reads no credential and writes nothing.
+  validate(doc, schema_version=0) -> list of "path: why" — empty when the plan passes the schema (the gateway's
+                   plan-v0 or plan-v1 schema, both kept here as data) and the rules no schema can say (unique
+                   identifiers, every reference declared, one route per selector; under schema 1, one protocol per
+                   gateway and every route within its listener's protocol). It reads no credential and writes nothing.
+  build_responses(model, token_file, ...) -> Plan — the schema-1 plan the Codex review's own gateway serves
+                   (review_gateway.py, agent-fabric ADR-053 rule 3): an `openai-responses` listener, the ChatGPT
+                   backend (https://chatgpt.com/backend-api/codex), a `file` profile on token_file with Authorization
+                   "Bearer " and no companion header, one identity route for the model. The session's plans above
+                   are schema 0 and unchanged by it.
   write(plan, path) the bytes, atomically, 0600; returns the path.
   The command prints the plan on stdout, or with --out writes it and prints one JSON object: plan, plan_digest,
   selectors, skipped, token_file (and validation, with --validate: the gateway's `validate-plan` when its binary is
@@ -54,6 +60,12 @@ import routing  # noqa: E402
 # dropped. tests/fixtures/gateway-plan-v0/schema.json is the same document and tests/test_gateway_plan.py holds the
 # two equal. The schema is the authority for shape; the gateway's README beside it, for the rest.
 SCHEMA = json.loads(r'''{"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":0},"session":{"type":"object","additionalProperties":false,"properties":{"opaque_id":{"type":"string","minLength":1,"maxLength":128}},"required":["opaque_id"]},"listeners":{"type":"array","minItems":1,"maxItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"ingress_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"protocol":{"const":"anthropic"},"bind":{"type":"string","pattern":"^127\\.0\\.0\\.1:(0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$"},"harness_auth":{"type":"object","additionalProperties":false,"properties":{"source":{"const":"fd"}},"required":["source"]}},"required":["ingress_id","protocol","bind","harness_auth"]}},"backends":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"backend_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"protocol":{"const":"anthropic"},"base_url":{"type":"string","pattern":"^https://(?:[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\\.?|\\[[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*\\])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/[!-\"$->@-~]*)?$"}},"required":["backend_id","protocol","base_url"]}},"auth_profiles":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"profile_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"source":{"enum":["env","file"]},"name":{"type":"string","pattern":"^[A-Za-z_][A-Za-z0-9_]*$"},"path":{"type":"string","pattern":"^/"},"header":{"type":"string","pattern":"^[A-Za-z0-9-]+$","not":{"pattern":"^([Hh][Oo][Ss][Tt]|[Cc][Oo][Nn][Tt][Ee][Nn][Tt]-[Ll][Ee][Nn][Gg][Tt][Hh]|[Ee][Xx][Pp][Ee][Cc][Tt]|[Uu][Ss][Ee][Rr]-[Aa][Gg][Ee][Nn][Tt]|[Cc][Oo][Nn][Nn][Ee][Cc][Tt][Ii][Oo][Nn]|[Kk][Ee][Ee][Pp]-[Aa][Ll][Ii][Vv][Ee]|[Pp][Rr][Oo][Xx][Yy]-[Cc][Oo][Nn][Nn][Ee][Cc][Tt][Ii][Oo][Nn]|[Pp][Rr][Oo][Xx][Yy]-[Aa][Uu][Tt][Hh][Ee][Nn][Tt][Ii][Cc][Aa][Tt][Ee]|[Pp][Rr][Oo][Xx][Yy]-[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]|[Tt][Ee]|[Tt][Rr][Aa][Ii][Ll][Ee][Rr]|[Tt][Rr][Aa][Nn][Ss][Ff][Ee][Rr]-[Ee][Nn][Cc][Oo][Dd][Ii][Nn][Gg]|[Uu][Pp][Gg][Rr][Aa][Dd][Ee]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Nn][Tt][Hh][Rr][Oo][Pp][Ii][Cc]-[Bb][Ee][Tt][Aa])$"}},"prefix":{"type":"string","pattern":"^[^\\u0000-\\u001f\\u007f]*$"},"companion_headers":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"name":{"const":"anthropic-beta"},"value":{"type":"string","pattern":"^[A-Za-z0-9._-]+$"}},"required":["name","value"]}}},"required":["profile_id","source","header","prefix"],"oneOf":[{"properties":{"source":{"const":"env"}},"required":["name"],"not":{"required":["path"]}},{"properties":{"source":{"const":"file"}},"required":["path"],"not":{"required":["name"]}}]}},"routes":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"route_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"ingress_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"source":{"type":"object","additionalProperties":false,"properties":{"model_selector":{"type":"string","minLength":1}},"required":["model_selector"]},"target":{"type":"object","additionalProperties":false,"properties":{"backend_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"model":{"type":"string","minLength":1}},"required":["backend_id","model"]},"auth_profile_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"}},"required":["route_id","ingress_id","source","target","auth_profile_id"]}},"defaults":{"type":"object","additionalProperties":false,"properties":{"unknown_route":{"type":"object","additionalProperties":false,"properties":{"status":{"type":"integer","minimum":400,"maximum":499},"error_type":{"type":"string","minLength":1}},"required":["status","error_type"]}},"required":["unknown_route"]}},"required":["schema_version","session","listeners","backends","auth_profiles","routes","defaults"]}''')
+
+# The gateway's plan-v1 schema (Stage 6), kept the same way: schema 0 with schema_version 1 and `protocol` admitting
+# "openai-responses" on listeners and backends, nothing else (the gateway's plan README, "Schema 1").
+# tests/fixtures/gateway-plan-v1/schema.json is the same document, held equal by tests/test_gateway_plan.py.
+SCHEMA_V1 = json.loads(r'''{"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"session":{"type":"object","additionalProperties":false,"properties":{"opaque_id":{"type":"string","minLength":1,"maxLength":128}},"required":["opaque_id"]},"listeners":{"type":"array","minItems":1,"maxItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"ingress_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"protocol":{"enum":["anthropic","openai-responses"]},"bind":{"type":"string","pattern":"^127\\.0\\.0\\.1:(0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$"},"harness_auth":{"type":"object","additionalProperties":false,"properties":{"source":{"const":"fd"}},"required":["source"]}},"required":["ingress_id","protocol","bind","harness_auth"]}},"backends":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"backend_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"protocol":{"enum":["anthropic","openai-responses"]},"base_url":{"type":"string","pattern":"^https://(?:[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\\.?|\\[[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*\\])(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/[!-\"$->@-~]*)?$"}},"required":["backend_id","protocol","base_url"]}},"auth_profiles":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"profile_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"source":{"enum":["env","file"]},"name":{"type":"string","pattern":"^[A-Za-z_][A-Za-z0-9_]*$"},"path":{"type":"string","pattern":"^/"},"header":{"type":"string","pattern":"^[A-Za-z0-9-]+$","not":{"pattern":"^([Hh][Oo][Ss][Tt]|[Cc][Oo][Nn][Tt][Ee][Nn][Tt]-[Ll][Ee][Nn][Gg][Tt][Hh]|[Ee][Xx][Pp][Ee][Cc][Tt]|[Uu][Ss][Ee][Rr]-[Aa][Gg][Ee][Nn][Tt]|[Cc][Oo][Nn][Nn][Ee][Cc][Tt][Ii][Oo][Nn]|[Kk][Ee][Ee][Pp]-[Aa][Ll][Ii][Vv][Ee]|[Pp][Rr][Oo][Xx][Yy]-[Cc][Oo][Nn][Nn][Ee][Cc][Tt][Ii][Oo][Nn]|[Pp][Rr][Oo][Xx][Yy]-[Aa][Uu][Tt][Hh][Ee][Nn][Tt][Ii][Cc][Aa][Tt][Ee]|[Pp][Rr][Oo][Xx][Yy]-[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]|[Tt][Ee]|[Tt][Rr][Aa][Ii][Ll][Ee][Rr]|[Tt][Rr][Aa][Nn][Ss][Ff][Ee][Rr]-[Ee][Nn][Cc][Oo][Dd][Ii][Nn][Gg]|[Uu][Pp][Gg][Rr][Aa][Dd][Ee]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Nn][Tt][Hh][Rr][Oo][Pp][Ii][Cc]-[Bb][Ee][Tt][Aa])$"}},"prefix":{"type":"string","pattern":"^[^\\u0000-\\u001f\\u007f]*$"},"companion_headers":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"name":{"const":"anthropic-beta"},"value":{"type":"string","pattern":"^[A-Za-z0-9._-]+$"}},"required":["name","value"]}}},"required":["profile_id","source","header","prefix"],"oneOf":[{"properties":{"source":{"const":"env"}},"required":["name"],"not":{"required":["path"]}},{"properties":{"source":{"const":"file"}},"required":["path"],"not":{"required":["name"]}}]}},"routes":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"properties":{"route_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"ingress_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"source":{"type":"object","additionalProperties":false,"properties":{"model_selector":{"type":"string","minLength":1}},"required":["model_selector"]},"target":{"type":"object","additionalProperties":false,"properties":{"backend_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"model":{"type":"string","minLength":1}},"required":["backend_id","model"]},"auth_profile_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"}},"required":["route_id","ingress_id","source","target","auth_profile_id"]}},"defaults":{"type":"object","additionalProperties":false,"properties":{"unknown_route":{"type":"object","additionalProperties":false,"properties":{"status":{"type":"integer","minimum":400,"maximum":499},"error_type":{"type":"string","minLength":1}},"required":["status","error_type"]}},"required":["unknown_route"]}},"required":["schema_version","session","listeners","backends","auth_profiles","routes","defaults"]}''')
+SCHEMAS = {0: SCHEMA, 1: SCHEMA_V1}
 
 INGRESS_ID = "claude"
 LISTEN_HOST = "127.0.0.1"
@@ -155,9 +167,13 @@ def _check(value: object, schema: dict, path: str, out: list[str]) -> None:
             out.append(f"{path or '/'}: matches {passing} of its {len(schema['oneOf'])} alternatives, not exactly one")
 
 
-def validate(doc: object) -> list[str]:
+def validate(doc: object, schema_version: int = 0) -> list[str]:
+    """`schema_version` is the schema the caller wrote, never read from the document: a session plan that says 1 is
+    refused by schema 0's const, not admitted by schema 1."""
     problems: list[str] = []
-    _check(doc, SCHEMA, "", problems)
+    if schema_version not in SCHEMAS:
+        return [f"/schema_version: {schema_version!r} is not a schema this generator knows ({sorted(SCHEMAS)})"]
+    _check(doc, SCHEMAS[schema_version], "", problems)
     if problems or not isinstance(doc, dict):
         return problems
     # The rules of the contract's README that a schema cannot say.
@@ -183,6 +199,18 @@ def validate(doc: object) -> list[str]:
         if key in selectors:
             problems.append(f"/routes/{i}/source/model_selector: {key[1]!r} is on another route of the same ingress")
         selectors.add(key)
+    if schema_version >= 1:
+        # Schema 1's two rules (plan README, "Schema 1"): one protocol per gateway process, and a route stays within
+        # its listener's protocol (a crossing is a bridge, which no schema admits yet).
+        protocols = {listener["protocol"] for listener in doc["listeners"]}
+        if len(protocols) > 1:
+            problems.append(f"/listeners: {sorted(protocols)}; a gateway serves one protocol")
+        by_ingress = {listener["ingress_id"]: listener["protocol"] for listener in doc["listeners"]}
+        by_backend = {backend["backend_id"]: backend["protocol"] for backend in doc["backends"]}
+        for i, route in enumerate(doc["routes"]):
+            wants, has = by_ingress.get(route["ingress_id"]), by_backend.get(route["target"]["backend_id"])
+            if wants and has and wants != has:
+                problems.append(f"/routes/{i}/target/backend_id: a {has} backend behind a {wants} listener")
     return problems
 
 
@@ -263,6 +291,47 @@ def build(login: str, role: str | None = None, provider: str = "anthropic", port
         raise PlanError("the plan built does not validate: " + "; ".join(problems[:3]))
     data = (json.dumps(doc, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     return Plan(doc, data, "sha256:" + hashlib.sha256(data).hexdigest(), selectors, skipped, token_file)
+
+
+# The ChatGPT backend for the Codex review (ADR-053 rule 3). The harness's base URL is the gateway's root and the
+# backend's carries the version path, because the transport joins the backend's base path and the request path: Codex
+# posts /responses, which arrives at /backend-api/codex/responses (plan README, "Schema 1", "Where the base URLs point").
+RESPONSES = {"ingress_id": "codex", "backend_id": "chatgpt", "base_url": "https://chatgpt.com/backend-api/codex",
+             "profile_id": "chatgpt-subscription"}
+
+
+def build_responses(model: str, token_file: str, session: str | None = None, port: int = 0,
+                    base_url: str = RESPONSES["base_url"]) -> Plan:
+    """A schema-1 plan serving `openai-responses` to one harness (Codex) on one model, upstream on the ChatGPT backend,
+    the credential read from `token_file` per attempt. One identity route: the selector is the model Codex sends and
+    the model sent upstream. No companion header: schema 1 admits only anthropic-beta, and the ChatGPT-Account-ID the
+    backend needs beside the token is not a secret, so the harness sends it itself (review_codex.py's config.toml) and
+    the gateway passes it through. The plan names the token file, never the token."""
+    if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", model):
+        raise PlanError(f"model {model!r} is not a model name")
+    if not isinstance(token_file, str) or not os.path.isabs(token_file) or os.path.normpath(token_file) != token_file:
+        raise PlanError(f"the token file {token_file!r} is not an absolute path in normal form, as the gateway requires")
+    if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535:
+        raise PlanError(f"port {port!r}: 0 to 65535")
+    route_id = slug(model)
+    doc = {
+        "schema_version": 1,
+        "session": {"opaque_id": "codex-review" if not session else f"codex-review:{session}"},
+        "listeners": [{"ingress_id": RESPONSES["ingress_id"], "protocol": "openai-responses", "bind": f"{LISTEN_HOST}:{port}",
+                       "harness_auth": {"source": "fd"}}],
+        "backends": [{"backend_id": RESPONSES["backend_id"], "protocol": "openai-responses", "base_url": base_url}],
+        "auth_profiles": [{"profile_id": RESPONSES["profile_id"], "source": "file", "path": token_file, "header": "Authorization",
+                           "prefix": "Bearer "}],
+        "routes": [{"route_id": route_id, "ingress_id": RESPONSES["ingress_id"], "source": {"model_selector": model},
+                    "target": {"backend_id": RESPONSES["backend_id"], "model": model}, "auth_profile_id": RESPONSES["profile_id"]}],
+        "defaults": {"unknown_route": {"status": 400, "error_type": "invalid_request_error"}},
+    }
+    problems = validate(doc, 1)
+    if problems:
+        raise PlanError("the plan built does not validate: " + "; ".join(problems[:3]))
+    data = (json.dumps(doc, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    return Plan(doc, data, "sha256:" + hashlib.sha256(data).hexdigest(),
+                [{"selector": model, "model": model, "route_id": route_id}], [], token_file)
 
 
 def write(plan: Plan, path: str) -> str:
