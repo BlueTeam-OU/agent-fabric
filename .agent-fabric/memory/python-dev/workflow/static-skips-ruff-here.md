@@ -5,7 +5,7 @@ topic: "static-skips-ruff-here"
 description: "before delivering Python to agent-fabric — ruff is not installed on python-dev-01, tests/static.sh skips it and still says \"ruff clean\""
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

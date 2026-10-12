@@ -5,7 +5,7 @@ topic: "off-shell-3-merged-151"
 description: "#151 (merged 2026-10-09) ported hostexec/worker/fabric-host/enter/model-audit and split jobs.py; CI found what the first test run missed; repo moved to BlueTeam-OU"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

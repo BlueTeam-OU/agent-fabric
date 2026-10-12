@@ -5,7 +5,7 @@ topic: "status-sentinel-collides-with-read-state"
 description: deriving an outcome string from a remote state (state.lower()) and testing it against a success sentinel — the read value can BE the sentinel
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

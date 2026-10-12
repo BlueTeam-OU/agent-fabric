@@ -5,7 +5,7 @@ topic: "stripped-fixes-merged-in-138"
 description: "#138 (merged 2026-10-09) fixed 14 test files on a stripped copy; the traps: token routes, no-origin copy, claude absent on CI, fixture vs live distinctness"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

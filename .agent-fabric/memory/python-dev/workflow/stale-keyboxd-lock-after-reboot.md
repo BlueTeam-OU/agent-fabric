@@ -5,7 +5,7 @@ topic: "stale-keyboxd-lock-after-reboot"
 description: "commit signing hangs \"database_open waiting for lock (held by N)\" — a keyboxd lock from before a reboot; check pid and boot time, then remove"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

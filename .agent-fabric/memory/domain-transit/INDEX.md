@@ -3,7 +3,7 @@ role: "domain-transit"
 class: index
 description: "What domain-transit knows and where it lives."
 tier: 1
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 ---
 
 # domain-transit — knowledge index
@@ -26,6 +26,7 @@ control plane checked out beside it.
 
 ## domain
 
+- [`memory/domains/domain-transit/domain/a-planar-corridor-cannot-see-a-bridge.md`](memory/domains/domain-transit/domain/a-planar-corridor-cannot-see-a-bridge.md) — Projecting a no-stop restriction by a 2D corridor restricts lines passing over/under the structure; broad scope with no contact is not a failure
 - [`memory/domains/domain-transit/domain/a-route-number-is-not-a-service.md`](memory/domains/domain-transit/domain/a-route-number-is-not-a-service.md) — in a scraped route catalogue a number shared by a minibus and a trolleybus is two different services, and no trolleybus route has a published schedule at all
 - [`memory/domains/domain-transit/domain/country-graph-fits-in-the-otp-cap.md`](memory/domains/domain-transit/domain/country-graph-fits-in-the-otp-cap.md) — measured OTP 2.10 memory for a [redacted]-wide graph vs the [redacted] city graph — the country graph fits the 2 GB container cap
 - [`memory/domains/domain-transit/domain/domain-carried-2026-08-10.md`](memory/domains/domain-transit/domain/domain-carried-2026-08-10.md) — Overpass API vs. Geofabrik extracts: different freshness and metadata tradeoffs

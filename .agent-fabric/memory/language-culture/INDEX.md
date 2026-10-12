@@ -3,7 +3,7 @@ role: "language-culture"
 class: index
 description: "What language-culture knows and where it lives."
 tier: 1
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 ---
 
 # language-culture — knowledge index
@@ -32,7 +32,9 @@ control plane checked out beside it.
 - [`memory/domains/language-culture/domain/locale-formatting-platform-limits.md`](memory/domains/language-culture/domain/locale-formatting-platform-limits.md) — The Georgian defect families that recur across every gzapi surface — check these first before reading a new text line by line
 - [`memory/domains/language-culture/domain/register-brand-shen-product-tkven.md`](memory/domains/language-culture/domain/register-brand-shen-product-tkven.md) — Brand surfaces address the rider as შენ (gzapi.brand 0007); product UI uses თქვენ, decided per surface by its owner with this role reviewing (0008); a quoted brand tagline keeps შენ.
 - [`memory/domains/language-culture/domain/ru-merge-verb-vlivat.md`](memory/domains/language-culture/domain/ru-merge-verb-vlivat.md) — In Russian, merging a branch or PR is «вливать», never «сливать»: colloquially «сливать» means to fail or give up, the exact opposite
+- [`memory/domains/language-culture/domain/unknown-enum-value-is-neizvestno.md`](memory/domains/language-culture/domain/unknown-enum-value-is-neizvestno.md) — ru word for a value the build does not know (status, role, model, language, kind) — «Неизвестно», not «Не распознано»
 - [`memory/domains/language-culture/domain/verbatim-placeholder-carries-no-case.md`](memory/domains/language-culture/domain/verbatim-placeholder-carries-no-case.md) — A verbatim placeholder (stop name, line code) never takes a Georgian case ending; the case sits on a generic carrier noun and the name stays quoted in the nominative.
+- [`memory/domains/language-culture/domain/welcome-copy-promises-no-completeness.md`](memory/domains/language-culture/domain/welcome-copy-promises-no-completeness.md) — Rider copy about the live map must not promise every vehicle — only those whose driver shares; a completeness finding is not closed by "the empty map explains itself elsewhere"
 - [`memory/shared/domain-claude-code-attribution-reminder.md`](memory/shared/domain-claude-code-attribution-reminder.md) — The attribution key is written by runtime/claude-code/user-settings.py, run from tools/fabric/bootstrap.py (shared)
 
 ## recall

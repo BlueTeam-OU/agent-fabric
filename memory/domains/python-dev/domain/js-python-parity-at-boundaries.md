@@ -5,7 +5,7 @@ topic: "js-python-parity-at-boundaries"
 description: porting Node to Python where both must answer alike — the JavaScript semantics Python gets wrong by default (JSON, strings, numbers, argv, keys, time bounds)
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

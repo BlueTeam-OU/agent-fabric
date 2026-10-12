@@ -2,10 +2,10 @@
 role: "python-dev"
 class: domain
 topic: "git-config-get-reads-beyond-the-repo"
-description: "Reading trust state from a repo's .git/config — a plain `git config --get` also reads ~/.gitconfig, system and GIT_CONFIG_* env; use --local"
+description: "Reading trust state from a repo's .git/config — a plain `git config --get` also reads ~/.gitconfig, system and GIT_CONFIG_* env; use --local, and keep every other reader of the state in agreement"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
@@ -14,6 +14,7 @@ origin:
 derived_from:
   - 2011f3eaf0a85be4
   - 325c0222f5064e91
+  - e528e7c10ae8e9ac
 ---
 
 ## Reading trust state from a repo's .git/config — a plain `git config --get` also reads ~/.gitconfig, system and GIT_CONFIG_* env; use --local, and keep every other reader of the state in agreement
@@ -25,7 +26,7 @@ read with `--local`: it ignores the env and global scopes (measured: plain get r
 Case: the trusted base (ADR-042) was read by a plain get, so a base in the env or ~/.gitconfig trusted every store. Now one
 reader, `_read_base` in tools/fabric/secretstore/trust.py (`git config --local --get`), is shared by the verifier and
 `fabric-secrets status`. **Every other reader of the same state must agree with git's semantics, so name the readers when
-you fix one**: the second is `hasBase` in runtime/control/ops/keys.mjs, which parses the file and must follow the same
+you fix one**: the second is `_has_base` in tools/fabric/control/ops/keys.py (it was `hasBase` in a Node file), which parses the file and must follow the same
 rules (the key name in any case, the last value wins, the value 40 lowercase hex), or the keys probe says "verified" for a
 store every verified operation refuses.
 
@@ -34,4 +35,6 @@ went to that repo — the --local read returned its base, and a `store set` comm
 boundary: `_git_scrubbed` in tools/fabric/secretstore/core.py drops the `git rev-parse --local-env-vars` names plus
 GIT_CONFIG_KEY_n/VALUE_n and keeps GIT_CONFIG_GLOBAL/SYSTEM/NOSYSTEM (account files; tests isolate with them).
 
-*Observed 2026-10-10 (python-dev)*
+Checked 2026-10-11: _has_base still follows the verifier's rules (name in any case, last value wins, 40 lowercase hex).
+
+*Observed 2026-10-11 (python-dev)*

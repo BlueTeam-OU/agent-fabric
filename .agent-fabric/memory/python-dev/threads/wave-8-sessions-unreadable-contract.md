@@ -5,7 +5,7 @@ topic: "wave-8-sessions-unreadable-contract"
 description: "Wave 8 sessions/ctl port must BUILD j5 (unreadable session state) in Python — not in Node; contract + 9 mutations from python-dev-02"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

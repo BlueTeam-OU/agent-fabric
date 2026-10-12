@@ -2,22 +2,27 @@
 role: "python-dev"
 class: solution
 topic: "roots-seam-method"
-description: "How the engine/operator roots seam (tools/fabric/roots.py, runtime/control/roots.mjs, PR #119) was built and what the review found — the engine= trap and fixture rules"
+description: "How the engine/operator roots seam (tools/fabric/roots.py, PR #119) was built and what the review found — the engine= trap and fixture rules"
 tier: 2
 knowledge_scope: full
 distilled_at: "2026-10-12"
 origin:
+  - agent: "python-dev-01"
+    host: "develop-qzapp"
+    project: "agent-fabric"
+    working_copy: "agent-fabric"
   - agent: "python-dev-03"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 01c5e2f43a09a3ec
   - 6d23ea75be0c1d75
 ---
 
-## How the engine/operator roots seam (tools/fabric/roots.py, runtime/control/roots.mjs, PR #119) was built and what the review found — the engine= trap and fixture rules
+## How the engine/operator roots seam (tools/fabric/roots.py, PR #119) was built and what the review found — the engine= trap and fixture rules
 
-`tools/fabric/roots.py` / `runtime/control/roots.mjs` (agent-fabric #119, ADR-045 §5 rules 1-3): `engine_root()` honours AGENT_FABRIC_ROOT (legacy; ADR says the code's location), `operator_root()` is AGENT_FABRIC_OPERATOR else the engine root. Helpers take `root=` (explicit operator tree, wins), `engine=` (the engine tree the caller was handed; the operator still outranks it) and `environ=`.
+`tools/fabric/roots.py` (agent-fabric #119, ADR-045 §5 rules 1-3): `engine_root()` honours AGENT_FABRIC_ROOT (legacy; ADR says the code's location), `operator_root()` is AGENT_FABRIC_OPERATOR else the engine root. Helpers take `root=` (explicit operator tree, wins), `engine=` (the engine tree the caller was handed; the operator still outranks it) and `environ=`.
 
 **The trap the blind review found:** a reader that took its tree from its OWN location (`ROOT = dirname(__file__)`...) must pass `engine=<that>`; moving it onto `roots.x()` plain makes it follow AGENT_FABRIC_ROOT, a behaviour change wherever the variable names another clone (this very session's). Pin each `engine=` with a test run with AGENT_FABRIC_ROOT at an empty tree and no operator — deleting the `engine=` must fail it (tests/test_roots_seam.py).
 
@@ -25,4 +30,6 @@ derived_from:
 
 **Why:** ADR-045 stage 2, behaviour-preserving. **How to apply:** any new reader of registries/catalog/policies/routing profiles/memory/ADRs/keys goes through roots; tests/test_roots_seam.py scans for direct joins and lists the coordinator-owned exemptions.
 
-*Observed 2026-10-08 (python-dev)*
+Corrected 2026-10-11: its Node twin runtime/control/roots.mjs went with the Node control plane (a20b4159); roots.py is the one seam.
+
+*Observed 2026-10-11 (python-dev)*

@@ -5,7 +5,7 @@ topic: "openssl-ed25519-pkeyutl-measured"
 description: "openssl pkeyutl Ed25519 from Python — key via /dev/fd pipe works, message must be a regular file (one-shot), DER store forms read directly; CI images lack openssl; ~9 ms/sign"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

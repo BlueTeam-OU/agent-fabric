@@ -2,7 +2,7 @@
 role: "p2p-network-dev"
 class: domain
 topic: "multistream-select-order"
-description: "libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates"
+description: "libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; re-checked 2026-10-11, unchanged"
 tier: 2
 knowledge_scope: full
 distilled_at: "2026-10-12"

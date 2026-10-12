@@ -98,6 +98,138 @@
       "replaced_key": "17189cc09b27fd01",
       "slice": ".agent-fabric/memory/fabric-coordinator/workflow/launcher-help-is-a-launch.md",
       "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "f3fcfae97a3f6f90",
+      "heading": "Reading trust state from a repo's .git/config — a plain `git config --get` also reads ~/.gitconfig, system and GIT_CONFIG_* env; use --local, and keep every other reader of the state in agreement",
+      "host": "develop-qzapp",
+      "memory": "fix-git-config-get-reads-beyond-the-repo",
+      "replaced": "Reading trust state from a repo's .git/config — a plain `git config --get` also reads ~/.gitconfig, system and GIT_CONFIG_* env; use --local, and keep every other reader of the state in agreement",
+      "replaced_key": "adcd1b247cf86d02",
+      "slice": "memory/domains/python-dev/domain/git-config-get-reads-beyond-the-repo.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "35aa34a010ac8221",
+      "heading": "typing a dict-convention record in this fabric — NotRequired is silently required under `from __future__ import annotations`; hold each type to real values by test",
+      "host": "develop-qzapp",
+      "memory": "fix-typeddict-notrequired-under-future-annotations",
+      "replaced": "typing a dict-convention record in this fabric — NotRequired is silently required under `from __future__ import annotations`; hold each type to real values by test",
+      "replaced_key": "5e2759d12d5c5412",
+      "slice": "memory/domains/python-dev/domain/typeddict-notrequired-under-future-annotations.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "16d014f73e9920e0",
+      "heading": "What PR 126 built (bin/fabric-pr, bin/fabric-query, tools-install) and the traps it hit",
+      "host": "develop-qzapp",
+      "memory": "fix-fabric-pr-and-tools-install",
+      "replaced": "What PR 126 built (bin/fabric-pr, bin/fabric-query, tools-install) and the traps it hit",
+      "replaced_key": "61d2295535d7f5b2",
+      "slice": ".agent-fabric/memory/python-dev/solution/fabric-pr-and-tools-install.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "7661170a81f603b2",
+      "heading": "the job queue (ADR-037 rules 7-10) — merged in #118, what was carried, where its parts live",
+      "host": "develop-qzapp",
+      "memory": "fix-j57-job-queue-contract",
+      "replaced": "the job queue (ADR-037 rules 7-10) — merged in #118, what was carried, where its parts live",
+      "replaced_key": "ee63e092ee91eaa7",
+      "slice": ".agent-fabric/memory/python-dev/solution/j57-job-queue-contract.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "c667a95d53c2f17d",
+      "heading": "How the engine/operator roots seam (tools/fabric/roots.py, PR #119) was built and what the review found — the engine= trap and fixture rules",
+      "host": "develop-qzapp",
+      "memory": "fix-roots-seam-method",
+      "replaced": "How the engine/operator roots seam (tools/fabric/roots.py, runtime/control/roots.mjs, PR #119) was built and what the review found — the engine= trap and fixture rules",
+      "replaced_key": "eca06e3f132adbf8",
+      "slice": ".agent-fabric/memory/python-dev/solution/roots-seam-method.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "96ff80a7966f88e8",
+      "heading": "What the tools report (#123) built, and what two PRs taught about main moving under an open PR, review loops and CI flakes",
+      "host": "develop-qzapp",
+      "memory": "fix-tools-report-and-pr-lessons",
+      "replaced": "What the tools report (#123) built, and what two PRs taught about main moving under an open PR, review loops and CI flakes",
+      "replaced_key": "38e83408ddd7a9c9",
+      "slice": ".agent-fabric/memory/python-dev/solution/tools-report-and-pr-lessons.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "ad7a18de1b004e2f",
+      "heading": "tests/stripped_run.py (merged #137, fede47d7) runs tests on a copy without instance data; the nightly skip list it was meant to feed is not in the tree",
+      "host": "develop-qzapp",
+      "memory": "fix-stripped-run-and-the-nightly-skip-list",
+      "replaced": "tests/stripped_run.py (merged #137, fede47d7) runs tests on a copy without instance data; the coordinator's nightly job reads tests/stripped_skip.txt, which only shrinks — j74/j75 remove their lines in the same PR",
+      "replaced_key": "2daac0d7d32c5611",
+      "slice": ".agent-fabric/memory/python-dev/threads/stripped-run-and-the-nightly-skip-list.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "9022e08338c9bb58",
+      "heading": "ADR-040 Wave 7 port (gzmsg/send/inbox/i18n to Python): CLOSED; landed in #93 (2026-10-04), with the WAIVES carry; the decisions it took",
+      "host": "develop-qzapp",
+      "memory": "fix-wave-7-port-state",
+      "replaced": "ADR-040 Wave 7 port (gzmsg/send/inbox/i18n to Python): CLOSED; landed in #93 (2026-10-04), with the WAIVES carry; the decisions it took (presence via a Node CLI, the oracle rules)",
+      "replaced_key": "5cea9005e3160f5b",
+      "slice": ".agent-fabric/memory/python-dev/threads/wave-7-port-state.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "d2dff7678b252166",
+      "heading": "never put Answers: on a work commit — pr-gate counts any commit carrying it as a review fix, lowering the work count",
+      "host": "develop-qzapp",
+      "memory": "fix-answers-trailer-marks-a-fix",
+      "replaced": "never put Answers: on a work commit — pr-gate counts any commit carrying it as a review fix, dropping the work count below the arming threshold",
+      "replaced_key": "09845a51034d3cb6",
+      "slice": ".agent-fabric/memory/python-dev/workflow/answers-trailer-marks-a-fix.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "49280770acdda4c4",
+      "heading": "tests/run.sh reads each suite's files when it reaches it; an edit made mid-run is what a late section tests — a green that never covered the pushed head",
+      "host": "develop-qzapp",
+      "memory": "fix-never-edit-while-the-suite-runs",
+      "replaced": "tests/run.sh reads each suite's files when it reaches it; an edit made mid-run is what a late section tests — a green that never covered the pushed head",
+      "replaced_key": "6cd48efb5949efd5",
+      "slice": ".agent-fabric/memory/python-dev/workflow/never-edit-while-the-suite-runs.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "3c84e85d1b926e25",
+      "heading": "since #109 python-dev opens its own PRs in agent-fabric (ADR-018 merges flag), reviews them and arms them at the arming policy's gate",
+      "host": "develop-qzapp",
+      "memory": "fix-python-dev-merges-flag",
+      "replaced": "once develop-qzapp/user/feat/python-dev-merges is on main, python-dev opens its own PRs in agent-fabric (ADR-018 merges flag)",
+      "replaced_key": "dd3c24a43e3688b1",
+      "slice": ".agent-fabric/memory/python-dev/workflow/python-dev-merges-flag.md",
+      "stamp": "2026-10-12"
+    },
+    {
+      "agent": "python-dev-01",
+      "applied_key": "e98800ab8f973a52",
+      "heading": "how the Wave 8 control-plane ports (upgrade.py #146, ctl.py #149) were proved: Node tests ported, parity cases, fuzz with lenient_node_throw, mutation passes, CodeQL flows read from SARIF",
+      "host": "develop-qzapp",
+      "memory": "fix-wave8-port-method-parity-fuzz",
+      "replaced": "how the Wave 8 control-plane ports (upgrade.py #146, ctl.py #149) were proved: Node tests ported, parity cases, fuzz with lenient_node_throw, mutation passes, CodeQL flows read from SARIF",
+      "replaced_key": "655d4b20938fe774",
+      "slice": ".agent-fabric/memory/python-dev/workflow/wave8-port-method-parity-fuzz.md",
+      "stamp": "2026-10-12"
     }
   ],
   "clipped_descriptions": [
@@ -237,16 +369,98 @@
     ".agent-fabric/memory/python-dev/workflow/pr-arming-and-ci-traps.md",
     ".agent-fabric/memory/python-dev/workflow/wave8-port-method-parity-fuzz.md",
     ".agent-fabric/memory/rust-services-dev/threads.md",
-    ".agent-fabric/memory/rust-services-dev/INDEX.md"
+    ".agent-fabric/memory/rust-services-dev/INDEX.md",
+    "memory/domains/python-dev/domain/codeql-sarif-shows-the-flow.md",
+    "memory/domains/python-dev/domain/dead-pid-fixture-must-exceed-pid-max.md",
+    "memory/domains/python-dev/domain/decrypt-only-what-you-use.md",
+    "memory/domains/python-dev/domain/env-isolation-in-process-environ.md",
+    "memory/domains/python-dev/domain/exec-inherits-python-ignored-signals.md",
+    "memory/domains/python-dev/domain/facade-split-monkeypatch-trap.md",
+    "memory/domains/python-dev/domain/gh-pr-checks-required-plain-text.md",
+    "memory/domains/python-dev/domain/git-config-get-reads-beyond-the-repo.md",
+    "memory/domains/python-dev/domain/git-fixture-maintenance-lock.md",
+    "memory/domains/python-dev/domain/js-python-parity-at-boundaries.md",
+    "memory/domains/python-dev/domain/openssl-ed25519-pkeyutl-measured.md",
+    "memory/domains/python-dev/domain/pgrep-wait-loop-matches-itself.md",
+    "memory/domains/python-dev/domain/python-defaults-that-differ-from-node.md",
+    "memory/domains/python-dev/domain/relay-text-and-state-file-hazards.md",
+    "memory/domains/python-dev/domain/review-before-suite-and-numeric-guards.md",
+    "memory/domains/python-dev/domain/role-env-strips-git-vars.md",
+    "memory/domains/python-dev/domain/shell-text-secrets-and-git-answers.md",
+    "memory/domains/python-dev/domain/splitting-a-closure-heavy-main.md",
+    "memory/domains/python-dev/domain/status-sentinel-collides-with-read-state.md",
+    "memory/domains/python-dev/domain/typeddict-notrequired-under-future-annotations.md",
+    "memory/domains/python-dev/domain/verify-status-from-stderr-is-forgeable.md",
+    ".agent-fabric/memory/python-dev/solution/flag-phase-state.md",
+    ".agent-fabric/memory/python-dev/solution/gzcoord-tests-reach-the-host-workspace.md",
+    ".agent-fabric/memory/python-dev/solution/herdr-fork-strategy.md",
+    ".agent-fabric/memory/python-dev/solution/j57-job-queue-contract.md",
+    ".agent-fabric/memory/python-dev/solution/root-relative-tools-write-the-running-clone.md",
+    ".agent-fabric/memory/python-dev/solution/store-rerun-after-put-pushes-stale-head.md",
+    ".agent-fabric/memory/python-dev/threads/roots-stage2-state.md",
+    ".agent-fabric/memory/python-dev/threads/stripped-run-and-the-nightly-skip-list.md",
+    ".agent-fabric/memory/python-dev/threads/wave-7-port-state.md",
+    ".agent-fabric/memory/python-dev/threads/wave-8-sessions-unreadable-contract.md",
+    ".agent-fabric/memory/python-dev/threads/wave-8-signed-bytes-and-frozen-state.md",
+    ".agent-fabric/memory/python-dev/workflow/answers-trailer-marks-a-fix.md",
+    ".agent-fabric/memory/python-dev/workflow/chain-message-fill-to-send.md",
+    ".agent-fabric/memory/python-dev/workflow/check-authority-excluding-before-planning.md",
+    ".agent-fabric/memory/python-dev/workflow/fake-tools-must-sit-on-the-callees-path.md",
+    ".agent-fabric/memory/python-dev/workflow/lint-in-a-worktree-reads-the-session-root.md",
+    ".agent-fabric/memory/python-dev/workflow/never-edit-while-the-suite-runs.md",
+    ".agent-fabric/memory/python-dev/workflow/never-restore-a-mutation-with-git-checkout.md",
+    ".agent-fabric/memory/python-dev/workflow/off-shell-3-merged-151.md",
+    ".agent-fabric/memory/python-dev/workflow/python-dev-merges-flag.md",
+    ".agent-fabric/memory/python-dev/workflow/shell-ports-only-with-a-real-change.md",
+    ".agent-fabric/memory/python-dev/workflow/stale-keyboxd-lock-after-reboot.md",
+    ".agent-fabric/memory/python-dev/workflow/static-skips-ruff-here.md",
+    ".agent-fabric/memory/python-dev/workflow/stripped-fixes-merged-in-138.md",
+    ".agent-fabric/memory/python-dev/workflow/suite-red-check-df-first.md",
+    ".agent-fabric/memory/python-dev/workflow/test-port-by-mutation-parity.md",
+    ".agent-fabric/memory/python-dev/workflow/trailer-block-must-be-one-line-per-key.md",
+    ".agent-fabric/memory/python-dev/workflow/write-tool-decodes-unicode-escapes.md"
   ],
-  "files_written": 112,
+  "files_written": 161,
   "harvest": {
     "host": "develop-qzapp",
-    "in_scope": 1,
-    "next_watermark": 1791734921373,
+    "in_scope": 73,
+    "next_watermark": 1791632618172,
     "provisional_agent": 0,
     "since_watermark": 0,
-    "skipped_no_roles_class": []
+    "skipped_no_roles_class": [
+      "agent-owned-secrets-plan.md",
+      "arm-in-band-on-my-own.md",
+      "carried-from-105.md",
+      "coordinator-doppler-keyring.md",
+      "dcs-frozen.md",
+      "delegate-to-python-dev.md",
+      "fix-commits-need-answers-trailer.md",
+      "gzcoord-family-rename-later.md",
+      "harness-attribution-reminder-source.md",
+      "interweave-remit-stage-12.md",
+      "next-fabric-branch-queue.md",
+      "one-inbox-watch-after-compaction.md",
+      "pr-ready-says-work-commits.md",
+      "python-dev-merges-own-prs.md",
+      "rea-agent-plan.md",
+      "ref-ag-ui.md",
+      "ref-caveman.md",
+      "ref-context-mode.md",
+      "ref-exxperts.md",
+      "ref-hackmyagent.md",
+      "ref-open-ontologies.md",
+      "ref-openrig.md",
+      "ref-opensre.md",
+      "ref-pi.md",
+      "ref-prompt-audit.md",
+      "ref-sglang.md",
+      "ref-utopia.md",
+      "ref-vllm-semantic-router.md",
+      "ref-xerj.md",
+      "supply-pins-onto-callers-branch.md",
+      "user-language-english.md",
+      "wait-merged-one-fabric-version.md"
+    ]
   },
   "harvest_sources": {
     "devex-tooling@develop-qzapp": {
@@ -265,6 +479,26 @@
       "since_watermark": 0,
       "skipped_no_roles_class": [
         "flutter-safe-directory.md"
+      ]
+    },
+    "python-dev-01@develop-qzapp": {
+      "host": "develop-qzapp",
+      "in_scope": 70,
+      "next_watermark": 1791739534150,
+      "provisional_agent": 0,
+      "since_watermark": 0,
+      "skipped_no_roles_class": [
+        "arm-sh-refuses-agent-fabric.md",
+        "contributor-merge-direction.md",
+        "coordinator-address.md",
+        "j49-own-secrets-state.md",
+        "j50-new-agent-claude-account.md",
+        "j51-own-secrets-108.md",
+        "j52-first-own-pr.md",
+        "never-pkill-gzcoord-inbox.md",
+        "push-through-gh-credential.md",
+        "suites-inherit-launch-stamps.md",
+        "wave-7-port-state.md"
       ]
     },
     "python-dev-02@develop-qzapp": {
@@ -331,7 +565,7 @@
     },
     "user@develop-qzapp#projects-root": {
       "host": "develop-qzapp",
-      "in_scope": 75,
+      "in_scope": 73,
       "next_watermark": 1791632618172,
       "provisional_agent": 0,
       "since_watermark": 0,
@@ -790,34 +1024,114 @@
       "observed": "2026-10-10"
     },
     ".agent-fabric/memory/python-dev/solution/fabric-pr-and-tools-install.md#What PR 126 built (bin/fabric-pr, bin/fabric-query, tools-install) and the traps it hit": {
-      "agent": "python-dev-03",
+      "agent": "python-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-09"
+      "observed": "2026-10-11"
+    },
+    ".agent-fabric/memory/python-dev/solution/flag-phase-state.md#the drain's flag phase (#209, #213): where it lives, its decisions, and what a live dry run found that fixtures could not": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
+    },
+    ".agent-fabric/memory/python-dev/solution/gzcoord-tests-reach-the-host-workspace.md#GZCoord command tests read the real projects/.gzcoord unless AGENT_FABRIC_ROOT points at a scratch workspace; green on a non-hosting account proves nothing": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-04"
+    },
+    ".agent-fabric/memory/python-dev/solution/herdr-fork-strategy.md#before any work on herdr or its remotes — upstream is closed to non-contributors; we work in our fork and take upstream's work in without overturning ours": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
+    },
+    ".agent-fabric/memory/python-dev/solution/j57-job-queue-contract.md#the job queue (ADR-037 rules 7-10) — merged in #118, what was carried, where its parts live": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
     },
     ".agent-fabric/memory/python-dev/solution/repo-moved-to-blueteam-ou.md#from 2026-10-09 agent-fabric answers as BlueTeam-OU/agent-fabric; API writes through gzapi-org/ fail with HTTP 307 until the clone's origin is updated by the next fabric upgrade": {
       "agent": "python-dev-03",
       "host": "develop-qzapp",
       "observed": "2026-10-09"
     },
-    ".agent-fabric/memory/python-dev/solution/roots-seam-method.md#How the engine/operator roots seam (tools/fabric/roots.py, runtime/control/roots.mjs, PR #119) was built and what the review found — the engine= trap and fixture rules": {
-      "agent": "python-dev-03",
+    ".agent-fabric/memory/python-dev/solution/root-relative-tools-write-the-running-clone.md#a test that runs a tool finding its root from its own path (bootstrap.sh) writes the clone running the suite; invisible under projects/, seen only from a scratch clone": {
+      "agent": "python-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-08"
+      "observed": "2026-10-04"
+    },
+    ".agent-fabric/memory/python-dev/solution/roots-seam-method.md#How the engine/operator roots seam (tools/fabric/roots.py, PR #119) was built and what the review found — the engine= trap and fixture rules": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
+    },
+    ".agent-fabric/memory/python-dev/solution/store-rerun-after-put-pushes-stale-head.md#Any secret-store path that pushes a head it built from the account's side (store push, seed-child's clone) must fast-forward to the remote first — the parent's puts make it behind": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-03"
     },
     ".agent-fabric/memory/python-dev/solution/tools-report-and-pr-lessons.md#What the tools report (#123) built, and what two PRs taught about main moving under an open PR, review loops and CI flakes": {
-      "agent": "python-dev-03",
+      "agent": "python-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-08"
+      "observed": "2026-10-11"
     },
     ".agent-fabric/memory/python-dev/threads/j19-resume-state.md#Where j19 (last Node in agent-fabric, PR 181) stood when paused for live check 7 on 2026-10-10: what is done, what to run, what waits": {
       "agent": "python-dev-03",
       "host": "develop-qzapp",
       "observed": "2026-10-10"
     },
+    ".agent-fabric/memory/python-dev/threads/roots-stage2-state.md#after #128 (merged 2026-10-09, d5a18cff): the tests-read-fixtures guard, strip_instance, and what is queued next (j63, j64)": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-08"
+    },
+    ".agent-fabric/memory/python-dev/threads/stripped-run-and-the-nightly-skip-list.md#tests/stripped_run.py (merged #137, fede47d7) runs tests on a copy without instance data; the coordinator's nightly job reads tests/stripped_skip.txt, which only shrinks — j74/j75 remove their lines in the same PR": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-09"
+    },
+    ".agent-fabric/memory/python-dev/threads/stripped-run-and-the-nightly-skip-list.md#tests/stripped_run.py (merged #137, fede47d7) runs tests on a copy without instance data; the nightly skip list it was meant to feed is not in the tree": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
+    },
+    ".agent-fabric/memory/python-dev/threads/wave-7-port-state.md#ADR-040 Wave 7 port (gzmsg/send/inbox/i18n to Python): CLOSED; landed in #93 (2026-10-04), with the WAIVES carry; the decisions it took": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
+    },
+    ".agent-fabric/memory/python-dev/threads/wave-8-sessions-unreadable-contract.md#Wave 8 sessions/ctl port must BUILD j5 (unreadable session state) in Python — not in Node; contract + 9 mutations from python-dev-02": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-09"
+    },
+    ".agent-fabric/memory/python-dev/threads/wave-8-signed-bytes-and-frozen-state.md#Wave 8 (j67) revised on #131 — signed bytes are Node JSON.stringify to the byte; persisted state frozen with the wire; no new wire behaviour before Node is deleted": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-09"
+    },
+    ".agent-fabric/memory/python-dev/workflow/answers-trailer-marks-a-fix.md#never put Answers: on a work commit — pr-gate counts any commit carrying it as a review fix, dropping the work count below the arming threshold": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
+    },
+    ".agent-fabric/memory/python-dev/workflow/answers-trailer-marks-a-fix.md#never put Answers: on a work commit — pr-gate counts any commit carrying it as a review fix, lowering the work count": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
+    },
     ".agent-fabric/memory/python-dev/workflow/arming-on-relayed-owner-word.md#PRs under eight work commits are armed by python-dev-03 on the owner's word as fabric-coordinator relays it; the basis text and the counts format the Stop hook demands": {
       "agent": "python-dev-03",
       "host": "develop-qzapp",
       "observed": "2026-10-09"
+    },
+    ".agent-fabric/memory/python-dev/workflow/chain-message-fill-to-send.md#compose → fill → gzcoord-send must be one && chain; a failed fill step otherwise sends the empty skeleton, which the validator accepts": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-09"
+    },
+    ".agent-fabric/memory/python-dev/workflow/check-authority-excluding-before-planning.md#before planning code on a control-plane path, read python-dev's \"excluding\" in policies/authority.json — an assignment does not admit the path": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-04"
     },
     ".agent-fabric/memory/python-dev/workflow/ci-env-for-lint-and-mutations.md#Run lint.py and mutation harnesses with AGENT_FABRIC_* stripped and a scratch TMPDIR — the session env makes lint check the main checkout and mutations leak into the account TMPDIR": {
       "agent": "python-dev-02",
@@ -838,6 +1152,11 @@
       "agent": "python-dev-03",
       "host": "develop-qzapp",
       "observed": "2026-10-10"
+    },
+    ".agent-fabric/memory/python-dev/workflow/fake-tools-must-sit-on-the-callees-path.md#Faking a tool for code that builds its own PATH (env -i, a login shell, sudo) — the fake must sit where THAT PATH looks first, or the host's real tool answers and the test is green for the wrong reason": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-01"
     },
     ".agent-fabric/memory/python-dev/workflow/feedback-caution-merges-and-force-pushes.md#user asked for more caution (2026-10-10) after a merge of main put out-of-entry deletions in my own merge commit and a chained force-push was refused": {
       "agent": "python-dev-02",
@@ -874,15 +1193,80 @@
       "host": "develop-qzapp",
       "observed": "2026-10-11"
     },
+    ".agent-fabric/memory/python-dev/workflow/lint-in-a-worktree-reads-the-session-root.md#tools/fabric/lint.py run from a contributor worktree with the session's AGENT_FABRIC_ROOT lints ~/projects/agent-fabric (main), not the worktree — a green \"lint clean\" that is not about your branch": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-03"
+    },
+    ".agent-fabric/memory/python-dev/workflow/never-edit-while-the-suite-runs.md#tests/run.sh reads each suite's files when it reaches it; an edit made mid-run is what a late section tests — a green that never covered the pushed head": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
+    },
+    ".agent-fabric/memory/python-dev/workflow/never-restore-a-mutation-with-git-checkout.md#planting mutations on uncommitted work — restore from a copy, never git checkout/stash of the file": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
+    },
+    ".agent-fabric/memory/python-dev/workflow/off-shell-3-merged-151.md##151 (merged 2026-10-09) ported hostexec/worker/fabric-host/enter/model-audit and split jobs.py; CI found what the first test run missed; repo moved to BlueTeam-OU": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-09"
+    },
     ".agent-fabric/memory/python-dev/workflow/pr-arming-and-ci-traps.md#Arming a security-boundary PR under 8 work commits, the ruff gap, a wait-merged flake, and not deleting a worktree under a running suite": {
       "agent": "python-dev-03",
       "host": "develop-qzapp",
       "observed": "2026-10-09"
     },
+    ".agent-fabric/memory/python-dev/workflow/python-dev-merges-flag.md#once develop-qzapp/user/feat/python-dev-merges is on main, python-dev opens its own PRs in agent-fabric (ADR-018 merges flag)": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
+    },
+    ".agent-fabric/memory/python-dev/workflow/python-dev-merges-flag.md#since #109 python-dev opens its own PRs in agent-fabric (ADR-018 merges flag), reviews them and arms them at the arming policy's gate": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
+    },
     ".agent-fabric/memory/python-dev/workflow/roots-seam-stage2-and-intake.md#j6/j7/j11 (roots-seam tests on fixtures, bare command hints, REQUEST intake) — MERGED as #136; what it left and how it was run": {
       "agent": "python-dev-02",
       "host": "develop-qzapp",
       "observed": "2026-10-09"
+    },
+    ".agent-fabric/memory/python-dev/workflow/shell-ports-only-with-a-real-change.md#before proposing to port a shell script to Python — under ADR-040's 150-line bound, a script is ported only with a substantial change it needs": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-06"
+    },
+    ".agent-fabric/memory/python-dev/workflow/stale-keyboxd-lock-after-reboot.md#commit signing hangs \"database_open waiting for lock (held by N)\" — a keyboxd lock from before a reboot; check pid and boot time, then remove": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-08"
+    },
+    ".agent-fabric/memory/python-dev/workflow/static-skips-ruff-here.md#before delivering Python to agent-fabric — ruff is not installed on python-dev-01, tests/static.sh skips it and still says \"ruff clean\"": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
+    },
+    ".agent-fabric/memory/python-dev/workflow/stripped-fixes-merged-in-138.md##138 (merged 2026-10-09) fixed 14 test files on a stripped copy; the traps: token routes, no-origin copy, claude absent on CI, fixture vs live distinctness": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-09"
+    },
+    ".agent-fabric/memory/python-dev/workflow/suite-red-check-df-first.md#a suite red in files you did not touch — check df / before diagnosing; /var/tmp is the shared root fs": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
+    },
+    ".agent-fabric/memory/python-dev/workflow/test-port-by-mutation-parity.md#Porting a bash TEST to Python has no oracle of its own — prove it by planting mutations in the implementation that both suites must fail; how to run that without losing hours": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-02"
+    },
+    ".agent-fabric/memory/python-dev/workflow/trailer-block-must-be-one-line-per-key.md#before writing a commit message with Answers:/Fabric-Role: trailers — a wrapped trailer value hides Fabric-Role from git, and the authority guard fails": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
     },
     ".agent-fabric/memory/python-dev/workflow/wave8-no-node-fixes.md#during Wave 8 (control plane to Python), a behaviour change for runtime/control/*.mjs goes into the Python port, not the Node, even a fix": {
       "agent": "python-dev-02",
@@ -895,9 +1279,14 @@
       "observed": "2026-10-09"
     },
     ".agent-fabric/memory/python-dev/workflow/wave8-port-method-parity-fuzz.md#how the Wave 8 control-plane ports (upgrade.py #146, ctl.py #149) were proved: Node tests ported, parity cases, fuzz with lenient_node_throw, mutation passes, CodeQL flows read from SARIF": {
-      "agent": "python-dev-03",
+      "agent": "python-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-09"
+      "observed": "2026-10-11"
+    },
+    ".agent-fabric/memory/python-dev/workflow/write-tool-decodes-unicode-escapes.md#before writing Python with \\uXXXX escapes or regexes with \\s into tools/fabric/gzcoord or any fabric module — the Write tool stores raw characters, and the gzcoord guard wants re.ASCII": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
     },
     ".agent-fabric/memory/rust-services-dev/threads.md#Gateway Stage 6 — who does steps 4-7, the agreed API of gateway-protocol-openai-responses, and the usage-op contract decision": {
       "agent": "rust-services-dev-02",
@@ -984,10 +1373,115 @@
       "host": "develop-qzapp",
       "observed": "2026-10-11"
     },
+    "memory/domains/python-dev/domain/codeql-sarif-shows-the-flow.md#a CodeQL alert you cannot explain — fetch the analysis SARIF; its codeFlows name the exact source (often a name heuristic on a constant)": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
+    },
+    "memory/domains/python-dev/domain/dead-pid-fixture-must-exceed-pid-max.md#a test's \"dead\" pid must be 2**22 + 1 or more; 999999 or 2**22 - 5 can be live on a long-running host (pid_max 4194304)": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-08"
+    },
+    "memory/domains/python-dev/domain/decrypt-only-what-you-use.md#code that reads a store of secrets in bulk, or decodes a decrypted value — read only the names used; a decode error's message quotes the bytes": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
+    },
     "memory/domains/python-dev/domain/download-deadline-watchdog.md#Bounding a urllib download by wall-clock time (gateway-install, #176): read() and readline do not honour a deadline; use a watchdog that shuts down a duplicated socket": {
       "agent": "python-dev-03",
       "host": "develop-qzapp",
       "observed": "2026-10-10"
+    },
+    "memory/domains/python-dev/domain/env-isolation-in-process-environ.md#an oracle's git/env isolation set in a filtered env dict misses fixture calls that pass no env=; set it in os.environ and prove it with a hostile caller config": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-02"
+    },
+    "memory/domains/python-dev/domain/exec-inherits-python-ignored-signals.md#a Python wrapper that os.exec's a command, or a test that probes signal dispositions — SIGPIPE/SIGXFSZ are SIG_IGN after Python start-up": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
+    },
+    "memory/domains/python-dev/domain/facade-split-monkeypatch-trap.md#before splitting a Python module behind a re-exporting facade, find every patch of its attributes — including inside subprocess code strings and by-path loads": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-06"
+    },
+    "memory/domains/python-dev/domain/gh-pr-checks-required-plain-text.md#gh pr checks with nothing to list prints one stderr line and exits 1, even with --json; two texts; gh.no_checks_reported recognises them": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-08"
+    },
+    "memory/domains/python-dev/domain/git-config-get-reads-beyond-the-repo.md#Reading trust state from a repo's .git/config — a plain `git config --get` also reads ~/.gitconfig, system and GIT_CONFIG_* env; use --local, and keep every other reader of the state in agreement": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
+    },
+    "memory/domains/python-dev/domain/git-fixture-maintenance-lock.md#a fixture git commit can start detached maintenance holding objects/maintenance.lock, so a before/after digest of the repo differs about once in thirty runs": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
+    },
+    "memory/domains/python-dev/domain/js-python-parity-at-boundaries.md#porting Node to Python where both must answer alike — the JavaScript semantics Python gets wrong by default (JSON, strings, numbers, argv, keys, time bounds)": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-09"
+    },
+    "memory/domains/python-dev/domain/openssl-ed25519-pkeyutl-measured.md#openssl pkeyutl Ed25519 from Python — key via /dev/fd pipe works, message must be a regular file (one-shot), DER store forms read directly; CI images lack openssl; ~9 ms/sign": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-09"
+    },
+    "memory/domains/python-dev/domain/pgrep-wait-loop-matches-itself.md#an until-pgrep -f wait loop whose pattern is in its own command line never ends": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-08"
+    },
+    "memory/domains/python-dev/domain/python-defaults-that-differ-from-node.md#porting Node to Python — the stdlib defaults that silently differ (Unicode \\d, or vs ??, urllib proxy/redirect, header CRLF errors, stdout encoding)": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-04"
+    },
+    "memory/domains/python-dev/domain/relay-text-and-state-file-hazards.md#writing a record from GZCoord relay text or appending under the agent lock - lone surrogates, FIFOs, and what a reviewer leaves in TMPDIR": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-05"
+    },
+    "memory/domains/python-dev/domain/review-before-suite-and-numeric-guards.md#ordering a delivery's checks (review, then the full suite) and guarding numbers parsed from JSON or argv in Python": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-06"
+    },
+    "memory/domains/python-dev/domain/role-env-strips-git-vars.md#a test's role env built from os.environ must drop inherited GIT_*; prove with GIT_DIR at a decoy repo and a hostile GIT_CONFIG_GLOBAL": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-08"
+    },
+    "memory/domains/python-dev/domain/shell-text-secrets-and-git-answers.md#porting a shell read or a git check — a token in a child's argv is readable in /proc; rev-parse answers false with exit 0; unknown git state is not clean": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-06"
+    },
+    "memory/domains/python-dev/domain/splitting-a-closure-heavy-main.md#splitting a long Python main() of nested closures into modules - state object first, then byte-identical moves a verifier proves; survivors checked on the base": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-05"
+    },
+    "memory/domains/python-dev/domain/status-sentinel-collides-with-read-state.md#deriving an outcome string from a remote state (state.lower()) and testing it against a success sentinel — the read value can BE the sentinel": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-08"
+    },
+    "memory/domains/python-dev/domain/typeddict-notrequired-under-future-annotations.md#typing a dict-convention record in this fabric — NotRequired is silently required under `from __future__ import annotations`; hold each type to real values by test": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-11"
+    },
+    "memory/domains/python-dev/domain/verify-status-from-stderr-is-forgeable.md#parsing [GNUPG:] lines from git verify-commit --raw stderr — git's own error quotes the signature header; gate on exit 0": {
+      "agent": "python-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-07"
     }
   },
   "shared_slices": 7,
@@ -1010,10 +1504,10 @@
       "rejected": 0
     },
     "fabric-coordinator": {
-      "admitted": 81,
-      "candidates": 132,
+      "admitted": 79,
+      "candidates": 130,
       "merged_into_existing": 0,
-      "observations_in": 132,
+      "observations_in": 130,
       "rejected": 51
     },
     "flutter-dev": {
@@ -1024,11 +1518,11 @@
       "rejected": 1
     },
     "python-dev": {
-      "admitted": 23,
-      "candidates": 24,
+      "admitted": 82,
+      "candidates": 94,
       "merged_into_existing": 0,
-      "observations_in": 24,
-      "rejected": 1
+      "observations_in": 94,
+      "rejected": 12
     },
     "rust-services-dev": {
       "admitted": 1,
@@ -1062,6 +1556,15 @@
         "merged_into_existing": 0,
         "observations_in": 1,
         "rejected": 1
+      }
+    },
+    "python-dev-01@develop-qzapp": {
+      "python-dev": {
+        "admitted": 59,
+        "candidates": 70,
+        "merged_into_existing": 0,
+        "observations_in": 70,
+        "rejected": 11
       }
     },
     "python-dev-02@develop-qzapp": {
@@ -1111,10 +1614,10 @@
     },
     "user@develop-qzapp#projects-root": {
       "fabric-coordinator": {
-        "admitted": 43,
-        "candidates": 75,
+        "admitted": 41,
+        "candidates": 73,
         "merged_into_existing": 0,
-        "observations_in": 75,
+        "observations_in": 73,
         "rejected": 32
       }
     },
@@ -1133,7 +1636,7 @@
     "develop-qzapp": 1790347048334,
     "devex-tooling@develop-qzapp": 1791758491875,
     "flutter-dev-02@develop-qzapp#projects-root": 1791664898986,
-    "python-dev-01@develop-qzapp": 1791615302790,
+    "python-dev-01@develop-qzapp": 1791739534150,
     "python-dev-02@develop-qzapp": 1791725373322,
     "python-dev-02@develop-qzapp#projects-root": 1791434674140,
     "python-dev-03@develop-qzapp": 1791656626566,

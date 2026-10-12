@@ -5,7 +5,7 @@ topic: "radicle-defaults-dial-public"
 description: "A radicle-node on rad auth's default config joins the public network; what local-only takes"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
