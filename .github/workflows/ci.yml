@@ -36,6 +36,21 @@ jobs:
       - run: sudo apt-get install -y --no-install-recommends shellcheck && python3 -m pip install --quiet --disable-pip-version-check ruff==0.16.7
       - run: bash tests/static.sh
 
+  reuse:
+    # Every file is licensed and declared (REUSE 3.3, REUSE.toml): a file
+    # brought in under another licence, or a LICENSES/ text no file uses,
+    # fails here instead of going unnoticed under the "**" annotation.
+    # reuse pinned by version, as ruff is above.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - run: python3 -m pip install --quiet --disable-pip-version-check reuse==6.2.0
+      - run: reuse lint
+
   guards-and-suites:
     # The bash suites and the guards on the oldest and newest interpreters.
     # The Python suites are not here: they run once per interpreter an agent
