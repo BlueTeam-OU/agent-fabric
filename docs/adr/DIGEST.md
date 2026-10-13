@@ -1164,6 +1164,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - `openai` coding classes only once a session runs them, no subagents
   until mapped; each Codex seam read back live first; a Codex-authored
   PR gets the review class, not Codex, as its review (§5 rules 8-10).
+- A 2026-10-13 — reviews start Codex by the session's gateway path, each
+  component with its own gateway-local key (§5 rule 7).
 
 ### ADR-055 — Model availability is rediscovered by each run; the control plane reports it to people; a review diverts when its only model is unavailable (Proposed)
 

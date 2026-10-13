@@ -114,7 +114,11 @@ fleet reports (ADR-029), so it carries that view.
 
 ## 7. Future Evolution
 
-If the report shows retries costing real time across the fleet, a
+A review loop of the fabric's own — read-only tools driving any
+review-grade model through the gateway's Responses listener, on the
+same subscription — would make the reviewer provider-neutral and the
+divert of rule 3 a model choice rather than an engine swap; Codex stays
+the engine while it serves. If the report shows retries costing real time across the fleet, a
 shared hint could be revisited — as advice a run may read, never a rule
 it must follow. Session-level failover, moving a running session to
 another model, is outside this record. The one-hour owner notice is a
