@@ -3,29 +3,48 @@
 
 Refuses a command that kills processes chosen by a pattern
 (`pkill -f PAT`, `pgrep -f PAT | xargs kill`, `kill $(pgrep -f PAT)`,
-`killall -r PAT`) when PAT matches the command line of the session's own
-`claude` process, the nearest ancestor of this hook.
+`killall -r PAT`) when PAT selects any process of the session's own tree:
+its `claude` process (the nearest ancestor of this hook), the bash the
+harness will run this very command in, and every process claude has
+started — the harness's background tasks, its inbox watch, its servers.
+And it refuses any kill whose target is a gzcoord-inbox process, by
+pattern or by pid.
 
 WHY. A session's claude process carries its opening prompt in argv, and the
 prompt named the inbox watch's command. So `pgrep -f 'gzcoord-inbox
 --follow' | xargs kill`, meant to clear a stale watcher, killed the session
 that ran it: architect-cto-01, twice, on 2026-09-29; fabric-coordinator
 earlier with a `pkill -f` pattern. Advice did not stop it; this does. The
-launcher's prompt no longer names the command, and this guard covers every
-other pattern that happens to match.
+launcher's prompt no longer names the command — and the kill still froze
+sessions (python-dev-03 and the owner, 2026-10-13): every Bash call runs as
+`bash -c '… eval '<the whole command>' …'`, so a pattern the command
+spells matches the shell running it (pkill spares only itself), the call
+never returns, and the session hangs; or it matches the harness's tracked
+inbox watch. Neither is the claude process, so a guard of claude alone let
+it through. An inbox watch never needs killing: it ends by itself at its
+next delivery, and gzcoord-inbox itself refuses a second one.
+
+THE SHELL. At PreToolUse the shell that will run the command does not exist
+yet, so it is modelled: its command line as Claude Code writes it (seen
+2026-10-13; the raw command beside it, generous on purpose), its name bash.
 
 TWO LAYERS. First a reading of the command: every argument of a pgrep or
-pkill with -f, and killall -r's regexes, is matched against the session's
-command line — generous on purpose, since a false deny costs a rephrase.
-Then the ground truth: the same question put to pgrep itself, list-only
-(pkill without its signals, killall as pgrep -x), and a deny when it names
-the session's own pid. Seven review rounds on #69 and #70 each found a
-spelling a re-implementation of procps's rules misread; procps does not
-misread itself. The second layer only adds denials.
+pkill with -f, and killall -r's regexes, is matched against each process
+of the tree's command line (or name, without -f), the modelled shell's,
+and a model of an inbox watch's — generous on purpose, since a false deny
+costs a rephrase. Then the ground truth: the same question put to pgrep
+itself, list-only (pkill without its signals, killall as pgrep -x), against
+the real processes and a stand-in carrying the modelled shell's command
+line, and a deny when it names one of the tree, the stand-in or an inbox
+watch; a kill of an explicit pid reads that pid's /proc command line.
+Seven review rounds on #69 and #70 each found a spelling a
+re-implementation of procps's rules misread; procps does not misread
+itself. The second layer only adds denials.
 
-Output: a decision on stdout — deny when either layer says the session is
-selected, ask when a pattern is a variable or a command substitution the
-hook cannot read — or nothing. Exit 0 always: input it cannot read is passed, never blocked.
+Output: a decision on stdout — deny when either layer says the tree or a
+watch is selected, ask when a pattern is a variable or a command
+substitution the hook cannot read — or nothing. Exit 0 always: input it
+cannot read is passed, never blocked.
 """
 from __future__ import annotations
 
@@ -242,11 +261,40 @@ def segments(piece: str) -> list[list[str]]:
 
 def kill_commands(command: str) -> list[list[str]]:
     """Each pgrep, pkill or killall in a command that kills at all, as its
+    words from the tool on."""
+    if not KILLS.search(command):
+        return []
+    return [w for w in tool_commands(command) if os.path.basename(w[0]) in ("pgrep", "pkill", "killall")]
+
+
+def kill_pids(command: str) -> list[int]:
+    """The literal pids a `kill` in the command names: signal options and
+    their values skipped, a negative number (a process group) and anything
+    not literal (`$pid`, `%1`) left out."""
+    if not KILLS.search(command):
+        return []
+    out = []
+    for words in tool_commands(command):
+        if os.path.basename(words[0]) != "kill":
+            continue
+        it, rest = iter(words[1:]), False
+        for w in it:
+            if not rest and w in ("-s", "-n"):
+                next(it, None)
+            elif not rest and w == "--":
+                rest = True
+            elif not rest and w.startswith("-"):
+                continue
+            elif w.isdigit():
+                out.append(int(w))
+    return out
+
+
+def tool_commands(command: str) -> list[list[str]]:
+    """Each killing tool (pgrep, pkill, killall, kill) in a command, as its
     words from the tool on: substitutions lifted, here-document bodies
     dropped, segments split, compound keywords, assignments and prefixes
     walked past."""
-    if not KILLS.search(command):
-        return []
     # Each $( … ) (and `…`) is a command of its own: lifted out innermost
     # first, a placeholder word left behind, so `pgrep -u "$(id -un)" -f P`
     # keeps its pattern and `kill $(pgrep -f P)` yields the pgrep.
@@ -282,7 +330,7 @@ def kill_commands(command: str) -> list[list[str]]:
             words = kill_after_prefixes(words)
             if not words:
                 continue
-        if os.path.basename(words[0]) in ("pgrep", "pkill", "killall"):
+        if os.path.basename(words[0]) in KILL_TOOLS:
             out.append(words)
     return out
 
@@ -382,28 +430,112 @@ def kill_patterns(command: str) -> list[str]:
     return out
 
 
-def verdict(command: str, cmdline: str | None) -> str | None:
-    if not cmdline:
-        return None
+CLAUDE_LABEL = "this session's own claude process (its command line carries the opening prompt)"
+SHELL_LABEL = ("this session's own shell (the bash this very command runs in: the call would never return "
+               "and the session would freeze)")
+WATCH_LABEL = "the harness's inbox watch (gzcoord-inbox)"
+INBOX = "gzcoord-inbox"
+# The shell the harness runs a Bash call in, as Claude Code wrote it on
+# 2026-10-13; the command goes between the two halves, its single quotes
+# escaped the way the harness escapes them.
+SHELL_HEAD = ("/bin/bash -c source /home/login/.claude/shell-snapshots/snapshot-bash.sh 2>/dev/null || true "
+              "&& eval '")
+SHELL_TAIL = "' && pwd -P >| /tmp/claude-cwd"
+# An inbox watch as the fleet runs it — the pinned interpreter, the link in
+# ~/.local/bin, each mode — and by the script's own name and its shell. A
+# real watch these miss is still asked of pgrep by the ground truth.
+INBOX_MODELS = tuple(
+    [("fabric-python", f"/usr/local/bin/fabric-python -I /home/login/.local/bin/{INBOX} {mode}")
+     for mode in ("--until-delivery", "--follow", "--wait")]
+    + [(INBOX, f"{INBOX} --until-delivery"), ("bash", f"{SHELL_HEAD}{INBOX} --until-delivery{SHELL_TAIL}")])
+
+# (what a deny message calls it, process name, command line, is an inbox watch)
+Target = tuple[str, str, str, bool]
+Tree = dict[int, tuple[str, list[str]]]   # pid -> (name, argv)
+
+
+def shell_texts(command: str) -> list[str]:
+    """The modelled command line of the shell that will run `command`, and
+    the bare command beside it in case the harness's quoting changes."""
+    return [SHELL_HEAD + command.replace("'", "'\"'\"'") + SHELL_TAIL, command]
+
+
+def is_inbox(argv: list[str]) -> bool:
+    """An inbox watch: gzcoord-inbox as the program or as the script its
+    interpreter runs, or the harness's shell whose command it is."""
+    return any(os.path.basename(a) == INBOX for a in argv[:4]) or f"eval '{INBOX}" in " ".join(argv)
+
+
+def label_of(pid: int, argv: list[str]) -> tuple[str, bool]:
+    """What a deny message calls a process of the tree, and whether it is
+    an inbox watch."""
+    if is_inbox(argv):
+        return WATCH_LABEL, True
+    joined = " ".join(argv)
+    if "eval '" in joined:     # a harness shell: the command it runs names it
+        return f"the harness's background task (pid {pid}: {joined.split(chr(39), 1)[1][:60]})", False
+    return f"a process this session started (pid {pid}: {joined[:60]})", False
+
+
+def targets(command: str, cmdline: str | None, tree: Tree | None, shell: bool) -> list[Target]:
+    """What the first layer judges a pattern against beyond the claude
+    process: the modelled shell, each process of the tree, and the inbox
+    watch's models — those whatever the session, since a watch never
+    needs a kill."""
+    out: list[Target] = []
+    if shell:
+        out += [(SHELL_LABEL, "bash", t, False) for t in shell_texts(command)]
+    for p, (comm, argv) in (tree or {}).items():
+        label, inbox = label_of(p, argv)
+        out.append((label, comm, " ".join(argv), inbox))
+    out += [(WATCH_LABEL if cmdline else f"an inbox watch ({INBOX})", name, text, True)
+            for name, text in INBOX_MODELS]
+    return out
+
+
+def _matches(pat: str, target: str) -> bool:
+    try:
+        with warnings.catch_warnings():
+            # procps's ERE ([[:digit:]]) makes Python warn of a nested
+            # set; a hook's stderr reaches every session.
+            warnings.simplefilter("ignore")
+            return re.search(pat, target) is not None
+    except re.error:
+        return pat in target
+
+
+def hits(command: str, tgts: list[Target]) -> list[tuple[str, str, bool]]:
+    """(pattern, label, is an inbox watch) for each target a kill pattern
+    of the command selects: a -f pattern judged against the command line,
+    any other against the process name."""
+    out = []
     for pat in kill_patterns(command):
         if pat == GROUP_MARK:
             continue
-        target = cmdline
-        if pat.startswith(NAME_PREFIX):
-            pat, target = pat[len(NAME_PREFIX):], SESSION_NAME
-        try:
-            with warnings.catch_warnings():
-                # procps's ERE ([[:digit:]]) makes Python warn of a nested
-                # set; a hook's stderr reaches every session.
-                warnings.simplefilter("ignore")
-                hit = re.search(pat, target)
-        except re.error:
-            hit = pat in target
-        if hit:
-            return (f"The pattern {pat!r} matches this session's own claude process (its command line carries the "
-                    "opening prompt), so this command would kill the session running it. Select by exact name "
-                    "(pgrep -x) or by pid, and never kill the inbox watch: it ends by itself at its next delivery.")
-    return None
+        by_name = pat.startswith(NAME_PREFIX)
+        pat = pat[len(NAME_PREFIX):] if by_name else pat
+        out += [(pat, label, inbox) for label, name, text, inbox in tgts if _matches(pat, name if by_name else text)]
+    return out
+
+
+def message(found: list[tuple[str, bool]], pats: list[str] | None = None) -> str:
+    """One line: what the command would kill, and what to do instead."""
+    what = " and ".join(dict.fromkeys(label for label, _ in found))
+    by = f" (pattern {', '.join(repr(p) for p in dict.fromkeys(pats))})" if pats else ""
+    if any(inbox for _, inbox in found):
+        return (f"This command would kill {what}{by}. Never kill an inbox watch: it ends by itself at its next "
+                "delivery, and gzcoord-inbox itself refuses a second watch, so there is nothing to kill.")
+    return (f"This command would kill {what}{by}. Select by the exact pid of a process you started "
+            "(kill <pid>), never by a -f pattern or a name.")
+
+
+def verdict(command: str, cmdline: str | None) -> str | None:
+    """The deny message when a kill pattern matches the session's own
+    claude process: its command line, or its name without -f."""
+    if not cmdline:
+        return None
+    found = hits(command, [(CLAUDE_LABEL, SESSION_NAME, cmdline, False)])
+    return message([(label, inbox) for _, label, inbox in found], [p for p, _, _ in found]) if found else None
 
 
 SIGNAL_NAMES = {sig.name[3:] for sig in signal.Signals} | {"IOT", "CLD", "POLL"}
@@ -498,71 +630,181 @@ def pgrep_argvs(words: list[str]) -> list[list[str]] | None:
     return [["pgrep", *(["-i"] if icase else []), *([] if regex else ["-x"]), n] for n in names] or None
 
 
-def selects(argv: list[str], pid: int, timeout: float = 2.0) -> bool | None:
-    """Whether procps itself, asked this list-only question, names `pid`.
-    None when it could not answer (an option pgrep refuses, no pgrep, a
-    timeout): then the checks above are what stands."""
+def listed(argv: list[str], timeout: float = 2.0) -> set[int] | None:
+    """The pids procps itself names, asked this list-only question; an
+    empty set when it names none. None when it could not answer (an option
+    pgrep refuses, no pgrep, a timeout): then the checks above are what
+    stands."""
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if r.returncode == 1:
-        return False
+        return set()
     if r.returncode != 0:
         return None
-    return str(pid) in r.stdout.split()
+    # -l and -a print the name or command line after the pid: the first
+    # word of each line is the pid.
+    return {int(line.split()[0]) for line in r.stdout.splitlines() if line.split() and line.split()[0].isdigit()}
 
 
-def ground_truth(command: str, pid: int | None) -> bool | None:
-    """True when a kill in the command would select the session's own
-    claude process, as procps answers it; False when every kill was asked
-    and none would; None when one could not be asked. Seven review rounds
-    on #69 and #70 each found a spelling that a re-implementation of
-    procps's option and pattern rules misread (the owner chose this,
-    2026-09-30): the tool that will do the matching is asked instead. Only
-    pgrep ever runs here, never the kill."""
-    if not pid:
+def selects(argv: list[str], pid: int, timeout: float = 2.0) -> bool | None:
+    """Whether procps, asked this list-only question, names `pid`."""
+    got = listed(argv, timeout)
+    return None if got is None else pid in got
+
+
+def read_argv(pid: int, proc: str = "/proc") -> list[str]:
+    try:
+        with open(f"{proc}/{pid}/cmdline", "rb") as fh:
+            return [a.decode("utf-8", "replace") for a in fh.read().split(b"\0") if a]
+    except OSError:
+        return []
+
+
+def session_tree(root: int, proc: str = "/proc", me: int | None = None) -> Tree:
+    """Every descendant of the session's claude process, as (name, argv),
+    except this hook, what it started and the shells between it and
+    claude: those are gone when the command runs. Read only when the
+    command kills at all."""
+    me = me or os.getpid()
+    ppid_of: dict[int, int] = {}
+    comm_of: dict[int, str] = {}
+    try:
+        entries = os.listdir(proc)
+    except OSError:
+        return {}
+    for d in entries:
+        if not d.isdigit():
+            continue
+        try:
+            with open(f"{proc}/{d}/stat", encoding="utf-8", errors="replace") as fh:
+                raw = fh.read()
+            comm_of[int(d)] = raw[raw.index("(") + 1:raw.rindex(")")]
+            ppid_of[int(d)] = int(raw[raw.rindex(")") + 2:].split()[1])
+        except (OSError, ValueError, IndexError):
+            continue
+    children: dict[int, list[int]] = {}
+    for p, pp in ppid_of.items():
+        children.setdefault(pp, []).append(p)
+
+    def below(p: int) -> set[int]:
+        seen, todo = set(), list(children.get(p, []))
+        while todo:
+            c = todo.pop()
+            if c not in seen:
+                seen.add(c)
+                todo += children.get(c, [])
+        return seen
+
+    drop, p = {me} | below(me), ppid_of.get(me)
+    while p and p != root and p not in drop:
+        drop.add(p)
+        p = ppid_of.get(p)
+    return {p: (comm_of[p], read_argv(p, proc)) for p in below(root) - drop}
+
+
+def _stand_in(command: str) -> subprocess.Popen | None:
+    """A process carrying the modelled shell's command line, for pgrep to
+    be asked about: the real shell does not exist yet. Its program is
+    sleep, so nothing of the command ever runs."""
+    try:
+        return subprocess.Popen([shell_texts(command)[0].replace("\0", " "), "30"], executable="/bin/sleep",
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, ValueError):
         return None
+
+
+def ground_truth(command: str, pid: int | None, tree: Tree | None = None,
+                 shell: bool = False) -> list[tuple[str, bool]] | bool | None:
+    """What a kill in the command would select of the session — its
+    claude process, its tree, its shell's stand-in — or of any inbox watch,
+    as procps answers it: a list of (label, is an inbox watch); False when
+    every kill was asked and none would; None when one could not be asked.
+    Seven review rounds on #69 and #70 each found a spelling that a
+    re-implementation of procps's option and pattern rules misread (the
+    owner chose this, 2026-09-30): the tool that will do the matching is
+    asked instead. Only pgrep ever runs here, never the kill."""
+    known: dict[int, tuple[str, bool]] = {p: label_of(p, argv) for p, (_, argv) in (tree or {}).items()}
+    if pid:
+        known[pid] = (CLAUDE_LABEL, False)
     # Every pgrep in a command that kills at all: recognising which pgrep's
     # output a kill reads (`| xargs kill`, `kill $(…)`) missed a loop and a
     # variable (ninth round); a listing pgrep beside a kill word is a false
     # deny, the safe side.
     deadline = time.monotonic() + GROUND_TRUTH_BUDGET_S
     answer: bool | None = False
-    for words in kill_commands(command):
-        argvs = pgrep_argvs(words)
-        if argvs is None:
-            answer = None
-            continue
-        for argv in argvs:
-            left = deadline - time.monotonic()
-            if left <= 0:
-                return None if not answer else answer
-            got = selects(argv, pid, min(2.0, left))
-            if got:
-                return True
-            if got is None:
+    stand_in = None
+    try:
+        for words in kill_commands(command):
+            argvs = pgrep_argvs(words)
+            if argvs is None:
                 answer = None
+                continue
+            if shell and stand_in is None:
+                stand_in = _stand_in(command)
+                if stand_in:
+                    known[stand_in.pid] = (SHELL_LABEL, False)
+            for argv in argvs:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None
+                got = listed(argv, min(2.0, left))
+                if got is None:
+                    answer = None
+                    continue
+                # The stand-in's name is sleep, not the shell's bash: it
+                # answers only a question asked of command lines (-f).
+                full = any(_long(w, "--full") if w.startswith("--") else w.startswith("-") and "f" in w[1:]
+                           for w in argv[1:])
+                found = [known[p] for p in sorted(got)
+                         if p in known and (full or not stand_in or p != stand_in.pid)]
+                found += [(f"an inbox watch ({INBOX}, pid {p})", True) for p in sorted(got)
+                          if p not in known and is_inbox(read_argv(p))]
+                if found:
+                    return found
+    finally:
+        if stand_in:
+            stand_in.kill()
+            stand_in.wait()
     return answer
+
+
+def inbox_pids(command: str, tree: Tree | None = None) -> list[tuple[str, bool]]:
+    """An inbox watch a `kill` names by its pid, read from /proc."""
+    tree = tree or {}
+    return [(label_of(p, tree[p][1])[0] if p in tree else f"an inbox watch ({INBOX}, pid {p})", True)
+            for p in kill_pids(command) if is_inbox(read_argv(p))]
 
 
 UNEXPANDED = re.compile(r"\$(\{|[A-Za-z_])")
 
 
-def decision(command: str, cmdline: str | None, pid: int | None = None) -> tuple[str, str] | None:
-    """deny when a pattern matches the session's own command line; ask when
-    a pattern holds a variable or a command substitution the hook cannot
-    read (`pkill -f "$P"`, `pkill -f "claude-$(id -un)"`), since its value
-    decides; otherwise nothing."""
+def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tree | None = None,
+             shell: bool | None = None) -> tuple[str, str] | None:
+    """deny when a kill would select the session's claude process, its
+    shell, a process of its tree or an inbox watch; ask when a pattern
+    holds a variable or a command substitution the hook cannot read
+    (`pkill -f "$P"`, `pkill -f "claude-$(id -un)"`), since its value
+    decides; otherwise nothing. `shell` models the shell the command will
+    run in: by default, inside a session (a claude ancestor found)."""
     why = verdict(command, cmdline)
     if why:
         return "deny", why
+    if not KILLS.search(command):
+        return None
+    shell = bool(cmdline) if shell is None else shell
+    found = hits(command, targets(command, cmdline, tree, shell))
+    if found:
+        return "deny", message([(label, inbox) for _, label, inbox in found], [p for p, _, _ in found])
+    by_pid = inbox_pids(command, tree)
+    if by_pid:
+        return "deny", message(by_pid)
     # procps's own answer, when it can be asked: it adds denials, never
     # removes one — the reading above stays as the floor.
-    if KILLS.search(command) and ground_truth(command, pid):
-        return "deny", ("pgrep, asked the same question this command asks, names this session's own claude "
-                        "process, so the command would kill the session running it. Select by pid, or by a "
-                        "pattern pgrep does not match against this session.")
+    truth = ground_truth(command, pid, tree, shell)
+    if truth:
+        return "deny", message(truth) + " (pgrep, asked the same question, says so.)"
     if cmdline:
         pats = kill_patterns(command)
         if GROUP_MARK in pats:
@@ -572,9 +814,9 @@ def decision(command: str, cmdline: str | None, pid: int | None = None) -> tuple
         held = [p for p in pats if UNEXPANDED.search(p) or SUBST in p]
         if held:
             return "ask", (f"This command kills by a pattern held in a variable or a command substitution "
-                           f"({held[0].replace(SUBST, '$(…)')}), whose value this hook "
-                           "cannot see; if it matches this session's own claude command line, the session dies. "
-                           "Kill by pid or pgrep -x instead, or allow it knowing the value.")
+                           f"({held[0].replace(SUBST, '$(…)')}), whose value this hook cannot see; if it matches "
+                           "this session's claude process, its shell or a process it started, the session dies. "
+                           "Kill by the exact pid of a process you started instead, or allow it knowing the value.")
     return None
 
 
@@ -585,7 +827,10 @@ def main() -> int:
     except (ValueError, AttributeError):
         return 0
     pid, cmdline = own_claude()
-    d = decision(command, cmdline, pid)
+    # The tree is read only for a command that kills: the hook runs on
+    # every Bash call.
+    tree = session_tree(pid) if pid and KILLS.search(command) else {}
+    d = decision(command, cmdline, pid, tree)
     if d:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                                  "permissionDecision": d[0],

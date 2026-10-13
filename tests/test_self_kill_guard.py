@@ -174,7 +174,7 @@ def main() -> int:
     ]
     for label, cmd in allowed:
         check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))
-    check("killall -g asks: the group it kills is not in the command", (g.decision("killall -g bash", CLAUDE) or ("",))[0] == "ask")
+    check("killall -g asks: the group it kills is not in the command", (g.decision("killall -g zzqx", CLAUDE) or ("",))[0] == "ask")
     for cmd in ('pkill -f "$P"', "pgrep -f ${PAT} | xargs kill", 'pkill -f "$(cat pattern.txt)"',
                 'pkill -f "claude-$(id -un)"', "pkill -f claude-`whoami`"):
         check(f"a variable pattern asks: {cmd}", (g.decision(cmd, CLAUDE) or ("",))[0] == "ask", g.decision(cmd, CLAUDE))
@@ -219,14 +219,16 @@ def main() -> int:
             ("pgrep -x node | xargs kill", False),
         ]
         for cmd, want in truth:
-            d = g.decision(cmd, other, pid)
+            d = g.decision(cmd, other, pid, shell=False)
             check(f"ground truth: {cmd} -> {'deny' if want else 'allowed'}", (d is not None and d[0] == "deny") == want, d)
-        real_selects, ran = g.selects, []
-        g.selects = lambda argv, p: ran.append(argv) or False
+        check("by name, the shell's stand-in (a sleep) is not the shell: killall sleep passes with the shell modelled",
+              g.decision("killall sleep", other, None, {}, shell=True) is None)
+        real_listed, ran = g.listed, []
+        g.listed = lambda argv, timeout=2.0: ran.append(argv) or set()
         try:
             d = g.decision('pkill -f "$P"', other, pid)
         finally:
-            g.selects = real_selects
+            g.listed = real_listed
         check("a pattern it cannot read: pgrep is never run for it, and the hook asks",
               ran == [] and (d or ("",))[0] == "ask", (ran, d))
         check("-c and -d leave the selection intact: a glued value and a pattern after -- are untouched",
@@ -239,15 +241,15 @@ def main() -> int:
               g.pgrep_argvs(["pkill", "-TERM", "-9", "-f", "p"]) == [["pgrep", "-f", "p"]]
               and g.pgrep_argvs(["killall", "a", "b"]) == [["pgrep", "-x", "a"], ["pgrep", "-x", "b"]])
         # The budget holds across every pgrep, killall's names included.
-        real_selects, budget = g.selects, g.GROUND_TRUTH_BUDGET_S
-        g.selects = lambda argv, p, timeout=2.0: time.sleep(min(timeout, 0.4)) or False
+        real_listed, budget = g.listed, g.GROUND_TRUTH_BUDGET_S
+        g.listed = lambda argv, timeout=2.0: time.sleep(min(timeout, 0.4)) or set()
         g.GROUND_TRUTH_BUDGET_S = 0.5
         try:
             t0 = time.monotonic()
             g.ground_truth("killall a b c d e f", pid)
             took = time.monotonic() - t0
         finally:
-            g.selects, g.GROUND_TRUTH_BUDGET_S = real_selects, budget
+            g.listed, g.GROUND_TRUTH_BUDGET_S = real_listed, budget
         check("the ground truth stops within its budget, across killall's names", took < 1.5, took)
         # selects() hands its bound to the process it starts: a pgrep that
         # hangs is killed at the timeout, never waited on (#70, tenth re-review).
@@ -267,6 +269,113 @@ def main() -> int:
     finally:
         dummy.kill()
         dummy.wait()
+
+    # The session's tree, end to end. A stand-in session — bash under the
+    # name `claude` — starts what the harness would (a background task, an
+    # inbox watch) and runs the hook through a shell, as the settings do;
+    # the hook finds it as its nearest claude. Distinctive words reach the
+    # children by the environment, never the stand-in's own argv, so a
+    # pattern matching a child does not match "claude" too.
+    tmp = tempfile.mkdtemp()
+    os.symlink("/bin/bash", os.path.join(tmp, "claude"))
+    os.symlink("/bin/sleep", os.path.join(tmp, INBOX := "gzcoord-inbox"))
+    script = ('(exec -a "$SIB" sleep 60) & s=$!; "$INB" 61 & i=$!; echo "$s $i"; '
+              'while read -r f; do sh -c \'python3 "$0" < "$1"\' "$HOOK" "$f"; echo @@END; done; '
+              'kill "$s" "$i"; wait')
+    env = dict(os.environ, SIB="zzsib-bg-task-qx 60", INB=os.path.join(tmp, INBOX), HOOK=HOOK)
+    session = subprocess.Popen([os.path.join(tmp, "claude"), "-c", script], env=env, text=True,
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True)
+    outside = subprocess.Popen(["zzout-unrelated-qx", "60"], executable="/bin/sleep")
+    try:
+        sib, inbox = map(int, session.stdout.readline().split())
+        time.sleep(0.2)
+
+        def hook_in_session(cmd: str) -> tuple[str, str] | None:
+            path = os.path.join(tmp, "payload.json")
+            with open(path, "w") as fh:
+                json.dump({"tool_input": {"command": cmd}}, fh)
+            session.stdin.write(path + "\n")
+            session.stdin.flush()
+            out = []
+            for line in session.stdout:
+                if line.strip() == "@@END":
+                    break
+                out.append(line)
+            if not "".join(out).strip():
+                return None
+            o = json.loads("".join(out))["hookSpecificOutput"]
+            return o["permissionDecision"], o["permissionDecisionReason"]
+
+        tree_cases = [
+            # (a) Only the shell the command runs in: the harness's
+            # `bash -c '… eval …'` carries the pattern. Then the same, seen
+            # only by procps: Python reads [[:alpha:]] as a set, so the
+            # first layer misses and the stand-in shell is asked about.
+            ("a pattern only the command's own shell carries", "pkill -f zzshell-only-qx", "own shell"),
+            ("…the same through pgrep and the stand-in shell",
+             "pkill -f 'zz[[:alpha:]]hell-qx' # zzshell-qx", "own shell"),
+            # (b) A background process the session started.
+            ("a sibling background task by [x]-pattern", "pgrep -f '[z]zsib-bg' | xargs kill", f"pid {sib}"),
+            ("…the same through pgrep alone", "pkill -f '[z]zsib-[[:alpha:]]+-task'", f"pid {sib}"),
+            # (c) An inbox watch: by pattern, by name, by explicit pid.
+            ("gzcoord-inbox by pattern", "pkill -f gzcoord-inbox", "Never kill an inbox watch"),
+            ("gzcoord-inbox by a pattern the shell does not carry", "pkill -f '[g]zcoord-inbox'",
+             "Never kill an inbox watch"),
+            ("gzcoord-inbox by its pid", f"kill {inbox}", "Never kill an inbox watch"),
+            ("gzcoord-inbox by its pid, with a signal", f"kill -s TERM {inbox}", "Never kill an inbox watch"),
+            ("gzcoord-inbox through $(pgrep -x)", "kill $(pgrep -x gzcoord-inbox)", "Never kill an inbox watch"),
+        ]
+        for label, cmd, want in tree_cases:
+            d = hook_in_session(cmd)
+            check(f"in a session, refused: {label}",
+                  d is not None and d[0] == "deny" and want in d[1] and "\n" not in d[1], d)
+        # (d) What lies outside the tree passes, by pattern or by pid; the
+        # same pattern unbracketed is refused, for the shell carries it.
+        for label, cmd in (("a pattern matching only an unrelated process", "pgrep -f '[z]zout-unrelated' | xargs kill"),
+                           ("an unrelated process by its pid", f"kill {outside.pid}"),
+                           ("a background task by its exact pid", f"kill {sib}")):
+            d = hook_in_session(cmd)
+            check(f"in a session, allowed: {label}", d is None, d)
+        d = hook_in_session("pkill -f zzout-unrelated")
+        check("in a session, refused: the unrelated pattern unbracketed (the shell carries it)",
+              d is not None and "own shell" in d[1], d)
+        check("an inbox watch by pid is refused outside a session too",
+              (g.decision(f"kill {inbox}", None) or ("",))[0] == "deny")
+        check("the processes the hook judged are all alive",
+              session.poll() is None and outside.poll() is None
+              and all(os.path.exists(f"/proc/{p}") for p in (sib, inbox)))
+    finally:
+        outside.kill()
+        outside.wait()
+        try:
+            session.stdin.close()
+            session.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        try:
+            os.killpg(session.pid, 9)
+        except OSError:
+            pass
+        session.wait()
+        for name in ("claude", INBOX, "payload.json"):
+            if os.path.lexists(os.path.join(tmp, name)):
+                os.unlink(os.path.join(tmp, name))
+        os.rmdir(tmp)
+
+    # session_tree on a planted /proc: claude (10) has the hook's shell (20)
+    # and the hook (30), which the command outlives, and a task (40) with a
+    # child (50); 60 is another session's.
+    with tempfile.TemporaryDirectory() as proc:
+        for pid, comm, ppid in ((10, "claude", 5), (20, "sh", 10), (30, "python3", 20), (31, "pgrep", 30),
+                                (40, "bash", 10), (50, "sleep", 40), (60, "sleep", 1)):
+            os.makedirs(os.path.join(proc, str(pid)))
+            open(os.path.join(proc, str(pid), "stat"), "w").write(f"{pid} ({comm}) S {ppid} 0 0\n")
+            open(os.path.join(proc, str(pid), "cmdline"), "wb").write(f"{comm}\0x".encode())
+        tree = g.session_tree(10, proc=proc, me=30)
+        check("session_tree: the descendants, without the hook, its shell and its children",
+              sorted(tree) == [40, 50] and tree[50] == ("sleep", ["sleep", "x"]), tree)
+    check("the shell model escapes single quotes as the harness does",
+          g.shell_texts("echo 'a'")[0].endswith("eval 'echo '\"'\"'a'\"'\"'' && pwd -P >| /tmp/claude-cwd"))
 
     # The ancestor walk, on a planted /proc: hook (30) -> bash (20) -> claude (10).
     with tempfile.TemporaryDirectory() as proc:
