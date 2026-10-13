@@ -58,6 +58,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | reading a web page; moli; moli fetch; moli serve; the CDP port; when to use Chrome | ADR-051 |
 | when a gateway session changes Claude account; land and eject thresholds; perishable quota; the switch controller | ADR-052 |
 | a harness other than Claude Code; Codex sessions; AGENTS.md and CLAUDE.md; --harness | ADR-054 |
+| a model at capacity or over allowance; retries; review divert; availability report | ADR-055 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1164,3 +1165,17 @@ its record disagree, the record wins. Look it up, never read it whole:
 - `openai` coding classes only once a session runs them, no subagents
   until mapped; each Codex seam read back live first; a Codex-authored
   PR gets the review class, not Codex, as its review (§5 rules 8-10).
+
+### ADR-055 — Model availability is rediscovered by each run; the control plane reports it to people; a review diverts when its only model is unavailable (Proposed)
+
+- A run learns availability by trying, never from another run's
+  observation (§5 rules 1, 5).
+- Retry a capacity failure 10 s, 20 s, 60 s, then report "the chosen model
+  is unavailable": at capacity (provider's) or over allowance (ours, with
+  the reset) (§5 rule 2).
+- A review whose model is unavailable and is the request's only reviewer
+  diverts to the next model of the review capability's order, named on
+  the review; otherwise it reports and the PR waits (§5 rule 3).
+- Every unavailability is reported through the control agent for people
+  (`fabric-ctl availability`, the Board); the owner hears of a long or
+  total outage (§5 rules 4, 6).

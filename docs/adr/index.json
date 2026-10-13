@@ -495,6 +495,15 @@
       "date": "2026-10-13",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "055",
+      "file": "ADR-055-model-availability-is-rediscovered-locally.md",
+      "title": "Model availability is rediscovered by each run; the control plane reports it to people; a review diverts when its only model is unavailable",
+      "status": "Proposed",
+      "date": "2026-10-13",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }
