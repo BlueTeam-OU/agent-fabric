@@ -224,8 +224,20 @@ def _put_file(dest: str, data: bytes) -> None:
         raise
 
 
-def _undo(store: str, created: list[str]) -> None:
-    """The store as it was: tracked files back, the files this run made gone."""
+def _missing_dirs(store: str, dests: list[str]) -> list[str]:
+    """The directories below settings/ these writes will make, deepest first."""
+    root = os.path.join(store, "settings")
+    wanted: set[str] = set()
+    for dest in dests:
+        here = os.path.dirname(dest)
+        while here != root and not os.path.lexists(here):
+            wanted.add(here)
+            here = os.path.dirname(here)
+    return sorted(wanted, key=len, reverse=True)
+
+
+def _undo(store: str, created: list[str], made_dirs: list[str] = ()) -> None:
+    """The store as it was: tracked files back, the files and directories this run made gone."""
     r = git(store, "reset", "-q", "--hard", "HEAD", check=False)
     if r.returncode != 0:
         why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
@@ -235,6 +247,11 @@ def _undo(store: str, created: list[str]) -> None:
             os.unlink(path)
         except OSError:
             pass   # never made (the write failed before it), or its directory is a file: nothing to remove
+    for path in made_dirs:
+        try:
+            os.rmdir(path)
+        except OSError:
+            pass   # never made, or not empty
 
 
 def settings_put(src: str) -> dict:
@@ -252,6 +269,8 @@ def settings_put(src: str) -> dict:
         _check_standing(files, store, aid)
         dests = {rel: _destination(store, rel) for rel in files}
         created = [d for d in dests.values() if not os.path.lexists(d)]
+        made_dirs = _missing_dirs(store, list(dests.values()))
+        head = git(store, "rev-parse", "HEAD").stdout
         try:
             for rel, data in sorted(files.items()):
                 _put_file(dests[rel], data)
@@ -263,18 +282,17 @@ def settings_put(src: str) -> dict:
             changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
         except BaseException as e:
             # Any failure, an interrupt too: the next write refuses a dirty store until it is reset by hand.
-            _undo(store, created)
+            _undo(store, created, made_dirs)
             if isinstance(e, OSError):
                 raise StoreError(f"{e.filename or 'settings'}: {e.strerror or e}; nothing written") from None
             raise
         if changed:
-            head = git(store, "rev-parse", "HEAD").stdout
             try:
                 _commit(store, f"agent {login()}: settings")
             except BaseException:
                 # _commit resets after its own failures; an interrupt (signing waits on gpg) bypasses that.
                 if git(store, "rev-parse", "HEAD").stdout == head:
-                    _undo(store, created)
+                    _undo(store, created, made_dirs)
                 raise
             entries._after_commit(store)
         else:

@@ -349,7 +349,6 @@ def main() -> int:
               and hashlib.sha256(subprocess.run(["git", "-C", store, "show", "HEAD:settings/avatar.png"], env=env,
                                                 capture_output=True, check=True).stdout).hexdigest() == hashlib.sha256(png2).hexdigest(),
               p.stdout + p.stderr)
-        held_profile = g("show", "HEAD:settings/profile.json")
         refused("an avatar alone that the store's profile does not name is refused: the result is checked, not the tree",
                 tree("av", {"avatar.png": png + b"new"}), "sha256")
         wrong = json.loads(profile())
@@ -365,7 +364,7 @@ def main() -> int:
         subprocess.run(["git", "-C", store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
                         "commit", "-q", "-m", "a plain file"], check=True, env=env)
         before_fail = count()
-        broken = tree("brk", {"a-new.txt": b"1", "avatar-rejected/2.png": b"changed", "sub/x": b"z"})
+        broken = tree("brk", {"a-new.txt": b"1", "avatar-rejected/2.png": b"changed", "newdir/deeper/a": b"1", "sub/x": b"z"})
         p = run("settings-put", "--from", broken)
         check("a write that fails half way puts the store back: nothing staged, modified or left over",
               p.returncode == 1 and "nothing written" in p.stderr and "Traceback" not in p.stderr and g("status", "--porcelain",
@@ -373,7 +372,21 @@ def main() -> int:
               and g("show", "HEAD:settings/avatar-rejected/2.png") == "r" and count() == before_fail, p.stderr[-900:])
         with open(os.path.join(store, "settings", "avatar-rejected", "2.png")) as fh:
             check("…and the file the failed run had replaced is the old one on disk", fh.read() == "r")
+        check("…and the directories it made are gone too (a later file of that name is not blocked)",
+              not os.path.exists(os.path.join(store, "settings", "newdir")))
         subprocess.run(["git", "-C", store, "reset", "-q", "--hard", "HEAD~1"], check=True, env=env)
+
+        # An interrupt while the commit is being signed: the store goes back, nothing staged, nothing left on disk.
+        n_int = count()
+        with mock.patch.dict(os.environ, env), mock.patch.object(S, "_commit", side_effect=KeyboardInterrupt):
+            try:
+                S.settings_put(tree("intr", {"newdir2/a": b"1", "avatar-rejected/int.txt": b"i"}))
+                outcome = "returned"
+            except KeyboardInterrupt:
+                outcome = "interrupted"
+        check("an interrupt in the commit undoes the write: nothing staged, no file or directory left",
+              outcome == "interrupted" and g("status", "--porcelain", "--untracked-files=all") == "" and count() == n_int
+              and not os.path.exists(os.path.join(store, "settings", "newdir2")), outcome)
 
         stray = os.path.join(store, "settings", "stray")
         with open(stray, "w") as fh:
