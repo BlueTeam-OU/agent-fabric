@@ -146,11 +146,12 @@ ADR-038's line: no login holds a secret it does not need.
    refresh token stays with the coordinator's one sign-in per ChatGPT
    seat. The harness holds only a gateway-local key, which identifies
    the calling component and guards no secret. The review engine
-   (ADR-053) starts Codex behind the gateway by the same launcher path
-   a Codex session uses, so every review exercises the session's route;
-   but each component presents its own gateway-local key — the session
-   one, the review engine another — so the gateway always knows which
-   component is calling and can attribute what it serves
+   (ADR-053) starts Codex behind a gateway by the same launcher path a
+   Codex session uses, so every review exercises the session's route.
+   Each is a root harness with a gateway of its own (agent-fabric-gateway
+   ADR-002: one gateway per root harness lifecycle, never one per login),
+   so each presents its own gateway-local key and the gateway always
+   knows which component is calling and can attribute what it serves
    (A 2026-10-13).
 8. A coding class on the `openai` provider is bound only when a Codex
    session can run it; its model and effort are routing's
