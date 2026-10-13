@@ -217,7 +217,7 @@ def main() -> int:
             """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field",
-                      "mergefail", "inbase",
+                      "mergefail", "inbase", "unasked",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
@@ -267,9 +267,13 @@ def main() -> int:
                 raise gh.GhError(what or "gh " + " ".join(args[:2]), err.strip() or "failed")
             return out
 
-        def in_base(repo: str, head: str, base: str, cwd: str = ".") -> bool | None:
-            """landed.head_in_base in process: the `inbase` state file is git's yes; each question is a call."""
+        def in_base(repo: str, head: str, base: str, cwd: str = ".", note=lambda _: None) -> bool | None:
+            """landed.head_in_base in process: the `inbase` state file is git's yes, `unasked` a git it could not
+            ask (said through `note`); each question is a call."""
             _log(state, f"landed {repo} {head} {base}\n")
+            if os.path.exists(f"{state}/unasked"):
+                note("could not ask git: the fake's reason")
+                return None
             return os.path.exists(f"{state}/inbase")
 
         def reader(head: list[str], args: list[str], timeout: int = 600) -> tuple[int, str]:
@@ -774,6 +778,10 @@ def main() -> int:
         check("gh pr merge fails, idle, the head not in the base: exit 2, the failure named",
               rc == 2 and "reads 'idle'" in out and "failed: GraphQL: Merge already in progress" in out
               and "MERGED #7" not in out, out)
+        reset(); put("mergefail", ""); put("unasked", "")
+        rc, out = run("7", "--basis", "b")
+        check("…and when git could not be asked, that is said beside the exit 2",
+              rc == 2 and "arm: could not ask git: the fake's reason" in out, out)
         reset(); put("mergefail", ""); put("nohead", "")
         rc, out = run("7", "--basis", "b")
         check("…a read-back that fails is asked of git too", rc == 2 and "landed" in calls(), calls())
@@ -834,16 +842,29 @@ def main() -> int:
             check("a head this clone has never seen: False",
                   landed.head_in_base("o/r", "0" * 40, "main", clone) is False)
             check("the case of the repository's name does not matter", landed.head_in_base("O/R", pr_head, "main", clone) is True)
+            said: list[str] = []
             check("origin is another repository (GH_REPO named this one): None, never asked",
-                  landed.head_in_base("o/other", pr_head, "main", clone) is None)
+                  landed.head_in_base("o/other", pr_head, "main", clone, note=said.append) is None)
+            check("…and said, without the URL", said == [f"could not ask git whether {pr_head[:8]} is in origin/main:"
+                                                         " this directory's origin is not o/other on github.com"], str(said))
             check("a base the remote does not have: None", landed.head_in_base("o/r", pr_head, "nope", clone) is None)
             check("an abbreviated head: None", landed.head_in_base("o/r", pr_head[:8], "main", clone) is None)
             check("a base that reads as an option: None", landed.head_in_base("o/r", pr_head, "--all", clone) is None)
             check("not a clone: None", landed.head_in_base("o/r", pr_head, "main", sandbox) is None)
             g(clone, "config", f"url.{sandbox}/gone.git.insteadOf", "https://github.com/o/r.git")
             g(clone, "config", "--unset", f"url.{origin}.insteadOf")
+            said = []
             check("a fetch that fails: None, never the stale answer",
-                  landed.head_in_base("o/r", pr_head, "main", clone) is None)
+                  landed.head_in_base("o/r", pr_head, "main", clone, note=said.append) is None)
+            check("…and said", said == [f"could not ask git whether {pr_head[:8]} is in origin/main: git fetch origin"
+                                        " main failed"], str(said))
+            said = []
+            landed.head_in_base("o/r", pr_head, "main", sandbox, note=said.append)
+            check("not a clone: said too", len(said) == 1 and said[0].startswith("could not ask git"), str(said))
+            said = []
+            landed.head_in_base("o/r", "", "main", clone, note=said.append)
+            check("an unread head: said", said == ["could not ask git whether ? is in origin/main: the PR's head or"
+                                                   " base was not read"], str(said))
         shutil.rmtree(clone); shutil.rmtree(other); shutil.rmtree(origin)
 
         print("arm: another project's rules — InterWeave's arm.json, through the shim")

@@ -115,7 +115,11 @@ Exit codes:
 # cannot be named is a usage error; no jq; every gh call is bounded and a
 # timeout is that lookup failing; the arm command is the project's
 # arm.json's; the conflict line names the base branch; actions-health runs
-# in process; the idle threshold's name is the fabric's.
+# in process; the idle threshold's name is the fabric's. Since (agent-fabric
+# #237, devex-tooling's own): before exits 4, 5 and 6 and the "nothing will
+# merge it" note, the base branch is fetched into this clone's
+# refs/remotes/origin/ to ask git whether the head is in it — the working
+# tree is still never touched.
 from __future__ import annotations
 
 import datetime as dt
@@ -262,7 +266,7 @@ class Watch:
         head, base = self.pr_field("headRefOid"), self.pr_field("baseRefName")
         if not (isinstance(head, str) and isinstance(base, str)):
             return ""
-        return base if landed.head_in_base(self.repo, head, base) else ""
+        return base if landed.head_in_base(self.repo, head, base, note=self.note) else ""
 
     def lagging(self, base: str) -> Verdict:
         return Verdict(0, f"MERGED — its head is in origin/{base}, and the PR API is lagging (it still reads open);"

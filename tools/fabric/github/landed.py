@@ -6,12 +6,17 @@ call failed while GitHub merged the PR, and the API then read OPEN, then
 "merge already in progress", then CONFLICTING/DIRTY, while the merge
 commit was already on origin/main. arm's read-back and wait-merged both
 judged from the API and called it not merged. A head that is an ancestor
-of the freshly fetched base has been merged, whatever the API says."""
+of the freshly fetched base has been merged, whatever the API says.
+
+Only a merge commit keeps the head an ancestor: a squash or a rebase merge
+writes new commits, so for those this answers False and the caller falls
+back to the API's word, never to a false "merged"."""
 from __future__ import annotations
 
 import os
 import re
 import sys
+from collections.abc import Callable
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -22,12 +27,18 @@ FETCH_TIMEOUT_S = 60
 _SHA = re.compile(r"[0-9a-f]{40}")
 
 
-def head_in_base(repo: str, head: str, base: str, cwd: str = ".") -> bool | None:
+def head_in_base(repo: str, head: str, base: str, cwd: str = ".",
+                 note: Callable[[str], None] = lambda _: None) -> bool | None:
     """True when `head` is an ancestor of `repo`'s `base` branch, just fetched into the clone at `cwd`. False when
     git says it is not. None when git could not be asked: the clone's origin is not `repo` (GH_REPO may name another
     repository), the fetch failed, or the input is not a full sha and a branch name. Only True is a fact a caller
-    acts on: False is not a refusal, since the base may have moved past an unmerged head in either answer."""
+    acts on: False is not a refusal, since the base may have moved past an unmerged head in either answer. Each None
+    is said through `note`, so a reader can tell "git said no" from "git was never asked"."""
+    def unasked(why: str) -> None:
+        note(f"could not ask git whether {(head or '?')[:8]} is in origin/{base or '?'}: {why}")
+
     if not (_SHA.fullmatch(head or "") and base) or base.startswith("-"):
+        unasked("the PR's head or base was not read")
         return None
     try:
         # The configured URL, not `git remote get-url`: that one applies url.<x>.insteadOf, and the question is
@@ -35,17 +46,22 @@ def head_in_base(repo: str, head: str, base: str, cwd: str = ".") -> bool | None
         url = git.run(cwd, "config", "--get", "remote.origin.url", check=False, timeout=30).stdout.strip()
         m = gh._ORIGIN.fullmatch(url)
         if not m or m.group("repo").lower() != repo.lower():
+            # The URL itself is never echoed: it can carry a credential.
+            unasked(f"this directory's origin is not {repo} on github.com")
             return None
         # An explicit refspec: the clone's fetch configuration may not map this branch (a single-branch clone), and
         # FETCH_HEAD is left alone, since another fetch in the same clone may be reading it.
+        # GIT_TERMINAL_PROMPT=0: a missing credential is a failed fetch, never a prompt on the session's terminal.
         if git.run(cwd, "fetch", "-q", "--no-write-fetch-head", "origin",
                    f"+refs/heads/{base}:refs/remotes/origin/{base}", check=False,
-                   timeout=FETCH_TIMEOUT_S).returncode != 0:
+                   env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, timeout=FETCH_TIMEOUT_S).returncode != 0:
+            unasked(f"git fetch origin {base} failed")
             return None
         # A head not in the clone is not in the base just fetched. git says so with 128, which merge-base shares
         # with real failures, so it is asked first.
         if git.run(cwd, "cat-file", "-e", f"{head}^{{commit}}", check=False, timeout=30).returncode != 0:
             return False
         return git.ok(cwd, "merge-base", "--is-ancestor", head, f"refs/remotes/origin/{base}")
-    except git.GitError:
+    except git.GitError as e:
+        unasked(e.reason)
         return None

@@ -31,7 +31,8 @@ nothing wrote a false record.
             question could not be answered, or on a usage error
   exit      0 read back armed, queued or merged, each on the head the
             gates read, or that head found in the base branch while the
-            PR still reads open (or, with --dry-run, would arm); on a
+            PR still reads open or cannot be read back (or, with
+            --dry-run, would arm); on a
             direct repository only merged; 1 refused — the
             reason is the last line; 2 gh / pr-gate / pr-review-status /
             the project's arm.json / the relay / fabric-ctl could not
@@ -940,7 +941,7 @@ def arm(argv: list[str]) -> int:
     armed_ok = policy["mode"] != "direct" and (armed == "armed" or armed.startswith("queued"))
     # Asked only where the answer would otherwise be exit 2: an armed PR whose head has also landed is left to the
     # watcher, which asks the same question, and the common path costs no fetch.
-    if not armed_ok and may_lag and landed.head_in_base(repo, head, base):
+    if not armed_ok and may_lag and landed.head_in_base(repo, head, base, note=say):
         say(f"MERGED #{num} ({title}) — head {head[:8]} is in origin/{base}: GitHub merged it, and the PR API is"
             f" lagging (it reads '{armed}'); basis posted.")
         return 0
