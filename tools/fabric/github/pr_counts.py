@@ -278,15 +278,16 @@ def engines_on_head(pr: dict, markers: list[str]) -> set[str]:
             if (r.get("commit") or {}).get("oid") == head and any(m in (r.get("body") or "") for m in markers)}
 
 
-def required_engines(repo: str, budget: Budget, cache: dict) -> list[str]:
-    """The engines the repository's arming policy requires of every pull request, read once per repository. One that
-    cannot be read requires every engine: never the default, which could ask fewer and say "head reviewed" early."""
+def required_engines(repo: str, budget: Budget, cache: dict) -> tuple[list[str], str]:
+    """(the engines the repository's arming policy requires of every pull request, why it is unread or ""), read once
+    per repository. One that cannot be read requires every engine and says why: never the default, which could ask
+    fewer and say "head reviewed" early."""
     if repo not in cache:
         try:
             policy = arm_policy.load(repo, api=lambda path, **kw: gh.api(path, timeout=budget.left(), **kw))
-            cache[repo] = arm_policy.required_engines(policy, False)
-        except (arm_policy.PolicyError, arm_policy.PolicyUnavailable, Unreadable):
-            cache[repo] = list(arm_policy.ENGINES)
+            cache[repo] = (arm_policy.required_engines(policy, False), "")
+        except (arm_policy.PolicyError, arm_policy.PolicyUnavailable, Unreadable) as e:
+            cache[repo] = (list(arm_policy.ENGINES), str(e))
     return cache[repo]
 
 
@@ -323,9 +324,9 @@ def merge_base_of(pr: dict) -> str:
 
 
 def describe(label: str, repo: str, pid: str | None, number: int, pr: dict, budget: Budget,
-             required: Callable[[], Sequence[str]] = lambda: arm_policy.ENGINES) -> dict:
-    """`required` gives the engines the line marks; it is asked only of an open pull request, so a merged one costs
-    no policy read."""
+             required: Callable[[], tuple[Sequence[str], str]] = lambda: (arm_policy.ENGINES, "")) -> dict:
+    """`required` gives the engines the line marks and why the policy is unread, if it is; it is asked only of an open
+    pull request, so a merged one costs no policy read."""
     rows, bodies = commit_rows(pr, repo, number, budget)
     state = str(pr.get("state") or "").upper()
     base = str(pr.get("baseRefName") or "")
@@ -353,7 +354,9 @@ def describe(label: str, repo: str, pid: str | None, number: int, pr: dict, budg
         if why:
             review = "review unread (" + why + ")"
         else:
-            review = arm_policy.review_summary(engines_on_head(pr, markers), list(required()), str(pr.get("headRefOid") or ""))
+            engines, unread = required()
+            review = arm_policy.review_summary(engines_on_head(pr, markers), list(engines), str(pr.get("headRefOid") or ""),
+                                               unread=unread)
             review = review if arm_policy.is_head_reviewed(review) else "review " + review
         row.update(draft=bool(pr.get("isDraft")), armed=armed, checks=checks_word(pr), review=review)
         parts.append(f"{'draft' if row['draft'] else 'open'}, {armed}, checks {row['checks']}, {review}")

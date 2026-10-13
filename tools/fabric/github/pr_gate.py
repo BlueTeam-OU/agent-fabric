@@ -301,7 +301,8 @@ def review_reader() -> list[str]:
     return [os.path.join(FABRIC, "bin", "fabric-pr"), "review-status"]
 
 
-def review_of_head(reader: list[str], num: int, head: str, required: list[str], boundary_only: list[str] = ()) -> str:
+def review_of_head(reader: list[str], num: int, head: str, required: list[str], boundary_only: list[str] = (),
+                   unread: str = "") -> str:
     """Each required engine's review of `head`, read as fabric-pr arm reads it (pr-review-status --json's
     blind.rows, arm_policy.engines_on_head) and said as arm_policy.review_summary says it: "head reviewed: ..."
     only when every one is there. A reader that cannot run or answer is "?", like one that could not read the PR
@@ -321,17 +322,18 @@ def review_of_head(reader: list[str], num: int, head: str, required: list[str], 
     rows = blind.get("rows") if isinstance(blind, dict) else None
     if not isinstance(rows, list):
         return "?"
-    return arm_policy.review_summary(arm_policy.engines_on_head(rows, head), required, head, boundary_only)
+    return arm_policy.review_summary(arm_policy.engines_on_head(rows, head), required, head, boundary_only, unread)
 
 
-def engines_required(policy: dict | str) -> tuple[list[str], list[str]]:
-    """(the engines every PR needs, the ones only a security-boundary change adds). The gate does not judge the
-    boundary — fabric-pr arm does, from the project's arm.json — so the second are shown, not required. An
-    unreadable policy requires every engine: it is never read as the default, which could ask fewer."""
+def engines_required(policy: dict | str) -> tuple[list[str], list[str], str]:
+    """(the engines every PR needs, the ones only a security-boundary change adds, why the policy is unread or "").
+    The gate does not judge the boundary — fabric-pr arm does, from the project's arm.json — so the second are
+    shown, not required. An unreadable policy requires every engine, and says why: it is never read as the
+    default, which could ask fewer."""
     if isinstance(policy, str):
-        return list(arm_policy.ENGINES), []
+        return list(arm_policy.ENGINES), [], policy
     every = arm_policy.required_engines(policy, False)
-    return every, [e for e in arm_policy.required_engines(policy, True) if e not in every]
+    return every, [e for e in arm_policy.required_engines(policy, True) if e not in every], ""
 
 
 def awaiting_supply(body: str) -> list[str]:

@@ -402,13 +402,14 @@ def engines_on_head(rows: Any, head: str) -> set[str]:
 HEAD_REVIEWED = "head reviewed"
 
 
-def review_summary(have: set[str], required: list[str], head: str, boundary_only: list[str] = ()) -> str:
+def review_summary(have: set[str], required: list[str], head: str, boundary_only: list[str] = (), unread: str = "") -> str:
     """"claude ✓ codex ✗ (head 6bc0ad18)", one mark per required engine, opened by "head reviewed: " when all are
     there. `boundary_only` engines (a policy's boundary_reviews beyond its reviews, for a reader that does not judge
-    the boundary) are marked and not required."""
+    the boundary) are marked and not required. `unread` is why the policy could not be read, when every engine was
+    required for that reason: said on the line, or a missing engine reads as the repository's own requirement."""
     marks = [f"{e} {'✓' if e in have else '✗'}" for e in required]
     marks += [f"{e} {'✓' if e in have else '✗'} (boundary only)" for e in boundary_only if e not in required]
-    line = f"{' '.join(marks)} (head {head[:8]})"
+    line = f"{' '.join(marks)} (head {head[:8]}{f'; policy unread, every engine required: {unread}' if unread else ''})"
     return f"{HEAD_REVIEWED}: {line}" if all(e in have for e in required) else line
 
 

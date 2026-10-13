@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -134,10 +135,19 @@ def main() -> int:
               and pr_gate.review_of_head(reader(out="  head reviewed?      : yes"), 1, head, both) == "?"
               and pr_gate.review_of_head(reader(out='{"blind": {}}'), 1, head, both) == "?")
         check("the engines a policy requires: its reviews; a boundary's extra shown apart",
-              pr_gate.engines_required(dict(arm_policy.default(), reviews=["claude"])) == (["claude"], ["codex"])
-              and pr_gate.engines_required(arm_policy.default()) == (both, []))
-        check("an unreadable policy requires every engine, never the default's",
-              pr_gate.engines_required("HTTP 500") == (list(arm_policy.ENGINES), []))
+              pr_gate.engines_required(dict(arm_policy.default(), reviews=["claude"])) == (["claude"], ["codex"], "")
+              and pr_gate.engines_required(arm_policy.default()) == (both, [], ""))
+        # The fleet's and the built-in default both ask both engines: a claude-only default tells "every engine"
+        # from "the default's" (supplier review F2).
+        claude_default = arm_policy.validate({"reviews": ["claude"], "boundary_reviews": ["claude"]})
+        with mock.patch.object(arm_policy, "default", return_value=claude_default), \
+                mock.patch.object(arm_policy, "fleet_policy", return_value=claude_default):
+            unread = pr_gate.engines_required("HTTP 500")
+        check("an unreadable policy requires every engine, never the default's, and says why",
+              unread == (list(arm_policy.ENGINES), [], "HTTP 500"))
+        got = pr_gate.review_of_head(reader((on, "claude")), 1, head, *unread)
+        check("…on the line: the missing engine is not read as the repository's requirement",
+              got == "claude ✓ codex ✗ (head abcdef01; policy unread, every engine required: HTTP 500)")
 
     print("AWAITING-SUPPLY")
     body = "AWAITING-SUPPLY: h/db-admin\n - AWAITING-SUPPLY: web-dev-01\naaaaaaa1..bbbbbbb2: web-dev-01 (web-dev)"

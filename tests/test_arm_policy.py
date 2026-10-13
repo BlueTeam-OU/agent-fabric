@@ -559,7 +559,7 @@ class PrGateRun(unittest.TestCase):
     the policy's numbers, or that the policy could not be read."""
     HEAD = "abcdef1234567890abcdef1234567890abcdef12"
 
-    def rows(self, policy_load, work=5):
+    def rows(self, policy_load, work=5, review=None):
         pr = {"number": 7, "title": "t", "headRefName": "h/me/feat/x", "headRefOid": self.HEAD, "baseRefName": "main", "state": "OPEN",
               "isDraft": False, "body": ""}
         commits = {"work": work, "fix": 0, "merge": 0, "netted": 0, "fix_subjects": [], "netted_subjects": []}
@@ -574,7 +574,7 @@ class PrGateRun(unittest.TestCase):
             es.enter_context(mock.patch.object(pr_gate, "review_reader", return_value=None))
             es.enter_context(mock.patch.object(pr_gate, "count_commits", return_value=commits))
             es.enter_context(mock.patch.object(pr_gate, "gate_state", return_value=st))
-            es.enter_context(mock.patch.object(pr_gate, "review_of_head", return_value="head reviewed: claude ✓ codex ✓ (head abcdef01)"))
+            es.enter_context(mock.patch.object(pr_gate, "review_of_head", review or mock.Mock(return_value="head reviewed: claude ✓ codex ✓ (head abcdef01)")))
             es.enter_context(mock.patch.object(pr_gate.arm_policy, "load", policy_load))
             es.enter_context(contextlib.redirect_stdout(out))
             self.assertEqual(pr_gate.run(["--json", "7"]), 0)
@@ -604,6 +604,19 @@ class PrGateRun(unittest.TestCase):
         def bad(repo, **kw):
             raise arm_policy.PolicyError("o/settings repos/R.json: unknown key(s) colour")
         self.assertIn("unknown key(s) colour", self.rows(bad)[0]["verdict"])
+
+    def test_the_review_is_judged_against_the_engines_of_the_policy_loaded_for_the_repository(self):
+        # Supplier review F2: the gate's engines are the repository's, not every engine nor the default's.
+        review = mock.Mock(return_value="claude ✓ (head abcdef12)")
+        row = self.rows(lambda r, **k: arm_policy.validate({"reviews": ["claude"]}), review=review)[0]
+        self.assertEqual(review.call_args.args[2:], (self.HEAD, ["claude"], ["codex"], ""))
+        self.assertIn("not every required engine has reviewed the head (claude ✓ (head abcdef12))", row["verdict"])
+
+        def unreadable(repo, **kw):
+            raise arm_policy.PolicyUnavailable("HTTP 500")
+        review.reset_mock()
+        self.rows(unreadable, review=review)
+        self.assertEqual(review.call_args.args[2:], (self.HEAD, list(arm_policy.ENGINES), [], "HTTP 500"))
 
 
 def grant(sender="h/arch", to="h/me", kind="DECISION", field="AUTHORIZES", target=None, mid="01a12-grant", addressed=True, frm=None):
