@@ -285,9 +285,10 @@ def main() -> int:
             rc, out, _ = MOCKS[os.path.basename(head[0])](state, list(args), "")
             return rc, out
 
-        # The fleet default with the review class's review alone required: the mocks simulate that one review of the
-        # head, and the cases outside the engines' section are about the gates. That section names its engines.
-        claude_only = dict(arm_policy.default(), reviews=["claude"], boundary_reviews=["claude"])
+        # The fleet default with the review class's review alone required and no additional engine: the mocks
+        # simulate that one review of the head, and the cases outside the engines' section are about the gates. That
+        # section names its engines.
+        claude_only = dict(arm_policy.default(), reviews=["claude"], boundary_reviews=["claude"], additional_reviews=[])
 
         def run(*args: str, fixture_rules: bool = True, env: dict | None = None, policy: dict | None = None) -> tuple[int, str]:
             """arm.main() in this process, the same environment as the CLI's: gh and the readers are the mocks'
@@ -600,8 +601,10 @@ def main() -> int:
               rc == 1 and "whatever class is stated" in out, out)
 
         print("arm: the policy's reviews — each required engine has reviewed the current head (ADR-053 rule 6)")
-        both = arm_policy.default()
-        check("the fleet default requires both engines", (both["reviews"], both["boundary_reviews"]) == (["claude", "codex"],) * 2, both)
+        d = arm_policy.default()
+        check("the built-in default requires claude and asks codex as an additional review",
+              (d["reviews"], d["boundary_reviews"], d["additional_reviews"]) == (["claude"], ["claude"], ["codex"]), str(d))
+        both = dict(claude_only, reviews=["claude", "codex"], boundary_reviews=["claude", "codex"])
         # Gate 4 asks a review only of a boundary or a direct repository; a plain PR's review is gate 4b's, whatever
         # engines the policy names (#235, Codex finding 1: ["claude"] alone once skipped it and armed with none).
         reset(reviewed=False); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
@@ -983,7 +986,8 @@ def main() -> int:
               rc == 2 and "cannot read the repository" in out and "pr merge" not in calls(), out)
 
         # The process reads the fleet policy file itself (no repository file in the settings repository), which
-        # requires both engines: the PRs it arms are reviewed by both.
+        # requires claude and asks codex as an additional review: the PRs it arms are reviewed by both, or carry
+        # codex's unavailable marker for the head.
         def both_reviewed() -> None:
             put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
 
@@ -991,7 +995,12 @@ def main() -> int:
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
         rc, out, err = cli("7", "--basis", "b", split=True)
         check("only the claude review of the head: exit 1, refused naming codex, nothing armed",
-              rc == 1 and "by the codex engine" in err and "engines required: claude, codex" in err and "pr merge" not in calls(), err)
+              rc == 1 and "asks the codex engine's review" in err and "engines required: claude; additional: codex" in err
+              and "pr merge" not in calls(), err)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("unavailable", f"{HEAD}@abcdef01:allowance")
+        rc, out = cli("7", "--basis", "b", "--dry-run")
+        check("…with codex's unavailable marker for the head: the claude review alone arms (dry run)",
+              rc == 0 and "DRY RUN" in out and "codex unavailable (allowance)" in out and "pr merge" not in calls(), out + calls())
 
         print("arm (CLI): the arming path, the dry run, a merge on the arming")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); both_reviewed()

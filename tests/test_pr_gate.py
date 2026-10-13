@@ -135,10 +135,11 @@ def main() -> int:
               and pr_gate.review_of_head(reader(out="  head reviewed?      : yes"), 1, head, both) == "?"
               and pr_gate.review_of_head(reader(out='{"blind": {}}'), 1, head, both) == "?")
         check("the engines a policy requires: its reviews; a boundary's extra shown apart",
-              pr_gate.engines_required(dict(arm_policy.default(), reviews=["claude"])) == (["claude"], ["codex"], "")
-              and pr_gate.engines_required(arm_policy.default()) == (both, [], ""))
-        # The fleet's and the built-in default both ask both engines: a claude-only default tells "every engine"
-        # from "the default's" (supplier review F2).
+              pr_gate.engines_required(dict(arm_policy.default(), reviews=["claude"], boundary_reviews=both)) == (["claude"], ["codex"], "")
+              and pr_gate.engines_required(dict(arm_policy.default(), reviews=both, boundary_reviews=both)) == (both, [], "")
+              and pr_gate.engines_required(arm_policy.default()) == (["claude"], [], ""))
+        # A claude-only default, pinned here so the case does not follow the fleet's file, tells "every engine" from
+        # "the default's" (supplier review F2).
         claude_default = arm_policy.validate({"reviews": ["claude"], "boundary_reviews": ["claude"]})
         with mock.patch.object(arm_policy, "default", return_value=claude_default), \
                 mock.patch.object(arm_policy, "fleet_policy", return_value=claude_default):

@@ -79,8 +79,8 @@ class Hub:
 
 # The arming policies a line is read under, modelled here: the live fleet file and settings repositories change
 # what the engines are, and a count's test must not follow them (#242's platform-smoke).
-BOTH = pr_counts.arm_policy.validate({"reviews": ["claude", "codex"], "boundary_reviews": ["claude", "codex"]})
-CLAUDE = pr_counts.arm_policy.validate({"reviews": ["claude"], "boundary_reviews": ["claude"]})
+BOTH = pr_counts.arm_policy.validate({"reviews": ["claude", "codex"], "boundary_reviews": ["claude", "codex"], "additional_reviews": []})
+CLAUDE = pr_counts.arm_policy.validate({"reviews": ["claude"], "boundary_reviews": ["claude"], "additional_reviews": []})
 
 
 def run_counts(refs: list[str], hub: Hub, timeout: float = 20.0, cwd_repo: str = "o/this", policy=BOTH) -> list[dict]:
@@ -225,7 +225,8 @@ def main() -> int:
 
     def unreadable(repo, **kw):
         raise pr_counts.arm_policy.PolicyUnavailable("HTTP 500")
-    # A claude-only default tells "every engine" from "the default's": both of the real defaults ask both (supplier review F2).
+    # A claude-only default, pinned so the case does not follow the fleet's file, tells "every engine" from "the
+    # default's" (supplier review F2).
     real_default, real_fleet = pr_counts.arm_policy.default, pr_counts.arm_policy.fleet_policy
     pr_counts.arm_policy.default = pr_counts.arm_policy.fleet_policy = lambda *a, **kw: CLAUDE
     try:
