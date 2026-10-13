@@ -95,6 +95,12 @@ class Persona(unittest.TestCase):
             self.assertIn(IDS[1] if who != "web-dev" else IDS[4], err)
         self.assertEqual(self.run_main("python-dev-02")[0], 0, "a good claim still answers")
 
+    def test_find_reports_a_bad_claim_as_main_does(self) -> None:
+        self.break_claims()
+        bad: list[str] = []
+        self.assertIsNone(persona.find("user", self.root, bad))
+        self.assertIn(IDS[1], bad)
+
     def test_all_prints_the_good_ones_and_reports_each_bad_one(self) -> None:
         self.break_claims()
         rc, out, err = self.run_main("--all")
