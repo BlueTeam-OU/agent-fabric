@@ -54,7 +54,11 @@ CONTRACT:
             seconds; the pull requests ask GitHub, so they are read every
             --prs-every seconds and shown from the last read in between,
             with its age. Each screen clears the last; --once prints one
-            and no clear.
+            and no clear. On a terminal the screen is cut to the pane's
+            height (one line less, so the last newline does not scroll the
+            title off): the title and the identity stay, the jobs take what
+            is left after a third for the pull requests, and a cut block
+            ends with "… N more". --once is never cut.
   avatar    from settings/avatar.png of the store checkout, else the
             candidate the profile names, else none (avatar.py). On a pane of a
             host listed in runtime/control/watch-graphics.json (TERM_PROGRAM) the PNG file is transmitted as it is
@@ -386,12 +390,34 @@ class Deck:
         return "disk     " + (f"{watch_resources.human_kb(kb)} (read {clock_text(age)} ago)" if kb is not None else (why or "reading…"))
 
 
-def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: float, stamp: str) -> list[Line]:
-    return [
+def clip(lines: list[str], n: int) -> list[str]:
+    """At most n lines; the last of a cut block says how many it hides."""
+    if len(lines) <= n:
+        return lines
+    return lines[:n - 1] + [f"… {len(lines) - n + 1} more"] if n > 0 else []
+
+
+def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: float, stamp: str, rows: int = 0, columns: int = 0) -> list[Line]:
+    """The three blocks. rows > 0 is the pane's height: the screen is cut to rows - 1 lines, because the newline that ends
+    the last one would scroll a full pane and push the title off the top. The title and the identity stay; the jobs and
+    the pull requests share what is left, the jobs first, the pull requests keeping a third of it at least one line. columns > 0 cuts a job or
+    pull-request line to the width, since a wrapped line takes two rows of the pane."""
+    if rows > 0 and columns > 1:
+        jobs = [j[:columns - 1] for j in jobs]
+        prs = "\n".join(l[:columns - 1] for l in prs.split("\n"))
+    pr_lines = prs.split("\n")
+    if rows > 0:
+        room = max(0, rows - 1 - (len(identity) + 5))
+        pr_n = min(len(pr_lines), max(1, room // 3))
+        job_n = min(len(jobs), max(0, room - pr_n))
+        pr_n = min(len(pr_lines), max(0, room - job_n))
+        jobs, pr_lines = clip(jobs, job_n), clip(pr_lines, pr_n)
+    lines: list[Line] = [
         f"── {name} ({stamp}; q leaves) ──", *identity, "",
         "── jobs ──", *jobs, "",
-        f"── pull requests (read {int(prs_age)} s ago) ──", *prs.split("\n"),
+        f"── pull requests (read {int(prs_age)} s ago) ──", *pr_lines,
     ]
+    return lines[:rows - 1] if rows > 0 else lines
 
 
 def draw(lines: list[Line] | str, clear: bool, out=None) -> None:
@@ -420,7 +446,7 @@ def wait_for_q(seconds: float, fd: int = 0) -> bool:
 
 def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
           clock: Callable[[], float] = time.monotonic, wait: Callable[[float], bool] = wait_for_q,
-          out=None, deck: Deck | None = None, columns: int = 80) -> int:
+          out=None, deck: Deck | None = None, columns: int = 80, rows: int = 0) -> int:
     prs, prs_at = "", None
     deck = deck or Deck(dict(os.environ), os.path.join(root, "identities", "personas", "claims.json"))
     while True:
@@ -432,7 +458,7 @@ def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
         status = run([os.path.join(root, "bin", "fabric-status"), "--json"], merge=False)
         jobs = run([os.path.join(root, "bin", "fabric-jobs"), "list", "--json"], merge=False)
         identity, name = deck.identity(status, once=once, columns=columns)
-        draw(screen(identity, name, jobs_block(jobs), prs, clock() - prs_at, time.strftime("%H:%M:%S")), clear=not once, out=out)
+        draw(screen(identity, name, jobs_block(jobs), prs, clock() - prs_at, time.strftime("%H:%M:%S"), rows, columns), clear=not once, out=out)
         if once or wait(every):
             return 0
 
@@ -479,9 +505,12 @@ def main(argv: list[str]) -> int:
     root = fabric_root()
     mode = ("kitty" if os.environ.get("TERM_PROGRAM") in kitty_terminals(root) else "blocks") if on_terminal else None
     deck = Deck(dict(os.environ), os.path.join(root, "identities", "personas", "claims.json"), mode)
-    columns = shutil.get_terminal_size((80, 24)).columns if on_terminal else 0
+    size = shutil.get_terminal_size((80, 24)) if on_terminal else None
+    columns = size.columns if size else 0
+    # --once is a document, not a pane: never cut. The height is read once, as the width is.
+    rows = size.lines if size and not once else 0
     try:
-        return watch(root, projects, every, prs_every, once, deck=deck, columns=columns)
+        return watch(root, projects, every, prs_every, once, deck=deck, columns=columns, rows=rows)
     except KeyboardInterrupt:
         return 0
     finally:

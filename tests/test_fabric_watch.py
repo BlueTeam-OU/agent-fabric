@@ -178,6 +178,24 @@ def main() -> int:
     os.close(wfd)
     check("printable keeps text, replaces C1", watch.printable("a\x9bb\tc") == "a?b     c", watch.printable("a\x9bb\tc"))
 
+    print("in-process: the screen fits the pane")
+    ident = [f"id{i}" for i in range(10)]
+    many = [f"j{i} job" for i in range(40)]
+    prs12 = "\n".join(f"pr{i}" for i in range(12))
+    fit = watch.screen(ident, "n", many, prs12, 3.0, "00:00:00", rows=20)
+    check("20-row pane: at most 19 lines, so the last newline scrolls nothing", len(fit) <= 19, len(fit))
+    check("…the title and the whole identity stay", fit[0].startswith("── n (") and fit[1:11] == ident, fit[:3])
+    check("…each cut block says what it hides", any(l.startswith("… ") and l.endswith(" more") for l in fit[11:]) and sum(l.startswith("… ") for l in fit) == 2, fit)
+    check("…the pull requests keep a line", any(l.startswith("pr") or l.startswith("… ") for l in fit[fit.index(next(l for l in fit if "pull requests" in l)):]), fit)
+    few = watch.screen(ident, "n", ["j1 a"], "pr", 0.0, "00:00:00", rows=20)
+    check("a screen that fits is not cut", len(few) == 11 + 1 + 2 + 1 + 2 and "… " not in "".join(few[12:]), few)
+    full = watch.screen(ident, "n", many, prs12, 0.0, "00:00:00")
+    check("no height (--once, not a terminal): nothing is cut", len(full) == 11 + 1 + 1 + 40 + 1 + 1 + 12, len(full))
+    wide = watch.screen(ident, "n", ["x" * 300], "p" * 300, 0.0, "00:00:00", rows=30, columns=80)
+    check("a long line is cut to the width", all(len(l) <= 79 for l in wide[12:] if l and not l.startswith("──")), [len(l) for l in wide])
+    tiny = watch.screen(ident, "n", many, prs12, 0.0, "00:00:00", rows=8)
+    check("a pane smaller than the identity: still no more than rows - 1 lines", len(tiny) == 7, len(tiny))
+
     shutil.rmtree(scratch_home, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0
