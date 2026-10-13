@@ -263,6 +263,47 @@ def main() -> int:
               g("show", "--name-only", "--format=", "HEAD"))
         check("…and pushed", g("rev-parse", "HEAD") == subprocess.run(["git", "--git-dir", remote, "rev-parse", "main"],
                                                                      capture_output=True, text=True).stdout)
+        # The judgement a pull makes of this commit, made for real: a second clone whose HEAD is BEHIND the commit
+        # (otherwise the function judges nothing and says "passes" for anything). The control, a commit signed by
+        # another key, must be refused by the same call.
+        from unittest import mock
+        from secretstore.trust import _verify_incoming
+        judge = os.path.join(tmp, "judge")
+        subprocess.run(["git", "clone", "-q", remote, judge], check=True, env=env)
+        tip = subprocess.run(["git", "-C", judge, "rev-parse", "HEAD"], capture_output=True, text=True, env=env).stdout.strip()
+        base = subprocess.run(["git", "-C", judge, "rev-parse", "HEAD~1"], capture_output=True, text=True, env=env).stdout.strip()
+        subprocess.run(["git", "-C", judge, "config", "agent-fabric.trustedbase", base], check=True, env=env)
+        subprocess.run(["git", "-C", judge, "reset", "-q", "--hard", base], check=True, env=env)
+        with mock.patch.dict(os.environ, env):
+            try:
+                verdict = _verify_incoming(judge, tip, aid)
+            except secret_store.StoreError as e:
+                verdict = f"refused: {e}"
+        check("…and the store's own verify-on-pull accepts it: signed by the agent's key, a writer", verdict == tip, str(verdict))
+        other = os.path.join(tmp, "other-gnupg")
+        os.makedirs(other, mode=0o700)
+        subprocess.run(["gpg", "--homedir", other, "--batch", "--passphrase", "", "--quick-gen-key", "stranger@example.org"],
+                       check=True, env=env, capture_output=True)
+        fpr = subprocess.run(["gpg", "--homedir", other, "--list-keys", "--with-colons"], capture_output=True, text=True,
+                             env=env).stdout.split("fpr:::::::::")[1].split(":")[0]
+        os.makedirs(os.path.join(judge, "settings"), exist_ok=True)
+        with open(os.path.join(judge, "settings", "x"), "w") as fh:
+            fh.write("1")
+        genv = {**env, "GNUPGHOME": other}
+        subprocess.run(["git", "-C", judge, "add", "-A"], check=True, env=genv)
+        subprocess.run(["git", "-C", judge, "-c", "user.name=t", "-c", "user.email=t@t", f"-c", f"user.signingkey={fpr}",
+                        "commit", "-q", "-S", "-m", "by another key"], check=True, env=genv)
+        stranger = subprocess.run(["git", "-C", judge, "rev-parse", "HEAD"], capture_output=True, text=True, env=env).stdout.strip()
+        subprocess.run(["git", "-C", judge, "config", "agent-fabric.trustedbase", tip], check=True, env=env)
+        subprocess.run(["git", "-C", judge, "update-ref", "HEAD", tip], check=True, env=env)
+        with mock.patch.dict(os.environ, env):
+            try:
+                _verify_incoming(judge, stranger, aid)
+                control = "accepted"
+            except secret_store.StoreError as e:
+                control = f"refused: {e}"
+        check("…and the same call refuses a commit signed by another key (the control: it can fail)",
+              control.startswith("refused") and "no writer" in control, control)
         verified = run("verify")
         check("…and the store still verifies", verified.returncode == 0, verified.stdout + verified.stderr)
 
