@@ -161,9 +161,13 @@ ADR-038's line: no login holds a secret it does not need.
     `claude`: `fabric-pr arm` reads the harness from a `Fabric-Harness:`
     trailer the commit-msg hook stamps beside `Fabric-Role:`, and swaps
     only when every work commit names `codex`. A commit without the
-    trailer is Claude Code's. CI checks the trailer against the
-    session's binding as it checks `Fabric-Role:`, so a trailer written
-    by hand in another harness is refused.
+    trailer is Claude Code's. The `commit-msg` hook, which reads the
+    live binding, stamps the trailer and refuses a commit whose
+    `Fabric-Harness:` differs from the binding's harness: the fence is at
+    commit time, as for `Fabric-Role:` (`policies/AUTHORITY.md`). CI
+    cannot read a binding; it checks the trailer's form only, a tripwire
+    with the usual limits (text anyone can type, `--no-verify` skips the
+    hook), which makes a hand-written trailer visible, not impossible.
 
 ## 6. Consequences
 
@@ -196,7 +200,7 @@ pull request with its live check:
 
 1. `AGENTS.md`: the rename, the split and the references (fabric-coordinator; instruction files are control plane).
 2. The live check of §5 rule 9 on one login, before any adapter code.
-3. `runtime/codex/`: the launcher's `--harness`, the binding field, `CODEX_HOME` and `config.toml` per login, the prompt as developer instructions, the `Fabric-Harness:` trailer stamped and checked in CI, and `fabric-pr arm`'s reading of it (`arm_policy.required_engines`, rule 10).
+3. `runtime/codex/`: the launcher's `--harness`, the binding field, `CODEX_HOME` and `config.toml` per login, the prompt as developer instructions, the `Fabric-Harness:` trailer stamped and fenced by the `commit-msg` hook, its form checked in CI, and `fabric-pr arm`'s reading of it (`arm_policy.required_engines`, rule 10).
 4. The guards' Codex wiring and the launch gate of rule 6.
 5. The session credential through the gateway (rule 7): the session gateway reads ADR-053 rule 8's token file.
 6. Routing: the owner's choice of model and effort per coding class on `openai`; the subagent mapping.
