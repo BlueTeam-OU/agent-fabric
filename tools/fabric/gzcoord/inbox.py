@@ -18,8 +18,9 @@ CONTRACT, frozen from the Node:
                                 wakes the session once per delivery; the
                                 session reads it and runs this again. A
                                 held inbox is waited out as in --follow.
-                                Whatever ends it other than a delivery
-                                or the harness's timeout is an exit
+                                Whatever ends it other than a delivery,
+                                the harness's timeout or a second watch's
+                                refusal (below) is an exit
                                 other than 0 with its reason on STDOUT (a
                                 background command's output reaches the
                                 session only at exit): 2 a control
