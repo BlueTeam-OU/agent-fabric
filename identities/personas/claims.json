@@ -1,5 +1,29 @@
 {
   "version": 1,
   "description": "Which agent holds which surname of identities/personas/surnames.json (agent-fabric ADR-056 §5 rule 4): one agent per surname, the first claim wins, landed by fabric-coordinator. Keyed by the agent id, so a login rename changes nothing.",
-  "claims": {}
+  "claims": {
+    "019ffcb2-78fd-7670-93fc-a3577216395f": "Noether",
+    "01a00bc1-4716-7e1f-bc43-931dc632f798": "Muskhelishvili",
+    "01a00bc1-473a-7be3-bfe2-4b1814f37e09": "Boole",
+    "01a00bc1-475f-791e-a72f-4ce38715e628": "Khwarizmi",
+    "01a00bc1-4782-7de9-88a5-8f6ee3849c46": "Huygens",
+    "01a00bc1-4796-745d-ae76-02c0cf34501c": "Ibn al-Haytham",
+    "01a00bc1-47ae-77e3-82cd-263b23004b9a": "Vekua",
+    "01a00bc1-47ca-7fea-a066-68decae2c621": "Ino",
+    "01a00bc1-47e7-7bc8-9a0d-2e436f5740de": "Jang",
+    "01a00bc1-4805-7e5b-ab38-2fe6e65b2eed": "Seki",
+    "01a00bc1-4824-7ace-a01e-6e46a11f9acc": "Euler",
+    "01a0a6a1-bfd6-7967-af5c-34ea643640a3": "Merian",
+    "01a0add8-5248-73ec-a60d-34cff7e5e3e7": "Kharadze",
+    "01a0af8f-16e9-7ea7-87fb-de56cec54f8b": "Popov",
+    "01a0b312-4031-7730-b5fd-321848a63a84": "Lomonosov",
+    "01a0f782-7e06-7dee-811f-0a860ed93bf3": "Leavitt",
+    "01a11615-14e1-7139-975c-84ad21a5c91f": "Ramanujan",
+    "01a11618-0f9b-7e96-8272-dad8faa1defa": "Lyapunov",
+    "01a11619-eab1-74c0-bbd0-42fafa15c39b": "Erdos",
+    "01a11a69-f363-7de9-b212-88785c3128e2": "Kovalevskaya",
+    "01a11fdd-7964-789c-9bd2-ff45c9b4db16": "Hopper",
+    "01a12051-ae61-7f33-a9ae-eedb3153ed42": "Markov",
+    "01a129e5-3558-7a18-9443-f4b58ead1cf6": "Purkyne"
+  }
 }
