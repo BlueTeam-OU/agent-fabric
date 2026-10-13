@@ -58,8 +58,11 @@ its own rather than imposed.
    While the agent chooses, its choices and the candidate images are
    working material, not settings. Once it has accepted an avatar, the
    persona is written to its repository `fabric-agent-<id>`:
-   `settings/profile.json`, and the accepted image as
-   `settings/avatar.png`. It belongs to the agent id: a login rename or a
+   `settings/profile.json`, the accepted image as `settings/avatar.png`,
+   and the images it rejected on the way (rule 7), in one commit. Until
+   it accepts one, nothing is written; an agent's persona is read
+   through its own control agent, which can read its repository
+   (ADR-029), wherever it is displayed. It belongs to the agent id: a login rename or a
    rebind leaves it. Only the surname claim is recorded centrally (rule
    4).
 2. A persona is displayed only behind the prefix "AI": "AI <Name>",
@@ -68,11 +71,12 @@ its own rather than imposed.
    message), the login follows: "AI Ada Maxwell (python-dev-01)". No
    surface shows the name without the prefix.
 3. The surname comes from `identities/personas/surnames.json`:
-   scientists from all over the world, deceased, none who concretely
-   worked at making a weapon — designed, built, tested or directed its
-   making, or produced its materials; theory others later used,
-   consulting, or wartime science that built no weapon does not exclude
-   — each entry naming
+   scientists from all over the world, deceased, none who knowingly
+   worked toward a weapon — what matters is the intention: designing,
+   building, testing, directing or producing for one, or research done
+   for a weapon's end use; theory published without a weapon in view,
+   which others later used, does not exclude; where the record is mixed
+   the owner judges, and the entry says so — each entry naming
    its person and the reason it passed, each removed name listed with
    its reason. fabric-coordinator curates it and the owner checks it;
    an addition passes the same test.
@@ -84,9 +88,9 @@ its own rather than imposed.
    language-culture agent claims a surname of its own culture. No
    persona is the name of a famous real person.
 6. The sex is chosen only for the avatar's appearance. The fabric keeps
-   no gender and no pronoun; an agent that does not want "he" or "she"
-   may ask to be called "it", and the request is recorded in its
-   profile.
+   no gender; a pronoun is recorded only when the agent asks for one:
+   an agent that does not want "he" or "she" may ask to be called "it",
+   and that request is kept in its profile.
 7. The avatar is drawn in the fabric's own style — warm, hand-painted
    anime, soft watercolour backgrounds — written down once by
    brand-comms, who generate the avatars; never in a named studio's

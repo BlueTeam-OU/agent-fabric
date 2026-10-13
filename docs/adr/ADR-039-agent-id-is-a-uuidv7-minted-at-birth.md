@@ -102,7 +102,10 @@ whole when the parent is renamed.
    `BlueTeam-OU/fabric-agent-<id>`; its GitHub description names the
    agent's host, login and role, never the id, which the name already
    carries, and a rename updates the description, never the name
-   (A 2026-10-13). The parent's mirror is `children/<id>`. The backup
+   (A 2026-10-13). Every existing store has been moved and renamed; a
+   store enrolled before the enrolment tooling follows
+   (agent-fabric #236) is minted under the old name and moved the same
+   way. The parent's mirror is `children/<id>`. The backup
    bundle is `fabric-agent-<id>.bundle`. The recovery copy is
    `recovery/<id>.key.gpg`.
 5. A command that names an agent takes its login or its id and resolves

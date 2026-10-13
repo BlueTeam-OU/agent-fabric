@@ -1171,7 +1171,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — reviews start Codex by the session's gateway path, each
   component with its own gateway-local key (§5 rule 7).
 
-### ADR-055 — Model availability is rediscovered by each run; the control plane reports it to people; a review diverts when its only model is unavailable (Proposed)
+### ADR-055 — Model availability is rediscovered by each run; the control plane reports it to people; a review diverts only when its engine is the only one required (Proposed)
 
 - A run learns availability by trying, never from another run's
   observation (§5 rules 1, 5).

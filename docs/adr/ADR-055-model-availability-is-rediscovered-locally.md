@@ -1,9 +1,9 @@
-# ADR-055 — Model availability is rediscovered by each run; the control plane reports it to people; a review diverts when its only model is unavailable
+# ADR-055 — Model availability is rediscovered by each run; the control plane reports it to people; a review diverts only when its engine is the only one required
 
 **Date:** 2026-10-13
 **Status:** Proposed
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** `routing/policies/availability.json` and its schema; how an engine run learns a model is unavailable and what it does (`tools/fabric/review_codex.py`, the review engines to come); the review capability's ordered fallback (`routing/capabilities.json`, gated by `routing/policies/review-grade.json`); the control plane's report of what runs observed, for people (`fabric-ctl`, the Board); the review divert
+**Scope:** `routing/policies/availability.json` and its schema; how an engine run learns a model is unavailable and what it does (`tools/fabric/review_codex.py`, the review engines to come); each provider's strategy, its review models in order (`routing/policies/availability.json`, its first model the one `routing/capabilities.json` routes, all inside `routing/policies/review-grade.json`); the control plane's report of what runs observed, for people (`fabric-ctl`, the Board); the review divert
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -35,9 +35,10 @@ it can be served.
 Each run rediscovers availability for itself, locally: it tries its
 model, retries a capacity failure (10 s, 20 s, 60 s), and decides from
 what it saw — never from a record another run left. When its model is
-unavailable after the retries and it is the only model reviewing that
-request, a review diverts to the next model of the review capability's
-ordered list; otherwise it reports and the pull request waits. The
+unavailable after the retries and its engine is the only one the
+pull request's policy requires, a review diverts to the next model of
+its provider's ordered list; otherwise it reports and the pull request
+waits. The
 control plane keeps what runs observed — which model, which kind, when
 — only to tell people: `fabric-ctl` and the Board show it, and the owner
 is told of a long or total outage. Nothing in routing or in a run reads
@@ -57,9 +58,9 @@ model has been full for an hour; the owner finds out from stalled merges.
 
 **Always divert, never wait.** Reviewing on a different model than
 policy names makes the second engine's point — a different reviewer —
-depend on the weather; diverting only when the model is the request's
-sole reviewer keeps a review happening without quietly replacing the
-contrarian one.
+depend on the weather; diverting only when the engine is the pull
+request's only required one keeps a review happening without quietly
+replacing the contrarian one.
 
 **Fold it into ADR-052.** That record moves a Claude session between
 accounts on usage windows; this one decides what a one-shot run does
@@ -84,9 +85,9 @@ fleet reports (ADR-029), so it carries that view.
    (the provider's) or over the allowance (ours, with the reset time
    when the provider gives one). An allowance failure is not retried
    past what can help; any other failure is not retried.
-3. A review diverts to the next model of the review capability's
-   ordered list (`routing/capabilities.json`, inside the review-grade
-   set) when its own model is unavailable after the retries and it is
+3. A review diverts to the next model of its provider's ordered list
+   for the review capability (`routing/policies/availability.json`,
+   rule 7, inside the review-grade set) when its own model is unavailable after the retries and it is
    the only engine the policy requires for that pull request. When the
    policy requires another engine as well, there is no divert: the
    review reports and the pull request waits for the engine to return.

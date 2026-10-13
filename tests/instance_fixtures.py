@@ -135,7 +135,7 @@ def write_operator_projects(operator: str, projects: dict[str, list[str]]) -> st
 # organization's records as instance data, and until §6 splits them from
 # the engine's, a test that needs one writes it.
 INSTANCE_PATHS = ("projects/registry.json", "runtime/hosts/registry.json", "identities/roles",
-                  "identities/keys", "identities/recovery.asc", "routing/profiles.json", "routing/policies",
+                  "identities/keys", "identities/recovery.asc", "identities/personas", "routing/profiles.json", "routing/policies",
                   "memory", "docs/live-checks", "docs/adr")
 
 

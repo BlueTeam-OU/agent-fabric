@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-04, by the merge of agent-fabric #91 (a05c9cab), which carried it, as §8 provided
 **Decision Makers:** the owner (signed and verified, over trusting repository access); drafted by fabric-coordinator
-**Scope:** `tools/fabric/secret_store.py` (every commit to an agent's store, `pull`, `take-bundle`, `seed-child`, `sync`), `identities/keys/lineage.json` as the record of who may write a store, and the per-agent store repositories `agent-fabric-secrets-<id>`
+**Scope:** `tools/fabric/secret_store.py` (every commit to an agent's store, `pull`, `take-bundle`, `seed-child`, `sync`), `identities/keys/lineage.json` as the record of who may write a store, and the per-agent store repositories `fabric-agent-<id>`
 **Pillar:** P1
 
 ## 1. Context and Problem
