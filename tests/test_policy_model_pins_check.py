@@ -59,7 +59,7 @@ class Guard(unittest.TestCase):
         self.file = os.path.join(self.tmp, "settings.json")
 
     def env(self, **extra) -> dict:
-        env = {"PATH": "/usr/bin:/bin", "HOME": self.tmp, "LANG": "C.UTF-8", "AGENT_FABRIC_PYTHON": sys.executable}
+        env = {"PATH": "/usr/bin:/bin", "HOME": self.tmp, "LANG": "C.UTF-8", "AGENT_FABRIC_PYTHON": sys.executable, "PYTHONDONTWRITEBYTECODE": "1"}
         env.update(extra)
         return {k: v for k, v in env.items() if v is not None}
 
