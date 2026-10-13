@@ -350,7 +350,7 @@
       "status": "Accepted",
       "date": "2026-09-29",
       "pillar": "P1",
-      "amendments": 9
+      "amendments": 10
     },
     {
       "number": "039",
@@ -509,9 +509,18 @@
       "number": "056",
       "file": "ADR-056-agent-personas.md",
       "title": "Agent personas: \"AI <Name> <Surname>\", a scientist's surname each, an avatar the agent accepts, always marked as AI",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-13",
       "pillar": "P2",
+      "amendments": 1
+    },
+    {
+      "number": "057",
+      "file": "ADR-057-per-agent-commit-signing.md",
+      "title": "Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker",
+      "status": "Accepted",
+      "date": "2026-10-13",
+      "pillar": "P1",
       "amendments": 0
     }
   ]

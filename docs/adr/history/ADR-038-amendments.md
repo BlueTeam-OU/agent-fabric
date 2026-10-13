@@ -130,3 +130,14 @@ decision). The owner's words, in the coordinator's session: "we should
 probably put together agent secrets and configurations while keeping the
 uuid identifier in the name", "for settings i mean settings, jobs are not
 settings", "both config and secrets repo under blueteam".
+
+### Amendment 2026-10-13 — Commits are signed by each agent's own key, as ADR-057 says
+
+§6 said the shared signing key stays until per-agent signing lands, and
+§7 left that signing to its own record. ADR-057 is that record: each
+account signs with the signing subkey of its own agent key, in OpenPGP or
+SSH form by `policies/signing.json`, timestamped, and checked against the
+lineage and the role. The subkey's SSH form is registered as a GitHub
+signing key for all 26 agents
+(docs/live-checks/2026-10-13-agent-signing-keys-as-ssh.md). The owner's
+word, in the coordinator's session: "accepted proceed amending".
