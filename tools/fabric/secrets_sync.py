@@ -96,7 +96,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gateway_token  # noqa: E402
 import roots  # noqa: E402
 from secretstore.reserved import (  # noqa: E402
-    ENV_NAMES, GIT_NAMES, STORE_ONLY, ALL_NAMES, RegistryUnreadable, registry_agent_env, reserved,
+    ENV_NAMES, GIT_NAMES, STORE_ONLY, CODEX_NAMES, ALL_NAMES, RegistryUnreadable, registry_agent_env, reserved,
 )
 USAGE = "usage: fabric-secrets sync [--force] [--json] [--quiet] [--no-pull] | status [--json] | store …"
 
@@ -559,7 +559,7 @@ def report(obj: dict, as_json: bool, quiet: bool, ok: bool) -> None:
 
 def status(as_json: bool, quiet: bool = False) -> int:
     optional = project_agent_env()
-    known = ALL_NAMES + optional + STORE_ONLY
+    known = ALL_NAMES + optional + STORE_ONLY + CODEX_NAMES
     obj = {"login": login(), "source": "store", "store": store_path(), "local": local_state()}
     names, err = fetch_names()
     required, kind_err = required_names()
@@ -603,7 +603,7 @@ def status(as_json: bool, quiet: bool = False) -> int:
 def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> int:
     me = login()
     optional = project_agent_env()
-    known = ALL_NAMES + optional + STORE_ONLY
+    known = ALL_NAMES + optional + STORE_ONLY + CODEX_NAMES
     obj = {"login": me, "source": "store", "store": store_path(), "applied": [], "skipped": []}
     values, err = fetch_values(pull)
     if err:
