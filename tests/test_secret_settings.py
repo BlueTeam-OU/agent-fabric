@@ -486,6 +486,30 @@ def main() -> int:
             _signal.signal(_signal.SIGHUP, saved)
         check("a caller that ignores SIGHUP (nohup) keeps ignoring it", during == _signal.SIG_IGN, repr(during))
 
+        # A retained avatar whose COMMITTED bytes differ from its checkout while the store reads as clean (an invertible
+        # smudge/clean pair): a profile alone that names the checkout's hash must be refused, judged from the blobs.
+        rot = "tr 'a-zA-Z' 'n-za-mN-ZA-M'"
+        subprocess.run(["git", "-C", store, "config", "filter.rot.smudge", rot], check=True, env=env)
+        subprocess.run(["git", "-C", store, "config", "filter.rot.clean", rot], check=True, env=env)
+        with open(os.path.join(store, ".git", "info", "attributes"), "w") as fh:
+            fh.write("settings/avatar.png filter=rot\n")
+        committed_png = subprocess.run(["git", "-C", store, "show", "HEAD:settings/avatar.png"], env=env, capture_output=True).stdout
+        os.unlink(os.path.join(store, "settings", "avatar.png"))
+        subprocess.run(["git", "-C", store, "checkout", "--", "settings/avatar.png"], check=True, env=env)
+        with open(os.path.join(store, "settings", "avatar.png"), "rb") as fh:
+            checkout_png = fh.read()
+        check("(the smudge filter makes the checkout differ from the committed bytes while the store reads clean: the case is real)",
+              checkout_png != committed_png and g("status", "--porcelain") == "")
+        n_eol = count()
+        p = run("settings-put", "--from", tree("eolp", {"profile.json": profile(avatar={"file": "settings/avatar.png",
+                "sha256": hashlib.sha256(checkout_png).hexdigest(), "candidate": 1})}))
+        check("a profile naming the checkout bytes of a retained avatar that git commits differently is refused",
+              p.returncode == 1 and "sha256" in p.stderr and count() == n_eol, p.stdout + p.stderr)
+        os.unlink(os.path.join(store, ".git", "info", "attributes"))
+        subprocess.run(["git", "-C", store, "config", "--remove-section", "filter.rot"], check=True, env=env)
+        os.unlink(os.path.join(store, "settings", "avatar.png"))
+        subprocess.run(["git", "-C", store, "checkout", "--", "settings/avatar.png"], check=True, env=env)
+
         # A clean filter (autocrlf) would commit different bytes than the ones validated.
         subprocess.run(["git", "-C", store, "config", "core.autocrlf", "true"], check=True, env=env)
         n_crlf = count()

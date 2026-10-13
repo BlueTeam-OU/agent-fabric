@@ -59,6 +59,7 @@ import os
 import signal
 import secrets
 import stat
+import subprocess
 
 from . import entries
 from .core import StoreError, git, login, own_agent_id, store_dir, roots
@@ -223,22 +224,52 @@ def _check_standing(files: dict[str, bytes], store: str, agent_id: str) -> None:
         raise StoreError(f"{PROFILE}: avatar.sha256 is not the sha256 of {AVATAR}; nothing written")
 
 
-def _staged_as_validated(store: str, files: dict[str, bytes]) -> None:
-    """What git staged is what was validated: git add runs clean filters (autocrlf, .gitattributes) and skips ignored
-    files, either of which would commit a profile whose avatar hash is not the avatar's. The blob id is the
-    sha1 of "blob <size>\\0" and the bytes, computed here, so no filter has a say."""
+def _staged_as_validated(store: str, files: dict[str, bytes], aid: str) -> None:
+    """What git staged is what was validated, retained files included. git add runs clean filters (autocrlf,
+    .gitattributes) and skips ignored files, and a retained avatar may be committed in bytes that differ from
+    its checkout: so the staged blobs themselves are read back (whatever the store's object format) and the
+    profile and avatar that will stand in the commit are judged from them."""
     out = git(store, "ls-files", "-s", "-z", "--", "settings").stdout.decode("utf-8", "surrogateescape")
     staged = {}
     for entry in filter(None, out.split("\0")):
         meta, _, path = entry.partition("\t")
         staged[path] = meta.split()[1]
+    for rel in files:
+        if f"settings/{rel}" not in staged:
+            raise StoreError(f"settings/{rel} was not staged (git ignores it); nothing written")
+    wanted = {f"settings/{rel}" for rel in files} | {f"settings/{PROFILE}", f"settings/{AVATAR}"}
+    blobs = _read_blobs(store, {path: staged[path] for path in wanted if path in staged})
     for rel, data in files.items():
-        path = f"settings/{rel}"
-        if path not in staged:
-            raise StoreError(f"{path} was not staged (git ignores it); nothing written")
-        if staged[path] != hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest():
-            raise StoreError(f"{path} was changed by a git filter (autocrlf, .gitattributes) on its way into the "
-                             "commit; nothing written")
+        if blobs[f"settings/{rel}"] != data:
+            raise StoreError(f"settings/{rel} was changed by a git filter (autocrlf, .gitattributes) on its way into "
+                             "the commit; nothing written")
+    raw = blobs.get(f"settings/{PROFILE}")
+    if raw is None or (PROFILE not in files and AVATAR not in files):
+        return
+    doc = _load_profile(raw, aid)
+    avatar = blobs.get(f"settings/{AVATAR}")
+    if avatar is None or hashlib.sha256(avatar).hexdigest() != doc["avatar"]["sha256"]:
+        raise StoreError(f"{PROFILE}: avatar.sha256 is not the sha256 of the {AVATAR} that would be committed; "
+                         "nothing written")
+
+
+def _read_blobs(store: str, oids: dict[str, str]) -> dict[str, bytes]:
+    """The content of each staged blob, by path, in one git cat-file --batch."""
+    names = sorted(oids)
+    r = subprocess.run(["git", "-C", store, "cat-file", "--batch"], input="".join(f"{oids[n]}\n" for n in names).encode(),
+                       capture_output=True, timeout=120)
+    if r.returncode != 0:
+        raise StoreError(f"git cat-file: exit {r.returncode}; nothing written")
+    out, pos, blobs = r.stdout, 0, {}
+    for name in names:
+        eol = out.index(b"\n", pos)
+        fields = out[pos:eol].split()
+        if len(fields) != 3 or fields[1] != b"blob":
+            raise StoreError(f"{name}: the staged object could not be read back; nothing written")
+        size = int(fields[2])
+        blobs[name] = out[eol + 1:eol + 1 + size]
+        pos = eol + 1 + size + 1
+    return blobs
 
 
 def _destination(store: str, rel: str) -> str:
@@ -353,7 +384,14 @@ def _put(files: dict[str, bytes], state: dict) -> dict:
         if not entries._remote(store):
             # _before_write and _after_commit skip a store with no remote: the write would "succeed" and reach no one.
             raise StoreError("this store has no remote to push its commit to; nothing written")
-        entries._before_write(store)
+        try:
+            entries._before_write(store)
+        except BaseException:
+            # An interrupt inside the rebase bypasses the helper's own abort: nothing of this run is written yet,
+            # so what may be left is a rebase in progress, put away here.
+            with _masked():
+                git(store, "rebase", "--abort", check=False)
+            raise
         left = git(store, "status", "--porcelain", "--ignored", "--untracked-files=all", "--", "settings").stdout.decode().strip()
         if left:
             raise StoreError(f"{store} has untracked or ignored files below settings/ ({left.splitlines()[0][3:]}); nothing written")
@@ -371,7 +409,7 @@ def _put(files: dict[str, bytes], state: dict) -> dict:
             for rel, data in sorted(files.items()):
                 _put_file(dests[rel], data)
             git(store, "add", "-A", "--", "settings")
-            _staged_as_validated(store, files)
+            _staged_as_validated(store, files, aid)
             changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
             if changed:
                 _commit(store, f"agent {login()}: settings")
