@@ -58,7 +58,7 @@ class Persona(unittest.TestCase):
     def test_the_profile_gives_the_full_name_behind_the_ai(self):
         self.profile()
         write(self.claims, json.dumps({"claims": {AGENT: "Noether"}}))
-        self.assertEqual(self.persona().name, "AI June Leavitt", "the profile wins over the claim")
+        self.assertEqual(self.persona().name, "AI June Noether", "the claimed surname wins over the profile's")
 
     def test_without_a_profile_the_claimed_surname_gives_ai_surname(self):
         write(self.claims, json.dumps({"claims": {AGENT: "Leavitt", OTHER: "Boole"}}))
@@ -72,13 +72,25 @@ class Persona(unittest.TestCase):
         write(self.claims, json.dumps({"claims": {AGENT: "Leavitt"}}))
         self.assertIsNone(self.persona().name, "no agent id, no claim")
 
+    def test_the_claimed_surname_wins_over_the_profiles_and_a_linked_settings_directory_is_not_followed(self):
+        self.profile(surname="Wrong")
+        write(self.claims, json.dumps({"claims": {AGENT: "Leavitt"}}))
+        self.assertEqual(self.persona().name, "AI June Leavitt")
+        elsewhere = os.path.join(self.tmp, "elsewhere")
+        shutil.move(os.path.join(self.store, "settings"), elsewhere)
+        write(os.path.join(elsewhere, "avatar.png"), b"x")
+        os.symlink(elsewhere, os.path.join(self.store, "settings"))
+        p = self.persona()
+        self.assertEqual((p.name, p.avatar_path), ("AI Leavitt", None), "neither the profile nor the avatar is read through the link")
+
     def test_a_name_that_is_not_plain_text_of_a_sane_length_is_not_one(self):
         write(self.claims, json.dumps({"claims": {AGENT: "Leavitt"}}))
         for label, over in (("a control character", {"first_name": "Ju\x1b[2Jne"}), ("empty", {"surname": ""}), ("a number", {"first_name": 7}),
                             ("too long", {"surname": "x" * (wi.NAME_MAX + 1)}), ("a newline", {"first_name": "June\nAI Hacker"})):
             with self.subTest(label):
                 self.profile(**over)
-                self.assertEqual(self.persona().name, "AI Leavitt", "the claim stands in for a profile that is no profile")
+                want = "AI June Leavitt" if "first_name" not in over else "AI Leavitt"       # the claim fills in a surname that is none
+                self.assertEqual(self.persona().name, want)
         write(os.path.join(self.store, "settings", "profile.json"), "{not json")
         self.assertEqual(self.persona().name, "AI Leavitt")
         write(os.path.join(self.store, "settings", "profile.json"), "[1, 2]")
@@ -158,9 +170,8 @@ class Harness(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="watch-harness-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
-    def process(self, pid: int, comm: str, uid: int = 1000) -> None:
-        write(os.path.join(self.tmp, str(pid), "comm"), comm + "\n")
-        write(os.path.join(self.tmp, str(pid), "status"), f"Name:\t{comm}\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\n")
+    def process(self, pid: int, comm: str, uid: int = 1000, euid: int | None = None) -> None:
+        write(os.path.join(self.tmp, str(pid), "status"), f"Name:\t{comm}\nUid:\t{uid}\t{euid or uid}\t{uid}\t{uid}\n")
 
     def test_it_is_the_harness_this_account_runs_claude_before_codex(self):
         self.assertIsNone(wi.running_harness(1000, self.tmp))
@@ -175,6 +186,12 @@ class Harness(unittest.TestCase):
         self.assertIsNone(wi.running_harness(1000, self.tmp))
         self.process(2, "claude-code-guide")             # a name that merely starts with it
         self.assertIsNone(wi.running_harness(1000, self.tmp))
+
+    def test_it_is_the_effective_uid_that_decides(self):
+        self.process(1, "claude", uid=1000, euid=1001)
+        self.assertIsNone(wi.running_harness(1000, self.tmp))
+        self.process(2, "codex", uid=0, euid=1000)
+        self.assertEqual(wi.running_harness(1000, self.tmp), "codex")
 
     def test_no_proc_is_none(self):
         self.assertIsNone(wi.running_harness(1000, os.path.join(self.tmp, "absent")))

@@ -8,11 +8,11 @@
                .agent-id); else None, and the caller shows the login alone. The name is NEVER shown without its "AI".
       avatar   settings/avatar.png in the store checkout, else the candidate the profile names (avatar.candidate) at
                <avatars>/<agent id>/<n>.png, else None. Only regular files, no link followed (avatar.read_file).
-      Of the store checkout it reads exactly two files, settings/profile.json and .agent-id — never env/, where the
+      Of the store checkout it reads exactly three files, settings/profile.json, settings/avatar.png (the avatar's own reader) and .agent-id — never env/, where the
       encrypted secrets are, and never lists the directory. A profile that is not what persona-profile.schema.json
       describes (an object with a first_name and a surname that are plain text of a sane length) is no profile.
-  running_harness()   "claude" or "codex": which of the two has a process of this account (claude first), by the name
-                      of /proc/<pid>/comm, or None.
+  running_harness()   "claude" or "codex": which of the two has a process of this account (claude first), by the Name
+                      line of /proc/<pid>/status, or None.
   version_line()      the first line of `<harness> --version`, read once by the caller, or None.
   model_lines()       the session model and effort and the second engine, from fabric-status --json's document.
 
@@ -48,7 +48,16 @@ def store_dir(environ: dict[str, str]) -> str:
     return environ.get("AGENT_FABRIC_SECRET_STORE") or os.path.join(environ.get("HOME") or os.path.expanduser("~"), ".local", "share", "agent-fabric", "secrets")
 
 
-def _read_small(path: str) -> bytes | None:
+def _inside(store: str, path: str) -> bool:
+    """A committed symlink in the checkout (settings -> elsewhere) must not lead the reads out of it: the file's real
+    place is under the store's real place. The last component is the reader's own O_NOFOLLOW."""
+    root = os.path.realpath(store)
+    return os.path.realpath(os.path.dirname(path)).startswith(root + os.sep) or os.path.realpath(os.path.dirname(path)) == root
+
+
+def _read_small(path: str, store: str | None = None) -> bytes | None:
+    if store is not None and not _inside(store, path):
+        return None
     try:
         data = avatar.read_file(path)
     except avatar.Refused:
@@ -56,8 +65,8 @@ def _read_small(path: str) -> bytes | None:
     return data if len(data) <= JSON_MAX else None
 
 
-def _json(path: str) -> dict | None:
-    data = _read_small(path)
+def _json(path: str, store: str | None = None) -> dict | None:
+    data = _read_small(path, store)
     if data is None:
         return None
     try:
@@ -76,23 +85,24 @@ def _name(value: object) -> str | None:
 
 def persona(environ: dict[str, str], claims_path: str, avatars: str = AVATARS) -> Persona:
     store = store_dir(environ)
-    raw_id = _read_small(os.path.join(store, ".agent-id"))
+    raw_id = _read_small(os.path.join(store, ".agent-id"), store)
     agent_id = raw_id.decode("ascii", "replace").strip() if raw_id is not None else None
     if agent_id is not None and not AGENT_ID.fullmatch(agent_id):
         agent_id = None
     out = Persona(agent_id=agent_id)
-    profile = _json(os.path.join(store, "settings", "profile.json"))
+    profile = _json(os.path.join(store, "settings", "profile.json"), store)
     first, surname = (_name(profile.get("first_name")), _name(profile.get("surname"))) if profile else (None, None)
+    claims = (_json(claims_path) or {}).get("claims") if agent_id else None
+    claimed = _name(claims.get(agent_id)) if isinstance(claims, dict) else None
+    surname = claimed or surname                      # claims.json wins over the profile on the surname (persona-profile schema)
     if first and surname:
         out.name = f"AI {first} {surname}"
-    elif agent_id:
-        claims = (_json(claims_path) or {}).get("claims")
-        claimed = _name(claims.get(agent_id)) if isinstance(claims, dict) else None
-        out.name = f"AI {claimed}" if claimed else None
+    elif surname:
+        out.name = f"AI {surname}"
     accepted = os.path.join(store, "settings", "avatar.png")
-    if os.path.isfile(accepted) and not os.path.islink(accepted):
+    if os.path.isfile(accepted) and not os.path.islink(accepted) and _inside(store, accepted):
         out.avatar_path = accepted
-    elif first and surname and agent_id and isinstance(profile, dict):
+    elif first and surname and agent_id and isinstance(profile, dict):   # a candidate is named by a profile that names a person
         pic = profile.get("avatar")
         n = pic.get("candidate") if isinstance(pic, dict) else None
         if type(n) is int and 1 <= n <= 999:
@@ -110,13 +120,10 @@ def running_harness(uid: int | None = None, proc: str = "/proc") -> str | None:
         return None
     for pid in names:
         try:
-            with open(os.path.join(proc, pid, "comm"), encoding="utf-8", errors="replace") as fh:
-                comm = fh.read().strip()
-            if comm not in HARNESSES:
-                continue
             with open(os.path.join(proc, pid, "status"), encoding="utf-8", errors="replace") as fh:
-                owner = next((line.split()[2] for line in fh if line.startswith("Uid:")), "")
-            if owner == str(uid):
+                fields = {k: v.strip() for k, _, v in (line.partition(":") for line in fh)}
+            comm = fields.get("Name", "")                       # the kernel's comm, as /proc/<pid>/comm
+            if comm in HARNESSES and fields.get("Uid", "").split()[1] == str(uid):
                 found.add(comm)
         except (OSError, IndexError):
             continue

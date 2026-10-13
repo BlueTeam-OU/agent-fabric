@@ -128,6 +128,15 @@ class Decode(unittest.TestCase):
             avatar.decode(bomb)
 
 
+class Bound(unittest.TestCase):
+    def test_a_header_with_more_pixels_than_the_cap_is_refused_before_anything_is_inflated(self):
+        side = int(avatar.MAX_PIXELS ** 0.5) + 1
+        data = png(side, side, [b""], raw=b"")
+        with self.assertRaisesRegex(avatar.Refused, "more than"):
+            avatar.decode(data)
+        avatar.decode(png(2, 2, picture(2, 2, 3)))                       # and the cap is not a refusal of every picture
+
+
 class Draw(unittest.TestCase):
     def test_each_cell_is_the_mean_of_the_block_it_covers(self):
         # 40 x 40, left half red, right half blue, then the top band lighter: 2 x 2 source pixels per grid cell

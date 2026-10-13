@@ -131,7 +131,7 @@ def main() -> int:
             asked["prs"] += 1
             return "prs"
 
-        def fake_run(argv: list[str], cwd: str | None = None) -> str:
+        def fake_run(argv: list[str], cwd: str | None = None, merge: bool = True) -> str:
             asked["status"] += argv[0].endswith("fabric-status")
             return "x"
 

@@ -19,7 +19,7 @@ CONTRACT:
             sets it to its own checkout); HOME, whose projects/ holds the
             working copies and .local/share/agent-fabric/secrets this
             login's store checkout (AGENT_FABRIC_SECRET_STORE names another;
-            of it only settings/profile.json and .agent-id are read);
+            of it only settings/profile.json, settings/avatar.png and .agent-id);
             TERM_PROGRAM (a pane host listed in
             runtime/control/watch-graphics.json: the avatar goes by the kitty graphics
             protocol), COLUMNS; XDG_CACHE_HOME (the avatar's cache); the
@@ -127,8 +127,10 @@ def printable(line: str) -> str:
     return "".join("?" if unicodedata.category(c) == "Cc" or c in "\u2028\u2029" else c for c in line.expandtabs())
 
 
-def run(argv: list[str], cwd: str | None = None) -> str:
-    """The command's output, stdout then stderr, or why there is none."""
+def run(argv: list[str], cwd: str | None = None, merge: bool = True) -> str:
+    """The command's output, stdout then stderr, or why there is none. merge=False is for a command whose stdout is a
+    document: an advisory line on its stderr must not make the document unparseable, so only stdout is returned (and
+    stderr only when there is no stdout)."""
     name = os.path.basename(argv[0])
     try:
         r = subprocess.run(argv, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, timeout=TIMEOUT_S)
@@ -140,7 +142,7 @@ def run(argv: list[str], cwd: str | None = None) -> str:
         return f"({name}: no answer within {TIMEOUT_S} s)"
     except OSError as exc:
         return f"({name}: {exc.strerror or exc})"
-    out = (r.stdout + r.stderr).decode("utf-8", "replace").rstrip()
+    out = ((r.stdout + r.stderr) if merge or r.returncode or not r.stdout.strip() else r.stdout).decode("utf-8", "replace").rstrip()
     if r.returncode:
         return f"{out}\n({name}: exit {r.returncode})" if out else f"({name}: exit {r.returncode})"
     return out or f"({name}: nothing)"
@@ -205,7 +207,7 @@ Line = str | Row
 AVATAR_MIN_COLUMNS = 52
 TEXT_COLUMN = avatar.COLS + 2
 GO_TO_TEXT = f"\033[{TEXT_COLUMN}G"            # kitty draws over the cells; the text is written beside them
-JOB_PRIORITIES = ("high", "normal", "low")
+JOB_PRIORITIES = ("blocking", "high", "normal", "low")      # fabric-jobs' own order (jobsparts/base.py)
 JOB_STATES = ("active", "blocked", "queued", "delivered")
 HEADER_ROWS = avatar.ROWS
 
@@ -232,8 +234,9 @@ def jobs_block(jobs_text: str) -> list[str]:
         digits = re.sub(r"\D", "", ident)
         return (int(digits) if digits else 0, ident)
     lines = []
-    for job in sorted(jobs, key=lambda j: (rank(j.get("priority"), JOB_PRIORITIES), rank(j.get("state"), JOB_STATES), number(j))):
-        ident, state, prio = (str(job.get(k) or "?")[:12] for k in ("id", "state", "priority"))
+    for job in sorted(jobs, key=lambda j: (rank(j.get("effective_priority") or j.get("priority") or "normal", JOB_PRIORITIES), rank(j.get("state"), JOB_STATES), number(j))):
+        ident, state = (str(job.get(k) or "?")[:12] for k in ("id", "state"))
+        prio = str(job.get("effective_priority") or job.get("priority") or "normal")[:12]
         lines.append(f"{ident:<5} {state:<9} {prio:<7} {str(job.get('title') or '')[:300]}")
         if job.get("state") == "blocked":
             lines.append(f"      waits on: {str(job.get('blocked_on') or '(not said)')[:300]}")
@@ -266,6 +269,7 @@ class AvatarSlot:
         try:
             data = avatar.read_file(path)
             if self.mode == "kitty":
+                avatar.decode(data)                          # what is sent is a file this would draw: never bytes that only start like a PNG
                 escape = avatar.kitty_escape(data)
                 prefixes = None if escape is None else [escape + GO_TO_TEXT] + [GO_TO_TEXT] * (HEADER_ROWS - 1)
             else:
@@ -425,8 +429,8 @@ def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
             if read is None:
                 return 0
             prs, prs_at = read, clock()
-        status = run([os.path.join(root, "bin", "fabric-status"), "--json"])
-        jobs = run([os.path.join(root, "bin", "fabric-jobs"), "list", "--json"])
+        status = run([os.path.join(root, "bin", "fabric-status"), "--json"], merge=False)
+        jobs = run([os.path.join(root, "bin", "fabric-jobs"), "list", "--json"], merge=False)
         identity, name = deck.identity(status, once=once, columns=columns)
         draw(screen(identity, name, jobs_block(jobs), prs, clock() - prs_at, time.strftime("%H:%M:%S")), clear=not once, out=out)
         if once or wait(every):

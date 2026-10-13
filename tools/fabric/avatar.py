@@ -35,6 +35,7 @@ from operator import mul
 COLS, ROWS = 20, 10
 MAX_FILE = 8 << 20
 MAX_DIM = 8192
+MAX_PIXELS = 1 << 20           # the Python scanline loop costs ~1 s per million pixels: a header past this is refused before inflate
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 KITTY_CHUNK = 4096
 UPPER_HALF = "▀"
@@ -139,6 +140,8 @@ def decode(data: bytes) -> tuple[int, int, int, list[bytes]]:
     width, height, depth, colour, compression, filtering, interlace = struct.unpack(">IIBBBBB", header)
     if not (1 <= width <= MAX_DIM and 1 <= height <= MAX_DIM):
         raise Refused(f"PNG size {width}x{height} is outside 1..{MAX_DIM}")
+    if width * height > MAX_PIXELS:
+        raise Refused(f"PNG size {width}x{height} is more than {MAX_PIXELS} pixels")
     if depth != 8 or colour not in CHANNELS:
         raise Refused("PNG is not 8-bit RGB or RGBA")
     if compression != 0 or filtering != 0:

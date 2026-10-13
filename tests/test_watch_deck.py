@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
+import avatar  # noqa: E402
 import watch  # noqa: E402
 import test_avatar  # noqa: E402
 
@@ -62,13 +63,18 @@ class Jobs(unittest.TestCase):
                 job("j12", "active", "normal")]
         self.assertEqual(self.ids(jobs), ["j5", "j6", "j4", "j9", "j11", "j12", "j3", "j10", "j2"])
 
+    def test_blocking_comes_first_and_the_effective_priority_outranks_the_stored_one(self):
+        jobs = [job("j1", "active", "high"), job("j2", "active", "blocking"), {**job("j3", "queued", "low"), "effective_priority": "blocking"},
+                job("j4", "active", "low")]
+        self.assertEqual(self.ids(jobs), ["j2", "j3", "j1", "j4"])
+
     def test_the_id_is_compared_as_a_number_not_as_text(self):
         self.assertEqual(self.ids([job("j100", "active"), job("j20", "active"), job("j3", "active")]), ["j3", "j20", "j100"])
 
     def test_an_unknown_priority_or_state_sorts_last_and_a_missing_one_is_said(self):
         jobs = [job("j1", "weird", "normal"), job("j2", "active", "urgent"), job("j3", "delivered", "normal"), {"id": "j4"}]
-        self.assertEqual(self.ids(jobs), ["j3", "j1", "j2", "j4"])
-        self.assertIn("?", watch.jobs_block(json.dumps([{"id": "j4"}]))[0])
+        self.assertEqual(self.ids(jobs), ["j3", "j1", "j4", "j2"], "a job with no priority is normal, as fabric-jobs says")
+        self.assertIn("normal", watch.jobs_block(json.dumps([{"id": "j4"}]))[0])
 
     def test_a_blocked_job_says_what_it_waits_on_and_others_do_not(self):
         lines = watch.jobs_block(json.dumps([job("j1", "blocked", blocked_on="settings-put (#236)"), job("j2", "blocked"), job("j3", "active", blocked_on="x")]))
@@ -144,6 +150,13 @@ class Slot(unittest.TestCase):
         put(self.path, b"not a png")
         self.assertIsNone(self.slot("kitty").prefixes())
 
+    def test_kitty_mode_sends_nothing_a_file_the_decoder_refuses(self):
+        for label, data in (("palette", test_avatar.png(2, 2, [b"\0" * 2] * 2, colour=3)), ("sixteen bits", test_avatar.png(2, 2, [b"\0" * 12] * 2, depth=16)),
+                            ("interlaced", test_avatar.png(2, 2, test_avatar.picture(2, 2, 3), interlace=1)), ("signature and junk", avatar.PNG_SIGNATURE + b"junk")):
+            with self.subTest(label):
+                put(self.path, data)
+                self.assertIsNone(self.slot("kitty").prefixes())
+
     def test_while_it_loads_the_room_it_will_take_is_blank(self):
         s = watch.AvatarSlot("blocks", self.tmp)
         s.path = self.path                                           # chosen, thread not started: loading
@@ -169,6 +182,20 @@ class Slot(unittest.TestCase):
         rows, name = deck.identity("fabric-status: no binding\nrun fabric-role")
         self.assertEqual((rows[1], rows[2]), ("fabric-status: no binding", "run fabric-role"))
         self.assertEqual(name, "(login unknown)")
+
+
+class Streams(unittest.TestCase):
+    def test_an_advisory_line_on_stderr_does_not_spoil_the_document_on_stdout(self):
+        tmp = tempfile.mkdtemp(prefix="watch-run-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = os.path.join(tmp, "cmd")
+        put(path, "#!/bin/sh\necho advisory >&2\necho '[1]'\n")
+        os.chmod(path, 0o755)
+        self.assertEqual(json.loads(watch.run([path], merge=False)), [1])
+        self.assertIn("advisory", watch.run([path]), "the default still shows both")
+        put(path, "#!/bin/sh\necho why it failed >&2\nexit 3\n")
+        os.chmod(path, 0o755)
+        self.assertIn("why it failed", watch.run([path], merge=False))
 
 
 class Terminals(unittest.TestCase):
