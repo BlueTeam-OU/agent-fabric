@@ -108,7 +108,10 @@ class SignIn(unittest.TestCase):
                            ("an exp that is a string", f"a.{b64({'exp': '1'})}.c"), ("an exp that is a bool", f"a.{b64({'exp': True})}.c"),
                            ("an exp that is a float", f"a.{b64({'exp': 1.5})}.c"),
                            ("an exp past year 9999", f"a.{b64({'exp': 10 ** 12})}.c"), ("an exp past 2106", f"a.{b64({'exp': 2 ** 32})}.c"),
-                           ("a negative exp", f"a.{b64({'exp': -5})}.c"), ("an exp of zero", f"a.{b64({'exp': 0})}.c")):
+                           ("a negative exp", f"a.{b64({'exp': -5})}.c"), ("an exp of zero", f"a.{b64({'exp': 0})}.c"),
+                           ("an empty header", f".{b64({'exp': EXP})}.sig"), ("an empty signature", f"{b64({'alg': 'x'})}.{b64({'exp': EXP})}."),
+                           ("a header and signature of !", f"!.{b64({'exp': EXP})}.!"), ("a header that is not an object", f"{b64([1])}.{b64({'exp': EXP})}.sig"),
+                           ("a header that is not JSON", f"bm90IGpzb24.{b64({'exp': EXP})}.sig")):
             with self.subTest(label):
                 with self.assertRaises(ValueError) as ctx:
                     cs.jwt_exp(tok)

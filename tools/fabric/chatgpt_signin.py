@@ -30,6 +30,7 @@ EXP_MAX = 2 ** 32
 ACCOUNT_ID = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
 # An Authorization header value: printable ASCII with no space. A JWT is base64url and dots.
 HEADER_SAFE = re.compile(r"[!-~]+")
+BASE64URL = re.compile(r"[A-Za-z0-9_-]+")
 
 
 class Refused(Exception):
@@ -74,12 +75,14 @@ def jwt_exp(token: str) -> int:
     """The `exp` claim of a JWT's payload, read without checking the signature (the token is only forwarded:
     the backend checks it). Nothing else of the payload is kept. ValueError, without the token, otherwise."""
     parts = token.split(".")
-    if len(parts) != 3 or not parts[1]:
-        raise ValueError("not a JWT (three dot-separated parts)")
+    if len(parts) != 3 or not all(BASE64URL.fullmatch(p) for p in parts):
+        raise ValueError("not a JWT (three non-empty base64url parts)")
     try:
+        if not isinstance(json.loads(base64.urlsafe_b64decode(parts[0] + "=" * (-len(parts[0]) % 4))), dict):
+            raise ValueError("its header is not a JSON object")
         payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
     except (binascii.Error, ValueError, UnicodeDecodeError):
-        raise ValueError("its payload is not base64url JSON") from None
+        raise ValueError("its header or payload is not base64url JSON") from None
     exp = payload.get("exp") if isinstance(payload, dict) else None
     if type(exp) is not int:
         raise ValueError("its payload carries no integer exp")
