@@ -11,6 +11,7 @@ checked, and used instead of a second decode."""
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import shutil
@@ -174,7 +175,9 @@ class Draw(unittest.TestCase):
 
 class Kitty(unittest.TestCase):
     def test_the_file_is_transmitted_as_it_is_in_chunks_of_at_most_4096_with_the_flags_herdr_reads(self):
-        data = png(90, 90, picture(90, 90, 3))
+        # noise, not a pattern: how small zlib makes a pattern differs from one build to the next
+        noise = [b"".join(hashlib.sha256(bytes([y, i])).digest() for i in range(9)) for y in range(60)]
+        data = png(90, 60, [r[:270] for r in noise])
         self.assertGreater(len(base64.b64encode(data)), 3 * avatar.KITTY_CHUNK, "the fixture needs several chunks")
         escape = avatar.kitty_escape(data)
         parts = escape.split("\x1b\\")[:-1]
