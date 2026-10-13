@@ -30,12 +30,14 @@ nothing wrote a false record.
   stderr    `arm: REFUSED #N — <why>` on a refusal; `arm: <why>` when a
             question could not be answered, or on a usage error
   exit      0 read back armed, queued or merged, each on the head the
-            gates read (or, with --dry-run, would arm); on a direct
-            repository only merged on that head; 1 refused — the
+            gates read, or that head found in the base branch while the
+            PR still reads open (or, with --dry-run, would arm); on a
+            direct repository only merged; 1 refused — the
             reason is the last line; 2 gh / pr-gate / pr-review-status /
             the project's arm.json / the relay / fabric-ctl could not
-            answer, the read-back is idle, closed or on another head
-            (on a direct repository, anything but merged), or usage
+            answer, the read-back is idle with the head not in the base,
+            closed or on another head (on a direct repository, anything
+            but merged), or usage
 
 THE WAIVER:
 the security-boundary gate is waived only on a message from the holder
@@ -151,7 +153,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import arm_policy, common, pr_gate, repo_policy  # noqa: E402
+from github import arm_policy, common, landed, pr_gate, repo_policy  # noqa: E402
 # The rules' names stay importable from here, where the oracle and callers
 # reach them as arm.<name>.
 from github.arm_rules import (  # noqa: E402, F401
@@ -226,7 +228,10 @@ without the owner's word adds a sentence saying so), runs `gh pr merge <n> --mer
 repository, which merges at once and has no watcher line) — pinned to the head the gates read — and prints the
 watcher line to run — it is not started here, because
 a watcher must be the SESSION's child for its exit to be the
-session's callback.
+session's callback. The PR is then read back, and the read-back decides, also
+when gh pr merge failed: GitHub can merge a PR on a call that reports failure.
+A PR that reads open, or cannot be read, while its head is in the base branch
+just fetched (git merge-base --is-ancestor) has merged, and the PR API is lagging.
 
 Options:
   --basis "<text>"      required: the one-line arming basis
@@ -238,7 +243,7 @@ Options:
   --dry-run             evaluate every gate, arm nothing, post nothing
 
 Exit codes:
-  0  armed (or, with --dry-run, would arm)
+  0  armed or merged (or, with --dry-run, would arm)
   1  refused — the reason is the last line
   2  gh / pr-gate / pr-review-status / arm.json / the relay / fabric-ctl
      could not answer, or usage
@@ -593,7 +598,7 @@ def arm(argv: list[str]) -> int:
         return Refused(f"REFUSED #{num} — {why}")
 
     try:
-        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,body,title"],
+        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,baseRefName,body,title"],
                                what=f"gh pr view {num}"))
     except (gh.GhError, ValueError):
         raise Unanswered(f"cannot read #{num} (gh pr view failed)") from None
@@ -604,6 +609,7 @@ def arm(argv: list[str]) -> int:
     owner, name = repo.split("/", 1)
     state, branch = str(pr.get("state")), str(pr.get("headRefName") or "")
     head, title, body = str(pr.get("headRefOid") or ""), str(pr.get("title") or ""), str(pr.get("body") or "")
+    base = str(pr.get("baseRefName") or "")
 
     # 1. open, not a draft
     if state != "OPEN":
@@ -884,8 +890,12 @@ def arm(argv: list[str]) -> int:
         # this call would otherwise arm a head nobody reviewed or waived
         # (re-review of b1a8e41, pre-existing).
         gh.run(["pr", "merge", num, *merge_args], what=f"gh pr merge {num}")
-    except gh.GhError:
-        raise Unanswered(f"gh pr merge {' '.join(merge_args[:-2])} failed on #{num}") from None
+        failed = ""
+    except gh.GhError as e:
+        # Not an answer yet: GitHub merged a CLEAN, green PR on a call that exited non-zero (gateway #33,
+        # agent-fabric #237). The read-back below judges; the failure is said, and named in any exit 2.
+        failed = f" (gh pr merge {' '.join(merge_args[:-2])} failed: {e.reason})"
+        say(f"gh pr merge failed on #{num} ({e.reason}) — reading the PR back before judging")
     # A green PR goes STRAIGHT INTO THE QUEUE on arming, and a queued PR
     # reads autoMergeRequest null — exactly like an unarmed one (a managed project's PR
     # #881). So the read-back is the queue entry OR the arming. On a
@@ -897,12 +907,16 @@ def arm(argv: list[str]) -> int:
     # `merged` is its own flag, never a value of `armed`: a state read
     # back lowercased would otherwise stand for the merge it is not.
     merged, armed = False, "unknown"
+    # Whether the PR API's answer may be lagging a merge: it reads open on the head the gates read, or reads nothing.
+    # Merged or open on another head is an answer about another head, and closed is not a lag.
+    may_lag = True
     try:
         d = gh.graphql("query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){pullRequest(number:$num)"
                        "{state headRefOid autoMergeRequest{enabledAt} mergeQueueEntry{position}}}}",
                        o=owner, n=name, num=int(num))
         p = d["repository"]["pullRequest"]
         state, read_head = p["state"], str(p["headRefOid"])
+        may_lag = state == "OPEN" and read_head == head
         if state == "MERGED" and read_head == head:
             merged = True
         elif state == "MERGED":
@@ -923,10 +937,17 @@ def arm(argv: list[str]) -> int:
     if merged:
         say(f"MERGED #{num} ({title}) — read back merged on head {head[:8]} after the arming; basis posted.")
         return 0
+    armed_ok = policy["mode"] != "direct" and (armed == "armed" or armed.startswith("queued"))
+    # Asked only where the answer would otherwise be exit 2: an armed PR whose head has also landed is left to the
+    # watcher, which asks the same question, and the common path costs no fetch.
+    if not armed_ok and may_lag and landed.head_in_base(repo, head, base):
+        say(f"MERGED #{num} ({title}) — head {head[:8]} is in origin/{base}: GitHub merged it, and the PR API is"
+            f" lagging (it reads '{armed}'); basis posted.")
+        return 0
     if policy["mode"] == "direct":
-        raise Unanswered(f"#{num} reads '{armed}' after gh pr merge on a direct repository, not merged — check gh pr view {num}")
-    if armed not in ("armed",) and not armed.startswith("queued"):
-        raise Unanswered(f"#{num} reads '{armed}' after gh pr merge --auto — check gh pr view {num}")
+        raise Unanswered(f"#{num} reads '{armed}' after gh pr merge on a direct repository, not merged{failed} — check gh pr view {num}")
+    if not armed_ok:
+        raise Unanswered(f"#{num} reads '{armed}' after gh pr merge --auto{failed} — check gh pr view {num}")
     say(f"ARMED #{num} ({title}) — {armed}; basis posted.")
     say(f"now, in the session: fabric-pr wait-merged {num} &")
     return 0

@@ -48,7 +48,10 @@ evicted PR's green checks only in the project's words, its
 eviction_note.
 
 Exit codes:
-  0  merged
+  0  merged — also a PR that still reads open while its head is in
+     the base branch, fetched into this clone: the PR API lags a merge
+     by minutes, and git does not (asked before exit 4, 5 or 6, and
+     before saying nothing will merge it)
   2  invocation problem, or the PR could not be read repeatedly
   3  closed WITHOUT merging — do not treat as done
   4  still open when the timeout expired
@@ -127,7 +130,7 @@ import time
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
-from github import actions_health, arm  # noqa: E402
+from github import actions_health, arm, landed  # noqa: E402
 from github.review_status.base import Die  # noqa: E402
 # These stay importable from here, where the unit suite reaches them.
 from github.wait_merged_input import (  # noqa: E402, F401
@@ -253,6 +256,18 @@ class Watch:
             return "armed"
         return "idle"
 
+    def landed_in(self) -> str:
+        """The base branch's name when this PR's head is in it, fetched now (landed.head_in_base), else "". Asked
+        only before an answer that says the PR is not merged: it costs a fetch."""
+        head, base = self.pr_field("headRefOid"), self.pr_field("baseRefName")
+        if not (isinstance(head, str) and isinstance(base, str)):
+            return ""
+        return base if landed.head_in_base(self.repo, head, base) else ""
+
+    def lagging(self, base: str) -> Verdict:
+        return Verdict(0, f"MERGED — its head is in origin/{base}, and the PR API is lagging (it still reads open);"
+                          " safe to return to main")
+
     def pr_field(self, field: str):
         try:
             return gh.pr_view(int(self.pr), [field], repo=self.repo).get(field)
@@ -360,12 +375,32 @@ class Watch:
     # ── the loop ──
 
     def run(self) -> None:
+        try:
+            self.watch()
+        except Verdict as v:
+            # Expired, blocked and stalled are each read off a PR that is
+            # OPEN, which the API may still say minutes after the merge
+            # (agent-fabric #237 read OPEN, then DIRTY, merged). Closed is
+            # an answer, and unreadable has no head to ask about.
+            if v.code in (4, 5, 6):
+                base = self.landed_in()
+                if base:
+                    raise self.lagging(base) from None
+            raise
+
+    def watch(self) -> None:
         pr = self.pr
         self.note(f"watching #{pr} (every {self.interval}s, giving up after {self.timeout}s)")
         # Say so IMMEDIATELY if nothing is going to merge this; a note, not
         # an exit — arming just after starting the watch is a fair order.
         arming = self.arming_state()
         if arming == "idle":
+            # Neither armed nor queued is also how a PR reads that GitHub
+            # has merged and its API not yet caught up: asked before it is
+            # told nothing will merge it.
+            base = self.landed_in()
+            if base:
+                raise self.lagging(base)
             self.note(f"#{pr} is neither queued nor auto-merge-armed — nothing will merge it.")
             self.note(f"  arm it:  {self.arm_line()}")
         # "Never armed" is the caller's choice and already said; "armed,
