@@ -22,13 +22,11 @@ its own home (`CODEX_HOME=<dir> codex exec` once, or `codex login` again), never
 THE SYNCED SIGN-IN (ADR-053 rule 8). A login with no sign-in of its own at the default place, and no --codex-home
 naming another, uses the one the coordinator distributed: `<runtime dir>/agent-fabric/gateway/chatgpt-signin.json`,
 which `fabric-secrets sync` writes from the login's store (chatgpt_signin.py reads it: the access token and the
-account id, 0600, the login's own). The same life rule applies; one with too little life, an expired one, a missing
+account id, 0600, the login's own). The path is gateway_token.token_path's, /run/user/<uid>/…, the same for the writer,
+the keys read and this reader; XDG_RUNTIME_DIR only says where the review's own scratch goes. The same life rule applies; one with too little life, an expired one, a missing
 one and a malformed one refuse naming why and who refreshes it, nothing started or posted. A sign-in of its own
 that exists and is bad is refused as it is, never replaced by the synced one, and a named --codex-home has no
 fallback.
-The file is looked for under $XDG_RUNTIME_DIR (else /run/user/<uid>), where the review's own scratch is; the writer
-(`fabric-secrets sync`) and the keys read use /run/user/<uid>: the same directory in a login session. A login whose
-XDG_RUNTIME_DIR is elsewhere reads "none" here while the keys row reports the file.
 
 THE GATEWAY. The fleet's pinned gateway (AGENT_FABRIC_GW_BIN overrides), through the launcher's own
 start/stop (tools/fabric/launcher/gateway.py), with plan schema 1: its `--version --json` must list
@@ -132,11 +130,14 @@ def read_signin(home: str, *, now: float | None = None, min_life_s: float = MIN_
     return SignIn(home, account, exp, access)
 
 
+ENV_RUNTIME_ROOT = "AGENT_FABRIC_RUNTIME_ROOT"
+
+
 def synced_path(environ: dict[str, str]) -> str:
-    """Where `fabric-secrets sync` puts this login's synced sign-in: beside the gateway's Claude token file, under the
-    runtime directory the review's own scratch also lives in."""
-    run = environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    return os.path.join(run, *gateway_token.SUBDIRS, gateway_token.SIGNIN_NAME)
+    """Where `fabric-secrets sync` puts this login's synced sign-in, by the writer's own function (gateway_token): the
+    one path the writer, the keys read and this reader share, whatever XDG_RUNTIME_DIR says (that is where the review's
+    scratch goes). AGENT_FABRIC_RUNTIME_ROOT names another root than /run/user, as a test must."""
+    return gateway_token.token_path(os.getuid(), environ.get(ENV_RUNTIME_ROOT) or gateway_token.RUNTIME_ROOT, gateway_token.SIGNIN_NAME)
 
 
 def read_synced(environ: dict[str, str], *, now: float | None = None, min_life_s: float = MIN_TOKEN_LIFE_S) -> SignIn:

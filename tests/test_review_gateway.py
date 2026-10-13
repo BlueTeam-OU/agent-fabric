@@ -172,6 +172,7 @@ def main() -> int:
         for d in (state, fakebin, home, scratch, run_dir, os.path.join(home, ".codex")):
             os.makedirs(d, mode=0o700)
         os.chmod(run_dir, 0o700)
+        rt_root = os.path.join(tmp, "rt-root")      # where the synced sign-in is looked for (review_gateway.synced_path)
         with open(os.path.join(home, ".codex", "auth.json"), "w") as f:
             f.write('{"auth_mode": "apikey"}')
         signin = os.path.join(home, ".codex-chatgpt")
@@ -239,7 +240,7 @@ def main() -> int:
                     HOME=home, TMPDIR=scratch, XDG_RUNTIME_DIR=run_dir, AGENT_FABRIC_ROOT=ROOT,
                     AGENT_FABRIC_OPERATOR=operator, AGENT_FABRIC_STATE_DIR=os.path.join(tmp, "fabric-state"),
                     AGENT_FABRIC_GW_BIN=os.path.join(fakebin, "fake-gateway"), AGENT_FABRIC_GW_READY_TIMEOUT_S="10",
-                    AGENT_FABRIC_CODEX_MODEL="gpt-test-6",
+                    AGENT_FABRIC_CODEX_MODEL="gpt-test-6", AGENT_FABRIC_RUNTIME_ROOT=rt_root,
                     ANTHROPIC_BASE_URL="http://127.0.0.1:9999", ANTHROPIC_API_KEY="sk-ant-session",
                     CODEX_HOME=os.path.join(home, ".codex"))
 
@@ -420,7 +421,9 @@ def main() -> int:
             check(f"{label}: no token in the message", no_secret_in(r.stderr) and soon not in r.stderr, r.stderr)
         import shutil as _shutil      # main() imports shutil further down: a local name from there on
         print("the synced sign-in (ADR-053 rule 8): used only by a login with no sign-in of its own")
-        synced_dir = os.path.join(run_dir, "agent-fabric", "gateway")
+        # The synced file is at gateway_token.token_path's place under a root of its own, named to the tool by
+        # AGENT_FABRIC_RUNTIME_ROOT; XDG_RUNTIME_DIR (run_dir) is only where the review's scratch goes.
+        synced_dir = os.path.join(rt_root, str(os.getuid()), "agent-fabric", "gateway")
         synced_file = os.path.join(synced_dir, "chatgpt-signin.json")
         own_auth = os.path.join(signin, "auth.json")
         synced_access = fake_jwt(int(time.time()) + 241 * 3600)      # a token of its own: a different exp than the login's
@@ -433,10 +436,10 @@ def main() -> int:
             os.chmod(synced_file, mode_)
 
         def drop_synced() -> None:
-            _shutil.rmtree(os.path.join(run_dir, "agent-fabric"), ignore_errors=True)
+            _shutil.rmtree(os.path.join(rt_root, str(os.getuid())), ignore_errors=True)
 
         def only_synced_left() -> bool:
-            return os.listdir(os.path.join(run_dir, "agent-fabric")) == ["gateway"] and os.listdir(synced_dir) == ["chatgpt-signin.json"]
+            return os.listdir(synced_dir) == ["chatgpt-signin.json"]
 
         if os.path.exists(own_auth):
             os.remove(own_auth)
@@ -448,7 +451,7 @@ def main() -> int:
         check("…the gateway's token file holds the SYNCED access token, and not the login's missing own",
               sv.get("token_sha") == hashlib.sha256(synced_access.encode()).hexdigest(), sv)
         check("…the synced file is left as it was, 0600, and nothing else of the review stays in the runtime directory",
-              only_synced_left() and (os.stat(synced_file).st_mode & 0o777) == 0o600, os.listdir(run_dir))
+              only_synced_left() and (os.stat(synced_file).st_mode & 0o777) == 0o600 and runtime_clean(), os.listdir(run_dir))
         check("…no token of either sign-in is in what was said", synced_access not in r.stderr + r.stdout and no_secret_in(r.stderr + r.stdout))
         write_synced({"access_token": fake_jwt(1000), "account_id": ACCOUNT}); reset()
         r = run()
