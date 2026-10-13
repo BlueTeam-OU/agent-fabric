@@ -29,6 +29,13 @@ CONTRACT, frozen from the Node:
                                 the journal cannot keep, 7 an internal
                                 error. The session runs it again only
                                 after exit 0 or its own timeout.
+                                One watch per login: --follow and
+                                --until-delivery hold an exclusive flock
+                                (inbox_parts/watchlock.py) for the
+                                process's life; a second one prints one
+                                line naming the first's pid and start on
+                                STDOUT and exits 0. Every other mode
+                                takes no lock.
             --wait [S]          block up to S seconds (Number(S), else
                                 1800) and return the moment a message
                                 addressed here lands; --keyword K
@@ -139,6 +146,7 @@ from .inbox_parts.hold import hold_dir, pid_start, pid_alive, hold_status, HOLD_
 from .inbox_parts.render import NOTIFICATION_CAP, MAX_FLAG_LINES, _SECTION, cut_at_line  # noqa: F401
 from .inbox_parts.render import _drop_final_newline, split_message, render  # noqa: F401
 from .inbox_parts.watch import JOURNAL_RETRY_MS, bypass_inbound, wait_loop  # noqa: F401
+from .inbox_parts.watchlock import take_or_report  # noqa: F401
 
 
 # How long --until-delivery rides out an unreachable relay before it exits
@@ -458,7 +466,18 @@ def run(argv: list[str]) -> int:
     dictionary, since what failed may BE the dictionary — one line and exit
     0, on a path whose whole contract is one line and exit 0 (blind review
     F1 on PR #28)."""
+    lock = None
     try:
+        # One watch per login (inbox_parts/watchlock.py): the drain, replay,
+        # history, wait and held modes take none. A second watch says so and
+        # exits 0, so the harness's background call ends clean.
+        if ({"--follow", "--until-delivery"} & set(argv)
+                and not {"--replay", "--history", "--held"} & set(argv)):
+            lock = take_or_report(gzmsg.whoami()["agent"])
+            if lock is not None and not lock.acquired:
+                lock = None
+            elif lock is None:
+                return 0
         return main(argv)
     except _Exit as e:
         return e.code
@@ -472,6 +491,9 @@ def run(argv: list[str]) -> int:
             return 7
         print(f"gzcoord inbox: {e}", file=sys.stderr)
         return 0
+    finally:
+        if lock is not None:
+            lock.release()
 
 
 if __name__ == "__main__":
