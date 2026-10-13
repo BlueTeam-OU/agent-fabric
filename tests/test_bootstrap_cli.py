@@ -223,7 +223,7 @@ def make_pristine(script: str) -> str:
         shutil.copyfile(module, f"{d}/tools/fabric/bootstrap.py")
         # and the modules it imports from the same tree, which the archive
         # of HEAD may not have yet
-        for dep in ("fabric_writes.py", "agentd_unit.py"):
+        for dep in ("fabric_writes.py", "agentd_unit.py", "guards/signing_policy.py"):
             src = os.path.join(os.path.dirname(module), dep)
             if os.path.isfile(src):
                 shutil.copyfile(src, f"{d}/tools/fabric/{dep}")
