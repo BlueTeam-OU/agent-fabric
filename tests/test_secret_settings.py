@@ -510,6 +510,15 @@ def main() -> int:
         os.unlink(os.path.join(store, "settings", "avatar.png"))
         subprocess.run(["git", "-C", store, "checkout", "--", "settings/avatar.png"], check=True, env=env)
 
+        # An inherited GIT_DIR (a hook's environment) must not point any git call of the command at another repository.
+        other_repo = os.path.join(tmp, "elsewhere.git")
+        subprocess.run(["git", "init", "-q", "--bare", other_repo], check=True, env=env)
+        denv = {**env, "GIT_DIR": other_repo}
+        p = subprocess.run([sys.executable, TOOL, "settings-put", "--from", tree("gitdir", {"avatar-rejected/gd.txt": b"g"})],
+                           env=denv, cwd=tmp, capture_output=True, text=True)
+        check("an inherited GIT_DIR does not misdirect the command (the staged blobs are read from the store)",
+              p.returncode == 0 and "committed" in p.stdout, p.stdout + p.stderr)
+
         # A clean filter (autocrlf) would commit different bytes than the ones validated.
         subprocess.run(["git", "-C", store, "config", "core.autocrlf", "true"], check=True, env=env)
         n_crlf = count()

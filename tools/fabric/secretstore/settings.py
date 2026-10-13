@@ -59,10 +59,9 @@ import os
 import signal
 import secrets
 import stat
-import subprocess
 
 from . import entries
-from .core import StoreError, git, login, own_agent_id, store_dir, roots
+from .core import StoreError, _run, git, login, own_agent_id, store_dir, roots
 from .lock import write_lock
 from .trust import _commit
 
@@ -256,10 +255,9 @@ def _staged_as_validated(store: str, files: dict[str, bytes], aid: str) -> None:
 def _read_blobs(store: str, oids: dict[str, str]) -> dict[str, bytes]:
     """The content of each staged blob, by path, in one git cat-file --batch."""
     names = sorted(oids)
-    r = subprocess.run(["git", "-C", store, "cat-file", "--batch"], input="".join(f"{oids[n]}\n" for n in names).encode(),
-                       capture_output=True, timeout=120)
-    if r.returncode != 0:
-        raise StoreError(f"git cat-file: exit {r.returncode}; nothing written")
+    # core._run: its git environment scrub (an inherited GIT_DIR must not point this at another repository), its timeout.
+    r = _run(["git", "-C", store, "cat-file", "--batch"], stdin="".join(f"{oids[n]}\n" for n in names).encode(),
+             timeout=120, label="git cat-file")
     out, pos, blobs = r.stdout, 0, {}
     for name in names:
         eol = out.index(b"\n", pos)
