@@ -828,27 +828,26 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
-- One key per login, made in the account, a subkey per use. Its private
-  half leaves only as a recovery copy encrypted to the owner's recovery
-  key, backed up to Proton Drive (§5 rules 1, 6; §6).
+- One key per login, made in the account, a subkey per use; its private
+  half leaves only as an encrypted recovery copy (§5 rules 1, 6; §6).
 - A key is an agent's when committed at `identities/keys/<id>.asc` and
-  certified by its parent recorded in `lineage.json`; lint refuses one
-  without (§5 rule 2).
-- Each agent's secrets are a private pass(1)-format repository,
-  `agent-fabric-secrets-<id>`, encrypted to that key alone: the parent
-  writes (`fabric-secrets put`) and never reads (§5 rule 3).
+  certified by its parent in `lineage.json` (§5 rule 2).
+- Each agent's secrets are pass(1) entries in its private repository
+  `fabric-agent-<id>`, encrypted to that key alone: the parent writes
+  and never reads (§5 rule 3).
 - No step relies on a shared host (§5 rules 4–5). `sync` reads the store
   alone (§5 rules 7–8).
 - A 2026-09-29 — recovery copies and backups go to Proton Drive.
 - A 2026-09-29 — recovery copies are encrypted to the owner's recovery key.
 - A 2026-09-29 — keys, lineage and repositories are named by the agent id (ADR-039).
 - A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
-- A 2026-09-30 — Doppler removed from the code; `provision` fills a child's store (§5 rules 3, 7–8; §7).
+- A 2026-09-30 — Doppler removed; `provision` fills a child's store (§5 rules 3, 7–8).
 - A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
 - A 2026-10-06 — no shell holds a secret; env.sh holds plain values (§5 rule 9).
 - A 2026-10-07 — the Doppler CLI stays (§6).
-- Keywords: secrets, GPG, pass, paperkey, env.sh, bashrc, lineage,
-  custody, Doppler, migration, provision, placement.
+- A 2026-10-13 — one repository per agent: secrets and settings, in BlueTeam-OU (§2).
+- Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
+  Doppler, provision, placement.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing
@@ -866,6 +865,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Secrets repositories are `agent-fabric-secrets-<id>`, and so are mirrors,
   bundles and recovery copies (§5 rule 4).
 - A reused login is a new agent with a new id (§5 rule 7).
+- A 2026-10-13 — the repository is `fabric-agent-<id>`; its description names host, login, role (§5 rule 4).
 - Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
   secrets repository, P1.
 

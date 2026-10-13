@@ -34,7 +34,7 @@ agent across renames; the login is its current name on its host.
   - the lineage entry;
   - the committed key file;
   - the key's user id address;
-  - the secrets repository `agent-fabric-secrets-<id>`;
+  - the agent's repository `fabric-agent-<id>`;
   - the parent's mirror;
   - the backup bundle;
   - the recovery copy.
@@ -98,9 +98,12 @@ whole when the parent is renamed.
 3. An agent key carries a valid user id addressed to
    `<id>@agents.agent-fabric`. The parent's certification is on that user
    id. `verify` and lint refuse a key without either.
-4. An agent's secrets repository is `<org>/agent-fabric-secrets-<id>`.
-   The parent's mirror is `children/<id>`. The backup bundle is
-   `agent-fabric-secrets-<id>.bundle`. The recovery copy is
+4. An agent's repository, its secrets and its settings (ADR-038), is
+   `BlueTeam-OU/fabric-agent-<id>`; its GitHub description names the
+   agent's host, login and role, never the id, which the name already
+   carries, and a rename updates the description, never the name
+   (A 2026-10-13). The parent's mirror is `children/<id>`. The backup
+   bundle is `fabric-agent-<id>.bundle`. The recovery copy is
    `recovery/<id>.key.gpg`.
 5. A command that names an agent takes its login or its id and resolves
    it through `lineage.json` before anything else; below that point only
@@ -149,3 +152,11 @@ Accepted and in force.
 - ADR-003 — per-agent state, which a moved login carries.
 - `tools/fabric/secret_store.py` (`mint_agent_id`, `verify`, `rename`); `runtime/provisioning/secrets/store-enroll.sh`.
 - `tests/test_secret_store.py`, `tests/test_store_enroll_cli.py`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-039-amendments.md](history/ADR-039-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-13 | the agent's repository is fabric-agent-<id>; its description names the login, never the id | §2, §5 rule 4 |
