@@ -11,7 +11,8 @@ first name and surname identities/personas/claims.json, the role is read
 off the login, its title off identities/roles/catalog.json. An agent that
 has no claim yet is unknown here: a half-built name would be quoted.
 
-Exit 0 answered, 2 unknown agent (one line on stderr).
+Exit 0 answered, 2 unknown agent or a claim that is no name (one line on stderr, naming the agent id; with
+--all the good ones are printed and each bad one is reported, exit 2 if any was).
 """
 from __future__ import annotations
 
@@ -46,7 +47,13 @@ def role_of(login: str, role_ids: list[str], coordinator_logins: set[str], root:
     return None
 
 
-def agents(root: str | None = None) -> list[dict]:
+def _text(v: object) -> bool:
+    return isinstance(v, str) and bool(v.strip())
+
+
+def agents(root: str | None = None, bad: list[str] | None = None) -> list[dict]:
+    """Every agent with a usable claim. A claim that is not an object, or lacks a first name or surname, is left
+    out and its agent id appended to `bad` when the caller gives one (a half-built name would be quoted)."""
     lineage = _load(os.path.join(roots.keys_dir(root=root), "lineage.json"))
     claims = _load(roots.personas("claims.json", root=root)).get("claims") or {}
     catalog = {r["id"]: r.get("short_title") or r.get("title") or r["id"] for r in _load(roots.role_catalog(root=root)).get("roles") or []}
@@ -60,7 +67,11 @@ def agents(root: str | None = None) -> list[dict]:
     for aid, rec in lineage.items():
         claim = claims.get(aid)
         login = rec.get("login")
-        if not isinstance(claim, dict) or not login:
+        if claim is None or not login:
+            continue
+        if not (isinstance(claim, dict) and _text(claim.get("first_name")) and _text(claim.get("surname"))):
+            if bad is not None:
+                bad.append(aid)
             continue
         role = role_of(login, list(catalog), holders, root)
         title = catalog.get(role, role) if role else None
@@ -88,14 +99,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.all == bool(args.who):
         ap.error("give a login or an agent id, or --all")
     if args.all:
-        found = agents()
+        broken: list[str] = []
+        found = agents(bad=broken)
         if args.json:
             print(json.dumps(found, indent=2, ensure_ascii=False))
         else:
             for a in found:
                 print(a["display"])
-        return 0
-    a = find(args.who)
+        for aid in broken:
+            print(f"fabric-persona: the claim of {aid} is not {{surname, first_name}}", file=sys.stderr)
+        return 2 if broken else 0
+    broken = []
+    a = next((x for x in agents(bad=broken) if args.who in (x["login"], x["agent_id"])), None)
+    if a is None and broken:
+        lineage = _load(os.path.join(roots.keys_dir(), "lineage.json"))
+        for aid in broken:
+            if args.who in (aid, lineage.get(aid, {}).get("login")):
+                print(f"fabric-persona: the claim of {aid} is not {{surname, first_name}}", file=sys.stderr)
+                return 2
     if a is None:
         print(f"fabric-persona: no agent {args.who!r} with a name claim", file=sys.stderr)
         return 2

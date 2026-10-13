@@ -79,6 +79,29 @@ class Persona(unittest.TestCase):
     def test_json_carries_the_pronoun_when_the_claim_has_one(self) -> None:
         self.assertEqual(json.loads(self.run_main("--json", "python-dev-02")[1])["pronoun"], "it")
 
+    def break_claims(self) -> None:
+        path = os.path.join(self.root, "identities/personas/claims.json")
+        with open(path) as fh:
+            claims = json.load(fh)["claims"]
+        claims[IDS[1]] = "Sur1"                       # the older surname-only string
+        claims[IDS[4]] = {"surname": "Sur4"}          # no first name
+        write(self.root, "identities/personas/claims.json", {"claims": claims})
+
+    def test_a_bad_claim_is_one_line_naming_the_agent_id_and_exit_2(self) -> None:
+        self.break_claims()
+        for who in ("user", IDS[1], "web-dev"):
+            rc, out, err = self.run_main(who)
+            self.assertEqual((rc, out, len(err.splitlines())), (2, "", 1), who)
+            self.assertIn(IDS[1] if who != "web-dev" else IDS[4], err)
+        self.assertEqual(self.run_main("python-dev-02")[0], 0, "a good claim still answers")
+
+    def test_all_prints_the_good_ones_and_reports_each_bad_one(self) -> None:
+        self.break_claims()
+        rc, out, err = self.run_main("--all")
+        self.assertEqual((rc, len(out.splitlines()), len(err.splitlines())), (2, 4, 2))
+        self.assertIn(IDS[1], err)
+        self.assertIn(IDS[4], err)
+
     def test_all_is_one_line_per_claimed_agent(self) -> None:
         rc, out, _ = self.run_main("--all")
         self.assertEqual(rc, 0)
