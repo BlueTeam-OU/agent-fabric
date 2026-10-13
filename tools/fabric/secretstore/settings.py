@@ -49,6 +49,7 @@ import errno
 import hashlib
 import json
 import os
+import signal
 import stat
 import tempfile
 
@@ -129,17 +130,28 @@ def _read_tree(src: str) -> dict[str, bytes]:
             if len(files) > MAX_FILES:
                 raise StoreError(f"more than {MAX_FILES} files; nothing written")
 
-    # "link/" resolves the link whatever O_NOFOLLOW says: the final component must really be last.
-    src = src.rstrip(os.sep) or os.sep
-    if os.path.basename(src) in (".", ".."):
-        # "link/." opens the link's target too; the directory is named by its own last component.
-        raise StoreError(f"{src}: name the directory itself, not . or ..; nothing written")
+    # Every component of the path is opened O_NOFOLLOW from its parent, the source's own included: a link anywhere
+    # on it (another account owning one of the directories) would point the walk at the agent's own files.
+    # Whoever needs a link in the path resolves it first (realpath) and names the directory itself.
+    parts = [part for part in os.path.abspath(src).split(os.sep) if part]
+    top = os.open(os.sep, _OPEN | os.O_DIRECTORY)
     try:
-        top = os.open(src, _OPEN | os.O_DIRECTORY)
-    except OSError as e:
-        why = "not a directory (a link is not followed)" if e.errno in (errno.ELOOP, errno.ENOTDIR) else (e.strerror or e)
-        raise StoreError(f"{src}: {why}; nothing written") from None
-    try:
+        here = os.sep
+        for part in parts:
+            here = os.path.join(here, part)
+            try:
+                nxt = os.open(part, _OPEN | os.O_DIRECTORY, dir_fd=top)
+            except OSError as e:
+                # O_NOFOLLOW|O_DIRECTORY on a link answers ENOTDIR or ELOOP, by kernel: ask what it is.
+                try:
+                    is_link = stat.S_ISLNK(os.stat(part, dir_fd=top, follow_symlinks=False).st_mode)
+                except OSError:
+                    is_link = False
+                why = ("a link is not followed, in any component of the path" if is_link or e.errno == errno.ELOOP
+                       else "not a directory" if e.errno == errno.ENOTDIR else (e.strerror or str(e)))
+                raise StoreError(f"{here}: {why}; nothing written") from None
+            os.close(top)
+            top = nxt
         walk(top, "", 0)
     finally:
         os.close(top)
@@ -227,7 +239,7 @@ def _put_file(dest: str, data: bytes) -> None:
 def _missing_dirs(store: str, dests: list[str]) -> list[str]:
     """The directories below settings/ these writes will make, deepest first."""
     root = os.path.join(store, "settings")
-    wanted: set[str] = set()
+    wanted: set[str] = set() if os.path.lexists(root) else {root}
     for dest in dests:
         here = os.path.dirname(dest)
         while here != root and not os.path.lexists(here):
@@ -254,14 +266,32 @@ def _undo(store: str, created: list[str], made_dirs: list[str] = ()) -> None:
             pass   # never made, or not empty
 
 
+def _terminate(signum, _frame):
+    raise KeyboardInterrupt(f"signal {signum}")
+
+
 def settings_put(src: str) -> dict:
     files = _read_tree(src)
+    # SIGTERM and SIGHUP end a Python process without an exception: raised here, the undo below runs for them
+    # as for Ctrl-C. SIGKILL cannot be handled: it leaves the store dirty, and the next run refuses it by name.
+    previous = {s: signal.signal(s, _terminate) for s in (signal.SIGTERM, signal.SIGHUP)}
+    try:
+        return _put(files)
+    finally:
+        for s, handler in previous.items():
+            signal.signal(s, handler)
+
+
+def _put(files: dict[str, bytes]) -> dict:
     store = store_dir()
     aid = own_agent_id(store) if os.path.isdir(store) else None
     if not aid:
         raise StoreError("this account has no store yet (fabric-secrets store init); nothing written")
     with write_lock(store):
         entries._require_clean(store)
+        if not entries._remote(store):
+            # _before_write and _after_commit skip a store with no remote: the write would "succeed" and reach no one.
+            raise StoreError("this store has no remote to push its commit to; nothing written")
         entries._before_write(store)
         left = git(store, "status", "--porcelain", "--ignored", "--untracked-files=all", "--", "settings").stdout.decode().strip()
         if left:

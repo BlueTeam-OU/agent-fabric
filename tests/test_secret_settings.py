@@ -179,9 +179,10 @@ def main() -> int:
         refused("a source that is not there is refused", os.path.join(tmp, "nope"), "nope")
         refused("a file for a source is refused", tree("f", {"x": b"1"}) + "/x", "not a directory")
         os.symlink(tree("real", {"x": b"1"}), os.path.join(tmp, "linked"))
-        refused("a link for a source is refused, not followed", os.path.join(tmp, "linked"), "not a directory")
-        refused("a link for a source is refused with a trailing slash too", os.path.join(tmp, "linked") + "/", "not a directory")
-        refused("link/. is no way round the link either", os.path.join(tmp, "linked") + "/.", "name the directory itself")
+        refused("a link for a source is refused, not followed", os.path.join(tmp, "linked"), "link is not followed")
+        refused("a link for a source is refused with a trailing slash too", os.path.join(tmp, "linked") + "/", "link is not followed")
+        refused("link/. is no way round the link either", os.path.join(tmp, "linked") + "/.", "link is not followed")
+        refused("a link in an ANCESTOR of the source is refused too, not followed", os.path.join(tmp, "linked", "x"), "link is not followed")
         refused("a link inside the tree is refused", tree("l", {"a": b"1"}, {"evil": "/etc/passwd"}), "evil")
         refused("a profile that is not JSON is refused", tree("j", {"profile.json": b"{"}), "not JSON")
         refused("a profile off the schema is refused, the field named",
@@ -257,6 +258,20 @@ def main() -> int:
                 except secret_store.StoreError as e:
                     check(f"{victim}: swapped in after the stat, it is refused at the open, never read",
                           victim in str(e) and "nothing written" in str(e), str(e))
+
+        # The very first write fails (git would ignore the file): even the settings/ directory it made is gone.
+        with open(os.path.join(store, ".git", "info", "exclude"), "a") as fh:
+            fh.write("zz-*\n")
+        p = run("settings-put", "--from", tree("first", {"zz-1": b"1"}))
+        check("a failed FIRST write leaves no settings/ directory behind", p.returncode == 1 and "not staged" in p.stderr
+              and not os.path.exists(os.path.join(store, "settings")), p.stdout + p.stderr)
+
+        # No remote: the commit would reach no one, and the store's own helpers skip a missing remote silently.
+        subprocess.run(["git", "-C", store, "remote", "remove", "origin"], check=True, env=env)
+        refused("a store with no remote is refused, nothing written", tree("nr", {"a": b"1"}), "no remote")
+        subprocess.run(["git", "-C", store, "remote", "add", "origin", remote], check=True, env=env)
+        subprocess.run(["git", "-C", store, "fetch", "-q", "origin"], check=True, env=env)
+        subprocess.run(["git", "-C", store, "branch", "-q", "--set-upstream-to=origin/main"], check=True, env=env)
 
         good = tree("good", {"profile.json": profile(), "avatar.png": png, "avatar-rejected/2.png": b"r", "avatar-rejected/2.txt": b"why\n"})
         p = run("settings-put", "--from", good)
@@ -387,6 +402,19 @@ def main() -> int:
         check("an interrupt in the commit undoes the write: nothing staged, no file or directory left",
               outcome == "interrupted" and g("status", "--porcelain", "--untracked-files=all") == "" and count() == n_int
               and not os.path.exists(os.path.join(store, "settings", "newdir2")), outcome)
+
+        # SIGTERM while signing: the same undo as for Ctrl-C.
+        import signal as _signal
+        n_term = count()
+        with mock.patch.dict(os.environ, env), mock.patch.object(S, "_commit", side_effect=lambda *a: os.kill(os.getpid(), _signal.SIGTERM)):
+            try:
+                S.settings_put(tree("term", {"avatar-rejected/term.txt": b"t"}))
+                outcome = "returned"
+            except KeyboardInterrupt:
+                outcome = "interrupted"
+        check("SIGTERM during the commit undoes the write like an interrupt, and the handler is put back",
+              outcome == "interrupted" and g("status", "--porcelain", "--untracked-files=all") == "" and count() == n_term
+              and _signal.getsignal(_signal.SIGTERM) in (_signal.SIG_DFL, _signal.default_int_handler), outcome)
 
         stray = os.path.join(store, "settings", "stray")
         with open(stray, "w") as fh:
