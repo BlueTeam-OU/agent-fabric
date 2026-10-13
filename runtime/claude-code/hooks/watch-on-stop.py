@@ -26,6 +26,7 @@ internal error passes: a guard never stands in a session's way.
 """
 from __future__ import annotations
 
+import glob
 import importlib.util
 import json
 import os
@@ -94,6 +95,25 @@ def has_watch(procs: dict, session: int) -> bool:
                 return True
             if a <= 1:
                 break
+    return lock_holder_is_watch(procs)
+
+
+def lock_holder_is_watch(procs: dict, run_dir: str | None = None) -> bool:
+    """gzcoord-inbox lets one watch run per login and names its pid in a lock file
+    ($XDG_RUNTIME_DIR/agent-fabric/gzcoord-inbox-*.lock). A live watch named there is this
+    login's watch even when another session or a hand start owns it: asking for a second
+    would only be refused ("do not run it again") and loop."""
+    run_dir = run_dir or os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    for path in glob.glob(os.path.join(run_dir, "agent-fabric", "gzcoord-inbox-*.lock")):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                first = fh.read(64).split()
+            pid = int(first[0]) if first else 0
+        except (OSError, ValueError):
+            continue
+        entry = procs.get(pid)
+        if entry and is_watch(entry[2]):
+            return True
     return False
 
 

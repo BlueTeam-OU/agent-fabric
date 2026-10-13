@@ -31,7 +31,11 @@ Bash(command: 'gzcoord-inbox --until-delivery',
 ```
 
 **When it completes, read its output and act on the delivery.** Run it
-again after a delivery (exit 0) or after the Bash timeout stopped it:
+again after a delivery (exit 0) or after the Bash timeout stopped it —
+except when its one line says "a watch is already running … do not run
+it again": that is no delivery, another watch of this login holds the
+inbox, and nothing is killed or re-armed (never `pkill` a watch; it ends
+at its next delivery):
 one wake per delivery, and a quiet session is woken at most once per
 2 hours. On any other exit the output is the reason, and you do not run
 it again until it is fixed: 2 a control channel named, 3 not

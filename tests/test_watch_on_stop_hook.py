@@ -109,6 +109,23 @@ def main() -> int:
         check("integrated: a binding with a role and a configured project", mod.integrated(tmp, "s") is True)
         mod.FABRIC_ROOT = real_root
 
+        # gzcoord-inbox's one-watch lock names the holder: a live watch there is this login's
+        # watch even outside this session's tree; a stale pid, or a pid that is no watch, is not.
+        with tempfile.TemporaryDirectory() as rd:
+            os.makedirs(os.path.join(rd, "agent-fabric"))
+            lock = os.path.join(rd, "agent-fabric", "gzcoord-inbox-user.lock")
+            watch_cmd = "/usr/local/bin/fabric-python -I /home/u/.local/bin/gzcoord-inbox --until-delivery"
+            procs = {4242: (1, "fabric-python", watch_cmd), 4343: (1, "sleep", "sleep 100")}
+            for content, want, label in (("4242 2026-10-13T18:00:00Z\n", True, "a live watch holds the lock"),
+                                         ("9999\n", False, "the lock names a pid that is gone"),
+                                         ("4343\n", False, "the lock names a pid that is no watch"),
+                                         ("", False, "an empty lock file")):
+                with open(lock, "w", encoding="utf-8") as fh:
+                    fh.write(content)
+                check(f"lock holder: {label}", mod.lock_holder_is_watch(procs, rd) is want)
+            os.remove(lock)
+            check("lock holder: no lock file", mod.lock_holder_is_watch(procs, rd) is False)
+
         def boom(*a, **k):
             raise RuntimeError("x")
         orig, mod.read_procs = mod.read_procs, boom
