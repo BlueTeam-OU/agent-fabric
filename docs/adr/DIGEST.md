@@ -1141,12 +1141,13 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One JSON object of findings or nothing posted; posted with
   `fabric-pr post-review <PR> --model codex`, judged like any finding
   (§5 rules 4-5).
-- The arming policy's `reviews` lists the engines a PR needs
-  (`["claude"]` by default); `fabric-pr arm` refuses until each has
-  reviewed the head with no open P1/P2 (§5 rule 6). Codex is pinned
-  (§5 rule 7).
+- A review is required: `fabric-pr arm` refuses until every engine the
+  arming policy names (`reviews`, `boundary_reviews`; data, not this
+  record) has reviewed the head with no open P1/P2 (§5 rule 6). Codex is
+  pinned (§5 rule 7).
 - A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
 - A 2026-10-13 — every login reviews on a synced access token; both engines by default (§5 rules 6, 8).
+- A 2026-10-13 — the record requires a review; the arming policy names the engines (now both) (§5 rule 6).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 
