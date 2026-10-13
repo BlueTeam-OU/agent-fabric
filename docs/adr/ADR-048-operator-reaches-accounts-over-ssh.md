@@ -97,7 +97,11 @@ then the forced command.
    public keys only: no password, no keyboard-interactive, no root login.
    No forwarding of any kind (TCP, stream-local, agent, X11), no tunnel,
    no gateway ports. `AllowUsers` names exactly the logins the registry
-   places on that host. The settings live in one drop-in,
+   places on that host. Loopback is exempt from OpenSSH's per-source
+   penalties (`PerSourcePenaltyExemptList 127.0.0.1,::1`) and
+   `MaxStartups` admits the deck's burst (100): every client is local and
+   authenticates by key alone, so a penalty would only lock the deck out
+   (A 2026-10-13). The settings live in one drop-in,
    `/etc/ssh/sshd_config.d/50-agent-fabric.conf`, and `sshd -t` passes
    before sshd is enabled or restarted.
 2. `AuthorizedKeysFile` is `/etc/ssh/authorized_keys/%u`: a directory
@@ -194,3 +198,11 @@ check's read-back.
   ADR-038 (an agent's own keys), ADR-044 (the deck's operator).
 - `runtime/provisioning/moveto/enter`, `runtime/provisioning/platform/qubes/agent-fabric-accounts.rc`.
 - `docs/live-checks/2026-10-09-ssh-operator.md`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-048-amendments.md](history/ADR-048-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-13 | loopback exempt from per-source penalties; MaxStartups above the deck's burst | §5 rule 1 |

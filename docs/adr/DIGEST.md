@@ -1024,6 +1024,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   the AppVM stages config and host keys (made once) under /rw/config, and
   rc.local restores them, runs `sshd -t`, then sshd at boot (§5 rule 6). sudo stays
   break-glass; agents' own ssh keys stay future (§5 rules 7–8).
+- A 2026-10-13 — loopback exempt from per-source penalties; MaxStartups 100 (§5 rule 1).
 - Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
   command, authorized_keys, host key, known_hosts, Qubes, rc.local.
 
