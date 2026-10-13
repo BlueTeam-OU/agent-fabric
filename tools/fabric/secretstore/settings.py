@@ -31,6 +31,11 @@ Contract of `settings_put(src)`:
           as it was: tracked files reset, files this run created removed.
   result  {"files": [settings/-relative paths], "changed": bool}.
 
+The components above the source's last one are the caller's own choice of
+path and are resolved as any path is: whoever controls one of them can
+already hand over any tree they like, and a tree only ever holds what the
+walk below admits.
+
 Why descriptors: the source may be writable by another account (the threat
 model), so a check by path followed by an open by path is a race: the
 entry can become a link between the two, and the agent's own private file
@@ -121,6 +126,9 @@ def _read_tree(src: str) -> dict[str, bytes]:
 
     # "link/" resolves the link whatever O_NOFOLLOW says: the final component must really be last.
     src = src.rstrip(os.sep) or os.sep
+    if os.path.basename(src) in (".", ".."):
+        # "link/." opens the link's target too; the directory is named by its own last component.
+        raise StoreError(f"{src}: name the directory itself, not . or ..; nothing written")
     try:
         top = os.open(src, _OPEN | os.O_DIRECTORY)
     except OSError as e:

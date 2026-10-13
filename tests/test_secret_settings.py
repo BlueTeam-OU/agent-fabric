@@ -181,6 +181,7 @@ def main() -> int:
         os.symlink(tree("real", {"x": b"1"}), os.path.join(tmp, "linked"))
         refused("a link for a source is refused, not followed", os.path.join(tmp, "linked"), "not a directory")
         refused("a link for a source is refused with a trailing slash too", os.path.join(tmp, "linked") + "/", "not a directory")
+        refused("link/. is no way round the link either", os.path.join(tmp, "linked") + "/.", "name the directory itself")
         refused("a link inside the tree is refused", tree("l", {"a": b"1"}, {"evil": "/etc/passwd"}), "evil")
         refused("a profile that is not JSON is refused", tree("j", {"profile.json": b"{"}), "not JSON")
         refused("a profile off the schema is refused, the field named",
