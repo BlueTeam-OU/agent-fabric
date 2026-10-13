@@ -17,46 +17,95 @@ CONTRACT:
             out. --once never reads it.
   env       AGENT_FABRIC_ROOT, the fabric whose commands it runs (the shim
             sets it to its own checkout); HOME, whose projects/ holds the
-            working copies; the rest passes to the commands untouched.
-  stdout    three blocks, in this order, each as its own command prints
-            it, stdout then stderr, with "(exit N)" after a command that
-            failed:
-              status         bin/fabric-status
-              jobs           bin/fabric-jobs list
+            working copies and .local/share/agent-fabric/secrets this
+            login's store checkout (AGENT_FABRIC_SECRET_STORE names another;
+            of it only settings/profile.json and .agent-id are read);
+            TERM_PROGRAM (a pane host listed in
+            runtime/control/watch-graphics.json: the avatar goes by the kitty graphics
+            protocol), COLUMNS; XDG_CACHE_HOME (the avatar's cache); the
+            rest passes to the commands untouched.
+  stdout    three blocks, in this order:
+              identity       beside the avatar (20 x 10 cells; on a terminal
+                             only, and not on one narrower than 52 columns):
+                               "AI <first name> <surname>" from the persona
+                               (watch_identity.persona; the login alone when
+                               it has none: a name is never shown without
+                               "AI"), then the login and the bound role;
+                               the harness (claude or codex, the one this
+                               account runs) and its version, read once;
+                               the session's model and effort and the second
+                               engine, from fabric-status --json; this
+                               account's CPU% and memory (its processes, from
+                               /proc), the host's load and free memory, and
+                               the account's disk use (du of its home, read
+                               in the background every 10 minutes, so never
+                               in the way of a screen)
+              jobs           bin/fabric-jobs list --json, by priority (high,
+                             normal, low), within one active, blocked,
+                             queued, delivered, then by id; each with its
+                             id, state and title; a blocked one with what it
+                             waits on
               pull requests  bin/fabric-pr gate, run in one
                              working copy per GitHub repository under
                              ~/projects (the first by name); one that has
                              none of this account's open is left out
-            The first two are local and are read every --every seconds; the
-            pull requests ask GitHub, so they are read every --prs-every
-            seconds and shown from the last read in between, with its age.
-            Each screen clears the last; --once prints one and no clear.
+            A command that failed is said in its place, with "(exit N)".
+            The identity and the jobs are local and are read every --every
+            seconds; the pull requests ask GitHub, so they are read every
+            --prs-every seconds and shown from the last read in between,
+            with its age. Each screen clears the last; --once prints one
+            and no clear.
+  avatar    from settings/avatar.png of the store checkout, else the
+            candidate the profile names, else none (avatar.py). On a pane of a
+            host listed in runtime/control/watch-graphics.json (TERM_PROGRAM) the PNG file is transmitted as it is
+            by the kitty graphics protocol, which the pane host re-draws on its
+            terminal (that terminal must speak kitty graphics for it to
+            show); anywhere else it is drawn with Unicode half blocks in
+            24-bit colour from the stdlib PNG decoder (8-bit RGB or RGBA,
+            not interlaced; any other file shows no avatar), decoded once
+            and cached by the file's sha256 as pixels, never as escapes.
   exit      0 when it leaves (q, end of input, Ctrl-C, or --once); 2 usage.
 
-It is read-only: it runs those three commands and nothing else, never
-with an argument a person typed, so the pane can run no other command as
-the account. A command that is missing, hangs past TIMEOUT_S or fails is
-said in its block; the screen goes on.
+It is read-only: it runs bin/fabric-status --json, bin/fabric-jobs list --json
+and bin/fabric-pr gate, `<harness> --version` once, and `du -sk -x <home>` in
+the background, and nothing else, never with an argument a person typed, so
+the pane can run no other command as the account. A command that is missing,
+hangs past TIMEOUT_S or fails is said in its place; the screen goes on.
 
-Every line passes printable() before it reaches the terminal: a job title
-or a PR title is someone's text, and an escape sequence in it would
-otherwise retitle the window or write the clipboard.
+Every line of text passes printable() before it reaches the terminal: a job
+title, a PR title, a persona name or a version line is someone's text, and an
+escape sequence in it would otherwise retitle the window or write the
+clipboard. The only escapes that reach the terminal are the avatar's own
+(Row.prefix), generated by avatar.py from numbers and from the PNG's bytes,
+never read from text or from a file.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
 import select
+import shutil
 import subprocess
 import sys
 import termios
+import threading
 import time
 import tty
 import unicodedata
+from dataclasses import dataclass
 from typing import Callable
 
+
 HERE = os.path.dirname(os.path.abspath(__file__))
+# The modules beside this file, however it is run: a script's own directory is on sys.path only by default (python -I
+# and -P leave it out).
+sys.path.insert(0, HERE)
+import avatar  # noqa: E402
+import watch_identity  # noqa: E402
+import watch_resources  # noqa: E402
+
 TIMEOUT_S = 60
 EVERY_S, PRS_EVERY_S = 30.0, 300.0
 MIN_EVERY_S, MIN_PRS_EVERY_S = 5.0, 60.0
@@ -143,17 +192,210 @@ def pulls(root: str, projects: str, stop: Callable[[], bool] = lambda: False) ->
     return "\n".join(blocks) or "no open pull request"
 
 
-def screen(status: str, jobs: str, prs: str, prs_age: float, stamp: str) -> str:
-    return "\n".join([
-        f"── status ({stamp}; q leaves) ──", status, "",
-        "── jobs ──", jobs, "",
-        f"── pull requests (read {int(prs_age)} s ago) ──", prs,
-    ])
+@dataclass
+class Row:
+    """A line of the screen with something drawn at its left: `prefix` is the avatar's own escape sequences, generated by
+    avatar.py from numbers and from a PNG's bytes (never text, never read from a file), and `text` is someone's and goes
+    through printable() like any other line. Nothing else may carry an escape."""
+    prefix: str
+    text: str
 
 
-def draw(text: str, clear: bool, out=None) -> None:
+Line = str | Row
+AVATAR_MIN_COLUMNS = 52
+TEXT_COLUMN = avatar.COLS + 2
+GO_TO_TEXT = f"\033[{TEXT_COLUMN}G"            # kitty draws over the cells; the text is written beside them
+JOB_PRIORITIES = ("high", "normal", "low")
+JOB_STATES = ("active", "blocked", "queued", "delivered")
+HEADER_ROWS = avatar.ROWS
+
+
+def rank(value: object, order: tuple[str, ...]) -> int:
+    return order.index(value) if value in order else len(order)
+
+
+def jobs_block(jobs_text: str) -> list[str]:
+    """fabric-jobs list --json as lines, by priority (high, normal, low) and within it by state (active, blocked,
+    queued, delivered), then by id; a blocked job with what it waits on. Its failure message, when it did not answer."""
+    try:
+        doc = json.loads(jobs_text)
+    except (ValueError, RecursionError):
+        return jobs_text.split("\n")
+    if not isinstance(doc, list):
+        return ["(fabric-jobs: its answer is not a list of jobs)"]
+    jobs = [j for j in doc if isinstance(j, dict)]
+    if not jobs:
+        return ["no open jobs"]
+
+    def number(job: dict) -> tuple[int, str]:
+        ident = str(job.get("id", ""))
+        digits = re.sub(r"\D", "", ident)
+        return (int(digits) if digits else 0, ident)
+    lines = []
+    for job in sorted(jobs, key=lambda j: (rank(j.get("priority"), JOB_PRIORITIES), rank(j.get("state"), JOB_STATES), number(j))):
+        ident, state, prio = (str(job.get(k) or "?")[:12] for k in ("id", "state", "priority"))
+        lines.append(f"{ident:<5} {state:<9} {prio:<7} {str(job.get('title') or '')[:300]}")
+        if job.get("state") == "blocked":
+            lines.append(f"      waits on: {str(job.get('blocked_on') or '(not said)')[:300]}")
+    return lines
+
+
+class AvatarSlot:
+    """The avatar of the identity header: its left-hand prefixes (HEADER_ROWS of them), or None when there is nothing to
+    draw. mode "kitty" transmits the PNG file as it is; "blocks" draws half blocks from the decoded, cached pixels,
+    which a thread of its own decodes, so the first screens show the room it will take and never wait for it."""
+
+    def __init__(self, mode: str | None, cache_dir: str):
+        self.mode, self.cache_dir = mode, cache_dir
+        self.path: str | None = None
+        self._prefixes: list[str] | None = None
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    def set_path(self, path: str | None) -> None:
+        with self._lock:
+            if self.mode is None or path == self.path:
+                return
+            self.path, self._prefixes = path, None
+            if path is None:
+                return
+            self._thread = threading.Thread(target=self._load, args=(path,), name="watch-avatar", daemon=True)
+            self._thread.start()
+
+    def _load(self, path: str) -> None:
+        try:
+            data = avatar.read_file(path)
+            if self.mode == "kitty":
+                escape = avatar.kitty_escape(data)
+                prefixes = None if escape is None else [escape + GO_TO_TEXT] + [GO_TO_TEXT] * (HEADER_ROWS - 1)
+            else:
+                grid = avatar.grid_of(data, self.cache_dir)
+                prefixes = [row + "  " for row in avatar.half_blocks(grid)]
+        except avatar.Refused:
+            prefixes = None                                  # not an avatar this draws: none shown
+        with self._lock:
+            if path == self.path:
+                self._prefixes = prefixes if prefixes is not None else []
+
+    def prefixes(self) -> list[str] | None:
+        with self._lock:
+            if self.mode is None or self.path is None:
+                return None
+            if self._prefixes is None:
+                return [" " * TEXT_COLUMN] * HEADER_ROWS     # loading: the room it will take
+            return self._prefixes or None
+
+    def wait(self, timeout: float = 30.0) -> None:
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout)
+
+
+def kitty_terminals(root: str) -> list[str]:
+    """The TERM_PROGRAM values that take kitty graphics (runtime/control/watch-graphics.json); a file that is not there or
+    not what it should be lists none, and the avatar is drawn with half blocks."""
+    try:
+        with open(os.path.join(root, "runtime", "control", "watch-graphics.json"), encoding="utf-8") as fh:
+            names = json.load(fh).get("kitty_terminal_programs")
+    except (OSError, ValueError, AttributeError, RecursionError):
+        return []
+    return [n for n in names if isinstance(n, str) and n] if isinstance(names, list) else []
+
+
+def parse_object(text: str) -> tuple[dict | None, str | None]:
+    """(the JSON object a command printed, None) or (None, why not: what it printed, its failure message included)."""
+    try:
+        doc = json.loads(text)
+    except (ValueError, RecursionError):
+        return None, text.strip()[:1000] or "(no answer)"
+    return (doc, None) if isinstance(doc, dict) else (None, "(its answer is not an object)")
+
+
+def clock_text(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+    return f"{int(seconds)} s" if seconds < 120 else f"{int(seconds // 60)} min"
+
+
+class Deck:
+    """What the identity header keeps between screens: the CPU sample, the disk reading, the avatar, the harness version."""
+
+    def __init__(self, environ: dict[str, str], claims_path: str, avatar_mode: str | None = None, proc: str = "/proc",
+                 uid: int | None = None, disk: watch_resources.DiskUse | None = None, version_of=watch_identity.version_line):
+        self.environ, self.claims_path, self.proc = environ, claims_path, proc
+        self.uid = os.geteuid() if uid is None else uid
+        home = environ.get("HOME") or os.path.expanduser("~")
+        self.sampler = watch_resources.ProcSampler(self.uid, proc)
+        self.disk = disk or watch_resources.DiskUse(home)
+        cache = environ.get("XDG_CACHE_HOME") or os.path.join(home, ".cache")
+        self.slot = AvatarSlot(avatar_mode, os.path.join(cache, "agent-fabric"))
+        self.versions: dict[str, str | None] = {}
+        self.version_of = version_of
+
+    def text_rows(self, status_text: str) -> tuple[list[str], str]:
+        """(HEADER_ROWS lines of text, the name the title says)."""
+        status, problem = parse_object(status_text)
+        persona = watch_identity.persona(self.environ, self.claims_path)
+        login = str((status or {}).get("agent") or "(login unknown)")
+        role = str((status or {}).get("role") or "-")
+        harness = watch_identity.running_harness(self.uid, self.proc)
+        if harness is not None and harness not in self.versions:
+            self.versions[harness] = self.version_of(harness)          # once: a harness is not upgraded under a session
+        models = watch_identity.model_lines(status)
+        mine = self.sampler.sample()
+        load, mem = watch_resources.host_load(self.proc), watch_resources.host_memory(self.proc)
+        self.disk.poll()
+        kb, age, why = self.disk.value()
+        rows = [
+            persona.name or login,
+            f"{login} · {role}",
+            f"harness {harness or '-'} {self.versions.get(harness or '') or ''}".rstrip(),
+            f"model {models['model'] or '-'} · effort {models['effort'] or '-'}",
+            models["engine"] or "",
+            "",
+            f"account  cpu {'-' if mine['cpu_pct'] is None else mine['cpu_pct']}%  mem {watch_resources.human_kb(mine['rss_kb'])}  ({mine['procs']} processes)",
+            "host     load " + (" ".join(f"{v:.2f}" for v in load) if load else "-")
+            + "  free " + (f"{watch_resources.human_kb(mem[0])} of {watch_resources.human_kb(mem[1])}" if mem else "-"),
+            "disk     " + (f"{watch_resources.human_kb(kb)} (read {clock_text(age)} ago)" if kb is not None else (why or "reading…")),
+            "",
+        ]
+        if status is None:
+            # fabric-status did not answer: what it said, in place of the login, harness and model lines
+            said = (problem or "(fabric-status: no answer)").split("\n")[:5]
+            rows[1:6] = said + [""] * (5 - len(said))
+        self.slot.set_path(persona.avatar_path)
+        return rows, persona.name or login
+
+    def identity(self, status_text: str, once: bool = False, columns: int = 80) -> tuple[list[Line], str]:
+        rows, name = self.text_rows(status_text)
+        if once:
+            self.slot.wait()
+            self.disk.wait(3.0)
+            rows[8] = self.disk_row()                                     # the reading, if it finished
+        prefixes = self.slot.prefixes() if columns >= AVATAR_MIN_COLUMNS else None
+        if prefixes is None:
+            return list(rows), name
+        return [Row(prefix, text) for prefix, text in zip(prefixes, rows)], name
+
+    def disk_row(self) -> str:
+        kb, age, why = self.disk.value()
+        return "disk     " + (f"{watch_resources.human_kb(kb)} (read {clock_text(age)} ago)" if kb is not None else (why or "reading…"))
+
+
+def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: float, stamp: str) -> list[Line]:
+    return [
+        f"── {name} ({stamp}; q leaves) ──", *identity, "",
+        "── jobs ──", *jobs, "",
+        f"── pull requests (read {int(prs_age)} s ago) ──", *prs.split("\n"),
+    ]
+
+
+def draw(lines: list[Line] | str, clear: bool, out=None) -> None:
     out = out or sys.stdout
-    out.write((CLEAR if clear else "") + "\n".join(printable(line) for line in text.split("\n")) + "\n")
+    if isinstance(lines, str):
+        lines = lines.split("\n")
+    body = "\n".join(line.prefix + printable(line.text) if isinstance(line, Row) else printable(line) for line in lines)
+    out.write((CLEAR if clear else "") + body + "\n")
     out.flush()
 
 
@@ -174,17 +416,19 @@ def wait_for_q(seconds: float, fd: int = 0) -> bool:
 
 def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
           clock: Callable[[], float] = time.monotonic, wait: Callable[[float], bool] = wait_for_q,
-          out=None) -> int:
+          out=None, deck: Deck | None = None, columns: int = 80) -> int:
     prs, prs_at = "", None
+    deck = deck or Deck(dict(os.environ), os.path.join(root, "identities", "personas", "claims.json"))
     while True:
         if prs_at is None or clock() - prs_at >= prs_every:
             read = pulls(root, projects, stop=(lambda: False) if once else (lambda: wait(0)))
             if read is None:
                 return 0
             prs, prs_at = read, clock()
-        status = run([os.path.join(root, "bin", "fabric-status")])
-        jobs = run([os.path.join(root, "bin", "fabric-jobs"), "list"])
-        draw(screen(status, jobs, prs, clock() - prs_at, time.strftime("%H:%M:%S")), clear=not once, out=out)
+        status = run([os.path.join(root, "bin", "fabric-status"), "--json"])
+        jobs = run([os.path.join(root, "bin", "fabric-jobs"), "list", "--json"])
+        identity, name = deck.identity(status, once=once, columns=columns)
+        draw(screen(identity, name, jobs_block(jobs), prs, clock() - prs_at, time.strftime("%H:%M:%S")), clear=not once, out=out)
         if once or wait(every):
             return 0
 
@@ -227,8 +471,13 @@ def main(argv: list[str]) -> int:
     if not once and os.isatty(0):
         saved = termios.tcgetattr(0)
         tty.setcbreak(0)
+    on_terminal = sys.stdout.isatty()
+    root = fabric_root()
+    mode = ("kitty" if os.environ.get("TERM_PROGRAM") in kitty_terminals(root) else "blocks") if on_terminal else None
+    deck = Deck(dict(os.environ), os.path.join(root, "identities", "personas", "claims.json"), mode)
+    columns = shutil.get_terminal_size((80, 24)).columns if on_terminal else 0
     try:
-        return watch(fabric_root(), projects, every, prs_every, once)
+        return watch(root, projects, every, prs_every, once, deck=deck, columns=columns)
     except KeyboardInterrupt:
         return 0
     finally:

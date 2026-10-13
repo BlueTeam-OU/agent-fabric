@@ -11,7 +11,9 @@ the test drives; q and end of input leave.
 Not exercised here: the cbreak mode on a real terminal and its restore."""
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -40,8 +42,11 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="test_fabric_watch.") as tmp:
         root, home = os.path.join(tmp, "fabric"), os.path.join(tmp, "home")
-        put(f"{root}/bin/fabric-status", "#!/bin/sh\necho 'agent: pd-x'\n")
-        put(f"{root}/bin/fabric-jobs", f"#!/bin/sh\n[ \"$*\" = list ] || exit 9\nprintf '%s\\n' '{TITLE}'\n")
+        status = {"agent": "pd-x", "role": "python-dev", "api": {"session_model": "model-9"}, "session_effort": {"reported": "high"},
+                  "engines": {"openai code-review": "gpt-x (from capabilities.providers.openai) effort high"}}
+        jobs = [{"id": "j9", "state": "queued", "priority": "normal", "title": TITLE, "blocked_on": None}]
+        put(f"{root}/bin/fabric-status", f"#!/bin/sh\n[ \"$*\" = --json ] || exit 9\nprintf '%s\\n' '{json.dumps(status)}'\n")
+        put(f"{root}/bin/fabric-jobs", f"#!/bin/sh\n[ \"$*\" = \"list --json\" ] || exit 9\nprintf '%s\\n' '{json.dumps(jobs)}'\n")
         put(f"{root}/bin/fabric-pr",
             '#!/bin/sh\n[ "$*" = gate ] || exit 9\ncase "${PWD##*/}" in\n'
             '  quiet) echo "pr-gate: no open pull request from h/pd-x on o/quiet (branch prefix h/pd-x/)." ;;\n'
@@ -67,10 +72,14 @@ def main() -> int:
         r = run("--once")
         out = r.stdout.decode("utf-8", "replace")
         check("--once: exit 0", r.returncode == 0, (r.returncode, r.stderr))
-        heads = [out.find(h) for h in ("── status (", "── jobs ──", "── pull requests (read ")]
-        check("the three blocks, in order", -1 not in heads and heads == sorted(heads), heads)
-        check("status from fabric-status", "agent: pd-x" in out, out)
-        check("jobs from fabric-jobs list", "j9 deploy" in out, out)
+        heads = [out.find(h) for h in ("── pd-x (", "── jobs ──", "── pull requests (read ")]
+        check("the three blocks, in order: identity, jobs, pull requests", -1 not in heads and heads == sorted(heads), heads)
+        check("identity from fabric-status --json: the login and role, the model and effort, the second engine",
+              "pd-x · python-dev" in out and "model model-9 · effort high" in out and "openai code-review: gpt-x" in out, out)
+        check("…and the resources of the account and the host",
+              "account  cpu" in out and "host     load" in out and "disk     " in out, out)
+        check("jobs from fabric-jobs list --json", "j9    queued    normal  j9 deploy" in out, out)
+        check("no avatar when stdout is not a terminal: no escape at all", "\x1b" not in out, out)
         check("no control character reaches the terminal (ESC, BEL, U+2028)",
               not any(c in out for c in "\x1b\x07\u2028"), out)
         check("…each shown as ?", "j9 deploy ?]0;pwned? then ?[2J and ? done" in out, out)
@@ -82,7 +91,7 @@ def main() -> int:
         check("…and a second clone of one repository, however its origin is spelt, is not asked again",
               "ssh-wc2" not in out, out)
 
-        put(f"{root}/bin/fabric-status", "#!/bin/sh\necho 'half a status'\necho 'routing: broken' >&2\nexit 3\n")
+        put(f"{root}/bin/fabric-status", "#!/bin/sh\necho 'half a status'\necho 'routing: broken' >&2\nexit 3\n")        # not JSON, and a failure
         os.remove(f"{root}/bin/fabric-jobs")
         out = run("--once").stdout.decode("utf-8", "replace")
         check("a failing command: its output, stderr after stdout, and its exit",
@@ -99,6 +108,18 @@ def main() -> int:
     sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
     import io
     import watch
+
+    class FakeDisk:
+        """No du, no thread: the deck of these cases reads nothing of this machine."""
+        def poll(self): pass
+        def wait(self, timeout=0.0): pass
+        def value(self): return 1024, 5.0, None
+
+    scratch_home = tempfile.mkdtemp(prefix="test_fabric_watch.deck.")
+
+    def quiet_deck():
+        return watch.Deck({"HOME": scratch_home}, os.path.join(scratch_home, "claims.json"), None,
+                          proc=os.path.join(scratch_home, "proc"), uid=0, disk=FakeDisk())
 
     print("in-process: the clock decides what is read")
     t = [0.0]
@@ -120,7 +141,7 @@ def main() -> int:
             return len(screens) >= 12
 
         watch.pulls, watch.run = fake_pulls, fake_run
-        rc = watch.watch("/r", "/p", 30.0, 300.0, False, clock=lambda: t[0], wait=fake_wait, out=io.StringIO())
+        rc = watch.watch("/r", "/p", 30.0, 300.0, False, clock=lambda: t[0], wait=fake_wait, out=io.StringIO(), deck=quiet_deck())
         check("twelve screens 30 s apart: status read on each", rc == 0 and asked["status"] == 12, asked)
         check("…pull requests at 0 s and 300 s only", asked["prs"] == 2, asked)
         watch.pulls = saved[0]
@@ -131,7 +152,7 @@ def main() -> int:
             # q is already typed: every wait answers it. Without the look
             # between working copies, one screen is drawn before it is read.
             rc = watch.watch("/r", "/p", 30.0, 300.0, False, clock=lambda: 0.0, wait=lambda s: True,
-                             out=stopped)
+                             out=stopped, deck=quiet_deck())
         finally:
             watch.working_copies = saved_wc
         check("q while the pull requests are read: leaves before the first pr-gate, no screen",
@@ -157,6 +178,7 @@ def main() -> int:
     os.close(wfd)
     check("printable keeps text, replaces C1", watch.printable("a\x9bb\tc") == "a?b     c", watch.printable("a\x9bb\tc"))
 
+    shutil.rmtree(scratch_home, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0
 
