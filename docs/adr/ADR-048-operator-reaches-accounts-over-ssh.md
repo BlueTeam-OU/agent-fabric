@@ -1,7 +1,8 @@
 # ADR-048 — The operator reaches agent accounts over ssh
 
 **Date:** 2026-10-09
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("record adr accepted", answering which Proposed records to accept)
 **Decision Makers:** the owner (ssh for the deck's panes, the forced command, the Qubes split); drafted by fabric-coordinator
 **Scope:** `runtime/provisioning/moveto/enter-ssh`, `runtime/provisioning/platform/qubes/ssh-template.sh`, `runtime/provisioning/platform/qubes/ssh-operator.sh`, `runtime/provisioning/platform/qubes/ssh-restore.sh`, `tools/fabric/ssh_hosts.py`, `bin/fabric-ssh-hosts`, the `sshd` property of a host in `runtime/hosts/registry.json`; how the operator's panes enter an account
 **Pillar:** P3
@@ -188,9 +189,7 @@ then the forced command.
 
 ## 8. Decision Status
 
-Proposed: the owner approved the approach in the coordinator's plan; this
-record awaits the owner's acceptance in its pull request, and the live
-check's read-back.
+Accepted (the header names the owner's word). The live check's read-back is docs/live-checks/2026-10-09-ssh-operator.md.
 
 ## References
 

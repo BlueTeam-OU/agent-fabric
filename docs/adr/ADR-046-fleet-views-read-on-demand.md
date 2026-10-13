@@ -1,7 +1,8 @@
 # ADR-046 — Fleet views: the fleet's state read on demand, read-only
 
 **Date:** 2026-10-09
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("record adr accepted", answering which Proposed records to accept)
 **Decision Makers:** the owner (the views, the two stages, the layout); drafted by fabric-coordinator
 **Scope:** `tools/fabric/fleet.py`, `tools/fabric/fleet_proc.py`, `bin/fabric-fleet`; the views in the herdr fork (`fleet-deck/fabric_view.py`, its plugin manifest); what a view may read and do
 **Pillar:** P1
@@ -98,8 +99,7 @@ bridge visible rather than silent.
 
 ## 8. Decision Status
 
-Proposed: the owner approved the plan in the coordinator's session; this
-record awaits the owner's acceptance in its pull request.
+Accepted (the header names the owner's word).
 
 ## References
 

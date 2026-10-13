@@ -954,7 +954,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
   MCP server, sandbox.
 
-### ADR-044 — Identity kinds: an agent and a human (Proposed)
+### ADR-044 — Identity kinds: an agent and a human (Accepted)
 
 - A placed login is an `agent` or a `human` (`runtime/hosts/registry.json`
   `kinds`); both are Linux logins with an agent id, a store and a
@@ -984,7 +984,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: split, engine, operator, client, engagement, roots, open
   source, publish, instance data, Blueteam, Gzapi.
 
-### ADR-046 — Fleet views: the fleet's state read on demand, read-only (Proposed)
+### ADR-046 — Fleet views: the fleet's state read on demand, read-only (Accepted)
 
 - `tools/fabric/fleet.py` is the one reader for the views: a record per
   account, each value with its source and time; a failed section is a
@@ -998,7 +998,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: Fleet Deck, herdr, view, dashboard, resources, CPU, memory,
   comparison, on demand, fabric-fleet, Gantt.
 
-### ADR-047 — Plans: steps the coordinator keeps, each linked to a job (Proposed)
+### ADR-047 — Plans: steps the coordinator keeps, each linked to a job (Accepted)
 
 - A plan's steps have an owner, dependencies and a linked job, kept in
   the coordinator's state (§5 rule 1); `fabric-plan` runs for the
@@ -1008,7 +1008,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A decided plan is exported into its record or pull request (§5 rule 5).
 - Keywords: plan, step, Gantt, dependency, fabric-plan, roadmap.
 
-### ADR-048 — The operator reaches agent accounts over ssh (Proposed)
+### ADR-048 — The operator reaches agent accounts over ssh (Accepted)
 
 - The deck's panes enter an account over ssh to 127.0.0.1: keys only, no
   forwarding, no tunnel, `AllowUsers` the placed logins (§5 rule 1).
@@ -1056,7 +1056,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   memory_index, memory_mark, BM25, cue, INDEX, slice, corpus, mark, recall,
   claude.json, harvest bundle.
 
-### ADR-050 — Keeping wisdom true: judgement where the knowledge lives (Proposed)
+### ADR-050 — Keeping wisdom true: judgement where the knowledge lives (Accepted)
 
 - Truth is judged by the role that holds the knowledge; the drain flags,
   routes and applies nothing (§2).
@@ -1082,7 +1082,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: stale, anchors, memory_check, maybe-stale, stale-hard, flag,
   memory_mark, horizon, lesson, record, retire, shared_with, drain report.
 
-### ADR-051 — moli is the fleet's web reader; scripted browsing through @playwright/mcp, with limits (Proposed)
+### ADR-051 — moli is the fleet's web reader; scripted browsing through @playwright/mcp, with limits (Accepted)
 
 - Agents read pages with `moli fetch --dump markdown`, one process per page;
   approved now (§2).

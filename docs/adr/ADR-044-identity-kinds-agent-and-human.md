@@ -1,7 +1,8 @@
 # ADR-044 — Identity kinds: an agent and a human
 
 **Date:** 2026-10-08
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("record adr accepted", answering which Proposed records to accept)
 **Decision Makers:** the owner (a human login as an identity of the fleet); drafted by fabric-coordinator
 **Scope:** what a placed login is (`runtime/hosts/registry.json` `kinds`); what each kind holds and runs; `fabric-ctl`'s fleet-wide reads; provisioning a human login (`runtime/provisioning/new-agent.sh`); Fleet Deck's operator login (herdr)
 **Pillar:** P1
@@ -99,9 +100,8 @@ when its deck is running.
 
 ## 8. Decision Status
 
-Proposed. It is accepted when the owner merges the pull request that
-carries it. The `kinds` field, fabric-ctl's skip and the lint land with
-it; provisioning a human login follows in its own pull request.
+Accepted (the header names the owner's word). The `kinds` field, fabric-ctl's skip and the lint landed with it;
+provisioning a human login follows in its own pull request.
 
 ## References
 

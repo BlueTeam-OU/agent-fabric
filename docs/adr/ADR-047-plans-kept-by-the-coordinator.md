@@ -1,7 +1,8 @@
 # ADR-047 — Plans: steps the coordinator keeps, each linked to a job
 
 **Date:** 2026-10-09
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("record adr accepted", answering which Proposed records to accept)
 **Decision Makers:** the owner (the coordinator keeps the plans); drafted by fabric-coordinator
 **Scope:** `tools/fabric/plan.py`, `bin/fabric-plan`; the coordinator's plan files in its state; how a step's state is derived; the plan view (ADR-046)
 **Pillar:** P1
@@ -70,8 +71,7 @@ says what is done.
 
 ## 8. Decision Status
 
-Proposed: the owner approved the plan in the coordinator's session; this
-record awaits the owner's acceptance in its pull request.
+Accepted (the header names the owner's word).
 
 ## References
 
