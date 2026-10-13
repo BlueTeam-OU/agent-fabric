@@ -215,6 +215,40 @@ def run() -> None:
     check("a signed commit whose proof is gone passes this hook (the checker judges proofs)", r.returncode == 0, r.stderr)
     check("…and no note is invented for it", remote_note(sha_b2) is None)
 
+    print("the post-commit hook")
+    # `fabric-sign` is found on PATH by name, as an installed account has it.
+    os.makedirs(f"{T}/bin")
+    os.symlink(SIGN, f"{T}/bin/fabric-sign")
+    old_wrapper = f"{T}/old-wrapper"
+    with open(old_wrapper, "w", encoding="utf-8") as f:
+        f.write(f'#!/bin/sh\nexec {SIGN} "$@"\n')
+    os.chmod(old_wrapper, 0o755)
+    post = f"{T}/hooks-post"
+    os.makedirs(post)
+    os.symlink(os.path.join(HERE, "policies", "githooks", "post-commit"), f"{post}/post-commit")
+    clone("d")
+    git("d", "config", "core.hooksPath", post)
+
+    def commit_d(name: str, program: str) -> tuple[subprocess.CompletedProcess, str]:
+        with open(f"{T}/d/{name}", "w", encoding="utf-8") as f:
+            f.write(name + "\n")
+        git("d", "add", name)
+        e = {**env("d"), "PATH": f"{T}/bin:/usr/bin:/bin"}
+        r = subprocess.run(["git", "-C", f"{T}/d", "-c", f"gpg.program={program}", "commit", "-q", "-m", name],
+                           env=e, capture_output=True, text=True, timeout=120)
+        return r, git("d", "rev-parse", "HEAD").stdout.strip()
+
+    def note_of(sha: str) -> bool:
+        return git("d", "notes", f"--ref={notes.REF}", "list", sha).returncode == 0
+
+    r, sha_h = commit_d("hooked", SIGN)
+    check("a commit signed through fabric-sign has its note at commit time", r.returncode == 0 and note_of(sha_h), r.stderr)
+    r, sha_o = commit_d("wrapped", old_wrapper)
+    check("a checkout whose signing program is something else is untouched: signed, no note",
+          r.returncode == 0 and b"BEGIN PGP SIGNATURE" in subprocess.run(["git", "-C", f"{T}/d", "cat-file", "commit", sha_o],
+                                                                         capture_output=True, timeout=30).stdout
+          and not note_of(sha_o), r.stderr)
+
 
 try:
     run()
