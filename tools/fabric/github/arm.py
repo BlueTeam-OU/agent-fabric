@@ -198,9 +198,9 @@ What it refuses, in order, and why:
      The relay does not authenticate senders: this stops mistakes, not
      a forger. The comment records who waived it, the message
      and the reason. A PR that matches no boundary ignores a waiver;
-  4b. the review engines (the policy's `reviews`: ["claude", "codex"] in the fleet's
-     default): EVERY PR, ["claude"] alone included and a waived boundary
-     too, needs a review of the CURRENT head by each engine named, claude's
+  4b. the review engines (the policy's `reviews`: ["claude"] in the fleet's
+     default; an engine in `additional_reviews` never blocks): EVERY PR,
+     ["claude"] alone included and a waived boundary too, needs a review of the CURRENT head by each engine named, claude's
      being the review class's `fabric-pr post-review --model fable` and codex's
      one posted with --model codex,
      and no unresolved review thread (an open P1 or P2 of either engine). The
@@ -209,6 +209,13 @@ What it refuses, in order, and why:
      when every one is there), and names the engine still missing.
      `boundary_reviews` adds engines for a
      security-boundary change not waived; agent-fabric ADR-053 rule 6.
+     An engine in `additional_reviews` is asked too, never required: its
+     review of the head, or its unavailable marker for that exact head
+     (posted when it cannot run: "codex unavailable (allowance)" on the
+     line), lets the arm proceed, and the basis says it armed without it;
+     with neither it is refused like a required one. Its open P1 or P2
+     still blocks. The marker counts only as the first line of a review
+     object on the head, from the account a blind review counts from.
   5. the count rule (fabric-pr gate's classifier; the 8 and the 16 here are
      the default numbers of the repository's arming policy, tools/fabric/
      github/arm_policy.py: the fleet's, with the settings repository's file for
@@ -510,9 +517,11 @@ def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, rol
     return verify_grant(waiver, num, repo, head, session, waiver_role_checked(role), refuse, word="waiver", field="WAIVES")
 
 
-def check_engines(num: str, head: str, engines: list[str], refuse) -> None:
-    """Refuse until every engine in `engines` has a review of `head` and no review thread is open (an open P1 or P2
-    of either engine is an unresolved thread, as in the review-class gate). The refusal names the engine missing."""
+def check_engines(num: str, head: str, engines: list[str], refuse, additional: list[str] = ()) -> str:
+    """Refuse until every engine in `engines` has a review of `head`, every one in `additional` has its review or its
+    unavailable marker for `head`, and no review thread is open (an open P1 or P2 of either engine is an unresolved
+    thread, as in the review-class gate). The refusal names the engine missing. Returns what the basis records of an
+    additional engine that could not run, or ""."""
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"), [num, "-q", "--json"])
     if rc == 2:
         raise Unanswered(f"pr-review-status could not answer for #{num} (exit 2)")
@@ -523,8 +532,12 @@ def check_engines(num: str, head: str, engines: list[str], refuse) -> None:
     rows = rs.get("blind", {}).get("rows") if isinstance(rs, dict) and isinstance(rs.get("blind"), dict) else None
     if not isinstance(rows, list):
         raise Unanswered(f"pr-review-status --json carried no blind.rows for #{num} — cannot judge the review engines")
+    marked = rs.get("unavailable", {}).get("rows", []) if isinstance(rs.get("unavailable", {}), dict) else None
+    if not isinstance(marked, list):
+        raise Unanswered(f"pr-review-status --json carried an unavailable that is not {{rows: [...]}} for #{num}")
     have = arm_policy.engines_on_head(rows, head)
-    summary = arm_policy.review_summary(have, engines, head)
+    out_of = {e: why for e, why in arm_policy.engines_unavailable(marked, head).items() if e in additional and e not in have}
+    summary = arm_policy.review_summary(have, engines, head, additional=list(additional), unavailable=out_of)
     for engine in engines:
         if engine not in have:
             how = "fabric-review --engine codex (posted with fabric-pr post-review --model codex)" if engine == "codex" \
@@ -532,6 +545,13 @@ def check_engines(num: str, head: str, engines: list[str], refuse) -> None:
             raise refuse(f"review={summary}: this repository's arming policy requires a review by the {engine} engine of"
                          f" the current head {head}, and there is none (a review of an older head does not count): run"
                          f" {how} on it, then arm (engines required: {', '.join(engines)})")
+    missing = [e for e in additional if e not in have and e not in out_of]
+    if missing:
+        engine = missing[0]
+        raise refuse(f"review={summary}: this repository's arming policy asks the {engine} engine's review of the current"
+                     f" head {head} as an additional review, and there is neither its review nor its unavailable marker"
+                     f" for that head: run fabric-review --engine {engine}; if it cannot run, its marker lets the arm"
+                     f" proceed (engines required: {', '.join(engines)}; additional: {', '.join(additional)})")
     unresolved = rs.get("unresolved_threads")
     if not isinstance(unresolved, int) or isinstance(unresolved, bool):
         raise Unanswered(f"pr-review-status reported no unresolved_threads count for #{num} (null: the lookup"
@@ -540,6 +560,10 @@ def check_engines(num: str, head: str, engines: list[str], refuse) -> None:
         raise refuse(f"{unresolved} unresolved review thread(s) on a PR that needs the {', '.join(engines)} review(s):"
                      f" answer and resolve them first (no open P1 or P2 from either engine)")
     say(f"review={summary}, and no unresolved thread")
+    for engine, why in out_of.items():
+        say(f"the {engine} engine could not run on {head[:8]} ({why}): arming on the required review(s) alone")
+    return " ".join(f"The {e} engine could not run on head {head[:8]} ({why}): armed on the {', '.join(engines)}"
+                    f" review alone." for e, why in out_of.items())
 
 
 def arm(argv: list[str]) -> int:
@@ -748,12 +772,15 @@ def arm(argv: list[str]) -> int:
             # by default), and there no class stands in for it.
             boundary_unwaived = is_boundary and not waiver
 
-    # 4b. the review engines the policy requires (ADR-053 rule 6, ADR-020 rule 1); the fleet's default names claude and
-    # codex. Every PR needs EACH named engine's review of the current head, and no open thread from either — ["claude"]
+    # 4b. the review engines the policy requires (ADR-053 rule 6, ADR-020 rule 1); the fleet's default requires claude
+    # alone (reviews ["claude"]); additional_reviews names the engines that never block. Every PR needs EACH named
+    # engine's review of the current head, and no open thread from either — ["claude"]
     # alone included: gate 4 asks a review only of a boundary or a direct repository, so skipping this for a Claude-only
     # policy armed a plain PR with no review at all (#235, Codex finding 1).
+    # An additional engine (additional_reviews) is asked too, and when it could not run on this head its unavailable
+    # marker stands in for its review; the basis says so.
     engines = arm_policy.required_engines(policy, is_boundary and not waiver)
-    check_engines(num, head, engines, refuse)
+    engines_out = check_engines(num, head, engines, refuse, arm_policy.additional_engines(policy, is_boundary and not waiver))
 
     # 5. the count rule, from pr-gate's classifier
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])
@@ -868,6 +895,8 @@ def arm(argv: list[str]) -> int:
         comment += f" {waived_by}"
     if authorized_by:
         comment += f" {authorized_by}"
+    if engines_out:
+        comment += f" {engines_out}"
     # A boundary armed at the repository's minimum or more needs no owner's word (gate 5), so the
     # record says that is what happened: a reader of the PR would
     # otherwise take an unmarked boundary arming for an oversight. Gate 5

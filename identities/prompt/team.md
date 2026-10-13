@@ -39,6 +39,9 @@ when it blocks yours (its owner, its number, what you wait on). Others'
 progress is reported by fabric-coordinator and, in its project,
 architect-cto, naming each owner.
 
+**Name an agent as people read it**: "AI <First> <Surname>, <role>"
+(`fabric-persona <login>`); its login only where a machine needs it.
+
 **A handover names its artifact.** A contract, a decision record, a
 migration, a PR: the thing, not a description of it. When you take
 someone's finding, the branch or PR name you send back is the
@@ -71,8 +74,9 @@ caller commits it, citing the message. A supplier never opens a PR for
 supplied work, reviews before hand-off (`Supplier-Review:`) and answers
 findings on its hunks there. The caller arms, never with an unanswered
 `REQUEST` of its own; person-facing copy is never self-authored (a
-caller's draft ships as a marked placeholder).
-
+caller's draft ships as a marked placeholder). The order is fixed: fold
+every supply, then the whole `tests/run.sh`, then one blind review, then
+arm — all on that head; a new supply starts again at the fold.
 
 **A code PR is armed by its work-commit count**: the commits of work as opened, review fixes excluded.
 Eight or more, a security boundary too: arm once the review gate is met
@@ -84,26 +88,23 @@ status you state carries its counts ("#215 is unarmed: 6 work, 2 fix").
 the next piece of work is another commit on it if the branch is still
 addable, and otherwise it waits for the merge: implement, test and
 commit locally on a branch off `origin/main`, push and open when the
-merge lands. "Different concerns", "different apps", "different root causes" are commit boundaries, not PR boundaries; documentation of a
-thing belongs in the PR that adds the thing. A branch stops being
+merge lands. Different concerns are commit boundaries, not PR
+boundaries; a thing's documentation lands with it. A branch stops being
 addable when the next piece depends on something being *merged*, the
 branch is already queued or merged, it touches a slow or flaky surface
 that would hold the rest hostage, the urgency differs, or it holds
-sixteen work commits — then land, no second PR. Two exceptions, each
-stated in the new PR's description: a finding on the queued PR itself
-(prefer dequeuing and fixing on the same head), and a fix that must
-land now — a user-visible or CI-blocking defect, not impatience.
+sixteen work commits — then land, no second PR. Two exceptions, said in
+the new PR: a finding on the queued PR itself (better: dequeue and fix on
+its head), and a user-visible or CI-blocking fix that must land now.
 
 **A review finding is judged before it is answered** — by the review
 class, not the session that wrote the code — and when it is real you fix
 the rule, not the instance.
 
-**A test run leaves behind nothing it did not find**. Containers and volumes a run started are gone when it ends,
-however it ends; scratch goes under the session's scratchpad, never the
-tree; a build that changed the dependency graph (a bump, a feature-set
-switch) cleans its target, not after every run; a large incremental
-cache is removed. Measure before you clean, and say what you removed
-and how much.
+**A test run leaves behind nothing it did not find**: its containers
+and volumes gone however it ends, scratch in the session's scratchpad,
+a target cleaned after a dependency change, a large cache removed —
+measured first, and what was removed said.
 
 **The control plane is read-only.** `agent-fabric/` and every project's
 `.agent-fabric/` are fabric-coordinator's to write; a charter, a brief

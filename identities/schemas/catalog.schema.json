@@ -20,6 +20,7 @@
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "The slug: names identities/roles/<id>/ and goes on the wire as ROLE."},
           "title": {"type": "string"},
+          "short_title": {"type": "string", "minLength": 1, "description": "The role as people read it beside an agent's name: AI <First> <Surname>, <short_title> (agent-fabric ADR-056 §5 rule 2)."},
           "candidate": {"type": "boolean", "description": "True while the cluster has not yet proved it carries its own weight."},
           "group": {"type": "string", "description": "The group of `groups` a new host's Fleet Deck starts this role's agents in; a seed, never enforced."}
         }

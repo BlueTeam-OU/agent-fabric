@@ -51,6 +51,11 @@ WHAT COUNTS. Three buckets, reported on their own lines:
                         tree, and on a public repository anyone can
                         post it;
   self reviews        — the author's own thread replies; not coverage.
+A review whose first line is an engine's unavailable marker
+(agent-fabric-engine-unavailable v1) is in none of the three, from any
+account: from the PR author or a named poster it is listed as "engine
+unavailable", for fabric-pr arm, and from any other as "marked, other
+login". It is never coverage.
 A head is reviewed when an independent or a blind review targets it.
 
 An AUTOMATED REVIEWER is not assumed. A project that runs one names
@@ -91,7 +96,10 @@ Options:
                          same): state, merge_state, head,
                          head_reviewed, the three buckets as
                          {count, rows; a blind row also names its
-                         engine, claude or codex}, marked_by_others, not_trusted,
+                         engine, claude or codex}, unavailable {count,
+                         rows: an engine's could-not-run marker, with
+                         its engine, full head and reason},
+                         marked_by_others, not_trusted,
                          no_review_coming ({cause, reason} or null),
                          verdicts, unresolved_threads (null when the
                          lookup failed), checks {pass, other} (both

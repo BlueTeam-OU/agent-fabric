@@ -94,8 +94,8 @@ repository whose policy names `reviews`.
    review class before it is answered (ADR-020), and answered like any
    other: fixed, or declined with the reason.
 6. **A review is required; the policy names who reviews.** A pull
-   request is armed only when every review engine its arming policy
-   names has reviewed the current head with no open P1 or P2. Which
+   request is armed only when every required review engine its arming
+   policy names has reviewed the current head with no open P1 or P2. Which
    engines is policy data, never this record: `reviews`, and
    `boundary_reviews` for a security-boundary change, in
    `policies/arming.json` for the fleet and in a repository's own
@@ -103,9 +103,13 @@ repository whose policy names `reviews`.
    always required (ADR-020). The one exception is ADR-054 rule 10's: for
    a pull request whose every work commit was written in a Codex
    session, `codex` in the lists is read as `claude`, since Codex does
-   not review its own harness's work. `fabric-pr arm` refuses until each required engine has
-   reviewed, and the refusal names the engine still missing
-   (A 2026-10-13).
+   not review its own harness's work. An engine listed under
+   `additional_reviews` reviews when it can and never blocks: its review
+   of the head, or its unavailable marker for that head, satisfies it
+   (ADR-055 rule 8; the fleet lists codex there once the marker is posted). `fabric-pr arm` refuses
+   until each required engine has reviewed, and each additional engine
+   has reviewed or left its marker, and the refusal names the engine
+   still missing (A 2026-10-13).
 7. **The Codex CLI is pinned.** `projects/registry.json` pins the latest
    stable release by version and checksum, as every account tool is
    pinned, and `fabric-tools` installs it.
@@ -128,9 +132,11 @@ repository whose policy names `reviews`.
 - A PR that needs both engines takes two reviews; the second is a child
   process, not a session, so its cost is the ChatGPT subscription's
   window, read by the gateway's usage operation.
-- Every engine the policy names must be reachable for a pull request to
-  arm: when one is not (its subscription at capacity, its token expired),
-  the pull request waits; there is no stand-in for a missing review
+- Every required engine the policy names must be reachable for a pull
+  request to arm: when one is not (its subscription at capacity, its
+  token expired), the pull request waits; there is no stand-in for a
+  missing review. An additional engine is satisfied by its review of the
+  head or its unavailable marker for that head (ADR-055 rule 8)
   (A 2026-10-13).
 - Two engines can disagree. The review class judges each finding, so a
   disagreement is resolved the way any finding is, never by vote.
@@ -164,3 +170,4 @@ The body above reads current; each change's full note is in [history/ADR-053-ame
 | 2026-10-13 | the sandbox proven before the run; Codex's own fetches off | §5 rules 2 and 3 |
 | 2026-10-13 | every login runs the Codex review on a synced access token; both engines by default | §5 rule 6 changed, rule 8 added |
 | 2026-10-13 | the record requires a review, policy names the engines; the fleet requires both | §5 rule 6 |
+| 2026-10-13 | An additional engine counts by its review or its unavailable marker | §5 rule 6: additional_reviews; the fleet's codex is additional (ADR-055 rule 8) |

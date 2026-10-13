@@ -1154,6 +1154,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
 - A 2026-10-13 — every login reviews on a synced access token; both engines by default (§5 rules 6, 8).
 - A 2026-10-13 — the record requires a review; the arming policy names the engines (now both) (§5 rule 6).
+- A 2026-10-13 — codex additional: its review or unavailable marker per head (§5 rule 6, ADR-055 rule 8).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 
@@ -1190,6 +1191,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Each provider's strategy (retry waits, seats, allowance action, ordered
   models) is data in one syntax, `routing/policies/availability.json`,
   linted; OpenAI is the less tolerant (§5 rule 7).
+- A 2026-10-13 — codex additional: an unavailable marker on the head lets claude alone arm; the fleet lists codex under additional_reviews once the marker is posted (#245), until then it is empty and codex optional (§5 rule 8).
 
 ### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Accepted)
 
@@ -1205,6 +1207,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   fabric's own anime style by brand-comms; the agent may reject any (§5
   rule 7). Identity and authorship unchanged (§5 rule 8).
 - A 2026-10-13 — candidates wait in /usr/local/share/agent-fabric/avatars/<id>/ (§5 rule 7).
+- A 2026-10-13 — named "AI <Name> <Surname>, <role>", never the login where people read; first names in claims.json (§5 rules 2, 4).
 
 ### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Accepted)
 

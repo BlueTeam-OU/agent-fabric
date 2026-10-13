@@ -25,6 +25,20 @@ def engine_of(review: dict) -> str:
     return "codex" if m and m.group("model").strip().lower() == "codex" else "claude"
 
 
+# The marker review_codex posts when its engine cannot run on a head (the allowance is spent, the gateway is down):
+# an additional engine's stand-in for that exact head, never a review (arm_policy.additional_engines). It is read
+# only as the FIRST LINE of a review object, by the account a blind review counts from (classify), so a stranger
+# who posts it skips nothing. The reason is one word: it goes into the arming basis and the gate line as written.
+UNAVAILABLE = re.compile(r"<!-- agent-fabric-engine-unavailable v1 engine=(?P<engine>[a-z]+) head=(?P<head>[0-9a-f]{40,64})"
+                         r" reason=(?P<reason>[A-Za-z0-9._:-]+) at=(?P<at>[^\s>]+) -->")
+
+
+def unavailable_of(review: dict) -> dict | None:
+    """{engine, head, reason, at} of a review whose first line is the unavailable marker, else None."""
+    m = UNAVAILABLE.fullmatch((review.get("body") or "").split("\n", 1)[0].rstrip("\r"))
+    return m.groupdict() if m else None
+
+
 PASS_LINE = re.compile(r"\spass\s")
 
 
@@ -35,6 +49,7 @@ class Buckets:
     independent: list = field(default_factory=list)
     outsiders: list = field(default_factory=list)
     blind: list = field(default_factory=list)
+    unavailable: list = field(default_factory=list)
     marked_others: list = field(default_factory=list)
     self_: list = field(default_factory=list)
 
@@ -80,8 +95,12 @@ def classify(reviews: list[dict], author: str, cfg: Config) -> Buckets:
         NONE."""
         return r.get("author_association") in TRUSTED_ASSOCIATIONS or login_of(r) in cfg.verdict_authors
 
+    # An engine's unavailable marker is no review, from anyone: from the account a blind review counts from it stands
+    # in for that engine on its head (b.unavailable), from any other it is reported as a marked review is, and it is
+    # never an independent review or one of the author's thread replies.
+    gone = [r for r in reviews if not is_marked(r) and unavailable_of(r)]
     marked = [r for r in reviews if is_marked(r)]
-    unmarked = [r for r in reviews if not is_marked(r)]
+    unmarked = [r for r in reviews if not is_marked(r) and r not in gone]
     b = Buckets()
     b.independent = [r for r in unmarked if login_of(r) != author and trusted(r)]
     b.outsiders = [r for r in unmarked if login_of(r) != author and not trusted(r)]
@@ -99,7 +118,8 @@ def classify(reviews: list[dict], author: str, cfg: Config) -> Buckets:
     # review counts only from the PR author or a named poster; any other is
     # reported, login and all, as not coverage.
     b.blind = [r for r in marked if login_of(r) == author or login_of(r) in cfg.review_posters]
-    b.marked_others = [r for r in marked if login_of(r) != author and login_of(r) not in cfg.review_posters]
+    b.unavailable = [r for r in gone if login_of(r) == author or login_of(r) in cfg.review_posters]
+    b.marked_others = [r for r in marked + gone if login_of(r) != author and login_of(r) not in cfg.review_posters]
     b.self_ = [r for r in unmarked if login_of(r) == author]
     return b
 

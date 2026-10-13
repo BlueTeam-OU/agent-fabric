@@ -16,76 +16,91 @@
     {
       "id": "architect-cto",
       "title": "Architect / CTO",
+      "short_title": "Architect / CTO",
       "group": "C-Level"
     },
     {
       "id": "backend-dev",
       "title": ".NET backend developer",
+      "short_title": "Backend Developer",
       "group": "Net Developer"
     },
     {
       "id": "brand-comms",
       "title": "Brand and communications",
+      "short_title": "Brand Specialist",
       "group": "Experts"
     },
     {
       "id": "db-admin",
       "title": "Database administrator",
+      "short_title": "Database Administrator",
       "group": "Infrastructure"
     },
     {
       "id": "devex-tooling",
       "title": "Developer experience and repo tooling",
+      "short_title": "DevEx Engineer",
       "group": "Infrastructure"
     },
     {
       "id": "domain-transit",
       "title": "Transit domain",
+      "short_title": "Transit Domain Expert",
       "group": "Experts"
     },
     {
       "id": "edge-hosting",
       "title": "Domain, DNS, edge and hosting",
+      "short_title": "Edge and Hosting Engineer",
       "group": "Infrastructure"
     },
     {
       "id": "fabric-coordinator",
       "title": "Control-plane coordinator (agent-fabric, and the GZCoord protocol)",
+      "short_title": "Fabric Coordinator",
       "group": "Coordinator"
     },
     {
       "id": "flutter-dev",
       "title": "Flutter developer",
+      "short_title": "Flutter Developer",
       "group": "Flutter Developer"
     },
     {
       "id": "language-culture",
       "title": "Language, translation, localization and culture",
+      "short_title": "Culture Specialist",
       "group": "Experts"
     },
     {
       "id": "p2p-network-dev",
       "title": "Rust peer-to-peer networking developer",
+      "short_title": "P2P Network Developer",
       "group": "Rust Developer"
     },
     {
       "id": "python-dev",
       "title": "Python developer",
+      "short_title": "Python Developer",
       "group": "Python Developer"
     },
     {
       "id": "rust-services-dev",
       "title": "Rust network-services developer (proxies, gateways, streaming)",
+      "short_title": "Rust Services Developer",
       "group": "Rust Developer"
     },
     {
       "id": "rust-ui-dev",
       "title": "Rust native-client developer (Slint, accessibility, local store)",
+      "short_title": "Rust UI Developer",
       "group": "Rust Developer"
     },
     {
       "id": "web-dev",
       "title": "Web sub-app developer",
+      "short_title": "Web Developer",
       "group": "TypeScript Developer"
     }
   ]

@@ -120,7 +120,8 @@ def gate_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
 # from state files: `blind` and `independent` list commits (sha8),
 # `unresolved` the thread count ("null" for a failed lookup). review_rc 0
 # with no `blind` file stands for a review-class review of the head.
-# `no_blind_field` drops blind.rows.
+# `no_blind_field` drops blind.rows. `unavailable` lists codex's unavailable
+# markers as <head>@<review's sha8>:<reason>; without the file the key is absent.
 def review_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
     def rd(n, d=None):
         v = _state(s, n)
@@ -139,6 +140,10 @@ def review_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
            "independent": {"count": len(rows(rd("independent"))), "rows": rows(rd("independent"))},
            "unresolved_threads": json.loads(rd("unresolved", "0")),
            "blind": {"count": 0} if rd("no_blind_field") is not None else {"count": len(rows(blind)), "rows": rows(blind)}}
+    if rd("unavailable") is not None:
+        gone = [x.replace("@", ":").split(":") for x in rd("unavailable").split()]
+        out["unavailable"] = {"count": len(gone), "rows": [{"login": "someone", "commit_sha8": c, "at": "2026-10-13T19:00:00Z",
+                                                            "engine": "codex", "head": h, "reason": why} for h, c, why in gone]}
     return rc, json.dumps(out) + "\n", ""
 
 
@@ -216,7 +221,7 @@ def main() -> int:
         def reset(reviewed: bool = True) -> None:
             """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
-            for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field",
+            for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
                       "mergefail", "inbase", "unasked",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc"):
                 if os.path.exists(f"{state}/{n}"):
@@ -280,9 +285,10 @@ def main() -> int:
             rc, out, _ = MOCKS[os.path.basename(head[0])](state, list(args), "")
             return rc, out
 
-        # The fleet default with the review class's review alone required: the mocks simulate that one review of the
-        # head, and the cases outside the engines' section are about the gates. That section names its engines.
-        claude_only = dict(arm_policy.default(), reviews=["claude"], boundary_reviews=["claude"])
+        # The fleet default with the review class's review alone required and no additional engine: the mocks
+        # simulate that one review of the head, and the cases outside the engines' section are about the gates. That
+        # section names its engines.
+        claude_only = dict(arm_policy.default(), reviews=["claude"], boundary_reviews=["claude"], additional_reviews=[])
 
         def run(*args: str, fixture_rules: bool = True, env: dict | None = None, policy: dict | None = None) -> tuple[int, str]:
             """arm.main() in this process, the same environment as the CLI's: gh and the readers are the mocks'
@@ -595,8 +601,10 @@ def main() -> int:
               rc == 1 and "whatever class is stated" in out, out)
 
         print("arm: the policy's reviews — each required engine has reviewed the current head (ADR-053 rule 6)")
-        both = arm_policy.default()
-        check("the fleet default requires both engines", (both["reviews"], both["boundary_reviews"]) == (["claude", "codex"],) * 2, both)
+        d = arm_policy.default()
+        check("the built-in default requires claude and asks no additional review (codex waits for #245's marker tool)",
+              (d["reviews"], d["boundary_reviews"], d["additional_reviews"]) == (["claude"], ["claude"], []), str(d))
+        both = dict(claude_only, reviews=["claude", "codex"], boundary_reviews=["claude", "codex"])
         # Gate 4 asks a review only of a boundary or a direct repository; a plain PR's review is gate 4b's, whatever
         # engines the policy names (#235, Codex finding 1: ["claude"] alone once skipped it and armed with none).
         reset(reviewed=False); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
@@ -609,7 +617,7 @@ def main() -> int:
               and "review=head reviewed: claude ✓ (head abcdef01)" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
         rc, out = run("7", "--basis", "b", policy=both)
-        check("the fleet default, only the claude review of the head: refused, naming codex",
+        check("a policy requiring claude and codex, only the claude review of the head: refused, naming codex",
               rc == 1 and "by the codex engine" in out and "review=claude ✓ codex ✗ (head abcdef01)" in out
               and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
@@ -647,6 +655,46 @@ def main() -> int:
         reset(); set_pr(me, "plain", mig); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
         rc, out = run("7", "--basis", "b")
         check("…while the review class's own review of the head, beside a codex one, still arms", rc == 0 and "ARMED #7" in out, out)
+
+        print("arm: an additional engine (additional_reviews) — its review, or its unavailable marker for the head")
+        extra = dict(claude_only, reviews=["claude"], boundary_reviews=["claude"], additional_reviews=["codex"])
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
+        rc, out = run("7", "--basis", "b", policy=extra)
+        check("codex ✓: armed, and the basis says nothing of an engine that ran", rc == 0 and "ARMED #7" in out
+              and "review=head reviewed: claude ✓ codex ✓ (head abcdef01)" in out and "could not run" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("unavailable", f"{HEAD}@abcdef01:allowance")
+        rc, out = run("7", "--basis", "b", policy=extra)
+        check("codex unavailable for the head: armed on claude alone, said in the output and in the basis", rc == 0 and "ARMED #7" in out
+              and "review=head reviewed: claude ✓ codex unavailable (allowance) (head abcdef01)" in out
+              and "the codex engine could not run on abcdef01 (allowance)" in out
+              and "pr comment 7 --body Arming basis: b — 9 work commits, head abcdef01. The codex engine could not run on head"
+                  " abcdef01 (allowance): armed on the claude review alone." in calls(), out + calls())
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
+        rc, out = run("7", "--basis", "b", policy=extra)
+        check("codex ✗: refused, saying how to run it and what its marker does", rc == 1 and "review=claude ✓ codex ✗ (head abcdef01)" in out
+              and "run fabric-review --engine codex; if it cannot run, its marker lets the arm proceed" in out and "pr merge" not in calls(), out)
+        other = "0123456789abcdef0123456789abcdef01234567"
+        for mark, what in ((f"{other}@01234567:allowance", "a marker for another head"),
+                           (f"{other}@abcdef01:allowance", "…one naming another head on a review of this one"),
+                           (f"{HEAD}@01234567:allowance", "…one naming this head on a review of another commit")):
+            reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("unavailable", mark)
+            rc, out = run("7", "--basis", "b", policy=extra)
+            check(f"{what} does not count: refused", rc == 1 and "codex ✗" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", ""); put("unavailable", f"{HEAD}@abcdef01:allowance")
+        rc, out = run("7", "--basis", "b", policy=extra)
+        check("the required engine is still required: codex unavailable, no claude review, refused naming claude",
+              rc == 1 and "by the claude engine" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("unavailable", f"{HEAD}@abcdef01:allowance")
+        put("unresolved", "1")
+        rc, out = run("7", "--basis", "b", policy=extra)
+        check("an open thread (codex's P1 or P2 of an earlier head included) still blocks", rc == 1 and "unresolved review thread" in out, out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("unavailable", f"{HEAD}@abcdef01:allowance")
+        rc, out = run("7", "--basis", "b", policy=both)
+        check("where codex is required its marker stands in for nothing", rc == 1 and "by the codex engine" in out, out)
+        bnd_extra = dict(extra, boundary_reviews=["claude", "codex"])
+        reset(); set_pr(me, "plain", mig); set_gate(9); put("review_rc", "0"); put("unavailable", f"{HEAD}@abcdef01:allowance")
+        rc, out = run("7", "--basis", "b", policy=bnd_extra)
+        check("…as on a boundary that requires it", rc == 1 and "by the codex engine" in out and "pr merge" not in calls(), out)
 
         print("arm: gate 5 — the classes that arm under 8 without asking")
         reset(); set_pr("develop-qzapp/me/docs/x", "Wording.\n\nClass: docs-only",
@@ -937,16 +985,27 @@ def main() -> int:
         check("GH_REPO with no owner: exit 2, never 1, nothing armed",
               rc == 2 and "cannot read the repository" in out and "pr merge" not in calls(), out)
 
-        # The process reads the fleet policy file itself (no repository file in the settings repository), which
-        # requires both engines: the PRs it arms are reviewed by both.
+        # The process reads the fleet policy file itself (no repository file in the settings repository). The test's
+        # fabric root holds a fixture file that requires claude and asks codex as an additional review, as the fleet's
+        # will once #245 posts the marker: the PRs it arms are reviewed by both, or carry codex's unavailable marker.
+        fleet_root = os.path.join(state, "fleetroot")
+        os.makedirs(os.path.join(fleet_root, "policies"), exist_ok=True)
+        with open(os.path.join(fleet_root, "policies", "arming.json"), "w") as fh:
+            json.dump({"reviews": ["claude"], "boundary_reviews": ["claude"], "additional_reviews": ["codex"]}, fh)
+        fleet_env = {"AGENT_FABRIC_OPERATOR": fleet_root}
         def both_reviewed() -> None:
             put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
 
         print("arm (CLI): the fleet policy file, read by the process")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
-        rc, out, err = cli("7", "--basis", "b", split=True)
+        rc, out, err = cli("7", "--basis", "b", split=True, env=fleet_env)
         check("only the claude review of the head: exit 1, refused naming codex, nothing armed",
-              rc == 1 and "by the codex engine" in err and "engines required: claude, codex" in err and "pr merge" not in calls(), err)
+              rc == 1 and "asks the codex engine's review" in err and "engines required: claude; additional: codex" in err
+              and "pr merge" not in calls(), err)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("unavailable", f"{HEAD}@abcdef01:allowance")
+        rc, out = cli("7", "--basis", "b", "--dry-run", env=fleet_env)
+        check("…with codex's unavailable marker for the head: the claude review alone arms (dry run)",
+              rc == 0 and "DRY RUN" in out and "codex unavailable (allowance)" in out and "pr merge" not in calls(), out + calls())
 
         print("arm (CLI): the arming path, the dry run, a merge on the arming")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); both_reviewed()
