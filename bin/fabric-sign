@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# bin/fabric-sign — git's signing program for both signature formats
+# (gpg.program and gpg.ssh.program, agent-fabric ADR-057). The path is the
+# contract (git config names it); the work and its reasons are in
+# tools/fabric/signing/sign.py. `exec`, so git talks to the Python itself:
+# its stdin, its status lines and its exit status are the signer's.
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-sign: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/signing/sign.py" "$@"

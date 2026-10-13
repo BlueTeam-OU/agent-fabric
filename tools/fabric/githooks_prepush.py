@@ -9,7 +9,11 @@ review (agent-fabric ADR-019 §5 rule 1). fabric-pr arm never sees a direct
 push, so this hook, at the keyboard, is the only place the rule is enforced.
 
 Before any of that, in every project: a push that adds an unsigned commit is
-refused (tools/fabric/guards/ban_unsigned_commits.py).
+refused (tools/fabric/guards/ban_unsigned_commits.py), and the timestamp
+proofs of the commits it adds go with it (ADR-057 §5 rule 4): the ones still
+waiting in the account's spool become notes under refs/notes/fabric-ots, and
+that ref, merged with the remote's, is pushed. A push of that ref alone is
+the hook's own doing and is admitted untouched.
 
 A project that is not managed, or whose arm.json has no `direct` key, gets
 no direct-push rule from here: exit 0, silent unless it adds an unsigned
@@ -38,6 +42,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
 from guards import ban_unsigned_commits  # noqa: E402
+from signing import notes as proofs, proof as proof_store  # noqa: E402
 import workingcopy  # noqa: E402
 
 FABRIC_ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -141,6 +146,68 @@ def _changed(remote_name: str, branch: str, local: str, remote: str) -> list[tup
     return changed
 
 
+def _branch_lines(lines: list[str]) -> list[str]:
+    """The ref lines that are not the proof notes: a note commit is made by
+    git notes, unsigned, and is judged by the proof it holds, not by a signature."""
+    # Both ends must be the notes ref: a branch pushed AS that ref name is
+    # arbitrary history, unsigned, and is checked like any other push.
+    return [l for l in lines if not (len(l.split()) == 4 and l.split()[0] == proofs.REF == l.split()[2])]
+
+
+def _dry_run() -> bool:
+    """git runs the hook for `push --dry-run` too, and a dry run changes
+    nothing, here or on the remote: the proofs are neither attached nor
+    pushed. The hook is told nothing, so the parent git's argv is read;
+    where that cannot be read (not Linux) the answer is no."""
+    try:
+        with open(f"/proc/{os.getppid()}/cmdline", "rb") as f:
+            argv = f.read().split(b"\0")
+    except OSError:
+        return False
+    # git takes any unique prefix of a long option: `--dr` is the shortest that is not ambiguous with `--delete`.
+    return any((len(a) >= 4 and b"--dry-run".startswith(a)) or (a.startswith(b"-") and not a.startswith(b"--") and b"n" in a[1:])
+               for a in argv[1:])
+
+
+def _scope(local: str, remote: str) -> list[str]:
+    # What a push adds: see _signed, which says why a new branch is measured
+    # against every remote-tracking ref.
+    return [local, "--not", "--remotes"] if ZERO.match(remote) else [f"{remote}..{local}"]
+
+
+def _attach_proofs(lines: list[str]) -> None:
+    """Each pushed commit's waiting proof becomes its note. A commit whose
+    proof cannot be found is not refused here: the checker judges proofs; old
+    commits have none. A note that holds another signature's proof, with
+    none waiting to replace it, is removed: it is never published."""
+    spool = proof_store.Spool.of(dict(os.environ))
+    for line in lines:
+        fields = line.split()
+        if len(fields) != 4 or ZERO.match(fields[1]):
+            continue
+        _, local, _, remote = fields
+        try:
+            for rev in _git("rev-list", *_scope(local, remote)).split():
+                # Twice: the first may attach, the second drops the spool
+                # entry once the note is seen to equal it (notes.ensure_note).
+                proofs.ensure_note(".", rev, spool)
+                status, commit = proofs.ensure_note(".", rev, spool)
+                if status is proofs.Status.STALE:
+                    proofs.git(".", "notes", f"--ref={proofs.REF}", "remove", commit)
+                    print(f"pre-push: the note on {commit} held another signature's proof and none was waiting "
+                          "for this one; removed", file=sys.stderr)
+        except (Refused, proofs.NotesError) as e:
+            raise Refused(f"the timestamp proofs of the pushed commits could not be attached ({e})") from None
+
+
+def _push_proofs(remote_name: str) -> None:
+    try:
+        proofs.sync_and_push(".", remote_name)
+    except proofs.NotesError as e:
+        raise Refused(f"{proofs.REF} could not be pushed with the branch ({e}); the proofs of the new commits "
+                      "are checked on the remote") from None
+
+
 def _signed(lines: list[str]) -> None:
     """Every commit the refs add carries a signature git can read, in every
     project (ban_unsigned_commits says why). Before the direct-push rules,
@@ -155,9 +222,8 @@ def _signed(lines: list[str]) -> None:
         # one, not only remote_name's, because a push to a URL (or to a remote
         # with no tracking refs) names no remote, and then the whole history
         # would be walked, root commit included.
-        scope = [local, "--not", "--remotes"] if ZERO.match(remote) else [f"{remote}..{local}"]
         try:
-            found += ban_unsigned_commits.unsigned(".", *scope)
+            found += ban_unsigned_commits.unsigned(".", *_scope(local, remote))
         except ban_unsigned_commits.git.GitError as e:
             raise Refused(f"the signatures of the pushed commits could not be read ({e})") from None
     if found:
@@ -165,7 +231,21 @@ def _signed(lines: list[str]) -> None:
 
 
 def check(remote_name: str, lines: list[str]) -> None:
+    lines = _branch_lines(lines)
+    if not lines:
+        return
+    dry = _dry_run()
+    if not dry:
+        _attach_proofs(lines)
     _signed(lines)
+    _check_direct(lines, remote_name)
+    # A push that deletes anything pushes no notes: the hook runs before the
+    # deletion, and the nested push would move the very ref a deletion names.
+    if not dry and not any(len(f) == 4 and ZERO.match(f[1]) for f in map(str.split, lines)):
+        _push_proofs(remote_name)
+
+
+def _check_direct(lines: list[str], remote_name: str) -> None:
     try:
         info = workingcopy.resolve(os.getcwd())
     except SystemExit as e:
