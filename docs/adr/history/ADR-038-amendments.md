@@ -118,3 +118,15 @@ config), and retire-doppler.py had removed the CLI and that config from
 every account. This record retired Doppler as the fabric's store; a
 project's use of it was never decided here. The upgrade now removes only
 the fabric's own leftover, the secrets-source file.
+
+### Amendment 2026-10-13 — one repository per agent holds its secrets and its settings, in BlueTeam-OU
+
+Each agent's repository now holds its settings beside its secrets, and
+lives in BlueTeam-OU: one place per agent, to back up, move or retire, with
+access already per login. Settings are what configures the agent (its
+bound role, its own model layer, its harness); its working state is not
+a setting and is backed up apart (the Proton Drive CLI, a separate
+decision). The owner's words, in the coordinator's session: "we should
+probably put together agent secrets and configurations while keeping the
+uuid identifier in the name", "for settings i mean settings, jobs are not
+settings", "both config and secrets repo under blueteam".

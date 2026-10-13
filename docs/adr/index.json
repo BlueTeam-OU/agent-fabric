@@ -305,7 +305,7 @@
       "status": "Accepted",
       "date": "2026-08-13",
       "pillar": "P5",
-      "amendments": 2
+      "amendments": 3
     },
     {
       "number": "034",
@@ -350,7 +350,7 @@
       "status": "Accepted",
       "date": "2026-09-29",
       "pillar": "P1",
-      "amendments": 8
+      "amendments": 9
     },
     {
       "number": "039",
@@ -359,7 +359,7 @@
       "status": "Accepted",
       "date": "2026-09-29",
       "pillar": "P1",
-      "amendments": 0
+      "amendments": 2
     },
     {
       "number": "040",
@@ -404,7 +404,7 @@
       "status": "Accepted",
       "date": "2026-10-08",
       "pillar": "P1",
-      "amendments": 0
+      "amendments": 1
     },
     {
       "number": "045",
@@ -499,10 +499,19 @@
     {
       "number": "055",
       "file": "ADR-055-model-availability-is-rediscovered-locally.md",
-      "title": "Model availability is rediscovered by each run; the control plane reports it to people; a review diverts when its only model is unavailable",
+      "title": "Model availability is rediscovered by each run; the control plane reports it to people; a review diverts only when its engine is the only one required",
       "status": "Proposed",
       "date": "2026-10-13",
       "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "056",
+      "file": "ADR-056-agent-personas.md",
+      "title": "Agent personas: \"AI <Name> <Surname>\", a scientist's surname each, an avatar the agent accepts, always marked as AI",
+      "status": "Proposed",
+      "date": "2026-10-13",
+      "pillar": "P2",
       "amendments": 0
     }
   ]

@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, by the merge of agent-fabric #63 (e00f750)
 **Decision Makers:** the owner (the move off Doppler, a repository per agent, a key per agent, paper recovery, the parent's role, no assumed co-location); drafted by fabric-coordinator
-**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `gzapi-org/agent-fabric-secrets-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env`, `env.sh` and their consumers; what a session's shell holds; filling a child's store (`fabric-secrets provision`); the migration from Doppler (ADR-012), complete; the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
+**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `BlueTeam-OU/fabric-agent-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env`, `env.sh` and their consumers; what a session's shell holds; filling a child's store (`fabric-secrets provision`); the migration from Doppler (ADR-012), complete; the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -45,11 +45,17 @@ of identity is extended to keys.
   on different hosts, and nothing here depends on their sharing one.
 - **Authority stays apart from identity.**
 
-The store is a private repository per agent, `gzapi-org/agent-fabric-secrets-<id>`
-(the agent id, ADR-039),
-in the layout pass(1) uses:
+The store is the agent's own private repository, `BlueTeam-OU/fabric-agent-<id>`
+(the agent id, ADR-039), which holds its secrets and its settings
+(A 2026-10-13). The secrets keep the layout pass(1) uses:
 - a `.gpg-id` naming the key;
 - one `env/<NAME>.gpg` per secret, the value on the first line.
+
+Its settings — what configures the agent, not what it is doing: its bound
+role, its own model layer, its harness, its persona (ADR-056) — are plain files under
+`settings/`, which pass(1) does not read. Working state (jobs, plans,
+notes, reviews) is not a setting and is not kept here; it is backed up
+apart.
 
 `fabric-secrets sync` reads it and writes the same
 `~/.config/agent-fabric/secrets.env` as before. So every consumer is
@@ -245,3 +251,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-10-01 | A new account's store reaches it as a bundle | §5 rule 5: the first commit and the filled store travel as bundles through the parent; `sync --no-pull` once |
 | 2026-10-06 | No secret in a session's shell | Scope, §5 rules 7 and 9, §7: secrets.env is sourced by no shell, env.sh holds plain values, gh holds GH_TOKEN, the launcher and SessionStart keep the session's shell free of secrets |
 | 2026-10-07 | The fabric removes only its own Doppler leftover | §6: the upgrade removes only secrets-source; the Doppler CLI and its config stay for a project's use |
+| 2026-10-13 | one repository per agent holds its secrets and its settings, in BlueTeam-OU | §2 |

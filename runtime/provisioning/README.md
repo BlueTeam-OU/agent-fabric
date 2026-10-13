@@ -158,7 +158,7 @@ tree mid-work, is refused).
 ## Secrets
 
 An identity's secrets are recorded in **its own store** (ADR-038): a
-pass-format git repository `<org>/fabric-agent-<agent-id>`
+pass-format git repository `BlueTeam-OU/fabric-agent-<agent-id>`
 (ADR-039), each entry encrypted to the agent's own key, cloned at
 `~/.local/share/agent-fabric/secrets`. The key is made in the account and
 certified by its parent, the coordinator, which keeps a mirror of the

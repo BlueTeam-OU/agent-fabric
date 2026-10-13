@@ -95,6 +95,11 @@ def role_catalog(root: str | None = None, environ: Mapping[str, str] | None = No
     return _under(root, environ, engine, "identities", "roles", "catalog.json")
 
 
+def personas(name: str, root: str | None = None, environ: Mapping[str, str] | None = None, engine: str | None = None) -> str:
+    """identities/personas/<name>: the surname list and the claims (agent-fabric ADR-056), the operator's data."""
+    return _under(root, environ, engine, "identities", "personas", name)
+
+
 def roles_dir(root: str | None = None, environ: Mapping[str, str] | None = None, engine: str | None = None) -> str:
     return _under(root, environ, engine, "identities", "roles")
 
