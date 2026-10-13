@@ -21,7 +21,9 @@ What is pinned (the contract the two hooks and the CI tripwire agree on):
                from any of them counts, listed once, sorted; so an `-s ours` octopus is not waved through
   failure      outside a git repository it does not fail: label ".agent-fabric/", nothing guarded, status 0
 
-Mutations each case fails on (planted on the file as formatted): removing the `-- "$prefix"` scoping (scope); `--diff-filter=ACDMRT`
+Mutations each case fails on (planted on the file as formatted): replacing the clean merge `git merge-tree --write-tree HEAD "$merge_head"`
+by MERGE_HEAD's own tree (merge: the fold where both sides moved - it passes only when HEAD is not an ancestor of MERGE_HEAD, which is
+why Merges.setUp branches the side BEFORE main moves); removing the `-- "$prefix"` scoping (scope); `--diff-filter=ACDMRT`
 to `ACMRT` (filter: deletions); dropping `--no-renames` (filter: renames); removing the amend placeholder line (empty); testing only
 `rc == 0` for merge-tree (merge: a conflicted merge); making the fallback judge only HEAD (fallback: octopus); `sort -u` to `sort`
 (fallback: a path differing from both parents listed twice); dropping the readlink -f comparison (scope: a symlinked fabric root)."""
@@ -130,8 +132,11 @@ class Empty(Guarded):
 class Merges(Guarded):
     def setUp(self):
         super().setUp()
-        self.repo.commit(".agent-fabric/memory/main.md", "main\n", message="main moves the guarded tree")
+        # The side branches off the base FIRST and main moves afterwards, so HEAD is not an ancestor of MERGE_HEAD: the merge is a true
+        # three-way merge in which both sides moved the guarded tree (committed the other way round it is an ancestor fold, and a merge
+        # judged against MERGE_HEAD's own tree passes every case - review of #230, second engine).
         self.side_branch(**{".agent-fabric/memory/side.md": "side\n"})
+        self.repo.commit(".agent-fabric/memory/main.md", "main\n", message="main moves the guarded tree")
 
     def test_a_clean_fold_where_both_sides_moved_the_guarded_tree_is_no_change_of_its_own(self):
         self.merge_in_progress("side")
@@ -176,8 +181,10 @@ class Merges(Guarded):
         self.repo.git("merge", "-q", "--no-commit", "-s", "ours", "side", "side2", check=False)
         with open(os.path.join(self.repo.path, ".git", "MERGE_HEAD"), encoding="utf-8") as fh:
             self.assertEqual(len(fh.read().split()), 2, "precondition: an octopus")
-        # HEAD's tree is the staged tree; each side branched after main's own guarded commit, so each differs by its own file only
-        self.assertEqual(self.ask(), (".agent-fabric/", [".agent-fabric/memory/side.md", ".agent-fabric/memory/side2.md"]))
+        # HEAD's tree is the staged tree. Each side branched before main moved the guarded tree: it lacks main.md and has its own file,
+        # so against each parent main.md and that parent's own file differ, listed once between them
+        self.assertEqual(self.ask(), (".agent-fabric/", [".agent-fabric/memory/main.md", ".agent-fabric/memory/side.md",
+                                                           ".agent-fabric/memory/side2.md"]))
         what, paths = self.ask(self.repo.path)
         self.assertEqual((what, "src/b.py" in paths), ("agent-fabric itself", True))
 
@@ -199,7 +206,8 @@ class Merges(Guarded):
         os.chmod(shim, os.stat(shim).st_mode | stat.S_IXUSR)
         self.merge_in_progress("side")
         # a git older than 2.38 has no `merge-tree --write-tree`: the clean merge is unavailable, every parent is the reference
-        self.assertEqual(self.ask(path=f"{shim_dir}:/usr/bin:/bin"), (".agent-fabric/", [".agent-fabric/memory/side.md"]))
+        # the fold result differs from HEAD by what the side brought (side.md) and from the side by what main brought (main.md)
+        self.assertEqual(self.ask(path=f"{shim_dir}:/usr/bin:/bin"), (".agent-fabric/", [".agent-fabric/memory/main.md", ".agent-fabric/memory/side.md"]))
 
 
 if __name__ == "__main__":

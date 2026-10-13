@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-12, in the session ("adr 053 accepted")
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the review class's engines (ADR-005, ADR-020); `fabric-review --engine codex` (`tools/fabric/review_codex.py`, to be built); the arming policy's `reviews` rule (`identities/schemas/arming.schema.json`, `policies/arming.json`); the Codex pin in `projects/registry.json`; the launcher's Codex profile; the review-brief skill
+**Scope:** the review class's engines (ADR-005, ADR-020); `fabric-review --engine codex` (`tools/fabric/review_codex.py`); the arming policy's `reviews` rule (`identities/schemas/arming.schema.json`, `policies/arming.json`); the Codex pin in `projects/registry.json`; the launcher's Codex profile; the review-brief skill
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -69,14 +69,21 @@ repository whose policy names `reviews`.
 2. **One process, read-only, on an extract.** Codex runs once per review
    as a child of the reviewing session, in a scratch extract of the head
    (`git archive`), with its sandbox read-only and a time budget (20
-   minutes by default). The scratch is removed on every path, a timeout
-   or failure included, and the working copy is never touched.
+   minutes by default). Before the run the engine proves the sandbox:
+   Codex's own `codex sandbox` must start read-only on the extract and
+   refuse a write there; a sandbox that does not start or lets the write
+   through is a failed review (A 2026-10-13). The scratch is removed on
+   every path, a timeout or failure included, and the working copy is
+   never touched.
 3. **Its own gateway, never the session's credential.** Codex's base URL
    is the root of a gateway process serving `openai-responses`, and its
    key is that gateway's local key, passed by environment variable only.
    The session's Anthropic base URL and key never reach Codex; the
    account's `~/.codex` is never read. Missing either setting refuses,
-   posting nothing.
+   posting nothing. Codex's own network features (`plugins`,
+   `remote_plugin`, `plugin_sharing`, `apps`, `in_app_updates`) are off
+   in the engine's configuration, so the gateway is the only place it
+   connects to (A 2026-10-13).
 4. **The answer is structured or nothing.** Codex answers with one JSON
    object of findings (level P1-P3, file, line, scenario, expected,
    fix). Anything else is a failed review: nothing is posted and the
@@ -87,14 +94,34 @@ repository whose policy names `reviews`.
    review class before it is answered (ADR-020), and answered like any
    other: fixed, or declined with the reason.
 6. **The arming policy says which PRs need both engines.** The policy's
-   `reviews` rule lists the engines a PR needs: `["claude"]` by default;
-   a repository may require `["claude", "codex"]` for every PR or for a
-   class (the security boundary first). `fabric-pr arm` refuses until
-   each required engine has reviewed the current head with no open P1 or
-   P2, and the refusal names the engine still missing.
+   `reviews` rule lists the engines a PR needs: `["claude", "codex"]` is
+   the fleet's default, set in `policies/arming.json` once every login
+   holds an unexpired access token (rule 8) and one Codex review has run
+   from a login other than the coordinator's; until then `["claude"]`. A
+   repository's own policy replaces the list, narrower or wider, and its
+   `boundary_reviews` names the engines a security-boundary change needs
+   as well. For a pull request whose work was written in Codex sessions,
+   `codex` in either list is read as `claude`: the review class is the
+   other engine, and ADR-054 rule 10 keeps Codex from reviewing its own
+   harness's work (A 2026-10-13). `fabric-pr arm` refuses until each required engine
+   has reviewed the current head with no open P1 or P2, and the refusal
+   names the engine still missing.
 7. **The Codex CLI is pinned.** `projects/registry.json` pins the latest
    stable release by version and checksum, as every account tool is
    pinned, and `fabric-tools` installs it.
+8. **One sign-in, an access token per login.** The ChatGPT sign-in the
+   engine runs on is the coordinator's, in its own home; its refresh
+   token never leaves it. Every other login gets the access token and
+   the account id only: the coordinator writes them into each login's
+   store (ADR-038, as ADR-031 writes Claude tokens), and `fabric-secrets
+   sync` puts them in a token file on the login's runtime tmpfs (0600),
+   which the review gateway reads on every attempt. The coordinator's
+   control agent refreshes the sign-in when under 72 hours of the access
+   token remain and writes the new one to every login. A login whose
+   token is missing or expired refuses the review, naming the expiry,
+   and posts nothing. The gateway-local key between Codex and its
+   gateway identifies the calling component; it guards no secret
+   (A 2026-10-13).
 
 ## 6. Consequences
 
@@ -126,3 +153,12 @@ held by the gateway) and the launcher's Codex profile.
   class is the review), ADR-052 (the account-switch policy).
 - The gateway's Stage 6 plan and its plan contract, Schema 1 (BlueTeam-OU/agent-fabric-gateway).
 - `tools/fabric/review_brief.py`, `bin/fabric-review`, `fabric-pr arm` (`tools/fabric/github/arm.py`), `tools/fabric/github/arm_policy.py`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-053-amendments.md](history/ADR-053-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-13 | the sandbox proven before the run; Codex's own fetches off | §5 rules 2 and 3 |
+| 2026-10-13 | every login runs the Codex review on a synced access token; both engines by default | §5 rule 6 changed, rule 8 added |

@@ -51,7 +51,8 @@ own_instance_tree()      # the entry is handed a tree (AGENT_FABRIC_ROOT): the r
 ENTRY = os.environ.get("DIR_AUTHORITY_ENTRY") or os.path.join(ROOT, "policies", "check_agent_fabric_dir_authority.sh")
 DECLARED = "drain\n\nFabric-Role: fabric-coordinator"
 DEPENDABOT = ("-c", "user.name=dependabot[bot]", "-c", "user.email=49699333+dependabot[bot]@users.noreply.github.com")
-GIT_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+# PYTHONDONTWRITEBYTECODE: the guard imports the real tools/fabric modules, and Python would write __pycache__ into the checkout
+GIT_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
 
 
 def authority_json(role: str) -> str:

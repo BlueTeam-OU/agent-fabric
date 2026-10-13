@@ -16,6 +16,9 @@ import sys
 import tempfile
 import time
 
+# Its own imports would write __pycache__ into the checkout (ADR-021): this file's run is a test's.
+sys.dont_write_bytecode = True
+
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import own_instance_tree, write_routing_overlay  # noqa: E402
 
@@ -33,6 +36,29 @@ FAKE_CODEX = r'''#!%(python)s
 import json, os, subprocess, sys, time
 S = %(state)r
 argv = sys.argv[1:]
+if argv[:1] == ["sandbox"]:
+    with open(os.path.join(S, "sandbox-calls"), "a") as f:
+        f.write(json.dumps(argv) + "\n")
+    smode = open(os.path.join(S, "sandbox-mode")).read().strip() if os.path.exists(os.path.join(S, "sandbox-mode")) else "ok"
+    cmd = argv[argv.index("--") + 1:]
+    is_write_probe = "touch" in " ".join(cmd)
+    if smode == "fail":
+        print("bwrap: No permissions to create a new namespace " + os.environ.get("AGENT_FABRIC_CODEX_KEY", ""), file=sys.stderr)
+        sys.exit(1)
+    if smode == "sleep":
+        gc = subprocess.Popen(["sleep", "300"])
+        with open(os.path.join(S, "sandbox-grandchild"), "w") as f:
+            f.write(f"{os.getpid()} {gc.pid}")
+        time.sleep(300)
+    if smode == "noop":
+        sys.exit(0)                                   # a "sandbox" that runs nothing and says all is well
+    if smode == "writable":
+        sys.exit(subprocess.run(cmd).returncode)      # nothing refuses the write: the probe's touch succeeds and says 7
+    if smode == "leaky":
+        subprocess.run(cmd)                           # the write happens, and the sandbox still answers as if it were refused
+        sys.exit(43 if is_write_probe else 42)
+    # ok: a sandbox that starts the command (the start probe's own exit status comes back) and refuses the write
+    sys.exit(43 if is_write_probe else subprocess.run(cmd).returncode)
 prompt = sys.stdin.read()
 rec = {"argv": argv, "env": dict(os.environ), "cwd": os.getcwd(), "prompt": prompt,
        "cwd_files": sorted(os.listdir(".")),
@@ -286,7 +312,7 @@ def main() -> int:
         def set_pr(oid: str = head) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
                 json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid}, f)
-            for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild"):
+            for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode"):
                 if os.path.exists(os.path.join(state, n)):
                     os.remove(os.path.join(state, n))
 
@@ -305,6 +331,7 @@ def main() -> int:
         os.makedirs(os.path.dirname(local_layer))
         env0 = {k: v for k, v in os.environ.items()
                 if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "ANTHROPIC_", "CLAUDE", "OPENAI_", "CODEX_"))}
+        env0["PYTHONDONTWRITEBYTECODE"] = "1"      # the engine's children import the real tools/fabric modules: no __pycache__ into the checkout
         env0.update(PATH=f"{fakebin}:{env0.get('PATH', '')}", GH_STATE=state, GH_REPO="fixture-org/fixture",
                     HOME=home, TMPDIR=scratch, AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_OPERATOR=operator,
                     AGENT_FABRIC_STATE_DIR=fabric_state,
@@ -422,6 +449,109 @@ def main() -> int:
         with open(os.path.join(kept, "codex.log"), encoding="utf-8") as fh:
             check("the log line went to codex.log", "WARN codex_core: a log line" in fh.read())
         check("…and the run, which read the code, gives its answer", '"P1"' in answer_text, answer_text)
+
+        print("the sandbox is proved before the run, no wider one is used, Codex's own egress is off")
+        set_pr(); mode("ok")
+        r = run("7", req)
+        check("a review runs", r.returncode == 0, r.stderr + r.stdout)
+        with open(os.path.join(state, "sandbox-calls")) as f:
+            probes = [json.loads(line) for line in f]
+        check("two probes in the extract, read-only profile: a command starts, a write is refused",
+              len(probes) == 2 and all(p[:3] == ["sandbox", "-P", ":read-only"] for p in probes)
+              and probes[0][-1] == "exit 42" and "touch" in probes[1][-3] and probes[1][-3].endswith("exit 43")
+              and probes[0][probes[0].index("-C") + 1] == record()["cwd"], probes)
+        probe_path = probes[1][-1]
+        check("the write is tried at a fresh random name inside the extract (a pull request cannot plant it)",
+              probe_path.startswith(record()["cwd"] + os.sep) and os.path.basename(probe_path).startswith(".fabric-write-probe-")
+              and len(os.path.basename(probe_path)) > len(".fabric-write-probe-") + 8, probe_path)
+        cfg = record()["config"] or ""
+        check("config.toml switches off the plugin, app and update features (Codex's own fetch from GitHub)",
+              "[features]\n" in cfg and all(f"{name} = false\n" in cfg.split("[features]\n", 1)[1] for name in review_codex.EGRESS_FEATURES)
+              and "plugins = false\n" in cfg, cfg)
+        with open(review_codex.__file__, encoding="utf-8") as fh:
+            module_source = fh.read()
+        check("the module names no wider sandbox mode",
+              not any(w in module_source for w in ("danger", "workspace-write", "full-access", "--yolo", "bypass")))
+        for label, smode, text in (("a sandbox that cannot start", "fail",
+                                    "the read-only sandbox cannot start (exit 1: bwrap: No permissions to create a new namespace [key]); no wider one is used"),
+                                   ("a sandbox that lets a write through", "writable", "the read-only sandbox cannot refuse a write (exit 7")):
+            set_pr(); mode("ok")
+            with open(os.path.join(state, "sandbox-mode"), "w") as f:
+                f.write(smode)
+            r = run("7", req)
+            check(f"{label}: exit 1, said in one line, codex exec never started, nothing posted, the scratch removed",
+                  r.returncode == 1 and text in r.stderr and not codex_ran() and not posted() and scratch_empty(),
+                  (r.returncode, r.stderr[-400:], codex_ran(), posted(), os.listdir(scratch)))
+            check(f"{label}: the key is not in the message", "gw-local-key-123" not in r.stderr, r.stderr)
+        set_pr(); mode("ok")
+        with open(os.path.join(state, "sandbox-mode"), "w") as f:
+            f.write("ok")
+        check("the positive control: with a sandbox that behaves, the same review is posted", run("7", req).returncode == 0 and posted())
+
+        print("prove_sandbox called directly: the probes that need no whole review (review of #231, F4 F5)")
+        fake_codex = os.path.join(fakebin, "codex")
+        proof_env = {"PATH": os.environ.get("PATH", ""), review_codex.ENV_KEY: "gw-local-key-123"}
+
+        def prove(smode: str, work: str | None = None) -> str:
+            """prove_sandbox against the fake in `smode`: "ok", or the FailedReview's message."""
+            with open(os.path.join(state, "sandbox-mode"), "w") as f:
+                f.write(smode)
+            for n in ("sandbox-calls", "sandbox-grandchild"):
+                if os.path.exists(os.path.join(state, n)):
+                    os.remove(os.path.join(state, n))
+            work = work or tempfile.mkdtemp(prefix="extract.", dir=tmp)
+            try:
+                review_codex.prove_sandbox(fake_codex, work, proof_env)
+                return "ok"
+            except review_codex.FailedReview as e:
+                return str(e)
+
+        check("a sandbox that behaves passes", prove("ok") == "ok")
+        verdict_noop = prove("noop")
+        check("a sandbox that exits 0 without running anything proves nothing (the start probe has an exit status of its own)",
+              "cannot start (ran nothing it was asked" in verdict_noop, verdict_noop)
+        work = tempfile.mkdtemp(prefix="extract.", dir=tmp)
+        verdict_leaky = prove("leaky", work)
+        check("a sandbox that lets the write happen and still answers 'refused' is caught by the file left behind",
+              "let a write through" in verdict_leaky, verdict_leaky)
+        for label, plant in (("a file", lambda path: open(path, "w").close()),
+                             ("a dangling link", lambda path: os.symlink("/nonexistent/target", path)),
+                             ("a link to /dev/null", lambda path: os.symlink("/dev/null", path))):
+            work = tempfile.mkdtemp(prefix="extract.", dir=tmp)
+            plant(os.path.join(work, ".fabric-write-probe"))
+            check(f"{label} at the old fixed probe name, planted by the PR, does not make a sound sandbox look broken",
+                  prove("ok", work) == "ok", prove("ok", work))
+        names = set()
+        for _ in range(3):
+            prove("ok")
+            with open(os.path.join(state, "sandbox-calls")) as f:
+                names.add(json.loads(f.read().splitlines()[1])[-1])
+        check("every proof tries the write at a name of its own", len(names) == 3, names)
+        saved_timeout = review_codex.SANDBOX_PROOF_TIMEOUT_S
+        review_codex.SANDBOX_PROOF_TIMEOUT_S = 1
+        try:
+            started = time.time()
+            verdict_slow = prove("sleep")
+        finally:
+            review_codex.SANDBOX_PROOF_TIMEOUT_S = saved_timeout
+        check("a probe that outlives its time budget fails the proof, in about that time",
+              "the read-only sandbox did not start within 1 s; no wider one is used" in verdict_slow and time.time() - started < 30, verdict_slow)
+        with open(os.path.join(state, "sandbox-grandchild")) as f:
+            pids = [int(x) for x in f.read().split()]
+        def running(pid):
+            # A killed orphan is a zombie until PID 1 reaps it, and a container's PID 1 may never: dead for this check.
+            try:
+                with open(f"/proc/{pid}/stat", "rb") as f:
+                    return f.read().rsplit(b")", 1)[1].split()[0] != b"Z"
+            except (FileNotFoundError, ProcessLookupError):
+                return False
+        deadline = time.time() + 10
+        alive = list(pids)
+        while alive and time.time() < deadline:
+            alive = [pid for pid in alive if running(pid)]
+            if alive:
+                time.sleep(0.05)
+        check("…and the probe's whole process group is ended, the grandchild too", not alive, alive)
 
         print("the account id and the effort")
         acct = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"

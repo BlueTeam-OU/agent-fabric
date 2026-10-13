@@ -98,6 +98,7 @@ import contextlib
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -138,6 +139,12 @@ CAPABILITY, PROVIDER = "code-review", "openai"
 # and CA settings only; HOME, TMPDIR and CODEX_HOME are the scratch's.
 CHILD_ENV_PASS = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TZ", "TERM", "SSL_CERT_FILE", "SSL_CERT_DIR")
 MAX_ANSWER_BYTES = 1 << 20
+# Codex's own egress, outside the gateway: with the plugin feature on a run executes `git ls-remote` and `git fetch` of a GitHub plugin
+# repository and opens other connections (strace, codex 0.162.1, a local gateway: 11 git executions and 7 non-loopback connects in 30 s).
+# `plugins = false` alone ended all of it in that trial (no git, loopback only); the other features that reach out are switched off
+# beside it, so a later version that moves the fetch to one of them does not reopen it. A feature a version does not know is ignored.
+EGRESS_FEATURES = ("plugins", "remote_plugin", "plugin_sharing", "apps", "in_app_updates")
+SANDBOX_PROOF_TIMEOUT_S = 60
 # The answer-shape section is the only text the engine adds to the brief
 # (ADR-053 rule 1): where it stands and what to answer, never anything
 # about the change.
@@ -372,6 +379,7 @@ def codex_home(scratch: str, base_url: str, account: str | None = None) -> str:
         f.write(f"model_provider = {_toml_str(PROVIDER_ID)}\n"
                 'approval_policy = "never"\nsandbox_mode = "read-only"\n\n'
                 '[history]\npersistence = "none"\n\n'
+                "[features]\n" + "".join(f"{name} = false\n" for name in EGRESS_FEATURES) + "\n"
                 f"[model_providers.{PROVIDER_ID}]\n"
                 f'name = "agent-fabric gateway (openai-responses)"\n'
                 f"base_url = {_toml_str(base_url)}\n"
@@ -392,6 +400,45 @@ def child_env(environ: dict[str, str], scratch: str, home: str, key: str) -> dic
 
 
 # --- running Codex once ------------------------------------------------------
+
+START_PROBE_EXIT, REFUSED_PROBE_EXIT, WRITTEN_PROBE_EXIT = 42, 43, 7
+
+
+def prove_sandbox(binary: str, workdir: str, env: dict[str, str]) -> None:
+    """The read-only sandbox must start and must refuse a write, or the review does not run. Codex's sandbox is bubblewrap, which needs
+    unprivileged user namespaces; a host that refuses them (CI's Ubuntu 24.04) fails the review with one line and runs nothing wider:
+    no fallback to a sandbox that writes or to none, and nothing in this module names one (ADR-053 rule 2).
+
+    Each probe answers with an exit status of its own, which the sandbox hands back from the command it ran: a sandbox that exits 0
+    without running anything proves nothing (the start probe wants START_PROBE_EXIT, the write probe REFUSED_PROBE_EXIT, and
+    WRITTEN_PROBE_EXIT says the write happened). The write is tried at a path of a fresh random name in the extract, which the pull
+    request controls: a fixed name could be planted (a file, a dangling link, a link to /dev/null) to make a sound sandbox look broken.
+    A probe that outlives SANDBOX_PROOF_TIMEOUT_S is ended with its whole process group, as run_codex ends Codex."""
+    probe = os.path.join(workdir, f".fabric-write-probe-{secrets.token_hex(8)}")
+    for label, command, wanted in (
+            ("start", ["/bin/sh", "-c", f"exit {START_PROBE_EXIT}"], START_PROBE_EXIT),
+            ("refuse a write", ["/bin/sh", "-c", f'touch "$1" 2>/dev/null && exit {WRITTEN_PROBE_EXIT}; exit {REFUSED_PROBE_EXIT}', "sh", probe],
+             REFUSED_PROBE_EXIT)):
+        argv = [binary, "sandbox", "-P", ":read-only", "-C", workdir, "--", *command]
+        p = subprocess.Popen(argv, env=env, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             start_new_session=True)
+        try:
+            try:
+                _, err = p.communicate(timeout=SANDBOX_PROOF_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
+        finally:
+            if p.poll() is None or _group_alive(p.pid):
+                _end_group(p)
+        if p.returncode != wanted:
+            why = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", err.decode("utf-8", "replace").replace(env.get(ENV_KEY, "\0"), "[key]"))[-200:].strip()
+            if p.returncode == WRITTEN_PROBE_EXIT and label == "refuse a write":
+                raise FailedReview("the read-only sandbox cannot refuse a write (exit 7); no wider one is used")
+            ran = "ran nothing it was asked" if p.returncode == 0 else f"exit {p.returncode}"
+            raise FailedReview(f"the read-only sandbox cannot {label} ({ran}: {why}); no wider one is used")
+    if os.path.lexists(probe):
+        raise FailedReview("the sandbox let a write through; no review is run in a writable tree")
+
 
 def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str, str], prompt: str,
               timeout_s: float, effort_level: str | None = None) -> str:
@@ -655,6 +702,7 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
             extract(repo, head, workdir)
             env = child_env(environ, scratch, codex_home(scratch, base_url, account_id(env_run)), key)
             prompt = brief.rstrip("\n") + "\n" + ANSWER_SHAPE
+            prove_sandbox(binary, workdir, env)
             findings = parse_answer(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level))
         finally:
             shutil.rmtree(scratch, ignore_errors=True)

@@ -107,7 +107,8 @@ class Base(unittest.TestCase):
             fh.write(STAND_IN_CLAUDE)
         os.chmod(claude, 0o755)
         self.env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": self.sandbox, "LANG": "C.UTF-8",
-                    "TMPDIR": self.sandbox, "AGENT_FABRIC_LOCAL_BIN": self.bin, "AGENT_FABRIC_CLAUDE": claude,
+                    # Importing roots would write tools/fabric/__pycache__ (and an opt-2 one for -OO) into the checkout.
+                    "PYTHONDONTWRITEBYTECODE": "1", "TMPDIR": self.sandbox, "AGENT_FABRIC_LOCAL_BIN": self.bin, "AGENT_FABRIC_CLAUDE": claude,
                     # The auto-mode policy is the operator's file; a fixture one, never the checkout's.
                     "AGENT_FABRIC_OPERATOR": write_operator_policy(os.path.join(self.sandbox, ".claude"))}
 

@@ -75,6 +75,10 @@ FAKE_CODEX = r'''#!%(python)s
 import json, os, subprocess, sys, time
 S = %(state)r
 argv = sys.argv[1:]
+if argv[:1] == ["sandbox"]:
+    # the engine proves the read-only sandbox first (review_codex.prove_sandbox): this stand-in answers as a sandbox that runs the
+    # command and refuses the write would - the start probe's own exit status (42), the write probe's refusal (43)
+    sys.exit(43 if "touch" in " ".join(argv[argv.index("--") + 1:]) else 42)
 sys.stdin.read()
 home = os.environ.get("CODEX_HOME", "/nonexistent")
 serve = [json.loads(l) for l in open(os.path.join(S, "gw.log")) if '"serve"' in l]
@@ -230,6 +234,7 @@ def main() -> int:
         write_routing_overlay(os.path.join(operator, "routing"))
         env0 = {k: v for k, v in os.environ.items()
                 if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "ANTHROPIC_", "CLAUDE", "OPENAI_", "CODEX_", "XDG_RUNTIME"))}
+        env0["PYTHONDONTWRITEBYTECODE"] = "1"      # the engine's children import the real tools/fabric modules: no __pycache__ into the checkout
         env0.update(PATH=f"{fakebin}:{env0.get('PATH', '')}", GH_STATE=state, GH_REPO="fixture-org/fixture",
                     HOME=home, TMPDIR=scratch, XDG_RUNTIME_DIR=run_dir, AGENT_FABRIC_ROOT=ROOT,
                     AGENT_FABRIC_OPERATOR=operator, AGENT_FABRIC_STATE_DIR=os.path.join(tmp, "fabric-state"),
