@@ -195,6 +195,8 @@ if a[:1] == ["api"]:
     path = a[1]
     method = a[a.index("--method") + 1] if "--method" in a else "POST" if "--input" in a else "GET"  # gh's own default
     if method == "GET":
+        with open(os.path.join(S, "reads"), "a") as f:
+            f.write(path + "\\n")
         if os.path.exists(os.path.join(S, "read-fails")):
             print("gh: HTTP 502: Bad Gateway", file=sys.stderr); sys.exit(1)
         print(json.dumps([state("reviews.json", [])] if path.split("?")[0].endswith("/reviews") else [[]])); sys.exit(0)
@@ -355,7 +357,7 @@ def main() -> int:
             with open(os.path.join(state, "pr.json"), "w") as f:
                 json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid}, f)
             for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode",
-                      "reviews.json", "read-fails", "post-fails"):
+                      "reviews.json", "read-fails", "post-fails", "reads"):
                 if os.path.exists(os.path.join(state, n)):
                     os.remove(os.path.join(state, n))
 
@@ -841,7 +843,8 @@ def main() -> int:
         rc, out, err, sleeps = inproc("7", req, "--no-post")
         m = review_codex.parse_marker(out)
         check("--no-post: exit 3, the statement printed on stdout, nothing read from or posted to the PR",
-              rc == 3 and m is not None and m["head"] == head and not post_lines(), (rc, out, post_lines()))
+              rc == 3 and m is not None and m["head"] == head and not post_lines()
+              and not os.path.exists(os.path.join(state, "reads")), (rc, out, post_lines()))
         set_pr(); mode("allowance"); touch("read-fails")
         rc, out, err, sleeps = inproc("7", req)
         check("the PR cannot be read: exit 3 still, nothing posted (unknown stays unknown), a warning says so",

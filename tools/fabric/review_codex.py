@@ -854,6 +854,8 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
                 if no_post:
                     sys.stdout.write(unavailable_comment(e, head, _utc_now()))
                 else:
+                    global _posting
+                    _posting = True   # a signal during the POST cannot say "nothing posted"
                     try:
                         announce_unavailable(repo, pr, head, e)
                     except (gh.GhError, OSError, ValueError, TypeError, AttributeError) as err:
