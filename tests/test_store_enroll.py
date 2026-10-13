@@ -70,8 +70,11 @@ def main() -> int:
         r = shim("--self", "kid")
         check("--self takes none", r.returncode == 1 and "--self takes no login" in r.stderr)
         check("flags in any order, = and spaced", se.parse(["a", "--host=h", "--born-now", "b", "--dry-run"])[0]["host"] == "h"
-              and se.parse(["--host", "h2", "a"]) == ({"dry": False, "self": False, "rename": False, "born_now": False,
-                                                       "host": "h2", "help": False}, ["a"]))
+              and se.parse(["--host", "h2", "a"]) == ({"dry": False, "self": False, "rename": False, "describe": False,
+                                                       "born_now": False, "host": "h2", "role": "", "help": False}, ["a"])
+              and se.parse(["a", "--role=r1"])[0]["role"] == "r1" and se.parse(["--role", "r2", "a"])[0]["role"] == "r2")
+        r = shim("kid", "--role")
+        check("--role without a value: one line, exit 1", r.returncode == 1 and r.stderr == "store-enroll: --role needs a role slug\n")
 
         # A fake store tool: answers from files the case writes.
         fake = put(f"{tmp}/store.py", """import os, sys
@@ -163,7 +166,7 @@ sys.exit(0)
                 ok = dry.enrol_one("kid")
             calls = open(f"{state}/gh.calls").read()
             check("says what it would make and makes nothing",
-                  ok and "would: gh repo create gzapi-org/agent-fabric-secrets-01a0f782" in err.getvalue()
+                  ok and "would: gh repo create BlueTeam-OU/fabric-agent-01a0f782" in err.getvalue()
                   and "would: on far as kid: store init --agent-id" in err.getvalue() and "repo create" not in calls)
             with redirect_stderr(io.StringIO()):
                 check("this login is never enrolled as a child", not dry.enrol_one(dry.me))
@@ -171,7 +174,7 @@ sys.exit(0)
             print("a whole run, on fakes")
             remotes = f"{tmp}/remotes"
             os.makedirs(remotes)
-            bare = f"{remotes}/agent-fabric-secrets-01a0f782-7e06-7dee-811f-0a860ed93bf3.git"
+            bare = f"{remotes}/fabric-agent-01a0f782-7e06-7dee-811f-0a860ed93bf3.git"
             subprocess.run(["git", "init", "-q", "--bare", "-b", "main", bare], check=True, timeout=30)
             seed = f"{tmp}/seed"
             subprocess.run(["git", "init", "-q", "-b", "main", seed], check=True, timeout=30)
@@ -228,8 +231,8 @@ sys.exit(0)
             put(f"{state}/create-fails", "")
             rc, err, hx_calls, *_ = whole(["kid", "kid2"])
             check("a repository that cannot be made stops the whole run, before anything is asked of the account",
-                  rc == "refused: could not create gzapi-org/agent-fabric-secrets-01a0f782-7e06-7dee-811f-0a860ed93bf3 "
-                       "(the parent's gh must be able to create a private repository in gzapi-org)" and "init" not in hx_calls,
+                  rc == "refused: could not create BlueTeam-OU/fabric-agent-01a0f782-7e06-7dee-811f-0a860ed93bf3 "
+                       "(the parent's gh must be able to create a private repository in BlueTeam-OU)" and "init" not in hx_calls,
                   str(rc))
             os.remove(f"{state}/create-fails")
             rc, err, hx_calls, gh_calls, _ = whole(["kid"], dry=True)

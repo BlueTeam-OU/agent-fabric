@@ -6,7 +6,8 @@ runtime/provisioning/secrets/store-enroll.sh is its shim, and new-agent.sh
 and the README keep that path).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
-  argv      <login>... [--host <id> | --host=<id>] [--born-now] [--dry-run],
+  argv      <login>... [--host <id> | --host=<id>] [--role <slug> | --role=<slug>]
+            [--born-now] [--dry-run],
             or --self, or --rename <old> <new>; flags anywhere, in any
             order. -h/--help prints HELP (below) on stdout, exit 0. No
             login and no --self/--rename: HELP on stderr, exit 2. An
@@ -15,7 +16,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   stdin     never read.
   env       AGENT_FABRIC_HOSTS_REGISTRY (default runtime/hosts/registry.json),
             AGENT_FABRIC_HOSTEXEC (default runtime/hostexec/hostexec),
-            AGENT_FABRIC_SECRETS_ORG (default gzapi-org),
+            AGENT_FABRIC_SECRETS_ORG (default BlueTeam-OU),
             AGENT_FABRIC_SECRETS_REMOTE_BASE (replaces git@github.com:<org>),
             GH (default gh), HOME (the mirror's parent); everything else
             is passed to the store tool and the host executor as found.
@@ -68,15 +69,19 @@ key and its own encrypted store (agent-fabric ADR-038). Run by its
 PARENT, the fabric-coordinator login that provisioned it, from the
 parent's own checkout.
 
-  store-enroll.sh <login>... [--host <id>] [--born-now] [--dry-run]
+  store-enroll.sh <login>... [--host <id>] [--role <slug>] [--born-now] [--dry-run]
   store-enroll.sh --self                    the parent's own key and store,
                                             recorded as the root of the chain
+  store-enroll.sh --describe <login> [--role <slug>]
+                                            rewrite only the repository's description
+                                            (a role or host that changed)
   store-enroll.sh --rename <old> <new>      a login renamed: its lineage entry's
                                             login and its repository's description
 
 Commands take logins; each resolves the login to the agent's id first,
 and what is stored (repository, files, folders) is named by that id
-(ADR-039). The repository's description carries both.
+(ADR-039). The repository's description names the login, its host and,
+with --role, its role; never the id, which the name carries.
 
 For each login, idempotently:
   0. its agent id (ADR-039): the one lineage.json already records for
@@ -84,7 +89,7 @@ For each login, idempotently:
      stopped before certification), else minted here — a UUIDv7 whose time is the account's
      birth: its home directory's creation time, or with --born-now (a
      new account, new-agent.sh) this moment;
-  1. the private repository <org>/agent-fabric-secrets-<id> exists (the
+  1. the private repository <org>/fabric-agent-<id> exists (the
      parent's gh; AGENT_FABRIC_SECRETS_ORG, default the fabric's own org);
   2. AS THE ACCOUNT, on the host it is placed on (runtime/hosts/registry.json,
      reached through runtime/hostexec/hostexec — directly, or over ssh):
@@ -138,12 +143,12 @@ def store(*args: str, **kw) -> tuple[int, str]:
 
 
 class Enrol:
-    def __init__(self, *, dry: bool, born_now: bool, host_flag: str):
+    def __init__(self, *, dry: bool, born_now: bool, host_flag: str, role: str = ""):
         env = os.environ
-        self.dry, self.born_now, self.host_flag = dry, born_now, host_flag
+        self.dry, self.born_now, self.host_flag, self.role = dry, born_now, host_flag, role
         self.hosts = roots.hosts_registry(environ=env, engine=ROOT)
         self.hx = env.get("AGENT_FABRIC_HOSTEXEC") or os.path.join(ROOT, "runtime", "hostexec", "hostexec")
-        self.org = env.get("AGENT_FABRIC_SECRETS_ORG") or "gzapi-org"
+        self.org = env.get("AGENT_FABRIC_SECRETS_ORG") or "BlueTeam-OU"
         self.gh = env.get("GH") or "gh"
         self.me = pwd.getpwuid(os.getuid()).pw_name
 
@@ -155,21 +160,27 @@ class Enrol:
     # the base (the test's bare repositories).
     def repo_url(self, aid: str) -> str:
         base = os.environ.get("AGENT_FABRIC_SECRETS_REMOTE_BASE") or f"git@github.com:{self.org}"
-        return f"{base}/agent-fabric-secrets-{aid}.git"
+        return f"{base}/fabric-agent-{aid}.git"
 
-    @staticmethod
-    def describe(login: str, aid: str) -> str:
-        return f"agent-fabric secrets. Linux login: {login}. Agent id: {aid}. (ADR-038, ADR-039)"
+    # The id is not in the description: the repository's name carries it.
+    # A host or a role this run does not know is left out, never guessed:
+    # the registry places a login, but no file of the parent's records a
+    # role (a binding is the account's own).
+    def describe(self, login: str, formerly: str = "") -> str:
+        host = self.host_of(login) or (self.host_of(formerly) if formerly else "")
+        where = f" on {host}" if host else ""
+        role = f", role {self.role}" if self.role else ""
+        return f"agent-fabric agent repository: secrets and settings. Agent {login}{where}{role}. (ADR-038, ADR-039)"
 
     def ensure_repo(self, aid: str, login: str) -> None:
         """The private repository, made by the parent when absent."""
-        name = f"{self.org}/agent-fabric-secrets-{aid}"
+        name = f"{self.org}/fabric-agent-{aid}"
         if run([self.gh, "repo", "view", name], capture=True, quiet=True)[0] == 0:
             return
         if self.dry:
             say(f"would: gh repo create {name} --private")
             return
-        if run([self.gh, "repo", "create", name, "--private", "--description", self.describe(login, aid)],
+        if run([self.gh, "repo", "create", name, "--private", "--description", self.describe(login)],
                capture=True)[0] != 0:
             die(f"could not create {name} (the parent's gh must be able to create a private repository in {self.org})")
 
@@ -205,6 +216,24 @@ class Enrol:
         return [self.hx, self.host_of(login), "--as", login, "--", *cmd]
 
     # ── the three commands ───────────────────────────────────────────
+    def redescribe(self, login: str) -> int:
+        """Only the description, for a host or a role that changed since
+        the repository was made; the name and the lineage stay."""
+        aid = self.id_of(login)
+        if aid is None:
+            return 1
+        if not aid:
+            die(f"{login}: no agent with that login in identities/keys/lineage.json")
+        text = self.describe(login)
+        if self.dry:
+            say(f"would: gh repo edit {self.org}/fabric-agent-{aid} --description {text}")
+            return 0
+        if run([self.gh, "repo", "edit", f"{self.org}/fabric-agent-{aid}", "--description", text],
+               capture=True)[0] != 0:
+            die(f"{login}: the description of {self.org}/fabric-agent-{aid} was not changed")
+        say(f"{login}: description of agent {aid} is now: {text}")
+        return 0
+
     def rename(self, old: str, new: str) -> int:
         aid = self.id_of(old)
         if aid is None:
@@ -216,8 +245,8 @@ class Enrol:
             return 0
         if store("rename", old, new)[0] != 0:
             die("rename failed")
-        if run([self.gh, "repo", "edit", f"{self.org}/agent-fabric-secrets-{aid}", "--description",
-                self.describe(new, aid)], capture=True)[0] != 0:
+        if run([self.gh, "repo", "edit", f"{self.org}/fabric-agent-{aid}", "--description",
+                self.describe(new, old)], capture=True)[0] != 0:
             die(f"agent {aid}: the lineage says {new}; its repository's description still names {old} "
                 "(re-run gh repo edit, nothing else)")
         say(f"agent {aid} is now {new}; nothing stored moves. Commit identities/keys/; the Linux account, its runtime "
@@ -377,7 +406,7 @@ class Enrol:
         return True
 
 def parse(argv: list[str]) -> tuple[dict, list[str]]:
-    opts = {"dry": False, "self": False, "rename": False, "born_now": False, "host": "", "help": False}
+    opts = {"dry": False, "self": False, "rename": False, "describe": False, "born_now": False, "host": "", "role": "", "help": False}
     logins, it = [], iter(argv)
     for a in it:
         if a == "--host":
@@ -387,10 +416,19 @@ def parse(argv: list[str]) -> tuple[dict, list[str]]:
             opts["host"] = value
         elif a.startswith("--host="):
             opts["host"] = a[len("--host="):]
+        elif a == "--role":
+            value = next(it, None)
+            if value is None:
+                raise Refused("--role needs a role slug")
+            opts["role"] = value
+        elif a.startswith("--role="):
+            opts["role"] = a[len("--role="):]
         elif a == "--dry-run":
             opts["dry"] = True
         elif a == "--self":
             opts["self"] = True
+        elif a == "--describe":
+            opts["describe"] = True
         elif a == "--rename":
             opts["rename"] = True
         elif a == "--born-now":
@@ -413,11 +451,15 @@ def main(argv: list[str]) -> int:
         if opts["help"]:
             sys.stdout.write(HELP)
             return 0
-        e = Enrol(dry=opts["dry"], born_now=opts["born_now"], host_flag=opts["host"])
+        e = Enrol(dry=opts["dry"], born_now=opts["born_now"], host_flag=opts["host"], role=opts["role"])
         if opts["rename"]:
             if len(logins) != 2:
                 die("--rename takes <old> <new>")
             return e.rename(*logins)
+        if opts["describe"]:
+            if len(logins) != 1:
+                die("--describe takes <login>")
+            return e.redescribe(logins[0])
         if opts["self"]:
             if logins:
                 die("--self takes no login")
