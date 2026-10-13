@@ -405,11 +405,11 @@ def main() -> int:
                                       "infra/local/grafana/provisioning/dashboards/x.json", "docs/devices/eye-beacon.md"])
         rc, out = run("7", "--basis", "b")
         check("docs and local-infra paths matching a boundary word still pass", rc == 0 and "not a security-boundary change" in out
-              and "has the review class's review" not in out and "each required engine (claude)" in out, out)
+              and "has the review class's review" not in out and "review=head reviewed: claude ✓ (head abcdef01)" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md", "product/i18n/ka-GE.json"])
         rc, out = run("7", "--basis", "b")
         check("docs + i18n pass on the engines' review alone", rc == 0 and "not a security-boundary change" in out
-              and "has the review class's review" not in out and "each required engine (claude)" in out, out)
+              and "has the review class's review" not in out and "review=head reviewed: claude ✓ (head abcdef01)" in out, out)
         check("…and the review status was asked once, by gate 4b", calls().splitlines().count("7 -q --json") == 1, calls())
         reset(reviewed=False); set_pr(me, "plain", ["docs/a.md"])
         rc, out = run("7", "--basis", "b", "--boundary")
@@ -606,17 +606,19 @@ def main() -> int:
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
         rc, out = run("7", "--basis", "b")
         check("…with the claude review of the head: armed", rc == 0 and "ARMED #7" in out
-              and "each required engine (claude)" in out, out)
+              and "review=head reviewed: claude ✓ (head abcdef01)" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
         rc, out = run("7", "--basis", "b", policy=both)
         check("the fleet default, only the claude review of the head: refused, naming codex",
-              rc == 1 and "by the codex engine" in out and "pr merge" not in calls(), out)
+              rc == 1 and "by the codex engine" in out and "review=claude ✓ codex ✗ (head abcdef01)" in out
+              and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
         rc, out = run("7", "--basis", "b", policy=both)
         check("codex required, only the codex review: refused, naming claude", rc == 1 and "by the claude engine" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
         rc, out = run("7", "--basis", "b", policy=both)
-        check("both engines reviewed the head: armed", rc == 0 and "ARMED #7" in out and "each required engine" in out, out)
+        check("both engines reviewed the head: armed", rc == 0 and "ARMED #7" in out
+              and "review=head reviewed: claude ✓ codex ✓ (head abcdef01)" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 12345678:codex")
         rc, out = run("7", "--basis", "b", policy=both)
         check("a codex review of an older head does not count", rc == 1 and "by the codex engine" in out, out)

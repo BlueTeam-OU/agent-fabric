@@ -8,6 +8,7 @@ are tests/test_pr_gate_cli.py's, one smoke case each; the verdict logic is
 asserted here, where it costs no subprocess."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -16,11 +17,13 @@ import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
-from github import pr_gate  # noqa: E402
+from github import arm_policy, pr_gate  # noqa: E402
 from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
 
 scrub_process_env()
 
+# Both of the fleet's engines on the head, as review_of_head says it.
+REVIEWED = arm_policy.review_summary({"claude", "codex"}, ["claude", "codex"], "abcdef01")
 CLEAR = {"mergeable": "MERGEABLE", "checks": "green", "unresolved": "0", "queue": "", "armed": "no"}
 
 
@@ -37,25 +40,27 @@ def main() -> int:
         fails += not good
 
     print("the band's edges")
-    v = lambda w: pr_gate.verdict(1, "main", False, commits(w), CLEAR, "head reviewed", [])  # noqa: E731
+    v = lambda w: pr_gate.verdict(1, "main", False, commits(w), CLEAR, REVIEWED, [])  # noqa: E731
     check("7 work: ask the owner", v(7).startswith("MERGEABLE — ask the owner (7 work commits < 8)"))
     check("8 work: arm", v(8).startswith("MERGEABLE — arm: post the basis (8 work commits"))
     check("16 work: arm", v(16).startswith("MERGEABLE — arm: post the basis (16 work commits"))
     check("17 work: over 16, still mergeable", v(17).startswith("MERGEABLE — 17 work commits, over 16"))
-    check("unknown commits: by hand", pr_gate.verdict(1, "main", False, None, CLEAR, "head reviewed", [])
+    check("unknown commits: by hand", pr_gate.verdict(1, "main", False, None, CLEAR, REVIEWED, [])
           .startswith("MERGEABLE — commits unknown"))
     check("a queue position wins over every block",
           pr_gate.verdict(1, "main", True, commits(9), dict(CLEAR, queue="2"), "none", []).startswith("QUEUED"))
 
     print("the verdict's reasons")
 
-    def why(review="head reviewed", awaiting=(), draft=False, **st) -> str:
+    def why(review=REVIEWED, awaiting=(), draft=False, **st) -> str:
         return pr_gate.verdict(1, "main", draft, commits(6), dict(CLEAR, **st), review, list(awaiting))
     check("clear, reviewed, 6 work: ask the owner",
           why().startswith("MERGEABLE — ask the owner (6 work commits < 8), then arm"))
-    check("a review not on the head: BLOCKED, says NOT on head",
-          why(review="NOT on head") == "BLOCKED: no review of the head (NOT on head)")
-    check("no review at all: says none", why(review="none") == "BLOCKED: no review of the head (none)")
+    check("one engine missing: BLOCKED, the per-engine line said",
+          why(review="claude ✓ codex ✗ (head abcdef01)")
+          == "BLOCKED: not every required engine has reviewed the head (claude ✓ codex ✗ (head abcdef01))")
+    check("a reader that could not answer: BLOCKED, ?",
+          why(review="?") == "BLOCKED: not every required engine has reviewed the head (?)")
     check("a failed check: named, BLOCKED", why(checks="red:backend / shard") == "BLOCKED: red checks: backend / shard")
     check("a running check: pending, BLOCKED", why(checks="pending:1") == "BLOCKED: 1 check(s) pending")
     check("no check reported at all (seconds after a push): not green",
@@ -80,26 +85,59 @@ def main() -> int:
           pr_gate.checks_of([{"context": "legacy", "state": "FAILURE"}]) == "red:legacy"
           and pr_gate.checks_of([{"context": "legacy", "state": "PENDING"}]) == "pending:1")
 
-    print("the review reader's text")
+    print("the review reader's blind rows, per engine (REQUEST 01a13693)")
     with tempfile.TemporaryDirectory() as tmp:
         script = os.path.join(tmp, "reader")
+        head = "abcdef0123456789"
 
-        def reader(head_reviewed: str, reviews: int = 1, verdicts: int = 0, code: int = 0) -> list[str]:
+        def reader(*rows: tuple[str, str | None], code: int = 0, out: str | None = None) -> list[str]:
+            """A review-status that answers `-q --json` with these (commit_sha8, engine) blind rows; engine None is a
+            row from before the field, the review class's."""
+            if out is None:
+                out = json.dumps({"blind": {"rows": [{"commit_sha8": sha, **({"engine": e} if e else {})} for sha, e in rows]},
+                                  "unresolved_threads": 0})
             with open(script, "w") as fh:
-                fh.write("#!/bin/sh\n"
-                         f'echo "  independent reviews : {reviews}"\necho "  blind reviews       : 0"\n'
-                         f'echo "  verdict comments    : {verdicts}"\necho "  head reviewed?      : {head_reviewed}"\n'
-                         f"exit {code}\n")
+                fh.write(f'#!/bin/sh\n[ "$2 $3" = "-q --json" ] || exit 2\ncat <<\'EOF\'\n{out}\nEOF\nexit {code}\n')
             os.chmod(script, 0o755)
             return [script]
-        check("head reviewed", pr_gate.review_of_head(reader("yes"), 1) == "head reviewed")
-        check("a review not on the head: NOT on head", pr_gate.review_of_head(reader("no"), 1) == "NOT on head")
-        check("no review at all: none", pr_gate.review_of_head(reader("no", 0), 1) == "none")
-        check("a clean verdict comment on an earlier head counts as NOT on head, not none",
-              pr_gate.review_of_head(reader("no", 0, 1), 1) == "NOT on head")
-        check("a reader that exits 2, or cannot run, is ?",
-              pr_gate.review_of_head(reader("yes", code=2), 1) == "?"
-              and pr_gate.review_of_head([os.path.join(tmp, "absent")], 1) == "?")
+        both, claude_only = ["claude", "codex"], ["claude"]
+        on = head[:8]
+        cases = [
+            ("claude only", [(on, "claude")], both, "claude ✓ codex ✗ (head abcdef01)"),
+            ("codex only", [(on, "codex")], both, "claude ✗ codex ✓ (head abcdef01)"),
+            ("both", [(on, "claude"), (on, "codex")], both, "head reviewed: claude ✓ codex ✓ (head abcdef01)"),
+            ("neither", [], both, "claude ✗ codex ✗ (head abcdef01)"),
+            ("claude only", [(on, "claude")], claude_only, "head reviewed: claude ✓ (head abcdef01)"),
+            ("codex only", [(on, "codex")], claude_only, "claude ✗ (head abcdef01)"),
+            ("both", [(on, "claude"), (on, "codex")], claude_only, "head reviewed: claude ✓ (head abcdef01)"),
+            ("neither", [], claude_only, "claude ✗ (head abcdef01)"),
+        ]
+        for what, rows, required, want in cases:
+            got = pr_gate.review_of_head(reader(*rows), 1, head, required)
+            check(f"policy {'+'.join(required)}, the head reviewed by {what}: {want} (got {got})", got == want)
+            reviewed = arm_policy.is_head_reviewed(got)
+            check(f"…and the verdict {'does not block' if reviewed else 'blocks'} on it",
+                  ("not every required engine" in pr_gate.verdict(1, "main", False, commits(9), CLEAR, got, [])) is not reviewed)
+        check("a review of an older head is no engine's",
+              pr_gate.review_of_head(reader(("12345678", "claude"), ("12345678", "codex")), 1, head, both)
+              == "claude ✗ codex ✗ (head abcdef01)")
+        check("a row with no engine is the review class's (claude)",
+              pr_gate.review_of_head(reader((on, None)), 1, head, claude_only) == "head reviewed: claude ✓ (head abcdef01)")
+        check("an engine only a boundary adds is shown, not required",
+              pr_gate.review_of_head(reader((on, "claude")), 1, head, claude_only, ["codex"])
+              == "head reviewed: claude ✓ codex ✗ (boundary only) (head abcdef01)")
+        check("the review exit 1 (not reviewed) still answers its rows",
+              pr_gate.review_of_head(reader((on, "claude"), code=1), 1, head, claude_only) == "head reviewed: claude ✓ (head abcdef01)")
+        check("a reader that exits 2, cannot run, or answers no blind.rows is ?",
+              pr_gate.review_of_head(reader((on, "claude"), code=2), 1, head, both) == "?"
+              and pr_gate.review_of_head([os.path.join(tmp, "absent")], 1, head, both) == "?"
+              and pr_gate.review_of_head(reader(out="  head reviewed?      : yes"), 1, head, both) == "?"
+              and pr_gate.review_of_head(reader(out='{"blind": {}}'), 1, head, both) == "?")
+        check("the engines a policy requires: its reviews; a boundary's extra shown apart",
+              pr_gate.engines_required(dict(arm_policy.default(), reviews=["claude"])) == (["claude"], ["codex"])
+              and pr_gate.engines_required(arm_policy.default()) == (both, []))
+        check("an unreadable policy requires every engine, never the default's",
+              pr_gate.engines_required("HTTP 500") == (list(arm_policy.ENGINES), []))
 
     print("AWAITING-SUPPLY")
     body = "AWAITING-SUPPLY: h/db-admin\n - AWAITING-SUPPLY: web-dev-01\naaaaaaa1..bbbbbbb2: web-dev-01 (web-dev)"
@@ -179,7 +217,7 @@ def main() -> int:
         gh.graphql = gate(gh.GhError("gh api graphql", "no answer", transient=True))
         st = pr_gate.gate_state("o/r", 1, "H")
         check("a second page that cannot be read: ?, which blocks", st["unresolved"] == "?"
-              and "unresolved thread" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+              and "unresolved thread" in pr_gate.verdict(1, "main", False, None, st, REVIEWED, []))
 
         print("checks past the first 100")
         ok = {"name": "ok", "status": "COMPLETED", "conclusion": "SUCCESS"}
@@ -236,7 +274,7 @@ def main() -> int:
                 gh.graphql = rollup(rest)
             st = pr_gate.gate_state("o/r", 1, "H")
             check(f"{label}: checks ?, which blocks", st["checks"] == "?"
-                  and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+                  and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, REVIEWED, []))
         # The cases above reach a later page; these fail on the way to it.
         for label, fake in (("a first page with no cursor to the next", rollup([[ok]], cursor=None)),
                             ("a head that moved between the pages", rollup([[ok]], head="other")),
@@ -250,7 +288,7 @@ def main() -> int:
             gh.graphql = fake
             st = pr_gate.gate_state("o/r", 1, "H")
             check(f"{label}: checks ?, which blocks", st["checks"] == "?"
-                  and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+                  and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, REVIEWED, []))
         gh.graphql = rollup([[red]])
         check("the same head on every page: read", pr_gate.gate_state("o/r", 1, "H")["checks"] == "red:late")
 
@@ -314,7 +352,7 @@ def main() -> int:
         check("threads: a next page with no cursor is ?, never page one again", pr_gate.gate_state("o/r", 1, "H")["unresolved"] == "?")
         gh.graphql = rollup([], more=False)
         st = pr_gate.gate_state("o/r", 1, "H")
-        check("...and green does not", st["checks"] == "green" and "BLOCKED" not in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+        check("...and green does not", st["checks"] == "green" and "BLOCKED" not in pr_gate.verdict(1, "main", False, None, st, REVIEWED, []))
         gh.graphql = shaped((("mergeable",), "CONFLICTING"), (("reviewThreads", "nodes"), [node(False)] * 2),
                             (("autoMergeRequest",), {"enabledAt": "x"}),
                             (("mergeQueueEntry",), {"position": 3, "state": "AWAITING_CHECKS"}))
@@ -328,7 +366,7 @@ def main() -> int:
         gh.graphql = rollup([], more=False)
         st = pr_gate.gate_state("o/r", 1, "other")
         check("a push since the PR list: the checks are another head's, ?, which blocks",
-              st["checks"] == "?" and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, "head reviewed", []))
+              st["checks"] == "?" and "the checks could not all be read" in pr_gate.verdict(1, "main", False, None, st, REVIEWED, []))
     finally:
         gh.graphql = real
 

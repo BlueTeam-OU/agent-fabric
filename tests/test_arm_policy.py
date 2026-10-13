@@ -507,7 +507,7 @@ class PrGate(unittest.TestCase):
 
     def v(self, work, policy=None):
         commits = {"work": work, "fix": 0, "merge": 0, "netted": 0, "fix_subjects": [], "netted_subjects": []}
-        return pr_gate.verdict(1, "main", False, commits, self.CLEAR, "head reviewed", [], policy)
+        return pr_gate.verdict(1, "main", False, commits, self.CLEAR, "head reviewed: claude ✓ codex ✓ (head abcdef01)", [], policy)
 
     def test_at_the_default_numbers_the_verdicts_are_the_ones_before(self):
         self.assertIn("ask the owner (7 work commits < 8)", self.v(7))
@@ -574,7 +574,7 @@ class PrGateRun(unittest.TestCase):
             es.enter_context(mock.patch.object(pr_gate, "review_reader", return_value=None))
             es.enter_context(mock.patch.object(pr_gate, "count_commits", return_value=commits))
             es.enter_context(mock.patch.object(pr_gate, "gate_state", return_value=st))
-            es.enter_context(mock.patch.object(pr_gate, "review_of_head", return_value="head reviewed"))
+            es.enter_context(mock.patch.object(pr_gate, "review_of_head", return_value="head reviewed: claude ✓ codex ✓ (head abcdef01)"))
             es.enter_context(mock.patch.object(pr_gate.arm_policy, "load", policy_load))
             es.enter_context(contextlib.redirect_stdout(out))
             self.assertEqual(pr_gate.run(["--json", "7"]), 0)

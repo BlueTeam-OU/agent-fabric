@@ -204,7 +204,10 @@ What it refuses, in order, and why:
      being the review class's `fabric-pr post-review --model fable` and codex's
      one posted with --model codex,
      and no unresolved review thread (an open P1 or P2 of either engine). The
-     refusal names the engine still missing. `boundary_reviews` adds engines for a
+     refusal opens with the line fabric-pr gate and fabric-pr counts print too,
+     "review=claude ✓ codex ✗ (head 6bc0ad18)" ("head reviewed: " opens it only
+     when every one is there), and names the engine still missing.
+     `boundary_reviews` adds engines for a
      security-boundary change not waived; agent-fabric ADR-053 rule 6.
   5. the count rule (fabric-pr gate's classifier; the 8 and the 16 here are
      the default numbers of the repository's arming policy, tools/fabric/
@@ -520,15 +523,15 @@ def check_engines(num: str, head: str, engines: list[str], refuse) -> None:
     rows = rs.get("blind", {}).get("rows") if isinstance(rs, dict) and isinstance(rs.get("blind"), dict) else None
     if not isinstance(rows, list):
         raise Unanswered(f"pr-review-status --json carried no blind.rows for #{num} — cannot judge the review engines")
-    # A row with no engine is the review class's: reviews posted before the field existed were all Claude's.
-    have = {r.get("engine", "claude") for r in rows if isinstance(r, dict) and r.get("commit_sha8") == head[:8]}
+    have = arm_policy.engines_on_head(rows, head)
+    summary = arm_policy.review_summary(have, engines, head)
     for engine in engines:
         if engine not in have:
             how = "fabric-review --engine codex (posted with fabric-pr post-review --model codex)" if engine == "codex" \
                 else "the review class (fabric-pr post-review --model fable)"
-            raise refuse(f"this repository's arming policy requires a review by the {engine} engine of the current head"
-                         f" {head}, and there is none (a review of an older head does not count): run {how} on it,"
-                         f" then arm (engines required: {', '.join(engines)})")
+            raise refuse(f"review={summary}: this repository's arming policy requires a review by the {engine} engine of"
+                         f" the current head {head}, and there is none (a review of an older head does not count): run"
+                         f" {how} on it, then arm (engines required: {', '.join(engines)})")
     unresolved = rs.get("unresolved_threads")
     if not isinstance(unresolved, int) or isinstance(unresolved, bool):
         raise Unanswered(f"pr-review-status reported no unresolved_threads count for #{num} (null: the lookup"
@@ -536,7 +539,7 @@ def check_engines(num: str, head: str, engines: list[str], refuse) -> None:
     if unresolved != 0:
         raise refuse(f"{unresolved} unresolved review thread(s) on a PR that needs the {', '.join(engines)} review(s):"
                      f" answer and resolve them first (no open P1 or P2 from either engine)")
-    say(f"the current head {head} has the review of each required engine ({', '.join(engines)}), and no unresolved thread")
+    say(f"review={summary}, and no unresolved thread")
 
 
 def arm(argv: list[str]) -> int:
@@ -724,10 +727,8 @@ def arm(argv: list[str]) -> int:
                 raise Unanswered(f"pr-review-status --json carried no blind.rows for #{num} — cannot judge the review-class review")
             unresolved = rs.get("unresolved_threads")
             # The review class's review is the claude engine's; a Codex review of the head is the second
-            # engine's, counted by gate 4b only (review of #220, F1). A reader that predates the field
-            # carries none: those rows are the review class's.
-            if not any(isinstance(r, dict) and r.get("commit_sha8") == head[:8] and r.get("engine", "claude") == "claude"
-                       for r in rows):
+            # engine's, counted by gate 4b only (review of #220, F1).
+            if "claude" not in arm_policy.engines_on_head(rows, head):
                 # An independent or automated review is not the boundary's
                 # review: the reader counts any non-author review object
                 # (a managed project's PR #930 blind review, F1).
