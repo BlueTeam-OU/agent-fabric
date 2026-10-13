@@ -28,6 +28,13 @@ writes
     ~/.config/agent-fabric/env.sh        (0600) — only the names the registry
                                          marks `plain_env`: values that are
                                          the login's, not secrets
+    /run/user/<uid>/agent-fabric/gateway/chatgpt-signin.json
+                                         (0600, tmpfs) — CODEX_CHATGPT_ACCESS_TOKEN and
+                                         CODEX_CHATGPT_ACCOUNT_ID as {"access_token", "account_id"},
+                                         for the Codex review (ADR-053 rule 8; chatgpt_signin.py):
+                                         agents only, removed when the store holds neither, or
+                                         either is not what the backend takes; never in
+                                         secrets.env or env.sh
     /run/user/<uid>/agent-fabric/gateway/claude-subscription.token
                                          (0600, tmpfs) — CLAUDE_CODE_OAUTH_TOKEN
                                          again, for the gateway to read per
@@ -93,6 +100,7 @@ MARKER = "# agent-fabric secrets"
 # The names, and which are reserved, are secretstore/reserved.py's: set and
 # rm refuse exactly the names this applies or reports as known.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import chatgpt_signin  # noqa: E402
 import gateway_token  # noqa: E402
 import roots  # noqa: E402
 from secretstore.reserved import (  # noqa: E402
@@ -151,6 +159,37 @@ def apply_gateway_token(values: dict[str, str]) -> tuple[str | None, str | None]
             return (what if done == "written" else None), None
         done = gateway_token.remove(uid, GATEWAY_RUNTIME_ROOT)
         return ("the gateway token file removed: the store holds no CLAUDE_CODE_OAUTH_TOKEN" if done == "removed" else None), None
+    except (gateway_token.TokenFileError, OSError) as e:
+        return None, f"{what} ({e})"
+
+
+def apply_signin_file(values: dict[str, str], human: bool) -> tuple[str | None, str | None]:
+    """(applied, skipped): one line each, or None. The Codex review's synced sign-in follows the store like the gateway
+    token does: written, whole and by a new file, when it holds both CODEX_CHATGPT_ACCESS_TOKEN and
+    CODEX_CHATGPT_ACCOUNT_ID and they are what the backend takes (chatgpt_signin.checked); removed when it holds
+    neither, or one, or a malformed pair: a login must refuse the review, naming why, never send half a sign-in.
+    A human login runs no review. Never fatal and never carrying a value."""
+    what = "CODEX_CHATGPT_* into the Codex sign-in file"
+    if human:
+        return None, None
+    if not home_is_login_home():
+        return None, f"{what} (HOME is not the login's home: a sandbox)"
+    uid, name = os.getuid(), gateway_token.SIGNIN_NAME
+    access, account = values.get(CODEX_NAMES[0]), values.get(CODEX_NAMES[1])
+    try:
+        if access and account:
+            try:
+                chatgpt_signin.checked(access, account, "the store's CODEX_CHATGPT_* entries")
+            except chatgpt_signin.Refused as e:
+                gateway_token.remove(uid, GATEWAY_RUNTIME_ROOT, name)
+                return None, f"{what} (not applied, and the file removed: {e})"
+            done = gateway_token.write(chatgpt_signin.synced_text(access, account), uid, GATEWAY_RUNTIME_ROOT, GATEWAY_FS_OF,
+                                       GATEWAY_CHECK_FROM, name=name)
+            return (what if done == "written" else None), None
+        done = gateway_token.remove(uid, GATEWAY_RUNTIME_ROOT, name)
+        if access or account:
+            return None, f"{what} (the store holds only one of the two: the file removed)"
+        return ("the Codex sign-in file removed: the store holds no CODEX_CHATGPT_* entry" if done == "removed" else None), None
     except (gateway_token.TokenFileError, OSError) as e:
         return None, f"{what} ({e})"
 
@@ -273,7 +312,7 @@ def fetch_values(pull: bool = True) -> tuple[dict[str, str] | None, str | None]:
         st = load_store()
         if pull:
             st.pull()
-        return st.values(only=ALL_NAMES + project_agent_env()), None
+        return st.values(only=ALL_NAMES + project_agent_env() + CODEX_NAMES), None
     except UnicodeError:
         return None, NOT_TEXT
     except Exception as e:  # noqa: BLE001 — the store's error, never a value
@@ -456,6 +495,15 @@ def gateway_token_mode() -> str | None:
     return f"{mode:04o}" if mode is not None else None
 
 
+def signin_file_mode() -> str | None:
+    """The Codex sign-in file's mode as text, None when it is not there or its directory cannot be entered."""
+    try:
+        mode = file_mode(gateway_token.token_path(os.getuid(), GATEWAY_RUNTIME_ROOT, gateway_token.SIGNIN_NAME))
+    except OSError:
+        return None
+    return f"{mode:04o}" if mode is not None else None
+
+
 def local_state() -> dict:
     f = env_file()
     mode = file_mode(f)
@@ -473,6 +521,7 @@ def local_state() -> dict:
         "gh_has_token": gh_token_matches(),
         "ssh_key_present": os.path.exists(ssh_key()),
         "gateway_token_file_mode": gateway_token_mode(),
+        "codex_signin_file_mode": signin_file_mode(),
         "git": {key: bool(git_get(key)) for key in GIT_NAMES.values()},
         "commit_gpgsign": git_get("commit.gpgsign") == "true",
     }
@@ -652,6 +701,12 @@ def sync(force: bool, as_json: bool, quiet: bool = False, pull: bool = True) -> 
         obj["applied"].append(applied_token)
     if skipped_token:
         obj["skipped"].append(skipped_token)
+    # 1c. the Codex review's sign-in, as a file beside it (chatgpt_signin.py)
+    applied_signin, skipped_signin = apply_signin_file(values, required is HUMAN_NAMES)
+    if applied_signin:
+        obj["applied"].append(applied_signin)
+    if skipped_signin:
+        obj["skipped"].append(skipped_signin)
     # 2. ~/.bashrc sources env.sh, once, and secrets.env never
     done = settle_bashrc()
     if done:
