@@ -19,6 +19,14 @@ is decoded (no signature is checked; nothing else is read or logged), and fewer 
 or less than the review's time budget when that is longer, refuses: refreshing is Codex's own job, in
 its own home (`CODEX_HOME=<dir> codex exec` once, or `codex login` again), never this module's.
 
+THE SYNCED SIGN-IN (ADR-053 rule 8). A login with no sign-in of its own at the default place, and no --codex-home
+naming another, uses the one the coordinator distributed: `<runtime dir>/agent-fabric/gateway/chatgpt-signin.json`,
+which `fabric-secrets sync` writes from the login's store (chatgpt_signin.py reads it: the access token and the
+account id, 0600, the login's own). The same life rule applies; one with too little life, an expired one, a missing
+one and a malformed one refuse naming why and who refreshes it, nothing started or posted. A sign-in of its own
+that exists and is bad is refused as it is, never replaced by the synced one, and a named --codex-home has no
+fallback.
+
 THE GATEWAY. The fleet's pinned gateway (AGENT_FABRIC_GW_BIN overrides), through the launcher's own
 start/stop (tools/fabric/launcher/gateway.py), with plan schema 1: its `--version --json` must list
 plan schema 1 and the `openai-responses` protocol, or it is refused by name before anything is written
@@ -94,23 +102,71 @@ def signin_home(environ: dict[str, str], flag: str | None) -> str:
     return path
 
 
+class NoSignIn(Refused):
+    """The login has no sign-in of its own at the place named: the one refusal the synced file may answer."""
+
+
+def _life(exp: int, now: float | None, min_life_s: float, what: str, how_to_fix: str) -> None:
+    """Refused, naming the expiry, unless the access token has `min_life_s` left."""
+    left = exp - (time.time() if now is None else now)
+    if left < min_life_s:
+        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(exp))
+        state = "expired" if left <= 0 else f"has {int(left // 60)} minutes left"
+        raise Refused(f"{what}'s access token {state} (until {when}); this review needs "
+                      f"{int(min_life_s // 60)} minutes. {how_to_fix}; nothing was started or posted")
+
+
 def read_signin(home: str, *, now: float | None = None, min_life_s: float = MIN_TOKEN_LIFE_S) -> SignIn:
     path = os.path.join(home, "auth.json")
     try:
         access, account, exp = chatgpt_signin.read_signin(home)
     except chatgpt_signin.Missing:
-        raise Refused(f"no ChatGPT sign-in at {path}; sign in with `CODEX_HOME={os.path.dirname(path)} codex login`") from None
+        raise NoSignIn(f"no ChatGPT sign-in at {path}; sign in with `CODEX_HOME={os.path.dirname(path)} codex login`") from None
     except chatgpt_signin.NotSignIn as e:
         raise Refused(f"{e}; sign in with `CODEX_HOME={home} codex login`") from None
-    now = time.time() if now is None else now
-    left = exp - now
-    if left < min_life_s:
-        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(exp))
-        state = "expired" if left <= 0 else f"has {int(left // 60)} minutes left"
-        raise Refused(f"the ChatGPT sign-in's access token {state} (until {when}); this review needs "
-                      f"{int(min_life_s // 60)} minutes. Run `CODEX_HOME={home} codex exec` once to refresh it, or sign in "
-                      f"again (`CODEX_HOME={home} codex login`); nothing was started or posted")
+    _life(exp, now, min_life_s, "the ChatGPT sign-in",
+          f"Run `CODEX_HOME={home} codex exec` once to refresh it, or sign in again (`CODEX_HOME={home} codex login`)")
     return SignIn(home, account, exp, access)
+
+
+def synced_path(environ: dict[str, str]) -> str:
+    """Where `fabric-secrets sync` puts this login's synced sign-in: beside the gateway's Claude token file, under the
+    runtime directory the review's own scratch also lives in."""
+    run = environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    return os.path.join(run, *gateway_token.SUBDIRS, gateway_token.SIGNIN_NAME)
+
+
+def read_synced(environ: dict[str, str], *, now: float | None = None, min_life_s: float = MIN_TOKEN_LIFE_S) -> SignIn:
+    """The sign-in the coordinator distributed to this login (ADR-053 rule 8); Refused naming why it cannot be used."""
+    path = synced_path(environ)
+    try:
+        access, account, exp = chatgpt_signin.read_synced(path)
+    except chatgpt_signin.Missing:
+        raise NoSignIn(f"no synced ChatGPT sign-in at {path} either; the coordinator's `fabric-accounts codex-token` "
+                       "puts one in this login's store and `fabric-secrets sync` applies it") from None
+    except chatgpt_signin.Refused as e:
+        raise Refused(f"the synced ChatGPT sign-in cannot be used: {e}; ask the coordinator to run "
+                      "`fabric-accounts codex-token`, then `fabric-secrets sync`") from None
+    _life(exp, now, min_life_s, "the synced ChatGPT sign-in",
+          "The coordinator refreshes it and runs `fabric-accounts codex-token`; then `fabric-secrets sync` here")
+    return SignIn(os.path.dirname(path), account, exp, access)
+
+
+def signin_for(environ: dict[str, str], flag: str | None, *, now: float | None = None,
+               min_life_s: float = MIN_TOKEN_LIFE_S) -> SignIn:
+    """The login's own sign-in; and only when it has none at the default place (no --codex-home named), the synced
+    one. A sign-in that exists and is bad is never replaced by the synced one: it is refused as it is. A
+    --codex-home that names a place is that place or nothing."""
+    home = signin_home(environ, flag)
+    try:
+        return read_signin(home, now=now, min_life_s=min_life_s)
+    except NoSignIn as own:
+        if flag is not None:
+            raise
+        try:
+            return read_synced(environ, now=now, min_life_s=min_life_s)
+        except NoSignIn as synced:
+            raise Refused(f"{own}; {synced}") from None
 
 
 # --- the gateway -------------------------------------------------------------
@@ -136,7 +192,7 @@ def prepare(gateway: str, environ: dict[str, str], signin_flag: str | None, budg
     lifetime, then the installed gateway's schemas and protocols."""
     if gateway not in GATEWAYS:
         raise Refused(f"gateway {gateway!r}: the gateways are: {', '.join(GATEWAYS)}")
-    signin = read_signin(signin_home(environ, signin_flag), now=now, min_life_s=max(MIN_TOKEN_LIFE_S, budget_s))
+    signin = signin_for(environ, signin_flag, now=now, min_life_s=max(MIN_TOKEN_LIFE_S, budget_s))
     gw, launcher_refused = _launcher()
     try:
         binary = gw.binary_path(environ, FABRIC_ROOT)
