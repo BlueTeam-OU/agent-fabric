@@ -686,7 +686,7 @@ def _():
                 t0 = time.monotonic()
                 r = subprocess.run([P.INBOX_CMD, flag], env=env, capture_output=True, text=True, timeout=10)
                 eq(r.returncode, 0, r.stdout + r.stderr)
-                ok(f"a watch is already running (pid {first.pid}, started " in r.stdout and "nothing to kill" in r.stdout, r.stdout)
+                ok(f"a watch is already running (pid {first.pid}, started " in r.stdout and "nothing to kill; do not run it again" in r.stdout, r.stdout)
                 ok(r.stdout.count("\n") == 1, "one line: " + r.stdout)
                 ok(time.monotonic() - t0 < 8, "it exits at once")
             release.set()
