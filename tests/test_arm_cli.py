@@ -103,6 +103,9 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
             return 1, "", ""
         return 0, json.dumps({k: v for k, v in pr.items() if k != "files"}), ""
     if line == "pr merge 7 --merge --auto --match-head-commit abcdef0123456789abcdef0123456789abcdef01":
+        if has("mergefail"):
+            # gh's failure on a PR GitHub merges anyway (agent-fabric #237): the state files say what reads back.
+            return 1, "", "GraphQL: Merge already in progress (mergePullRequest)"
         if not has("noarm"):
             open(os.path.join(s, "armed"), "w").close()
         return 0, "", ""
@@ -214,6 +217,7 @@ def main() -> int:
             """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field",
+                      "mergefail", "inbase", "unasked",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
@@ -221,7 +225,8 @@ def main() -> int:
 
         def set_pr(branch: str, body: str, files: list[str], st: str = "OPEN", draft: bool = False) -> None:
             put("pr.json", json.dumps({"number": 7, "state": st, "isDraft": draft, "headRefName": branch,
-                                       "headRefOid": HEAD, "body": body, "files": files, "title": "the pr"}))
+                                       "headRefOid": HEAD, "baseRefName": "main", "body": body, "files": files,
+                                       "title": "the pr"}))
 
         def set_gate(n: int | None, known: bool | None = True) -> None:
             row: dict = {"number": 7, "checks": "green"}
@@ -262,6 +267,15 @@ def main() -> int:
                 raise gh.GhError(what or "gh " + " ".join(args[:2]), err.strip() or "failed")
             return out
 
+        def in_base(repo: str, head: str, base: str, cwd: str = ".", note=lambda _: None) -> bool | None:
+            """landed.head_in_base in process: the `inbase` state file is git's yes, `unasked` a git it could not
+            ask (said through `note`); each question is a call."""
+            _log(state, f"landed {repo} {head} {base}\n")
+            if os.path.exists(f"{state}/unasked"):
+                note("could not ask git: the fake's reason")
+                return None
+            return os.path.exists(f"{state}/inbase")
+
         def reader(head: list[str], args: list[str], timeout: int = 600) -> tuple[int, str]:
             rc, out, _ = MOCKS[os.path.basename(head[0])](state, list(args), "")
             return rc, out
@@ -280,6 +294,7 @@ def main() -> int:
                 st.enter_context(mock.patch.object(arm.common, "apply_project_env"))
                 st.enter_context(mock.patch.object(gh, "run", gh_run))
                 st.enter_context(mock.patch.object(arm, "run_reader", reader))
+                st.enter_context(mock.patch.object(arm.landed, "head_in_base", in_base))
                 st.enter_context(mock.patch.object(arm_policy, "load", lambda repo, **kw: policy or claude_only))
                 st.enter_context(mock.patch.object(repo_policy, "check", lambda repo, policy, api=None: []))
                 st.enter_context(contextlib.redirect_stdout(buf))
@@ -390,11 +405,11 @@ def main() -> int:
                                       "infra/local/grafana/provisioning/dashboards/x.json", "docs/devices/eye-beacon.md"])
         rc, out = run("7", "--basis", "b")
         check("docs and local-infra paths matching a boundary word still pass", rc == 0 and "not a security-boundary change" in out
-              and "has the review class's review" not in out and "each required engine (claude)" in out, out)
+              and "has the review class's review" not in out and "review=head reviewed: claude ✓ (head abcdef01)" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md", "product/i18n/ka-GE.json"])
         rc, out = run("7", "--basis", "b")
         check("docs + i18n pass on the engines' review alone", rc == 0 and "not a security-boundary change" in out
-              and "has the review class's review" not in out and "each required engine (claude)" in out, out)
+              and "has the review class's review" not in out and "review=head reviewed: claude ✓ (head abcdef01)" in out, out)
         check("…and the review status was asked once, by gate 4b", calls().splitlines().count("7 -q --json") == 1, calls())
         reset(reviewed=False); set_pr(me, "plain", ["docs/a.md"])
         rc, out = run("7", "--basis", "b", "--boundary")
@@ -591,17 +606,19 @@ def main() -> int:
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
         rc, out = run("7", "--basis", "b")
         check("…with the claude review of the head: armed", rc == 0 and "ARMED #7" in out
-              and "each required engine (claude)" in out, out)
+              and "review=head reviewed: claude ✓ (head abcdef01)" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
         rc, out = run("7", "--basis", "b", policy=both)
         check("the fleet default, only the claude review of the head: refused, naming codex",
-              rc == 1 and "by the codex engine" in out and "pr merge" not in calls(), out)
+              rc == 1 and "by the codex engine" in out and "review=claude ✓ codex ✗ (head abcdef01)" in out
+              and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
         rc, out = run("7", "--basis", "b", policy=both)
         check("codex required, only the codex review: refused, naming claude", rc == 1 and "by the claude engine" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
         rc, out = run("7", "--basis", "b", policy=both)
-        check("both engines reviewed the head: armed", rc == 0 and "ARMED #7" in out and "each required engine" in out, out)
+        check("both engines reviewed the head: armed", rc == 0 and "ARMED #7" in out
+              and "review=head reviewed: claude ✓ codex ✓ (head abcdef01)" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 12345678:codex")
         rc, out = run("7", "--basis", "b", policy=both)
         check("a codex review of an older head does not count", rc == 1 and "by the codex engine" in out, out)
@@ -732,6 +749,57 @@ def main() -> int:
         rc, out = run("7", "--basis", "b")
         check("open, neither armed nor queued after gh pr merge --auto: exit 2, 'idle'",
               rc == 2 and "reads 'idle'" in out, out)
+        check("…its head asked of git first, on the base the PR names", f"landed gzapi-org/gzapp {HEAD} main" in calls(),
+              calls())
+        reset()
+        rc, out = run("7", "--basis", "b")
+        check("an armed read-back asks git nothing: the common path costs no fetch", rc == 0 and "landed" not in calls(),
+              calls())
+
+        print("arm: a merge call that fails on a PR GitHub merges (agent-fabric #237)")
+        reset(); put("mergefail", ""); put("merged", "")
+        rc, out = run("7", "--basis", "b")
+        check("gh pr merge fails and the read-back is MERGED on the head: exit 0, said MERGED",
+              rc == 0 and "MERGED #7" in out and "merged on head abcdef01" in out, out)
+        check("…the failure said, not hidden", "gh pr merge failed on #7 (GraphQL: Merge already in progress" in out, out)
+        reset(); put("mergefail", ""); put("armed", "")
+        rc, out = run("7", "--basis", "b")
+        check("gh pr merge fails and the PR reads armed on the head: exit 0, armed", rc == 0 and "ARMED #7" in out, out)
+        reset(); put("mergefail", ""); put("inbase", "")
+        rc, out = run("7", "--basis", "b")
+        check("gh pr merge fails, the PR reads open and idle, its head is in the base: exit 0, merged, the API lagging",
+              rc == 0 and "MERGED #7" in out and "is in origin/main" in out and "PR API is lagging" in out
+              and "reads 'idle'" in out, out)
+        check("…with no watcher line", "wait-merged" not in out, out)
+        reset(); put("noarm", ""); put("inbase", "")
+        rc, out = run("7", "--basis", "b")
+        check("a merge call that succeeded, read back open while the head is in the base: exit 0, merged",
+              rc == 0 and "MERGED #7" in out and "PR API is lagging" in out, out)
+        reset(); put("mergefail", "")
+        rc, out = run("7", "--basis", "b")
+        check("gh pr merge fails, idle, the head not in the base: exit 2, the failure named",
+              rc == 2 and "reads 'idle'" in out and "failed: GraphQL: Merge already in progress" in out
+              and "MERGED #7" not in out, out)
+        reset(); put("mergefail", ""); put("unasked", "")
+        rc, out = run("7", "--basis", "b")
+        check("…and when git could not be asked, that is said beside the exit 2",
+              rc == 2 and "arm: could not ask git: the fake's reason" in out, out)
+        reset(); put("mergefail", ""); put("nohead", "")
+        rc, out = run("7", "--basis", "b")
+        check("…a read-back that fails is asked of git too", rc == 2 and "landed" in calls(), calls())
+        reset(); put("mergefail", ""); put("nohead", ""); put("inbase", "")
+        rc, out = run("7", "--basis", "b")
+        check("…and is merged when git says so", rc == 0 and "MERGED #7" in out and "reads 'unknown'" in out, out)
+        reset(); put("inbase", ""); put("merged", "0123456789abcdef0123456789abcdef01234567")
+        rc, out = run("7", "--basis", "b")
+        check("merged on another head is not a lag: exit 2 whatever git says, git not asked",
+              rc == 2 and "merged at 01234567" in out and "landed" not in calls(), out + calls())
+        reset(); put("inbase", ""); put("closed", "")
+        rc, out = run("7", "--basis", "b")
+        check("closed is not a lag either", rc == 2 and "state CLOSED" in out and "landed" not in calls(), out + calls())
+        reset(); put("inbase", ""); put("pushed", "")
+        rc, out = run("7", "--basis", "b")
+        check("…nor open on another head", rc == 2 and "open at 01234567" in out and "landed" not in calls(), out + calls())
         reset()
         rc, out = run("7", "--basis", "b", "--dry-run")
         check("dry run exits 0", rc == 0 and "DRY RUN" in out, out)
@@ -740,6 +808,67 @@ def main() -> int:
         check("dry run posts and arms nothing", "pr merge" not in calls() and "pr comment" not in calls(), calls())
         reset(); put("viewfail", "")
         rc, out = run("7", "--basis", "b"); check("unreadable PR: exit 2", rc == 2, out)
+        print("arm: landed.head_in_base, on real git")
+        from github import landed
+        origin, clone = f"{sandbox}/origin.git", f"{sandbox}/clone"
+        g = lambda repo, *a: subprocess.run(["git", "-C", repo, *a], env=git_env(), check=True, capture_output=True,
+                                           text=True).stdout.strip()
+        os.makedirs(clone)
+        g(sandbox, "init", "-q", "--bare", "-b", "main", origin)
+        g(clone, "init", "-q", "-b", "main")
+        # origin says github.com, as a real clone's does; the bytes come from the bare repository beside it.
+        g(clone, "remote", "add", "origin", "https://github.com/o/r.git")
+        g(clone, "config", f"url.{origin}.insteadOf", "https://github.com/o/r.git")
+        g(clone, "commit", "-q", "--allow-empty", "-m", "base")
+        g(clone, "checkout", "-q", "-b", "feat")
+        g(clone, "commit", "-q", "--allow-empty", "-m", "the pr's head")
+        pr_head = g(clone, "rev-parse", "HEAD")
+        g(clone, "commit", "-q", "--allow-empty", "-m", "never merged")
+        unmerged = g(clone, "rev-parse", "HEAD")
+        g(clone, "push", "-q", "origin", "main")
+        with mock.patch.dict(os.environ, git_env(), clear=True):
+            check("a head not yet in the base: False", landed.head_in_base("o/r", pr_head, "main", clone) is False)
+            # GitHub's merge, made behind the clone's back: the clone learns of it only by the fetch.
+            other = f"{sandbox}/other"
+            g(sandbox, "clone", "-q", "-b", "main", origin, other)
+            g(other, "fetch", "-q", clone, f"{pr_head}:refs/heads/feat")
+            g(other, "merge", "-q", "--no-ff", "-m", "Merge pull request #7", "feat")
+            g(other, "push", "-q", "origin", "main")
+            check("the head merged on origin, the clone's origin/main stale: fetched, True",
+                  landed.head_in_base("o/r", pr_head, "main", clone) is True)
+            check("…the remote-tracking branch moved, FETCH_HEAD left alone",
+                  g(clone, "rev-parse", "origin/main") == g(other, "rev-parse", "HEAD")
+                  and not os.path.exists(f"{clone}/.git/FETCH_HEAD"))
+            check("a later commit of the branch, never merged: False",
+                  landed.head_in_base("o/r", unmerged, "main", clone) is False)
+            check("a head this clone has never seen: False",
+                  landed.head_in_base("o/r", "0" * 40, "main", clone) is False)
+            check("the case of the repository's name does not matter", landed.head_in_base("O/R", pr_head, "main", clone) is True)
+            said: list[str] = []
+            check("origin is another repository (GH_REPO named this one): None, never asked",
+                  landed.head_in_base("o/other", pr_head, "main", clone, note=said.append) is None)
+            check("…and said, without the URL", said == [f"could not ask git whether {pr_head[:8]} is in origin/main:"
+                                                         " this directory's origin is not o/other on github.com"], str(said))
+            check("a base the remote does not have: None", landed.head_in_base("o/r", pr_head, "nope", clone) is None)
+            check("an abbreviated head: None", landed.head_in_base("o/r", pr_head[:8], "main", clone) is None)
+            check("a base that reads as an option: None", landed.head_in_base("o/r", pr_head, "--all", clone) is None)
+            check("not a clone: None", landed.head_in_base("o/r", pr_head, "main", sandbox) is None)
+            g(clone, "config", f"url.{sandbox}/gone.git.insteadOf", "https://github.com/o/r.git")
+            g(clone, "config", "--unset", f"url.{origin}.insteadOf")
+            said = []
+            check("a fetch that fails: None, never the stale answer",
+                  landed.head_in_base("o/r", pr_head, "main", clone, note=said.append) is None)
+            check("…and said", said == [f"could not ask git whether {pr_head[:8]} is in origin/main: git fetch origin"
+                                        " main failed"], str(said))
+            said = []
+            landed.head_in_base("o/r", pr_head, "main", sandbox, note=said.append)
+            check("not a clone: said too", len(said) == 1 and said[0].startswith("could not ask git"), str(said))
+            said = []
+            landed.head_in_base("o/r", "", "main", clone, note=said.append)
+            check("an unread head: said", said == ["could not ask git whether ? is in origin/main: the PR's head or"
+                                                   " base was not read"], str(said))
+        shutil.rmtree(clone); shutil.rmtree(other); shutil.rmtree(origin)
+
         print("arm: another project's rules — InterWeave's arm.json, through the shim")
         iw = {"AGENT_FABRIC_ARM_CONFIG": IW_CONFIG}
         for path in ("crates/identity/profile-identity/src/lib.rs", "crates/human/store/src/lib.rs",
