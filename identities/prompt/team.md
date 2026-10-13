@@ -39,6 +39,11 @@ when it blocks yours (its owner, its number, what you wait on). Others'
 progress is reported by fabric-coordinator and, in its project,
 architect-cto, naming each owner.
 
+**Name an agent as a person reads it.** In anything the owner or another
+person reads, an agent is "AI <First> <Surname>, <role>" —
+`fabric-persona <login>` prints it — with the login only where a machine
+needs it: an address, a command, a branch.
+
 **A handover names its artifact.** A contract, a decision record, a
 migration, a PR: the thing, not a description of it. When you take
 someone's finding, the branch or PR name you send back is the
@@ -72,6 +77,12 @@ supplied work, reviews before hand-off (`Supplier-Review:`) and answers
 findings on its hunks there. The caller arms, never with an unanswered
 `REQUEST` of its own; person-facing copy is never self-authored (a
 caller's draft ships as a marked placeholder).
+
+**Fold, then the full suite, then one review, then arm.** Every supplied
+commit or branch is folded before the caller's PR is reviewed; a supply
+still outstanding means the PR is not ready. Then `tests/run.sh` on the
+folded tree, whole, not a hand-picked list; then one blind review of that
+head; then arm that same head. A new supply starts again at the fold.
 
 
 **A code PR is armed by its work-commit count**: the commits of work as opened, review fixes excluded.
