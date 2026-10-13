@@ -39,9 +39,14 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "agents", "x", "watch-on-stop.json")
         yes, no = (lambda c, s: True), (lambda c, s: False)
+        # The lock directory, empty unless a case plants a lock: the login's
+        # real one may hold a live watch.
+        run_dir = os.path.join(tmp, "run")
+        os.makedirs(os.path.join(run_dir, "agent-fabric"))
+        lock = os.path.join(run_dir, "agent-fabric", "gzcoord-inbox-x.lock")
 
         def go(payload, procs, now=1000.0, integ=yes):
-            return mod.decide({"session_id": "s1", **payload}, procs, now, path, integ, own_pid=ME)
+            return mod.decide({"session_id": "s1", **payload}, procs, now, path, integ, own_pid=ME, run_dir=run_dir)
 
         def fresh():
             if os.path.exists(path):
@@ -58,6 +63,19 @@ def main() -> int:
         out = go({}, other)
         check("a watch under another session's harness: blocked, with the command",
               out and out["decision"] == "block" and "gzcoord-inbox --until-delivery" in out["reason"], out)
+        fresh()
+        # The same watch holding the login's one-watch lock, in the lock's
+        # own format ("<pid>\n<started>\n"): the login has its watch, and a
+        # second would be refused, so no block (review of #242, R2).
+        with open(lock, "w", encoding="utf-8") as fh:
+            fh.write("300\n2026-10-13T18:00:00Z\n")
+        out = go({}, other)
+        check("decide: an out-of-tree live watch holding the lock: passes", out is None, out)
+        check("…and no state written for it", not os.path.exists(path))
+        stale = {k: v for k, v in other.items() if k != 300}
+        out = go({}, stale)
+        check("decide: the lock names a watch that is gone: blocked", out and out["decision"] == "block", out)
+        os.remove(lock)
         fresh()
         out = go({}, table((300, (200, "python3", "gzcoord-inbox --follow"))))
         check("--follow counts as a watch, as in session-start", out is None, out)
@@ -108,6 +126,24 @@ def main() -> int:
         stub_identity("{'role': 'fabric-coordinator'}")
         check("integrated: a binding with a role and a configured project", mod.integrated(tmp, "s") is True)
         mod.FABRIC_ROOT = real_root
+
+        # gzcoord-inbox's one-watch lock names the holder: a live watch there is this login's
+        # watch even outside this session's tree; a stale pid, or a pid that is no watch, is not.
+        with tempfile.TemporaryDirectory() as rd:
+            os.makedirs(os.path.join(rd, "agent-fabric"))
+            lock = os.path.join(rd, "agent-fabric", "gzcoord-inbox-user.lock")
+            watch_cmd = "/usr/local/bin/fabric-python -I /home/u/.local/bin/gzcoord-inbox --until-delivery"
+            procs = {4242: (1, "fabric-python", watch_cmd), 4343: (1, "sleep", "sleep 100")}
+            # The lock's own format: the holder's pid, then when it started.
+            for content, want, label in (("4242\n2026-10-13T18:00:00Z\n", True, "a live watch holds the lock"),
+                                         ("9999\n2026-10-13T18:00:00Z\n", False, "the lock names a pid that is gone"),
+                                         ("4343\n2026-10-13T18:00:00Z\n", False, "the lock names a pid that is no watch"),
+                                         ("", False, "an empty lock file")):
+                with open(lock, "w", encoding="utf-8") as fh:
+                    fh.write(content)
+                check(f"lock holder: {label}", mod.lock_holder_is_watch(procs, rd) is want)
+            os.remove(lock)
+            check("lock holder: no lock file", mod.lock_holder_is_watch(procs, rd) is False)
 
         def boom(*a, **k):
             raise RuntimeError("x")

@@ -175,11 +175,12 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="test_fabric_pr.reader.") as tmp:
         reader = f"{tmp}/fabric-pr"
         with open(reader, "w") as fh:
-            fh.write('#!/bin/sh\n[ "$*" = "review-status 5" ] && echo "  head reviewed?: yes"\n')
+            fh.write('#!/bin/sh\n[ "$*" = "review-status 5 -q --json" ] || exit 2\n'
+                     'echo \'{"blind": {"rows": [{"commit_sha8": "abcdef01", "engine": "claude"}]}}\'\n')
         os.chmod(reader, 0o755)
+        got = pr_gate.review_of_head([reader, "review-status"], 5, "abcdef0123", ["claude"])
         check("pr_gate runs the reader's whole head (program and verb) before the number",
-              pr_gate.review_of_head([reader, "review-status"], 5) == "head reviewed",
-              pr_gate.review_of_head([reader, "review-status"], 5))
+              got == "head reviewed: claude ✓ (head abcdef01)", got)
 
     print("pass" if not fails else f"{fails} FAILED")
     return 1 if fails else 0

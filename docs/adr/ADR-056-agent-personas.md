@@ -64,13 +64,15 @@ its own rather than imposed.
    it accepts one, nothing is written; an agent's persona is read
    through its own control agent, which can read its repository
    (ADR-029), wherever it is displayed. It belongs to the agent id: a login rename or a
-   rebind leaves it. Only the surname claim is recorded centrally (rule
-   4).
+   rebind leaves it. Only the claim is recorded centrally, the surname, the first
+   name and the pronoun if one was asked for (rule 4).
 2. A persona is displayed only behind the prefix "AI": "AI <Name>",
-   "AI <Name> <Surname>", or "AI <Name> · <Role>" with the current role.
-   Where an agent and a person both read a text (a pull request, a
-   message), the login follows: "AI Ada Maxwell (python-dev-01)". No
-   surface shows the name without the prefix.
+   "AI <Name> <Surname>", or "AI <Name> <Surname>, <role>", the role as
+   people say it (the catalogue's `short_title`, "Culture Specialist").
+   In anything a person reads, an agent names another that way, never
+   by its login; the login appears only where a machine needs it (an
+   address, a command, a branch). `fabric-persona <login>` prints the
+   name. No surface shows the name without the prefix (A 2026-10-13).
 3. The surname comes from `identities/personas/surnames.json`:
    scientists from all over the world, deceased, none who knowingly
    worked toward a weapon — what matters is the intention: designing,
@@ -82,7 +84,11 @@ its own rather than imposed.
    its reason. fabric-coordinator curates it and the owner checks it;
    an addition passes the same test.
 4. One agent per surname: an agent claims one, the first claim wins, and
-   the claim is recorded in `identities/personas/claims.json`.
+   the claim is recorded in `identities/personas/claims.json` with the
+   agent's first name (and its pronoun, if it asked for one): the public
+   directory every surface reads a name from (A 2026-10-13). Where a
+   claim and the agent's own profile differ, the claim wins, first name
+   and surname alike.
 5. The agent chooses its first name from the culture its surname comes
    from (the entry's `from`), a man's or a woman's name whatever the
    scientist's own sex, so a name and a surname belong together; a
@@ -149,3 +155,4 @@ The body above reads current; each change's full note is in [history/ADR-056-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-13 | Candidate avatars wait in a shared folder on the host | §5 rule 7: candidates in /usr/local/share/agent-fabric/avatars/<id>/, brand-comms writes, every agent reads |
+| 2026-10-13 | An agent is named with its role as people say it, from a public directory | §5 rule 2: "AI <Name> <Surname>, <role>" with the short title, never the login where people read; rule 4: claims carry the first name |

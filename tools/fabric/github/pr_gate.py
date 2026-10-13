@@ -23,8 +23,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             unreadable PR list, said first)
 
 The review is asked of pr-review-status as a PROGRAM, by path, and read
-from its text: the path is the seam the oracle mocks, and the managed
-projects point it at their own reader.
+from its --json (blind.rows, per engine, as fabric-pr arm reads it): the
+path is the seam the oracle mocks.
 """
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ per PR now carries all of it, and a verdict.
 
 WHAT A ROW SAYS
   #N  <owner> [(me)]  commits=T (W work, F fix, M merge[, R netted by a revert])  checks=<green|red:<names>|pending:<k>|none-yet|?>
-      review=<head reviewed|NOT on head|none>  threads=<u>  armed=<yes|no>
+      review=<[head reviewed: ]claude ✓ codex ✗ (head <sha8>)|?>  threads=<u>  armed=<yes|no>
       queue=<pos>  verdict
 
   owner  the session that opened it — <host>/<login> from the branch
@@ -87,8 +87,16 @@ WHAT A ROW SAYS
          ones; pending counts the ones still running; none-yet when no
          check has reported (seconds after a push); ? when they could
          not all be read, which blocks
-  review whether a review — an independent one, or the review class's blind review — covers the CURRENT head
-         (fabric-pr review-status's reading)
+  review each review engine the repository's arming policy requires
+         (`reviews`), marked ✓ when its review is on the CURRENT head:
+         the check fabric-pr arm makes, from fabric-pr review-status
+         --json. "head reviewed: " opens it only when every one is
+         there. Engines only a security boundary adds (`boundary_reviews`)
+         are marked "(boundary only)" and not required here: arm judges
+         the boundary. An additional engine (`additional_reviews`) is
+         marked ✓, "unavailable (<reason>)" when its marker for the
+         head stands in, or ✗, which blocks. An unreadable policy
+         requires every engine; ? is a reader that could not answer
   verdict one of:
     MERGEABLE — arm (8–16 work commits, gate met: post the basis, arm)
     MERGEABLE — ask the owner (under 8 work commits, gate met)
@@ -97,7 +105,7 @@ WHAT A ROW SAYS
     ARMED and clear / ARMED but held: <what> / QUEUED — nothing to do
     BLOCKED: <what> — a draft, red checks, pending checks, no check yet,
     checks unread,
-    no review of the head, unresolved threads, a conflict
+    a required engine with no review of the head, unresolved threads, a conflict
   A pull request given by number that is MERGED is one row: its commit split
   over <merge>^1..<merge>^2 (as pr-compliance reads it), marked MERGED and
   "not at any gate"; with no merge commit to count from it says the commits
@@ -160,8 +168,6 @@ RED = re.compile(r"FAILURE|ERROR|TIMED_OUT|CANCELLED|ACTION_REQUIRED|STARTUP_FAI
 RUNNING_STATUS = re.compile(r"IN_PROGRESS|QUEUED|PENDING|WAITING|REQUESTED")
 RUNNING_STATE = re.compile(r"PENDING|EXPECTED")
 AWAITING = re.compile(r"^\s*-?\s*AWAITING-SUPPLY:\s*(?P<who>\S+)")
-HEAD_REVIEWED = re.compile(r"^  head reviewed\? *: *([a-z]*)")
-ANY_REVIEW = re.compile(r"^  (?:independent reviews|blind reviews|verdict comments) *: *([0-9]*)")
 
 
 def session_prefix() -> str:
@@ -297,28 +303,49 @@ def review_reader() -> list[str]:
     return [os.path.join(FABRIC, "bin", "fabric-pr"), "review-status"]
 
 
-def review_of_head(reader: list[str], num: int) -> str:
-    """pr-review-status's reading of the current head. A reader that
-    cannot run is "?", like one that could not read the PR — the bash
-    read a missing reader as "none"."""
+def review_of_head(reader: list[str], num: int, head: str, required: list[str], boundary_only: list[str] = (),
+                   unread: str = "", additional: list[str] = ()) -> str:
+    """Each required engine's review of `head`, and each additional engine's review or unavailable marker, read as
+    fabric-pr arm reads them (pr-review-status --json's blind.rows and unavailable.rows, arm_policy.engines_on_head
+    and engines_unavailable) and said as arm_policy.review_summary says it: "head reviewed: ..." only when every
+    one is there. A reader that cannot run or answer is "?", like one that could not read the PR
+    — the bash read a missing reader as "none"."""
     try:
-        r = subprocess.run([*reader, str(num)], capture_output=True, text=True, timeout=300,
+        r = subprocess.run([*reader, str(num), "-q", "--json"], capture_output=True, text=True, timeout=300,
                            stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
         return "?"
     if r.returncode == 2:
         return "?"
-    head_reviewed, any_review = "", 0
-    for line in r.stdout.splitlines():
-        m = HEAD_REVIEWED.match(line)
-        if m and not head_reviewed:
-            head_reviewed = m.group(1) or ""
-        m = ANY_REVIEW.match(line)
-        if m and m.group(1):
-            any_review += int(m.group(1))
-    if head_reviewed == "yes":
-        return "head reviewed"
-    return "NOT on head" if any_review > 0 else "none"
+    try:
+        rs = json.loads(r.stdout)
+    except ValueError:
+        return "?"
+    blind = rs.get("blind") if isinstance(rs, dict) else None
+    rows = blind.get("rows") if isinstance(blind, dict) else None
+    gone = rs.get("unavailable", {}) if isinstance(rs, dict) else None
+    marked = gone.get("rows", []) if isinstance(gone, dict) else None
+    if not isinstance(rows, list) or not isinstance(marked, list):
+        return "?"
+    return arm_policy.review_summary(arm_policy.engines_on_head(rows, head), required, head, boundary_only, unread,
+                                     additional, arm_policy.engines_unavailable(marked, head))
+
+
+def engines_required(policy: dict | str) -> tuple[list[str], list[str], str]:
+    """(the engines every PR needs, the ones only a security-boundary change adds, why the policy is unread or "").
+    The gate does not judge the boundary — fabric-pr arm does, from the project's arm.json — so the second are
+    shown, not required. An unreadable policy requires every engine, and says why: it is never read as the
+    default, which could ask fewer."""
+    if isinstance(policy, str):
+        return list(arm_policy.ENGINES), [], policy
+    every = arm_policy.required_engines(policy, False)
+    return every, [e for e in arm_policy.required_engines(policy, True) if e not in every], ""
+
+
+def engines_additional(policy: dict | str) -> list[str]:
+    """The engines a policy asks beyond the required ones (additional_reviews), judged as for a change that is no
+    boundary, as engines_required judges it; an unreadable policy has none, since it requires every engine."""
+    return [] if isinstance(policy, str) else arm_policy.additional_engines(policy, False)
 
 
 def awaiting_supply(body: str) -> list[str]:
@@ -354,8 +381,8 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
         blocks.append("no check has reported yet (seconds after a push, or nothing runs on this PR)")
     if checks == "?":
         blocks.append("the checks could not all be read")
-    if review != "head reviewed":
-        blocks.append(f"no review of the head ({review})")
+    if not arm_policy.is_head_reviewed(review):
+        blocks.append(f"not every required engine has reviewed the head ({review})")
     if st["unresolved"] != "0":
         blocks.append(f"{st['unresolved']} unresolved thread(s)")
     if awaiting:
@@ -385,7 +412,7 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
     if work > advice_over:
         return f"MERGEABLE — {work} work commits, over {advice_over}: smaller batches next time; arm on the basis"
     if work >= rule["min"]:
-        return f"MERGEABLE — arm: post the basis ({work} work commits, review on head) and gh pr merge {num} {flag}"
+        return f"MERGEABLE — arm: post the basis ({work} work commits, each engine's review on head) and gh pr merge {num} {flag}"
     if rule["below_min"] == "refuse":
         return f"MERGEABLE — {work} work commits < {rule['min']}: this repository's policy refuses below the minimum, arm will not arm it"
     return f"MERGEABLE — ask the owner ({work} work commits < {rule['min']}), then arm"
@@ -579,7 +606,7 @@ def run(argv: list[str]) -> int:
             note(f"could not read pull request #{num} from GitHub (the graphql read failed); nothing is invented — "
                  "run again.")
             return 2
-        review = review_of_head(reader, num)
+        review = review_of_head(reader, num, head, *engines_required(policy), additional=engines_additional(policy))
         awaiting = awaiting_supply(p.get("body") or "")
         owner = owner_of(branch)
         known = commits is not None

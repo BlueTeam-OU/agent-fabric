@@ -30,12 +30,15 @@ nothing wrote a false record.
   stderr    `arm: REFUSED #N — <why>` on a refusal; `arm: <why>` when a
             question could not be answered, or on a usage error
   exit      0 read back armed, queued or merged, each on the head the
-            gates read (or, with --dry-run, would arm); on a direct
-            repository only merged on that head; 1 refused — the
+            gates read, or that head found in the base branch while the
+            PR still reads open or cannot be read back (or, with
+            --dry-run, would arm); on a
+            direct repository only merged; 1 refused — the
             reason is the last line; 2 gh / pr-gate / pr-review-status /
             the project's arm.json / the relay / fabric-ctl could not
-            answer, the read-back is idle, closed or on another head
-            (on a direct repository, anything but merged), or usage
+            answer, the read-back is idle with the head not in the base,
+            closed or on another head (on a direct repository, anything
+            but merged), or usage
 
 THE WAIVER:
 the security-boundary gate is waived only on a message from the holder
@@ -151,7 +154,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import arm_policy, common, pr_gate, repo_policy  # noqa: E402
+from github import arm_policy, common, landed, pr_gate, repo_policy  # noqa: E402
 # The rules' names stay importable from here, where the oracle and callers
 # reach them as arm.<name>.
 from github.arm_rules import (  # noqa: E402, F401
@@ -195,14 +198,24 @@ What it refuses, in order, and why:
      The relay does not authenticate senders: this stops mistakes, not
      a forger. The comment records who waived it, the message
      and the reason. A PR that matches no boundary ignores a waiver;
-  4b. the review engines (the policy's `reviews`: ["claude", "codex"] in the fleet's
-     default): EVERY PR, ["claude"] alone included and a waived boundary
-     too, needs a review of the CURRENT head by each engine named, claude's
+  4b. the review engines (the policy's `reviews`: ["claude"] in the fleet's
+     default; an engine in `additional_reviews` never blocks): EVERY PR,
+     ["claude"] alone included and a waived boundary too, needs a review of the CURRENT head by each engine named, claude's
      being the review class's `fabric-pr post-review --model fable` and codex's
      one posted with --model codex,
      and no unresolved review thread (an open P1 or P2 of either engine). The
-     refusal names the engine still missing. `boundary_reviews` adds engines for a
+     refusal opens with the line fabric-pr gate and fabric-pr counts print too,
+     "review=claude ✓ codex ✗ (head 6bc0ad18)" ("head reviewed: " opens it only
+     when every one is there), and names the engine still missing.
+     `boundary_reviews` adds engines for a
      security-boundary change not waived; agent-fabric ADR-053 rule 6.
+     An engine in `additional_reviews` is asked too, never required: its
+     review of the head, or its unavailable marker for that exact head
+     (posted when it cannot run: "codex unavailable (allowance)" on the
+     line), lets the arm proceed, and the basis says it armed without it;
+     with neither it is refused like a required one. Its open P1 or P2
+     still blocks. The marker counts only as the first line of a review
+     object on the head, from the account a blind review counts from.
   5. the count rule (fabric-pr gate's classifier; the 8 and the 16 here are
      the default numbers of the repository's arming policy, tools/fabric/
      github/arm_policy.py: the fleet's, with the settings repository's file for
@@ -226,7 +239,10 @@ without the owner's word adds a sentence saying so), runs `gh pr merge <n> --mer
 repository, which merges at once and has no watcher line) — pinned to the head the gates read — and prints the
 watcher line to run — it is not started here, because
 a watcher must be the SESSION's child for its exit to be the
-session's callback.
+session's callback. The PR is then read back, and the read-back decides, also
+when gh pr merge failed: GitHub can merge a PR on a call that reports failure.
+A PR that reads open, or cannot be read, while its head is in the base branch
+just fetched (git merge-base --is-ancestor) has merged, and the PR API is lagging.
 
 Options:
   --basis "<text>"      required: the one-line arming basis
@@ -238,7 +254,7 @@ Options:
   --dry-run             evaluate every gate, arm nothing, post nothing
 
 Exit codes:
-  0  armed (or, with --dry-run, would arm)
+  0  armed or merged (or, with --dry-run, would arm)
   1  refused — the reason is the last line
   2  gh / pr-gate / pr-review-status / arm.json / the relay / fabric-ctl
      could not answer, or usage
@@ -501,9 +517,11 @@ def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, rol
     return verify_grant(waiver, num, repo, head, session, waiver_role_checked(role), refuse, word="waiver", field="WAIVES")
 
 
-def check_engines(num: str, head: str, engines: list[str], refuse) -> None:
-    """Refuse until every engine in `engines` has a review of `head` and no review thread is open (an open P1 or P2
-    of either engine is an unresolved thread, as in the review-class gate). The refusal names the engine missing."""
+def check_engines(num: str, head: str, engines: list[str], refuse, additional: list[str] = ()) -> str:
+    """Refuse until every engine in `engines` has a review of `head`, every one in `additional` has its review or its
+    unavailable marker for `head`, and no review thread is open (an open P1 or P2 of either engine is an unresolved
+    thread, as in the review-class gate). The refusal names the engine missing. Returns what the basis records of an
+    additional engine that could not run, or ""."""
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"), [num, "-q", "--json"])
     if rc == 2:
         raise Unanswered(f"pr-review-status could not answer for #{num} (exit 2)")
@@ -514,15 +532,26 @@ def check_engines(num: str, head: str, engines: list[str], refuse) -> None:
     rows = rs.get("blind", {}).get("rows") if isinstance(rs, dict) and isinstance(rs.get("blind"), dict) else None
     if not isinstance(rows, list):
         raise Unanswered(f"pr-review-status --json carried no blind.rows for #{num} — cannot judge the review engines")
-    # A row with no engine is the review class's: reviews posted before the field existed were all Claude's.
-    have = {r.get("engine", "claude") for r in rows if isinstance(r, dict) and r.get("commit_sha8") == head[:8]}
+    marked = rs.get("unavailable", {}).get("rows", []) if isinstance(rs.get("unavailable", {}), dict) else None
+    if not isinstance(marked, list):
+        raise Unanswered(f"pr-review-status --json carried an unavailable that is not {{rows: [...]}} for #{num}")
+    have = arm_policy.engines_on_head(rows, head)
+    out_of = {e: why for e, why in arm_policy.engines_unavailable(marked, head).items() if e in additional and e not in have}
+    summary = arm_policy.review_summary(have, engines, head, additional=list(additional), unavailable=out_of)
     for engine in engines:
         if engine not in have:
             how = "fabric-review --engine codex (posted with fabric-pr post-review --model codex)" if engine == "codex" \
                 else "the review class (fabric-pr post-review --model fable)"
-            raise refuse(f"this repository's arming policy requires a review by the {engine} engine of the current head"
-                         f" {head}, and there is none (a review of an older head does not count): run {how} on it,"
-                         f" then arm (engines required: {', '.join(engines)})")
+            raise refuse(f"review={summary}: this repository's arming policy requires a review by the {engine} engine of"
+                         f" the current head {head}, and there is none (a review of an older head does not count): run"
+                         f" {how} on it, then arm (engines required: {', '.join(engines)})")
+    missing = [e for e in additional if e not in have and e not in out_of]
+    if missing:
+        engine = missing[0]
+        raise refuse(f"review={summary}: this repository's arming policy asks the {engine} engine's review of the current"
+                     f" head {head} as an additional review, and there is neither its review nor its unavailable marker"
+                     f" for that head: run fabric-review --engine {engine}; if it cannot run, its marker lets the arm"
+                     f" proceed (engines required: {', '.join(engines)}; additional: {', '.join(additional)})")
     unresolved = rs.get("unresolved_threads")
     if not isinstance(unresolved, int) or isinstance(unresolved, bool):
         raise Unanswered(f"pr-review-status reported no unresolved_threads count for #{num} (null: the lookup"
@@ -530,7 +559,11 @@ def check_engines(num: str, head: str, engines: list[str], refuse) -> None:
     if unresolved != 0:
         raise refuse(f"{unresolved} unresolved review thread(s) on a PR that needs the {', '.join(engines)} review(s):"
                      f" answer and resolve them first (no open P1 or P2 from either engine)")
-    say(f"the current head {head} has the review of each required engine ({', '.join(engines)}), and no unresolved thread")
+    say(f"review={summary}, and no unresolved thread")
+    for engine, why in out_of.items():
+        say(f"the {engine} engine could not run on {head[:8]} ({why}): arming on the required review(s) alone")
+    return " ".join(f"The {e} engine could not run on head {head[:8]} ({why}): armed on the {', '.join(engines)}"
+                    f" review alone." for e, why in out_of.items())
 
 
 def arm(argv: list[str]) -> int:
@@ -593,7 +626,7 @@ def arm(argv: list[str]) -> int:
         return Refused(f"REFUSED #{num} — {why}")
 
     try:
-        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,body,title"],
+        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,baseRefName,body,title"],
                                what=f"gh pr view {num}"))
     except (gh.GhError, ValueError):
         raise Unanswered(f"cannot read #{num} (gh pr view failed)") from None
@@ -604,6 +637,7 @@ def arm(argv: list[str]) -> int:
     owner, name = repo.split("/", 1)
     state, branch = str(pr.get("state")), str(pr.get("headRefName") or "")
     head, title, body = str(pr.get("headRefOid") or ""), str(pr.get("title") or ""), str(pr.get("body") or "")
+    base = str(pr.get("baseRefName") or "")
 
     # 1. open, not a draft
     if state != "OPEN":
@@ -717,10 +751,8 @@ def arm(argv: list[str]) -> int:
                 raise Unanswered(f"pr-review-status --json carried no blind.rows for #{num} — cannot judge the review-class review")
             unresolved = rs.get("unresolved_threads")
             # The review class's review is the claude engine's; a Codex review of the head is the second
-            # engine's, counted by gate 4b only (review of #220, F1). A reader that predates the field
-            # carries none: those rows are the review class's.
-            if not any(isinstance(r, dict) and r.get("commit_sha8") == head[:8] and r.get("engine", "claude") == "claude"
-                       for r in rows):
+            # engine's, counted by gate 4b only (review of #220, F1).
+            if "claude" not in arm_policy.engines_on_head(rows, head):
                 # An independent or automated review is not the boundary's
                 # review: the reader counts any non-author review object
                 # (a managed project's PR #930 blind review, F1).
@@ -740,12 +772,15 @@ def arm(argv: list[str]) -> int:
             # by default), and there no class stands in for it.
             boundary_unwaived = is_boundary and not waiver
 
-    # 4b. the review engines the policy requires (ADR-053 rule 6, ADR-020 rule 1); the fleet's default names claude and
-    # codex. Every PR needs EACH named engine's review of the current head, and no open thread from either — ["claude"]
+    # 4b. the review engines the policy requires (ADR-053 rule 6, ADR-020 rule 1); the fleet's default requires claude
+    # alone (reviews ["claude"]); additional_reviews names the engines that never block. Every PR needs EACH named
+    # engine's review of the current head, and no open thread from either — ["claude"]
     # alone included: gate 4 asks a review only of a boundary or a direct repository, so skipping this for a Claude-only
     # policy armed a plain PR with no review at all (#235, Codex finding 1).
+    # An additional engine (additional_reviews) is asked too, and when it could not run on this head its unavailable
+    # marker stands in for its review; the basis says so.
     engines = arm_policy.required_engines(policy, is_boundary and not waiver)
-    check_engines(num, head, engines, refuse)
+    engines_out = check_engines(num, head, engines, refuse, arm_policy.additional_engines(policy, is_boundary and not waiver))
 
     # 5. the count rule, from pr-gate's classifier
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])
@@ -860,6 +895,8 @@ def arm(argv: list[str]) -> int:
         comment += f" {waived_by}"
     if authorized_by:
         comment += f" {authorized_by}"
+    if engines_out:
+        comment += f" {engines_out}"
     # A boundary armed at the repository's minimum or more needs no owner's word (gate 5), so the
     # record says that is what happened: a reader of the PR would
     # otherwise take an unmarked boundary arming for an oversight. Gate 5
@@ -884,8 +921,12 @@ def arm(argv: list[str]) -> int:
         # this call would otherwise arm a head nobody reviewed or waived
         # (re-review of b1a8e41, pre-existing).
         gh.run(["pr", "merge", num, *merge_args], what=f"gh pr merge {num}")
-    except gh.GhError:
-        raise Unanswered(f"gh pr merge {' '.join(merge_args[:-2])} failed on #{num}") from None
+        failed = ""
+    except gh.GhError as e:
+        # Not an answer yet: GitHub merged a CLEAN, green PR on a call that exited non-zero (gateway #33,
+        # agent-fabric #237). The read-back below judges; the failure is said, and named in any exit 2.
+        failed = f" (gh pr merge {' '.join(merge_args[:-2])} failed: {e.reason})"
+        say(f"gh pr merge failed on #{num} ({e.reason}) — reading the PR back before judging")
     # A green PR goes STRAIGHT INTO THE QUEUE on arming, and a queued PR
     # reads autoMergeRequest null — exactly like an unarmed one (a managed project's PR
     # #881). So the read-back is the queue entry OR the arming. On a
@@ -897,12 +938,16 @@ def arm(argv: list[str]) -> int:
     # `merged` is its own flag, never a value of `armed`: a state read
     # back lowercased would otherwise stand for the merge it is not.
     merged, armed = False, "unknown"
+    # Whether the PR API's answer may be lagging a merge: it reads open on the head the gates read, or reads nothing.
+    # Merged or open on another head is an answer about another head, and closed is not a lag.
+    may_lag = True
     try:
         d = gh.graphql("query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){pullRequest(number:$num)"
                        "{state headRefOid autoMergeRequest{enabledAt} mergeQueueEntry{position}}}}",
                        o=owner, n=name, num=int(num))
         p = d["repository"]["pullRequest"]
         state, read_head = p["state"], str(p["headRefOid"])
+        may_lag = state == "OPEN" and read_head == head
         if state == "MERGED" and read_head == head:
             merged = True
         elif state == "MERGED":
@@ -923,10 +968,17 @@ def arm(argv: list[str]) -> int:
     if merged:
         say(f"MERGED #{num} ({title}) — read back merged on head {head[:8]} after the arming; basis posted.")
         return 0
+    armed_ok = policy["mode"] != "direct" and (armed == "armed" or armed.startswith("queued"))
+    # Asked only where the answer would otherwise be exit 2: an armed PR whose head has also landed is left to the
+    # watcher, which asks the same question, and the common path costs no fetch.
+    if not armed_ok and may_lag and landed.head_in_base(repo, head, base, note=say):
+        say(f"MERGED #{num} ({title}) — head {head[:8]} is in origin/{base}: GitHub merged it, and the PR API is"
+            f" lagging (it reads '{armed}'); basis posted.")
+        return 0
     if policy["mode"] == "direct":
-        raise Unanswered(f"#{num} reads '{armed}' after gh pr merge on a direct repository, not merged — check gh pr view {num}")
-    if armed not in ("armed",) and not armed.startswith("queued"):
-        raise Unanswered(f"#{num} reads '{armed}' after gh pr merge --auto — check gh pr view {num}")
+        raise Unanswered(f"#{num} reads '{armed}' after gh pr merge on a direct repository, not merged{failed} — check gh pr view {num}")
+    if not armed_ok:
+        raise Unanswered(f"#{num} reads '{armed}' after gh pr merge --auto{failed} — check gh pr view {num}")
     say(f"ARMED #{num} ({title}) — {armed}; basis posted.")
     say(f"now, in the session: fabric-pr wait-merged {num} &")
     return 0
