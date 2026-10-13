@@ -35,17 +35,12 @@ does, as a static header; the gateway's schema 1 admits no companion but anthrop
 """
 from __future__ import annotations
 
-import base64
-import binascii
 import contextlib
 import importlib.util
-import json
 import os
-import re
 import secrets
 import shutil
 import signal
-import stat
 import sys
 import tempfile
 import time
@@ -54,6 +49,7 @@ from dataclasses import dataclass, field
 HERE = os.path.dirname(os.path.abspath(__file__))
 FABRIC_ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+import chatgpt_signin  # noqa: E402
 import gateway_plan  # noqa: E402
 import gateway_token  # noqa: E402
 
@@ -62,17 +58,13 @@ PROTOCOL = "openai-responses"
 PLAN_SCHEMA = 1
 DEFAULT_SIGNIN = ".codex-chatgpt"      # below HOME
 MIN_TOKEN_LIFE_S = 30 * 60
-MAX_AUTH_BYTES = 1 << 20
 ENV_BASE_URL, ENV_KEY, ENV_ACCOUNT_ID = (
     "AGENT_FABRIC_CODEX_BASE_URL", "AGENT_FABRIC_CODEX_KEY", "AGENT_FABRIC_CODEX_ACCOUNT_ID")
-ACCOUNT_ID = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
-# An Authorization header value: printable ASCII with no space. A JWT is base64url and dots.
-HEADER_SAFE = re.compile(r"[!-~]+")
 TOKEN_NAME = "chatgpt.token"
 
 
-class Refused(Exception):
-    """Nothing was started, or what was started is stopped; the message says why and never holds a token."""
+Refused = chatgpt_signin.Refused    # nothing was started, or what was started is stopped; the message never holds a token
+jwt_exp = chatgpt_signin.jwt_exp
 
 
 @dataclass
@@ -102,63 +94,14 @@ def signin_home(environ: dict[str, str], flag: str | None) -> str:
     return path
 
 
-def _read_owned(path: str) -> bytes:
-    """The file, opened without following a link, refused unless it is a regular file of this login that no
-    one else can read: it holds the sign-in's tokens."""
-    try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    except FileNotFoundError:
-        raise Refused(f"no ChatGPT sign-in at {path}; sign in with `CODEX_HOME={os.path.dirname(path)} codex login`") from None
-    except OSError as e:
-        raise Refused(f"{path} cannot be opened ({e.strerror or e.errno}); a link in its place is refused") from None
-    with os.fdopen(fd, "rb") as fh:
-        st = os.fstat(fh.fileno())
-        if not stat.S_ISREG(st.st_mode):
-            raise Refused(f"{path} is not a regular file")
-        if st.st_uid != os.getuid() or st.st_mode & 0o077:
-            raise Refused(f"{path} is readable by another user or not this login's (mode {stat.S_IMODE(st.st_mode):04o}); "
-                          "a sign-in is the login's alone: chmod 600 it")
-        data = fh.read(MAX_AUTH_BYTES + 1)
-    if len(data) > MAX_AUTH_BYTES:
-        raise Refused(f"{path} is over {MAX_AUTH_BYTES} bytes; not a sign-in")
-    return data
-
-
-def jwt_exp(token: str) -> int:
-    """The `exp` claim of a JWT's payload, read without checking the signature (the token is only forwarded:
-    the backend checks it). Nothing else of the payload is kept. ValueError, without the token, otherwise."""
-    parts = token.split(".")
-    if len(parts) != 3 or not parts[1]:
-        raise ValueError("not a JWT (three dot-separated parts)")
-    try:
-        payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
-    except (binascii.Error, ValueError, UnicodeDecodeError):
-        raise ValueError("its payload is not base64url JSON") from None
-    exp = payload.get("exp") if isinstance(payload, dict) else None
-    if type(exp) is not int:
-        raise ValueError("its payload carries no integer exp")
-    return exp
-
-
 def read_signin(home: str, *, now: float | None = None, min_life_s: float = MIN_TOKEN_LIFE_S) -> SignIn:
     path = os.path.join(home, "auth.json")
     try:
-        doc = json.loads(_read_owned(path))
-    except ValueError:
-        raise Refused(f"{path} is not JSON") from None
-    tokens = doc.get("tokens") if isinstance(doc, dict) else None
-    if not isinstance(doc, dict) or doc.get("auth_mode") != "chatgpt" or not isinstance(tokens, dict):
-        raise Refused(f"{path} is not a ChatGPT sign-in (auth_mode \"chatgpt\" with tokens); "
-                      f"sign in with `CODEX_HOME={home} codex login`")
-    access, account = tokens.get("access_token"), tokens.get("account_id")
-    if not isinstance(access, str) or not HEADER_SAFE.fullmatch(access):
-        raise Refused(f"{path}: tokens.access_token is missing or not a header-safe token")
-    if not isinstance(account, str) or not ACCOUNT_ID.fullmatch(account):
-        raise Refused(f"{path}: tokens.account_id is missing or not an account id (a UUID)")
-    try:
-        exp = jwt_exp(access)
-    except ValueError as e:
-        raise Refused(f"{path}: tokens.access_token: {e}") from None
+        access, account, exp = chatgpt_signin.read_signin(home)
+    except chatgpt_signin.Missing:
+        raise Refused(f"no ChatGPT sign-in at {path}; sign in with `CODEX_HOME={os.path.dirname(path)} codex login`") from None
+    except chatgpt_signin.NotSignIn as e:
+        raise Refused(f"{e}; sign in with `CODEX_HOME={home} codex login`") from None
     now = time.time() if now is None else now
     left = exp - now
     if left < min_life_s:
