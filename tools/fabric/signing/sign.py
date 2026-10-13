@@ -27,8 +27,8 @@ CONTRACT
           programs (gpg, ssh-keygen, ots); FABRIC_SIGN_SPOOL the directory a
           proof waits in (proof.py); GNUPGHOME is gpg's, inherited.
   exit    the signer's own status when it failed; 1 when the timestamp could
-          not be obtained (the signature is withheld: stdout stays empty and
-          the .sig is removed) or the key is not offered; 127 a program is
+          not be obtained (the signature is withheld: OpenPGP stdout stays
+          empty; git reads no .sig after a failing signer) or the key is not offered; 127 a program is
           missing; 2 usage. Verification modes exit with the verifier's.
 
 WHY
@@ -186,14 +186,7 @@ def sign_ssh(argv: list[str], env: dict[str, str]) -> int:
             signature = f.read()
     except OSError as e:
         raise Failure(f"fabric-sign: ssh-keygen wrote no signature ({e})") from None
-    try:
-        _stamped(signature, env)
-    except Failure:
-        try:
-            os.unlink(buffer_sig)
-        except OSError:
-            pass
-        raise
+    _stamped(signature, env)
     return 0
 
 
