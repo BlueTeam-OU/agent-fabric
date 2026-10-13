@@ -1205,6 +1205,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   fabric's own anime style by brand-comms; the agent may reject any (§5
   rule 7). Identity and authorship unchanged (§5 rule 8).
 - A 2026-10-13 — candidates wait in /usr/local/share/agent-fabric/avatars/<id>/ (§5 rule 7).
+- A 2026-10-13 — named "AI <Name> <Surname>, <role>", never the login where people read; first names in claims.json (§5 rules 2, 4).
 
 ### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Accepted)
 
