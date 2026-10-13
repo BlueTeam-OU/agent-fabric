@@ -114,6 +114,16 @@ fleet reports (ADR-029), so it carries that view.
    seat and one model is less fault-tolerant by construction, and the
    file says so rather than the code: OpenAI today, against Anthropic's
    two seats and three review models.
+8. A second review engine is additional, never blocking (A 2026-10-13):
+   `policies/arming.json` requires the claude review (`reviews`,
+   `boundary_reviews`) and lists codex under `additional_reviews`. The
+   arm accepts, for an additional engine, its review of the head (whose
+   open P1 or P2 still blocks) or its unavailable marker for that exact
+   head, posted by `fabric-review --engine codex` when the engine cannot
+   run (over the allowance, or at capacity after rule 2's waits) as a
+   review object from an account whose reviews count; with neither, the
+   arm refuses. Never paid API spend in its place: the engine rides the
+   subscription only.
 
 ## 6. Consequences
 
@@ -158,3 +168,11 @@ to the control plane and the divert follow acceptance.
   ADR-053 (the second review engine, rule 6 as amended 2026-10-13).
 - `routing/capabilities.json`, `routing/policies/review-grade.json`,
   `tools/fabric/review_codex.py`, `policies/arming.json`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-055-amendments.md](history/ADR-055-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-13 | Codex is an additional review: unavailable, the claude review alone arms | §5 rule 8: arming.json reviews claude, additional_reviews codex; review or unavailable marker per head; no API spend |
