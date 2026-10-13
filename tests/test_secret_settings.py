@@ -4,9 +4,10 @@ persona reaches the agent's own repository as ONE signed commit below
 settings/, and nothing is written when the tree or the profile is wrong.
 
 One scratch agent (its own keyring OUTSIDE its home, see test_secret_store),
-a bare remote, a scratch fabric tree holding a copy of the persona schema
-(tests/fixtures/persona-profile.schema.json: the fixture, so the suite does
-not wait on the schema's own merge). Plain script: ok/FAIL, exit 1 on any."""
+a bare remote, a scratch fabric tree holding a copy of identities/schemas/
+persona-profile.schema.json as of #238 (inline below, so the suite does not
+wait on its merge; the "format": "date" annotation of `accepted` is left out,
+which lint's keyword check refuses in a file of its own). Plain script: ok/FAIL, exit 1 on any."""
 from __future__ import annotations
 
 import hashlib
@@ -15,6 +16,80 @@ import os
 import subprocess
 import sys
 import tempfile
+
+PERSONA_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:agent-fabric:personas:profile",
+    "title": "An agent's persona \u2014 settings/profile.json in its repository fabric-agent-<id>",
+    "description": "agent-fabric ADR-056 \u00a75 rule 1. Written by the agent itself, in one commit with settings/avatar.png and settings/avatar-rejected/, once it has accepted an avatar; never before. The surname is also recorded centrally in identities/personas/claims.json, which wins if the two disagree. Sex is for the avatar's appearance only (rule 6).",
+    "type": "object",
+    "required": [
+        "version",
+        "agent_id",
+        "first_name",
+        "surname",
+        "sex",
+        "avatar",
+        "accepted"
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "version": {
+            "const": 1
+        },
+        "agent_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "first_name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "From the culture of the surname's `from` (rule 5)."
+        },
+        "surname": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exactly as listed in identities/personas/surnames.json and claimed in claims.json."
+        },
+        "sex": {
+            "enum": [
+                "F",
+                "M"
+            ]
+        },
+        "pronoun": {
+            "type": "string",
+            "description": "Present only when the agent asked for one, e.g. \"it\" (rule 6)."
+        },
+        "avatar": {
+            "type": "object",
+            "required": [
+                "file",
+                "sha256",
+                "candidate"
+            ],
+            "additionalProperties": False,
+            "properties": {
+                "file": {
+                    "const": "settings/avatar.png"
+                },
+                "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "candidate": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "The <n> of the candidate accepted, /usr/local/share/agent-fabric/avatars/<id>/<n>.png (rule 7)."
+                }
+            }
+        },
+        "accepted": {
+            "type": "string",
+            "description": "The day the agent accepted its avatar."
+        }
+    }
+}
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
@@ -39,8 +114,7 @@ def main() -> int:
         os.makedirs(os.path.join(fabric, "identities", "schemas"))
         write_secrets_instance(fabric)
         schema_dst = os.path.join(fabric, "identities", "schemas", "persona-profile.schema.json")
-        with open(os.path.join(ROOT, "tests", "fixtures", "persona-profile.schema.json"), "rb") as fh:
-            schema_bytes = fh.read()
+        schema_bytes = json.dumps(PERSONA_SCHEMA).encode()
         with open(schema_dst, "wb") as fh:
             fh.write(schema_bytes)
         home, gnupg = os.path.join(tmp, "agent"), os.path.join(tmp, "agent-gnupg")
