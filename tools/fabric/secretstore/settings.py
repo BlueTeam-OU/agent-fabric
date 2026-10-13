@@ -51,13 +51,14 @@ its cap.
 """
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
 import os
 import signal
+import secrets
 import stat
-import tempfile
 
 from . import entries
 from .core import StoreError, git, login, own_agent_id, store_dir, roots
@@ -236,8 +237,9 @@ def _destination(store: str, rel: str) -> str:
 def _put_file(dest: str, data: bytes) -> None:
     """Replaced whole or not at all: a crash leaves the old file."""
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest), prefix=".settings-")
+    tmp = os.path.join(os.path.dirname(dest), f".settings-{secrets.token_hex(8)}")
     try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o644)
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
         os.chmod(tmp, 0o644)
@@ -260,14 +262,20 @@ def _missing_dirs(store: str, dests: list[str]) -> list[str]:
     return sorted(wanted, key=len, reverse=True)
 
 
+@contextlib.contextmanager
+def _masked():
+    """A second signal must not cut the undo, or the decision to undo, short."""
+    old = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, old)
+
+
 def _undo(store: str, created: list[str], made_dirs: list[str] = ()) -> None:
     """The store as it was: tracked files back, the files and directories this run made gone."""
-    # A second signal must not cut the undo itself short.
-    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
-    try:
+    with _masked():
         _undo_unmasked(store, created, made_dirs)
-    finally:
-        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
 
 
 def _undo_unmasked(store: str, created: list[str], made_dirs: list[str]) -> None:
@@ -298,20 +306,26 @@ def _terminate(signum, _frame):
 
 
 def settings_put(src: str) -> dict:
-    files = _read_tree(src)
     # SIGTERM and SIGHUP end a Python process without an exception: raised here, the undo below runs for them
     # as for Ctrl-C. SIGKILL cannot be handled: it leaves the store dirty, and the next run refuses it by name.
-    previous = {s: signal.signal(s, _terminate) for s in (signal.SIGTERM, signal.SIGHUP)}
+    # A caller that ignores SIGHUP (nohup) keeps ignoring it.
+    state = {"committed": False}
+    previous = {s: signal.signal(s, _terminate) for s in (signal.SIGTERM, signal.SIGHUP)
+                if signal.getsignal(s) != signal.SIG_IGN}
     try:
-        return _put(files)
+        return _put(_read_tree(src), state)
     except KeyboardInterrupt as e:
-        raise StoreError(f"interrupted ({e or 'Ctrl-C'}), the write undone; nothing written") from None
+        what = str(e) or "Ctrl-C"
+        if state["committed"]:
+            raise StoreError(f"interrupted ({what}) after the commit was made: it is in the store, and the next "
+                             "settings-put pushes it") from None
+        raise StoreError(f"interrupted ({what}), the write undone; nothing written") from None
     finally:
         for s, handler in previous.items():
             signal.signal(s, handler)
 
 
-def _put(files: dict[str, bytes]) -> dict:
+def _put(files: dict[str, bytes], state: dict) -> dict:
     store = store_dir()
     aid = own_agent_id(store) if os.path.isdir(store) else None
     if not aid:
@@ -355,9 +369,13 @@ def _put(files: dict[str, bytes]) -> dict:
                 _commit(store, f"agent {login()}: settings")
             except BaseException:
                 # _commit resets after its own failures; an interrupt (signing waits on gpg) bypasses that.
-                if git(store, "rev-parse", "HEAD").stdout == head:
-                    _undo(store, created, made_dirs)
+                with _masked():
+                    if git(store, "rev-parse", "HEAD").stdout == head:
+                        _undo(store, created, made_dirs)
+                    else:
+                        state["committed"] = True
                 raise
+            state["committed"] = True
             entries._after_commit(store)
         else:
             entries._push_if_ahead(store)

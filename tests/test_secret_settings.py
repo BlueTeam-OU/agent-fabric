@@ -455,6 +455,37 @@ def main() -> int:
         check("an assume-unchanged file below settings/ is refused", p.returncode == 1 and "assume-unchanged" in p.stderr, p.stdout + p.stderr)
         subprocess.run(["git", "-C", store, "update-index", "--no-assume-unchanged", "settings/avatar.png"], check=True, env=env)
 
+        # An interrupt AFTER the commit exists must not say "nothing written": the commit stands, the next run pushes it.
+        n_after = count()
+        with mock.patch.dict(os.environ, env), mock.patch.object(S.entries, "_after_commit", side_effect=KeyboardInterrupt):
+            try:
+                S.settings_put(tree("after-commit", {"avatar-rejected/after.txt": b"a"}))
+                said = "returned"
+            except secret_store.StoreError as e:
+                said = str(e)
+        check("an interrupt after the commit says it stands, never 'nothing written', and says Ctrl-C",
+              count() == n_after + 1 and "after the commit was made" in said and "nothing written" not in said
+              and "(Ctrl-C)" in said, said)
+        p = run("settings-put", "--from", tree("after-commit", {"avatar-rejected/after.txt": b"a"}))
+        check("…and the next run pushes it as no new commit", p.returncode == 0 and "unchanged" in p.stdout
+              and g("rev-parse", "HEAD") == subprocess.run(["git", "--git-dir", remote, "rev-parse", "main"],
+                                                           capture_output=True, text=True).stdout, p.stdout + p.stderr)
+        with mock.patch.dict(os.environ, env), mock.patch.object(S, "_read_tree", side_effect=KeyboardInterrupt):
+            try:
+                S.settings_put(tree("readint", {"a": b"1"}))
+                said = "returned"
+            except secret_store.StoreError as e:
+                said = str(e)
+        check("Ctrl-C while the tree is read is the same one-line refusal", "interrupted (Ctrl-C)" in said and "nothing written" in said, said)
+        saved = _signal.getsignal(_signal.SIGHUP)
+        _signal.signal(_signal.SIGHUP, _signal.SIG_IGN)
+        try:
+            with mock.patch.dict(os.environ, env), mock.patch.object(S, "_put", side_effect=lambda f, s: _signal.getsignal(_signal.SIGHUP)):
+                during = S.settings_put(tree("nohup", {"a": b"1"}))
+        finally:
+            _signal.signal(_signal.SIGHUP, saved)
+        check("a caller that ignores SIGHUP (nohup) keeps ignoring it", during == _signal.SIG_IGN, repr(during))
+
         stray = os.path.join(store, "settings", "stray")
         with open(stray, "w") as fh:
             fh.write("not from the tree")
