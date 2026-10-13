@@ -437,7 +437,8 @@ def _review_grade(routing: Any, model: str, provider: str, graded: set[str]) -> 
 def personas_findings(surnames_path: str, claims_path: str) -> list[str]:
     """identities/personas/ (agent-fabric ADR-056 §5 rules 3-4): surnames are unique and none is also excluded;
     every entry names its person and where it is from, every exclusion its reason; a claim is keyed by an agent
-    id, names a listed surname, and no surname is claimed twice. Absent files are not judged."""
+    id and is {surname, first_name, pronoun?}: a listed surname claimed once, a non-empty first name, a non-empty
+    pronoun if given. Absent files are not judged."""
     findings: list[str] = []
     if os.path.exists(surnames_path):
         doc = load_json(surnames_path, "identities/personas/surnames.json", findings) or {}
@@ -458,14 +459,24 @@ def personas_findings(surnames_path: str, claims_path: str) -> list[str]:
     if os.path.exists(claims_path):
         claims = (load_json(claims_path, "identities/personas/claims.json", findings) or {}).get("claims") or {}
         held: dict[str, str] = {}
-        for aid, surname in sorted(claims.items()):
+        where = "identities/personas/claims.json"
+        for aid, claim in sorted(claims.items()):
             if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", aid):
-                findings.append(f"identities/personas/claims.json: {aid!r} is not an agent id (a UUIDv7)")
+                findings.append(f"{where}: {aid!r} is not an agent id (a UUIDv7)")
+            if not isinstance(claim, dict):
+                findings.append(f"{where}: {aid} is not a claim object {{surname, first_name, pronoun?}}")
+                continue
+            surname = claim.get("surname")
             if surname not in names:
-                findings.append(f"identities/personas/claims.json: {aid} claims {surname!r}, which is not on the list")
+                findings.append(f"{where}: {aid} claims {surname!r}, which is not on the list")
             if surname in held:
-                findings.append(f"identities/personas/claims.json: {surname!r} is claimed by {held[surname]} and {aid}")
+                findings.append(f"{where}: {surname!r} is claimed by {held[surname]} and {aid}")
             held.setdefault(surname, aid)
+            first = claim.get("first_name")
+            if not (isinstance(first, str) and first.strip()):
+                findings.append(f"{where}: {aid} has no first_name (a non-empty string)")
+            if "pronoun" in claim and not (isinstance(claim["pronoun"], str) and claim["pronoun"].strip()):
+                findings.append(f"{where}: {aid} has an empty pronoun (leave it out instead)")
     return findings
 
 
