@@ -142,6 +142,15 @@ def run() -> None:
     check("positive control: without the refusal the same push passes and its note arrives",
           r.returncode == 0 and remote_note(sha_c) is not None, r.stderr)
 
+    print("a push that only deletes")
+    git("a", "push", "-q", "origin", "HEAD:refs/heads/work-del")
+    git("a", "push", "-q", "origin", f":{notes.REF}")
+    check("removes the notes ref and does not put it back", not remote_has_ref())
+    r = git("a", "push", "-q", "origin", ":refs/heads/work-del")
+    check("…also a branch deletion: admitted, and the notes ref stays removed", r.returncode == 0 and not remote_has_ref(), r.stderr)
+    git("a", "push", "-q", "origin", "HEAD:refs/heads/work-del2")
+    check("positive control: the next push of a branch restores it", remote_has_ref())
+
     print("pushing the notes ref by itself")
     r = git("a", "push", "-q", "origin", notes.REF)
     check("is admitted", r.returncode == 0, r.stderr)

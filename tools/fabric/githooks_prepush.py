@@ -213,7 +213,10 @@ def check(remote_name: str, lines: list[str]) -> None:
     _attach_proofs(lines)
     _signed(lines)
     _check_direct(lines, remote_name)
-    _push_proofs(remote_name)
+    # A push that only deletes adds no commit, and the hook runs before the
+    # deletion: pushing the notes then would put back what the person removes.
+    if any(len(f) == 4 and not ZERO.match(f[1]) for f in map(str.split, lines)):
+        _push_proofs(remote_name)
 
 
 def _check_direct(lines: list[str], remote_name: str) -> None:

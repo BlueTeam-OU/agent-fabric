@@ -9,7 +9,7 @@ CONTRACT
           says what would be sent and sends nothing)
   title   `fabric-agent <login> (<agent id>)`; the title is the key's identity
           here, so `remove` finds an agent's keys by `fabric-agent <login> (`.
-  key     the Ed25519 signing subkey of identities/keys/<id>.asc, which gpg
+  key     the Ed25519 signing subkey of <keys>/<id>.asc (the operator's keys directory, roots.py), which gpg
           exports as an SSH key (live check 2026-10-13: all 26 did); <id> is
           the newest lineage entry of that login.
   add     idempotent: the same title with the same key is "present"; the same
@@ -35,7 +35,8 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+sys.path.insert(0, os.path.dirname(HERE))
+import roots  # noqa: E402
 GH_TIMEOUT_S = 60
 GPG_TIMEOUT_S = 60
 SCOPE_HINT = "gh auth refresh -h github.com -s admin:ssh_signing_key"
@@ -49,8 +50,8 @@ def title_of(login: str, agent_id: str) -> str:
     return f"fabric-agent {login} ({agent_id})"
 
 
-def agent_id_of(login: str, root: str = ROOT) -> str:
-    path = os.path.join(root, "identities", "keys", "lineage.json")
+def agent_id_of(login: str, root: str | None = None) -> str:
+    path = os.path.join(roots.keys_dir(root), "lineage.json")
     try:
         with open(path, encoding="utf-8") as f:
             lineage = json.load(f)
@@ -121,10 +122,10 @@ def registered() -> list[dict]:
     return [json.loads(l) for l in out.splitlines() if l.strip()]
 
 
-def add(login: str, *, dry: bool = False, root: str = ROOT) -> str:
+def add(login: str, *, dry: bool = False, root: str | None = None) -> str:
     agent_id = agent_id_of(login, root)
     title = title_of(login, agent_id)
-    key = ssh_form(os.path.join(root, "identities", "keys", agent_id + ".asc"))
+    key = ssh_form(os.path.join(roots.keys_dir(root), agent_id + ".asc"))
     blob = key.split()[1]
     for row in registered():
         same_key = row["key"].split()[1] == blob
