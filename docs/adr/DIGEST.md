@@ -1181,3 +1181,6 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every unavailability is reported through the control agent for people
   (`fabric-ctl availability`, the Board); the owner hears of a long or
   total outage (§5 rules 4, 6).
+- Each provider's strategy (retry waits, seats, allowance action, ordered
+  models) is data in one syntax, `routing/policies/availability.json`,
+  linted; OpenAI is the less tolerant (§5 rule 7).

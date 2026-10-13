@@ -3,7 +3,7 @@
 **Date:** 2026-10-13
 **Status:** Proposed
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** how an engine run learns a model is unavailable and what it does (`tools/fabric/review_codex.py`, the review engines to come); the review capability's ordered fallback (`routing/capabilities.json`, gated by `routing/policies/review-grade.json`); the control plane's report of what runs observed, for people (`fabric-ctl`, the Board); the review divert
+**Scope:** `routing/policies/availability.json` and its schema; how an engine run learns a model is unavailable and what it does (`tools/fabric/review_codex.py`, the review engines to come); the review capability's ordered fallback (`routing/capabilities.json`, gated by `routing/policies/review-grade.json`); the control plane's report of what runs observed, for people (`fabric-ctl`, the Board); the review divert
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -104,6 +104,15 @@ fleet reports (ADR-029), so it carries that view.
 6. A model reported unavailable for longer than an hour, or every model
    of the review capability reported unavailable at once, is said to the
    owner, once per episode.
+7. Each provider's strategy is data, in one syntax for every provider:
+   `routing/policies/availability.json` gives its retry waits, its seats
+   in order, what an allowance failure does (`next-seat` or `report`)
+   and, per capability, the ordered models a run tries, the routed one
+   first and, for review, only review-grade ones; lint judges it against
+   its schema, routing and the account-switch pool. A provider with one
+   seat and one model is less fault-tolerant by construction, and the
+   file says so rather than the code: OpenAI today, against Anthropic's
+   two seats and three review models.
 
 ## 6. Consequences
 

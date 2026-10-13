@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-fabric:routing:availability",
+  "title": "Model availability strategies, one per provider",
+  "description": "Committed at routing/policies/availability.json (agent-fabric ADR-055 §5 rule 7), written by fabric-coordinator. The shape only: lint adds what a schema cannot say (the first model is the routed one, every code-review model is review-grade, a next-seat provider has a second seat and its seats are the account-switch pool).",
+  "type": "object",
+  "required": ["version", "description", "providers"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {"const": 1},
+    "description": {"type": "string", "minLength": 1},
+    "providers": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["retry_after_s", "seats", "on_allowance", "models"],
+        "additionalProperties": false,
+        "properties": {
+          "retry_after_s": {"type": "array", "maxItems": 5, "items": {"type": "integer", "minimum": 1, "maximum": 600}},
+          "seats": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "on_allowance": {"enum": ["next-seat", "report"]},
+          "models": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "description": "What a run does when its model cannot serve it, one strategy per provider in one syntax (agent-fabric ADR-055 §5 rule 7). Policy, fabric-coordinator's: a run reads its provider's entry and rediscovers availability itself (rule 1); nothing here is a mark of availability. retry_after_s: the waits before each retry of a capacity failure (rule 2). seats: the subscriptions the provider's runs may use, in order; on_allowance: what an allowance failure does, next-seat (move to the next seat, as ADR-052 moves a Claude login) or report (say the model is unavailable until the reset). models: per capability, the ordered list a run tries, first the routed one (routing/capabilities.json), every one inside the review-grade set for code-review (routing/policies/review-grade.json); a divert takes the next one only where rule 3 allows. OpenAI is the less tolerant by construction: one seat and one review model, so an outage or a spent allowance is reported and waited out.",
+  "providers": {
+    "anthropic": {
+      "retry_after_s": [10, 20, 60],
+      "seats": ["claude-pzhuy-8alias-com", "andrea-benetton-blueteam-ge"],
+      "on_allowance": "next-seat",
+      "models": {"code-review": ["claude-opus-5-5", "claude-opus-5", "claude-opus-5[1m]"]}
+    },
+    "openai": {
+      "retry_after_s": [10, 20, 60],
+      "seats": ["chatgpt-team"],
+      "on_allowance": "report",
+      "models": {"code-review": ["gpt-6.1-sol"]}
+    }
+  }
+}

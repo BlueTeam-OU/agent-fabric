@@ -361,6 +361,48 @@ def load_json(path: str, where: str, findings: list[str]) -> Any:
         return None
 
 
+def availability_findings(root: str, policy: str) -> list[str]:
+    """routing/policies/availability.json (agent-fabric ADR-055 §5 rule 7): its schema, then what a schema
+    cannot say. A provider's first model for a capability is the one routing resolves it to (a run starts
+    there); every code-review model is in the review-grade set as <provider>/<id>; a provider that moves to
+    the next seat on allowance has a second seat, and Anthropic's seats are the account-switch pool (ADR-052
+    moves the logins between them). An absent file is not judged."""
+    where = "routing/policies/availability.json"
+    if not os.path.exists(policy):
+        return []
+    findings: list[str] = []
+    doc = load_json(policy, where, findings)
+    if doc is None:
+        return findings
+    schema = load_schema(root, os.path.join("routing", "schemas"), "availability")
+    if schema is None:
+        return findings + ["routing/schemas/availability.schema.json: missing, and the policy is judged against it"]
+    shape = validate_json(schema, doc, where)
+    if shape:
+        return findings + shape
+    routing_dir = os.path.dirname(os.path.dirname(policy))
+    caps = load_json(os.path.join(routing_dir, "capabilities.json"), "routing/capabilities.json", findings) or {}
+    grade = load_json(os.path.join(routing_dir, "policies", "review-grade.json"), "routing/policies/review-grade.json", findings) or {}
+    switch = load_json(os.path.join(routing_dir, "policies", "account-switch.json"), "routing/policies/account-switch.json", findings) or {}
+    graded = set(grade.get("models") or [])
+    for prov, s in sorted(doc["providers"].items()):
+        routed = ((caps.get("providers") or {}).get(prov) or {}).get("models") or {}
+        for cap, models in sorted(s["models"].items()):
+            if routed.get(cap) is not None and models[0] != routed[cap]:
+                findings.append(f"{where}: {prov} {cap} starts at {models[0]!r}, but routing resolves it to {routed[cap]!r}")
+            if cap == "code-review":
+                for m in models:
+                    if f"{prov}/{m}" not in graded:
+                        findings.append(f"{where}: {prov} {cap} lists {m!r}, which is not in the review-grade set")
+        if s["on_allowance"] == "next-seat" and len(s["seats"]) < 2:
+            findings.append(f"{where}: {prov} moves to the next seat on allowance but names only one seat")
+        if prov == "anthropic":
+            pool = ((switch.get("pool") or {}).get("accounts")) or []
+            if pool and sorted(s["seats"]) != sorted(pool):
+                findings.append(f"{where}: anthropic's seats {s['seats']} are not the account-switch pool {pool}")
+    return findings
+
+
 def account_switch_findings(root: str, policy: str) -> list[str]:
     """routing/policies/account-switch.json (agent-fabric ADR-052 §5 rule 10): its schema, then the judge the
     switch controller itself runs (tools/fabric/control/switch_policy.py, loaded by path from this engine), so
