@@ -816,6 +816,14 @@ def main(argv: list[str] | None = None) -> int:
         if me["address"] in operator_addresses():
             from control import account_switch
             account_switch.start(Ticker, _stderr)
+            # The Codex review's ChatGPT sign-in (ADR-053 rule 8) lives in this account's home: refreshed here when it
+            # has under 72 h left, and the access token distributed to every placed agent.
+            from control import codex_token
+
+            def placed_agents() -> list[str]:
+                from control import ctl as ctl_mod
+                return [p["login"] for p in ctl_mod.placements() if p["kind"] == "agent"]
+            codex_token.start(Ticker, _stderr, agents=placed_agents)
         # What the account's sessions are doing, posted when it changes
         # (sessions.py); first at start, so a restart re-says it.
         states = sessions.StateWatcher(address=me["address"], post=state_poster(call, cfg, me["address"]),

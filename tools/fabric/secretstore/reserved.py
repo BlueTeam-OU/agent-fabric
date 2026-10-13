@@ -32,9 +32,15 @@ IDENTITY_NAMES = ["AGENT_LOGIN", "AGENT_HOST"]
 # holding it is not "unexpected"; and since the file is rewritten whole,
 # the next sync drops a line an older one wrote.
 STORE_ONLY = ["FABRIC_CONTROL_SIGNING_KEY"]
+# The Codex review's ChatGPT sign-in (ADR-053 rule 8): put into a store by the coordinator (fabric-accounts codex-token)
+# and applied only into a token file on the login's runtime tmpfs (secrets_sync.apply_signin_file), never into
+# secrets.env or env.sh and never a name a login sets.
+CODEX_NAMES = ["CODEX_CHATGPT_ACCESS_TOKEN", "CODEX_CHATGPT_ACCOUNT_ID"]
 ALL_NAMES = IDENTITY_NAMES + ENV_NAMES + list(GIT_NAMES) + SSH_NAMES
 PREFIXES = {"CLAUDE_": "the Claude account assignment (fabric-accounts) and the harness",
-            "FABRIC_": "the fabric itself"}
+            "FABRIC_": "the fabric itself",
+            "CODEX_CHATGPT_": "the Codex review's ChatGPT sign-in (fabric-accounts codex-token, ADR-053 rule 8)",
+            "CODEX_ASSIGNED_": "the coordinator's record of that sign-in (fabric-accounts codex-token)"}
 
 
 class RegistryUnreadable(Exception):

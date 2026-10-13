@@ -9,6 +9,10 @@
 #                                     move logins to a Claude account (its token into each login's store), then
 #                                     fabric-ctl <logins> secrets-sync --expect <fp> --restart: each account
 #                                     applies it, proves it, and resumes a running session on it
+#   fabric-accounts codex-token <login…|all> [--no-sync] [--force] [--refresh] [--home DIR]
+#                                     the Codex review's ChatGPT sign-in (ADR-053 rule 8): the access token and the
+#                                     account id (never the refresh or id token) into each login's store, then
+#                                     each login applies it; --refresh renews the sign-in first when under 72 h
 #   fabric-accounts templates         each template's fingerprint, in the coordinator's store
 #   fabric-accounts switch [--tick | --log [N]]
 #                                     the switch controller (ADR-052): what it would do now; one run; its move log

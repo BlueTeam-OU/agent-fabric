@@ -1330,18 +1330,37 @@ def _table_host(rs: list) -> list[str]:
     return lines
 
 
+def _codex_cell(row: Any) -> str:
+    """The Codex review sign-in column of the keys table (ADR-053 rule 8): until when the account can run the review,
+    and from which sign-in (own or synced); "-" for an account that did not send the row."""
+    if row is None:
+        return "-"
+    if not T(dig(row, "present")):
+        return "none"
+    via = esc(nullish(dig(row, "via"), "?"))
+    if dig(row, "state") == "unreadable":
+        return f"unreadable ({via})"
+    until = esc(S(nullish(dig(row, "expires_at"), "?"))[:16].replace("T", " "))
+    return f"EXPIRED {until} ({via})" if T(dig(row, "expired")) else f"{until} ({via})"
+
+
 def _table_keys(rs: list) -> list[str]:
     # One line per account: how many keys it holds, whether git can sign, and
     # whether its store refused a commit (ADR-042 rule 5) — a refusal is a
     # security event and is said until the store is repaired; the absent keys
     # follow, by name. Never a value.
-    lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('keys', 8)} {pad_end('signing', 8)} store"]
+    # The Codex review column (ADR-053 rule 8) appears when an account sent its row: a reply without any, from a daemon
+    # that predates it, prints the table as it always was.
+    with_codex = any(isinstance(r.get("keys"), list) and any(dig(k, "name") == "codex review sign-in" for k in r["keys"]) for r in rs)
+    codex_head = f"{pad_end('codex review', 34)} " if with_codex else ""
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('keys', 8)} {pad_end('signing', 8)} {codex_head}store"]
     for r in rs:
         keys = r.get("keys")
         if r["status"] != "ok" or not isinstance(keys, list):
             lines.append(f"{pad_end(r['account'], 22)} {r['status'] if r['status'] != 'ok' else 'ok         keys ' + S(nullish(dig(keys, 'status'), '-'))}")
             continue
-        named = [k for k in keys if dig(k, "name") not in ("signing key secret", "store commits verified")]
+        named = [k for k in keys if dig(k, "name") not in ("signing key secret", "store commits verified", "codex review sign-in")]
+        codex = next((k for k in keys if dig(k, "name") == "codex review sign-in"), None)
         sign = next((k for k in keys if dig(k, "name") == "signing key secret"), None)
         store = next((k for k in keys if dig(k, "name") == "store commits verified"), None)
 
@@ -1354,7 +1373,8 @@ def _table_keys(rs: list) -> list[str]:
         else:
             st = esc(nullish(dig(store, "state"), "verified" if T(dig(store, "present")) else "unreadable"))
         held = f"{sum(1 for k in named if T(dig(k, 'present')))}/{len(named)}"
-        lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(held, 8)} {pad_end(('yes' if T(dig(sign, 'present')) else 'no') if sign is not None else '-', 8)} {st}")
+        lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(held, 8)} {pad_end(('yes' if T(dig(sign, 'present')) else 'no') if sign is not None else '-', 8)} "
+                     f"{pad_end(_codex_cell(codex), 34) + ' ' if with_codex else ''}{st}")
         absent = [esc(dig(k, "name")) for k in named if not T(dig(k, "present"))]
         if absent:
             lines.append(f"{pad_end('', 22)} {pad_end('', 10)} absent: {', '.join(absent)}")
