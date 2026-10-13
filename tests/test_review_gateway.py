@@ -75,6 +75,9 @@ FAKE_CODEX = r'''#!%(python)s
 import json, os, subprocess, sys, time
 S = %(state)r
 argv = sys.argv[1:]
+if argv[:1] == ["sandbox"]:
+    # the engine proves the read-only sandbox first (review_codex.prove_sandbox): this stand-in answers both probes as a sandbox that starts and refuses the write would, exit 0
+    sys.exit(0)
 sys.stdin.read()
 home = os.environ.get("CODEX_HOME", "/nonexistent")
 serve = [json.loads(l) for l in open(os.path.join(S, "gw.log")) if '"serve"' in l]
