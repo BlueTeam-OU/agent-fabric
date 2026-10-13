@@ -163,6 +163,16 @@ def main() -> int:
         check("missing on an AppVM: two lines, and the restart",
               hs.audit("fedora-qubes", "0", "dnf in the template", "23", ["gh"]).count("\n") == 2
               and "(then restart this AppVM)" in hs.audit("fedora-qubes", "", "x", "1", ["gh"]))
+        op = hs.audit("debian", "1", "sudo apt-get install", "23", [], operator_missing=["kitty"])
+        check("an operator tool missing: one warning line after the contract's own, naming the package",
+              op == "new-agent: 0. debian: host tools present (23, the fabric's contract)\n"
+              "new-agent: 0. debian: warning: the operator's desktop lacks kitty (the deck's terminal; not the fabric's contract, "
+              "nothing stops): sudo apt-get install kitty\n", op)
+        check("…and none when the operator list is not asked (a role account) or nothing is missing",
+              "warning" not in hs.audit("debian", "1", "x", "23", ["gh"]) and "warning" not in hs.audit("debian", "1", "x", "23", [], operator_missing=[]))
+        check("an AppVM names the TemplateVM in the hint, for the host's and the operator's packages",
+              hs.audit("fedora-qubes", "0", "in the TemplateVM: sudo dnf install", "23", ["gh"], operator_missing=["kitty"],
+                       template="fedora-43-develop").count("in the TemplateVM fedora-43-develop: sudo dnf install") == 2)
 
         print("the closing list")
         c = vf.closing("acct", "absent", "no", "demo")

@@ -8,6 +8,7 @@ on any failure."""
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -70,6 +71,55 @@ def main() -> int:
             py = subprocess.run([sys.executable, "-I", TOOL, "packages", name], capture_output=True, text=True, timeout=60)
             check(f"{name}: the shell CI still asks (packages.sh, before any Python exists there) prints the same list",
                   sh.returncode == 0 and sh.stdout == py.stdout, sh.stdout + sh.stderr)
+        print("packages --operator")
+        sh_tool = os.path.join(HERE, "runtime", "provisioning", "platform", "packages.sh")
+        stub = os.path.join(t, "bin")
+        os.makedirs(stub)
+        for tag, key_type, template in (("ok", "AppVM", "fedora-43-develop"), ("tmpl", "TemplateVM", "x")):
+            os.makedirs(os.path.join(stub, tag))
+            qdb = os.path.join(stub, tag, "qubesdb-read")
+            with open(qdb, "w") as fh:
+                fh.write(f'#!/bin/sh\ncase "$1" in /type) echo {key_type};; /qubes-base-template) echo {template};; *) exit 1;; esac\n')
+            os.chmod(qdb, 0o755)
+        empty = os.path.join(t, "empty")
+        os.makedirs(empty)
+        # Only what packages.sh calls, so a real qubesdb-read on the machine running the suite is not found.
+        for tool in ("bash", "timeout", "sort", "awk", "tr", "dirname", "readlink", "env", "cat"):
+            os.symlink(shutil.which(tool), os.path.join(empty, tool))
+
+        def both(args: list[str], path: str) -> tuple[subprocess.CompletedProcess, subprocess.CompletedProcess]:
+            env = {"PATH": f"{path}:{empty}"}
+            return (subprocess.run(["bash", sh_tool, "--operator", *args], capture_output=True, text=True, timeout=60, env=env),
+                    subprocess.run([sys.executable, "-I", TOOL, "packages", "--operator", *args], capture_output=True, text=True,
+                                   timeout=60, env=env))
+        for name, want, cmd in (("fedora", FEDORA, "sudo dnf install -y"), ("debian", DEBIAN, "sudo apt-get install -y")):
+            sh, py = both([name], empty)
+            line = f"{cmd} {' '.join(want)} kitty\n"
+            check(f"{name}: one line, the install command, the host list, then the operator's (shell and Python agree)",
+                  sh.stdout == line and py.stdout == line and sh.returncode == py.returncode == 0 and sh.stderr == py.stderr == "",
+                  sh.stdout + sh.stderr + py.stdout + py.stderr)
+        sh, py = both(["fedora-qubes"], os.path.join(stub, "ok"))
+        want = ("In the TemplateVM fedora-43-develop (Qubes menu: fedora-43-develop > Terminal), paste once, then shut it down "
+                f"and restart this qube:\n  sudo dnf install -y {' '.join(FEDORA)} kitty\n")
+        check("an AppVM: the TemplateVM named, the line under it", sh.stdout == want and py.stdout == want, sh.stdout + py.stdout + sh.stderr)
+        sh, py = both(["debian-qubes"], os.path.join(stub, "tmpl"))
+        line = f"sudo apt-get install -y {' '.join(DEBIAN)} kitty\n"
+        check("a Qubes platform that is not an AppVM, or whose template cannot be read: the line alone, said on stderr",
+              sh.stdout == line == py.stdout and "no TemplateVM name" in sh.stderr and "no TemplateVM name" in py.stderr,
+              sh.stdout + sh.stderr + py.stderr)
+        sh, py = both(["fedora-qubes"], empty)
+        check("…the same with qubesdb-read absent",
+              sh.stdout.endswith(" kitty\n") and sh.stdout.count("\n") == 1 and sh.stdout == py.stdout and sh.returncode == py.returncode == 0,
+              sh.stdout + sh.stderr)
+        sh, py = both(["nope"], empty)
+        check("an unknown platform under --operator: exit 2, nothing on stdout",
+              sh.returncode == py.returncode == 2 and sh.stdout == py.stdout == "")
+        default = subprocess.run([sys.executable, "-I", TOOL, "packages", "fedora"], capture_output=True, text=True, timeout=60)
+        check("without --operator the output is unchanged: no kitty, one package per line",
+              "kitty" not in default.stdout and default.stdout.split("\n")[:-1] == FEDORA)
+        check("the operator list is not the host contract (CI installs the host list whole)",
+              "kitty" not in hp.FABRIC_HOST_TOOLS and hp.FABRIC_OPERATOR_TOOLS == ("kitty",)
+              and hp.operator_packages(hp.profile("fedora")) == ["kitty"] and hp.operator_packages(hp.profile("debian-qubes")) == ["kitty"])
         r = subprocess.run([sys.executable, "-I", TOOL, "packages", "nope"], capture_output=True, text=True, timeout=60)
         check("an unknown platform: exit 2, nothing on stdout, the choices on stderr",
               r.returncode == 2 and r.stdout == "" and "unknown platform" in r.stderr and "debian-qubes" in r.stderr, r.stderr)
