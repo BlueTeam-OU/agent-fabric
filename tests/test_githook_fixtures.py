@@ -37,13 +37,16 @@ class Guard(unittest.TestCase):
         fabric = Fabric()
         self.addCleanup(fabric.cleanup)
         repo = fabric.itself()
-        for rel in ("tools/fabric/layout.py", "../../escaped.txt"):          # the scratch root is the fabric's PARENT: two levels leave it
+        name = f"escaped-{uuid.uuid4().hex}.txt"                              # a name nothing else holds in the shared temporary directory
+        target = os.path.join(os.path.dirname(fabric.root), name)
+        self.addCleanup(lambda: os.path.lexists(target) and os.remove(target))   # should the guard ever fail, leave no residue
+        for rel in ("tools/fabric/layout.py", f"../../{name}"):             # the scratch root is the fabric's PARENT: two levels leave it
             with self.subTest(rel=rel):
                 before = os.stat(os.path.join(ROOT, "tools/fabric/layout.py")).st_mtime_ns
                 with self.assertRaises(AssertionError):
                     repo.write(rel, "x\n", append=True)
                 self.assertEqual(os.stat(os.path.join(ROOT, "tools/fabric/layout.py")).st_mtime_ns, before)
-                self.assertFalse(os.path.exists(os.path.join(os.path.dirname(fabric.root), "escaped.txt")))
+                self.assertFalse(os.path.lexists(target))
 
     def test_a_path_inside_the_scratch_root_is_written(self):
         repo = Repo({"README": "r\n"})
