@@ -125,8 +125,21 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends paperkey
       - name: no machine attribution in commits or the PR description
         run: python3 tools/fabric/guards/ban_generated_by_attribution.py
-      - name: every commit the branch adds is signed
-        run: python3 tools/fabric/guards/ban_unsigned_commits.py
+      # agent-fabric ADR-057 §5 rule 5: a commit's timestamp proof is a note,
+      # which no checkout fetches. A remote without the ref yet is said and
+      # passed on: the checker refuses a missing proof itself, once the
+      # repository's `since` is set.
+      - name: the timestamp proofs (refs/notes/fabric-ots)
+        run: git fetch --no-tags origin '+refs/notes/fabric-ots:refs/notes/fabric-ots' || echo "no refs/notes/fabric-ots on origin"
+      # The checker and what it judges by (the agent keys, the lineage, the
+      # role holders and locales, policies/signing.json, the registry) are
+      # main's, as for the authority step above: from the branch, a key, a
+      # holder or a null `since` it added would admit its own commits.
+      - name: every commit the branch adds is signed, by its own agent once cut over (main's checker and data)
+        run: |
+          base="$(mktemp -d)"
+          git archive origin/main tools/fabric policies identities/keys identities/roles projects/registry.json | tar -x -C "$base"
+          AGENT_FABRIC_OPERATOR="$base" /usr/bin/python3 -I "$base/tools/fabric/guards/ban_unsigned_commits.py"
       - name: the bash suites
         run: bash tests/run.sh bash
 
