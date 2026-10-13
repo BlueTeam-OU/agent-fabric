@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "The surnames an agent may take for its persona (agent-fabric ADR-056 §5 rule 3), one agent per surname: scientists from all over the world, deceased, none whose best-known work or a role held was weapons development. Each entry names the person it comes from and why it passed; `excluded` names the ones the test removed and why, so the list can be reviewed. Curated by fabric-coordinator, checked by the owner; an addition needs the same test.",
+  "description": "The surnames an agent may take for its persona (agent-fabric ADR-056 §5 rule 3), one agent per surname: scientists from all over the world, deceased, none who concretely worked at making a weapon (designed, built, tested or directed its making, or produced its materials) — theory others later used, consulting, or wartime science that built no weapon does not exclude. Each entry names the person it comes from and why it passed; `excluded` names the ones the test removed and why, so the list can be reviewed. Curated by fabric-coordinator, checked by the owner; an addition needs the same test.",
   "surnames": [
     {
       "surname": "Anning",
@@ -45,6 +45,13 @@
       "lived": "973-1050"
     },
     {
+      "surname": "Bohr",
+      "person": "Niels Bohr",
+      "from": "Denmark",
+      "known_for": "atomic structure, quantum theory; a consultant, not a weapon builder",
+      "lived": "1885-1962"
+    },
+    {
       "surname": "Boole",
       "person": "George Boole",
       "from": "Ireland",
@@ -80,6 +87,13 @@
       "lived": "1879-1934"
     },
     {
+      "surname": "Chandrasekhar",
+      "person": "Subrahmanyan Chandrasekhar",
+      "from": "India/United States",
+      "known_for": "stellar structure; wartime shock-wave research built no weapon",
+      "lived": "1910-1995"
+    },
+    {
       "surname": "Copernicus",
       "person": "Nicolaus Copernicus",
       "from": "Poland",
@@ -99,6 +113,13 @@
       "from": "England",
       "known_for": "evolution",
       "lived": "1809-1882"
+    },
+    {
+      "surname": "Dirac",
+      "person": "Paul Dirac",
+      "from": "England",
+      "known_for": "quantum mechanics; isotope-separation theory only",
+      "lived": "1902-1984"
     },
     {
       "surname": "Euler",
@@ -136,6 +157,13 @@
       "lived": "1920-1958"
     },
     {
+      "surname": "Galilei",
+      "person": "Galileo Galilei",
+      "from": "Italy",
+      "known_for": "astronomy, mechanics; his gunner's compass was an instrument",
+      "lived": "1564-1642"
+    },
+    {
       "surname": "Gauss",
       "person": "Carl Friedrich Gauss",
       "from": "Germany",
@@ -148,6 +176,13 @@
       "from": "Ireland",
       "known_for": "mechanics, quaternions",
       "lived": "1805-1865"
+    },
+    {
+      "surname": "Hopper",
+      "person": "Grace Hopper",
+      "from": "United States",
+      "known_for": "programming languages, compilers",
+      "lived": "1906-1992"
     },
     {
       "surname": "Houssay",
@@ -381,11 +416,32 @@
       "lived": "1852-1934"
     },
     {
+      "surname": "Salam",
+      "person": "Abdus Salam",
+      "from": "Pakistan",
+      "known_for": "electroweak theory",
+      "lived": "1926-1996"
+    },
+    {
       "surname": "Schrodinger",
       "person": "Erwin Schrodinger",
       "from": "Austria",
       "known_for": "wave mechanics",
       "lived": "1887-1961"
+    },
+    {
+      "surname": "Shannon",
+      "person": "Claude Shannon",
+      "from": "United States",
+      "known_for": "information theory; wartime work was mathematics and cryptography",
+      "lived": "1916-2001"
+    },
+    {
+      "surname": "Shen",
+      "person": "Shen Kuo",
+      "from": "China",
+      "known_for": "magnetic compass, geology, astronomy",
+      "lived": "1031-1095"
     },
     {
       "surname": "Theiler",
@@ -440,99 +496,67 @@
   "excluded": [
     {
       "surname": "Nobel",
-      "why": "dynamite and the armaments firm Bofors; named by the owner"
+      "why": "invented dynamite and owned the armaments firm Bofors; named by the owner"
     },
     {
       "surname": "Oppenheimer",
-      "why": "led the Manhattan Project's weapons laboratory; named by the owner"
+      "why": "directed the laboratory that built the atomic bomb; named by the owner"
     },
     {
       "surname": "Teller",
-      "why": "hydrogen bomb"
+      "why": "designed the hydrogen bomb"
     },
     {
       "surname": "Sakharov",
-      "why": "Soviet hydrogen bomb"
+      "why": "designed the Soviet hydrogen bomb"
     },
     {
       "surname": "Kurchatov",
-      "why": "Soviet atomic bomb programme"
+      "why": "directed the Soviet atomic bomb programme"
     },
     {
       "surname": "Fermi",
-      "why": "Manhattan Project"
+      "why": "worked on the bomb at Los Alamos and its first reactor"
     },
     {
       "surname": "Feynman",
-      "why": "Manhattan Project"
+      "why": "worked on the bomb at Los Alamos"
     },
     {
       "surname": "von Neumann",
-      "why": "Manhattan Project, weapons design"
-    },
-    {
-      "surname": "Bohr",
-      "why": "consultant to the Manhattan Project"
+      "why": "designed the implosion of the plutonium bomb"
     },
     {
       "surname": "Heisenberg",
-      "why": "German nuclear weapons programme"
+      "why": "led Germany's nuclear weapons research"
     },
     {
       "surname": "Wu",
-      "why": "Manhattan Project (Chien-Shiung Wu)"
+      "why": "uranium enrichment for the bomb (Chien-Shiung Wu)"
     },
     {
       "surname": "Haber",
-      "why": "chemical weapons"
-    },
-    {
-      "surname": "Shannon",
-      "why": "wartime fire-control systems"
-    },
-    {
-      "surname": "Chandrasekhar",
-      "why": "wartime ballistics at Aberdeen Proving Ground"
+      "why": "made chlorine gas and directed its first use in war"
     },
     {
       "surname": "Hubble",
-      "why": "wartime ballistics at Aberdeen Proving Ground"
-    },
-    {
-      "surname": "Hopper",
-      "why": "naval computing used for weapons calculations"
+      "why": "directed weapons ballistics testing at Aberdeen Proving Ground"
     },
     {
       "surname": "Mendeleev",
-      "why": "smokeless powder for the navy"
+      "why": "made smokeless powder for the navy"
     },
     {
       "surname": "Lavoisier",
-      "why": "directed the royal gunpowder administration"
+      "why": "directed the royal gunpowder production"
     },
     {
       "surname": "Archimedes",
-      "why": "designed war machines"
+      "why": "designed war machines for the defence of Syracuse"
     },
     {
       "surname": "Leonardo",
-      "why": "military engineer, designed weapons"
-    },
-    {
-      "surname": "Shen",
-      "why": "Shen Kuo directed military affairs and defence works"
-    },
-    {
-      "surname": "Dirac",
-      "why": "theoretical work on isotope separation for Britain's atomic programme (Tube Alloys)"
-    },
-    {
-      "surname": "Salam",
-      "why": "an early role in Pakistan's Atomic Energy Commission"
-    },
-    {
-      "surname": "Galilei",
-      "why": "his geometric and military compass was designed for artillery gunnery"
+      "why": "designed weapons as a military engineer"
     }
   ]
 }

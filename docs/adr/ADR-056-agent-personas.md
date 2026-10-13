@@ -64,8 +64,11 @@ its own rather than imposed.
    message), the login follows: "AI Ada Maxwell (python-dev-01)". No
    surface shows the name without the prefix.
 3. The surname comes from `identities/personas/surnames.json`:
-   scientists from all over the world, deceased, none whose best-known
-   work or a role they held was weapons development, each entry naming
+   scientists from all over the world, deceased, none who concretely
+   worked at making a weapon — designed, built, tested or directed its
+   making, or produced its materials; theory others later used,
+   consulting, or wartime science that built no weapon does not exclude
+   — each entry naming
    its person and the reason it passed, each removed name listed with
    its reason. fabric-coordinator curates it and the owner checks it;
    an addition passes the same test.
