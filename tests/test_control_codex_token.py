@@ -242,10 +242,32 @@ class Timer(Fakes):
         self.assertEqual(len(self.logs), 2)
         self.assertEqual((self.calls("codex"), self.calls("fabric-secrets")), ([], []))
 
-    def test_a_fresh_sign_in_is_left_alone(self):
-        tick = self.tick()
+    def test_a_fresh_sign_in_is_never_refreshed_but_handed_out_at_the_first_tick_and_then_once_a_day(self):
+        self.written(*LOGINS)
+        now = [self.now]
+        tick = self.tick(clock=lambda: now[0])
+        self.assertEqual(tick(), "distributed")
+        self.assertEqual(self.calls("codex"), [], "fresh: Codex is not run")
+        self.assertEqual(len(self.calls("fabric-secrets")), 1)
+        now[0] += 6 * 3600
         self.assertEqual(tick(), "fresh")
-        self.assertEqual((self.logs, self.calls("codex"), self.calls("fabric-secrets")), ([], [], []))
+        self.assertEqual(len(self.calls("fabric-secrets")), 1, "not again within the day")
+        now[0] += 19 * 3600
+        self.assertEqual(tick(), "distributed")
+        self.assertEqual(len(self.calls("fabric-secrets")), 2, "a day on: a login placed since takes it")
+
+    def test_a_distribution_that_missed_a_login_is_tried_again_at_the_next_tick(self):
+        self.rows({"login": "python-dev-01", "status": "failed", "reason": "no mirror"})
+        now = [self.now]
+        tick = self.tick(clock=lambda: now[0])
+        self.assertEqual(tick(), "failed")
+        self.assertIn("tried again at the next tick", self.logs[-1])
+        self.written(*LOGINS)
+        now[0] += 600
+        self.assertEqual(tick(), "distributed")
+        self.assertEqual(len(self.calls("fabric-secrets")), 2)
+        now[0] += 600
+        self.assertEqual(tick(), "fresh", "reached everyone: the retry is over")
 
     def test_an_old_sign_in_is_refreshed_and_distributed_to_every_agent_and_said_without_a_value(self):
         self.write_signin(self.now + 5 * 3600)

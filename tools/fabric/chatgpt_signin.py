@@ -24,6 +24,9 @@ import re
 import stat
 
 MAX_AUTH_BYTES = 1 << 20
+# An exp is a time a person can read: from 1970 to 2106. A JWT whose exp is anything else is refused here, not left for
+# a date formatter (a year past 9999, a negative one) to fail somewhere that would lose more than this sign-in.
+EXP_MAX = 2 ** 32
 ACCOUNT_ID = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
 # An Authorization header value: printable ASCII with no space. A JWT is base64url and dots.
 HEADER_SAFE = re.compile(r"[!-~]+")
@@ -45,7 +48,9 @@ def read_owned(path: str) -> bytes:
     """The file, opened without following a link, refused unless it is a regular file of this login that no one
     else can read: it holds tokens."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        # O_NONBLOCK: a FIFO in the file's place (the login can make one) would otherwise block the open for ever; it opens
+        # at once and is refused below as no regular file. A regular file is unaffected.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
     except FileNotFoundError:
         raise Missing(f"no sign-in at {path}") from None
     except OSError as e:
@@ -78,6 +83,8 @@ def jwt_exp(token: str) -> int:
     exp = payload.get("exp") if isinstance(payload, dict) else None
     if type(exp) is not int:
         raise ValueError("its payload carries no integer exp")
+    if not 0 < exp < EXP_MAX:
+        raise ValueError("its exp is not a time between 1970 and 2106")
     return exp
 
 

@@ -45,6 +45,13 @@ class Table(unittest.TestCase):
         self.assertRegex(t[7], r"^a3\s+ok\s+1/2\s+yes\s+none\s+verified$")
         self.assertRegex(t[9], r"^a4\s+ok\s+1/2\s+yes\s+-\s+verified$", "a login that sent no row: a dash, not none")
 
+    def test_the_widest_cell_keeps_the_store_column_where_the_header_has_it(self):
+        gone = {"name": keys_mod.CODEX_ROW, "present": True, "via": "synced", "state": "expired", "expires_at": "2026-10-10T01:00:00.000Z", "expired": True}
+        ok = {"name": keys_mod.CODEX_ROW, "present": True, "via": "synced", "state": "ok", "expires_at": "2026-10-20T14:03:00.000Z", "expired": False}
+        t = self.table(self.keys(gone), self.keys(ok))
+        col = t[0].index("store")
+        self.assertEqual([t[1].index("verified"), t[3].index("verified")], [col, col])
+
     def test_the_row_is_not_a_key_held_nor_an_absent_key(self):
         none = {"name": keys_mod.CODEX_ROW, "present": False}
         t = self.table(self.keys(none))

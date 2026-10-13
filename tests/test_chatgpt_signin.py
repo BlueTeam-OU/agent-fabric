@@ -106,11 +106,29 @@ class SignIn(unittest.TestCase):
         self.assertEqual(cs.jwt_exp(fake_jwt(EXP + 5)), EXP + 5)
         for label, tok in (("two parts", "a.b"), ("a payload that is not JSON", "a.bm90IGpzb24.c"), ("no exp", f"a.{b64({'sub': 'x'})}.c"),
                            ("an exp that is a string", f"a.{b64({'exp': '1'})}.c"), ("an exp that is a bool", f"a.{b64({'exp': True})}.c"),
-                           ("an exp that is a float", f"a.{b64({'exp': 1.5})}.c")):
+                           ("an exp that is a float", f"a.{b64({'exp': 1.5})}.c"),
+                           ("an exp past year 9999", f"a.{b64({'exp': 10 ** 12})}.c"), ("an exp past 2106", f"a.{b64({'exp': 2 ** 32})}.c"),
+                           ("a negative exp", f"a.{b64({'exp': -5})}.c"), ("an exp of zero", f"a.{b64({'exp': 0})}.c")):
             with self.subTest(label):
                 with self.assertRaises(ValueError) as ctx:
                     cs.jwt_exp(tok)
                 self.assertNotIn(tok, str(ctx.exception))
+
+    def test_a_fifo_in_the_files_place_is_refused_at_once_not_waited_on(self):
+        import threading
+        os.mkfifo(os.path.join(self.tmp, "auth.json"), 0o600)
+        done = []
+
+        def read():
+            try:
+                cs.read_signin(self.tmp)
+            except cs.Refused as e:
+                done.append(str(e))
+        th = threading.Thread(target=read, daemon=True)
+        th.start()
+        th.join(5)
+        self.assertFalse(th.is_alive(), "open() on a FIFO must not block")
+        self.assertIn("not a regular file", done[0])
 
     def test_the_synced_file_is_compact_header_safe_text_that_reads_back(self):
         text = cs.synced_text(fake_jwt(EXP), ACCOUNT)

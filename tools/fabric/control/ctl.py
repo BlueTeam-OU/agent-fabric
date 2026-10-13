@@ -1352,7 +1352,7 @@ def _table_keys(rs: list) -> list[str]:
     # The Codex review column (ADR-053 rule 8) appears when an account sent its row: a reply without any, from a daemon
     # that predates it, prints the table as it always was.
     with_codex = any(isinstance(r.get("keys"), list) and any(dig(k, "name") == "codex review sign-in" for k in r["keys"]) for r in rs)
-    codex_head = f"{pad_end('codex review', 26)} " if with_codex else ""
+    codex_head = f"{pad_end('codex review', 34)} " if with_codex else ""
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('keys', 8)} {pad_end('signing', 8)} {codex_head}store"]
     for r in rs:
         keys = r.get("keys")
@@ -1374,7 +1374,7 @@ def _table_keys(rs: list) -> list[str]:
             st = esc(nullish(dig(store, "state"), "verified" if T(dig(store, "present")) else "unreadable"))
         held = f"{sum(1 for k in named if T(dig(k, 'present')))}/{len(named)}"
         lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(held, 8)} {pad_end(('yes' if T(dig(sign, 'present')) else 'no') if sign is not None else '-', 8)} "
-                     f"{pad_end(_codex_cell(codex), 26) + ' ' if with_codex else ''}{st}")
+                     f"{pad_end(_codex_cell(codex), 34) + ' ' if with_codex else ''}{st}")
         absent = [esc(dig(k, "name")) for k in named if not T(dig(k, "present"))]
         if absent:
             lines.append(f"{pad_end('', 22)} {pad_end('', 10)} absent: {', '.join(absent)}")

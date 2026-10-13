@@ -26,6 +26,9 @@ account id, 0600, the login's own). The same life rule applies; one with too lit
 one and a malformed one refuse naming why and who refreshes it, nothing started or posted. A sign-in of its own
 that exists and is bad is refused as it is, never replaced by the synced one, and a named --codex-home has no
 fallback.
+The file is looked for under $XDG_RUNTIME_DIR (else /run/user/<uid>), where the review's own scratch is; the writer
+(`fabric-secrets sync`) and the keys read use /run/user/<uid>: the same directory in a login session. A login whose
+XDG_RUNTIME_DIR is elsewhere reads "none" here while the keys row reports the file.
 
 THE GATEWAY. The fleet's pinned gateway (AGENT_FABRIC_GW_BIN overrides), through the launcher's own
 start/stop (tools/fabric/launcher/gateway.py), with plan schema 1: its `--version --json` must list

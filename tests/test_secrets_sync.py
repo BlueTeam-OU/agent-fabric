@@ -413,6 +413,20 @@ def main() -> int:
                       out[:300])
                 rc, out = run(s.status, False)
                 check("…and status is OK for it", rc == 0 and "missing: (none)" in out and "  OK" in out, out)
+                # The Codex sign-in is an agent's: sync() passes a human's kind to it, which says nothing and applies nothing
+                # (a sandbox HOME makes an agent's sync SAY it skipped the file, the control below).
+                pair = {"CODEX_CHATGPT_ACCESS_TOKEN": fake_jwt(int(_time.time()) + 20 * 86400), "CODEX_CHATGPT_ACCOUNT_ID": CG_ACCOUNT}
+                store["values"] = {**human, **pair}
+                rc, out = run(s.sync, False, True)
+                check("a human's sync says nothing of the Codex sign-in file",
+                      rc == 0 and not [x for x in json.loads(out)["skipped"] + json.loads(out)["applied"] if "Codex sign-in" in x], out[:300])
+                kinds({ME: "agent"})
+                store["values"] = {**fixture(ME), **pair}
+                rc, out = run(s.sync, False, True)
+                check("…while an agent's sync in the same sandbox says it skipped the file",
+                      any("Codex sign-in file (HOME is not the login's home" in x for x in json.loads(out)["skipped"]), out[:300])
+                kinds({ME: "human"})
+                store["values"] = human
                 store["values"] = {k: v for k, v in human.items() if k != "CLAUDE_BRIDGE_AUTH_TOKEN"}
                 rc, out = run(s.status, False)
                 check("a human without the relay credential: status exits 1, naming it",

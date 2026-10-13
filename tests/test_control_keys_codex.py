@@ -83,6 +83,26 @@ class Row(unittest.TestCase):
                 self.synced(NOW + 3 * 86400, **kw)
                 self.assertEqual(self.row()["state"], "unreadable")
 
+    def test_a_sign_in_with_an_exp_no_date_can_hold_is_unreadable_and_costs_the_account_nothing_else(self):
+        for exp in (10 ** 12, -5):
+            with self.subTest(exp=exp):
+                self.synced(exp)
+                self.assertEqual(self.row(), {"name": keys_mod.CODEX_ROW, "present": True, "via": "synced", "state": "unreadable"})
+                rows = ops.SECTIONS["keys"]({"home": self.home, "runtime_root": self.run, "run": lambda *a, **k: (_ for _ in ()).throw(OSError("no git"))})
+                self.assertIsInstance(rows, list, "the keys section still answers")
+
+    def test_a_fifo_where_the_sign_in_should_be_is_unreadable_at_once(self):
+        import threading
+        path = gateway_token.token_path(UID, self.run, gateway_token.SIGNIN_NAME)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.mkfifo(path, 0o600)
+        got = []
+        th = threading.Thread(target=lambda: got.append(self.row()), daemon=True)
+        th.start()
+        th.join(5)
+        self.assertFalse(th.is_alive(), "the keys read must not block on a FIFO")
+        self.assertEqual(got[0]["state"], "unreadable")
+
     def test_the_row_carries_no_token_account_id_or_fingerprint(self):
         self.own(NOW + 10 * 86400)
         self.synced(NOW + 3 * 86400)

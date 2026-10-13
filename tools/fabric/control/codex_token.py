@@ -13,8 +13,10 @@ token never leaves that home. Every other login gets the access token and the ac
   the tick (`start`, agentd, on the host operator's account like the account switch): every TICK_S, and first
         FIRST_TICK_S after the daemon starts, when the sign-in has under REFRESH_BELOW_S left it is refreshed
         (`CODEX_HOME=<home> codex exec` once, ADR-053 rule 8 and review_gateway.py's header) and distributed to
-        every placed agent. A sign-in that is not there is not this account's business and is said once a day; a
-        refresh that did not advance the expiry is said and nothing is distributed.
+        every placed agent; a fresh one is handed out again at the first tick and then once a day, and at the next tick
+        after a distribution that did not reach every login (`codex-assign` answers "unchanged" for a login that has
+        it, so a login placed later takes it within a day). A sign-in that is not there is not this account's business
+        and is said once a day; a refresh that did not advance the expiry is said and nothing is distributed.
 
 Exit: 0 done, 1 a login, the refresh or the sync failed, 2 usage or a refused request. Prints no token: a row names
 a login, a status and the token's 12-hex fingerprint and expiry.
@@ -43,6 +45,9 @@ REFRESH_TIMEOUT_S = 300
 STORE_TIMEOUT_S = 900
 CTL_TIMEOUT_S = 1800
 SAY_ABSENT_EVERY_S = 24 * 3600
+# A fresh sign-in is still handed out again this often: `codex-assign` answers "unchanged" for a login that has it, so
+# a login placed later, or one that missed the last distribution, takes it within a day.
+CATCH_UP_EVERY_S = 24 * 3600
 USAGE = ("usage: fabric-accounts codex-token <login…|all> [--no-sync] [--force] [--refresh] [--home DIR]")
 PROMPT = "Reply with the single word ok."
 
@@ -184,9 +189,13 @@ class Tick:
                  clock: Callable[[], float] = time.time):
         self.env, self.root, self.agents, self.log, self.run, self.spawn, self.clock = env, root, agents, log, run, spawn, clock
         self.absent_said = 0.0
+        self.distributed_at = 0.0
+        self.pending = False       # the last distribution did not reach every login
 
     def __call__(self) -> str:
-        """What this tick did, as one word, for a test: absent, fresh, refused, unchanged-expiry, distributed, failed."""
+        """What this tick did, as one word, for a test: absent, fresh, refused, unchanged-expiry, distributed, failed.
+        A fresh sign-in is handed out again at the first tick and then once a day (CATCH_UP_EVERY_S), and at the next
+        tick after a distribution that did not reach every login."""
         home = signin_home(self.env)
         left, why = life(home, self.clock())
         if left is None:
@@ -195,7 +204,9 @@ class Tick:
                 self.log(f"agentd: codex sign-in: {why}")
             return "absent"
         if left >= REFRESH_BELOW_S:
-            return "fresh"
+            if not (self.pending or self.clock() - self.distributed_at >= CATCH_UP_EVERY_S):
+                return "fresh"
+            return self.hand_out("handed again to")
         problem = refresh(home, self.env, self.run)
         if problem:
             self.log(f"agentd: codex sign-in has {int(left // 3600)} h left and could not be refreshed: {problem}")
@@ -204,12 +215,20 @@ class Tick:
         if after is None or after <= left:
             self.log("agentd: codex sign-in: the refresh did not advance the expiry; nothing distributed")
             return "unchanged-expiry"
+        return self.hand_out(f"refreshed ({int(after // 3600)} h) and handed to")
+
+    def hand_out(self, what: str) -> str:
+        """Distribute the sign-in to every placed agent; a failure leaves `pending` for the next tick."""
+        home = signin_home(self.env)
         logins = self.agents()
+        self.distributed_at = self.clock()     # an attempt: the daily catch-up counts from it, a failure retries by `pending`
         if distribute(logins, home, root=self.root, env=self.env, run=self.run, spawn=self.spawn,
                       say=lambda m: self.log(f"agentd: {m}"), out=lambda m: None) != 0:
-            self.log("agentd: codex sign-in refreshed, but not every login took it (fabric-accounts codex-token all says which)")
+            self.pending = True
+            self.log("agentd: codex sign-in: not every login took it, tried again at the next tick (fabric-accounts codex-token all says which)")
             return "failed"
-        self.log(f"agentd: codex sign-in refreshed ({int(after // 3600)} h) and distributed to {len(logins)} login(s)")
+        self.pending = False
+        self.log(f"agentd: codex sign-in {what} {len(logins)} login(s)")
         return "distributed"
 
 
