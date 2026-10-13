@@ -534,9 +534,26 @@ def shell_texts(command: str) -> list[str]:
 
 
 def is_inbox(argv: list[str]) -> bool:
-    """An inbox watch: gzcoord-inbox as the program or as the script its
-    interpreter runs, or the harness's shell whose command it is."""
-    return any(os.path.basename(a) == INBOX for a in argv[:4]) or f"eval '{INBOX}" in " ".join(argv)
+    """An inbox watch: gzcoord-inbox as the program, or as the script its
+    interpreter runs after any options (`fabric-python -I`, `python3 -I -u
+    -B`, `env python3`: reading only the first words missed a longer
+    spelling, review of #242, C4); or the harness's shell whose command it
+    is."""
+    if f"eval '{INBOX}" in " ".join(argv):
+        return True
+    it = iter(argv)
+    for w in it:
+        base = os.path.basename(w)
+        if base == INBOX:
+            return True
+        if w in ("-c", "-m"):              # a command or a module, no script
+            return False
+        if w in ("-X", "-W", "-Q"):        # python's options that take a value
+            next(it, None)
+        elif not (w.startswith("-") or base == "env" or base.startswith(("python", "fabric-python"))
+                  or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", w)):
+            return False                   # the first operand is the script, and it is not the inbox
+    return False
 
 
 def label_of(pid: int, comm: str, argv: list[str], in_tree: bool = True) -> tuple[str, bool]:

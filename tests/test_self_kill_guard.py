@@ -379,6 +379,28 @@ def main() -> int:
               d is not None and "own shell" in d[1], d)
         check("an inbox watch by pid is refused outside a session too",
               (g.decision(f"kill {inbox}", None) or ("",))[0] == "deny")
+        # The script after any number of interpreter options (review of #242, C4).
+        script = os.path.join(tmp, "flags", INBOX)
+        os.makedirs(os.path.dirname(script))
+        with open(script, "w") as fh:
+            fh.write("import time\ntime.sleep(60)\n")
+        flagged = subprocess.Popen([sys.executable, "-I", "-u", "-B", "-X", "utf8", script, "--until-delivery"])
+        try:
+            time.sleep(0.3)
+            d = g.decision(f"kill {flagged.pid}", None)
+            check("an inbox watch run as python3 -I -u -B -X utf8 <path>/gzcoord-inbox: refused by its pid",
+                  d is not None and d[0] == "deny" and "inbox watch" in d[1], d)
+        finally:
+            flagged.kill()
+            flagged.wait()
+            os.unlink(script)
+            os.rmdir(os.path.dirname(script))
+        for argv, want in ((["/usr/bin/env", "python3", "-I", "/x/gzcoord-inbox"], True),
+                           (["fabric-python", "-I", "-u", "-B", "-W", "ignore", "/x/gzcoord-inbox", "--wait"], True),
+                           (["python3", "-c", "import x", "/x/gzcoord-inbox"], False),
+                           (["python3", "/x/other.py", "/x/gzcoord-inbox"], False),
+                           (["vim", "/x/gzcoord-inbox"], False)):
+            check(f"is_inbox {argv}: {want}", g.is_inbox(argv) is want)
         # A process is named by pid and name, never by its argv, which may
         # carry a token (review of #242, C6): the sibling's sentinel is in
         # no reason, though the sibling is refused by name in several.
