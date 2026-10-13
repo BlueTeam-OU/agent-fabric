@@ -1147,7 +1147,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
 - A 2026-10-13 — every login reviews on a synced access token; both engines by default (§5 rules 6, 8).
 
-### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Proposed)
+### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 
 - `AGENTS.md` is the instruction file of record, true for every harness;
   `CLAUDE.md` is `@AGENTS.md` plus the Claude Code section; the

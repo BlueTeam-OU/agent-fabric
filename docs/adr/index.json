@@ -491,7 +491,7 @@
       "number": "054",
       "file": "ADR-054-codex-as-an-alternative-session-harness.md",
       "title": "Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-13",
       "pillar": "P1",
       "amendments": 0
