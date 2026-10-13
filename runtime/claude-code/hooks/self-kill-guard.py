@@ -38,7 +38,11 @@ costs a rephrase. Then the ground truth: the same question put to pgrep
 itself, list-only (pkill without its signals, killall as pgrep -x), against
 the real processes and a stand-in carrying the modelled shell's command
 line, and a deny when it names one of the tree, the stand-in or an inbox
-watch; a kill of an explicit pid reads that pid's /proc command line.
+watch. By pid it over-reports instead of reading bash's argument order:
+in a command holding the word kill anywhere, every integer-looking token
+is a candidate, refused when it is claude, of the tree, or an inbox watch
+by its /proc command line; a negative `kill` operand (-1, a group) is
+refused outright; an operand held in a variable or a substitution asks.
 Seven review rounds on #69 and #70 each found a spelling a
 re-implementation of procps's rules misread; procps does not misread
 itself. The second layer only adds denials.
