@@ -66,8 +66,11 @@ def proof_digest(proof: bytes) -> str:
 
 
 def matches(signature: bytes, proof: bytes) -> bool:
+    """True only for ONE proof of this signature: git's note carry-over
+    concatenates the old note after the new (notes.rewriteMode default), and
+    a second proof behind the first is not a proof file."""
     try:
-        return proof_digest(proof) == key_of(signature)
+        return proof.find(MAGIC, 1) == -1 and proof_digest(proof) == key_of(signature)
     except StampError:
         return False
 

@@ -151,6 +151,21 @@ def run() -> None:
     git("a", "push", "-q", "origin", "HEAD:refs/heads/work-del2")
     check("positive control: the next push of a branch restores it", remote_has_ref())
 
+    print("a dry run")
+    sha_d = commit("a", "dry")
+    r = git("a", "push", "--dry-run", "-q", "origin", "HEAD:refs/heads/work-dry")
+    check("changes nothing: no note, the proof still waiting, nothing on the remote",
+          r.returncode == 0 and remote_note(sha_d) is None and len(os.listdir(f"{T}/spool-a")) == 1
+          and git("a", "ls-remote", "origin", "refs/heads/work-dry").stdout.strip() == "", r.stderr)
+    r = git("a", "push", "-q", "origin", "HEAD:refs/heads/work-dry")
+    check("positive control: the real push attaches and pushes it", r.returncode == 0 and remote_note(sha_d) is not None, r.stderr)
+
+    print("a branch pushed as the notes ref's name")
+    unsigned = commit("b", "forged", signed=False)
+    r = git("b", "push", "-f", "-q", "origin", "HEAD:" + notes.REF)
+    check("is checked like any push: the unsigned commit is refused", r.returncode != 0 and remote_note(sha_a) is not None, r.stderr)
+    git("b", "reset", "-q", "--hard", "HEAD~1")
+
     print("pushing the notes ref by itself")
     r = git("a", "push", "-q", "origin", notes.REF)
     check("is admitted", r.returncode == 0, r.stderr)

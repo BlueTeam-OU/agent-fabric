@@ -149,7 +149,22 @@ def _changed(remote_name: str, branch: str, local: str, remote: str) -> list[tup
 def _branch_lines(lines: list[str]) -> list[str]:
     """The ref lines that are not the proof notes: a note commit is made by
     git notes, unsigned, and is judged by the proof it holds, not by a signature."""
-    return [l for l in lines if not (len(l.split()) == 4 and l.split()[2] == proofs.REF)]
+    # Both ends must be the notes ref: a branch pushed AS that ref name is
+    # arbitrary history, unsigned, and is checked like any other push.
+    return [l for l in lines if not (len(l.split()) == 4 and l.split()[0] == proofs.REF == l.split()[2])]
+
+
+def _dry_run() -> bool:
+    """git runs the hook for `push --dry-run` too, and a dry run changes
+    nothing, here or on the remote: the proofs are neither attached nor
+    pushed. The hook is told nothing, so the parent git's argv is read;
+    where that cannot be read (not Linux) the answer is no."""
+    try:
+        with open(f"/proc/{os.getppid()}/cmdline", "rb") as f:
+            argv = f.read().split(b"\0")
+    except OSError:
+        return False
+    return any(a == b"--dry-run" or (a.startswith(b"-") and not a.startswith(b"--") and b"n" in a[1:]) for a in argv[1:])
 
 
 def _scope(local: str, remote: str) -> list[str]:
@@ -171,6 +186,9 @@ def _attach_proofs(lines: list[str]) -> None:
         _, local, _, remote = fields
         try:
             for rev in _git("rev-list", *_scope(local, remote)).split():
+                # Twice: the first may attach, the second drops the spool
+                # entry once the note is seen to equal it (notes.ensure_note).
+                proofs.ensure_note(".", rev, spool)
                 proofs.ensure_note(".", rev, spool)
         except (Refused, proofs.NotesError) as e:
             raise Refused(f"the timestamp proofs of the pushed commits could not be attached ({e})") from None
@@ -210,12 +228,14 @@ def check(remote_name: str, lines: list[str]) -> None:
     lines = _branch_lines(lines)
     if not lines:
         return
-    _attach_proofs(lines)
+    dry = _dry_run()
+    if not dry:
+        _attach_proofs(lines)
     _signed(lines)
     _check_direct(lines, remote_name)
     # A push that only deletes adds no commit, and the hook runs before the
     # deletion: pushing the notes then would put back what the person removes.
-    if any(len(f) == 4 and not ZERO.match(f[1]) for f in map(str.split, lines)):
+    if not dry and any(len(f) == 4 and not ZERO.match(f[1]) for f in map(str.split, lines)):
         _push_proofs(remote_name)
 
 

@@ -95,7 +95,10 @@ def ssh_form(keyfile: str) -> str:
                 raise Refused(f"{keyfile} has {len(subs)} usable Ed25519 signing subkeys, not one")
             fields = _gpg(home, "--export-ssh-key", subs[0] + "!").split()
         finally:
-            subprocess.run(["gpgconf", "--homedir", home, "--kill", "all"], capture_output=True, timeout=30)
+            try:
+                subprocess.run(["gpgconf", "--homedir", home, "--kill", "all"], capture_output=True, timeout=30)
+            except (OSError, subprocess.SubprocessError):
+                pass  # the throwaway home goes either way; this must not hide the error above
     if len(fields) < 2 or fields[0] != "ssh-ed25519":
         raise Refused(f"gpg cannot export the signing subkey of {keyfile} as an SSH key")
     return f"{fields[0]} {fields[1]}"

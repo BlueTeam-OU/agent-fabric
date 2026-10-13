@@ -86,6 +86,15 @@ def _run(argv: list[str], env: dict[str, str], *, input: bytes | None = None,
         raise Failure(f"fabric-sign: {os.path.basename(argv[0])} did not answer within {timeout:g} s") from None
 
 
+def _checked(argv: list[str], env: dict[str, str], what: str) -> str:
+    """stdout of a helper that must succeed: a failed one is said with its last stderr line, never read as empty."""
+    p = _run(argv, env)
+    if p.returncode != 0:
+        tail = p.stderr.decode(errors="replace").strip().splitlines()[-1:] or [f"exit {p.returncode}"]
+        raise Failure(f"fabric-sign: {what} failed ({tail[0]})")
+    return p.stdout.decode()
+
+
 def _stamped(signature: bytes, env: dict[str, str]) -> None:
     try:
         key = proof.key_of(signature)
@@ -112,7 +121,7 @@ def sign_openpgp(argv: list[str], env: dict[str, str]) -> int:
 
 def _colon_keys(gpg: str, env: dict[str, str]) -> list[tuple[str, str]]:
     """(fingerprint, keygrip) of each Ed25519 key with a secret part that can sign."""
-    out = _run([gpg, "--batch", "--with-colons", "--with-keygrip", "--list-secret-keys"], env).stdout.decode()
+    out = _checked([gpg, "--batch", "--with-colons", "--with-keygrip", "--list-secret-keys"], env, "gpg --list-secret-keys")
     keys, current = [], None
     for line in out.splitlines():
         f = line.split(":")
@@ -142,14 +151,17 @@ def gpg_agent_ssh_env(pubkey_file: str, env: dict[str, str]) -> dict[str, str]:
     except (OSError, IndexError):
         raise Failure(f"fabric-sign: {pubkey_file} is not an SSH public key") from None
     gpgconf = os.path.join(os.path.dirname(gpg), "gpgconf") if os.sep in gpg else "gpgconf"
-    _run([gpgconf, "--launch", "gpg-agent"], env)
-    sock = _run([gpgconf, "--list-dirs", "agent-ssh-socket"], env).stdout.decode().strip()
-    home = _run([gpgconf, "--list-dirs", "homedir"], env).stdout.decode().strip()
+    _checked([gpgconf, "--launch", "gpg-agent"], env, "gpgconf --launch gpg-agent")
+    sock = _checked([gpgconf, "--list-dirs", "agent-ssh-socket"], env, "gpgconf --list-dirs").strip()
+    # An empty home would make sshcontrol a path relative to the working tree.
+    home = _checked([gpgconf, "--list-dirs", "homedir"], env, "gpgconf --list-dirs").strip()
+    if not sock or not os.path.isabs(home):
+        raise Failure("fabric-sign: gpgconf names no agent socket or home directory")
     ssh_env = {**env, "SSH_AUTH_SOCK": sock}
     if _offered(blob, sock, env):
         return ssh_env
     for fpr, grip in _colon_keys(gpg, env):
-        exported = _run([gpg, "--batch", "--export-ssh-key", fpr + "!"], env).stdout.decode().split()
+        exported = _checked([gpg, "--batch", "--export-ssh-key", fpr + "!"], env, "gpg --export-ssh-key").split()
         if len(exported) > 1 and exported[1] == blob:
             break
     else:
@@ -222,7 +234,7 @@ def cmd_key(args: list[str], env: dict[str, str]) -> int:
             primary = keys.key_of_store()
         except Exception as e:  # StoreError: the message says what is missing
             raise Failure(f"fabric-sign key: {e}") from None
-    listing = _run([gpg, "--batch", "--with-colons", "--list-keys", primary], env).stdout.decode()
+    listing = _checked([gpg, "--batch", "--with-colons", "--list-keys", primary], env, f"gpg --list-keys {primary}")
     subs, capture = [], None
     for line in listing.splitlines():
         f = line.split(":")
@@ -236,7 +248,7 @@ def cmd_key(args: list[str], env: dict[str, str]) -> int:
     if args[0] == "openpgp":
         print(subs[0] + "!")
         return 0
-    exported = _run([gpg, "--batch", "--export-ssh-key", subs[0] + "!"], env).stdout.decode().split()
+    exported = _checked([gpg, "--batch", "--export-ssh-key", subs[0] + "!"], env, "gpg --export-ssh-key").split()
     if len(exported) < 2:
         raise Failure(f"fabric-sign key: gpg cannot export {subs[0]} as an SSH key")
     print(f"key::{exported[0]} {exported[1]}")

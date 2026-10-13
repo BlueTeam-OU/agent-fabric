@@ -8,10 +8,13 @@ CONTRACT
             `notes add -f -C <blob>`: -F/-m would strip and re-terminate
             lines, which corrupts a binary file.
   ensure    ensure_note() makes the commit's note the proof of ITS signature:
-            a note already there that matches is left alone; one that does
-            not (git carried it over from the commit an amend or a rebase
-            replaced, whose signature was another) is replaced when the spool
+            one equal to the proof waiting in the spool is left alone (and
+            the spool entry dropped); one that is not (git carried it over
+            from the commit an amend or a rebase replaced, concatenated
+            behind or instead of the new one) is replaced when the spool
             holds this commit's proof and reported STALE when it does not.
+            With nothing waiting, a note that is one proof of this signature
+            is PRESENT.
   sync      sync_and_push() fetches the remote's notes ref, merges it (notes
             of different commits never conflict; for one commit the local
             note wins) and pushes without force, again when another agent's
@@ -87,15 +90,22 @@ def ensure_note(repo: str, rev: str, spool: proof.Spool) -> tuple[Status, str]:
     key = proof.key_of(signature)
     blob = _note_blob(repo, commit)
     held = git(repo, "cat-file", "blob", blob).stdout if blob else None
-    if held is not None and proof.matches(signature, held):
+    waiting = spool.get(key)
+    if waiting is not None and not proof.matches(signature, waiting):
+        waiting = None
+    # The spool entry is the clean copy and is dropped only once the note
+    # is seen to equal it: git may still carry another note over onto the
+    # commit after a hook attached this one (an amend), and a note that
+    # merely starts with the right proof is not equal.
+    if waiting is not None and held == waiting:
         spool.drop(key)
         return Status.PRESENT, commit
-    waiting = spool.get(key)
-    if waiting is None or not proof.matches(signature, waiting):
+    if waiting is None:
+        if held is not None and proof.matches(signature, held):
+            return Status.PRESENT, commit
         return (Status.STALE if held is not None else Status.MISSING), commit
     new = git(repo, "hash-object", "-w", "--stdin", input=waiting).stdout.decode().strip()
     git(repo, "notes", f"--ref={REF}", "add", "-f", "-C", new, commit)
-    spool.drop(key)
     return Status.ATTACHED, commit
 
 
