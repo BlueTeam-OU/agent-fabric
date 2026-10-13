@@ -164,8 +164,8 @@ def _dry_run() -> bool:
             argv = f.read().split(b"\0")
     except OSError:
         return False
-    # git takes any unique prefix of a long option: `--dry` and `--dry-r` are dry runs too.
-    return any((len(a) >= 5 and b"--dry-run".startswith(a)) or (a.startswith(b"-") and not a.startswith(b"--") and b"n" in a[1:])
+    # git takes any unique prefix of a long option: `--dr` is the shortest that is not ambiguous with `--delete`.
+    return any((len(a) >= 4 and b"--dry-run".startswith(a)) or (a.startswith(b"-") and not a.startswith(b"--") and b"n" in a[1:])
                for a in argv[1:])
 
 

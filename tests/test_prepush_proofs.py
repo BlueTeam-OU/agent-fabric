@@ -180,7 +180,7 @@ def run() -> None:
     r = git("a", "push", "-q", "origin", "HEAD:refs/heads/work-dry")
     check("positive control: the real push attaches and pushes it", r.returncode == 0 and remote_note(sha_d) is not None, r.stderr)
     # git takes any unique prefix of a long option; each spelling is its own commit with its own waiting proof.
-    for spelling in ("--dry", "--dry-r"):
+    for spelling in ("--dr", "--dry", "--dry-r"):
         sha_p = commit("a", "dry" + spelling)
         waiting = len(os.listdir(f"{T}/spool-a"))
         r = git("a", "push", spelling, "-q", "origin", f"HEAD:refs/heads/work-dry{spelling}")
