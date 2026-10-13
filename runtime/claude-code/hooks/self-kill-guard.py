@@ -26,7 +26,9 @@ next delivery, and gzcoord-inbox itself refuses a second one.
 
 THE SHELL. At PreToolUse the shell that will run the command does not exist
 yet, so it is modelled: its command line as Claude Code writes it (seen
-2026-10-13; the raw command beside it, generous on purpose), its name bash.
+2026-10-13), the session's SessionStart env files inside it (the fabric's
+export and sealing unset), the raw command beside it, generous on purpose;
+its name bash.
 
 TWO LAYERS. First a reading of the command: every argument of a pgrep or
 pkill with -f, and killall -r's regexes, is matched against each process
@@ -48,6 +50,7 @@ cannot read is passed, never blocked.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -509,11 +512,45 @@ SHELL_LABEL = ("this session's own shell (the bash this very command runs in: th
 WATCH_LABEL = "the harness's inbox watch (gzcoord-inbox)"
 INBOX = "gzcoord-inbox"
 # The shell the harness runs a Bash call in, as Claude Code wrote it on
-# 2026-10-13; the command goes between the two halves, its single quotes
-# escaped the way the harness escapes them.
-SHELL_HEAD = ("/bin/bash -c source /home/login/.claude/shell-snapshots/snapshot-bash.sh 2>/dev/null || true "
-              "&& eval '")
-SHELL_TAIL = "' && pwd -P >| /tmp/claude-cwd"
+# 2026-10-13: the snapshot, then the session's env files (shell_prefix),
+# then the harness's own guards, then the command — its single quotes
+# escaped the way the harness escapes them — then the cwd capture.
+SHELL_SOURCE = "/bin/bash -c source /home/login/.claude/shell-snapshots/snapshot-bash.sh 2>/dev/null || true && "
+SHELL_GUARDS = (": && shopt -u extglob 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; "
+                "\\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval '")
+SHELL_HEAD = SHELL_SOURCE + SHELL_GUARDS
+SHELL_TAIL = "' < /dev/null && pwd -P >| /tmp/claude-cwd"
+HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def shell_prefix(session_id: str | None) -> str:
+    """What the harness puts between the snapshot and its guards: the
+    session's SessionStart env files, in order (the fabric's own:
+    `export AGENT_FABRIC_ROOT=…` and session-start.py's sealing unset).
+    Without them, the fabric's lines rebuilt from session-start.py; with
+    neither, nothing. A pattern matching only these words still kills the
+    shell (review of #242)."""
+    if session_id and re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*", session_id):
+        root = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+        d = os.path.join(root, "session-env", session_id)
+        try:
+            names = [n for n in os.listdir(d) if re.fullmatch(r"sessionstart-hook-\d+\.sh", n)]
+            parts = []
+            for n in sorted(names, key=lambda n: int(re.sub(r"\D", "", n))):
+                with open(os.path.join(d, n), encoding="utf-8", errors="replace") as fh:
+                    parts.append(fh.read(65536))
+            if parts:
+                return "".join(parts)
+        except OSError:
+            pass
+    try:
+        spec = importlib.util.spec_from_file_location("fabric_session_start", os.path.join(HOOKS_DIR, "session-start.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        root = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(HOOKS_DIR)))
+        return f"export AGENT_FABRIC_ROOT={root}\nunset {' '.join(mod.HARNESS_CREDENTIALS)}  {mod.SHELL_SEAL}\n"
+    except Exception:  # noqa: BLE001 - a model that cannot be built is a shorter model, never a failure
+        return ""
 # An inbox watch as the fleet runs it — the pinned interpreter, the link in
 # ~/.local/bin, each mode — and by the script's own name and its shell. A
 # real watch these miss is still asked of pgrep by the ground truth.
@@ -527,10 +564,10 @@ Target = tuple[str, str, str, bool]
 Tree = dict[int, tuple[str, list[str]]]   # pid -> (name, argv)
 
 
-def shell_texts(command: str) -> list[str]:
+def shell_texts(command: str, prefix: str = "") -> list[str]:
     """The modelled command line of the shell that will run `command`, and
     the bare command beside it in case the harness's quoting changes."""
-    return [SHELL_HEAD + command.replace("'", "'\"'\"'") + SHELL_TAIL, command]
+    return [SHELL_SOURCE + prefix + SHELL_GUARDS + command.replace("'", "'\"'\"'") + SHELL_TAIL, command]
 
 
 def is_inbox(argv: list[str]) -> bool:
@@ -575,14 +612,14 @@ def read_comm(pid: int, proc: str = "/proc") -> str:
         return "?"
 
 
-def targets(command: str, cmdline: str | None, tree: Tree | None, shell: bool) -> list[Target]:
+def targets(command: str, cmdline: str | None, tree: Tree | None, shell: bool, prefix: str = "") -> list[Target]:
     """What the first layer judges a pattern against beyond the claude
     process: the modelled shell, each process of the tree, and the inbox
     watch's models — those whatever the session, since a watch never
     needs a kill."""
     out: list[Target] = []
     if shell:
-        out += [(SHELL_LABEL, "bash", t, False) for t in shell_texts(command)]
+        out += [(SHELL_LABEL, "bash", t, False) for t in shell_texts(command, prefix)]
     for p, (comm, argv) in (tree or {}).items():
         label, inbox = label_of(p, comm, argv)
         out.append((label, comm, " ".join(argv), inbox))
@@ -815,19 +852,19 @@ def session_tree(root: int, proc: str = "/proc", me: int | None = None) -> Tree:
     return {p: (comm_of[p], read_argv(p, proc)) for p in below(root) - drop}
 
 
-def _stand_in(command: str) -> subprocess.Popen | None:
+def _stand_in(command: str, prefix: str = "") -> subprocess.Popen | None:
     """A process carrying the modelled shell's command line, for pgrep to
     be asked about: the real shell does not exist yet. Its program is
     sleep, so nothing of the command ever runs."""
     try:
-        return subprocess.Popen([shell_texts(command)[0].replace("\0", " "), "30"], executable="/bin/sleep",
+        return subprocess.Popen([shell_texts(command, prefix)[0].replace("\0", " "), "30"], executable="/bin/sleep",
                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except (OSError, ValueError):
         return None
 
 
 def ground_truth(command: str, pid: int | None, tree: Tree | None = None,
-                 shell: bool = False) -> list[tuple[str, bool]] | bool | None:
+                 shell: bool = False, prefix: str = "") -> list[tuple[str, bool]] | bool | None:
     """What a kill in the command would select of the session — its
     claude process, its tree, its shell's stand-in — or of any inbox watch,
     as procps answers it: a list of (label, is an inbox watch); False when
@@ -853,7 +890,7 @@ def ground_truth(command: str, pid: int | None, tree: Tree | None = None,
                 answer = None
                 continue
             if shell and stand_in is None:
-                stand_in = _stand_in(command)
+                stand_in = _stand_in(command, prefix)
                 if stand_in:
                     known[stand_in.pid] = (SHELL_LABEL, False)
             for argv in argvs:
@@ -900,7 +937,7 @@ UNEXPANDED = re.compile(r"\$(\{|[A-Za-z_])")
 
 
 def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tree | None = None,
-             shell: bool | None = None) -> tuple[str, str] | None:
+             shell: bool | None = None, session_id: str | None = None) -> tuple[str, str] | None:
     """deny when a kill would select the session's claude process, its
     shell, a process of its tree or an inbox watch; ask when a pattern
     holds a variable or a command substitution the hook cannot read
@@ -913,7 +950,8 @@ def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tr
     if not KILLS.search(command):
         return None
     shell = bool(cmdline) if shell is None else shell
-    found = hits(command, targets(command, cmdline, tree, shell))
+    prefix = shell_prefix(session_id) if shell else ""
+    found = hits(command, targets(command, cmdline, tree, shell, prefix))
     if found:
         return "deny", message([(label, inbox) for _, label, inbox in found], [p for p, _, _ in found])
     by_pid = protected_pids(command, pid, tree)
@@ -921,7 +959,7 @@ def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tr
         return "deny", message(by_pid)
     # procps's own answer, when it can be asked: it adds denials, never
     # removes one — the reading above stays as the floor.
-    truth = ground_truth(command, pid, tree, shell)
+    truth = ground_truth(command, pid, tree, shell, prefix)
     if truth:
         return "deny", message(truth) + " (pgrep, asked the same question, says so.)"
     if cmdline:
@@ -957,7 +995,7 @@ def main() -> int:
     # The tree is read only for a command that kills: the hook runs on
     # every Bash call.
     tree = session_tree(pid) if pid and KILLS.search(command) else {}
-    d = decision(command, cmdline, pid, tree)
+    d = decision(command, cmdline, pid, tree, session_id=payload.get("session_id"))
     if d:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                                  "permissionDecision": d[0],

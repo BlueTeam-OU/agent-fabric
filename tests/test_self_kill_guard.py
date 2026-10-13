@@ -441,7 +441,37 @@ def main() -> int:
         check("session_tree: the descendants, without the hook, its shell and its children",
               sorted(tree) == [40, 50] and tree[50] == ("sleep", ["sleep", "x"]), tree)
     check("the shell model escapes single quotes as the harness does",
-          g.shell_texts("echo 'a'")[0].endswith("eval 'echo '\"'\"'a'\"'\"'' && pwd -P >| /tmp/claude-cwd"))
+          g.shell_texts("echo 'a'")[0].endswith("eval 'echo '\"'\"'a'\"'\"'' < /dev/null && pwd -P >| /tmp/claude-cwd"))
+    # The fabric's own part of the shell: the session's SessionStart env
+    # files, in their order, else session-start.py's lines (review of #242).
+    with tempfile.TemporaryDirectory() as cfg:
+        sid = "0000-planted-session"
+        envd = os.path.join(cfg, "session-env", sid)
+        os.makedirs(envd)
+        for n, text in ((10, "unset X  # ten\n"), (2, "export AGENT_FABRIC_ROOT=/zz-planted-root\n")):
+            with open(os.path.join(envd, f"sessionstart-hook-{n}.sh"), "w") as fh:
+                fh.write(text)
+        real_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+        os.environ["CLAUDE_CONFIG_DIR"] = cfg
+        try:
+            check("shell_prefix: the session's env files, in numeric order",
+                  g.shell_prefix(sid) == "export AGENT_FABRIC_ROOT=/zz-planted-root\nunset X  # ten\n", g.shell_prefix(sid))
+            d = g.decision("pkill -f '[z]z-planted-root'", CLAUDE, shell=True, session_id=sid)
+            check("a pattern only the session's env file carries: the shell is refused",
+                  d is not None and "own shell" in d[1], d)
+            check("…and not without the env file", g.decision("pkill -f '[z]z-planted-root'", CLAUDE, shell=True,
+                                                              session_id="no-such-session") is None)
+            fallback = g.shell_prefix("no-such-session")
+            check("shell_prefix without env files: session-start.py's seal",
+                  "unset CLAUDE_CODE_OAUTH_TOKEN" in fallback and "no secret in the session shell" in fallback, fallback)
+            check("shell_prefix: a session id that is a path is not followed", g.shell_prefix("..") == fallback)
+        finally:
+            if real_cfg is None:
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            else:
+                os.environ["CLAUDE_CONFIG_DIR"] = real_cfg
+    d = g.decision("pkill -f '[s]hopt -u extglob'", CLAUDE, shell=True)
+    check("a pattern only the harness's guards carry: the shell is refused", d is not None and "own shell" in d[1], d)
 
     # The ancestor walk, on a planted /proc: hook (30) -> bash (20) -> claude (10).
     with tempfile.TemporaryDirectory() as proc:
