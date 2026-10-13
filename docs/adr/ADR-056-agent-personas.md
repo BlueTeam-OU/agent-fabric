@@ -1,7 +1,8 @@
 # ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI
 
 **Date:** 2026-10-13
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("ADR-056 accepted")
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** each agent's persona — its name, its sex for the image, its avatar — kept in `settings/profile.json` of its repository `fabric-agent-<id>` (ADR-038, ADR-039); the surname list `identities/personas/surnames.json` and the claims `identities/personas/claims.json`; how a persona is displayed (the Fleet Deck, the Board, GZCoord, pull requests); the avatar style, owned by brand-comms; ADR-033 §5 rule 3
 **Pillar:** P2
@@ -124,7 +125,7 @@ The surname list grows as agents are added; its test does not change.
 
 ## 8. Decision Status
 
-Proposed. The owner set its shape in the coordinator's session: the "AI"
+Accepted (the header names the owner's word). The owner set its shape in the coordinator's session: the "AI"
 prefix and the display forms, names from all over the world with the
 culture agents choosing from their own, scientists' surnames with none
 related to weapons, each agent choosing its surname, first name and sex,

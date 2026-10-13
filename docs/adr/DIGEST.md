@@ -1189,7 +1189,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   models) is data in one syntax, `routing/policies/availability.json`,
   linted; OpenAI is the less tolerant (§5 rule 7).
 
-### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Proposed)
+### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Accepted)
 
 - A persona — first name, surname, sex (F/M) for the image, avatar — is the
   agent id's, in `settings/profile.json` of `fabric-agent-<id>` (§5 rule 1).

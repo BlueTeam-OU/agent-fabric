@@ -509,7 +509,7 @@
       "number": "056",
       "file": "ADR-056-agent-personas.md",
       "title": "Agent personas: \"AI <Name> <Surname>\", a scientist's surname each, an avatar the agent accepts, always marked as AI",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-13",
       "pillar": "P2",
       "amendments": 0
