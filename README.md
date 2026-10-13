@@ -183,7 +183,7 @@ capability class to a model and an effort for the chosen provider,
 writes them into the agent files, and starts the session with its
 message watch armed; the settings `runtime/claude-code/bootstrap.sh`
 writes for the account start it in auto mode. `projects/CLAUDE.md`, written by
-`runtime/claude-code/bootstrap.sh`, imports `agent-fabric/CLAUDE.md`;
+`runtime/claude-code/bootstrap.sh`, imports `agent-fabric/CLAUDE.md`, which imports `AGENTS.md`;
 the SessionStart hook records the working copy and project and returns
 that project's remit for the role. Nothing inside a session changes its
 role: a different role is a rebind and a relaunch. Every sibling

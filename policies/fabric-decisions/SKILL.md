@@ -9,7 +9,7 @@ What agent-fabric has decided — how agents are identified, routed,
 reviewed, how they talk and what they may change — is written as
 numbered decision records in `docs/adr/` of the agent-fabric checkout
 (`../agent-fabric/docs/adr/` from a project's working copy). The records
-are the fabric's rules; `CLAUDE.md`, the prompts, skills and manuals say
+are the fabric's rules; `AGENTS.md`, the prompts, skills and manuals say
 how to act on them.
 
 ## Reading

@@ -460,7 +460,7 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     # something; what the dry run must not do is record any trust there.
     cfg = os.path.join(home, ".claude.json")
     recorded = json.load(open(cfg, encoding="utf-8")).get("projects", {}) if os.path.exists(cfg) else {}
-    assert "trusted in Claude Code (would write)" in proc.stdout and not any(
+    assert "trusted in Claude Code, its external imports approved (would write)" in proc.stdout and not any(
         v.get("hasTrustDialogAccepted") for v in recorded.values()), "the dry run says what it would trust and records none"
     proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     assert proc.returncode == 0, proc.stdout + proc.stderr

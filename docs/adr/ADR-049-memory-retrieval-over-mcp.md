@@ -3,7 +3,7 @@
 **Date:** 2026-10-10
 **Status:** Proposed
 **Decision Makers:** the owner (curated slices stay; retrieval by an MCP server); drafted by fabric-coordinator
-**Scope:** a `fabric-memory` MCP server over the corpus (`memory/`, a working copy's `.agent-fabric/memory/`); its registration in each login's `~/.claude.json`; the session-start hook's INDEX line, the launch prompt's memory section (`identities/prompt/memory.md`) and agent-fabric's `CLAUDE.md` "Knowledge you retrieve"; how retrieval is measured
+**Scope:** a `fabric-memory` MCP server over the corpus (`memory/`, a working copy's `.agent-fabric/memory/`); its registration in each login's `~/.claude.json`; the session-start hook's INDEX line, the launch prompt's memory section (`identities/prompt/memory.md`) and agent-fabric's `AGENTS.md` "Knowledge you retrieve"; how retrieval is measured
 **Pillar:** P2
 
 ## 1. Context and Problem
@@ -141,7 +141,7 @@ meaning.
    is `runtime/claude-code/hooks/session-start.py`, and
    `tests/test_session_start.py` changes with it. The two other texts
    that teach the pull-by-path flow change with it: the retrieval line
-   of `identities/prompt/memory.md` and agent-fabric's `CLAUDE.md`
+   of `identities/prompt/memory.md` and agent-fabric's `AGENTS.md`
    "Knowledge you retrieve".
 
 ## 6. Consequences

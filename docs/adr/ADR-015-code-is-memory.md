@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** every repository the fabric coordinates, every role and every coding class; CLAUDE.md §"Working here" and runtime/claude-code/workspace/CLAUDE.md, through which it reaches a session; runtime/claude-code/agents/code-review.md §"Comments are engineering memory"; tests/test_review_brief.py (the reviewer's size cap)
+**Scope:** every repository the fabric coordinates, every role and every coding class; `AGENTS.md` §"Working here" and runtime/claude-code/workspace/CLAUDE.md, through which it reaches a session; runtime/claude-code/agents/code-review.md §"Comments are engineering memory"; tests/test_review_brief.py (the reviewer's size cap)
 **Pillar:** P2
 
 ## 1. Context and Problem
@@ -50,9 +50,9 @@ of the context — cannot reconstruct from the code alone.
 - The review class checks all of it.
 
 It reaches every session launched under the workspace through
-`CLAUDE.md` §"Working here": `bootstrap.sh` installs the workspace's
+`AGENTS.md` §"Working here": `bootstrap.sh` installs the workspace's
 `projects/CLAUDE.md` (`runtime/claude-code/workspace/CLAUDE.md`), which
-imports `agent-fabric/CLAUDE.md`, and a subagent receives the same
+imports `agent-fabric/CLAUDE.md` (which imports `AGENTS.md`), and a subagent receives the same
 context. A managed project's own `CLAUDE.md` does not import it.
 
 ## 3. Alternatives Considered
@@ -126,13 +126,13 @@ judgement.
 
 ## 8. Decision Status
 
-Accepted: the owner's policy (commit ca810dc), in force in `CLAUDE.md`
+Accepted: the owner's policy (commit ca810dc), in force in `AGENTS.md`
 and the review class. The policy note that
 held it is now a stub pointing here.
 
 ## References
 
-- `CLAUDE.md` §"Working here", `runtime/claude-code/workspace/CLAUDE.md`,
+- `AGENTS.md` §"Working here", `runtime/claude-code/workspace/CLAUDE.md`,
   `runtime/claude-code/bootstrap.sh` (the workspace file).
 - `runtime/claude-code/agents/code-review.md` §"Comments are engineering
   memory"; `tests/test_review_brief.py`.

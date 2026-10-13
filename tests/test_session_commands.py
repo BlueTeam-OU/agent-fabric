@@ -34,7 +34,7 @@ SESSION_FACING = (
     + [os.path.join(ROOT, "policies", "subagent-dispatch", "SKILL.md")]
     + glob.glob(os.path.join(ROOT, "projects", "*", "integration", "gzcoord", "CLAUDE*.md"))
     + glob.glob(os.path.join(ROOT, "identities", "prompt", "*.md"))
-    + [os.path.join(ROOT, "CLAUDE.md")]
+    + [os.path.join(ROOT, "AGENTS.md"), os.path.join(ROOT, "CLAUDE.md")]
     # What the scripts PRINT into a session's context (the replay hint of a
     # delivery over the notification cap, the start drain's lines).
     + glob.glob(os.path.join(ROOT, "communication", "gzcoord", "scripts", "*.mjs"))

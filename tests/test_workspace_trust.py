@@ -44,6 +44,9 @@ def main() -> int:
         doc = json.load(open(cfg))
         check("the folders are trusted", doc["projects"][ws]["hasTrustDialogAccepted"] is True
               and doc["projects"][wc]["hasTrustDialogAccepted"] is True, doc)
+        keys = ("hasTrustDialogAccepted", "hasClaudeMdExternalIncludesApproved", "hasClaudeMdExternalIncludesWarningShown")
+        check("…and their external CLAUDE.md imports approved, the warning marked shown",
+              all(doc["projects"][d].get(k) is True for d in (ws, wc) for k in keys), doc)
         check("…every other key kept as read", doc["oauthAccount"] == {"x": 1} and doc["projects"][wc]["allowedTools"] == ["a"])
         check("…a folder that does not exist is skipped, never recorded",
               os.path.join(home, "missing") not in doc["projects"] and "not a directory" in r.stdout, r.stdout)
@@ -52,6 +55,14 @@ def main() -> int:
         r = run(ws, wc)
         check("a re-run changes nothing and writes nothing", r.returncode == 0 and "+" not in r.stdout
               and os.stat(cfg).st_mtime_ns == mtime, r.stdout)
+        doc["projects"][wc]["hasClaudeMdExternalIncludesApproved"] = False
+        with open(cfg, "w") as f:
+            json.dump(doc, f)
+        r = run(ws, wc)
+        doc = json.load(open(cfg))
+        check("a folder trusted but with its imports unapproved is not settled: approved, said with +",
+              r.returncode == 0 and doc["projects"][wc]["hasClaudeMdExternalIncludesApproved"] is True
+              and f"  +  {os.path.realpath(wc)}:" in r.stdout and f"  =  {os.path.realpath(ws)}:" in r.stdout, r.stdout)
 
         with open(cfg, "w") as f:
             f.write("[1, 2]")

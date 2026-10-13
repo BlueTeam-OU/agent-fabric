@@ -367,7 +367,7 @@ def arm_declared_findings(root: str) -> list[str]:
 # prompt and review-brief code (review and re-review of #75).
 CONTRIBUTOR_NEVER = (
     "identities/", "routing/", "policies/", "communication/gzcoord/protocol/", "docs/adr/", "memory/",
-    ".agent-fabric/", ".github/", "CLAUDE.md",
+    ".agent-fabric/", ".github/", "AGENTS.md", "CLAUDE.md",
     "tools/fabric/guards/", "tools/fabric/git.py", "tools/fabric/lint.py", "tools/fabric/lint_rules/",
     # Loaded by lint by path: a contributor who made one answer clean would
     # weaken lint without touching it (review of #106).

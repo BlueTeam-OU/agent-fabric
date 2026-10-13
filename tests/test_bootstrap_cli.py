@@ -621,7 +621,7 @@ def first_run() -> None:
 
     # Step 5b.
     trusted = [P, FR, w["alpha-wt"], w["alpha"], w["beta"], w["gamma"]]
-    want = [f"  +  {d}: trusted in Claude Code" for d in trusted]
+    want = [f"  +  {d}: trusted in Claude Code, its external imports approved" for d in trusted]
     check("step 5b: the workspace, the checkout, each registered working copy trusted, said in that order",
           L[j + 5:j + 11] == want, "\n".join(L[j + 5:j + 11]))
     cj = json.load(open(f"{a.cfg}/.claude.json"))
@@ -703,7 +703,7 @@ def dry_run() -> None:
                  f"  +  {CH}/settings.json fabric user settings (would write)",
                  f"  +  {FR}: core.hooksPath = {HOOK_REL}",
                  f"  +  {a.wc['alpha']} (alpha): core.hooksPath = {FR}/{HOOK_REL}",
-                 f"  +  {P}: trusted in Claude Code (would write)",
+                 f"  +  {P}: trusted in Claude Code, its external imports approved (would write)",
                  f"  +  {a.units}/{UNIT}.service (would write)",
                  f"  +  {a.home}/.cache/agent-fabric/langid/venv (would create and install "
                  f"{json.load(open(f'{FR}/runtime/langid/detector.json'))['package']})"):

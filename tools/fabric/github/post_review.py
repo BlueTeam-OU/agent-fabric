@@ -224,7 +224,7 @@ def run(argv: list[str], stdin) -> int:
     elif owner not in (me, me_legacy):
         # The one exception: a locale's translations are committed by that
         # locale's holder and merged by fabric-coordinator (agent-fabric's
-        # CLAUDE.md, the locale carve-out), so the merger must post the
+        # AGENTS.md, the locale carve-out), so the merger must post the
         # review its gate counts. The role this session was LAUNCHED with
         # is the one in its prompt; a binding changed under it since does
         # not count (review of #68), and a session the launcher did not

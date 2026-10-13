@@ -20,7 +20,7 @@ prompt pieces (charter, brief, header, team, memory, harness, worker),
 `locale.json`, and the GZCoord tools' dictionary `<tag>.json`, which
 holds every key of `communication/gzcoord/i18n/en-US.json` and no
 other. You commit it on your own `for/user/<what>` branch; fabric-
-coordinator folds and merges it (agent-fabric `CLAUDE.md`, the locale
+coordinator folds and merges it (agent-fabric `AGENTS.md`, the locale
 carve-out). Every other path is read-only for you.
 
 **Locales stay aligned** (the owner, 2026-10-07). Every locale carries

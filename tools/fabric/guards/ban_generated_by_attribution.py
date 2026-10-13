@@ -29,8 +29,9 @@ a `Co-authored-by:` or `Claude-Session:` trailer in a commit message, and
 a "Generated with Claude Code" footer or a session URL in a commit message
 or a pull-request description.
 
-WHY THIS EXISTS. The root CLAUDE.md has forbidden the trailer for as long
-as it has existed, and commits carry it anyway. The cause is not
+WHY THIS EXISTS. The root instruction file (AGENTS.md, CLAUDE.md before
+it) has forbidden the trailer for as long as it has existed, and commits
+carry it anyway. The cause is not
 carelessness: the harness injects an attribution instruction into a
 session's context telling it to add exactly these lines, it re-arrives
 whenever the model or the session changes, and it reads with the same

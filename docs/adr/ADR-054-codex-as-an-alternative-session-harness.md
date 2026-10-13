@@ -1,7 +1,8 @@
 # ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter
 
 **Date:** 2026-10-13
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("accept it")
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the repository's instruction file (`AGENTS.md`, `CLAUDE.md`) and the workspace template (`runtime/claude-code/workspace/CLAUDE.md`); a harness adapter beside `runtime/claude-code/` (`runtime/codex/`, to be built); the launcher's harness choice and the binding that records it (`identities/schemas/binding.schema.json`); the guards' Codex wiring; the `openai` provider's coding classes (`routing/capabilities.json`, `routing/effort.json`); the ChatGPT credential path through the gateway
 **Pillar:** P1
@@ -195,8 +196,8 @@ harness reopens §3's neutral-harness alternative.
 
 ## 8. Decision Status
 
-Proposed. On acceptance the work lands in this order, each piece a
-pull request with its live check:
+Accepted (the header names the owner's word). The work lands in this
+order, each piece a pull request with its live check:
 
 1. `AGENTS.md`: the rename, the split and the references (fabric-coordinator; instruction files are control plane).
 2. The live check of §5 rule 9 on one login, before any adapter code.

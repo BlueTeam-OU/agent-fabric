@@ -1045,7 +1045,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   uncommitted slice is refused; never a path outside the roots (§5 rule 6).
 - Calls are counted per login, never the query; the harvest bundle and
   drain report carry the counts and marks, amending ADR-013 §5 rules 5
-  and 11 and ADR-029 §5 rule 9. The hook, launch prompt and `CLAUDE.md`
+  and 11 and ADR-029 §5 rule 9. The hook, launch prompt and `AGENTS.md`
   name the tools (§5 rules 7-8).
 - Automatic capture (claude-mem) was declined: the fabric keeps processed
   slices (§3).
@@ -1147,7 +1147,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
 - A 2026-10-13 — every login reviews on a synced access token; both engines by default (§5 rules 6, 8).
 
-### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Proposed)
+### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 
 - `AGENTS.md` is the instruction file of record, true for every harness;
   `CLAUDE.md` is `@AGENTS.md` plus the Claude Code section; the

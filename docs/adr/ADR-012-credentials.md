@@ -116,7 +116,7 @@ credential together, tests by shape. Where the record lives is ADR-038's.
 
 ## References
 
-- `CLAUDE.md` §"Licence, runtime state and credentials";
+- `AGENTS.md` §"Licence, runtime state and credentials";
   `runtime/provisioning/README.md` §Secrets.
 - `runtime/provisioning/secrets/fabric-secrets`, `tools/fabric/secrets_sync.py`,
   `tools/fabric/store_provision.py`, `bin/fabric-secrets`.

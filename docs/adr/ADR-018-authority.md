@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** policies/AUTHORITY.md (the manual), policies/authority.json, policies/githooks/ (pre-commit, commit-msg, guarded-change.sh, locale-carve-out.sh), policies/check_agent_fabric_dir_authority.sh, tools/fabric/guards/contributors.py, policies/check_charter_authority.sh, policies/check_adr_amendment.sh, policies/ban_generated_by_attribution.sh, policies/check_repo_settings_carry_no_model_pins.sh, runtime/claude-code/bootstrap.sh (hook installation), .github/workflows/ci.yml, tests/run.sh, CLAUDE.md §"Read-only, unless you are fabric-coordinator"
+**Scope:** policies/AUTHORITY.md (the manual), policies/authority.json, policies/githooks/ (pre-commit, commit-msg, guarded-change.sh, locale-carve-out.sh), policies/check_agent_fabric_dir_authority.sh, tools/fabric/guards/contributors.py, policies/check_charter_authority.sh, policies/check_adr_amendment.sh, policies/ban_generated_by_attribution.sh, policies/check_repo_settings_carry_no_model_pins.sh, runtime/claude-code/bootstrap.sh (hook installation), .github/workflows/ci.yml, tests/run.sh, AGENTS.md §"Read-only, unless you are fabric-coordinator"
 **Pillar:** P3
 
 ## 1. Context and Problem
