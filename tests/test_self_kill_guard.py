@@ -291,13 +291,14 @@ def main() -> int:
     script = ('(exec -a "$SIB" sleep 60) & s=$!; "$INB" 61 & i=$!; echo "$s $i"; '
               'while read -r f; do sh -c \'python3 "$0" < "$1"\' "$HOOK" "$f"; echo @@END; done; '
               'kill "$s" "$i"; wait')
-    env = dict(os.environ, SIB="zzsib-bg-task-qx 60", INB=os.path.join(tmp, INBOX), HOOK=HOOK)
+    env = dict(os.environ, SIB="zzsib-bg-task-qx --token=zzSENTINEL-c6", INB=os.path.join(tmp, INBOX), HOOK=HOOK)
     session = subprocess.Popen([os.path.join(tmp, "claude"), "-c", script], env=env, text=True,
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True)
     outside = subprocess.Popen(["zzout-unrelated-qx", "60"], executable="/bin/sleep")
     try:
         sib, inbox = map(int, session.stdout.readline().split())
         time.sleep(0.2)
+        reasons: list[str] = []
 
         def hook_in_session(cmd: str) -> tuple[str, str] | None:
             path = os.path.join(tmp, "payload.json")
@@ -313,6 +314,7 @@ def main() -> int:
             if not "".join(out).strip():
                 return None
             o = json.loads("".join(out))["hookSpecificOutput"]
+            reasons.append(o["permissionDecisionReason"])
             return o["permissionDecision"], o["permissionDecisionReason"]
 
         tree_cases = [
@@ -350,6 +352,12 @@ def main() -> int:
               d is not None and "own shell" in d[1], d)
         check("an inbox watch by pid is refused outside a session too",
               (g.decision(f"kill {inbox}", None) or ("",))[0] == "deny")
+        # A process is named by pid and name, never by its argv, which may
+        # carry a token (review of #242, C6): the sibling's sentinel is in
+        # no reason, though the sibling is refused by name in several.
+        check("no reason quotes a protected process's argv",
+              any(f"pid {sib}" in r for r in reasons) and not any("zzSENTINEL" in r for r in reasons),
+              [r for r in reasons if "zzSENTINEL" in r])
         check("the processes the hook judged are all alive",
               session.poll() is None and outside.poll() is None
               and all(os.path.exists(f"/proc/{p}") for p in (sib, inbox)))

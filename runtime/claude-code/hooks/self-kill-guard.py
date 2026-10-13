@@ -466,15 +466,23 @@ def is_inbox(argv: list[str]) -> bool:
     return any(os.path.basename(a) == INBOX for a in argv[:4]) or f"eval '{INBOX}" in " ".join(argv)
 
 
-def label_of(pid: int, argv: list[str]) -> tuple[str, bool]:
-    """What a deny message calls a process of the tree, and whether it is
-    an inbox watch."""
+def label_of(pid: int, comm: str, argv: list[str], in_tree: bool = True) -> tuple[str, bool]:
+    """What a deny message calls a process, and whether it is an inbox
+    watch: by pid and process name only. Its argv never reaches the
+    message, which the session's transcript keeps: a command line can
+    carry a token (review of #242, C6)."""
     if is_inbox(argv):
-        return WATCH_LABEL, True
-    joined = " ".join(argv)
-    if "eval '" in joined:     # a harness shell: the command it runs names it
-        return f"the harness's background task (pid {pid}: {joined.split(chr(39), 1)[1][:60]})", False
-    return f"a process this session started (pid {pid}: {joined[:60]})", False
+        return (f"the harness's inbox watch (pid {pid}, {comm})" if in_tree
+                else f"an inbox watch (pid {pid}, {comm})"), True
+    return f"a process of this session's tree (pid {pid}, {comm})", False
+
+
+def read_comm(pid: int, proc: str = "/proc") -> str:
+    try:
+        with open(f"{proc}/{pid}/comm", encoding="utf-8", errors="replace") as fh:
+            return fh.read().strip()
+    except OSError:
+        return "?"
 
 
 def targets(command: str, cmdline: str | None, tree: Tree | None, shell: bool) -> list[Target]:
@@ -486,7 +494,7 @@ def targets(command: str, cmdline: str | None, tree: Tree | None, shell: bool) -
     if shell:
         out += [(SHELL_LABEL, "bash", t, False) for t in shell_texts(command)]
     for p, (comm, argv) in (tree or {}).items():
-        label, inbox = label_of(p, argv)
+        label, inbox = label_of(p, comm, argv)
         out.append((label, comm, " ".join(argv), inbox))
     out += [(WATCH_LABEL if cmdline else f"an inbox watch ({INBOX})", name, text, True)
             for name, text in INBOX_MODELS]
@@ -735,7 +743,7 @@ def ground_truth(command: str, pid: int | None, tree: Tree | None = None,
     re-implementation of procps's option and pattern rules misread (the
     owner chose this, 2026-09-30): the tool that will do the matching is
     asked instead. Only pgrep ever runs here, never the kill."""
-    known: dict[int, tuple[str, bool]] = {p: label_of(p, argv) for p, (_, argv) in (tree or {}).items()}
+    known: dict[int, tuple[str, bool]] = {p: label_of(p, comm, argv) for p, (comm, argv) in (tree or {}).items()}
     if pid:
         known[pid] = (CLAUDE_LABEL, False)
     # Every pgrep in a command that kills at all: recognising which pgrep's
@@ -769,8 +777,8 @@ def ground_truth(command: str, pid: int | None, tree: Tree | None = None,
                            for w in argv[1:])
                 found = [known[p] for p in sorted(got)
                          if p in known and (full or not stand_in or p != stand_in.pid)]
-                found += [(f"an inbox watch ({INBOX}, pid {p})", True) for p in sorted(got)
-                          if p not in known and is_inbox(read_argv(p))]
+                found += [label_of(p, read_comm(p), argv_p, in_tree=False) for p in sorted(got)
+                          if p not in known and is_inbox(argv_p := read_argv(p))]
                 if found:
                     return found
     finally:
@@ -783,8 +791,8 @@ def ground_truth(command: str, pid: int | None, tree: Tree | None = None,
 def inbox_pids(command: str, tree: Tree | None = None) -> list[tuple[str, bool]]:
     """An inbox watch a `kill` names by its pid, read from /proc."""
     tree = tree or {}
-    return [(label_of(p, tree[p][1])[0] if p in tree else f"an inbox watch ({INBOX}, pid {p})", True)
-            for p in kill_pids(command) if is_inbox(read_argv(p))]
+    return [label_of(p, *tree[p]) if p in tree else label_of(p, read_comm(p), argv, in_tree=False)
+            for p in kill_pids(command) if is_inbox(argv := read_argv(p))]
 
 
 UNEXPANDED = re.compile(r"\$(\{|[A-Za-z_])")
