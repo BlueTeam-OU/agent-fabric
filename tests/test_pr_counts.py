@@ -225,7 +225,8 @@ def main() -> int:
 
     def unreadable(repo, **kw):
         raise pr_counts.arm_policy.PolicyUnavailable("HTTP 500")
-    # A claude-only default tells "every engine" from "the default's": both of the real defaults ask both (supplier review F2).
+    # A claude-only default, pinned so the case does not follow the fleet's file, tells "every engine" from "the
+    # default's" (supplier review F2).
     real_default, real_fleet = pr_counts.arm_policy.default, pr_counts.arm_policy.fleet_policy
     pr_counts.arm_policy.default = pr_counts.arm_policy.fleet_policy = lambda *a, **kw: CLAUDE
     try:
