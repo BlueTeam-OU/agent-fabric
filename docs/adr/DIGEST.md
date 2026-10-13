@@ -1145,6 +1145,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   reviewed the head with no open P1/P2 (§5 rule 6). Codex is pinned
   (§5 rule 7).
 - A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
+- A 2026-10-13 — every login reviews on a synced access token; both engines by default (§5 rules 6, 8).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Proposed)
 

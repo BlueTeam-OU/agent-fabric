@@ -94,14 +94,29 @@ repository whose policy names `reviews`.
    review class before it is answered (ADR-020), and answered like any
    other: fixed, or declined with the reason.
 6. **The arming policy says which PRs need both engines.** The policy's
-   `reviews` rule lists the engines a PR needs: `["claude"]` by default;
-   a repository may require `["claude", "codex"]` for every PR or for a
-   class (the security boundary first). `fabric-pr arm` refuses until
+   `reviews` rule lists the engines a PR needs: `["claude", "codex"]` is
+   the fleet's default, set in `policies/arming.json` once every login
+   holds an unexpired access token (rule 8) and one Codex review has run
+   from a login other than the coordinator's; until then `["claude"]`. A
+   repository's own policy may narrow it (A 2026-10-13). `fabric-pr arm` refuses until
    each required engine has reviewed the current head with no open P1 or
    P2, and the refusal names the engine still missing.
 7. **The Codex CLI is pinned.** `projects/registry.json` pins the latest
    stable release by version and checksum, as every account tool is
    pinned, and `fabric-tools` installs it.
+8. **One sign-in, an access token per login.** The ChatGPT sign-in the
+   engine runs on is the coordinator's, in its own home; its refresh
+   token never leaves it. Every other login gets the access token and
+   the account id only: the coordinator writes them into each login's
+   store (ADR-038, as ADR-031 writes Claude tokens), and `fabric-secrets
+   sync` puts them in a token file on the login's runtime tmpfs (0600),
+   which the review gateway reads on every attempt. The coordinator's
+   control agent refreshes the sign-in when under 72 hours of the access
+   token remain and writes the new one to every login. A login whose
+   token is missing or expired refuses the review, naming the expiry,
+   and posts nothing. The gateway-local key between Codex and its
+   gateway identifies the calling component; it guards no secret
+   (A 2026-10-13).
 
 ## 6. Consequences
 
@@ -141,3 +156,4 @@ The body above reads current; each change's full note is in [history/ADR-053-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-13 | the sandbox proven before the run; Codex's own fetches off | §5 rules 2 and 3 |
+| 2026-10-13 | every login runs the Codex review on a synced access token; both engines by default | §5 rule 6 changed, rule 8 added |
