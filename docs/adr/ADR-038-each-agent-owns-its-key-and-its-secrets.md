@@ -21,7 +21,7 @@ With that form, the only thing left to back up is a key.
 
 The fabric's invariant says who an agent is: its Linux login. Nothing
 says what a key is to that identity. The gap is already visible. Every
-account signs its git commits with the same key, the coordinator's,
+account signs its git commits with the same key, the owner's,
 imported by hand at provisioning. Cryptographically, the fleet is one
 signer.
 

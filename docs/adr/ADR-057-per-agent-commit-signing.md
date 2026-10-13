@@ -11,7 +11,8 @@
 ## 1. Context and Problem
 
 Every commit the fleet makes is signed, and by one key: the 60 latest
-non-merge commits on main carry the owner's OpenPGP key, whichever role
+non-merge commits on main carry one OpenPGP key, 6E760A4C55CBA02F,
+whose user id is the owner's, whichever role
 made them (fabric-coordinator 37, python-dev 19, devex-tooling 4).
 Cryptographically the fleet is one signer; which agent made a commit is
 said only by its `Fabric-Role:` trailer, text any account can write.
@@ -69,8 +70,12 @@ judged.
 
 1. Each account signs its commits with the signing subkey of its own
    agent key (ADR-038 §5 rule 1), never another account's and never the
-   shared key. A commit made before rule 1 holds for its account keeps
-   the signature it has.
+   shared key. Which commits came before is history, never a date:
+   `policies/signing.json` names, per repository, the commit on its
+   default branch from which rule 5 applies (`since`); a commit
+   reachable from it keeps the signature it has, and nothing else is
+   exempt. Once every repository the fleet commits to has its `since`,
+   the shared key is removed from every account.
 2. `fabric-sign` is git's signing program for both formats
    (`gpg.program` and `gpg.ssh.program`); it signs with the subkey in
    the format git asks for, and fails, never signs without a timestamp
@@ -79,16 +84,28 @@ judged.
    forge or by repository, `openpgp` or `ssh`; bootstrap writes the git
    settings it implies (`gpg.format`, `user.signingkey`). No other
    place sets the format.
-4. Every signature is timestamped with OpenTimestamps, its proof stored
-   as a git note on the commit under `refs/notes/fabric-ots`, which
-   the pre-push hook pushes with the branch.
+4. Every signature is timestamped with OpenTimestamps. The commit id
+   does not exist while git signs, so `fabric-sign` keeps the proof
+   keyed by the signature, the post-commit hook attaches it as a git
+   note on the commit under `refs/notes/fabric-ots`, and the pre-push
+   hook attaches any still missing and pushes the notes with the
+   branch. Bootstrap sets `notes.rewriteRef` to that ref, so a note
+   follows an amend or a rebase.
 5. The checker refuses a commit a branch adds unless: it is signed in a
    format the policy admits for that repository; the key is the signing
    subkey of an agent key under `identities/keys/`, certified along the
-   lineage to the root; that agent holds, by `policies/authority.json`,
-   the role its `Fabric-Role:` trailer names; and its timestamp proof
-   is present and matches the signature. It runs in the commit hooks, in
-   CI on every commit a branch adds, and in `tests/run.sh`.
+   lineage to the root and not revoked; that agent may hold the role
+   its `Fabric-Role:` trailer names — it is in the role's committed
+   holders (`policies/authority.json` `role_definitions`) or its login,
+   read from `identities/keys/lineage.json`, is the role's name with an
+   optional `-<n>`, the rule `is_holder` applies today
+   (`tools/fabric/guards/charter_authority.py`); and its timestamp
+   proof is present and matches the signature. It runs in the pre-push
+   hook, in CI on every commit a branch adds, and in `tests/run.sh`;
+   CI fetches `refs/notes/fabric-ots` before it runs. A range it cannot
+   resolve is a refusal, never a pass. A managed project's checker
+   reads the keys, the lineage and the holders from agent-fabric's
+   main, which its CI fetches.
 6. The SSH form of every agent's signing subkey is registered as a
    signing key on the GitHub account that pushes the fleet's commits,
    titled `fabric-agent <login> (<id>)`; a new agent's is added at
@@ -100,9 +117,9 @@ judged.
 
 - GitHub shows each agent's commits "Verified", and the lane a commit
   claims is checked against the key that signed it.
-- The owner's key stops signing the fleet's work.
+- The shared key stops signing the fleet's work.
 - A proof travels as a note: a clone without `refs/notes/fabric-ots`
-  has signed commits without their timestamps; CI has both.
+  has signed commits without their timestamps; CI fetches both.
 - The signing command, the checker and the hooks are new code
   (python-dev), installed on every account by the usual upgrade.
 
