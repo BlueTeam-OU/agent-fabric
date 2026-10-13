@@ -104,8 +104,29 @@ def unquoted(command: str) -> str:
     """The command with every quote and backslash dropped: bash joins
     `k''ill`, `k"ill"`, `\\kill` into kill and `12''34`, `"12"34`, `12\\34`
     into 1234, which the raw text hides from a regex (round 3 of #242).
-    Over-joins where bash would not; a false deny is a rephrase."""
-    return re.sub(r"['\"\\]", "", command)
+    A backslash-newline goes first, as bash drops it (`ki\\<NL>ll`); then
+    the `$` of `$'…'` and `$"…"` and every brace, so `ki$'l'l` and
+    `kill 4321{7,}` still show the word kill (round 4). Over-joins where
+    bash would not; a false deny is a rephrase."""
+    return re.sub(r"\$(?=['\"])|['\"\\{}]", "", command.replace("\\\n", ""))
+
+
+def unevaluated(command: str) -> str | None:
+    """The expansion a command that kills uses and this hook does not
+    evaluate — ANSI-C or locale quoting, a backslash-newline, a brace
+    expansion — or None. Chasing each spelling took four review rounds on
+    #242; what is left asks instead of passing (round 4)."""
+    if "kill" not in unquoted(command):
+        return None
+    for mark, what in (("$'", "ANSI-C quoting $'…'"), ('$"', 'locale quoting $"…"'),
+                       ("\\\n", "a backslash-newline")):
+        if mark in command:
+            return what
+    if re.search(r"\{[^{}]*(,|\.\.)[^{}]*\}", command):
+        return "a brace expansion {…}"
+    if len(pid_candidates(command)) > MAX_PIDS:
+        return f"more than {MAX_PIDS} numbers"
+    return None
 
 
 def kills(command: str) -> bool:
@@ -312,6 +333,21 @@ INTEGER = re.compile(r"(?<![\w.])[+-]?(\d{1,10})(?![\w.])")
 MAX_PIDS = 512
 
 
+def pid_candidates(command: str) -> list[int]:
+    """Every integer-looking token, uncapped, in a command holding the word
+    kill as bash reads it — in the raw text, with the quotes dropped, or
+    as a command's unquoted word (`k''ill`, `\\kill`). Candidates come from
+    every form: the raw text, the text with quotes dropped, and each
+    unquoted word of every command read, nested ones included — `12''34`
+    is 1234 to bash and 12, 34 to the raw text."""
+    flat, commands = unquoted(command), tool_commands(command)
+    if not (KILL_WORD.search(command) or KILL_WORD.search(flat)
+            or any(os.path.basename(w[0]) == "kill" for w in commands)):
+        return []
+    texts = [command, flat, *(word for words in commands for word in words)]
+    return list(dict.fromkeys(int(m.group(1)) for t in texts for m in INTEGER.finditer(t)))
+
+
 def kill_operands(command: str) -> tuple[list[int], list[str]]:
     """What the command may kill by pid: (every integer-looking token in a
     command that holds the word kill anywhere; the `kill` operands it
@@ -322,20 +358,11 @@ def kill_operands(command: str) -> tuple[list[int], list[str]]:
     deny, a rephrase. Unreadable is a variable (`$pid`, `$PPID`, `$$`) or a
     substitution other than one plain pgrep, whose answer the ground truth
     asks list-only; `$!` is the command's own job."""
-    flat = unquoted(command)
-    commands = tool_commands(command)
-    # The word kill as bash reads it: in the raw text, with the quotes
-    # dropped, or as a command's unquoted word (`k''ill`, `\kill`).
-    if not (KILL_WORD.search(command) or KILL_WORD.search(flat)
-            or any(os.path.basename(w[0]) == "kill" for w in commands)):
+    pids = pid_candidates(command)[:MAX_PIDS]
+    if not pids and not KILL_WORD.search(unquoted(command)):
         return [], []
-    # Candidates from every form: the raw text, the text with quotes
-    # dropped, and each unquoted word of every command read, nested ones
-    # included — `12''34` is 1234 to bash and 12, 34 to the raw text.
-    texts = [command, flat, *(word for words in commands for word in words)]
-    pids = list(dict.fromkeys(int(m.group(1)) for t in texts for m in INTEGER.finditer(t)))[:MAX_PIDS]
     pieces, held = lift(command), []
-    for words in commands:
+    for words in tool_commands(command):
         if os.path.basename(words[0]) != "kill":
             continue
         for w in words[1:]:
@@ -353,12 +380,15 @@ def kill_groups(command: str) -> list[str]:
     session. A negative number is read as a signal only as the first
     argument, and `-1` never (round 2 of #242). A 0 operand is the
     caller's own process group, which holds the shell running this very
-    command (round 3)."""
+    command (round 3). The word right after -s or -n is the signal, not
+    an operand: `kill -s 0 <pid>` names no group (round 4, F2)."""
     out = []
     for words in tool_commands(command):
         if os.path.basename(words[0]) != "kill":
             continue
         for i, w in enumerate(words[1:]):
+            if i > 0 and words[i] in ("-s", "-n"):
+                continue
             if (re.fullmatch(r"-\d+", w) and (w == "-1" or i > 0)) or re.fullmatch(r"\+?0+", w):
                 out.append(w)
     return out
@@ -985,6 +1015,14 @@ def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tr
     truth = ground_truth(command, pid, tree, shell, prefix)
     if truth:
         return "deny", message(truth) + " (pgrep, asked the same question, says so.)"
+    # An expansion this hook does not evaluate: neither a pass nor a deny,
+    # whatever the session (round 4 of #242). First among the asks: the
+    # word reader takes `$"1234"` for a variable, which it is not.
+    expansion = unevaluated(command)
+    if expansion:
+        return "ask", (f"This kill uses an expansion the guard does not evaluate ({expansion}), so what it "
+                       "would kill cannot be checked against this session's claude process, its shell, its "
+                       "tasks or an inbox watch; say the pid plainly.")
     if cmdline:
         pats = kill_patterns(command)
         if GROUP_MARK in pats:

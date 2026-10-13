@@ -202,6 +202,21 @@ def main() -> int:
     for cmd in ("kill 0", "kill -9 0", "kill -- 0", "kill -s TERM 0", "k''ill 0"):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a zero operand is refused: {cmd}", d is not None and d[0] == "deny" and "zero" in d[1], d)
+    # The word after -s or -n is the signal, not an operand (round 4, F2).
+    for cmd in ("kill -s 0 999999999", "kill -n 0 999999999"):
+        check(f"a zero signal value is no group: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
+              g.decision(cmd, CLAUDE, shell=False))
+    # An expansion the hook does not evaluate asks, never passes (round 4).
+    many = "kill " + " ".join(str(900000000 + i) for i in range(g.MAX_PIDS + 5))
+    for label, cmd in (("ANSI-C quoting", "ki$'l'l 999999999"), ("locale quoting", 'kill $"999999999"'),
+                       ("a brace list", "kill 4321{7,}"), ("a brace range", "kill 4321{7..7}"),
+                       ("a backslash-newline", "kill 99999\\\n9999"),
+                       (f"more than {g.MAX_PIDS} numbers", many)):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"an unevaluated expansion asks: {label}", d is not None and d[0] == "ask"
+              and "does not evaluate" in d[1] and "\n" not in d[1], d)
+    check("a brace group with no expansion in it does not ask", g.decision("{ kill 999999999; }", CLAUDE, shell=False)
+          is None)
     check("…but kill -0 of a pid outside the tree is a signal, not a group: kill -0 999999999",
           g.decision("kill -0 999999999", CLAUDE, shell=False) is None)
     check("…but a negative first argument is a signal: kill -9 999999999",
@@ -392,6 +407,9 @@ def main() -> int:
             ("k''ill", f"k''ill {sib}", f"pid {sib}"),
             ("k\"ill\"", f"k\"ill\" {sib}", f"pid {sib}"),
             ("\\kill", f"\\kill {sib}", f"pid {sib}"),
+            # A backslash-newline, which bash drops (round 4).
+            ("a pid split by a backslash-newline", f"kill {str(sib)[:3]}\\\n{str(sib)[3:]}", f"pid {sib}"),
+            ("the word kill split by a backslash-newline", f"ki\\\nll {sib}", f"pid {sib}"),
             # Wherever the payload stands among the shell's options (round 2, K2).
             ("a watch killed inside bash -o pipefail -c", f"bash -o pipefail -c 'kill {inbox}'",
              "Never kill an inbox watch"),
