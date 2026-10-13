@@ -34,6 +34,7 @@ class Personas(unittest.TestCase):
     def judge(self, surnames: list, excluded: list, claims: dict) -> list[str]:
         with open(self.s, "w", encoding="utf-8") as fh:
             json.dump({"surnames": surnames, "excluded": excluded}, fh)
+        claims = {k: {"surname": v, "first_name": "Ada"} if isinstance(v, str) else v for k, v in claims.items()}
         with open(self.c, "w", encoding="utf-8") as fh:
             json.dump({"claims": claims}, fh)
         return personas_findings(self.s, self.c)
@@ -64,6 +65,22 @@ class Personas(unittest.TestCase):
 
     def test_a_claim_is_keyed_by_an_agent_id(self) -> None:
         self.assertTrue(any("not an agent id" in f for f in self.judge([entry("Maxwell")], [], {"python-dev-01": "Maxwell"})))
+
+    def test_a_claim_needs_its_first_name(self) -> None:
+        for bad in ({"surname": "Maxwell"}, {"surname": "Maxwell", "first_name": " "}, {"surname": "Maxwell", "first_name": 3}):
+            self.assertTrue(any("no first_name" in f for f in self.judge([entry("Maxwell")], [], {A1: bad})), bad)
+
+    def test_a_pronoun_is_optional_but_not_empty(self) -> None:
+        ok = {"surname": "Maxwell", "first_name": "Ada", "pronoun": "it"}
+        self.assertEqual(self.judge([entry("Maxwell")], [], {A1: ok}), [])
+        self.assertTrue(any("empty pronoun" in f for f in self.judge([entry("Maxwell")], [], {A1: {**ok, "pronoun": ""}})))
+
+    def test_a_bare_surname_claim_is_refused(self) -> None:
+        with open(self.s, "w", encoding="utf-8") as fh:
+            json.dump({"surnames": [entry("Maxwell")], "excluded": []}, fh)
+        with open(self.c, "w", encoding="utf-8") as fh:
+            json.dump({"claims": {A1: "Maxwell"}}, fh)
+        self.assertTrue(any("not a claim object" in f for f in personas_findings(self.s, self.c)))
 
 
 if __name__ == "__main__":
