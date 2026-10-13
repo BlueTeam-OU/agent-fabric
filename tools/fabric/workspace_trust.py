@@ -13,6 +13,16 @@ the answer as `projects.<dir>.hasTrustDialogAccepted` in the account's
 terminal, for folders the coordinator had just cloned (the owner,
 2026-10-01: a new agent's setup asks no such question).
 
+The same folders get Claude Code's approval of external CLAUDE.md
+imports (`hasClaudeMdExternalIncludesApproved`, and the warning marked
+shown): the workspace `projects/CLAUDE.md` imports `agent-fabric/CLAUDE.md`,
+outside every project's git root, and an unapproved import is not read —
+the session starts without the fabric's rules, silently in `claude -p`
+(docs/live-checks/2026-10-13-agents-md-import.md). A new account's first
+launch asked about it, and the owner (2026-10-09) said it should be
+managed and approved without asking. Claude Code 2.1.286 keeps both keys
+per project beside the trust.
+
 Every other key of the file is kept as read; the file is replaced
 atomically with its own mode, and only when something changes, since a
 running session writes the same file. A folder that does not exist is
@@ -28,7 +38,8 @@ import os
 import sys
 import tempfile
 
-KEY = "hasTrustDialogAccepted"
+# Every key must be true for a folder to count as settled; a false one is set, never another kept.
+KEYS = ("hasTrustDialogAccepted", "hasClaudeMdExternalIncludesApproved", "hasClaudeMdExternalIncludesWarningShown")
 
 
 def config_path(environ: dict[str, str] | None = None) -> str:
@@ -58,10 +69,10 @@ def trust(dirs: list[str], path: str, dry_run: bool = False) -> list[tuple[str, 
         entry = projects.setdefault(d, {})
         if not isinstance(entry, dict):
             raise ValueError(f"{path}: projects[{d!r}] is not an object")
-        if entry.get(KEY) is True:
+        if all(entry.get(k) is True for k in KEYS):
             rows.append((d, "="))
         else:
-            entry[KEY] = True
+            entry.update(dict.fromkeys(KEYS, True))
             rows.append((d, "+"))
             changed = True
     if changed and not dry_run:
@@ -91,8 +102,8 @@ def main(argv: list[str]) -> int:
         print(f"workspace_trust: {e}; nothing written", file=sys.stderr)
         return 1
     for d, mark in rows:
-        print({"+": f"  +  {d}: trusted in Claude Code" + (" (would write)" if dry else ""),
-               "=": f"  =  {d}: trusted in Claude Code",
+        print({"+": f"  +  {d}: trusted in Claude Code, its external imports approved" + (" (would write)" if dry else ""),
+               "=": f"  =  {d}: trusted in Claude Code, its external imports approved",
                "-": f"  -  {d}: not a directory; not recorded"}[mark])
     return 0
 
