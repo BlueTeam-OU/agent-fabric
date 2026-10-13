@@ -7,6 +7,8 @@ session's credentials scrubbed, and posts a schema-valid answer or nothing
 ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import pwd
@@ -68,7 +70,12 @@ with open(os.path.join(S, "codex-run.json"), "w") as f:
     json.dump(rec, f)
 with open(os.path.join(S, "codex-calls"), "a") as f:
     f.write("run\n")
-mode = open(os.path.join(S, "mode")).read().strip()
+# One mode per run, in order: the file holds a line for each run still to come, the last one kept for every run after.
+lines = open(os.path.join(S, "mode")).read().split()
+mode = lines[0]
+if len(lines) > 1:
+    with open(os.path.join(S, "mode"), "w") as f:
+        f.write(" ".join(lines[1:]))
 out = argv[argv.index("--output-last-message") + 1]
 # The JSONL events of `codex exec --json` (codex 0.162.1), as a run against a stand-in Responses endpoint
 # printed them: stdout carries only these; Codex's own log lines go to stderr.
@@ -139,6 +146,20 @@ elif mode == "turnfailed":
 elif mode == "turnfailed-long":
     ev({"type": "turn.failed", "error": {"message": "first line\nsecond line " + "x" * 2000}})
     sys.exit(1)
+elif mode in ("capacity", "allowance", "allowance-notime", "capacity-lookalike"):
+    # The failed turns of codex 0.162.1: its message strings, from the pinned binary; a top-level error, turn.failed, exit 1.
+    text = {"capacity": "Selected model is at capacity. Please try a different model.",
+            "allowance": "You\u2019ve hit your usage limit. Upgrade to Plus to continue using Codex "
+                         "(https://chatgpt.com/explore/plus), or try again at Oct 14th, 2026 3:12 PM.",
+            "allowance-notime": "You\u2019ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits",
+            "capacity-lookalike": "the scratch disk is at capacity"}[mode]
+    ev({"type": "turn.started"})
+    ev({"type": "error", "message": text})
+    ev({"type": "turn.failed", "error": {"message": text}})
+    sys.exit(1)
+elif mode == "capacity-item":
+    item("error", message="Selected model is at capacity. Please try a different model.")
+    answer('{"findings": []}')
 elif mode == "prose":
     answer("Looks good to me! No findings.")
 elif mode == "fence":
@@ -616,6 +637,109 @@ def main() -> int:
               r.returncode == 1 and not posted() and "first line second line" in said and "x" * 600 not in r.stderr
               and "second line" not in r.stderr.replace(said, ""), r.stderr[:800])
 
+        print("the model is unavailable: at capacity is retried after 10, 20, 60 s; the allowance is reported, not retried")
+
+        def inproc(*args: str) -> tuple[int, str, str, list[float]]:
+            """main() in this process, so the waits can be replaced: the environment, directory and handlers are
+            the run()'s own, and put back."""
+            sleeps: list[float] = []
+            saved_env, saved_cwd = dict(os.environ), os.getcwd()
+            saved_sig = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
+            saved_sleep = review_codex._sleep
+            review_codex._sleep = sleeps.append
+            out, err = io.StringIO(), io.StringIO()
+            try:
+                os.environ.clear()
+                os.environ.update(env0)
+                os.chdir(repo)
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    rc = review_codex.main(["codex", *args])
+            finally:
+                review_codex._sleep = saved_sleep
+                os.chdir(saved_cwd)
+                os.environ.clear()
+                os.environ.update(saved_env)
+                for s, h in saved_sig.items():
+                    signal.signal(s, h)
+            return rc, out.getvalue(), err.getvalue(), sleeps
+
+        def runs_made() -> int:
+            try:
+                with open(os.path.join(state, "codex-calls")) as f:
+                    return len(f.read().split())
+            except OSError:
+                return 0
+
+        def posts() -> int:
+            try:
+                with open(os.path.join(state, "calls")) as f:
+                    return len(f.read().splitlines())
+            except OSError:
+                return 0
+
+        set_pr(); mode("capacity ok")
+        rc, out, err, sleeps = inproc("7", req)
+        check("capacity once, then success: exit 0, one wait of 10 s, two runs, posted once",
+              rc == 0 and sleeps == [10] and runs_made() == 2 and posts() == 1, (rc, sleeps, runs_made(), posts(), err))
+        check("…the scratch is removed", scratch_empty(), os.listdir(scratch))
+        set_pr(); mode("capacity capacity capacity ok")
+        rc, out, err, sleeps = inproc("7", req)
+        check("capacity three times, then success: waits 10, 20, 60 s, four runs, posted once",
+              rc == 0 and sleeps == [10, 20, 60] and runs_made() == 4 and posts() == 1, (rc, sleeps, runs_made(), posts(), err))
+        set_pr(); mode("capacity")
+        rc, out, err, sleeps = inproc("7", req)
+        check("capacity on every run: exit 3, the same three waits, four runs, nothing posted",
+              rc == 3 and sleeps == [10, 20, 60] and runs_made() == 4 and posts() == 0, (rc, sleeps, runs_made(), posts(), err))
+        check("…it says the model is unavailable, at capacity, the provider's, and what Codex said",
+              "model is unavailable: at capacity" in err and "transient" in err and "after 4 run(s)" in err
+              and "Selected model is at capacity" in err and "nothing posted" in err, err)
+        check("…the scratch is removed", scratch_empty(), os.listdir(scratch))
+        set_pr(); mode("allowance")
+        rc, out, err, sleeps = inproc("7", req)
+        check("over the allowance: exit 3 at once — no wait, one run, nothing posted",
+              rc == 3 and sleeps == [] and runs_made() == 1 and posts() == 0, (rc, sleeps, runs_made(), posts(), err))
+        check("…it says the allowance, ours, with the reset time the message gave",
+              "over the allowance" in err and "Oct 14th, 2026 3:12 PM" in err and "not retried" in err, err)
+        set_pr(); mode("allowance-notime")
+        rc, out, err, sleeps = inproc("7", req)
+        check("…a message without a time says there is none, and invents none",
+              rc == 3 and "over the allowance" in err and "no reset time" in err and "2026" not in err, err)
+        set_pr(); mode("capacity allowance")
+        rc, out, err, sleeps = inproc("7", req)
+        check("capacity, then the allowance: one wait, then stopped as the allowance",
+              rc == 3 and sleeps == [10] and runs_made() == 2 and "over the allowance" in err, (rc, sleeps, err))
+        for m, why in (("turnfailed", "an ordinary failed turn"), ("capacity-lookalike", "'at capacity' in another sentence"),
+                       ("capacity-item", "the capacity text in an error item of a turn that went on"),
+                       ("exit1", "a non-zero exit with no failed turn")):
+            set_pr(); mode(m)
+            rc, out, err, sleeps = inproc("7", req)
+            check(f"{why}: a failed review, exit 1, never retried",
+                  rc == 1 and sleeps == [] and runs_made() == 1 and posts() == 0 and "unavailable" not in err,
+                  (rc, sleeps, runs_made(), err))
+        set_pr(); mode("allowance")
+        r = run("7", req)
+        check("through the installed entry point: exit 3, the kind said on stderr, nothing on stdout, nothing posted",
+              r.returncode == 3 and "over the allowance" in r.stderr and r.stdout == "" and not posted(), (r.returncode, r.stderr))
+        for label, msg, want in (
+                ("capacity", "Selected model is at capacity. Please try a different model.", ("capacity", None)),
+                ("usage limit with a time", "You\u2019ve hit your usage limit. Upgrade to Plus to continue using Codex "
+                 "(https://chatgpt.com/explore/plus), or try again at Oct 14th, 2026 3:12 PM.", ("allowance", "Oct 14th, 2026 3:12 PM")),
+                ("usage limit, 'Try again at'", "You\u2019ve hit your usage limit. Try again at Nov 2nd, 2026 9:00 AM.",
+                 ("allowance", "Nov 2nd, 2026 9:00 AM")),
+                ("usage limit for a model", "You\u2019ve hit your usage limit for gpt-6.1-sol. Switch to another model now,",
+                 ("allowance", None)),
+                ("quota", "Quota exceeded. Check your plan and billing details.", ("allowance", None)),
+                ("workspace credits", "Your workspace is out of credits. Add credits to continue.", ("allowance", None)),
+                ("spend cap", "You hit your spend cap set in your workspace. Increase your spend cap to continue.",
+                 ("allowance", None))):
+            got = review_codex.unavailable(msg)
+            check(f"Codex 0.162.1's message is read: {label}", got is not None and (got.kind, got.reset) == want,
+                  got and (got.kind, got.reset))
+        for label, msg in (("a stream failure", "stream disconnected before completion: error sending request"),
+                           ("the same words with a plain apostrophe", "You've hit your usage limit."),
+                           ("a disk", "no space left: the volume is at capacity"), ("nothing", "")):
+            check(f"not read as unavailable: {label}", review_codex.unavailable(msg) is None)
+
         print("the time budget: Codex and what it started are ended, the scratch removed")
         set_pr(); mode("sleep")
         t0 = time.monotonic()
@@ -650,8 +774,6 @@ def main() -> int:
         # A signal after the post's child started cannot claim "nothing posted" (review of #220, F4): main() itself,
         # with review() standing in for a run that was signalled once posting began.
         print("a signal while posting: it says the review may have been posted")
-        import contextlib
-        import io
 
         def signalled_after(posting):
             def fake(*a, **k):
