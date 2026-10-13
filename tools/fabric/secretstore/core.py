@@ -29,7 +29,7 @@ def login() -> str:
 
 
 # ── the agent id (ADR-039): a UUIDv7 whose timestamp is the birth ─────
-REPO_PREFIX = "agent-fabric-secrets-"
+REPO_PREFIX = "fabric-agent-"
 
 
 def mint_agent_id(born_ms: int) -> str:

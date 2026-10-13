@@ -24,24 +24,37 @@ def host_check(login: str) -> str:
     return name + ("account: present\n" if present else "account: absent\n")
 
 
-def audit(platform_id: str, persists: str, hint: str, n_tools: str, packages: list[str]) -> str:
+def audit(platform_id: str, persists: str, hint: str, n_tools: str, packages: list[str], *,
+          operator_missing: list[str] = (), template: str = "") -> str:
     """Step 0, the host: what the fabric's host contract (platform/detect.sh:
     FABRIC_HOST_TOOLS) finds missing, as the packages that hold it — what
     its hooks, scripts and provisioning call; the package each comes from,
     and where a package persists, is the platform profile's. A Qubes AppVM
     keeps only /home and /usr/local across a reboot, so there a package is
-    the TemplateVM's. A project's extra needs are its own host-check."""
+    the TemplateVM's, named when Qubes says which (`template`). A project's
+    extra needs are its own host-check.
+
+    `operator_missing` is the operator's own list (FABRIC_OPERATOR_TOOLS),
+    passed for the operator's login only: a warning line, never a reason the
+    host fails an account — no account's script calls those tools."""
     pkgs = " ".join(packages)
-    if not packages:
-        return f"new-agent: 0. {platform_id}: host tools present ({n_tools}, the fabric's contract)\n"
     try:
         persists_on = int(persists or "0") != 0   # bash's (( … )): a number, empty as 0
     except ValueError:
         persists_on = False
-    if persists_on:
-        return f"new-agent: 0. {platform_id}: this host lacks {pkgs}: {hint} {pkgs}\n"
-    return (f"new-agent: 0. {platform_id}: this AppVM lacks {pkgs} — a package does not survive a reboot here;\n"
-            f"new-agent:    {hint} {pkgs}   (then restart this AppVM)\n")
+    where = hint.replace("in the TemplateVM:", f"in the TemplateVM {template}:") if template else hint
+    if not packages:
+        text = f"new-agent: 0. {platform_id}: host tools present ({n_tools}, the fabric's contract)\n"
+    elif persists_on:
+        text = f"new-agent: 0. {platform_id}: this host lacks {pkgs}: {hint} {pkgs}\n"
+    else:
+        text = (f"new-agent: 0. {platform_id}: this AppVM lacks {pkgs} — a package does not survive a reboot here;\n"
+                f"new-agent:    {where} {pkgs}   (then restart this AppVM)\n")
+    if operator_missing:
+        ops = " ".join(operator_missing)
+        text += (f"new-agent: 0. {platform_id}: warning: the operator's desktop lacks {ops} (the deck's terminal; "
+                 f"not the fabric's contract, nothing stops): {where} {ops}\n")
+    return text
 
 
 def claude_want(root: str, target: str) -> str:

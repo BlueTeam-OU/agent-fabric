@@ -5,8 +5,8 @@
 # the work, its contract, its help text and every reason for it are in
 # tools/fabric/store_enroll.py (ADR-040 §5 rule 4).
 #
-#   store-enroll.sh <login>... [--host <id>] [--born-now] [--dry-run]
-#   store-enroll.sh --self | --rename <old> <new> | --help
+#   store-enroll.sh <login>... [--host <id>] [--role <slug>] [--born-now] [--dry-run]
+#   store-enroll.sh --self | --rename <old> <new> | --describe <login> [--role <slug>] | --help
 #
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.

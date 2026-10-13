@@ -261,13 +261,13 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
             f"{HUMAN_SHARED} only (a human: no other name, no issued key); its store to {login} as a bundle; "
             f"fabric-secrets sync --no-pull as {login}; its inbox cursor to the newest message")
     elif dry:
-        say(f"would: store-enroll.sh {login} --host {host} --born-now; provision identity, share, issue-key openrouter "
+        say(f"would: store-enroll.sh {login} --host {host} --role {role} --born-now; provision identity, share, issue-key openrouter "
             f"and openai (each once); its store to {login} as a bundle; fabric-secrets sync --no-pull as {login}; its "
             "inbox cursor to the newest message")
         say(f"would: fabric-secrets store assign {slug} {login} (token {fp}), before the bundle" if slug else
             "would: assign no Claude account (--no-claude-account: the broker path only)")
     else:
-        secrets_step(s, login, host, o["projects"], slug, fp, human=human)
+        secrets_step(s, login, host, o["projects"], slug, fp, human=human, role=role)
 
     # ---- 6-10 on the host ---------------------------------------------------
     clones = [a for pid in o["projects"] for a in ("--clone", f"{pid}={remote[pid]}")]
@@ -279,6 +279,13 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     if s.through([cfg.HX, host, "--", cfg.WORKER, "finish", login, *who, *clones, *account, *nxt, *via, *dry_arg]) != 0:
         die("the host half stopped (above); nothing after it ran")
 
+    # ---- 12. its signing subkey on GitHub (ADR-057 rule 6) -------------------
+    # Best effort: the push token of this login may lack the admin:ssh_signing_key
+    # scope, and an agent whose key is not registered still works; its commits
+    # read "Unverified" until someone runs the line this prints.
+    if not human:
+        register_signing_key(s, login, dry)
+
     # ---- 11. the signing key, with a person at the terminal -----------------
     if dry and signing_next:
         say(f"would: 11. export this login's signing key and import it as {login} (gpg's pinentry asks its "
@@ -286,6 +293,19 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     elif signing_next:
         return signing_key(login, host, via=host if host != local_host else "")
     return 0
+
+
+def register_signing_key(s: Steps, login: str, dry: bool) -> None:
+    by_hand = f"python3 {cfg.GITHUB_SIGNING_KEY} add {login}"
+    if dry:
+        say(f"would: 12. register {login}'s signing subkey, in SSH form, as a GitHub signing key ({by_hand})")
+        return
+    rc, out = s.capture([sys.executable, cfg.GITHUB_SIGNING_KEY, "add", login])
+    if rc == 0:
+        say(f"12. {out or 'its signing key is registered on GitHub'}")
+        return
+    s.tail(1)
+    say(f"12. its signing key was NOT registered on GitHub (above): its commits read Unverified there until: {by_hand}")
 
 
 def on_terminal() -> bool:

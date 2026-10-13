@@ -1577,7 +1577,10 @@ def cmd_env(**extra: str) -> dict:
     ws = scratch("ws-")
     os.symlink(HERE, os.path.join(ws, "agent-fabric"))
     env = {**os.environ, "HOME": scratch("home-"), "AGENT_FABRIC_SECRET_STORE": id_store(),
-           "AGENT_FABRIC_STATE_DIR": os.path.join(scratch("state-"), "state"), "AGENT_FABRIC_ROOT": os.path.join(ws, "agent-fabric"), **extra}
+           "AGENT_FABRIC_STATE_DIR": os.path.join(scratch("state-"), "state"), "AGENT_FABRIC_ROOT": os.path.join(ws, "agent-fabric"),
+           # The watch lock is per login under the runtime directory: a case's own, or a case would meet the
+           # session's real watch (or another case's) and exit at once.
+           "XDG_RUNTIME_DIR": scratch("run-"), **extra}
     # The inbox journals what it prints (episodic.db under the state directory): a case run with the
     # runner's AGENT_FABRIC_STATE_DIR or XDG_STATE_HOME wrote its row into the runner's own.
     env.pop("XDG_STATE_HOME", None)

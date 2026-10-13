@@ -242,8 +242,11 @@ def prepare(w: Worker) -> int:
         floor = ".".join(str(n) for n in host_platform.FABRIC_HOST_PYTHON_MIN)
         w.die(f"this host's python3 ({version}) is older than {floor}, the fabric's floor (ADR-040 rule 1); "
               "install a newer python3, then rerun")
+    # The operator's own tools are asked about for the operator's login (--human) only: no role account calls them.
+    operator_missing = sorted({prof.pkg_for(t) for t in host_platform.FABRIC_OPERATOR_TOOLS if shutil.which(t) is None}) if a.human else []
     _log(hs.audit(prof.id, "1" if prof.persists_across_reboot else "0", prof.pkg_install_hint,
-                  str(len(host_platform.FABRIC_HOST_TOOLS)), missing))
+                  str(len(host_platform.FABRIC_HOST_TOOLS)), missing, operator_missing=operator_missing,
+                  template=host_platform.template_name(prof) if (missing or operator_missing) else ""))
     # ---- 1. the account, its subordinate ids, home 700, the shared cache, linger
     if w.account_exists():
         w.say(f"1. account {login} exists")

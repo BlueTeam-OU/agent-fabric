@@ -288,10 +288,12 @@ def main() -> int:
             for step in ("useradd", "chmod 700", "mkdir -p", "curl -fsSL https://claude.ai/install.sh | bash -s -- ",
                          "curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash", "append GitHub's published host keys",
                          "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'", "store-enroll.sh zz-fixture-login --host",
+                         " --role backend-dev --born-now;",
                          "provision identity, share, issue-key openrouter and openai",
                          "git clone -q 'git@github.com:fixture-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
                 ok(f"plans: {step}", step in out, out)
             ok("…and verifies nothing", "dry run: nothing verified" in out, out)
+            ok("…and plans the GitHub signing key, sending nothing", "would: 12. register zz-fixture-login's signing subkey" in out, out)
             ok("no account was created", subprocess.run(["getent", "passwd", "zz-fixture-login"], stdout=subprocess.DEVNULL,
                                                          timeout=30).returncode != 0)
             ok("a project clone uses the registry's SSH remote", "git@github.com" in out, out)
@@ -467,9 +469,11 @@ def main() -> int:
             reset_seq()
             rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
             ok("the whole sequence exits 0", rc == 0, f"rc={rc}\n{out}")
+            ok("step 12 is best effort: a login the lineage does not hold leaves it unregistered, said with the line to run, and the run still exits 0",
+               "12. its signing key was NOT registered on GitHub" in out and "github_signing_key.py add" in out, out)
             where = "far-host" if backend == "ssh" else local
             ok("5: the account keyed on its host, its store filled by the parent, and synced",
-               f"store-enroll seq-login --host {where} --born-now" in lines(calls)
+               f"store-enroll seq-login --host {where} --role backend-dev --born-now" in lines(calls)
                and has(r"^secrets provision identity seq-login --host", read(calls))
                and has(r"^secrets provision share seq-login", read(calls))
                and "5. its key made and certified, its store filled and synced" in out, read(calls) + out)
@@ -653,6 +657,25 @@ def main() -> int:
                rc == 0 and "useradd" in out and "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'" in out
                and "install.sh" not in out and "bootstrap.sh" not in out and "fabric-role bind" not in out
                and "8. role" not in out, f"rc={rc}\n{out}")
+            # The operator's tools (kitty) are a warning for the operator's login only; PATH has every tool of the
+            # contract, and no kitty, so the host-tool line itself stays clean in both runs.
+            full = f"{sandbox}/nokitty"
+            os.makedirs(full)
+            for tool in ("bash", "python3", "getent", "id", "sudo", "hostname", "readlink", "dirname", "basename", "cut", "grep",
+                         "sed", "head", "tail", "tr", "sort", "uniq", "mktemp", "cat", "env", "cp", "mkdir", "rm", "ls", "ln",
+                         "chmod", "tee", "wc", "awk", "xargs", "curl", "ssh", "git", "jq", "gpg", "node", "npm", "sha256sum",
+                         "stat", "pgrep", "timeout", "flock", "useradd", "usermod", "shred", "install", "gh", "paperkey", "openssl",
+                         "cmp"):
+                src = shutil.which(tool, path=base.get("PATH"))
+                if src:
+                    os.symlink(src, f"{full}/{tool}")
+            rc_h, out_h = run("human-here", "--human", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=full)
+            rc_r, out_r = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=full)
+            ok("a missing operator tool is a warning on the operator's login, and the run goes on",
+               rc_h == 0 and has(r"^new-agent: 0\. debian: warning: the operator's desktop lacks kitty", out_h)
+               and has(r"^new-agent: 1\. ", out_h), f"rc={rc_h}\n{out_h}")
+            ok("…and is not said to a role account (positive control: its host audit ran)",
+               has(r"^new-agent: 0\. debian: ", out_r) and "operator's desktop" not in out_r, out_r)
             rc, out = run("human-here", "backend-dev", "--no-claude-account", "--dry-run")
             ok("an agent's run on a login placed as a human is refused", rc == 1 and "human-here is a human login" in out, out)
             rc, out = run("zz-fixture-login", "--human", "--dry-run")

@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 from typing import Any, Callable
@@ -645,6 +646,149 @@ def _():
         stub.close()
 
 
+def _arm(env: dict, *flags: str) -> subprocess.Popen:
+    return subprocess.Popen([P.INBOX_CMD, *flags], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+def _wait_started(p: subprocess.Popen, env: dict, deadline: float = 15) -> None:
+    """The first watch owns the lock once its file names its pid."""
+    lock = glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock"))
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        lock = glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock"))
+        if lock and open(lock[0]).read().startswith(str(p.pid)):
+            return
+        time.sleep(0.05)
+    raise Failed("the first watch never took its lock")
+
+
+@case("a second watch exits 0 at once naming the first, which still delivers; the lock frees when the first is gone")
+def _():
+    # Quiet until the case lets one message through: the first watch must still be watching when the second starts.
+    release = threading.Event()
+    sent: list[int] = []
+
+    def answer(_h, _m, path, _b):
+        if not path.startswith("/api/wait"):
+            return 200, "{}"
+        if release.is_set() and not sent:
+            sent.append(1)
+            return 200, json.dumps({"messages": [_rec(5, "late-delivery", None)]})
+        time.sleep(0.3)
+        return 200, '{"messages": []}'
+    stub = P.Stub(answer)
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        first = _arm(env, "--until-delivery")
+        try:
+            _wait_started(first, env)
+            for flag in ("--until-delivery", "--follow"):
+                t0 = time.monotonic()
+                r = subprocess.run([P.INBOX_CMD, flag], env=env, capture_output=True, text=True, timeout=10)
+                eq(r.returncode, 0, r.stdout + r.stderr)
+                ok(f"a watch is already running (pid {first.pid}, started " in r.stdout and "it ends at its next delivery or with its session — nothing to kill; do not run it again" in r.stdout, r.stdout)
+                ok(r.stdout.count("\n") == 1, "one line: " + r.stdout)
+                ok(time.monotonic() - t0 < 8, "it exits at once")
+            release.set()
+            out, err = first.communicate(timeout=30)
+            eq(first.returncode, 0, out + err)
+            ok("late-delivery" in out, "the first still delivers: " + out)
+        finally:
+            first.kill()
+            first.communicate()
+        # killed or done, the lock is free: a new watch runs (and is stopped again here)
+        again = _arm(env, "--until-delivery")
+        try:
+            try:
+                again.wait(timeout=3)
+                raise Failed("a watch after the first ended exited: " + again.stdout.read())
+            except subprocess.TimeoutExpired:
+                pass
+            _wait_started(again, env)
+        finally:
+            again.kill()
+            again.communicate()
+        killed = _arm(env, "--follow")
+        try:
+            _wait_started(killed, env)
+        finally:
+            killed.kill()   # SIGKILL: no cleanup runs, the kernel frees the flock
+            killed.communicate()
+        third = _arm(env, "--until-delivery")
+        try:
+            _wait_started(third, env)
+            ok(third.poll() is None, "a watch after a killed one runs")
+        finally:
+            third.kill()
+            third.communicate()
+    finally:
+        stub.close()
+
+
+@case("a drain, --wait, --history, and a watch flag with --held, --history or --replay take no lock while a watch holds it")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        first = _arm(env, "--until-delivery")
+        try:
+            _wait_started(first, env)
+            for argv in ([], ["--wait", "1"], ["--history"], ["--held", "--until-delivery"], ["--history", "--follow"],
+                         ["--replay", "1", "--follow"]):
+                r = subprocess.run([P.INBOX_CMD, *argv], env=env, capture_output=True, text=True, timeout=30)
+                ok("already running" not in r.stdout + r.stderr, f"{argv}: {r.stdout}{r.stderr}")
+        finally:
+            first.kill()
+            first.communicate()
+    finally:
+        stub.close()
+
+
+@case("a pid line that cannot be written leaves the lock held, and release() neither raises nor frees it early")
+def _():
+    import fcntl
+    import resource
+    import signal
+    from gzcoord.inbox_parts import watchlock
+    path = os.path.join(P.scratch("wl-"), "agent-fabric", "x.lock")
+    old_lim, old_sig = resource.getrlimit(resource.RLIMIT_FSIZE), signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+    lock = watchlock.WatchLock(path)
+    try:
+        resource.setrlimit(resource.RLIMIT_FSIZE, (0, old_lim[1]))   # every write now fails with EFBIG
+        ok(lock.acquire(), "the lock is taken though the line cannot be written")
+        other = open(path)
+        try:
+            try:
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                raise Failed("a failed pid write gave the lock up")
+            except BlockingIOError:
+                pass
+            lock.release()   # must not raise
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)   # and frees it
+        finally:
+            other.close()
+    finally:
+        resource.setrlimit(resource.RLIMIT_FSIZE, old_lim)
+        signal.signal(signal.SIGXFSZ, old_sig)
+        lock.release()
+
+
+@case("a watch whose lock cannot be had says so on stderr and still watches")
+def _():
+    stub, _calls = _wait_stub([[_rec(1, "delivered-anyway", None)]])
+    try:
+        # a runtime directory that is a file: the lock's directory cannot be made
+        blocked = P.scratch("blocked-")
+        open(os.path.join(blocked, "agent-fabric"), "w").close()
+        env = _replay_env(stub, GZCOORD_JOURNAL="off", XDG_RUNTIME_DIR=blocked)
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=30)
+        eq(r.returncode, 0, r.stdout + r.stderr)
+        ok("delivered-anyway" in r.stdout, r.stdout)
+        ok("no watch lock" in r.stderr, r.stderr)
+    finally:
+        stub.close()
+
+
 @case("--until-delivery does not return on a quiet window or a message not addressed here")
 def _():
     stub, _calls = _wait_stub([[_rec(1, "for-somebody-else", "elsewhere/nobody")]])
@@ -723,6 +867,10 @@ def _():
     def boom(_argv):
         raise RuntimeError("unforeseen")
     inbox.main = boom
+    # The watch lock is taken in this process: a runtime directory of its own, because a runner's /run/user/<uid> may
+    # not be writable and the lock's warning would reach the stderr this case asserts empty (found in the smoke containers).
+    saved_runtime = os.environ.get("XDG_RUNTIME_DIR")
+    os.environ["XDG_RUNTIME_DIR"] = P.scratch("runtime-")
     try:
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -734,6 +882,10 @@ def _():
         ok("unforeseen" in err.getvalue() and not out.getvalue(), out.getvalue() + err.getvalue())
     finally:
         inbox.main = saved
+        if saved_runtime is None:
+            os.environ.pop("XDG_RUNTIME_DIR", None)
+        else:
+            os.environ["XDG_RUNTIME_DIR"] = saved_runtime
 
 
 @case("--until-delivery: a delivery the journal cannot keep ends it with exit 6 and the held line on stdout, not at the timeout")

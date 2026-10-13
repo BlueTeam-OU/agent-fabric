@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "description": "fabric-watch (tools/fabric/watch.py): the TERM_PROGRAM values of a pane host that takes the kitty graphics protocol, so the avatar is transmitted as the PNG file it is instead of drawn with half blocks. The host that shows it must speak kitty graphics on its own terminal. Kept here, not in the tool, because a managed project's name does not belong in a generic file (lint).",
+  "kitty_terminal_programs": ["herdr"]
+}

@@ -11,6 +11,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 SECRETS = os.path.join(ROOT, "runtime", "provisioning", "secrets", "fabric-secrets")
 STORE_ENROLL = os.path.join(ROOT, "runtime", "provisioning", "secrets", "store-enroll.sh")
+GITHUB_SIGNING_KEY = os.path.join(ROOT, "tools", "fabric", "provisioning", "github_signing_key.py")
 STORE = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
 HX = os.path.join(ROOT, "runtime", "hostexec", "hostexec")
 WORKER = "@fabric/runtime/provisioning/new-agent-worker.sh"

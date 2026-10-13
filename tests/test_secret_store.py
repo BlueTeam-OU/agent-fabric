@@ -1120,7 +1120,7 @@ else:
             up = os.path.join(drive, "my-files", "agent-fabric", "secrets")
             files = sorted(os.listdir(up)) if os.path.isdir(up) else []
             check("backup uploads a bundle of its own store and of each child mirror, and a manifest",
-                  p.returncode == 0 and "manifest.json" in files and f"agent-fabric-secrets-{KID}.bundle" in files
+                  p.returncode == 0 and "manifest.json" in files and f"fabric-agent-{KID}.bundle" in files
                   and len([f for f in files if f.endswith(".bundle")]) == 2, p.stdout + p.stderr + repr(files))
             man = json.load(open(os.path.join(up, "manifest.json"))) if "manifest.json" in files else {}
             check("…the manifest names each bundle's sha256 and head", set(man.get("stores", {})) >= {KID} and man["stores"][KID].get("login") == "kid"
@@ -1131,11 +1131,11 @@ else:
             check("a second backup, into folders that exist, succeeds", p.returncode == 0, p.stdout + p.stderr)
             p = run(penv, "backup", "--verify")
             check("backup --verify: every bundle matches its manifest", p.returncode == 0 and "matches" in p.stdout, p.stdout + p.stderr)
-            with open(os.path.join(up, f"agent-fabric-secrets-{KID}.bundle"), "ab") as fh:
+            with open(os.path.join(up, f"fabric-agent-{KID}.bundle"), "ab") as fh:
                 fh.write(b"tampered")
             p = run(penv, "backup", "--verify")
             check("backup --verify catches a bundle that is not the manifest's", p.returncode == 1
-                  and f"agent-fabric-secrets-{KID}.bundle: its sha256 is not the manifest's" in p.stdout, p.stdout + p.stderr)
+                  and f"fabric-agent-{KID}.bundle: its sha256 is not the manifest's" in p.stdout, p.stdout + p.stderr)
             # Option B: the owner's recovery key. Made here without a
             # prompt (a passphrase on the command line, test only); in use
             # it is `recovery-key init`, in the owner's terminal.
