@@ -181,7 +181,7 @@ def main() -> int:
         refused("a file for a source is refused", tree("f", {"x": b"1"}) + "/x", "not a directory")
         os.symlink(tree("real", {"x": b"1"}), os.path.join(tmp, "linked"))
         os.symlink(os.path.join(tmp, "real"), os.path.join(tmp, "linked-real"))
-        sharing = tree("sharing", {"a": b"1"})   # a directory that grants search but not read, above the source
+        # xonly grants search but not read, above the source:
         os.makedirs(os.path.join(tmp, "xonly", "inner"))
         with open(os.path.join(tmp, "xonly", "inner", "f"), "w") as fh:
             fh.write("1")
