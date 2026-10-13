@@ -365,7 +365,7 @@ def availability_findings(root: str, policy: str, siblings: dict[str, str] | Non
     """routing/policies/availability.json (agent-fabric ADR-055 §5 rule 7): its schema, then what a schema
     cannot say. Every provider is one routing knows, and every capability one it routes for that provider; a
     provider's first model for a capability is the routed one (a run starts there); every code-review model is
-    admitted by the review-grade set (routing.review_grade_ok, as the launcher judges it); a provider that moves
+    admitted by the review-grade set, spelt as routing.review_grade_ok spells it (_review_grade); a provider that moves
     to the next seat on allowance has a second seat, and Anthropic's seats are the account-switch pool (ADR-052
     moves the logins between them); the OpenAI review engine's retry waits are the ones review_codex.py uses.
     The sibling policies are read where roots puts them; `siblings` (name -> path) lets a test point them at a
@@ -391,6 +391,8 @@ def availability_findings(root: str, policy: str, siblings: dict[str, str] | Non
     routing = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(routing)
     providers = caps.get("providers") or {}
+    grade_doc = load_json(paths["review-grade.json"], "routing/policies/review-grade.json", findings)
+    graded = set((grade_doc or {}).get("models") or [])
     for prov, s in sorted(doc["providers"].items()):
         if prov not in providers:
             findings.append(f"{where}: {prov!r} is not a provider routing knows ({', '.join(sorted(providers))})")
@@ -404,7 +406,7 @@ def availability_findings(root: str, policy: str, siblings: dict[str, str] | Non
                 findings.append(f"{where}: {prov} {cap} starts at {models[0]!r}, but routing resolves it to {routed[cap]!r}")
             if cap == "code-review":
                 for m in models:
-                    if not _review_grade(routing, m, root, prov, paths["review-grade.json"]):
+                    if grade_doc is not None and not _review_grade(routing, m, prov, graded):
                         findings.append(f"{where}: {prov} {cap} lists {m!r}, which is not in the review-grade set")
         if s["on_allowance"] == "next-seat" and len(s["seats"]) < 2:
             findings.append(f"{where}: {prov} moves to the next seat on allowance but names only one seat")
@@ -422,15 +424,13 @@ def availability_findings(root: str, policy: str, siblings: dict[str, str] | Non
     return findings
 
 
-def _review_grade(routing: Any, model: str, root: str, provider: str, grade_path: str) -> bool:
-    """routing.review_grade_ok reads the set from roots; a test's copy of the set is honoured by reading it there."""
-    try:
-        with open(grade_path, encoding="utf-8") as fh:
-            graded = set(json.load(fh).get("models") or [])
-    except (OSError, ValueError):
-        return False
-    if provider != "openrouter" and routing.ADAPTERS[provider].is_model(model):
-        model = routing.ADAPTERS[provider].openrouter_id(model)
+def _review_grade(routing: Any, model: str, provider: str, graded: set[str]) -> bool:
+    """routing.review_grade_ok's spelling rule, applied to a set read where roots (or a test) put it: that function
+    reads the set through roots itself, so it cannot judge a test's copy. A copy, kept in step with routing.py's:
+    a native id compares as its adapter's openrouter id, an openrouter id as written."""
+    adapter = routing.ADAPTERS.get(provider)
+    if adapter is not None and provider != "openrouter" and adapter.is_model(model):
+        model = adapter.openrouter_id(model)
     return model in graded
 
 

@@ -293,7 +293,7 @@
       "surname": "Einstein",
       "person": "Albert Einstein",
       "from": "Germany/United States",
-      "known_for": "relativity; built no weapon",
+      "known_for": "relativity; wartime consulting for the Navy on explosives is a mixed record; kept by the owner's judgement",
       "lived": "1879-1955"
     },
     {
@@ -321,7 +321,7 @@
       "surname": "Euler",
       "person": "Leonhard Euler",
       "from": "Switzerland",
-      "known_for": "mathematics",
+      "known_for": "mathematics; his 1745 gunnery commentary is a mixed record; kept by the owner's judgement",
       "lived": "1707-1783"
     },
     {
@@ -708,6 +708,13 @@
       "from": "South Africa",
       "known_for": "structural biology",
       "lived": "1926-2018"
+    },
+    {
+      "surname": "Kolmogorov",
+      "person": "Andrey Kolmogorov",
+      "from": "Russia",
+      "known_for": "probability theory; wartime artillery statistics are a mixed record; kept by the owner's judgement",
+      "lived": "1903-1987"
     },
     {
       "surname": "Kovalevskaya",
@@ -1147,7 +1154,7 @@
       "surname": "Rutherford",
       "person": "Ernest Rutherford",
       "from": "New Zealand",
-      "known_for": "atomic nucleus",
+      "known_for": "atomic nucleus; WWI submarine detection is a mixed record; kept by the owner's judgement",
       "lived": "1871-1937"
     },
     {
@@ -1287,7 +1294,7 @@
       "surname": "Torricelli",
       "person": "Evangelista Torricelli",
       "from": "Italy",
-      "known_for": "barometer",
+      "known_for": "barometer; gunnery tables in his projectile physics are a mixed record; kept by the owner's judgement",
       "lived": "1608-1647"
     },
     {
@@ -1460,10 +1467,6 @@
     {
       "surname": "Kalam",
       "why": "led India's missile programme"
-    },
-    {
-      "surname": "Kolmogorov",
-      "why": "statistical theory of artillery fire dispersion, done for the war"
     },
     {
       "surname": "Kurchatov",
