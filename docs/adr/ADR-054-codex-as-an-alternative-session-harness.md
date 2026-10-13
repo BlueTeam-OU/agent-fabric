@@ -157,11 +157,13 @@ ADR-038's line: no login holds a secret it does not need.
 10. A pull request authored on Codex is reviewed by the review class as
     THE review (ADR-020); a Codex review of it is not counted as the
     second engine's (ADR-053), since an engine does not review its own
-    harness's work. Such a PR does not need `codex` under ADR-053 rule
-    6: `fabric-pr arm` reads the harness from a `Fabric-Harness:`
-    trailer the commit-msg hook stamps beside `Fabric-Role:`, and waives
-    `codex` only when every work commit names `codex`. A commit without
-    the trailer is Claude Code's.
+    harness's work. Under ADR-053 rule 6 such a PR reads `codex` as
+    `claude`: `fabric-pr arm` reads the harness from a `Fabric-Harness:`
+    trailer the commit-msg hook stamps beside `Fabric-Role:`, and swaps
+    only when every work commit names `codex`. A commit without the
+    trailer is Claude Code's. CI checks the trailer against the
+    session's binding as it checks `Fabric-Role:`, so a trailer written
+    by hand in another harness is refused.
 
 ## 6. Consequences
 
@@ -194,7 +196,7 @@ pull request with its live check:
 
 1. `AGENTS.md`: the rename, the split and the references (fabric-coordinator; instruction files are control plane).
 2. The live check of §5 rule 9 on one login, before any adapter code.
-3. `runtime/codex/`: the launcher's `--harness`, the binding field, `CODEX_HOME` and `config.toml` per login, the prompt as developer instructions, the `Fabric-Harness:` trailer (rule 10).
+3. `runtime/codex/`: the launcher's `--harness`, the binding field, `CODEX_HOME` and `config.toml` per login, the prompt as developer instructions, the `Fabric-Harness:` trailer stamped and checked in CI, and `fabric-pr arm`'s reading of it (`arm_policy.required_engines`, rule 10).
 4. The guards' Codex wiring and the launch gate of rule 6.
 5. The session credential through the gateway (rule 7): the session gateway reads ADR-053 rule 8's token file.
 6. Routing: the owner's choice of model and effort per coding class on `openai`; the subagent mapping.

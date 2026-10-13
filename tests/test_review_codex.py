@@ -16,6 +16,9 @@ import sys
 import tempfile
 import time
 
+# Its own imports would write __pycache__ into the checkout (ADR-021): this file's run is a test's.
+sys.dont_write_bytecode = True
+
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import own_instance_tree, write_routing_overlay  # noqa: E402
 

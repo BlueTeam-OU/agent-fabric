@@ -100,10 +100,10 @@ repository whose policy names `reviews`.
    from a login other than the coordinator's; until then `["claude"]`. A
    repository's own policy replaces the list, narrower or wider, and its
    `boundary_reviews` names the engines a security-boundary change needs
-   as well. A pull request whose work was written in Codex sessions does
-   not need `codex`: the review class is already the other engine, and
-   ADR-054 rule 10 keeps Codex from reviewing its own harness's work
-   (A 2026-10-13). `fabric-pr arm` refuses until each required engine
+   as well. For a pull request whose work was written in Codex sessions,
+   `codex` in either list is read as `claude`: the review class is the
+   other engine, and ADR-054 rule 10 keeps Codex from reviewing its own
+   harness's work (A 2026-10-13). `fabric-pr arm` refuses until each required engine
    has reviewed the current head with no open P1 or P2, and the refusal
    names the engine still missing.
 7. **The Codex CLI is pinned.** `projects/registry.json` pins the latest
