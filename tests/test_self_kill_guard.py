@@ -202,10 +202,12 @@ def main() -> int:
     for cmd in ("kill 0", "kill -9 0", "kill -- 0", "kill -s TERM 0", "k''ill 0"):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a zero operand is refused: {cmd}", d is not None and d[0] == "deny" and "zero" in d[1], d)
-    # The word after -s or -n is the signal, not an operand (round 4, F2).
-    for cmd in ("kill -s 0 999999999", "kill -n 0 999999999"):
-        check(f"a zero signal value is no group: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
-              g.decision(cmd, CLAUDE, shell=False))
+    # Every 0 is refused, a signal value too: bash reads `kill <pid> -s 0` as group 0 (round 5); -0 passes.
+    for cmd in ("kill -s 0 999999999", "kill -n 0 999999999", "kill 999999999 -s 0", "kill -9 999999999 -n 0",
+                "kill -- -s 0"):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a zero is refused wherever it stands: {cmd}", d is not None and d[0] == "deny" and "zero" in d[1], d)
+    check("kill -0 <pid outside> passes", g.decision("kill -0 999999999", CLAUDE, shell=False) is None)
     # An expansion the hook does not evaluate asks, never passes (round 4).
     many = "kill " + " ".join(str(900000000 + i) for i in range(g.MAX_PIDS + 5))
     for label, cmd in (("ANSI-C quoting", "ki$'l'l 999999999"), ("locale quoting", 'kill $"999999999"'),

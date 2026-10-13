@@ -380,15 +380,15 @@ def kill_groups(command: str) -> list[str]:
     session. A negative number is read as a signal only as the first
     argument, and `-1` never (round 2 of #242). A 0 operand is the
     caller's own process group, which holds the shell running this very
-    command (round 3). The word right after -s or -n is the signal, not
-    an operand: `kill -s 0 <pid>` names no group (round 4, F2)."""
+    command (round 3). Every 0 is refused, also one that may be a
+    signal value (`kill -s 0 <pid>`): bash also reads `kill <pid> -s 0`
+    as group 0, and telling the two apart is the parsing this guard
+    gave up (round 5); a false deny costs a rephrase (`kill -0 <pid>`)."""
     out = []
     for words in tool_commands(command):
         if os.path.basename(words[0]) != "kill":
             continue
         for i, w in enumerate(words[1:]):
-            if i > 0 and words[i] in ("-s", "-n"):
-                continue
             if (re.fullmatch(r"-\d+", w) and (w == "-1" or i > 0)) or re.fullmatch(r"\+?0+", w):
                 out.append(w)
     return out
@@ -1007,7 +1007,7 @@ def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tr
     groups = kill_groups(command)
     if groups:
         return "deny", (f"This command kills by a negative or zero operand ({groups[0]}): -1 is every process "
-                        "you may signal, 0 the command's own process group and -N a whole process group, any "
+                        "you may signal, 0 the command's own process group (a signal 0 is spelt -0) and -N a whole process group, any "
                         "of which can hold this session's claude process, its shell and its tasks. Kill by the "
                         "exact pid of a process outside this session's tree.")
     # procps's own answer, when it can be asked: it adds denials, never
