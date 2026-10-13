@@ -25,7 +25,10 @@ CONTRACT:
             protocol), COLUMNS; XDG_CACHE_HOME (the avatar's cache); the
             rest passes to the commands untouched.
   stdout    three blocks, in this order:
-              identity       beside the avatar (20 x 10 cells; on a terminal
+              identity       beside the avatar (20 x 10 cells, 12 x 6 on a pane
+                             of fewer than 30 rows, where the text is 6
+                             lines too: the blank ones, the second engine
+                             and a line of the harness are left out; on a terminal
                              only, and not on one narrower than 52 columns):
                                "AI <first name> <surname>" from the persona
                                (watch_identity.persona; the login alone when
@@ -209,11 +212,25 @@ class Row:
 
 Line = str | Row
 AVATAR_MIN_COLUMNS = 52
-TEXT_COLUMN = avatar.COLS + 2
-GO_TO_TEXT = f"\033[{TEXT_COLUMN}G"            # kitty draws over the cells; the text is written beside them
+FULL_BOX = (avatar.COLS, avatar.ROWS)
+SMALL_BOX = (12, 6)                            # same aspect: a cell is about twice as tall as wide
+TALL_PANE_ROWS = 30                            # the full box only from here up; below, it is half a 20-row pane
 JOB_PRIORITIES = ("blocking", "high", "normal", "low")      # fabric-jobs' own order (jobsparts/base.py)
 JOB_STATES = ("active", "blocked", "queued", "delivered")
 HEADER_ROWS = avatar.ROWS
+
+
+def box_for(pane_rows: int) -> tuple[int, int]:
+    """The avatar's (columns, rows) of cells: the full box on a tall pane or when the height is not known (0)."""
+    return SMALL_BOX if 0 < pane_rows < TALL_PANE_ROWS else FULL_BOX
+
+
+def text_column(box: tuple[int, int]) -> int:
+    return box[0] + 2
+
+
+def go_to_text(box: tuple[int, int]) -> str:
+    return f"\033[{text_column(box)}G"          # kitty draws over the cells; the text is written beside them
 
 
 def rank(value: object, order: tuple[str, ...]) -> int:
@@ -254,35 +271,36 @@ class AvatarSlot:
 
     def __init__(self, mode: str | None, cache_dir: str):
         self.mode, self.cache_dir = mode, cache_dir
+        self.box = FULL_BOX
         self.path: str | None = None
         self._prefixes: list[str] | None = None
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
-    def set_path(self, path: str | None) -> None:
+    def set_path(self, path: str | None, box: tuple[int, int] = FULL_BOX) -> None:
         with self._lock:
-            if self.mode is None or path == self.path:
+            if self.mode is None or (path, box) == (self.path, self.box):
                 return
-            self.path, self._prefixes = path, None
+            self.path, self.box, self._prefixes = path, box, None
             if path is None:
                 return
-            self._thread = threading.Thread(target=self._load, args=(path,), name="watch-avatar", daemon=True)
+            self._thread = threading.Thread(target=self._load, args=(path, box), name="watch-avatar", daemon=True)
             self._thread.start()
 
-    def _load(self, path: str) -> None:
+    def _load(self, path: str, box: tuple[int, int]) -> None:
         try:
             data = avatar.read_file(path)
             if self.mode == "kitty":
                 avatar.decode(data)                          # what is sent is a file this would draw: never bytes that only start like a PNG
-                escape = avatar.kitty_escape(data)
-                prefixes = None if escape is None else [escape + GO_TO_TEXT] + [GO_TO_TEXT] * (HEADER_ROWS - 1)
+                escape = avatar.kitty_escape(data, *box)
+                prefixes = None if escape is None else [escape + go_to_text(box)] + [go_to_text(box)] * (box[1] - 1)
             else:
-                grid = avatar.grid_of(data, self.cache_dir)
+                grid = avatar.grid_of(data, self.cache_dir, cols=box[0], rows=box[1])
                 prefixes = [row + "  " for row in avatar.half_blocks(grid)]
         except avatar.Refused:
             prefixes = None                                  # not an avatar this draws: none shown
         with self._lock:
-            if path == self.path:
+            if (path, box) == (self.path, self.box):
                 self._prefixes = prefixes if prefixes is not None else []
 
     def prefixes(self) -> list[str] | None:
@@ -290,7 +308,7 @@ class AvatarSlot:
             if self.mode is None or self.path is None:
                 return None
             if self._prefixes is None:
-                return [" " * TEXT_COLUMN] * HEADER_ROWS     # loading: the room it will take
+                return [" " * text_column(self.box)] * self.box[1]     # loading: the room it will take
             return self._prefixes or None
 
     def wait(self, timeout: float = 30.0) -> None:
@@ -340,8 +358,9 @@ class Deck:
         self.versions: dict[str, str | None] = {}
         self.version_of = version_of
 
-    def text_rows(self, status_text: str) -> tuple[list[str], str]:
-        """(HEADER_ROWS lines of text, the name the title says)."""
+    def text_rows(self, status_text: str, box: tuple[int, int] = FULL_BOX) -> tuple[list[str], str]:
+        """(as many lines of text as the box has rows, the name the title says). The small box is 6 rows: the blank
+        lines go, the harness joins the login and the model its effort, and the second engine is left out."""
         status, problem = parse_object(status_text)
         persona = watch_identity.persona(self.environ, self.claims_path)
         login = str((status or {}).get("agent") or "(login unknown)")
@@ -354,6 +373,22 @@ class Deck:
         load, mem = watch_resources.host_load(self.proc), watch_resources.host_memory(self.proc)
         self.disk.poll()
         kb, age, why = self.disk.value()
+        account = f"account  cpu {'-' if mine['cpu_pct'] is None else mine['cpu_pct']}%  mem {watch_resources.human_kb(mine['rss_kb'])}  ({mine['procs']} processes)"
+        host = ("host     load " + (" ".join(f"{v:.2f}" for v in load) if load else "-")
+                + "  free " + (f"{watch_resources.human_kb(mem[0])} of {watch_resources.human_kb(mem[1])}" if mem else "-"))
+        disk = "disk     " + (f"{watch_resources.human_kb(kb)} (read {clock_text(age)} ago)" if kb is not None else (why or "reading…"))
+        if box != FULL_BOX:
+            rows = [
+                persona.name or login,
+                f"{login} · {role} · {harness or '-'} {self.versions.get(harness or '') or ''}".rstrip(),
+                f"model {models['model'] or '-'} · effort {models['effort'] or '-'}",
+                account, host, disk,
+            ]
+            if status is None:
+                said = (problem or "(fabric-status: no answer)").split("\n")[:2]
+                rows[1:3] = said + [""] * (2 - len(said))
+            self.slot.set_path(persona.avatar_path, box)
+            return rows, persona.name or login
         rows = [
             persona.name or login,
             f"{login} · {role}",
@@ -361,25 +396,23 @@ class Deck:
             f"model {models['model'] or '-'} · effort {models['effort'] or '-'}",
             models["engine"] or "",
             "",
-            f"account  cpu {'-' if mine['cpu_pct'] is None else mine['cpu_pct']}%  mem {watch_resources.human_kb(mine['rss_kb'])}  ({mine['procs']} processes)",
-            "host     load " + (" ".join(f"{v:.2f}" for v in load) if load else "-")
-            + "  free " + (f"{watch_resources.human_kb(mem[0])} of {watch_resources.human_kb(mem[1])}" if mem else "-"),
-            "disk     " + (f"{watch_resources.human_kb(kb)} (read {clock_text(age)} ago)" if kb is not None else (why or "reading…")),
+            account, host, disk,
             "",
         ]
         if status is None:
             # fabric-status did not answer: what it said, in place of the login, harness and model lines
             said = (problem or "(fabric-status: no answer)").split("\n")[:5]
             rows[1:6] = said + [""] * (5 - len(said))
-        self.slot.set_path(persona.avatar_path)
+        self.slot.set_path(persona.avatar_path, box)
         return rows, persona.name or login
 
-    def identity(self, status_text: str, once: bool = False, columns: int = 80) -> tuple[list[Line], str]:
-        rows, name = self.text_rows(status_text)
+    def identity(self, status_text: str, once: bool = False, columns: int = 80, pane_rows: int = 0) -> tuple[list[Line], str]:
+        box = box_for(pane_rows)
+        rows, name = self.text_rows(status_text, box)
         if once:
             self.slot.wait()
             self.disk.wait(3.0)
-            rows[8] = self.disk_row()                                     # the reading, if it finished
+            rows[8 if box == FULL_BOX else 5] = self.disk_row()           # the reading, if it finished
         prefixes = self.slot.prefixes() if columns >= AVATAR_MIN_COLUMNS else None
         if prefixes is None:
             return list(rows), name
@@ -457,7 +490,7 @@ def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
             prs, prs_at = read, clock()
         status = run([os.path.join(root, "bin", "fabric-status"), "--json"], merge=False)
         jobs = run([os.path.join(root, "bin", "fabric-jobs"), "list", "--json"], merge=False)
-        identity, name = deck.identity(status, once=once, columns=columns)
+        identity, name = deck.identity(status, once=once, columns=columns, pane_rows=rows)
         draw(screen(identity, name, jobs_block(jobs), prs, clock() - prs_at, time.strftime("%H:%M:%S"), rows, columns), clear=not once, out=out)
         if once or wait(every):
             return 0
