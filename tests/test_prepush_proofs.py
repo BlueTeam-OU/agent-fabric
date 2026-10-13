@@ -151,6 +151,26 @@ def run() -> None:
     git("a", "push", "-q", "origin", "HEAD:refs/heads/work-del2")
     check("positive control: the next push of a branch restores it", remote_has_ref())
 
+    print("a push that deletes one ref and adds another")
+    sha_m = commit("a", "mixed")
+    r = git("a", "push", "-q", "origin", f":{notes.REF}", "HEAD:refs/heads/work-mix")
+    check("pushes no notes: the deletion succeeds and the ref stays removed", r.returncode == 0 and not remote_has_ref(), r.stderr)
+    check("…and the branch arrived", git("a", "ls-remote", "origin", "refs/heads/work-mix").stdout.split()[:1] == [sha_m], "")
+    git("a", "push", "-q", "origin", "HEAD:refs/heads/work-mix2")
+    check("positive control: the next plain push restores the notes", remote_has_ref() and remote_note(sha_m) is not None)
+
+    print("a note that holds another signature's proof")
+    sha_s1 = commit("a", "stale-donor")
+    subprocess.run([SIGN, "note", sha_s1], cwd=f"{T}/a", env=env("a"), capture_output=True, timeout=60, check=True)
+    sha_s2 = commit("a", "stale-heir")
+    for name in os.listdir(f"{T}/spool-a"):
+        os.unlink(f"{T}/spool-a/{name}")
+    git("a", "notes", f"--ref={notes.REF}", "copy", sha_s1, sha_s2)
+    r = git("a", "push", "-q", "origin", "HEAD:refs/heads/work-stale")
+    check("is not published, and the hook says it removed it",
+          remote_note(sha_s2) is None and "removed" in r.stderr and git("a", "notes", f"--ref={notes.REF}", "list", sha_s2).returncode != 0, r.stderr)
+    check("…while the donor's own note is", remote_note(sha_s1) is not None)
+
     print("a dry run")
     sha_d = commit("a", "dry")
     r = git("a", "push", "--dry-run", "-q", "origin", "HEAD:refs/heads/work-dry")
@@ -159,6 +179,16 @@ def run() -> None:
           and git("a", "ls-remote", "origin", "refs/heads/work-dry").stdout.strip() == "", r.stderr)
     r = git("a", "push", "-q", "origin", "HEAD:refs/heads/work-dry")
     check("positive control: the real push attaches and pushes it", r.returncode == 0 and remote_note(sha_d) is not None, r.stderr)
+    # git takes any unique prefix of a long option; each spelling is its own commit with its own waiting proof.
+    for spelling in ("--dry", "--dry-r"):
+        sha_p = commit("a", "dry" + spelling)
+        waiting = len(os.listdir(f"{T}/spool-a"))
+        r = git("a", "push", spelling, "-q", "origin", f"HEAD:refs/heads/work-dry{spelling}")
+        check(f"{spelling} changes nothing either", r.returncode == 0 and remote_note(sha_p) is None
+              and len(os.listdir(f"{T}/spool-a")) == waiting
+              and git("a", "ls-remote", "origin", f"refs/heads/work-dry{spelling}").stdout.strip() == "", r.stderr)
+        r = git("a", "push", "-q", "origin", f"HEAD:refs/heads/work-dry{spelling}")
+        check(f"positive control: the real push after {spelling} pushes its note", r.returncode == 0 and remote_note(sha_p) is not None, r.stderr)
 
     print("a branch pushed as the notes ref's name")
     commit("b", "forged", signed=False)

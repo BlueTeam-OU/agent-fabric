@@ -169,8 +169,12 @@ def run() -> None:
         fresh_repo()
         commit(fmt, "base")
         before = head()
+        scratch = f"{T}/tmp-{fmt}"
+        shutil.rmtree(scratch, ignore_errors=True)
+        os.makedirs(scratch)
         for mode in ("fail", "nofile", "wrongdigest"):
-            r = commit(fmt, "b" + mode, e=env(FAKE_OTS_MODE=mode))
+            r = commit(fmt, "b" + mode, e=env(FAKE_OTS_MODE=mode, TMPDIR=scratch))
+            check(f"[{mode}] no signature is left in TMPDIR", os.listdir(scratch) == [], str(os.listdir(scratch)))
             check(f"[{mode}] the commit fails", r.returncode != 0, r.stdout)
             check(f"[{mode}] and no commit was made", head() == before, head())
             check(f"[{mode}] the message says the commit is not signed", "not signed" in r.stderr, r.stderr)
@@ -179,6 +183,18 @@ def run() -> None:
         check("no proof was kept for a signature that was withheld", len(spooled()) == 1, str(spooled()))
         r = commit(fmt, "control")
         check("positive control: the same commit with a working stamp signs", r.returncode == 0 and head() != before, r.stderr)
+        if fmt == "ssh":
+            control = f"{GNUPG}/sshcontrol"
+            ours = open(control, encoding="utf-8").read()
+            other = "0" * 40
+            with open(control, "w", encoding="utf-8") as f:
+                f.write(other)  # a hand edit that lost its final newline, and lists no key of ours
+            r = commit(fmt, "sshcontrol")
+            lines = open(control, encoding="utf-8").read().splitlines()
+            check("a sshcontrol without a final newline keeps its last entry whole", r.returncode == 0 and other in lines, f"{lines} {r.stderr}")
+            check("…and gains the key's keygrip on a line of its own", len(lines) == 2 and len(lines[1]) == 40, str(lines))
+            with open(control, "w", encoding="utf-8") as f:
+                f.write(ours)
 
         print(f"verification does not need the proof ({fmt})")
         r = commit(fmt, "v")

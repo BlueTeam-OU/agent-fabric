@@ -28,8 +28,9 @@ CONTRACT
           proof waits in (proof.py); GNUPGHOME is gpg's, inherited.
   exit    the signer's own status when it failed; 1 when the timestamp could
           not be obtained (the signature is withheld: OpenPGP stdout stays
-          empty; git reads no .sig after a failing signer) or the key is not offered; 127 a program is
-          missing; 2 usage. Verification modes exit with the verifier's.
+          empty and the BUFFER.sig ssh-keygen wrote is removed: git does not
+          remove it after a failing signer) or the key is not offered; 127 a
+          program is missing; 2 usage. Verification modes exit with the verifier's.
 
 WHY
   The signing subkey of an agent key is Ed25519, which OpenPGP and SSH both
@@ -174,8 +175,15 @@ def gpg_agent_ssh_env(pubkey_file: str, env: dict[str, str]) -> dict[str, str]:
     except FileNotFoundError:
         listed = set()
     if grip.upper() not in listed:
-        with open(control, "a", encoding="utf-8") as f:
-            f.write(grip + "\n")
+        # A hand-edited file may lack its final newline; gluing the grip onto
+        # the last entry would disable both keys.
+        with open(control, "ab+") as f:
+            f.seek(0, os.SEEK_END)
+            lead = b""
+            if f.tell() > 0:
+                f.seek(-1, os.SEEK_END)
+                lead = b"" if f.read(1) == b"\n" else b"\n"
+            f.write(lead + grip.encode() + b"\n")
     if not _offered(blob, sock, env):
         raise Failure(f"fabric-sign: gpg-agent does not offer that key over ssh (keygrip {grip} is in {control})")
     return ssh_env
@@ -198,7 +206,16 @@ def sign_ssh(argv: list[str], env: dict[str, str]) -> int:
             signature = f.read()
     except OSError as e:
         raise Failure(f"fabric-sign: ssh-keygen wrote no signature ({e})") from None
-    _stamped(signature, env)
+    try:
+        _stamped(signature, env)
+    except Failure:
+        # git deletes BUFFER.sig only on the path that read it, never after a
+        # failing signer, so a withheld signature would stay in TMPDIR whole.
+        try:
+            os.unlink(buffer_sig)
+        except OSError:
+            pass
+        raise
     return 0
 
 

@@ -95,7 +95,7 @@ def ensure_note(repo: str, rev: str, spool: proof.Spool) -> tuple[Status, str]:
         waiting = None
     # The spool entry is the clean copy and is dropped only once the note
     # is seen to equal it: git may still carry another note over onto the
-    # commit after a hook attached this one (an amend), and a note that
+    # commit after this one was attached (an amend), and a note that
     # merely starts with the right proof is not equal.
     if waiting is not None and held == waiting:
         spool.drop(key)

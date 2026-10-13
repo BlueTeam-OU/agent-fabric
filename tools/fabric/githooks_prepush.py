@@ -164,7 +164,9 @@ def _dry_run() -> bool:
             argv = f.read().split(b"\0")
     except OSError:
         return False
-    return any(a == b"--dry-run" or (a.startswith(b"-") and not a.startswith(b"--") and b"n" in a[1:]) for a in argv[1:])
+    # git takes any unique prefix of a long option: `--dry` and `--dry-r` are dry runs too.
+    return any((len(a) >= 5 and b"--dry-run".startswith(a)) or (a.startswith(b"-") and not a.startswith(b"--") and b"n" in a[1:])
+               for a in argv[1:])
 
 
 def _scope(local: str, remote: str) -> list[str]:
@@ -174,10 +176,10 @@ def _scope(local: str, remote: str) -> list[str]:
 
 
 def _attach_proofs(lines: list[str]) -> None:
-    """Each pushed commit's waiting proof becomes its note (the post-commit
-    hook does this for HEAD; a commit made where that hook is not installed,
-    or rebased, is caught here). A commit whose proof cannot be found is not
-    refused here: the checker judges proofs; old commits have none."""
+    """Each pushed commit's waiting proof becomes its note. A commit whose
+    proof cannot be found is not refused here: the checker judges proofs; old
+    commits have none. A note that holds another signature's proof, with
+    none waiting to replace it, is removed: it is never published."""
     spool = proof_store.Spool.of(dict(os.environ))
     for line in lines:
         fields = line.split()
@@ -189,7 +191,11 @@ def _attach_proofs(lines: list[str]) -> None:
                 # Twice: the first may attach, the second drops the spool
                 # entry once the note is seen to equal it (notes.ensure_note).
                 proofs.ensure_note(".", rev, spool)
-                proofs.ensure_note(".", rev, spool)
+                status, commit = proofs.ensure_note(".", rev, spool)
+                if status is proofs.Status.STALE:
+                    proofs.git(".", "notes", f"--ref={proofs.REF}", "remove", commit)
+                    print(f"pre-push: the note on {commit} held another signature's proof and none was waiting "
+                          "for this one; removed", file=sys.stderr)
         except (Refused, proofs.NotesError) as e:
             raise Refused(f"the timestamp proofs of the pushed commits could not be attached ({e})") from None
 
@@ -233,9 +239,9 @@ def check(remote_name: str, lines: list[str]) -> None:
         _attach_proofs(lines)
     _signed(lines)
     _check_direct(lines, remote_name)
-    # A push that only deletes adds no commit, and the hook runs before the
-    # deletion: pushing the notes then would put back what the person removes.
-    if not dry and any(len(f) == 4 and not ZERO.match(f[1]) for f in map(str.split, lines)):
+    # A push that deletes anything pushes no notes: the hook runs before the
+    # deletion, and the nested push would move the very ref a deletion names.
+    if not dry and not any(len(f) == 4 and ZERO.match(f[1]) for f in map(str.split, lines)):
         _push_proofs(remote_name)
 
 
