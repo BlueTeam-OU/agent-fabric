@@ -264,17 +264,21 @@ def main() -> int:
             rc, out, _ = MOCKS[os.path.basename(head[0])](state, list(args), "")
             return rc, out
 
+        # The fleet default with the review class's review alone required: the mocks simulate that one review of the
+        # head, and the cases outside the engines' section are about the gates. That section names its engines.
+        claude_only = dict(arm_policy.default(), reviews=["claude"], boundary_reviews=["claude"])
+
         def run(*args: str, fixture_rules: bool = True, env: dict | None = None, policy: dict | None = None) -> tuple[int, str]:
             """arm.main() in this process, the same environment as the CLI's: gh and the readers are the mocks'
-            functions, and the arming policy and GitHub's side (read by the CLI layer) are the fleet default with
-            no drift. (exit, stdout and stderr in the order written.)"""
+            functions, and the arming policy and GitHub's side (read by the CLI layer) are claude_only with no
+            drift. (exit, stdout and stderr in the order written.)"""
             buf = io.StringIO()
             with contextlib.ExitStack() as st:
                 st.enter_context(mock.patch.dict(os.environ, environment(fixture_rules, env), clear=True))
                 st.enter_context(mock.patch.object(arm.common, "apply_project_env"))
                 st.enter_context(mock.patch.object(gh, "run", gh_run))
                 st.enter_context(mock.patch.object(arm, "run_reader", reader))
-                st.enter_context(mock.patch.object(arm_policy, "load", lambda repo, **kw: policy or arm_policy.default()))
+                st.enter_context(mock.patch.object(arm_policy, "load", lambda repo, **kw: policy or claude_only))
                 st.enter_context(mock.patch.object(repo_policy, "check", lambda repo, policy, api=None: []))
                 st.enter_context(contextlib.redirect_stdout(buf))
                 st.enter_context(contextlib.redirect_stderr(buf))
@@ -565,13 +569,14 @@ def main() -> int:
               rc == 1 and "whatever class is stated" in out, out)
 
         print("arm: the policy's reviews — each required engine has reviewed the current head (ADR-053 rule 6)")
-        both = dict(arm_policy.default(), reviews=["claude", "codex"])
+        both = arm_policy.default()
+        check("the fleet default requires both engines", (both["reviews"], both["boundary_reviews"]) == (["claude", "codex"],) * 2, both)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
         rc, out = run("7", "--basis", "b")
-        check("the default (claude only) arms a PR with no review at all, as before", rc == 0 and "ARMED #7" in out, out)
+        check("a claude-only policy arms a PR with no review at all, as before", rc == 0 and "ARMED #7" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
         rc, out = run("7", "--basis", "b", policy=both)
-        check("codex required, only the claude review of the head: refused, naming codex",
+        check("the fleet default, only the claude review of the head: refused, naming codex",
               rc == 1 and "by the codex engine" in out and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
         rc, out = run("7", "--basis", "b", policy=both)
@@ -588,9 +593,9 @@ def main() -> int:
         check("both reviewed but a thread (a P1 or P2 of either engine) is open: refused",
               rc == 1 and "unresolved review thread" in out and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
-        rc, out = run("7", "--basis", "b", policy=dict(arm_policy.default(), reviews=["codex"]))
+        rc, out = run("7", "--basis", "b", policy=dict(claude_only, reviews=["codex"]))
         check("a policy naming only codex needs only codex", rc == 0 and "ARMED #7" in out, out)
-        bnd = dict(arm_policy.default(), boundary_reviews=["claude", "codex"])
+        bnd = dict(claude_only, boundary_reviews=["claude", "codex"])
         reset(); set_pr(me, "plain", mig); set_gate(9); put("review_rc", "0")
         rc, out = run("7", "--basis", "b", policy=bnd)
         check("boundary_reviews: a boundary change reviewed by claude alone is refused for codex", rc == 1 and "by the codex engine" in out, out)
@@ -599,10 +604,10 @@ def main() -> int:
         check("…and a PR outside the boundary is not asked for it", rc == 0 and "ARMED #7" in out, out)
         reset(); set_pr(me, "plain", mig); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
         rc, out = run("7", "--basis", "b")
-        check("the default policy: a codex review of the head is not the boundary's review-class review (review of #220, F1)",
+        check("a claude-only policy: a codex review of the head is not the boundary's review-class review (review of #220, F1)",
               rc == 1 and "no review-class review" in out and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
-        rc, out = run("7", "--basis", "b", policy=dict(arm_policy.default(), mode="direct"))
+        rc, out = run("7", "--basis", "b", policy=dict(claude_only, mode="direct"))
         check("…nor a direct repository's", rc == 1 and "no review-class review" in out and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", mig); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
         rc, out = run("7", "--basis", "b")
@@ -785,8 +790,19 @@ def main() -> int:
         check("GH_REPO with no owner: exit 2, never 1, nothing armed",
               rc == 2 and "cannot read the repository" in out and "pr merge" not in calls(), out)
 
+        # The process reads the fleet policy file itself (no repository file in the settings repository), which
+        # requires both engines: the PRs it arms are reviewed by both.
+        def both_reviewed() -> None:
+            put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
+
+        print("arm (CLI): the fleet policy file, read by the process")
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
+        rc, out, err = cli("7", "--basis", "b", split=True)
+        check("only the claude review of the head: exit 1, refused naming codex, nothing armed",
+              rc == 1 and "by the codex engine" in err and "engines required: claude, codex" in err and "pr merge" not in calls(), err)
+
         print("arm (CLI): the arming path, the dry run, a merge on the arming")
-        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); both_reviewed()
         rc, out, err = cli("7", "--basis", "nine work commits at the review gate", split=True)
         check("exits 0, on stdout", rc == 0 and "ARMED #7" in out and err == "", out + err)
         check("gh pr merge --auto ran once, pinned to the head the gates read",
@@ -794,18 +810,18 @@ def main() -> int:
         check("the basis comment carries the count and the head, on stdin",
               "pr comment 7 --body Arming basis: nine work commits at the review gate — 9 work commits, head abcdef01." in calls(), calls())
         check("prints the watcher line for the session", "fabric-pr wait-merged 7 &" in out, out)
-        reset()
+        reset(); both_reviewed()
         rc, out = cli("7", "--basis", "b", "--dry-run")
         check("dry run: exit 0, names the command the run issues, posts and arms nothing",
               rc == 0 and "DRY RUN" in out and f"would run: gh pr merge 7 --merge --auto --match-head-commit {HEAD}" in out
               and "pr merge" not in calls() and "pr comment" not in calls(), out + calls())
-        reset(); put("merged", "")
+        reset(); put("merged", ""); both_reviewed()
         rc, out = cli("7", "--basis", "b")
         check("a PR merged on the arming: exit 0, said merged, with no watcher line",
               rc == 0 and "MERGED #7" in out and "wait-merged" not in out, out)
 
         print("arm (CLI): a waiver, read by the relay and fabric-ctl as programs")
-        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence(); both_reviewed()
         rc, out = cli("7", "--basis", "nine at the gate", "--no-boundary", why, "--waiver", mid, env=wenv)
         check("a waiver from the role's holder: armed, the comment records it, the readers run with their argv",
               rc == 0 and "boundary gate WAIVED by architect-cto-01" in out and "ARMED #7" in out
