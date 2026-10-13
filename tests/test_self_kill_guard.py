@@ -353,6 +353,12 @@ def main() -> int:
             ("a background task by its exact pid", f"kill {sib}", f"pid {sib}"),
             ("a background task by +pid", f"kill +{sib}", f"pid {sib}"),
             ("a background task by pid behind -9 --", f"kill -9 -- {sib}", f"pid {sib}"),
+            # A nested shell's literal payload is a command (review of #242, C3).
+            ("a watch killed inside bash -c", f"bash -c 'kill {inbox}'", "Never kill an inbox watch"),
+            ("a watch killed inside sudo sh -lc", f'sudo sh -lc "kill -9 {inbox}"', "Never kill an inbox watch"),
+            ("a watch killed inside eval", f"eval 'kill {inbox}'", "Never kill an inbox watch"),
+            ("a watch killed two shells deep", f"""bash -c "sh -c 'kill {inbox}'" """, "Never kill an inbox watch"),
+            ("a sibling by pattern inside sh -c", "sh -c \"pkill -f '[z]zsib-bg'\"", f"pid {sib}"),
         ]
         for label, cmd, want in tree_cases:
             d = hook_in_session(cmd)
@@ -363,6 +369,8 @@ def main() -> int:
         for label, cmd in (("a pattern matching only an unrelated process", "pgrep -f '[z]zout-unrelated' | xargs kill"),
                            ("an unrelated process by its pid", f"kill {outside.pid}"),
                            ("an unrelated process by +pid", f"kill +{outside.pid}"),
+                           ("an unrelated process by pid inside bash -c", f"bash -c 'kill {outside.pid}'"),
+                           ("a nested shell that only prints a kill", f"bash -c 'echo kill {inbox}'"),
                            ("kill -0 of a background task: no signal is sent", f"kill -0 {sib}")):
             d = hook_in_session(cmd)
             check(f"in a session, allowed: {label}", d is None, d)

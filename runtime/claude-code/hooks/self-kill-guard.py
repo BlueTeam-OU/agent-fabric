@@ -135,9 +135,30 @@ def kill_after_prefixes(words: list[str]) -> list[str]:
             takes = VALUE_OPTIONS.get(name, set())
         elif w in takes:
             skip = True
-        elif name in KILL_TOOLS:
+        elif name in KILL_TOOLS or name in NESTED:
             return words[i:]
     return []
+
+
+# A command whose argument is itself a command line: `bash -c '…'`,
+# `sudo sh -c "…"`, `eval '…'`. Its literal payload is judged as a command
+# (review of #242, C3); a payload in a variable is not readable.
+NESTED = {"bash", "sh", "zsh", "dash", "ksh", "eval"}
+NESTED_DEPTH = 4
+
+
+def nested_payload(words: list[str]) -> str | None:
+    """The command line a shell's -c (in any cluster: -lc) or an eval
+    carries, or None."""
+    if os.path.basename(words[0]) == "eval":
+        return " ".join(words[1:])
+    dash_c = False
+    for w in words[1:]:
+        if w == "--" or not w.startswith("-") or w in ("-", "+"):
+            return w if dash_c and w != "--" else None
+        if not w.startswith("--") and "c" in w[1:]:
+            dash_c = True
+    return None
 
 
 SHELLS = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
@@ -347,9 +368,16 @@ def tool_commands(command: str) -> list[list[str]]:
     """Each killing tool (pgrep, pkill, killall, kill) in a command, as its
     words from the tool on: substitutions lifted, here-document bodies
     dropped, segments split, compound keywords, assignments and prefixes
-    walked past."""
+    walked past; a nested shell's literal payload judged as a command of
+    its own. The payload is not lifted again: lift() ignores quotes, so its
+    substitutions were lifted with the outer command's, and their numbers
+    stay the outer ones that kill_operands() reads."""
+    return _tool_commands(lift(command), 0)
+
+
+def _tool_commands(pieces: list[str], depth: int) -> list[list[str]]:
     out = []
-    for words in (seg for piece in lift(command) for seg in segments(piece)):
+    for words in (seg for piece in pieces for seg in segments(piece)):
         if not words:
             continue
         # A kill behind a prefix is still the kill (review of #68):
@@ -371,7 +399,11 @@ def tool_commands(command: str) -> list[list[str]]:
             words = kill_after_prefixes(words)
             if not words:
                 continue
-        if os.path.basename(words[0]) in KILL_TOOLS:
+        if os.path.basename(words[0]) in NESTED:
+            payload = nested_payload(words)
+            if payload and depth < NESTED_DEPTH:
+                out += _tool_commands([drop_heredoc_bodies(payload)], depth + 1)
+        elif os.path.basename(words[0]) in KILL_TOOLS:
             out.append(words)
     return out
 
