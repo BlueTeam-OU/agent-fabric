@@ -744,6 +744,35 @@ def _():
         stub.close()
 
 
+@case("a pid line that cannot be written leaves the lock held, and release() neither raises nor frees it early")
+def _():
+    import fcntl
+    import resource
+    import signal
+    from gzcoord.inbox_parts import watchlock
+    path = os.path.join(P.scratch("wl-"), "agent-fabric", "x.lock")
+    old_lim, old_sig = resource.getrlimit(resource.RLIMIT_FSIZE), signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+    lock = watchlock.WatchLock(path)
+    try:
+        resource.setrlimit(resource.RLIMIT_FSIZE, (0, old_lim[1]))   # every write now fails with EFBIG
+        ok(lock.acquire(), "the lock is taken though the line cannot be written")
+        other = open(path)
+        try:
+            try:
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                raise Failed("a failed pid write gave the lock up")
+            except BlockingIOError:
+                pass
+            lock.release()   # must not raise
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)   # and frees it
+        finally:
+            other.close()
+    finally:
+        resource.setrlimit(resource.RLIMIT_FSIZE, old_lim)
+        signal.signal(signal.SIGXFSZ, old_sig)
+        lock.release()
+
+
 @case("a watch whose lock cannot be had says so on stderr and still watches")
 def _():
     stub, _calls = _wait_stub([[_rec(1, "delivered-anyway", None)]])

@@ -58,15 +58,15 @@ class WatchLock:
         except BaseException:
             fh.close()
             raise
-        # Owned from here: the pid line below only tells a loser who holds
-        # it, and a write that fails (a full runtime tmpfs) must not give up
-        # a lock already taken.
+        # Owned from here: the pid line only tells a loser who holds it, and
+        # a write that fails (a full runtime tmpfs) must not give up a lock
+        # already taken. Written on the descriptor, not through `fh`: a
+        # buffered line a failed flush left behind would make close() raise
+        # at release, past the watch's exit codes.
         self._fh = fh
         try:
-            fh.seek(0)
-            fh.truncate()
-            fh.write(f"{os.getpid()}\n{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
-            fh.flush()
+            os.ftruncate(fh.fileno(), 0)
+            os.pwrite(fh.fileno(), f"{os.getpid()}\n{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n".encode(), 0)
         except OSError:
             pass
         return True
