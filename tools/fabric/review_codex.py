@@ -98,6 +98,7 @@ import contextlib
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -400,21 +401,41 @@ def child_env(environ: dict[str, str], scratch: str, home: str, key: str) -> dic
 
 # --- running Codex once ------------------------------------------------------
 
+START_PROBE_EXIT, REFUSED_PROBE_EXIT, WRITTEN_PROBE_EXIT = 42, 43, 7
+
+
 def prove_sandbox(binary: str, workdir: str, env: dict[str, str]) -> None:
     """The read-only sandbox must start and must refuse a write, or the review does not run. Codex's sandbox is bubblewrap, which needs
     unprivileged user namespaces; a host that refuses them (CI's Ubuntu 24.04) fails the review with one line and runs nothing wider:
-    no fallback to a sandbox that writes or to none, and nothing in this module names one (ADR-053 rule 2)."""
-    probe = os.path.join(workdir, ".fabric-write-probe")
-    for label, command in (("start", ["/bin/true"]),
-                           ("refuse a write", ["/bin/sh", "-c", 'touch "$1" 2>/dev/null && exit 7; exit 0', "sh", probe])):
+    no fallback to a sandbox that writes or to none, and nothing in this module names one (ADR-053 rule 2).
+
+    Each probe answers with an exit status of its own, which the sandbox hands back from the command it ran: a sandbox that exits 0
+    without running anything proves nothing (the start probe wants START_PROBE_EXIT, the write probe REFUSED_PROBE_EXIT, and
+    WRITTEN_PROBE_EXIT says the write happened). The write is tried at a path of a fresh random name in the extract, which the pull
+    request controls: a fixed name could be planted (a file, a dangling link, a link to /dev/null) to make a sound sandbox look broken.
+    A probe that outlives SANDBOX_PROOF_TIMEOUT_S is ended with its whole process group, as run_codex ends Codex."""
+    probe = os.path.join(workdir, f".fabric-write-probe-{secrets.token_hex(8)}")
+    for label, command, wanted in (
+            ("start", ["/bin/sh", "-c", f"exit {START_PROBE_EXIT}"], START_PROBE_EXIT),
+            ("refuse a write", ["/bin/sh", "-c", f'touch "$1" 2>/dev/null && exit {WRITTEN_PROBE_EXIT}; exit {REFUSED_PROBE_EXIT}', "sh", probe],
+             REFUSED_PROBE_EXIT)):
+        argv = [binary, "sandbox", "-P", ":read-only", "-C", workdir, "--", *command]
+        p = subprocess.Popen(argv, env=env, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             start_new_session=True)
         try:
-            done = subprocess.run([binary, "sandbox", "-P", ":read-only", "-C", workdir, "--", *command], env=env, cwd=workdir,
-                                  capture_output=True, stdin=subprocess.DEVNULL, timeout=SANDBOX_PROOF_TIMEOUT_S, check=False)
-        except subprocess.TimeoutExpired:
-            raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
-        if done.returncode != 0:
-            why = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", done.stderr.decode("utf-8", "replace").replace(env.get(ENV_KEY, "\0"), "[key]"))[-200:].strip()
-            raise FailedReview(f"the read-only sandbox cannot {label} (exit {done.returncode}: {why}); no wider one is used")
+            try:
+                _, err = p.communicate(timeout=SANDBOX_PROOF_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
+        finally:
+            if p.poll() is None or _group_alive(p.pid):
+                _end_group(p)
+        if p.returncode != wanted:
+            why = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", err.decode("utf-8", "replace").replace(env.get(ENV_KEY, "\0"), "[key]"))[-200:].strip()
+            if p.returncode == WRITTEN_PROBE_EXIT and label == "refuse a write":
+                raise FailedReview("the read-only sandbox cannot refuse a write (exit 7); no wider one is used")
+            ran = "ran nothing it was asked" if p.returncode == 0 else f"exit {p.returncode}"
+            raise FailedReview(f"the read-only sandbox cannot {label} ({ran}: {why}); no wider one is used")
     if os.path.lexists(probe):
         raise FailedReview("the sandbox let a write through; no review is run in a writable tree")
 
