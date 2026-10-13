@@ -15,10 +15,36 @@ it that is the tool (absent: the asset is the tool). Nothing is fetched
 unless the registry says what it must hash to, and nothing is piped to a
 shell.
 
+A tool that is more than one file is pinned as a tree instead of a member.
+The Codex CLI is one: for every tool call its executable spawns
+bin/codex-code-mode-host beside its own resolved path, and it finds its
+bundled rg (and bwrap, where the host has none) only through
+codex-package.json beside bin/. Installed as one file it ran no command at
+all and answered from the brief alone (2026-10-12).
+
+    "install": {"version": "0.162.1", "url": "…", "sha256": "…",
+                "root": "package/vendor/x86_64-unknown-linux-musl",
+                "members": ["bin/codex", "bin/codex-code-mode-host", …],
+                "entrypoint": "bin/codex"}
+
+Exactly the listed `members` (paths under `root` in the archive, each a
+regular file) are unpacked, keeping their layout, into
+~/.local/lib/agent-fabric-tools/<tool>/<version>/; nothing else in the
+archive is placed. The tree is staged beside that directory, proved by
+running its `entrypoint`, renamed into place whole, and only then is
+~/.local/bin/<tool> made a symlink to the entrypoint; the tool's other
+versions are removed after the switch. A tree pin is current only when the
+proof prints the version AND ~/.local/bin/<tool> resolves to the tree's
+entrypoint with every member in place: a single-file install of the same
+version is replaced, never kept as current.
+
 The verdict, one per run:
-  current    the tool's proof already prints the pinned version
-  installed  fetched, hash verified, proved from its temporary file, then
-             moved into ~/.local/bin in one rename
+  current    the tool's proof already prints the pinned version (a tree
+             pin: and ~/.local/bin/<tool> resolves into its whole tree)
+  installed  fetched, hash verified, proved from its temporary file (a
+             tree: its staged tree), then moved into ~/.local/bin in one
+             rename (a tree: renamed into its version's directory, then
+             ~/.local/bin/<tool> switched to a link into it)
   skipped    this account has no working copy of a project that declares
              the tool (the Doppler CLI stays off every other account: the
              owner, 2026-10-08) — nothing was looked up, fetched or written
@@ -39,6 +65,7 @@ import io
 import os
 import re
 import shlex
+import shutil
 import signal
 import tarfile
 import urllib.error
@@ -53,6 +80,13 @@ SHA256 = re.compile(r"[0-9a-f]{64}")
 # A relative path whose every part is a plain name: a release tarball may keep
 # its binary one directory down, and no part can be "..", empty or absolute.
 MEMBER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*")
+# A tree pin's version names a directory, so it is one plain name.
+VERSION_DIR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
+PIN_FIELDS = {"version", "url", "sha256", "member"}
+TREE_FIELDS = {"root", "members", "entrypoint"}
+MAX_TREE_MEMBERS = 64
+# Where a tree pin's tools live: a directory per tool, a directory per version under it.
+TREES = os.path.join(".local", "lib", "agent-fabric-tools")
 # Held in memory whole, so it is a bound on the account's memory, not on the tool: the pinned Codex CLI is a
 # 158 MiB tarball around a 281 MiB binary (ADR-053 rule 7), which the earlier 128 MiB refused.
 MAX_ASSET_BYTES = 512 * 1024 * 1024
@@ -128,9 +162,38 @@ def check_pin(pin: object) -> str | None:
         return "the install pin's sha256 is not 64 lowercase hex digits"
     if member is not None and (not isinstance(member, str) or not MEMBER.fullmatch(member)):
         return "the install pin's member is not a relative path of plain names"
-    extra = sorted(set(pin) - {"version", "url", "sha256", "member"})
+    extra = sorted(set(pin) - PIN_FIELDS - TREE_FIELDS)
     if extra:
         return f"the install pin has fields this installer does not know: {', '.join(extra)}"
+    return check_tree(pin) if is_tree(pin) else None
+
+
+def is_tree(pin: dict) -> bool:
+    return bool(TREE_FIELDS & set(pin))
+
+
+def check_tree(pin: dict) -> str | None:
+    """Why a tree pin (root, members, entrypoint) cannot be acted on, or None."""
+    missing = sorted(TREE_FIELDS - set(pin))
+    if missing:
+        return f"the install pin's tree has no {', '.join(missing)}"
+    if "member" in pin:
+        return "the install pin names both a member and a tree; it is one or the other"
+    if not VERSION_DIR.fullmatch(pin["version"]):
+        return "the install pin's version is not a plain directory name"
+    root, members, entrypoint = pin["root"], pin["members"], pin["entrypoint"]
+    if not isinstance(root, str) or not MEMBER.fullmatch(root):
+        return "the install pin's root is not a relative path of plain names"
+    if (not isinstance(members, list) or not members or len(members) > MAX_TREE_MEMBERS
+            or not all(isinstance(m, str) and MEMBER.fullmatch(m) for m in members)):
+        return f"the install pin's members are not 1 to {MAX_TREE_MEMBERS} relative paths of plain names"
+    if len(set(members)) != len(members):
+        return "the install pin lists a member twice"
+    # One member inside another would have to be a file and a directory at once.
+    if any(b.startswith(a + "/") for a in members for b in members):
+        return "the install pin lists a member inside another member"
+    if entrypoint not in members:
+        return "the install pin's entrypoint is not one of its members"
     return None
 
 
@@ -192,19 +255,159 @@ def sweep_temporaries(bindir: str, tool: str) -> None:
         return
     for name in names:
         m = re.fullmatch(r"\." + re.escape(tool) + r"\.(\d{1,7})\.tmp", name)
-        if not m:
+        if not m or not _dead(int(m.group(1))):
             continue
-        try:
-            os.kill(int(m.group(1)), 0)
-            continue
-        except ProcessLookupError:
-            pass
-        except OSError:
-            continue  # exists, or not ours to signal: not stale
         try:
             os.unlink(os.path.join(bindir, name))
         except OSError:
             pass
+
+
+def _dead(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        pass  # exists, or not ours to signal: not stale
+    return False
+
+
+def sweep_trees(tooldir: str) -> None:
+    """sweep_temporaries for a tree pin's directory: the staged `.<version>.<pid>.tmp`
+    and set-aside `.<version>.<pid>.old` trees of runs that were killed outright."""
+    try:
+        names = os.listdir(tooldir)
+    except OSError:
+        return
+    for name in names:
+        m = re.fullmatch(r"\..+\.(\d{1,7})\.(tmp|old)", name)
+        if m and _dead(int(m.group(1))):
+            shutil.rmtree(os.path.join(tooldir, name), ignore_errors=True)
+
+
+def tree_dir(home: str, tool: str, version: str) -> str:
+    return os.path.join(home, TREES, tool, version)
+
+
+def tree_in_place(home: str, tool: str, pin: dict) -> bool:
+    """~/.local/bin/<tool> resolves to the pinned tree's entrypoint, and every member is a file there."""
+    tree = tree_dir(home, tool, pin["version"])
+    link = os.path.join(home, ".local", "bin", tool)
+    if os.path.realpath(link) != os.path.realpath(os.path.join(tree, pin["entrypoint"])):
+        return False
+    return all(os.path.isfile(p) and not os.path.islink(p) for p in (os.path.join(tree, m) for m in pin["members"]))
+
+
+def unpack_tree(body: bytes, pin: dict, dest: str) -> None:
+    """Exactly the pin's members, from under its root, into dest at their own
+    relative paths; ValueError if one is absent, not a regular file, or the
+    whole is past the size bound. Nothing else in the archive is read out."""
+    total = 0
+    try:
+        with tarfile.open(fileobj=io.BytesIO(body), mode="r:gz") as tar:
+            for m in pin["members"]:
+                name = f"{pin['root']}/{m}"
+                try:
+                    info = tar.getmember(name)
+                except KeyError:
+                    raise ValueError(f"the archive holds no {name}") from None
+                if not info.isreg():
+                    raise ValueError(f"{name} in the archive is not a regular file")
+                total += info.size
+                if total > MAX_ASSET_BYTES:
+                    raise ValueError(f"the tree's members are over {MAX_ASSET_BYTES} bytes")
+                src = tar.extractfile(info)
+                if src is None:
+                    raise ValueError(f"{name} in the archive cannot be read")
+                path = os.path.join(dest, m)
+                os.makedirs(os.path.dirname(path), mode=0o755, exist_ok=True)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as fh:
+                    shutil.copyfileobj(src, fh, 1 << 20)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                # The archive's execute bit, nothing more: no setuid, no group or world write.
+                os.chmod(path, 0o755 if info.mode & 0o100 else 0o644)
+    except tarfile.TarError as e:
+        raise ValueError(f"the asset is not a readable .tar.gz ({e})") from None
+
+
+def install_tree(tool: str, entry: dict, body: bytes, home: str) -> dict:
+    """A verified tree pin's asset, placed: staged, proved, renamed whole into
+    its version's directory, then ~/.local/bin/<tool> switched to it. A
+    failure at any step leaves the previous install as it was and nothing of
+    this run behind."""
+    pin = entry["install"]
+    version = pin["version"]
+    tooldir = os.path.join(home, TREES, tool)
+    final = tree_dir(home, tool, version)
+    stage = os.path.join(tooldir, f".{version}.{os.getpid()}.tmp")
+    aside = os.path.join(tooldir, f".{version}.{os.getpid()}.old")
+    bindir = os.path.join(home, ".local", "bin")
+    target = os.path.join(bindir, tool)
+    link_tmp = os.path.join(bindir, f".{tool}.{os.getpid()}.tmp")
+    placed = moved = False
+    try:
+        os.makedirs(bindir, mode=0o755, exist_ok=True)
+        os.makedirs(tooldir, mode=0o755, exist_ok=True)
+        sweep_temporaries(bindir, tool)
+        sweep_trees(tooldir)
+        os.mkdir(stage, 0o755)
+        try:
+            unpack_tree(body, pin, stage)
+        except ValueError as e:
+            return {"status": "failed", "tool": tool, "reason": str(e)}
+        proved, said = prove_file(entry["proof"], tool, os.path.join(stage, pin["entrypoint"]))
+        if proved != "ok" or not prints_version(said, version):
+            why = said if proved != "ok" else f"it prints {said!r}, not {version}"
+            return {"status": "failed", "tool": tool, "reason": f"the new tree does not prove as {version}: {why}"}
+        if os.path.lexists(final):
+            os.rename(final, aside)
+        os.rename(stage, final)
+        stage, moved = "", True
+        os.symlink(os.path.join(final, pin["entrypoint"]), link_tmp)
+        os.replace(link_tmp, target)
+        link_tmp = ""
+        placed = True
+    except OSError as e:
+        # The second path, when there is one, is what was written to (a symlink's or a rename's destination).
+        return {"status": "failed", "tool": tool, "reason": f"{e.filename2 or e.filename or target}: {e.strerror or e}"}
+    finally:
+        if stage:
+            shutil.rmtree(stage, ignore_errors=True)
+        if link_tmp:
+            try:
+                os.unlink(link_tmp)
+            except OSError:
+                pass
+        if moved and not placed:
+            # The new tree took its version's place but the link never reached it: it goes, and the
+            # previous tree (if any) is put back below, where the link still expects it (review of #229, F1).
+            shutil.rmtree(final, ignore_errors=True)
+        if os.path.lexists(aside):
+            if placed:
+                shutil.rmtree(aside, ignore_errors=True)
+            else:
+                try:
+                    os.rename(aside, final)
+                except OSError:
+                    pass
+        if not placed:
+            for d in (tooldir, os.path.dirname(tooldir)):
+                try:
+                    os.rmdir(d)  # only if this run left it empty
+                except OSError:
+                    break
+    # Other versions go only now that nothing links to them; a Codex still running from one loses its
+    # helpers, and the review engine refuses a run whose tools failed rather than posting it.
+    try:
+        others = [n for n in os.listdir(tooldir) if n != version and not n.startswith(".")]
+    except OSError:
+        others = []
+    for name in others:
+        shutil.rmtree(os.path.join(tooldir, name), ignore_errors=True)
+    return {"status": "installed", "tool": tool, "version": version, "path": target}
 
 
 def prove_file(proof: str, tool: str, path: str) -> tuple[str, str]:
@@ -241,7 +444,7 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
     pin = entry["install"]
     version = pin["version"]
     status, found = tools_check.prove(entry["proof"])
-    if status == "ok" and prints_version(found, version):
+    if status == "ok" and prints_version(found, version) and (not is_tree(pin) or tree_in_place(home, tool, pin)):
         return {"status": "current", "tool": tool, "version": version, "found": found}
     try:
         body = fetch(pin["url"])
@@ -250,6 +453,8 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
         return {"status": "failed", "tool": tool, "reason": f"fetch: {reason if reason else repr(e)}"}
     if hashlib.sha256(body).hexdigest() != pin["sha256"]:
         return {"status": "failed", "tool": tool, "reason": "the asset's sha256 is not the pinned one; nothing was unpacked or placed"}
+    if is_tree(pin):
+        return install_tree(tool, entry, body, home)
     try:
         payload = unpack(body, pin.get("member"))
     except ValueError as e:
