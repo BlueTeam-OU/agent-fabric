@@ -57,6 +57,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | a stale slice; anchors; memory_check; a flag for the role's holder; review horizons; a lesson, not a record | ADR-050 |
 | reading a web page; moli; moli fetch; moli serve; the CDP port; when to use Chrome | ADR-051 |
 | when a gateway session changes Claude account; land and eject thresholds; perishable quota; the switch controller | ADR-052 |
+| a harness other than Claude Code; Codex sessions; AGENTS.md and CLAUDE.md; --harness | ADR-054 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1143,3 +1144,19 @@ its record disagree, the record wins. Look it up, never read it whole:
   (`["claude"]` by default); `fabric-pr arm` refuses until each has
   reviewed the head with no open P1/P2 (§5 rule 6). Codex is pinned
   (§5 rule 7).
+
+### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Proposed)
+
+- `AGENTS.md` is the instruction file of record, true for every harness;
+  `CLAUDE.md` is `@AGENTS.md` plus the Claude Code section; the
+  workspace layer reaches Codex as developer instructions; a project's
+  file stays its own (§5 rules 1-3).
+- A harness is bound per login (`fabric-role bind --harness`), fixed for
+  the session; every harness gets the same launch prompt through its
+  adapter (`runtime/claude-code/`, `runtime/codex/`) (§5 rules 4-5).
+- No Codex launch while a guard for the role lacks a Codex wiring or a
+  recorded reason; the credential is the gateway's, never a login's
+  sign-in (§5 rules 6-7).
+- `openai` coding classes only once a session runs them, no subagents
+  until mapped; each Codex seam read back live first; a Codex-authored
+  PR gets the review class, not Codex, as its review (§5 rules 8-10).
