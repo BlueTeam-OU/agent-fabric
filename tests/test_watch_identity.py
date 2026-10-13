@@ -109,10 +109,10 @@ class Persona(unittest.TestCase):
         write(self.claims, json.dumps({"claims": {AGENT: {"surname": "Leavitt", "first_name": "June"}}}))
         self.assertEqual(self.persona().name, "AI June Leavitt", "the directory gives both names")
 
-    def test_a_claim_object_surname_still_wins_over_the_profile(self):
+    def test_a_claim_object_wins_over_the_profile_on_both_names(self):
         self.profile()
         write(self.claims, json.dumps({"claims": {AGENT: {"surname": "Noether", "first_name": "Lena"}}}))
-        self.assertEqual(self.persona().name, "AI June Noether", "the profile's first name, the claim's surname")
+        self.assertEqual(self.persona().name, "AI Lena Noether", "the public directory wins, the first name too")
 
     def test_a_malformed_agent_id_or_claims_file_gives_no_name(self):
         write(os.path.join(self.store, ".agent-id"), "not-an-id\n")

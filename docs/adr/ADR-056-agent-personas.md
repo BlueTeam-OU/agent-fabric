@@ -64,8 +64,8 @@ its own rather than imposed.
    it accepts one, nothing is written; an agent's persona is read
    through its own control agent, which can read its repository
    (ADR-029), wherever it is displayed. It belongs to the agent id: a login rename or a
-   rebind leaves it. Only the surname claim is recorded centrally (rule
-   4).
+   rebind leaves it. Only the claim is recorded centrally, the surname, the first
+   name and the pronoun if one was asked for (rule 4).
 2. A persona is displayed only behind the prefix "AI": "AI <Name>",
    "AI <Name> <Surname>", or "AI <Name> <Surname>, <role>", the role as
    people say it (the catalogue's `short_title`, "Culture Specialist").
@@ -86,7 +86,9 @@ its own rather than imposed.
 4. One agent per surname: an agent claims one, the first claim wins, and
    the claim is recorded in `identities/personas/claims.json` with the
    agent's first name (and its pronoun, if it asked for one): the public
-   directory every surface reads a name from (A 2026-10-13).
+   directory every surface reads a name from (A 2026-10-13). Where a
+   claim and the agent's own profile differ, the claim wins, first name
+   and surname alike.
 5. The agent chooses its first name from the culture its surname comes
    from (the entry's `from`), a man's or a woman's name whatever the
    scientist's own sex, so a name and a surname belong together; a

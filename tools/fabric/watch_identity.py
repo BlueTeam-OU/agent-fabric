@@ -4,8 +4,8 @@
 
   persona(...)        the agent's persona: its display name and the avatar file to show.
       name     "AI <first name> <surname>" from settings/profile.json in this login's store checkout, the surname
-               from identities/personas/claims.json (keyed by the agent id, read from the store's .agent-id) when it
-               has one; with no profile, "AI <surname>" from the claim alone; else None, and the caller shows the
+               and the first name from identities/personas/claims.json (keyed by the agent id, read from the store's
+               .agent-id) when it has them, the public directory winning over the profile; with no profile, "AI <surname>" from the claim alone; else None, and the caller shows the
                login alone. The name is NEVER shown without its "AI".
       avatar   settings/avatar.png in the store checkout, else the candidate the profile names (avatar.candidate) at
                <avatars>/<agent id>/<n>.png, else None. Only regular files, no link followed (avatar.read_file).
@@ -101,8 +101,8 @@ def persona(environ: dict[str, str], claims_path: str, avatars: str = AVATARS) -
     # an older claims.json held the surname alone, as a string.
     claimed = _name(claim.get("surname")) if isinstance(claim, dict) else _name(claim)
     surname = claimed or surname                      # claims.json wins over the profile on the surname (persona-profile schema)
-    if isinstance(claim, dict) and _name(claim.get("first_name")) and not first:
-        first = _name(claim.get("first_name"))        # the directory names an agent whose profile is not committed yet
+    if isinstance(claim, dict) and _name(claim.get("first_name")):
+        first = _name(claim.get("first_name"))        # the public directory wins over the profile, the first name too
     if first and surname:
         out.name = f"AI {first} {surname}"
     elif surname:
