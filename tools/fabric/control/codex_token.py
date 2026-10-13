@@ -16,7 +16,9 @@ token never leaves that home. Every other login gets the access token and the ac
         every placed agent; a fresh one is handed out again at the first tick and then once a day, and at the next tick
         after a distribution that did not reach every login (`codex-assign` answers "unchanged" for a login that has
         it, so a login placed later takes it within a day). A sign-in that is not there is not this account's business
-        and is said once a day; a refresh that did not advance the expiry is said and nothing is distributed.
+        and is said once a day. A refresh that fails or does not advance the expiry is said and gives nothing NEW: the
+        tick still hands the sign-in there is to the logins it is due for (the last distribution missed one, or a day
+        has passed) while it has an hour left, and to no other.
 
 Exit: 0 done, 1 a login, the refresh or the sync failed, 2 usage or a refused request. Prints no token: a row names
 a login, a status and the token's 12-hex fingerprint and expiry.
@@ -33,7 +35,7 @@ import time
 from typing import Any, Callable, Sequence
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-FABRIC = os.path.dirname(os.path.dirname(HERE))
+FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))     # the checkout: control/ -> fabric/ -> tools/ -> root
 sys.path.insert(0, os.path.dirname(HERE))
 import chatgpt_signin  # noqa: E402
 
@@ -90,32 +92,41 @@ def refresh(home: str, env: dict[str, str], run: Callable[..., Any] = subprocess
     return None if r.returncode == 0 else f"`codex exec` exited {r.returncode}"
 
 
-def _store_assign(logins: Sequence[str], home: str, force: bool, run: Callable[..., Any], root: str) -> list[dict]:
+def _store_assign(logins: Sequence[str], home: str, force: bool, run: Callable[..., Any], root: str) -> tuple[list[dict], bool]:
+    """(one row per requested login, whether the command's exit status agrees with its rows). A login the store gave no
+    row for is a failed row naming the exit status; a non-zero exit beside rows that all succeeded is a disagreement the
+    caller counts as a failure (the confirmed successes are still synced)."""
     cmd = [os.path.join(root, "bin", "fabric-secrets"), "store", "codex-assign", *logins, "--home", home, "--json", *(["--force"] if force else [])]
     try:
         r = run(cmd, capture_output=True, timeout=STORE_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as e:
-        return [{"login": lg, "status": "failed", "reason": f"fabric-secrets: {type(e).__name__}"} for lg in logins]
+        return [{"login": lg, "status": "failed", "reason": f"fabric-secrets: {type(e).__name__}"} for lg in logins], False
+    rows: list[dict] = []
     try:
-        rows = json.loads(r.stdout.decode("utf-8", "replace"))
-        if isinstance(rows, list) and all(isinstance(x, dict) for x in rows):
-            return rows
+        parsed = json.loads(r.stdout.decode("utf-8", "replace"))
+        if isinstance(parsed, list) and all(isinstance(x, dict) and isinstance(x.get("login"), str) for x in parsed):
+            rows = parsed
     except ValueError:
         pass
     # A refusal before any row (no sign-in, a token with too little life): the last line says why, and never a value.
-    why = (r.stderr.decode("utf-8", "replace").strip().splitlines() or ["fabric-secrets store codex-assign failed"])[-1][:200]
-    return [{"login": lg, "status": "failed", "reason": why} for lg in logins]
+    why = (r.stderr.decode("utf-8", "replace").strip().splitlines() or [f"fabric-secrets store codex-assign gave no row (exit {r.returncode})"])[-1][:200]
+    answered = {x["login"] for x in rows}
+    rows = rows + [{"login": lg, "status": "failed", "reason": why} for lg in logins if lg not in answered]
+    agrees = (r.returncode == 0) == all(x.get("status") in ("written", "unchanged") for x in rows)
+    return rows, agrees
 
 
 def distribute(logins: Sequence[str], home: str, *, force: bool = False, sync: bool = True, root: str,
                env: dict[str, str], run: Callable[..., Any] = subprocess.run, spawn: Callable[..., Any] = subprocess.run,
                say: Callable[[str], None] = lambda m: print(m, file=sys.stderr), out: Callable[[str], None] = print) -> int:
     """The store half, then the sync half; 0 when every login was reached and applied it."""
-    rows = _store_assign(logins, home, force, run, root)
+    rows, agrees = _store_assign(logins, home, force, run, root)
     for r in rows:
         out(f"{r['login']:<22} {r['status']}{('  ' + str(r['reason'])) if r.get('reason') else ''}"
             f"{('  token ' + r['token_sha256_12']) if r.get('token_sha256_12') else ''}")
-    bad = any(r.get("status") not in ("written", "unchanged") for r in rows)
+    bad = not agrees or any(r.get("status") not in ("written", "unchanged") for r in rows)
+    if not agrees and not any(r.get("status") not in ("written", "unchanged") for r in rows):
+        say("fabric-accounts: fabric-secrets store codex-assign exited non-zero though every row succeeded: counted as a failure")
     reached = [r["login"] for r in rows if r.get("status") in ("written", "unchanged")]
     if not sync or not reached:
         if not sync and any(r.get("status") == "written" for r in rows):
