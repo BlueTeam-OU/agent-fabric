@@ -94,8 +94,8 @@ repository whose policy names `reviews`.
    review class before it is answered (ADR-020), and answered like any
    other: fixed, or declined with the reason.
 6. **A review is required; the policy names who reviews.** A pull
-   request is armed only when every review engine its arming policy
-   names has reviewed the current head with no open P1 or P2. Which
+   request is armed only when every required review engine its arming
+   policy names has reviewed the current head with no open P1 or P2. Which
    engines is policy data, never this record: `reviews`, and
    `boundary_reviews` for a security-boundary change, in
    `policies/arming.json` for the fleet and in a repository's own
@@ -106,7 +106,7 @@ repository whose policy names `reviews`.
    not review its own harness's work. An engine listed under
    `additional_reviews` reviews when it can and never blocks: its review
    of the head, or its unavailable marker for that head, satisfies it
-   (ADR-055 rule 8; the fleet lists codex there). `fabric-pr arm` refuses
+   (ADR-055 rule 8; the fleet lists codex there once the marker is posted). `fabric-pr arm` refuses
    until each required engine has reviewed, and each additional engine
    has reviewed or left its marker, and the refusal names the engine
    still missing (A 2026-10-13).
@@ -132,9 +132,11 @@ repository whose policy names `reviews`.
 - A PR that needs both engines takes two reviews; the second is a child
   process, not a session, so its cost is the ChatGPT subscription's
   window, read by the gateway's usage operation.
-- Every engine the policy names must be reachable for a pull request to
-  arm: when one is not (its subscription at capacity, its token expired),
-  the pull request waits; there is no stand-in for a missing review
+- Every required engine the policy names must be reachable for a pull
+  request to arm: when one is not (its subscription at capacity, its
+  token expired), the pull request waits; there is no stand-in for a
+  missing review. An additional engine is satisfied by its review of the
+  head or its unavailable marker for that head (ADR-055 rule 8)
   (A 2026-10-13).
 - Two engines can disagree. The review class judges each finding, so a
   disagreement is resolved the way any finding is, never by vote.
