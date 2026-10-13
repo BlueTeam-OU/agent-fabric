@@ -58,6 +58,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | reading a web page; moli; moli fetch; moli serve; the CDP port; when to use Chrome | ADR-051 |
 | when a gateway session changes Claude account; land and eject thresholds; perishable quota; the switch controller | ADR-052 |
 | a harness other than Claude Code; Codex sessions; AGENTS.md and CLAUDE.md; --harness | ADR-054 |
+| a model at capacity or over allowance; retries; review divert; availability report | ADR-055 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -876,22 +877,21 @@ its record disagree, the record wins. Look it up, never read it whole:
   hook and bin/ paths included (§5 rule 1).
 - Lint refuses a bash file on neither the list nor the forwarder shape;
   `ports` only shrinks (§5 rule 2).
-- A port freezes the contract, keeps the path, runs the old
-  test as the oracle, removes the entry (§5 rules 3–5).
+- A port freezes the contract, keeps the path, tests against the old
+  script (§5 rules 3–5).
 - GitHub and git go through `gh.py`, `git.py` (§5 rule 6).
-- A 2026-10-01 — the oracle stays; mock and source reads may follow (§5 rule 5).
+- A 2026-10-01 — the oracle stays (§5 rule 5).
 - A 2026-10-01 — one pinned Python per host (§5 rule 1).
 - A 2026-10-01 — a fixture copies its scripts' modules (§5 rule 5).
 - A 2026-10-04 — Wave 7: GZCoord's tools to Python (§7).
 - A 2026-10-08 — commands by bare name; shims retire (§5 rule 7).
 - A 2026-10-09 — Wave 8: control plane to Python; no new Node (§5 rule 8).
 - A 2026-10-09 — valid on 3.13+ (§5 rule 1).
-- A 2026-10-11 — Wave 9: the rest of the bash to Python in ten batches
-  (docs/wave-9/inventory.md); projects advised: port a script
-  when changed, host tests Python (§5 rules 1, 2, 9, §7).
-- Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
-  git, 150 lines, P1, bare command, Node, control plane,
-  forwarder.
+- A 2026-10-11 — Wave 9: the rest of the bash to Python in ten batches;
+  projects port a script when changed (§5 rules 1, 2, 9, §7).
+- A 2026-10-13 — the interim line limit is 160 (§7).
+- Keywords: Python, bash, port, allowlist, lint, shim, wave, gh, git,
+  160 lines, bare command, Node, forwarder.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 
@@ -954,7 +954,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
   MCP server, sandbox.
 
-### ADR-044 — Identity kinds: an agent and a human (Proposed)
+### ADR-044 — Identity kinds: an agent and a human (Accepted)
 
 - A placed login is an `agent` or a `human` (`runtime/hosts/registry.json`
   `kinds`); both are Linux logins with an agent id, a store and a
@@ -984,7 +984,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: split, engine, operator, client, engagement, roots, open
   source, publish, instance data, Blueteam, Gzapi.
 
-### ADR-046 — Fleet views: the fleet's state read on demand, read-only (Proposed)
+### ADR-046 — Fleet views: the fleet's state read on demand, read-only (Accepted)
 
 - `tools/fabric/fleet.py` is the one reader for the views: a record per
   account, each value with its source and time; a failed section is a
@@ -998,7 +998,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: Fleet Deck, herdr, view, dashboard, resources, CPU, memory,
   comparison, on demand, fabric-fleet, Gantt.
 
-### ADR-047 — Plans: steps the coordinator keeps, each linked to a job (Proposed)
+### ADR-047 — Plans: steps the coordinator keeps, each linked to a job (Accepted)
 
 - A plan's steps have an owner, dependencies and a linked job, kept in
   the coordinator's state (§5 rule 1); `fabric-plan` runs for the
@@ -1008,7 +1008,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A decided plan is exported into its record or pull request (§5 rule 5).
 - Keywords: plan, step, Gantt, dependency, fabric-plan, roadmap.
 
-### ADR-048 — The operator reaches agent accounts over ssh (Proposed)
+### ADR-048 — The operator reaches agent accounts over ssh (Accepted)
 
 - The deck's panes enter an account over ssh to 127.0.0.1: keys only, no
   forwarding, no tunnel, `AllowUsers` the placed logins (§5 rule 1).
@@ -1024,10 +1024,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   the AppVM stages config and host keys (made once) under /rw/config, and
   rc.local restores them, runs `sshd -t`, then sshd at boot (§5 rule 6). sudo stays
   break-glass; agents' own ssh keys stay future (§5 rules 7–8).
+- A 2026-10-13 — loopback exempt from per-source penalties; MaxStartups 100 (§5 rule 1).
 - Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
   command, authorized_keys, host key, known_hosts, Qubes, rc.local.
 
-### ADR-049 — Memory is retrieved through an MCP server, the curated corpus unchanged (Proposed)
+### ADR-049 — Memory is retrieved through an MCP server, the curated corpus unchanged (Accepted)
 
 - The curated corpus, the drain and the rubric stay; what changes is how a
   session reaches them: a local stdio MCP server, `fabric-memory`, one per
@@ -1055,7 +1056,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   memory_index, memory_mark, BM25, cue, INDEX, slice, corpus, mark, recall,
   claude.json, harvest bundle.
 
-### ADR-050 — Keeping wisdom true: judgement where the knowledge lives (Proposed)
+### ADR-050 — Keeping wisdom true: judgement where the knowledge lives (Accepted)
 
 - Truth is judged by the role that holds the knowledge; the drain flags,
   routes and applies nothing (§2).
@@ -1081,7 +1082,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: stale, anchors, memory_check, maybe-stale, stale-hard, flag,
   memory_mark, horizon, lesson, record, retire, shared_with, drain report.
 
-### ADR-051 — moli is the fleet's web reader; scripted browsing through @playwright/mcp, with limits (Proposed)
+### ADR-051 — moli is the fleet's web reader; scripted browsing through @playwright/mcp, with limits (Accepted)
 
 - Agents read pages with `moli fetch --dump markdown`, one process per page;
   approved now (§2).
@@ -1140,12 +1141,13 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One JSON object of findings or nothing posted; posted with
   `fabric-pr post-review <PR> --model codex`, judged like any finding
   (§5 rules 4-5).
-- The arming policy's `reviews` lists the engines a PR needs
-  (`["claude"]` by default); `fabric-pr arm` refuses until each has
-  reviewed the head with no open P1/P2 (§5 rule 6). Codex is pinned
-  (§5 rule 7).
+- A review is required: `fabric-pr arm` refuses until every engine the
+  arming policy names (`reviews`, `boundary_reviews`; data, not this
+  record) has reviewed the head with no open P1/P2 (§5 rule 6). Codex is
+  pinned (§5 rule 7).
 - A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
 - A 2026-10-13 — every login reviews on a synced access token; both engines by default (§5 rules 6, 8).
+- A 2026-10-13 — the record requires a review; the arming policy names the engines (now both) (§5 rule 6).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 
@@ -1162,3 +1164,19 @@ its record disagree, the record wins. Look it up, never read it whole:
 - `openai` coding classes only once a session runs them, no subagents
   until mapped; each Codex seam read back live first; a Codex-authored
   PR gets the review class, not Codex, as its review (§5 rules 8-10).
+- A 2026-10-13 — reviews start Codex by the session's gateway path, each
+  component with its own gateway-local key (§5 rule 7).
+
+### ADR-055 — Model availability is rediscovered by each run; the control plane reports it to people; a review diverts when its only model is unavailable (Proposed)
+
+- A run learns availability by trying, never from another run's
+  observation (§5 rules 1, 5).
+- Retry a capacity failure 10 s, 20 s, 60 s, then report "the chosen model
+  is unavailable": at capacity (provider's) or over allowance (ours, with
+  the reset) (§5 rule 2).
+- A review whose model is unavailable and is the request's only reviewer
+  diverts to the next model of the review capability's order, named on
+  the review; otherwise it reports and the PR waits (§5 rule 3).
+- Every unavailability is reported through the control agent for people
+  (`fabric-ctl availability`, the Board); the owner hears of a long or
+  total outage (§5 rules 4, 6).

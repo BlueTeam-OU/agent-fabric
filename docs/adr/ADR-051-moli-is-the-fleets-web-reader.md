@@ -1,7 +1,8 @@
 # ADR-051 — moli is the fleet's web reader; scripted browsing through @playwright/mcp, with limits
 
 **Date:** 2026-10-11
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("record adr accepted", answering which Proposed records to accept)
 **Decision Makers:** the owner (agents may go on the internet through moli; reading now, scripted browsing once a live test passed, which it did on 2026-10-11); drafted by fabric-coordinator
 **Scope:** `projects/registry.json` (the `moli` account tool of every project), `tools/fabric/tools_install.py` (unchanged; installs it), `policies/moli-web/SKILL.md`, `tools/fabric/bootstrap.py` (`SKILLS`), `runtime/claude-code/commands.json` (`also_allowed`, `also_asked`), `policies/auto-mode.json` and `runtime/claude-code/user-settings.py`; how an agent reads a web page and which browser serves which task
 **Pillar:** P1
@@ -151,8 +152,7 @@ is handled the same way, by never leaving one open.
 
 ## 8. Decision Status
 
-Proposed. The owner decided the scope in the coordinator's session;
-ratification is the merge of the pull request that carries this record.
+Accepted (the header names the owner's word).
 (A 2026-10-11) The gate in §2 is amended away by this amendment, on the
 recorded test, not by use.
 

@@ -15,8 +15,8 @@
     "roles": {},
     "classes": {}
   },
-  "reviews": ["claude"],
-  "boundary_reviews": ["claude"],
+  "reviews": ["claude", "codex"],
+  "boundary_reviews": ["claude", "codex"],
   "bots": {},
   "github": {"ruleset": "fabric arming policy"}
 }

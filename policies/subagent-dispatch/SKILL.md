@@ -231,16 +231,23 @@ or lost, so it is rendered, not improvised:
 3. **One agent per PR**, on the exact `base..head` (or a diff file in
    the scratchpad when the range is not yet pushed).
    When the repository's arming policy lists `codex` under `reviews` (or, for a security-boundary change, `boundary_reviews`), the same
-   request also goes to `fabric-review --engine codex <PR> request.yaml`
+   request also goes to `fabric-review --engine codex <PR> request.yaml --gateway chatgpt`
    (agent-fabric ADR-053): a child process, not a dispatch, posted as
-   `--model codex`.
+   `--model codex`. **The engines run in parallel**: start the Codex run
+   in the background and dispatch the review class in the same turn, on
+   the same head and the same request; never wait for one to start the
+   other. Each engine's findings are then judged by the review class
+   (ADR-053 rule 5) once both are in.
 4. **A re-review** is `mode: re-review`, the range of the fix commits
    only, and `previous_findings:` — the previous report, a file. The
    constitution verifies only the new hunks against those findings, by
    number; leaving the bound out once cost another project ~50k tokens
    per comment-only commit and manufactured the next round's findings.
    The description begins `re-review` so the guard and the agent both
-   know which mode this is.
+   know which mode this is. Arming needs every named engine's review of
+   the current head, so a fix range is re-reviewed by each engine the
+   policy names — in parallel, as the first review was — each given the
+   previous findings of both engines.
 
 The renderer is ergonomics and a lint, not authorisation: the dispatch
 guard decides from four fields of the call and never reads the prompt

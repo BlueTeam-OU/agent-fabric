@@ -77,8 +77,8 @@ DEFAULT: dict[str, Any] = {
     "delete_branch_on_merge": False,
     "queue": {},
     "commits": {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}},
-    "reviews": ["claude"],
-    "boundary_reviews": ["claude"],
+    "reviews": ["claude", "codex"],
+    "boundary_reviews": ["claude", "codex"],
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
 }

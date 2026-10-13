@@ -368,7 +368,7 @@
       "status": "Accepted",
       "date": "2026-09-30",
       "pillar": "P1",
-      "amendments": 8
+      "amendments": 9
     },
     {
       "number": "041",
@@ -401,7 +401,7 @@
       "number": "044",
       "file": "ADR-044-identity-kinds-agent-and-human.md",
       "title": "Identity kinds: an agent and a human",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-08",
       "pillar": "P1",
       "amendments": 0
@@ -419,7 +419,7 @@
       "number": "046",
       "file": "ADR-046-fleet-views-read-on-demand.md",
       "title": "Fleet views: the fleet's state read on demand, read-only",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-09",
       "pillar": "P1",
       "amendments": 0
@@ -428,7 +428,7 @@
       "number": "047",
       "file": "ADR-047-plans-kept-by-the-coordinator.md",
       "title": "Plans: steps the coordinator keeps, each linked to a job",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-09",
       "pillar": "P1",
       "amendments": 0
@@ -437,16 +437,16 @@
       "number": "048",
       "file": "ADR-048-operator-reaches-accounts-over-ssh.md",
       "title": "The operator reaches agent accounts over ssh",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-09",
       "pillar": "P3",
-      "amendments": 0
+      "amendments": 1
     },
     {
       "number": "049",
       "file": "ADR-049-memory-retrieval-over-mcp.md",
       "title": "Memory is retrieved through an MCP server, the curated corpus unchanged",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-10",
       "pillar": "P2",
       "amendments": 1
@@ -455,7 +455,7 @@
       "number": "050",
       "file": "ADR-050-keeping-wisdom-true.md",
       "title": "Keeping wisdom true: judgement where the knowledge lives",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-10",
       "pillar": "P2",
       "amendments": 0
@@ -464,7 +464,7 @@
       "number": "051",
       "file": "ADR-051-moli-is-the-fleets-web-reader.md",
       "title": "moli is the fleet's web reader; scripted browsing through @playwright/mcp, with limits",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-11",
       "pillar": "P1",
       "amendments": 1
@@ -485,13 +485,22 @@
       "status": "Accepted",
       "date": "2026-10-11",
       "pillar": "P1",
-      "amendments": 2
+      "amendments": 3
     },
     {
       "number": "054",
       "file": "ADR-054-codex-as-an-alternative-session-harness.md",
       "title": "Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter",
       "status": "Accepted",
+      "date": "2026-10-13",
+      "pillar": "P1",
+      "amendments": 1
+    },
+    {
+      "number": "055",
+      "file": "ADR-055-model-availability-is-rediscovered-locally.md",
+      "title": "Model availability is rediscovered by each run; the control plane reports it to people; a review diverts when its only model is unavailable",
+      "status": "Proposed",
       "date": "2026-10-13",
       "pillar": "P1",
       "amendments": 0

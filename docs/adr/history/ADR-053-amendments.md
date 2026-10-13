@@ -38,3 +38,18 @@ one gateway per review, as rule 3 already has.
 
 The owner's word, in the coordinator's session on 2026-10-13: "Required
 everywhere" for the default, "go with B" for the access-token path.
+
+### Amendment 2026-10-13 — the record requires a review, policy names the engines; the fleet requires both
+
+§5 rule 6 no longer names engines or a default: it requires a review by
+every engine the arming policy names, and the policy is where the names
+live. The earlier text named `["claude", "codex"]` as the default to be
+set once two conditions held; both now hold (every login holds the
+synced access token, rule 8; a Codex review ran from python-dev-01's
+login on #232), and `policies/arming.json` now lists both engines in
+`reviews` and `boundary_reviews`. The review class stays required on every pull request (ADR-020); the
+one exception is ADR-054 rule 10's, for Codex-written work. No escape hatch for a
+Codex capacity failure: a pull request waits for the engine. The owner's
+word, in the coordinator's session: "add codex review for all agents,
+change adr-053 so it don't specify the reviewer - only that review is
+required".

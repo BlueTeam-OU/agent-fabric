@@ -20,7 +20,9 @@ OPKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGb1y2fxD0RkCq3dHn2iN8f3mR1vD0n1QvJ
 SETTINGS = ["ListenAddress 127.0.0.1", "PasswordAuthentication no", "KbdInteractiveAuthentication no",
             "PermitRootLogin no", "AllowTcpForwarding no", "AllowStreamLocalForwarding no",
             "AllowAgentForwarding no", "X11Forwarding no", "PermitTunnel no", "GatewayPorts no",
-            "AuthorizedKeysFile /etc/ssh/authorized_keys/%u"]
+            "AuthorizedKeysFile /etc/ssh/authorized_keys/%u",
+            # every client is local: no per-source penalty for loopback, the deck's burst admitted
+            "PerSourcePenaltyExemptList 127.0.0.1,::1", "MaxStartups 100"]
 
 
 def dry(tmp: str, key_text: str, platform: str = "fedora-qubes", enter: str = "") -> subprocess.CompletedProcess[str]:

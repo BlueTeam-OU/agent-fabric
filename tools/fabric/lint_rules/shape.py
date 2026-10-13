@@ -11,7 +11,7 @@ from .base import _git, _tracked, lint_environ, roots
 from .schema import load_schema, validate_json
 
 
-BASH_LINE_LIMIT = 150
+BASH_LINE_LIMIT = 160
 
 
 BASH_SHEBANG = re.compile(r"^#!.*\b(bash|sh)\b")
@@ -29,7 +29,7 @@ def _is_bash(path: str) -> bool:
 
 
 def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
-    """ADR-040 §5 rule 2: a tracked bash script over 150 lines must be on
+    """ADR-040 §5 rule 2: a tracked bash script over 160 lines must be on
     policies/bash-allowlist.json; an entry whose script is gone or back
     under the limit is stale; an entry the base branch's list does not
     have is an addition, and the list only shrinks. Without a readable

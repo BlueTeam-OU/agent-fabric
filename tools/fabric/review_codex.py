@@ -59,11 +59,12 @@ the engine's answer-shape section appended and nothing else (rule 1). The
 request must be a ranged one whose head is the PR's current head: the review
 is posted against the PR's head, so a request for any other commit would be
 counted as a review of something it never read. That head is `git archive`d
-into a scratch directory (never the working copy) and `codex exec` runs ONCE
-there with --sandbox read-only, a time budget (20 minutes unless --timeout),
-CODEX_HOME and HOME inside the scratch, and an environment built from an
-allowlist, so no ANTHROPIC_*/CLAUDE_* variable, no OPENAI_API_KEY and no
-~/.codex reaches it (rules 2-3). CODEX_HOME holds a config.toml whose
+into a scratch directory (never the working copy) and `codex exec` runs there
+once per attempt (an attempt is repeated only when the model is at capacity,
+below) with --sandbox read-only, a time budget for each run (20 minutes unless
+--timeout; it is not a total: see below), CODEX_HOME and HOME inside the
+scratch, and an environment built from an allowlist, so no ANTHROPIC_*/CLAUDE_*
+variable, no OPENAI_API_KEY and no ~/.codex reaches it (rules 2-3). CODEX_HOME holds a config.toml whose
 model_providers entry carries the gateway: Codex's built-in OpenAI provider
 ignores OPENAI_BASE_URL, so a variable alone would send the review to
 api.openai.com. The scratch lives under the account's temporary directory
@@ -89,8 +90,24 @@ its first line and posted by `fabric-pr post-review PR --model codex` from the
 request's repository; --no-post prints it instead. Rule 5 is the reader's:
 each finding is judged by the review class before it is answered.
 
+WHEN THE MODEL IS UNAVAILABLE. A failed turn whose own message says the chosen
+model is at capacity ("Selected model is at capacity", the provider's, and
+transient) is run again — a fresh scratch, gateway and sandbox proof each time —
+after 10 s, then 20 s, then 60 s, and then stops. A failed turn whose message
+says the allowance is spent (Codex's "You've hit your usage limit…", "Quota
+exceeded", a workspace out of credits or at its spend cap: ours, until the
+window resets) is NOT retried, because a wait of a minute cannot end it: it is
+reported at once, with the reset time when the message gives one. Both end in
+exit 3 and say which kind; any other failed turn stays a failed review, exit 1,
+never retried. The messages are the strings of the pinned Codex 0.162.1
+binary (tests/test_review_codex.py pins them); a message that matches none of
+them is not guessed at. Nothing is posted on any of these. --timeout is each
+run's budget, so a capacity spell can take up to four of them plus the 90 s of
+waits.
+
 exit 0 posted (or printed); 1 refused or a failed review, nothing posted;
-2 usage.
+2 usage; 3 the model is unavailable (at capacity after the retries, or over
+the allowance), nothing posted.
 """
 from __future__ import annotations
 
@@ -105,6 +122,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from urllib.parse import urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -145,6 +163,18 @@ MAX_ANSWER_BYTES = 1 << 20
 # beside it, so a later version that moves the fetch to one of them does not reopen it. A feature a version does not know is ignored.
 EGRESS_FEATURES = ("plugins", "remote_plugin", "plugin_sharing", "apps", "in_app_updates")
 SANDBOX_PROOF_TIMEOUT_S = 60
+EXIT_UNAVAILABLE = 3
+CAPACITY, ALLOWANCE = "capacity", "allowance"
+# The waits before the first, second and third retry of a run whose model was at capacity, then stop (the owner,
+# 2026-10-13). Time is an input: tests replace both of these.
+CAPACITY_RETRY_DELAYS_S = (10, 20, 60)
+_sleep = time.sleep
+# What Codex 0.162.1 puts in a failed turn's message when the model cannot be had, read from its binary. The
+# apostrophe in "You’ve" is U+2019. Anything not listed is an ordinary failed turn, never retried.
+CAPACITY_MESSAGES = ("Selected model is at capacity",)
+ALLOWANCE_MESSAGES = ("You\u2019ve hit your usage limit", "Quota exceeded", "Your workspace is out of credits",
+                      "You hit your spend cap")
+RESET_TIME = re.compile(r"[Tt]ry again at ([^.\n]{1,60})")
 # The answer-shape section is the only text the engine adds to the brief
 # (ADR-053 rule 1): where it stands and what to answer, never anything
 # about the change.
@@ -167,6 +197,25 @@ class Refused(Exception):
 
 class FailedReview(Exception):
     """Codex ran and the review failed; nothing is posted."""
+
+
+class ModelUnavailable(FailedReview):
+    """The turn failed because the chosen model cannot be had: kind CAPACITY (the provider's, transient) or
+    ALLOWANCE (ours, until its window resets). A caller tells it from a defect by its own exit status."""
+
+    def __init__(self, kind: str, backend: str, reset: str | None = None) -> None:
+        super().__init__(backend)
+        self.kind, self.backend, self.reset = kind, backend, reset
+        self.runs = 1
+
+    def report(self) -> str:
+        runs = self.runs
+        if self.kind == CAPACITY:
+            return (f"the Codex model is unavailable: at capacity, the provider's and transient (after {runs} run(s), "
+                    f"retried after {', '.join(f'{d:g}' for d in CAPACITY_RETRY_DELAYS_S)} s) — Codex said: {self.backend}")
+        when = f"it resets {self.reset}" if self.reset else "the backend gave no reset time"
+        return (f"the Codex model is unavailable: over the allowance, ours, until its window resets ({when}); "
+                f"not retried — Codex said: {self.backend}")
 
 
 class _Signalled(BaseException):
@@ -464,6 +513,8 @@ def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str
             if p.poll() is None or _group_alive(p.pid):
                 _end_group(p)
     run = read_events(events)
+    if run.failed and (gone := unavailable(run.failed)):
+        raise gone
     if p.returncode != 0:
         # Codex's turn message is the backend's text, untrusted: one line, bounded, as judge_run says it.
         raise FailedReview(f"codex exited {p.returncode}: "
@@ -531,6 +582,17 @@ def read_events(path: str) -> CodexRun:
             elif item.get("type") == "agent_message" and isinstance(item.get("text"), str):
                 run.last_message = item["text"]
     return run
+
+
+def unavailable(message: str) -> ModelUnavailable | None:
+    """The kind of unavailability a failed turn's message states, or None. The message is the backend's text,
+    untrusted: only the fixed phrases above decide, and the reset time is quoted from it, bounded."""
+    if any(m in message for m in CAPACITY_MESSAGES):
+        return ModelUnavailable(CAPACITY, _one_line(message)[:300])
+    if any(m in message for m in ALLOWANCE_MESSAGES):
+        reset = RESET_TIME.search(message)
+        return ModelUnavailable(ALLOWANCE, _one_line(message)[:300], _one_line(reset.group(1)).strip() if reset else None)
+    return None
 
 
 def judge_run(run: CodexRun) -> None:
@@ -688,24 +750,40 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
         raise Refused(f"the request's head {head[:12]} is not PR #{pr}'s head: a review is posted against the PR's "
                       "head, so it must be the one read (update the request's range)")
     root = scratch_root(repo, environ)
-    # Every refusal of the gateway's (the sign-in, its token's lifetime, the installed gateway) comes before it starts.
-    provider = (review_gateway.serve(review_gateway.prepare(gateway, environ, signin_home, timeout_min * 60), model, environ)
-                if gateway else contextlib.nullcontext({}))
-    with provider as provided:
-        # What the gateway provides lives in this dict and Codex's environment only, never os.environ: the
-        # post's child (fabric-pr) and anything else this process starts never inherit the local key.
-        env_run = {**environ, **provided}
-        base_url, key = gateway_settings(env_run)
-        scratch = tempfile.mkdtemp(prefix="fabric-review-codex.", dir=root)
+
+    def attempt() -> list[dict]:
+        # Everything a run needs is made here and gone when it ends, so a retry is as fresh as the first run.
+        # Every refusal of the gateway's (the sign-in, its token's lifetime, the installed gateway) comes before it starts.
+        provider = (review_gateway.serve(review_gateway.prepare(gateway, environ, signin_home, timeout_min * 60), model, environ)
+                    if gateway else contextlib.nullcontext({}))
+        with provider as provided:
+            # What the gateway provides lives in this dict and Codex's environment only, never os.environ: the
+            # post's child (fabric-pr) and anything else this process starts never inherit the local key.
+            env_run = {**environ, **provided}
+            base_url, key = gateway_settings(env_run)
+            scratch = tempfile.mkdtemp(prefix="fabric-review-codex.", dir=root)
+            try:
+                workdir = os.path.join(scratch, "head")
+                extract(repo, head, workdir)
+                env = child_env(environ, scratch, codex_home(scratch, base_url, account_id(env_run)), key)
+                prompt = brief.rstrip("\n") + "\n" + ANSWER_SHAPE
+                prove_sandbox(binary, workdir, env)
+                return parse_answer(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level))
+            finally:
+                shutil.rmtree(scratch, ignore_errors=True)
+
+    runs = 0
+    while True:
+        runs += 1
         try:
-            workdir = os.path.join(scratch, "head")
-            extract(repo, head, workdir)
-            env = child_env(environ, scratch, codex_home(scratch, base_url, account_id(env_run)), key)
-            prompt = brief.rstrip("\n") + "\n" + ANSWER_SHAPE
-            prove_sandbox(binary, workdir, env)
-            findings = parse_answer(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level))
-        finally:
-            shutil.rmtree(scratch, ignore_errors=True)
+            findings = attempt()
+            break
+        except ModelUnavailable as e:
+            # An allowance is spent for hours: a wait of a minute cannot help, so only the provider's capacity is retried.
+            if e.kind != CAPACITY or runs > len(CAPACITY_RETRY_DELAYS_S):
+                e.runs = runs
+                raise
+            _sleep(CAPACITY_RETRY_DELAYS_S[runs - 1])
     if not no_post and pr_head(repo, pr) != head:
         raise Refused(f"PR #{pr} moved while Codex read {head[:12]}; nothing posted — run it on the new head")
     body = render_review(model, head, req["range"], findings, level)
@@ -722,7 +800,7 @@ def _raise_signal(signum, _frame):
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     usage = ("usage: fabric-review --engine codex PR REQUEST [--gateway chatgpt [--codex-home DIR]] [--model M] "
-             "[--effort LEVEL] [--timeout MINUTES] [--allow-rationale] [--no-post]")
+             "[--effort LEVEL] [--timeout MINUTES, per run] [--allow-rationale] [--no-post]")
     if args[:1] in (["-h"], ["--help"]):
         print(__doc__)
         return 0
@@ -779,6 +857,9 @@ def main(argv: list[str] | None = None) -> int:
     except (Refused, review_gateway.Refused) as e:
         print(f"fabric-review: refused: {e}", file=sys.stderr)
         return 1
+    except ModelUnavailable as e:
+        print(f"fabric-review: {e.report()}; nothing posted", file=sys.stderr)
+        return EXIT_UNAVAILABLE
     except FailedReview as e:
         print(f"fabric-review: the Codex review failed, nothing posted: {e}", file=sys.stderr)
         return 1

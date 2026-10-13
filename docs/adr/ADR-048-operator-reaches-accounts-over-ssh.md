@@ -1,7 +1,8 @@
 # ADR-048 — The operator reaches agent accounts over ssh
 
 **Date:** 2026-10-09
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("record adr accepted", answering which Proposed records to accept)
 **Decision Makers:** the owner (ssh for the deck's panes, the forced command, the Qubes split); drafted by fabric-coordinator
 **Scope:** `runtime/provisioning/moveto/enter-ssh`, `runtime/provisioning/platform/qubes/ssh-template.sh`, `runtime/provisioning/platform/qubes/ssh-operator.sh`, `runtime/provisioning/platform/qubes/ssh-restore.sh`, `tools/fabric/ssh_hosts.py`, `bin/fabric-ssh-hosts`, the `sshd` property of a host in `runtime/hosts/registry.json`; how the operator's panes enter an account
 **Pillar:** P3
@@ -97,7 +98,11 @@ then the forced command.
    public keys only: no password, no keyboard-interactive, no root login.
    No forwarding of any kind (TCP, stream-local, agent, X11), no tunnel,
    no gateway ports. `AllowUsers` names exactly the logins the registry
-   places on that host. The settings live in one drop-in,
+   places on that host. Loopback is exempt from OpenSSH's per-source
+   penalties (`PerSourcePenaltyExemptList 127.0.0.1,::1`) and
+   `MaxStartups` admits the deck's burst (100): every client is local and
+   authenticates by key alone, so a penalty would only lock the deck out
+   (A 2026-10-13). The settings live in one drop-in,
    `/etc/ssh/sshd_config.d/50-agent-fabric.conf`, and `sshd -t` passes
    before sshd is enabled or restarted.
 2. `AuthorizedKeysFile` is `/etc/ssh/authorized_keys/%u`: a directory
@@ -184,9 +189,7 @@ then the forced command.
 
 ## 8. Decision Status
 
-Proposed: the owner approved the approach in the coordinator's plan; this
-record awaits the owner's acceptance in its pull request, and the live
-check's read-back.
+Accepted (the header names the owner's word). The live check's read-back is docs/live-checks/2026-10-09-ssh-operator.md.
 
 ## References
 
@@ -194,3 +197,11 @@ check's read-back.
   ADR-038 (an agent's own keys), ADR-044 (the deck's operator).
 - `runtime/provisioning/moveto/enter`, `runtime/provisioning/platform/qubes/agent-fabric-accounts.rc`.
 - `docs/live-checks/2026-10-09-ssh-operator.md`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-048-amendments.md](history/ADR-048-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-13 | loopback exempt from per-source penalties; MaxStartups above the deck's burst | §5 rule 1 |

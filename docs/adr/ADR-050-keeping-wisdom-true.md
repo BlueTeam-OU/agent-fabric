@@ -1,7 +1,8 @@
 # ADR-050 — Keeping wisdom true: judgement where the knowledge lives
 
 **Date:** 2026-10-10
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("record adr accepted", answering which Proposed records to accept)
 **Decision Makers:** the owner (distributed judgement with a central assist); drafted by fabric-coordinator
 **Scope:** `tools/fabric/memory_check.py` and `tools/fabric/lint_rules/slices.py`; `tools/fabric/harvest_memory.py` (`parse_memory`), `tools/fabric/assembler/slices.py` (`claim_block`, `remove_sections`), `tools/fabric/assembler/writer.py`, `tools/fabric/assemble.py`, `identities/schemas/claims.schema.json`; `runtime/claude-code/hooks/memory-write-check.py`; `memory/RUBRIC.md`, `memory/README.md`, `identities/prompt/memory.md`; the drain report and the `memory` op of the control plane; `policies/hygiene.json`
 **Pillar:** P2
@@ -279,9 +280,7 @@ builder of each.
 
 ## 8. Decision Status
 
-Proposed. The owner chose distributed judgement with a central assist in
-the coordinator's session; ratification is the merge of the pull request
-that carries this record.
+Accepted (the header names the owner's word).
 
 ## References
 

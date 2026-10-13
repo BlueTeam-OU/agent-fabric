@@ -131,3 +131,12 @@ Git hooks and Claude Code hook scripts become Python on the pin unless they run 
 The inventory (`docs/wave-9/inventory.md`) classifies every file and groups the 37 that port (2,580 lines) into ten batches of one pull request each. All but batch 1 are on the coordinator's side of the contributor wall (`policies/`, `runtime/claude-code/`, `tests/run.sh`, or a path no entry names), so python-dev's entry covers 101 of the 2,580 lines unless the owner widens it; this record does not. Lint changes in a pull request of its own: the 150-line rule is replaced by the forwarder shape and a closed list, with a one-time seeded `ports` section that only shrinks. Rule 9 is advice to the managed projects, whose code is theirs: a bash script they change is ported in that change, a host test is Python, no port waves, and their devex-tooling and architect-cto decide the order.
 
 Rule 5 gains a fourth departure the parity test may take, found by batch 1 (`fabric-pr`, python-dev-04's #200): the forwarder checks the pin before the module reads the verb, so on a host without the pin an unknown verb exits 127 with the install line, where the bash original printed its usage. The case says so and cites the rule.
+
+### Amendment 2026-10-13 — the interim line limit is 160
+
+§7's interim rule, the line count lint enforces until the forwarder
+shape replaces it, moves from 150 to 160 lines
+(`tools/fabric/lint_rules/shape.py` BASH_LINE_LIMIT, its test, the
+allowlist's description). The sshd drop-in's new settings and their
+reason put `ssh-operator.sh` past 150. The owner's word, in the
+coordinator's session: "go to 160 lines".

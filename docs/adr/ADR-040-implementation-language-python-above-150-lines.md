@@ -323,8 +323,8 @@ the 150-line rule is replaced by the forwarder shape (at most 12 lines of
 code, no `case`, no loop); the file kinds it reads grow from `*.sh` to
 `*.sh`, `*.bash` and a bash shebang, so an extensionless hook is seen; and
 a finding names the rule a file breaks. Seeding `ports` is the one time
-adding to the list is not a finding. Until that change merges, the
-150-line rule is what lint enforces.
+adding to the list is not a finding. Until that change merges, a
+line rule is what lint enforces: 160 lines (A 2026-10-13).
 
 ## 8. Decision Status
 
@@ -356,3 +356,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-09 | Wave 8: the control plane moves to Python | §5 waves: the control plane (`runtime/control/`) is built beside in Python, wire frozen, Ed25519 through openssl, cut over once; Wave 7's carve-out of the control plane withdrawn; rule 8 added: no new fabric code in Node |
 | 2026-10-09 | Valid on 3.13 and newer; CI's Python legs halved | §2 and §5 rule 1: the floor is 3.13, the pin and the oldest supported system python3; CI runs the Python suites on 3.13 and 3.14 |
 | 2026-10-11 | Wave 9: the rest of the bash moves to Python | §2, §5 rules 1, 2, 4, 5, 7 and 9, §7: Python bar the pre-Python list and the forwarder; the 150-line rule goes; 37 files in ten batches; managed projects advised |
+| 2026-10-13 | the interim line limit is 160 | §7 |

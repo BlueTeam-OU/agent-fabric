@@ -145,7 +145,14 @@ ADR-038's line: no login holds a secret it does not need.
    token file ADR-053 rule 8 syncs to every login for reviews; the
    refresh token stays with the coordinator's one sign-in per ChatGPT
    seat. The harness holds only a gateway-local key, which identifies
-   the calling component and guards no secret.
+   the calling component and guards no secret. The review engine
+   (ADR-053) starts Codex behind a gateway by the same launcher path a
+   Codex session uses, so every review exercises the session's route.
+   Each is a root harness with a gateway of its own (agent-fabric-gateway
+   ADR-002: one gateway per root harness lifecycle, never one per login),
+   so each presents its own gateway-local key and the gateway always
+   knows which component is calling and can attribute what it serves
+   (A 2026-10-13).
 8. A coding class on the `openai` provider is bound only when a Codex
    session can run it; its model and effort are routing's
    (`routing/capabilities.json`, `routing/effort.json`, carried by `-c
@@ -217,3 +224,11 @@ order, each piece a pull request with its live check:
 - `projects/registry.json` (the Codex pin); `tools/fabric/review_codex.py`;
   `routing/capabilities.json` (the `openai` provider);
   `runtime/claude-code/hooks/` (the guards to wire).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-054-amendments.md](history/ADR-054-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-13 | the review engine starts Codex behind the gateway as a session will | §5 rule 7 |

@@ -68,6 +68,14 @@ put() {
 run install -d -m 0700 -o root -g root "$S" "$S/host_keys"
 run install -d -m 0755 -o root -g root "$S/authorized_keys"
 
+# Every client of this sshd is local (ListenAddress 127.0.0.1) and the
+# deck opens three sessions per account at once, about 75 on a full host.
+# OpenSSH's per-source penalties (10.0: a failed authentication drops every
+# new connection from that address for up to 600 s) would lock the whole
+# deck out after one fumbled start, so loopback is exempt: keys are the only
+# authentication, so a penalty there guards against nothing. MaxStartups
+# rises above the deck's burst for the same reason (default 10:30:100 drops
+# at random past 10 unauthenticated connections).
 # Settings sshd takes from the first file that sets them, and Fedora's
 # sshd_config includes sshd_config.d/*.conf first, in name order: 50-agent-
 # fabric sorts before 50-redhat (which turns X11 forwarding on), so ours win.
@@ -91,6 +99,8 @@ PermitUserEnvironment no
 PermitUserRC no
 AuthorizedKeysFile /etc/ssh/authorized_keys/%u
 AllowUsers ${logins[*]}
+PerSourcePenaltyExemptList 127.0.0.1,::1
+MaxStartups 100
 EOF
 
 # Every login's forced command is the one root-owned enter-ssh (ADR-048 §4).
