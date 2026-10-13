@@ -1028,7 +1028,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
   command, authorized_keys, host key, known_hosts, Qubes, rc.local.
 
-### ADR-049 — Memory is retrieved through an MCP server, the curated corpus unchanged (Proposed)
+### ADR-049 — Memory is retrieved through an MCP server, the curated corpus unchanged (Accepted)
 
 - The curated corpus, the drain and the rubric stay; what changes is how a
   session reaches them: a local stdio MCP server, `fabric-memory`, one per

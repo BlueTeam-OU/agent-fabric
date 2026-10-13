@@ -1,7 +1,8 @@
 # ADR-049 — Memory is retrieved through an MCP server, the curated corpus unchanged
 
 **Date:** 2026-10-10
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("ADR-049 accepted")
 **Decision Makers:** the owner (curated slices stay; retrieval by an MCP server); drafted by fabric-coordinator
 **Scope:** a `fabric-memory` MCP server over the corpus (`memory/`, a working copy's `.agent-fabric/memory/`); its registration in each login's `~/.claude.json`; the session-start hook's INDEX line, the launch prompt's memory section (`identities/prompt/memory.md`) and agent-fabric's `AGENTS.md` "Knowledge you retrieve"; how retrieval is measured
 **Pillar:** P2
@@ -163,8 +164,8 @@ meaning.
 
 ## 8. Decision Status
 
-Proposed. The owner chose curated slices with MCP retrieval, in the
-coordinator's session; acceptance is theirs.
+Accepted (the header names the owner's word). The owner chose curated
+slices with MCP retrieval, in the coordinator's session.
 
 ## References
 

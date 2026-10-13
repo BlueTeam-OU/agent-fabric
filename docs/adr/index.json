@@ -446,7 +446,7 @@
       "number": "049",
       "file": "ADR-049-memory-retrieval-over-mcp.md",
       "title": "Memory is retrieved through an MCP server, the curated corpus unchanged",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-10",
       "pillar": "P2",
       "amendments": 1
