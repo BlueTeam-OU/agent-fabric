@@ -77,13 +77,21 @@ class Hub:
         raise gh.GhError("gh api", "HTTP 404")
 
 
-def run_counts(refs: list[str], hub: Hub, timeout: float = 20.0, cwd_repo: str = "o/this") -> list[dict]:
-    saved = (gh.graphql, gh.api, gh.this_repo)
+# The arming policies a line is read under, modelled here: the live fleet file and settings repositories change
+# what the engines are, and a count's test must not follow them (#242's platform-smoke).
+BOTH = pr_counts.arm_policy.validate({"reviews": ["claude", "codex"], "boundary_reviews": ["claude", "codex"]})
+CLAUDE = pr_counts.arm_policy.validate({"reviews": ["claude"], "boundary_reviews": ["claude"]})
+
+
+def run_counts(refs: list[str], hub: Hub, timeout: float = 20.0, cwd_repo: str = "o/this", policy=BOTH) -> list[dict]:
+    """count_rows over `hub`, every repository's arming policy `policy`: a document, or a loader (repo, **kw)."""
+    saved = (gh.graphql, gh.api, gh.this_repo, pr_counts.arm_policy.load)
     gh.graphql, gh.api, gh.this_repo = hub.graphql, hub.api, lambda cwd=None: cwd_repo
+    pr_counts.arm_policy.load = policy if callable(policy) else (lambda repo, **kw: policy)
     try:
         return pr_counts.count_rows(refs, timeout, projects_loader=load_registry)
     finally:
-        gh.graphql, gh.api, gh.this_repo = saved
+        gh.graphql, gh.api, gh.this_repo, pr_counts.arm_policy.load = saved
 
 
 def git_fixture() -> tuple[str, str, list[str]]:
@@ -184,35 +192,65 @@ def main() -> int:
         9: pr_doc(9, [commit("3" * 40, "x")], rollup="EXPECTED"),
     }
     rows = {r["number"]: r for r in run_counts([str(n) for n in docs], Hub({"o/this": docs}))}
-    check("open, armed, pending, a marked review on the head", rows[1]["line"] == "#1 (1 work, 0 fix) open, armed, checks pending, head reviewed", rows[1]["line"])
-    check("open, unarmed, red, a merge commit is not work", rows[2]["line"] == "#2 (1 work, 0 fix) open, unarmed, checks red, review not on head", rows[2]["line"])
+    check("open, armed, pending, a marked review on the head", rows[1]["line"] == "#1 (1 work, 0 fix) open, armed, checks pending, review claude ✓ codex ✗ (head hhhhhhhh)", rows[1]["line"])
+    check("open, unarmed, red, a merge commit is not work", rows[2]["line"] == "#2 (1 work, 0 fix) open, unarmed, checks red, review claude ✗ codex ✗ (head hhhhhhhh)", rows[2]["line"])
     check("merged says only merged", rows[3]["line"] == "#3 (1 work, 0 fix) merged", rows[3]["line"])
     check("closed unmerged says closed", rows[4]["line"] == "#4 (1 work, 0 fix) closed", rows[4]["line"])
-    check("a draft, queued, no checks yet", rows[5]["line"] == "#5 (1 work, 0 fix) draft, queued, checks none yet, review not on head", rows[5]["line"])
-    check("a review on another commit than the head is not the head's", "review not on head" in rows[6]["line"], rows[6]["line"])
+    check("a draft, queued, no checks yet", rows[5]["line"] == "#5 (1 work, 0 fix) draft, queued, checks none yet, review claude ✗ codex ✗ (head hhhhhhhh)", rows[5]["line"])
+    check("a review on another commit than the head is not the head's", "review claude ✗ codex ✗" in rows[6]["line"], rows[6]["line"])
     check("ERROR reads red, EXPECTED pending", "checks red" in rows[8]["line"] and "checks pending" in rows[9]["line"], (rows[8]["line"], rows[9]["line"]))
-    saved = (gh.graphql, gh.api, gh.this_repo)
+    saved = (gh.graphql, gh.api, gh.this_repo, pr_counts.arm_policy.load)
     h = Hub({"o/this": docs})
     gh.graphql, gh.api, gh.this_repo = h.graphql, h.api, lambda cwd=None: "o/this"
+    pr_counts.arm_policy.load = lambda repo, **kw: BOTH
     try:
         lines = pr_counts.count_lines(["3", "#1"], 5)
     finally:
-        gh.graphql, gh.api, gh.this_repo = saved
-    check("…also by `#N`", lines == ["#3 (1 work, 0 fix) merged", "#1 (1 work, 0 fix) open, armed, checks pending, head reviewed"], lines)
+        gh.graphql, gh.api, gh.this_repo, pr_counts.arm_policy.load = saved
+    check("…also by `#N`", lines == ["#3 (1 work, 0 fix) merged", "#1 (1 work, 0 fix) open, armed, checks pending, review claude ✓ codex ✗ (head hhhhhhhh)"], lines)
+
+    print("each required engine's review of the head (REQUEST 01a13693)")
+    claude_r = {"body": "<!-- agent-fabric-review v1 -->\n<!-- model: fable -->\nok", "commit": {"oid": "h" * 40}}
+    codex_r = {"body": "<!-- agent-fabric-review v1 -->\n<!-- model: codex -->\nok", "commit": {"oid": "h" * 40}}
+    by = {"claude only": [claude_r], "codex only": [codex_r], "both": [claude_r, codex_r], "neither": []}
+    want = {("both", "claude only"): "review claude ✓ codex ✗", ("both", "codex only"): "review claude ✗ codex ✓",
+            ("both", "both"): "head reviewed: claude ✓ codex ✓", ("both", "neither"): "review claude ✗ codex ✗",
+            ("claude", "claude only"): "head reviewed: claude ✓", ("claude", "codex only"): "review claude ✗",
+            ("claude", "both"): "head reviewed: claude ✓", ("claude", "neither"): "review claude ✗"}
+    for policy, doc in (("both", BOTH), ("claude", CLAUDE)):
+        for what, reviewed in by.items():
+            line = run_counts(["4"], Hub({"o/this": {4: pr_doc(4, [commit("a" * 40, "x")], reviews=reviewed)}}), policy=doc)[0]["line"]
+            check(f"policy {policy}, reviewed by {what}: {want[policy, what]}",
+                  line == f"#4 (1 work, 0 fix) open, unarmed, checks green, {want[policy, what]} (head hhhhhhhh)", line)
+
+    def unreadable(repo, **kw):
+        raise pr_counts.arm_policy.PolicyUnavailable("HTTP 500")
+    # A claude-only default tells "every engine" from "the default's": both of the real defaults ask both (supplier review F2).
+    real_default, real_fleet = pr_counts.arm_policy.default, pr_counts.arm_policy.fleet_policy
+    pr_counts.arm_policy.default = pr_counts.arm_policy.fleet_policy = lambda *a, **kw: CLAUDE
+    try:
+        line = run_counts(["4"], Hub({"o/this": {4: pr_doc(4, [commit("a" * 40, "x")], reviews=[claude_r])}}), policy=unreadable)[0]["line"]
+    finally:
+        pr_counts.arm_policy.default, pr_counts.arm_policy.fleet_policy = real_default, real_fleet
+    check("an unreadable policy requires every engine, never the default's, and says why",
+          line.endswith("review claude ✓ codex ✗ (head hhhhhhhh; policy unread, every engine required: HTTP 500)"), line)
+    asked = []
+    merged_only = run_counts(["3"], Hub({"o/this": {3: docs[3]}}), policy=lambda repo, **kw: asked.append(repo) or BOTH)[0]["line"]
+    check("a merged pull request reads no policy (the Stop hook pays for open ones only)", asked == [] and merged_only.endswith("merged"), (asked, merged_only))
 
     print("legacy markers")
     old = {"body": "<!-- agent-fabric-substitute-review v1 -->", "commit": {"oid": "h" * 40}}
     rows = run_counts(["4"], Hub({"o/this": {4: pr_doc(4, [commit("a" * 40, "x")], reviews=[old])}}))
-    check("the built-in earlier marker counts", "head reviewed" in rows[0]["line"], rows[0]["line"])
+    check("the built-in earlier marker counts", "review claude ✓" in rows[0]["line"], rows[0]["line"])
     mine = {"body": "<!-- mine v1 -->", "commit": {"oid": "h" * 40}}
     rows = run_counts(["4"], Hub({"o/this": {4: pr_doc(4, [commit("a" * 40, "x")], reviews=[mine])}}))
-    check("a marker nobody listed does not", "review not on head" in rows[0]["line"], rows[0]["line"])
+    check("a marker nobody listed does not", "review claude ✗" in rows[0]["line"], rows[0]["line"])
     os.environ["AGENT_FABRIC_LEGACY_REVIEW_MARKERS"] = "<!-- mine v1 -->"
     try:
         rows = run_counts(["4"], Hub({"o/this": {4: pr_doc(4, [commit("a" * 40, "x")], reviews=[mine])}}))
     finally:
         del os.environ["AGENT_FABRIC_LEGACY_REVIEW_MARKERS"]
-    check("…unless the environment lists it", "head reviewed" in rows[0]["line"], rows[0]["line"])
+    check("…unless the environment lists it", "review claude ✓" in rows[0]["line"], rows[0]["line"])
 
     print("refs")
     two = {"gzapi-org/gzapp": {1075: docs[1]}, "gzapi-org/InterWeave": {3: docs[3]}, "BlueTeam-OU/agent-fabric-herdr": {4: docs[4]},
