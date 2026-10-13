@@ -222,6 +222,9 @@ def main() -> int:
                 "profile.json", "plain file")
         many = tree("many", {f"f{i}": b"x" for i in range(1001)})
         refused("more files than the cap is refused", many, "more than")
+        emptyprof = tree("ep", {"avatar.png": png})
+        os.makedirs(os.path.join(emptyprof, "profile.json"))
+        refused("an EMPTY profile.json directory is refused too", emptyprof, "profile.json", "plain file")
         locked = tree("lk", {"a": b"1", "locked/b": b"2"})
         os.chmod(os.path.join(locked, "locked"), 0)
         refused("an unreadable directory is refused by name, never skipped", locked, "locked")
@@ -380,6 +383,15 @@ def main() -> int:
         check("an untracked file already below settings/ is refused, never swept into the commit",
               p.returncode == 1 and "untracked" in p.stderr and count() == n_stray, p.stdout + p.stderr)
         os.unlink(stray)
+        with open(os.path.join(store, ".git", "info", "exclude"), "a") as fh:
+            fh.write("note-*\n")
+        hidden = os.path.join(store, "settings", "avatar-rejected", "note-1")
+        with open(hidden, "w") as fh:
+            fh.write("mine")
+        p = run("settings-put", "--from", tree("ig2", {"avatar-rejected/note-1": b"theirs"}))
+        check("an ignored file already below settings/ is refused, never overwritten",
+              p.returncode == 1 and "ignored" in p.stderr and open(hidden).read() == "mine", p.stdout + p.stderr)
+        os.unlink(hidden)
         p = run("settings-put", "--from", tree("after", {"avatar-rejected/3.txt": b"ok\n"}))
         check("…and the next write works", p.returncode == 0 and "committed" in p.stdout, p.stdout + p.stderr)
 

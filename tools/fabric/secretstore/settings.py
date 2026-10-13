@@ -90,6 +90,8 @@ def _read_tree(src: str) -> dict[str, bytes]:
             except OSError as e:
                 raise StoreError(f"{rel}: {e.strerror or e}; nothing written") from None
             if stat.S_ISDIR(before.st_mode):
+                if depth == 0 and name in (PROFILE, AVATAR):
+                    raise StoreError(f"{name}: must be a plain file, not a directory; nothing written")
                 try:
                     child = os.open(name, _OPEN | os.O_DIRECTORY, dir_fd=dfd)
                 except OSError as e:
@@ -143,9 +145,6 @@ def _read_tree(src: str) -> dict[str, bytes]:
         os.close(top)
     if not files:
         raise StoreError(f"{src}: no files in it; nothing written")
-    for reserved in (PROFILE, AVATAR):
-        if any(rel.startswith(reserved + os.sep) for rel in files):
-            raise StoreError(f"{reserved}: must be a plain file, not a directory; nothing written")
     return files
 
 
@@ -247,9 +246,9 @@ def settings_put(src: str) -> dict:
     with write_lock(store):
         entries._require_clean(store)
         entries._before_write(store)
-        left = git(store, "status", "--porcelain", "--untracked-files=all", "--", "settings").stdout.decode().strip()
+        left = git(store, "status", "--porcelain", "--ignored", "--untracked-files=all", "--", "settings").stdout.decode().strip()
         if left:
-            raise StoreError(f"{store} has untracked files below settings/ ({left.splitlines()[0][3:]}); nothing written")
+            raise StoreError(f"{store} has untracked or ignored files below settings/ ({left.splitlines()[0][3:]}); nothing written")
         _check_standing(files, store, aid)
         dests = {rel: _destination(store, rel) for rel in files}
         created = [d for d in dests.values() if not os.path.lexists(d)]
@@ -269,7 +268,14 @@ def settings_put(src: str) -> dict:
                 raise StoreError(f"{e.filename or 'settings'}: {e.strerror or e}; nothing written") from None
             raise
         if changed:
-            _commit(store, f"agent {login()}: settings")
+            head = git(store, "rev-parse", "HEAD").stdout
+            try:
+                _commit(store, f"agent {login()}: settings")
+            except BaseException:
+                # _commit resets after its own failures; an interrupt (signing waits on gpg) bypasses that.
+                if git(store, "rev-parse", "HEAD").stdout == head:
+                    _undo(store, created)
+                raise
             entries._after_commit(store)
         else:
             entries._push_if_ahead(store)
