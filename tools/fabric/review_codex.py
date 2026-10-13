@@ -59,11 +59,12 @@ the engine's answer-shape section appended and nothing else (rule 1). The
 request must be a ranged one whose head is the PR's current head: the review
 is posted against the PR's head, so a request for any other commit would be
 counted as a review of something it never read. That head is `git archive`d
-into a scratch directory (never the working copy) and `codex exec` runs ONCE
-there with --sandbox read-only, a time budget (20 minutes unless --timeout),
-CODEX_HOME and HOME inside the scratch, and an environment built from an
-allowlist, so no ANTHROPIC_*/CLAUDE_* variable, no OPENAI_API_KEY and no
-~/.codex reaches it (rules 2-3). CODEX_HOME holds a config.toml whose
+into a scratch directory (never the working copy) and `codex exec` runs there
+once per attempt (an attempt is repeated only when the model is at capacity,
+below) with --sandbox read-only, a time budget for each run (20 minutes unless
+--timeout; it is not a total: see below), CODEX_HOME and HOME inside the
+scratch, and an environment built from an allowlist, so no ANTHROPIC_*/CLAUDE_*
+variable, no OPENAI_API_KEY and no ~/.codex reaches it (rules 2-3). CODEX_HOME holds a config.toml whose
 model_providers entry carries the gateway: Codex's built-in OpenAI provider
 ignores OPENAI_BASE_URL, so a variable alone would send the review to
 api.openai.com. The scratch lives under the account's temporary directory
@@ -100,7 +101,9 @@ reported at once, with the reset time when the message gives one. Both end in
 exit 3 and say which kind; any other failed turn stays a failed review, exit 1,
 never retried. The messages are the strings of the pinned Codex 0.162.1
 binary (tests/test_review_codex.py pins them); a message that matches none of
-them is not guessed at. Nothing is posted on any of these.
+them is not guessed at. Nothing is posted on any of these. --timeout is each
+run's budget, so a capacity spell can take up to four of them plus the 90 s of
+waits.
 
 exit 0 posted (or printed); 1 refused or a failed review, nothing posted;
 2 usage; 3 the model is unavailable (at capacity after the retries, or over
@@ -797,7 +800,7 @@ def _raise_signal(signum, _frame):
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     usage = ("usage: fabric-review --engine codex PR REQUEST [--gateway chatgpt [--codex-home DIR]] [--model M] "
-             "[--effort LEVEL] [--timeout MINUTES] [--allow-rationale] [--no-post]")
+             "[--effort LEVEL] [--timeout MINUTES, per run] [--allow-rationale] [--no-post]")
     if args[:1] in (["-h"], ["--help"]):
         print(__doc__)
         return 0
