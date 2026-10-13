@@ -217,6 +217,9 @@ def main() -> int:
             nest = os.path.join(nest, "d")
         os.makedirs(nest)
         refused("a tree nested too deep is refused by name, not a traceback", deep, "nested deeper")
+        refused("an empty tree is refused by name", tree("empty", {}), "no files")
+        refused("profile.json as a directory is refused, not skipped", tree("pd", {"avatar.png": png, "profile.json/x": b"1"}),
+                "profile.json", "plain file")
         locked = tree("lk", {"a": b"1", "locked/b": b"2"})
         os.chmod(os.path.join(locked, "locked"), 0)
         refused("an unreadable directory is refused by name, never skipped", locked, "locked")
@@ -316,6 +319,31 @@ def main() -> int:
               p.returncode == 0 and count() == before + 1 and "avatar-rejected/2.png" in g("ls-files", "settings"), p.stdout + p.stderr)
 
 
+        # The remote moves ahead (another clone of the same agent writes a new avatar): this run must catch up first
+        # and judge against THAT avatar; a profile naming the old one is then refused.
+        other_store = os.path.join(tmp, "store2")
+        subprocess.run(["git", "clone", "-q", remote, other_store], check=True, env=env)
+        subprocess.run(["git", "-C", other_store, "config", "agent-fabric.trustedbase",
+                        g("config", "--local", "--get", "agent-fabric.trustedbase").strip()], check=True, env=env)
+        env2 = {**env, "AGENT_FABRIC_SECRET_STORE": other_store}
+        png2 = png + b"-second"
+        newer = tree("newer", {"avatar.png": png2, "profile.json": profile(avatar={"file": "settings/avatar.png",
+                    "sha256": hashlib.sha256(png2).hexdigest(), "candidate": 2})})
+        p = subprocess.run([sys.executable, TOOL, "settings-put", "--from", newer], env=env2, cwd=tmp, capture_output=True, text=True)
+        check("another clone of the agent moves the remote ahead", p.returncode == 0, p.stdout + p.stderr)
+        n_ahead = count()
+        p = run("settings-put", "--from", tree("stale", {"profile.json": profile()}))
+        check("a profile naming the avatar this clone last saw is refused: the store caught up with the remote first",
+              p.returncode == 1 and "sha256" in p.stderr and "avatar.png" in g("ls-files", "settings") and count() == n_ahead + 1,
+              p.stdout + p.stderr + str(count()))
+        p = run("settings-put", "--from", tree("fresh", {"profile.json": profile(avatar={"file": "settings/avatar.png",
+                "sha256": hashlib.sha256(png2).hexdigest(), "candidate": 2})}))
+        check("…and the profile that names the remote's avatar is taken, a fast-forward of the remote",
+              p.returncode == 0 and g("rev-parse", "HEAD") == subprocess.run(["git", "--git-dir", remote, "rev-parse", "main"],
+              capture_output=True, text=True).stdout
+              and hashlib.sha256(subprocess.run(["git", "-C", store, "show", "HEAD:settings/avatar.png"], env=env,
+                                                capture_output=True, check=True).stdout).hexdigest() == hashlib.sha256(png2).hexdigest(),
+              p.stdout + p.stderr)
         held_profile = g("show", "HEAD:settings/profile.json")
         refused("an avatar alone that the store's profile does not name is refused: the result is checked, not the tree",
                 tree("av", {"avatar.png": png + b"new"}), "sha256")

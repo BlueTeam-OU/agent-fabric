@@ -138,6 +138,11 @@ def _read_tree(src: str) -> dict[str, bytes]:
         walk(top, "", 0)
     finally:
         os.close(top)
+    if not files:
+        raise StoreError(f"{src}: no files in it; nothing written")
+    for reserved in (PROFILE, AVATAR):
+        if any(rel.startswith(reserved + os.sep) for rel in files):
+            raise StoreError(f"{reserved}: must be a plain file, not a directory; nothing written")
     return files
 
 
@@ -163,8 +168,10 @@ def _load_profile(raw: bytes, agent_id: str) -> dict:
 
 def _held(store: str, name: str) -> bytes | None:
     path = _destination(store, name)
-    if not os.path.isfile(path):
+    if not os.path.lexists(path):
         return None
+    if not os.path.isfile(path):
+        raise StoreError(f"settings/{name} in the store is not a plain file; nothing written")
     with open(path, "rb") as fh:
         return fh.read()
 
