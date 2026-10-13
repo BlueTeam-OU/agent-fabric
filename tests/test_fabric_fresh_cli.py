@@ -255,6 +255,20 @@ def main() -> int:
         check("behind, an untracked file where the pull adds a directory: exit 3",
               rc == 3 and "overwritten (newdir" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
         rm(f"{fab}/newdir")
+        # The reverse: the pull adds a FILE where the checkout has an untracked
+        # directory. pull_blocker reads status with --untracked-files=all, so the
+        # dirty path is "newfile/x", under the touched "newfile": the clause that
+        # reads a dirty path under a touched one.
+        put(f"{other}/newfile", "1\n", 0o644)
+        g(other, "add", "-A")
+        g(other, "commit", "-q", "-m", "a new file")
+        g(other, "push", "-q", "origin", "main")
+        os.makedirs(f"{fab}/newfile")
+        put(f"{fab}/newfile/x", "mine\n", 0o644)
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("behind, an untracked directory where the pull adds a file: exit 3, the file inside it named",
+              rc == 3 and "overwritten (newfile/x)" in out and not os.path.exists(killed), f"rc={rc}\n{out}")
+        shutil.rmtree(f"{fab}/newfile")
         g(fab, "mv", "a", "a-moved")
         rc, out = run([f"{bin_}/claude"], clean_env(**launched))
         check("behind, a staged rename whose source the pull modifies: exit 3, the source named",
