@@ -535,14 +535,19 @@ def main() -> int:
               "the read-only sandbox did not start within 1 s; no wider one is used" in verdict_slow and time.time() - started < 30, verdict_slow)
         with open(os.path.join(state, "sandbox-grandchild")) as f:
             pids = [int(x) for x in f.read().split()]
-        time.sleep(0.3)
-        alive = []
-        for pid in pids:
+        def running(pid):
+            # A killed orphan is a zombie until PID 1 reaps it, and a container's PID 1 may never: dead for this check.
             try:
-                os.kill(pid, 0)
-                alive.append(pid)
-            except ProcessLookupError:
-                pass
+                with open(f"/proc/{pid}/stat", "rb") as f:
+                    return f.read().rsplit(b")", 1)[1].split()[0] != b"Z"
+            except (FileNotFoundError, ProcessLookupError):
+                return False
+        deadline = time.time() + 10
+        alive = list(pids)
+        while alive and time.time() < deadline:
+            alive = [pid for pid in alive if running(pid)]
+            if alive:
+                time.sleep(0.05)
         check("…and the probe's whole process group is ended, the grandchild too", not alive, alive)
 
         print("the account id and the effort")
