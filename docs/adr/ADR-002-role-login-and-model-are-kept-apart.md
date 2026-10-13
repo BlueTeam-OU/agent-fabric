@@ -55,7 +55,7 @@ fabric's text followed by that translation, passed as
 role's remit in that project and the pointer to its `INDEX.md` — follows
 the working copy and arrives from the SessionStart hook.
 
-This table is the canonical separation. `CLAUDE.md` lists the first six;
+This table is the canonical separation. `AGENTS.md` lists the first six;
 `README.md`'s longer table adds the fabric's other axes (memory,
 communication, project binding, compatibility shims, runtime adapter),
 which are subsystems, not facets of who an agent is.

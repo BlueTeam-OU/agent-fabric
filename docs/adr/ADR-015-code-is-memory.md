@@ -52,7 +52,7 @@ of the context — cannot reconstruct from the code alone.
 It reaches every session launched under the workspace through
 `AGENTS.md` §"Working here": `bootstrap.sh` installs the workspace's
 `projects/CLAUDE.md` (`runtime/claude-code/workspace/CLAUDE.md`), which
-imports `agent-fabric/CLAUDE.md`, and a subagent receives the same
+imports `agent-fabric/CLAUDE.md` (which imports `AGENTS.md`), and a subagent receives the same
 context. A managed project's own `CLAUDE.md` does not import it.
 
 ## 3. Alternatives Considered
@@ -126,7 +126,7 @@ judgement.
 
 ## 8. Decision Status
 
-Accepted: the owner's policy (commit ca810dc), in force in `CLAUDE.md`
+Accepted: the owner's policy (commit ca810dc), in force in `AGENTS.md`
 and the review class. The policy note that
 held it is now a stub pointing here.
 

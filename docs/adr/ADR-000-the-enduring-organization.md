@@ -62,7 +62,7 @@ expertise and coordination each time something changes.
 
 ## 4. Rationale
 
-The separations — the six things `CLAUDE.md` keeps apart (agent, role,
+The separations — the six things `AGENTS.md` keeps apart (agent, role,
 project, working copy, host, session), and the model beside them — were
 drawn early and have held under pressure: a role moved
 between accounts, a model family replaced under running work, a host
