@@ -134,17 +134,28 @@ class Units(unittest.TestCase):
         self.assertIn("--include-self", err)
         self.assertEqual(self.ctl(["coordinator", "control-stop", "--include-self"], fake)[0], 0)
 
-    def test_start_waits_before_the_read_back_and_a_daemon_that_dies_in_it_is_failed(self):
-        slept = []
+    def test_start_waits_after_start_and_before_the_read_back_and_a_daemon_that_dies_in_it_is_failed(self):
+        order = []
         class Dies(FakeSystemd):
             def __call__(s, host, argv, timeout):
-                if argv[-2] == "is-active" and slept and s.states["a"] == "active":
+                order.append(argv[-2] if argv[0] == "sudo" else argv[0])
+                if argv[-2] == "is-active" and "sleep" in order and s.states["a"] == "active":
                     return 3, "activating\n", ""   # auto-restart, after the settle
                 return super().__call__(host, argv, timeout)
         fake = Dies({"a": "inactive"})
-        row = units.one(units.START, {"login": "a", "host": "h"}, fake, 5, sleep=slept.append)
-        self.assertEqual((slept, row["state"]), ([units.SETTLE_S], "failed"))
+        row = units.one(units.START, {"login": "a", "host": "h"}, fake, 5, sleep=lambda s: order.append("sleep") or self.assertEqual(s, units.SETTLE_S))
+        self.assertEqual(order, ["id", "is-active", "start", "sleep", "is-active"])
+        self.assertEqual(row["state"], "failed")
         self.assertIn("activating", row["detail"])
+
+    def test_the_executor_reads_the_registry_the_placements_came_from(self):
+        reg = registry(self, {"a": "h"})
+        seen = []
+        fake = FakeSystemd({"a": "active"})
+        with mock.patch.dict(os.environ, {"AGENT_FABRIC_HOSTS_REGISTRY": reg}), \
+                mock.patch.object(units, "hostexec_run", lambda path=None: seen.append(path) or fake):
+            self.assertEqual(ctl.main(["a", "control-start"], out=lambda m: None, who=ME), 0)
+        self.assertEqual(seen, [reg])
 
     def test_start_never_skips_self(self):
         fake = FakeSystemd({"coordinator": "inactive"})
