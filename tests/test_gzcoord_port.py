@@ -867,6 +867,10 @@ def _():
     def boom(_argv):
         raise RuntimeError("unforeseen")
     inbox.main = boom
+    # The watch lock is taken in this process: a runtime directory of its own, because a runner's /run/user/<uid> may
+    # not be writable and the lock's warning would reach the stderr this case asserts empty (found in the smoke containers).
+    saved_runtime = os.environ.get("XDG_RUNTIME_DIR")
+    os.environ["XDG_RUNTIME_DIR"] = P.scratch("runtime-")
     try:
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -878,6 +882,10 @@ def _():
         ok("unforeseen" in err.getvalue() and not out.getvalue(), out.getvalue() + err.getvalue())
     finally:
         inbox.main = saved
+        if saved_runtime is None:
+            os.environ.pop("XDG_RUNTIME_DIR", None)
+        else:
+            os.environ["XDG_RUNTIME_DIR"] = saved_runtime
 
 
 @case("--until-delivery: a delivery the journal cannot keep ends it with exit 6 and the held line on stdout, not at the timeout")
