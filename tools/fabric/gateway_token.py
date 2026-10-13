@@ -8,7 +8,8 @@ file. Replacing the file is how `fabric-accounts assign` takes effect on the gat
 generation and no session restart.
 
 CONTRACT
-  token_path(uid)   <runtime root>/<uid>/agent-fabric/gateway/claude-subscription.token, the runtime root being
+  token_path(uid)   <runtime root>/<uid>/agent-fabric/gateway/claude-subscription.token (`name=SIGNIN_NAME`: the Codex
+                    review's chatgpt-signin.json beside it, written and removed the same way), the runtime root being
                     /run/user: a tmpfs only the login can enter. Absolute and in normal form, as the gateway requires.
   write(token, uid) the file holds the token's bytes, no newline; mode 0600, owned by the login; written by a new
                     file in the same directory (mkstemp: O_EXCL, 0600) and renamed over the old one, so a change is a
@@ -42,6 +43,9 @@ from collections.abc import Callable
 RUNTIME_ROOT = "/run/user"
 SUBDIRS = ("agent-fabric", "gateway")
 NAME = "claude-subscription.token"
+# Beside it, the Codex review's synced ChatGPT sign-in (ADR-053 rule 8; chatgpt_signin.py): the same directory, checks
+# and replacement, a different file.
+SIGNIN_NAME = "chatgpt-signin.json"
 # The filesystems whose permissions the gateway's checks read whole (contract §10).
 ADMITTED_FS = frozenset({"ext2", "ext3", "ext4", "xfs", "btrfs", "tmpfs"})
 ACL_ACCESS, ACL_DEFAULT = "system.posix_acl_access", "system.posix_acl_default"
@@ -52,8 +56,8 @@ class TokenFileError(Exception):
     """The token file cannot be written the way the gateway will read it: one line, naming the first check that failed."""
 
 
-def token_path(uid: int, runtime_root: str = RUNTIME_ROOT) -> str:
-    return os.path.join(runtime_root, str(uid), *SUBDIRS, NAME)
+def token_path(uid: int, runtime_root: str = RUNTIME_ROOT, name: str = NAME) -> str:
+    return os.path.join(runtime_root, str(uid), *SUBDIRS, name)
 
 
 def filesystem_of(path: str, mountinfo: str = "/proc/self/mountinfo") -> str:
@@ -150,12 +154,12 @@ def _read(path: str) -> bytes | None:
 
 
 def write(token: str, uid: int | None = None, runtime_root: str = RUNTIME_ROOT,
-          fs_of: Callable[[str], str] = filesystem_of, check_from: str = os.sep) -> str:
+          fs_of: Callable[[str], str] = filesystem_of, check_from: str = os.sep, name: str = NAME) -> str:
     uid = os.getuid() if uid is None else uid
     # A setup-token is printable ASCII; it goes into an Authorization header, where nothing else is a valid value.
     if not token or any(not 0x21 <= ord(c) <= 0x7E for c in token):
         raise TokenFileError("the token is empty or carries a space, a control character or a non-ASCII one; nothing written")
-    path = token_path(uid, runtime_root)
+    path = token_path(uid, runtime_root, name)
     try:
         _make_dirs(path, uid, runtime_root)
         _check_path(path, uid, fs_of, check_from)
@@ -166,7 +170,7 @@ def write(token: str, uid: int | None = None, runtime_root: str = RUNTIME_ROOT,
             if stat.S_IMODE(st.st_mode) == 0o600 and st.st_uid == uid and _acl(path, ACL_ACCESS) is None:
                 return "unchanged"
         directory = os.path.dirname(path)
-        fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{NAME}.")
+        fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{name}.")
         try:
             with os.fdopen(fd, "wb") as fh:
                 fh.write(data)
@@ -183,8 +187,8 @@ def write(token: str, uid: int | None = None, runtime_root: str = RUNTIME_ROOT,
         raise TokenFileError(f"{path}: cannot be written ({e.strerror or e.errno})") from None
 
 
-def remove(uid: int | None = None, runtime_root: str = RUNTIME_ROOT) -> str:
-    path = token_path(os.getuid() if uid is None else uid, runtime_root)
+def remove(uid: int | None = None, runtime_root: str = RUNTIME_ROOT, name: str = NAME) -> str:
+    path = token_path(os.getuid() if uid is None else uid, runtime_root, name)
     try:
         os.unlink(path)
     except FileNotFoundError:

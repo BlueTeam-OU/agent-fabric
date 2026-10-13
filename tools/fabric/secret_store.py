@@ -203,6 +203,7 @@ from secretstore.accounts import (  # noqa: E402
     template_set,
     templates,
     assign,
+    codex_assign,
     paper,
 )
 from secretstore.backup import (  # noqa: E402
@@ -363,6 +364,11 @@ def main(argv: list[str] | None = None) -> int:
     asg.add_argument("logins", nargs="+")
     asg.add_argument("--json", action="store_true")
     asg.add_argument("--force", action="store_true", help="write even when this store's record says unchanged")
+    cax = sub.add_parser("codex-assign", help="the Codex review's ChatGPT access token and account id into each login's store (ADR-053 rule 8)")
+    cax.add_argument("logins", nargs="+")
+    cax.add_argument("--home", default=None, help="the sign-in's CODEX_HOME (default ~/.codex-chatgpt)")
+    cax.add_argument("--json", action="store_true")
+    cax.add_argument("--force", action="store_true", help="write even when this store's record says unchanged")
     args = ap.parse_args(argv)
     try:
         if args.cmd == "init":
@@ -480,6 +486,14 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 for r in rows:
                     print(f"{r['login']:<22} {r['from']:<30} -> {r.get('to', '-'):<30} {r['status']}{('  ' + r['reason']) if r.get('reason') else ''}")
+            return 0 if all(r["status"] != "failed" for r in rows) else 1
+        elif args.cmd == "codex-assign":
+            rows = codex_assign(args.logins, args.home or os.path.join(os.path.expanduser("~"), ".codex-chatgpt"), force=args.force)
+            if args.json:
+                print(json.dumps(rows))
+            else:
+                for r in rows:
+                    print(f"{r['login']:<22} {r['status']}{('  ' + r['reason']) if r.get('reason') else ''}")
             return 0 if all(r["status"] != "failed" for r in rows) else 1
     except StoreError as e:
         print(f"fabric-secrets store: {e}", file=sys.stderr)

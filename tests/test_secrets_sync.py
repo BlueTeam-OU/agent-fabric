@@ -20,6 +20,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(HERE, "tools", "fabric", "secrets_sync.py")
 SHIM = os.path.join(HERE, "runtime", "provisioning", "secrets", "fabric-secrets")
 FAKE_GH = os.path.join(HERE, "tests", "fixtures", "fake_gh_auth.py")
+sys.path.insert(0, os.path.join(HERE, "tests"))
 spec = importlib.util.spec_from_file_location("secrets_sync", TOOL)
 s = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(s)
@@ -58,6 +59,7 @@ def main() -> int:
     def fake_fetch_values(pull: bool = True):
         pulls.append(pull)
         return (None, store["error"]) if store["error"] else (dict(store["values"]), None)
+    real_fetch_values = s.fetch_values
     s.fetch_values = fake_fetch_values
     s.fetch_names = lambda: (None, store["error"]) if store["error"] else (list(store["values"]), None)
     real_load_store = s.load_store
@@ -151,6 +153,69 @@ def main() -> int:
                 check("a store that holds no token takes the file away", not os.path.exists(tokpath) and rc == 0, jout)
                 run(s.sync, False, True)
                 check("…and a second time says nothing and fails nothing", not os.path.exists(tokpath))
+                # The Codex review's synced sign-in (ADR-053 rule 8), a second file in the same directory.
+                import time as _time
+                from chatgpt_fixtures import ACCOUNT as CG_ACCOUNT, fake_jwt
+                signin_path = s.gateway_token.token_path(os.getuid(), gtmp, s.gateway_token.SIGNIN_NAME)
+                cg_access = fake_jwt(int(_time.time()) + 20 * 86400, "SYNC-SENTINEL")
+                store["values"]["CODEX_CHATGPT_ACCESS_TOKEN"], store["values"]["CODEX_CHATGPT_ACCOUNT_ID"] = cg_access, CG_ACCOUNT
+                rc, jout = run(s.sync, False, True)
+                report = json.loads(jout)
+                with open(signin_path, encoding="utf-8") as fh:
+                    signin_text = fh.read()
+                check("a store holding the two CODEX_CHATGPT_* names: the sign-in file is written, 0600, exactly {access_token, account_id}",
+                      rc == 0 and s.file_mode(signin_path) == 0o600 and json.loads(signin_text) == {"access_token": cg_access, "account_id": CG_ACCOUNT}
+                      and "CODEX_CHATGPT_* into the Codex sign-in file" in report["applied"], jout)
+                check("…and no value is in the report, in secrets.env or in env.sh",
+                      "SYNC-SENTINEL" not in jout and cg_access not in jout and CG_ACCOUNT not in jout
+                      and "CODEX_" not in open(envf, encoding="utf-8").read() and "CODEX_" not in open(s.shell_env_file(), encoding="utf-8").read()
+                      and "CODEX_CHATGPT_ACCESS_TOKEN" not in report["present"] + report["optional"] + report["unexpected"], jout)
+                ino = os.stat(signin_path).st_ino
+                run(s.sync, False, True)
+                check("the same pair again: the file is left, its inode too", os.stat(signin_path).st_ino == ino)
+                rc, jout = run(s.status, True)
+                check("status says the file's mode and never its content",
+                      json.loads(jout)["local"]["codex_signin_file_mode"] == "0600" and "SYNC-SENTINEL" not in jout)
+                check("the Claude token's file is not the sign-in's file", not os.path.exists(tokpath) and os.path.exists(signin_path))
+                del store["values"]["CODEX_CHATGPT_ACCOUNT_ID"]
+                rc, jout = run(s.sync, False, True)
+                check("only one of the two: the file is taken away and the report says why, naming no value",
+                      rc == 0 and not os.path.exists(signin_path) and any("only one of the two" in x for x in json.loads(jout)["skipped"])
+                      and "SYNC-SENTINEL" not in jout, jout)
+                store["values"]["CODEX_CHATGPT_ACCOUNT_ID"] = "not-an-account-id"
+                rc, jout = run(s.sync, False, True)
+                check("a pair the backend would not take is not written, the old file is gone, and no value is said",
+                      rc == 0 and not os.path.exists(signin_path) and any("not applied" in x for x in json.loads(jout)["skipped"])
+                      and "SYNC-SENTINEL" not in jout and "not-an-account-id" not in jout, jout)
+                store["values"]["CODEX_CHATGPT_ACCOUNT_ID"] = CG_ACCOUNT
+                run(s.sync, False, True)
+                # A human login runs no review: nothing is applied for it, with a good pair in hand.
+                os.unlink(signin_path)
+                applied_h, skipped_h = s.apply_signin_file({"CODEX_CHATGPT_ACCESS_TOKEN": cg_access, "CODEX_CHATGPT_ACCOUNT_ID": CG_ACCOUNT}, True)
+                check("a human login applies no sign-in file and says nothing", (applied_h, skipped_h) == (None, None)
+                      and not os.path.exists(signin_path))
+                # The real fetch_values asks the store for the two names (the fake above answers whatever it holds).
+                asked: list = []
+
+                class AskedStore:
+                    def pull(self):
+                        pass
+
+                    def values(self, only):
+                        asked.append(list(only))
+                        return {}
+                real_load = s.load_store
+                s.load_store = lambda: AskedStore()
+                try:
+                    real_fetch_values(False)
+                finally:
+                    s.load_store = real_load
+                check("the store is asked for CODEX_CHATGPT_ACCESS_TOKEN and CODEX_CHATGPT_ACCOUNT_ID", asked
+                      and set(s.CODEX_NAMES) <= set(asked[0]), asked)
+                for gone in ("CODEX_CHATGPT_ACCESS_TOKEN", "CODEX_CHATGPT_ACCOUNT_ID"):
+                    store["values"].pop(gone)
+                rc, jout = run(s.sync, False, True)
+                check("a store that holds neither takes the file away", rc == 0 and not os.path.exists(signin_path), jout)
             finally:
                 s.home_is_login_home, s.GATEWAY_RUNTIME_ROOT, s.GATEWAY_CHECK_FROM, s.GATEWAY_FS_OF = seam
             check("the env file is 0600", s.file_mode(envf) == 0o600)
@@ -348,6 +413,19 @@ def main() -> int:
                       out[:300])
                 rc, out = run(s.status, False)
                 check("…and status is OK for it", rc == 0 and "missing: (none)" in out and "  OK" in out, out)
+                # The Codex sign-in is an agent's: sync() passes a human's kind to it, which says nothing and applies nothing
+                # (a sandbox HOME makes an agent's sync SAY it skipped the file, the control below).
+                pair = {"CODEX_CHATGPT_ACCESS_TOKEN": fake_jwt(int(_time.time()) + 20 * 86400), "CODEX_CHATGPT_ACCOUNT_ID": CG_ACCOUNT}
+                store["values"] = {**human, **pair}
+                rc, out = run(s.sync, False, True)
+                check("a human's sync says nothing of the Codex sign-in file",
+                      rc == 0 and not [x for x in json.loads(out)["skipped"] + json.loads(out)["applied"] if "Codex sign-in" in x], out[:300])
+                kinds({ME: "agent"})
+                store["values"] = {**fixture(ME), **pair}
+                rc, out = run(s.sync, False, True)
+                check("…while an agent's sync in the same sandbox says it skipped the file",
+                      any("Codex sign-in file (HOME is not the login's home" in x for x in json.loads(out)["skipped"]), out[:300])
+                kinds({ME: "human"})
                 store["values"] = {k: v for k, v in human.items() if k != "CLAUDE_BRIDGE_AUTH_TOKEN"}
                 rc, out = run(s.status, False)
                 check("a human without the relay credential: status exits 1, naming it",

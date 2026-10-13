@@ -6,11 +6,14 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import time
 from typing import Any, Callable
 
 from . import util
 from gzcoord import jsvalues as js  # noqa: E402 — util puts tools/fabric on sys.path
 from gzcoord.inbox_parts.tokens import synced_var  # noqa: E402
+import chatgpt_signin  # noqa: E402 — util puts tools/fabric on sys.path
+import gateway_token  # noqa: E402
 
 KEY_NAMES = ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN",
              "SERPAPI_API_KEY", "BRAVE_SEARCH_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
@@ -159,6 +162,32 @@ def store_refusal(home: str | None = None, store: str | None = None, children: s
 # mark. git config exits 1 when unset, gpg non-zero when the key is
 # unknown: both are absent.
 SIGNING_ROW = "signing key secret"
+
+# The Codex review's ChatGPT sign-in (ADR-053 rule 8): whether this login can run the review, and until when. The
+# login's own sign-in (~/.codex-chatgpt, the coordinator's) is read before the synced one, as the review gateway reads
+# them; only the expiry leaves, never a token, an account id or a fingerprint.
+CODEX_ROW = "codex review sign-in"
+
+
+def codex_signin(home: str | None = None, runtime_root: str = gateway_token.RUNTIME_ROOT, uid: int | None = None,
+                 now: float | None = None) -> dict:
+    """{name, present: False}; or {name, present: True, via: own|synced, state: ok|expired|unreadable, expires_at,
+    expired} (the last two unless unreadable)."""
+    home = os.path.expanduser("~") if home is None else home
+    uid = os.getuid() if uid is None else uid
+    now = time.time() if now is None else now
+    for via, read in (("own", lambda: chatgpt_signin.read_signin(os.path.join(home, ".codex-chatgpt"))),
+                      ("synced", lambda: chatgpt_signin.read_synced(gateway_token.token_path(uid, runtime_root, gateway_token.SIGNIN_NAME)))):
+        try:
+            _access, _account, exp = read()
+        except chatgpt_signin.Missing:
+            continue
+        except (chatgpt_signin.Refused, OSError):
+            return {"name": CODEX_ROW, "present": True, "via": via, "state": "unreadable"}
+        expired = exp <= now
+        return {"name": CODEX_ROW, "present": True, "via": via, "state": "expired" if expired else "ok",
+                "expires_at": util.iso_ms(exp * 1000), "expired": expired}
+    return {"name": CODEX_ROW, "present": False}
 
 
 def signing_secret(run: Callable[..., Any] = subprocess.run) -> dict:

@@ -19,6 +19,10 @@ pinned Python: `python3 tools/fabric/control/accounts.py`.
                                     replaced and the gateway takes it at its next request, and the
                                     row says whether the gateway's own log confirms it (a
                                     `gateway` object: generation, fingerprint, confirmed)
+  fabric-accounts codex-token <login…|all> [--no-sync] [--force] [--refresh] [--home DIR]
+                                    the Codex review's ChatGPT sign-in (ADR-053 rule 8): the coordinator's access
+                                    token and account id — never the refresh or id token — into each login's store,
+                                    then each login applies it (control/codex_token.py)
   fabric-accounts templates         each template's token fingerprint in the coordinator's store,
                                     to name the account behind a login's `setup-token <sha>`
                                     (fabric-ctl, fabric-status)
@@ -53,6 +57,7 @@ from control.ops import util  # noqa: E402
 from control.ops.usage import ACCOUNT_SLUG, account_slugs, accounts, accounts_dir, claude_bin, take_read_lock  # noqa: E402
 
 USAGE = """usage: fabric-accounts login <account> | list | read | templates | assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
+       fabric-accounts codex-token <login…|all> [--no-sync] [--force] [--refresh] [--home DIR]
        fabric-accounts switch [--tick | --log [N]]
   <account>: lowercase letters, digits and hyphens — the account's email with @ and . as -,
              e.g. claude-pzhuy-8alias-com (the template's name: CLAUDE_ACCOUNT_<ACCOUNT> in the
@@ -243,6 +248,13 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: dic
             _say(f"fabric-accounts: {util.node_error(e, cmd_)}")
             return 1
         return 1 if bad or r.returncode != 0 else 0
+    if cmd == "codex-token":
+        from control import codex_token
+        everyone = (placements or ctl().placements)(registry)
+
+        def agents() -> tuple[list[str], list[str]]:
+            return ([p["login"] for p in everyone if p["kind"] == "agent"], [p["login"] for p in everyone if p["kind"] == "human"])
+        return codex_token.main(argv[1:], env=env, root=root, agents=agents, run=run, spawn=spawn, say=_say)
     if cmd == "templates" and len(argv) == 1:
         ts = store_templates(run, root)
         if not ts:

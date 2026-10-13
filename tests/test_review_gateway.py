@@ -418,6 +418,75 @@ def main() -> int:
             check(f"{label}: the gateway was not even asked, nothing written, run or posted",
                   read("gw.log") == "" and not codex_ran() and not posted() and runtime_clean())
             check(f"{label}: no token in the message", no_secret_in(r.stderr) and soon not in r.stderr, r.stderr)
+        import shutil as _shutil      # main() imports shutil further down: a local name from there on
+        print("the synced sign-in (ADR-053 rule 8): used only by a login with no sign-in of its own")
+        synced_dir = os.path.join(run_dir, "agent-fabric", "gateway")
+        synced_file = os.path.join(synced_dir, "chatgpt-signin.json")
+        own_auth = os.path.join(signin, "auth.json")
+        synced_access = fake_jwt(int(time.time()) + 241 * 3600)      # a token of its own: a different exp than the login's
+
+        def write_synced(doc: dict | None = None, mode_: int = 0o600) -> None:
+            os.makedirs(synced_dir, mode=0o700, exist_ok=True)
+            doc = doc if doc is not None else {"access_token": synced_access, "account_id": ACCOUNT}
+            with open(synced_file, "w") as f:
+                json.dump(doc, f, separators=(",", ":"))
+            os.chmod(synced_file, mode_)
+
+        def drop_synced() -> None:
+            _shutil.rmtree(os.path.join(run_dir, "agent-fabric"), ignore_errors=True)
+
+        def only_synced_left() -> bool:
+            return os.listdir(os.path.join(run_dir, "agent-fabric")) == ["gateway"] and os.listdir(synced_dir) == ["chatgpt-signin.json"]
+
+        if os.path.exists(own_auth):
+            os.remove(own_auth)
+        write_synced(); reset()
+        r = run()
+        sv = (events("serve") or [{}])[0]
+        check("no sign-in of its own, a synced one: the review runs through the gateway, posts, and exits 0",
+              r.returncode == 0 and codex_ran() and posted(), r.stderr + r.stdout)
+        check("…the gateway's token file holds the SYNCED access token, and not the login's missing own",
+              sv.get("token_sha") == hashlib.sha256(synced_access.encode()).hexdigest(), sv)
+        check("…the synced file is left as it was, 0600, and nothing else of the review stays in the runtime directory",
+              only_synced_left() and (os.stat(synced_file).st_mode & 0o777) == 0o600, os.listdir(run_dir))
+        check("…no token of either sign-in is in what was said", synced_access not in r.stderr + r.stdout and no_secret_in(r.stderr + r.stdout))
+        write_synced({"access_token": fake_jwt(1000), "account_id": ACCOUNT}); reset()
+        r = run()
+        check("an expired synced token refuses, naming the expiry and who refreshes it, and nothing starts or posts",
+              r.returncode == 1 and "synced ChatGPT sign-in" in r.stderr and "expired" in r.stderr and "fabric-accounts codex-token" in r.stderr
+              and read("gw.log") == "" and not codex_ran() and not posted(), r.stderr)
+        write_synced({"access_token": fake_jwt(int(time.time()) + 10 * 60), "account_id": ACCOUNT}); reset()
+        r = run()
+        check("…and one with too little life left says the minutes", r.returncode == 1 and "minutes left" in r.stderr and not events("serve"), r.stderr)
+        write_synced(None, 0o644); reset()
+        r = run()
+        check("a synced file another user can read is refused", r.returncode == 1 and "readable by another user" in r.stderr
+              and not events("serve") and synced_access not in r.stderr, r.stderr)
+        write_synced({"access_token": synced_access}); reset()
+        r = run()
+        check("a synced file without an account id is refused as unusable", r.returncode == 1 and "cannot be used" in r.stderr
+              and "account_id" in r.stderr and not events("serve"), r.stderr)
+        drop_synced(); reset()
+        r = run()
+        check("no sign-in of its own and none synced: refused, naming both places and what puts the synced one there",
+              r.returncode == 1 and "no ChatGPT sign-in at" in r.stderr and "no synced ChatGPT sign-in at" in r.stderr
+              and "fabric-accounts codex-token" in r.stderr and read("gw.log") == "" and runtime_clean(), r.stderr)
+        write_synced(); write_signin(None, 0o644); reset()
+        r = run()
+        check("a sign-in of its own that is bad is refused as it is, never replaced by the synced one",
+              r.returncode == 1 and "chmod 600" in r.stderr and not events("serve") and not codex_ran(), r.stderr)
+        write_signin(); reset()
+        r = run()
+        sv = (events("serve") or [{}])[0]
+        check("a valid sign-in of its own wins over the synced one",
+              r.returncode == 0 and sv.get("token_sha") == hashlib.sha256(access.encode()).hexdigest(), sv)
+        os.remove(own_auth); write_synced(); reset()
+        r = run("--codex-home", os.path.join(tmp, "nowhere"))
+        check("--codex-home names a place and only that place: the synced file is not its fallback",
+              r.returncode == 1 and "no ChatGPT sign-in at" in r.stderr and "synced" not in r.stderr and not events("serve"), r.stderr)
+        drop_synced()
+        write_signin()
+
         write_signin({"auth_mode": "chatgpt", "tokens": {"access_token": fake_jwt(int(time.time()) + 2 * 3600), "account_id": ACCOUNT}})
         reset()
         r = run("--timeout", "300")

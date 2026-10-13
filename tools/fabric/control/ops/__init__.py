@@ -51,7 +51,7 @@ from .identity import identity, fabric, session, presence  # noqa: F401
 from .usage import (USAGE_URL, MESSAGES_URL, PROBE_MODEL, usage, windows_from_headers, ACCOUNTS_TIMEOUT_MS,  # noqa: F401
                     ACCOUNT_SLUG, accounts_dir, take_read_lock, account_slugs, claude_bin, parse_usage_report,
                     read_account, accounts, TOKEN_RATIOS, TOKENS_DAYS, equivalent, cache_hit, tokens)
-from .keys import KEY_NAMES, keys, STORE_ROW, store_refusal, SIGNING_ROW, signing_secret  # noqa: F401
+from .keys import KEY_NAMES, keys, STORE_ROW, store_refusal, SIGNING_ROW, signing_secret, CODEX_ROW, codex_signin  # noqa: F401
 from .host import host, DISK_TIMEOUT_MS, DISK_MAX_BUFFER, DISK_TOP, disk  # noqa: F401
 from .activity import (script_counts, langid_cmd, languages, recall_kind, recall, notes_dir, script,  # noqa: F401
                        WORKER_TYPE, worker_transcripts, source_locale, SOURCE_TAG)
@@ -135,7 +135,8 @@ def _host(ctx: Mapping[str, Any]) -> Any:
 def _keys(ctx: Mapping[str, Any]) -> Any:
     run = ctx.get("run")
     return [*keys(ctx.get("home")), signing_secret(**({"run": run} if run else {})),
-            store_refusal(ctx.get("home"), ctx.get("store_dir"))]
+            store_refusal(ctx.get("home"), ctx.get("store_dir")),
+            codex_signin(ctx.get("home"), **({"runtime_root": ctx["runtime_root"]} if ctx.get("runtime_root") else {}))]
 
 
 def _run_kw(ctx: Mapping[str, Any]) -> dict:

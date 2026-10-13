@@ -226,6 +226,58 @@ def main() -> int:
                   p.returncode == 0 and mine and mine[0]["status"] == "written" and got.stdout == TOKEN
                   and TOKEN not in p.stdout, p.stdout + p.stderr + got.stderr[-200:])
 
+            # The Codex review's ChatGPT sign-in (ADR-053 rule 8): the coordinator's access token and account id into each
+            # login's store, from the sign-in in its own home, and nothing else of it.
+            import time as _time
+            from chatgpt_fixtures import ACCOUNT as CGPT_ACCOUNT, ID_TOKEN, REFRESH, fake_jwt, write_signin
+            cgpt_home = os.path.join(parent["HOME"], ".codex-chatgpt")
+            now_s = int(_time.time())
+            write_signin(cgpt_home, now_s + 20 * 86400)
+            access = fake_jwt(now_s + 20 * 86400)
+            p = run(parent, "codex-assign", "kid", "--json")
+            rows = json.loads(p.stdout or "[]")
+            check("codex-assign writes the sign-in's two values into the child's store, and prints neither",
+                  p.returncode == 0 and rows and rows[0]["status"] == "written" and len(rows[0]["token_sha256_12"]) == 12
+                  and access not in p.stdout + p.stderr and CGPT_ACCOUNT not in p.stdout + p.stderr
+                  and REFRESH not in p.stdout + p.stderr and ID_TOKEN not in p.stdout + p.stderr, p.stdout + p.stderr)
+            subprocess.run(["git", "-C", child_store, "pull", "-q", "origin", "main"], check=True, env=child)
+            got = subprocess.run([sys.executable, "-c",
+                                  "import secret_store as s, json; v=s.values(only=s.names()); print(json.dumps({k: x for k, x in v.items() if k.startswith('CODEX_')}))"],
+                                 cwd=os.path.dirname(TOOL), env=child, capture_output=True, text=True)
+            held = json.loads(got.stdout or "{}")
+            check("the child holds exactly the access token and the account id, none of the refresh or id token",
+                  held == {"CODEX_CHATGPT_ACCESS_TOKEN": access, "CODEX_CHATGPT_ACCOUNT_ID": CGPT_ACCOUNT}
+                  and REFRESH not in got.stdout and ID_TOKEN not in got.stdout, got.stdout[:100] + got.stderr)
+            check("…the parent's record is keyed by the agent id and holds the fingerprint",
+                  os.path.exists(os.path.join(own_env, f"CODEX_ASSIGNED_{KID.replace('-', '').upper()}.gpg"))
+                  and not os.path.exists(os.path.join(own_env, "CODEX_ASSIGNED_KID.gpg")), repr(sorted(os.listdir(own_env))))
+            p = run(parent, "codex-assign", "kid", "--json")
+            check("the same token again is unchanged", json.loads(p.stdout or "[{}]")[0].get("status") == "unchanged", p.stdout + p.stderr)
+            p = run(parent, "codex-assign", "kid", "--force", "--json")
+            check("--force writes it again", json.loads(p.stdout or "[{}]")[0].get("status") == "written", p.stdout + p.stderr)
+            p = run(parent, "codex-assign", "nobody-here", "--json")
+            check("a login lineage does not know is a failed row, not a traceback",
+                  p.returncode == 1 and json.loads(p.stdout or "[{}]")[0].get("status") == "failed", p.stdout + p.stderr)
+            p = run(parent, "codex-assign", PID, "--json")
+            check("the store's own agent gets its own entries", p.returncode == 0 and json.loads(p.stdout or "[{}]")[0].get("status") == "written"
+                  and os.path.exists(os.path.join(own_env, "CODEX_CHATGPT_ACCESS_TOKEN.gpg")), p.stdout + p.stderr)
+            write_signin(cgpt_home, now_s + 600)
+            before = sorted(os.listdir(own_env))
+            p = run(parent, "codex-assign", "kid", "--force", "--json")
+            check("a token with under an hour left is not distributed, and nothing is written",
+                  p.returncode == 1 and re.search(r"\d+ minutes left", p.stderr) and sorted(os.listdir(own_env)) == before, p.stdout + p.stderr)
+            write_signin(cgpt_home, now_s - 60)
+            p = run(parent, "codex-assign", "kid", "--force")
+            check("an expired one says so", p.returncode == 1 and "has expired" in p.stderr, p.stderr)
+            write_signin(cgpt_home, now_s + 20 * 86400, mode=0o640)
+            p = run(parent, "codex-assign", "kid", "--force")
+            check("a sign-in another user can read is refused", p.returncode == 1 and "readable by another user" in p.stderr, p.stderr)
+            shutil.rmtree(cgpt_home)
+            p = run(parent, "codex-assign", "kid")
+            check("no sign-in is a refusal that writes nothing", p.returncode == 1 and "no sign-in" in p.stderr, p.stderr)
+            p = run(parent, "set", "CODEX_CHATGPT_ACCESS_TOKEN", stdin="x\n")
+            check("an agent cannot set the managed names itself", p.returncode == 1 and "fabric-accounts codex-token" in p.stderr, p.stderr)
+
             # provision (the Doppler enrolment's replacement): the parent
             # fills the child's store with put, reads nothing back, prints
             # no value. Shared names are an allowlist.

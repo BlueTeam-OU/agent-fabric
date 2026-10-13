@@ -96,6 +96,67 @@ def assign(slug: str, logins: list[str], *, force: bool = False) -> list[dict]:
         return rows
 
 
+# ── the Codex review's ChatGPT sign-in (ADR-053 rule 8), from the coordinator's own ──
+CODEX_ACCESS = "CODEX_CHATGPT_ACCESS_TOKEN"
+CODEX_ACCOUNT = "CODEX_CHATGPT_ACCOUNT_ID"
+CODEX_ASSIGNED_PREFIX = "CODEX_ASSIGNED_"
+CODEX_MIN_LIFE_S = 3600
+
+
+def _codex_assigned_name(agent_id: str) -> str:
+    return CODEX_ASSIGNED_PREFIX + agent_id.replace("-", "").upper()
+
+
+def codex_assign(logins: list[str], signin_home: str, *, force: bool = False, now: float | None = None) -> list[dict]:
+    """The access token and the account id of the ChatGPT sign-in in `signin_home` (the coordinator's ~/.codex-chatgpt),
+    into each login's store as CODEX_CHATGPT_ACCESS_TOKEN and CODEX_CHATGPT_ACCOUNT_ID, written by the parent (which
+    cannot read them back); the assignment is recorded in the parent's own store as the token's fingerprint, since the
+    parent cannot read the child's. ONLY those two: the refresh and id tokens are not read out of the sign-in
+    (chatgpt_signin.read_signin keeps three values), so they are in no entry, row, log or argument. A token with under
+    an hour left is not distributed. The account id goes first: a login that took it and not the token holds the old
+    token with the same account."""
+    import time
+
+    import chatgpt_signin
+    try:
+        access, account, exp = chatgpt_signin.read_signin(signin_home)
+    except chatgpt_signin.Refused as e:
+        raise StoreError(f"{e}; nothing written") from None
+    left = exp - (time.time() if now is None else now)
+    if left < CODEX_MIN_LIFE_S:
+        raise StoreError(f"the sign-in's access token {'has expired' if left <= 0 else f'has {int(left // 60)} minutes left'} "
+                         "(refresh it: CODEX_HOME=<dir> codex exec once); nothing written")
+    fp = _sha12(access)
+    own = store_dir()
+    with write_lock(own):
+        _before_write(own)
+        _push_if_ahead(own)
+        vals = values(only=[n for n in names() if n.startswith(CODEX_ASSIGNED_PREFIX)])
+        me = own_agent_id(own)
+        rows = []
+        for who in logins:
+            try:
+                aid, lin = resolve(who)
+            except StoreError as e:
+                rows.append({"login": who, "status": "failed", "reason": str(e)[:160]})
+                continue
+            who, rec = lin.get("login") or who, _codex_assigned_name(aid)
+            if (vals.get(rec) or "") == fp and not force:
+                rows.append({"login": who, "status": "unchanged", "token_sha256_12": fp, "expires_at_epoch": exp})
+                continue
+            try:
+                for name, value in ((CODEX_ACCOUNT, account), (CODEX_ACCESS, access)):
+                    if aid == me:
+                        set_entry(name, value.encode(), exact=True)
+                    else:
+                        put(aid, name, value.encode(), exact=True)
+                set_entry(rec, fp.encode(), exact=True)
+                rows.append({"login": who, "status": "written", "token_sha256_12": fp, "expires_at_epoch": exp})
+            except StoreError as e:
+                rows.append({"login": who, "status": "failed", "reason": str(e)[:160]})
+        return rows
+
+
 # ── the owner's sheet ─────────────────────────────────────────────────
 def _sheet_text() -> str:
     """The agent's secret key as paperkey text, with its revocation
