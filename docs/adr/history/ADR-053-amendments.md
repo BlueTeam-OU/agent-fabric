@@ -53,3 +53,11 @@ Codex capacity failure: a pull request waits for the engine. The owner's
 word, in the coordinator's session: "add codex review for all agents,
 change adr-053 so it don't specify the reviewer - only that review is
 required".
+
+### Amendment 2026-10-13 — An additional engine counts by its review or its unavailable marker
+
+The fleet's codex review moved from required to additional when the ChatGPT
+workspace ran out of its Codex allowance and every arm stopped (ADR-055
+rule 8, the owner: "codex is 'more' not a blocking"). The amendment of the
+same day that made both engines the fleet default is history: the policy
+now requires claude and lists codex as additional.
