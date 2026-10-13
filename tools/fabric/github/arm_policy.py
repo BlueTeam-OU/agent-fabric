@@ -390,6 +390,33 @@ def required_engines(policy: dict, boundary: bool) -> list[str]:
     return [e for e in ENGINES if e in wanted]
 
 
+def engines_on_head(rows: Any, head: str) -> set[str]:
+    """The engines with a review of `head` among pr-review-status --json's blind.rows: the reading fabric-pr arm gates
+    on, and the gate and counts report. A row with no engine is the review class's: reviews posted before the field
+    existed were all Claude's."""
+    return {r.get("engine", "claude") for r in rows or [] if isinstance(r, dict) and r.get("commit_sha8") == head[:8]}
+
+
+# What a summary opens with when every required engine has reviewed the head, and only then: three PRs were reported
+# ready from a gate line that said it while one of the two engines the arm requires had not (REQUEST 01a13693).
+HEAD_REVIEWED = "head reviewed"
+
+
+def review_summary(have: set[str], required: list[str], head: str, boundary_only: list[str] = (), unread: str = "") -> str:
+    """"claude ✓ codex ✗ (head 6bc0ad18)", one mark per required engine, opened by "head reviewed: " when all are
+    there. `boundary_only` engines (a policy's boundary_reviews beyond its reviews, for a reader that does not judge
+    the boundary) are marked and not required. `unread` is why the policy could not be read, when every engine was
+    required for that reason: said on the line, or a missing engine reads as the repository's own requirement."""
+    marks = [f"{e} {'✓' if e in have else '✗'}" for e in required]
+    marks += [f"{e} {'✓' if e in have else '✗'} (boundary only)" for e in boundary_only if e not in required]
+    line = f"{' '.join(marks)} (head {head[:8]}{f'; policy unread, every engine required: {unread}' if unread else ''})"
+    return f"{HEAD_REVIEWED}: {line}" if all(e in have for e in required) else line
+
+
+def is_head_reviewed(summary: str) -> bool:
+    return summary.startswith(f"{HEAD_REVIEWED}:")
+
+
 def ruleset_name(policy: dict) -> str:
     return policy["github"]["ruleset"]
 

@@ -17,6 +17,13 @@ harness: the nearest ancestor of this hook named `claude` (session-state.py's
 rule). The process table is read from /proc and passed in as `procs`, so a
 test supplies its own.
 
+A watch outside the session's tree counts too when it holds gzcoord-inbox's
+one-watch lock ($XDG_RUNTIME_DIR/agent-fabric/gzcoord-inbox-*.lock, whose
+first line is the holder's pid): gzcoord-inbox runs one watch per login and
+refuses a second, so asking this session for one would only loop. A lock
+naming a pid that is gone, or that is no watch, counts for nothing. The
+lock directory is passed in as `run_dir`, so a test supplies its own.
+
 It passes, printing nothing, when: stop_hook_active; no harness ancestor; the
 session has no fabric binding or its project has no GZCoord integration
 (the watch would exit 3 at once, and "start it" would loop); or it blocked
@@ -26,6 +33,7 @@ internal error passes: a guard never stands in a session's way.
 """
 from __future__ import annotations
 
+import glob
 import importlib.util
 import json
 import os
@@ -83,7 +91,7 @@ def is_watch(cmd: str) -> bool:
     return mod.is_watch(cmd)
 
 
-def has_watch(procs: dict, session: int) -> bool:
+def has_watch(procs: dict, session: int, run_dir: str | None = None) -> bool:
     for pid, (_, _, cmd) in procs.items():
         if not is_watch(cmd):
             continue
@@ -94,6 +102,25 @@ def has_watch(procs: dict, session: int) -> bool:
                 return True
             if a <= 1:
                 break
+    return lock_holder_is_watch(procs, run_dir)
+
+
+def lock_holder_is_watch(procs: dict, run_dir: str | None = None) -> bool:
+    """gzcoord-inbox lets one watch run per login and names its pid in a lock file
+    ($XDG_RUNTIME_DIR/agent-fabric/gzcoord-inbox-*.lock). A live watch named there is this
+    login's watch even when another session or a hand start owns it: asking for a second
+    would only be refused ("do not run it again") and loop."""
+    run_dir = run_dir or os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    for path in glob.glob(os.path.join(run_dir, "agent-fabric", "gzcoord-inbox-*.lock")):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                first = fh.read(64).split()
+            pid = int(first[0]) if first else 0
+        except (OSError, ValueError):
+            continue
+        entry = procs.get(pid)
+        if entry and is_watch(entry[2]):
+            return True
     return False
 
 
@@ -153,14 +180,14 @@ def integrated(cwd: str | None, session: str | None) -> bool:
 
 
 def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=integrated,
-           own_pid: int | None = None) -> dict | None:
+           own_pid: int | None = None, run_dir: str | None = None) -> dict | None:
     if payload.get("stop_hook_active"):
         return None
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
         return None
     session = harness_pid(procs, own_pid or os.getpid())
-    if session is None or has_watch(procs, session):
+    if session is None or has_watch(procs, session, run_dir):
         return None
     if recently_blocked(path, session_id, now) or not is_integrated(payload.get("cwd"), session_id):
         return None
