@@ -174,7 +174,9 @@ def run() -> None:
         os.makedirs(scratch)
         for mode in ("fail", "nofile", "wrongdigest"):
             r = commit(fmt, "b" + mode, e=env(FAKE_OTS_MODE=mode, TMPDIR=scratch))
-            check(f"[{mode}] no signature is left in TMPDIR", os.listdir(scratch) == [], str(os.listdir(scratch)))
+            # Only *.sig: some git versions also leave their own .git_signing_key_tmp* (a public key) behind.
+            left = [n for n in os.listdir(scratch) if n.endswith(".sig")]
+            check(f"[{mode}] no signature is left in TMPDIR", left == [], str(left))
             check(f"[{mode}] the commit fails", r.returncode != 0, r.stdout)
             check(f"[{mode}] and no commit was made", head() == before, head())
             check(f"[{mode}] the message says the commit is not signed", "not signed" in r.stderr, r.stderr)
