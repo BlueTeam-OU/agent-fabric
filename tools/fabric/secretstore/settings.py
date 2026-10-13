@@ -7,27 +7,39 @@ Contract of `settings_put(src)`:
   input   a directory; its tree is copied to <store>/settings/, adding and
           overwriting, never deleting what the store already holds there.
   refused before the store is touched, each naming the path: a source that
-          is not a directory or is a link; any entry in it that is not a
-          plain file or directory (a link, a device, a socket); a file or
-          the whole tree over its size cap; settings/profile.json that is
-          not JSON, does not match identities/schemas/persona-profile.schema.json
-          (read from the operator's checkout; a checkout without it
-          refuses rather than skipping the check), names another agent
-          than this store's, or whose avatar.sha256 is not the sha256 of
-          the avatar.png the tree carries (or of the one the store holds,
-          when the tree carries none).
+          is not a directory or is a link; an entry that is not a plain
+          file or directory when opened (a link, device, FIFO, socket); an
+          entry that cannot be read, a file over its size cap, the tree
+          over its total cap; a name git treats as its own (.git*:
+          .gitignore would silently drop files from the commit).
+  refused under the lock, after the store is brought up to its remote and
+          before anything is written: when the tree carries a profile or an
+          avatar, the profile that will stand (the tree's, else the store's)
+          is not JSON, does not match identities/schemas/persona-profile.
+          schema.json (read from the operator's checkout; a checkout without
+          it refuses rather than skipping the check), names another agent
+          than this store's, or does not agree with the avatar that will
+          stand (the tree's, else the store's): avatar.sha256 is the sha256
+          of avatar.png; a path below settings/ that already holds a link in
+          the store, or untracked files left there.
   effect  under the store's write lock, brought up to its remote first
           (verified, ADR-042), then ONE commit signed through the store's
           own path ("agent <login>: settings"), then pushed. Nothing
           changed is no commit, and an earlier failed push is caught up.
-  result  {"files": [relative paths written, settings/-relative],
-           "changed": bool}.
-Nothing here reads or writes env/: a name that would reach it cannot, because
-every destination is joined below settings/ from a path that has been
-checked to hold no "..", no absolute part and no link.
+          A failure after the first file is written puts the store back
+          as it was: tracked files reset, files this run created removed.
+  result  {"files": [settings/-relative paths], "changed": bool}.
+
+Why descriptors: the source may be writable by another account (the threat
+model), so a check by path followed by an open by path is a race: the
+entry can become a link between the two, and the agent's own private file
+would be committed and pushed. Every entry is opened O_NOFOLLOW from its
+parent's descriptor, judged by fstat on what was opened, and read within
+its cap.
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -44,43 +56,77 @@ MAX_TREE_BYTES = 64 * 1024 * 1024
 PROFILE = "profile.json"
 AVATAR = "avatar.png"
 SCHEMA_REL = os.path.join("identities", "schemas", "persona-profile.schema.json")
+_OPEN = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
 def _read_tree(src: str) -> dict[str, bytes]:
-    """The source's regular files by their path below it; any other kind of
-    entry refuses, and nothing is read through a link."""
-    try:
-        top = os.lstat(src)
-    except OSError as e:
-        raise StoreError(f"{src}: {e.strerror or e}; nothing written") from None
-    if not stat.S_ISDIR(top.st_mode):
-        raise StoreError(f"{src} is not a directory (a link is not followed); nothing written")
+    """The source's regular files by their path below it; anything else, or
+    anything unreadable, refuses by path."""
     files: dict[str, bytes] = {}
     total = 0
-    for here, dirs, names in os.walk(src, followlinks=False):
-        for name in [*dirs, *names]:
-            path = os.path.join(here, name)
-            mode = os.lstat(path).st_mode
-            rel = os.path.relpath(path, src)
-            if stat.S_ISDIR(mode):
+
+    def walk(dfd: int, prefix: str) -> None:
+        nonlocal total
+        try:
+            names = sorted(os.listdir(dfd))
+        except OSError as e:
+            raise StoreError(f"{prefix or src}: {e.strerror or e}; nothing written") from None
+        for name in names:
+            rel = os.path.join(prefix, name)
+            if name.startswith(".git"):
+                raise StoreError(f"{rel}: a name git reads as its own (.git*) is refused; nothing written")
+            try:
+                before = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+            except OSError as e:
+                raise StoreError(f"{rel}: {e.strerror or e}; nothing written") from None
+            if stat.S_ISDIR(before.st_mode):
+                try:
+                    child = os.open(name, _OPEN | os.O_DIRECTORY, dir_fd=dfd)
+                except OSError as e:
+                    raise StoreError(f"{rel}: {e.strerror or e}; nothing written") from None
+                try:
+                    walk(child, rel)
+                finally:
+                    os.close(child)
                 continue
-            if not stat.S_ISREG(mode):
-                raise StoreError(f"{rel}: not a plain file or directory (a link, device or socket is refused); "
-                                 "nothing written")
-            size = os.lstat(path).st_size
-            total += size
-            if size > MAX_FILE_BYTES or total > MAX_TREE_BYTES:
+            try:
+                # O_NONBLOCK: a FIFO swapped in after the stat must not hang the open.
+                fd = os.open(name, _OPEN | os.O_NONBLOCK, dir_fd=dfd)
+            except OSError as e:
+                why = "a link is not followed" if e.errno == errno.ELOOP else (e.strerror or str(e))
+                raise StoreError(f"{rel}: {why}; nothing written") from None
+            try:
+                opened = os.fstat(fd)
+                if not stat.S_ISREG(opened.st_mode):
+                    raise StoreError(f"{rel}: not a plain file or directory (a link, device, FIFO or socket is "
+                                     "refused); nothing written")
+                with os.fdopen(fd, "rb", closefd=False) as fh:
+                    data = fh.read(MAX_FILE_BYTES + 1)
+            except OSError as e:
+                raise StoreError(f"{rel}: {e.strerror or e}; nothing written") from None
+            finally:
+                os.close(fd)
+            total += len(data)
+            if len(data) > MAX_FILE_BYTES or total > MAX_TREE_BYTES:
                 raise StoreError(f"{rel}: the tree is over the size cap ({MAX_FILE_BYTES} a file, "
                                  f"{MAX_TREE_BYTES} in all); nothing written")
-            with open(path, "rb") as fh:
-                files[rel] = fh.read()
+            files[rel] = data
+
+    # "link/" resolves the link whatever O_NOFOLLOW says: the final component must really be last.
+    src = src.rstrip(os.sep) or os.sep
+    try:
+        top = os.open(src, _OPEN | os.O_DIRECTORY)
+    except OSError as e:
+        why = "not a directory (a link is not followed)" if e.errno in (errno.ELOOP, errno.ENOTDIR) else (e.strerror or e)
+        raise StoreError(f"{src}: {why}; nothing written") from None
+    try:
+        walk(top, "")
+    finally:
+        os.close(top)
     return files
 
 
-def _validate_profile(files: dict[str, bytes], held_avatar: bytes | None, agent_id: str) -> None:
-    raw = files.get(PROFILE)
-    if raw is None:
-        return
+def _load_profile(raw: bytes, agent_id: str) -> dict:
     from lint_rules.schema import validate_json
     schema_path = os.path.join(roots.operator_root(), SCHEMA_REL)
     try:
@@ -97,11 +143,43 @@ def _validate_profile(files: dict[str, bytes], held_avatar: bytes | None, agent_
         raise StoreError("; ".join(problems[:5]) + "; nothing written")
     if doc["agent_id"] != agent_id:
         raise StoreError(f"{PROFILE} is for agent {doc['agent_id']}, this store is agent {agent_id}; nothing written")
-    avatar = files.get(AVATAR, held_avatar)
+    return doc
+
+
+def _held(store: str, name: str) -> bytes | None:
+    path = os.path.join(store, "settings", name)
+    if os.path.islink(path) or not os.path.isfile(path):
+        return None
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+def _check_standing(files: dict[str, bytes], store: str, agent_id: str) -> None:
+    """The profile and the avatar that will stand after the write agree.
+    Read under the lock, after the store caught up: the remote may hold
+    another avatar than the one this run last saw."""
+    if PROFILE not in files and AVATAR not in files:
+        return
+    raw = files.get(PROFILE, _held(store, PROFILE))
+    if raw is None:
+        return   # an avatar with no profile anywhere: nothing yet names its hash
+    doc = _load_profile(raw, agent_id)
+    avatar = files.get(AVATAR, _held(store, AVATAR))
     if avatar is None:
         raise StoreError(f"{PROFILE} names {AVATAR}, which neither the tree nor the store holds; nothing written")
     if hashlib.sha256(avatar).hexdigest() != doc["avatar"]["sha256"]:
         raise StoreError(f"{PROFILE}: avatar.sha256 is not the sha256 of {AVATAR}; nothing written")
+
+
+def _destination(store: str, rel: str) -> str:
+    """Below <store>/settings/ with no link on the way: a link committed
+    there would carry the write out of settings/."""
+    here = os.path.join(store, "settings")
+    for part in rel.split(os.sep):
+        here = os.path.join(here, part)
+        if os.path.islink(here):
+            raise StoreError(f"settings/{rel}: {os.path.relpath(here, store)} is a link in the store; nothing written")
+    return here
 
 
 def _put_file(dest: str, data: bytes) -> None:
@@ -119,25 +197,46 @@ def _put_file(dest: str, data: bytes) -> None:
         raise
 
 
+def _undo(store: str, created: list[str]) -> None:
+    """The store as it was: tracked files back, the files this run made gone."""
+    git(store, "reset", "-q", "--hard", "HEAD", check=False)
+    for path in created:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass   # never made (the write failed before it), or its directory is a file: nothing to remove
+
+
 def settings_put(src: str) -> dict:
     files = _read_tree(src)
     store = store_dir()
     aid = own_agent_id(store) if os.path.isdir(store) else None
     if not aid:
         raise StoreError("this account has no store yet (fabric-secrets store init); nothing written")
-    held = os.path.join(store, "settings", AVATAR)
-    held_avatar = None
-    if os.path.isfile(held):
-        with open(held, "rb") as fh:
-            held_avatar = fh.read()
-    _validate_profile(files, held_avatar, aid)
     with write_lock(store):
         entries._require_clean(store)
         entries._before_write(store)
-        for rel, data in sorted(files.items()):
-            _put_file(os.path.join(store, "settings", rel), data)
-        git(store, "add", "-A", "--", "settings")
-        changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
+        left = git(store, "status", "--porcelain", "--untracked-files=all", "--", "settings").stdout.decode().strip()
+        if left:
+            raise StoreError(f"{store} has untracked files below settings/ ({left.splitlines()[0][3:]}); nothing written")
+        _check_standing(files, store, aid)
+        dests = {rel: _destination(store, rel) for rel in files}
+        created = [d for d in dests.values() if not os.path.lexists(d)]
+        try:
+            for rel, data in sorted(files.items()):
+                _put_file(dests[rel], data)
+            git(store, "add", "-A", "--", "settings")
+            staged_all = set(git(store, "ls-files", "-z", "--", "settings").stdout.decode().split("\0"))
+            missing = sorted(f"settings/{rel}" for rel in files if f"settings/{rel}" not in staged_all)
+            if missing:
+                raise StoreError(f"{missing[0]} was not staged (git ignores it); nothing written")
+            changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
+        except StoreError:
+            _undo(store, created)
+            raise
+        except OSError as e:
+            _undo(store, created)
+            raise StoreError(f"{e.filename or 'settings'}: {e.strerror or e}; nothing written") from None
         if changed:
             _commit(store, f"agent {login()}: settings")
             entries._after_commit(store)

@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -170,14 +171,16 @@ def main() -> int:
             return json.dumps(doc).encode()
 
         def refused(label: str, src: str, *needles: str) -> None:
+            n0 = count()
             p = run("settings-put", "--from", src)
             check(label, p.returncode == 1 and "nothing written" in p.stderr and all(n in p.stderr for n in needles)
-                  and count() == start and g("status", "--porcelain") == "", p.stdout + p.stderr)
+                  and count() == n0 and g("status", "--porcelain") == "", p.stdout + p.stderr)
 
         refused("a source that is not there is refused", os.path.join(tmp, "nope"), "nope")
         refused("a file for a source is refused", tree("f", {"x": b"1"}) + "/x", "not a directory")
         os.symlink(tree("real", {"x": b"1"}), os.path.join(tmp, "linked"))
         refused("a link for a source is refused, not followed", os.path.join(tmp, "linked"), "not a directory")
+        refused("a link for a source is refused with a trailing slash too", os.path.join(tmp, "linked") + "/", "not a directory")
         refused("a link inside the tree is refused", tree("l", {"a": b"1"}, {"evil": "/etc/passwd"}), "evil")
         refused("a profile that is not JSON is refused", tree("j", {"profile.json": b"{"}), "not JSON")
         refused("a profile off the schema is refused, the field named",
@@ -194,6 +197,48 @@ def main() -> int:
                 tree("m", {"profile.json": profile(), "avatar.png": png}), "persona-profile.schema.json")
         with open(schema_dst, "wb") as fh:
             fh.write(schema_bytes)
+
+        refused("a .gitignore in the tree is refused: it would drop files from the commit without a word",
+                tree("gi", {".gitignore": b"note-*", "x": b"1"}), ".gitignore")
+        fifo = tree("ff", {"a": b"1"})
+        os.mkfifo(os.path.join(fifo, "pipe"))
+        refused("a FIFO is refused, not opened and waited on", fifo, "pipe", "not a plain file")
+        big = tree("big", {"a": b"1"})
+        with open(os.path.join(big, "huge"), "wb") as fh:
+            fh.truncate(16 * 1024 * 1024 + 1)
+        refused("a file over the size cap is refused", big, "huge", "size cap")
+        locked = tree("lk", {"a": b"1", "locked/b": b"2"})
+        os.chmod(os.path.join(locked, "locked"), 0)
+        refused("an unreadable directory is refused by name, never skipped", locked, "locked")
+        os.chmod(os.path.join(locked, "locked"), 0o700)
+
+        # The race the path-based check lost: the entry is a plain file when it is looked at and a link
+        # (or a FIFO) when it is opened. The lie below stands in for the swap; the open must still refuse.
+        from unittest import mock
+        import secretstore.settings as S
+        secret = os.path.join(tmp, "private")
+        with open(secret, "w") as fh:
+            fh.write("agent's own file")
+        swapped = tree("sw", {"keep": b"1"})
+        os.symlink(secret, os.path.join(swapped, "x"))
+        os.mkfifo(os.path.join(swapped, "y"))
+        real_stat = os.stat
+
+        def lying_stat(path, *a, dir_fd=None, follow_symlinks=True):
+            r = real_stat(path, *a, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+            if path in ("x", "y"):
+                return os.stat_result((stat.S_IFREG | 0o644, *tuple(r)[1:]))
+            return r
+        for victim in ("x", "y"):
+            only = tree(f"sw-{victim}", {"keep": b"1"})
+            os.symlink(secret, os.path.join(only, "x")) if victim == "x" else os.mkfifo(os.path.join(only, "y"))
+            with mock.patch.object(S.os, "stat", lying_stat):
+                try:
+                    got = S._read_tree(only)
+                    check(f"{victim}: swapped in after the stat, it is refused at the open, never read", False, repr(got))
+                except secret_store.StoreError as e:
+                    check(f"{victim}: swapped in after the stat, it is refused at the open, never read",
+                          victim in str(e) and "nothing written" in str(e), str(e))
 
         good = tree("good", {"profile.json": profile(), "avatar.png": png, "avatar-rejected/2.png": b"r", "avatar-rejected/2.txt": b"why\n"})
         p = run("settings-put", "--from", good)
@@ -219,7 +264,68 @@ def main() -> int:
         check("a profile alone is checked against the avatar the store holds, and added without deleting the rest",
               p.returncode == 0 and count() == before + 1 and "avatar-rejected/2.png" in g("ls-files", "settings"), p.stdout + p.stderr)
 
-        check("env/ was never touched", g("ls-files", "env") == "" or all(f.startswith("env/") for f in g("ls-files", "env").split()))
+
+        held_profile = g("show", "HEAD:settings/profile.json")
+        refused("an avatar alone that the store's profile does not name is refused: the result is checked, not the tree",
+                tree("av", {"avatar.png": png + b"new"}), "sha256")
+        wrong = json.loads(profile())
+        wrong["avatar"]["sha256"] = "0" * 64
+        refused("a profile alone whose sha256 is not the store's avatar is refused",
+                tree("pw", {"profile.json": json.dumps(wrong).encode()}), "sha256")
+        for part in ("a link below settings/ in the store", ):
+            pass
+
+        before_fail = count()
+        broken = tree("brk", {"a-new.txt": b"1", "avatar-rejected/2.png": b"changed", "avatar.png/x": b"z"})
+        p = run("settings-put", "--from", broken)
+        check("a write that fails half way puts the store back: nothing staged, modified or left over",
+              p.returncode == 1 and "nothing written" in p.stderr and "Traceback" not in p.stderr and g("status", "--porcelain",
+              "--untracked-files=all") == "" and not os.path.exists(os.path.join(store, "settings", "a-new.txt"))
+              and g("show", "HEAD:settings/avatar-rejected/2.png") == "r" and count() == before_fail, p.stderr[-900:])
+        p = run("settings-put", "--from", tree("after", {"avatar-rejected/3.txt": b"ok\n"}))
+        check("…and the next write works", p.returncode == 0 and "committed" in p.stdout, p.stdout + p.stderr)
+
+        # A push that failed leaves the commit local; the next run, with nothing new to write, catches it up.
+        hook = os.path.join(remote, "hooks", "pre-receive")
+        with open(hook, "w") as fh:
+            fh.write("#!/bin/sh\nexit 1\n")
+        os.chmod(hook, 0o755)
+        later = tree("later", {"avatar-rejected/4.txt": b"4\n"})
+        p = run("settings-put", "--from", later)
+        local = g("rev-parse", "HEAD").strip()
+        remote_head = subprocess.run(["git", "--git-dir", remote, "rev-parse", "main"], capture_output=True, text=True).stdout.strip()
+        check("a refused push is an error and leaves the commit local", p.returncode != 0 and local != remote_head, p.stdout + p.stderr)
+        os.unlink(hook)
+        p = run("settings-put", "--from", later)
+        remote_head = subprocess.run(["git", "--git-dir", remote, "rev-parse", "main"], capture_output=True, text=True).stdout.strip()
+        check("…and the same tree again pushes it, as no new commit", p.returncode == 0 and "unchanged" in p.stdout
+              and remote_head == g("rev-parse", "HEAD").strip(), p.stdout + p.stderr)
+
+        # A .gitignore already committed in the store would drop new files from the commit unannounced.
+        with open(os.path.join(store, "settings", ".gitignore"), "w") as fh:
+            fh.write("note-*\n")
+        subprocess.run(["git", "-C", store, "add", "-f", "-A"], check=True, env=env)
+        subprocess.run(["git", "-C", store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                        "commit", "-q", "-m", "an ignore file"], check=True, env=env)
+        n_ign = count()
+        p = run("settings-put", "--from", tree("ign", {"avatar-rejected/note-1": b"x"}))
+        check("a file git would ignore is refused, never reported as committed", p.returncode == 1
+              and "not staged" in p.stderr and count() == n_ign and g("status", "--porcelain", "--untracked-files=all") == "",
+              p.stdout + p.stderr)
+        subprocess.run(["git", "-C", store, "reset", "-q", "--hard", "HEAD~1"], check=True, env=env)
+
+        # A link committed below settings/ in the store carries a write out of it: refused.
+        os.symlink(secret, os.path.join(store, "settings", "trap"))
+        subprocess.run(["git", "-C", store, "add", "-A"], check=True, env=env)
+        subprocess.run(["git", "-C", store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                        "commit", "-q", "-m", "a link"], check=True, env=env)
+        p = run("settings-put", "--from", tree("viatrap", {"trap": b"1"}))
+        check("a path that is a link in the store is refused", p.returncode == 1 and "is a link" in p.stderr
+              and open(secret).read() == "agent's own file", p.stdout + p.stderr)
+        subprocess.run(["git", "-C", store, "reset", "-q", "--hard", "HEAD~1"], check=True, env=env)
+
+        check("env/ is as the first commit left it: no settings write touched it",
+              g("ls-tree", "-r", "HEAD", "env") == g("ls-tree", "-r", g("rev-list", "--max-parents=0", "HEAD").split()[0], "env"))
     return 1 if fails else 0
 
 
