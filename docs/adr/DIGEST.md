@@ -1196,8 +1196,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Shown only behind "AI": "AI Ada Maxwell", "AI Ada · Python Dev"; with the
   login where people and agents both read (§5 rule 2).
 - Surnames from `identities/personas/surnames.json` — worldwide, deceased
-  scientists, none tied to weapons — one per agent, first claim wins;
-  culture agents choose from their culture (§5 rules 3-5).
+  scientists, none who worked at making a weapon — one per agent, first
+  claim wins; the first name comes from the surname's culture, male or
+  female (§5 rules 3-5).
 - No gender or pronoun; "it" on request (§5 rule 6). Avatars in the
   fabric's own anime style by brand-comms; the agent may reject any (§5
   rule 7). Identity and authorship unchanged (§5 rule 8).

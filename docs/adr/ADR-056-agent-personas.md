@@ -74,9 +74,11 @@ its own rather than imposed.
    an addition passes the same test.
 4. One agent per surname: an agent claims one, the first claim wins, and
    the claim is recorded in `identities/personas/claims.json`.
-5. The agent chooses its first name; a language-culture agent chooses
-   its first name and its surname from its own culture. No persona is
-   the name of a famous real person.
+5. The agent chooses its first name from the culture its surname comes
+   from (the entry's `from`), a man's or a woman's name whatever the
+   scientist's own sex, so a name and a surname belong together; a
+   language-culture agent claims a surname of its own culture. No
+   persona is the name of a famous real person.
 6. The sex is chosen only for the avatar's appearance. The fabric keeps
    no gender and no pronoun; an agent that does not want "he" or "she"
    may ask to be called "it", and the request is recorded in its
