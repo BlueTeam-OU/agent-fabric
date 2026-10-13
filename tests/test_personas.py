@@ -75,6 +75,15 @@ class Personas(unittest.TestCase):
         self.assertEqual(self.judge([entry("Maxwell")], [], {A1: ok}), [])
         self.assertTrue(any("empty pronoun" in f for f in self.judge([entry("Maxwell")], [], {A1: {**ok, "pronoun": ""}})))
 
+    def test_a_claim_with_an_unknown_key_is_refused(self) -> None:
+        bad = {"surname": "Maxwell", "first_name": "Ada", "pronouns": "it"}
+        self.assertTrue(any("unknown key 'pronouns'" in f for f in self.judge([entry("Maxwell")], [], {A1: bad})))
+
+    def test_a_surname_that_is_not_a_string_is_a_finding_not_a_crash(self) -> None:
+        for bad in (["Maxwell"], {"a": 1}, 3, None):
+            got = self.judge([entry("Maxwell")], [], {A1: {"surname": bad, "first_name": "Ada"}})
+            self.assertTrue(any("no surname" in f for f in got), bad)
+
     def test_a_bare_surname_claim_is_refused(self) -> None:
         with open(self.s, "w", encoding="utf-8") as fh:
             json.dump({"surnames": [entry("Maxwell")], "excluded": []}, fh)

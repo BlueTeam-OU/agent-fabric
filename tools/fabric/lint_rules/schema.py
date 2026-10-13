@@ -466,12 +466,18 @@ def personas_findings(surnames_path: str, claims_path: str) -> list[str]:
             if not isinstance(claim, dict):
                 findings.append(f"{where}: {aid} is not a claim object {{surname, first_name, pronoun?}}")
                 continue
+            for key in sorted(set(claim) - {"surname", "first_name", "pronoun"}):
+                findings.append(f"{where}: {aid} has an unknown key {key!r} (a claim is {{surname, first_name, pronoun?}})")
             surname = claim.get("surname")
-            if surname not in names:
-                findings.append(f"{where}: {aid} claims {surname!r}, which is not on the list")
-            if surname in held:
-                findings.append(f"{where}: {surname!r} is claimed by {held[surname]} and {aid}")
-            held.setdefault(surname, aid)
+            if not isinstance(surname, str):
+                # Not a dict key: a list or object would raise TypeError below.
+                findings.append(f"{where}: {aid} has no surname (a string)")
+            else:
+                if surname not in names:
+                    findings.append(f"{where}: {aid} claims {surname!r}, which is not on the list")
+                if surname in held:
+                    findings.append(f"{where}: {surname!r} is claimed by {held[surname]} and {aid}")
+                held.setdefault(surname, aid)
             first = claim.get("first_name")
             if not (isinstance(first, str) and first.strip()):
                 findings.append(f"{where}: {aid} has no first_name (a non-empty string)")
