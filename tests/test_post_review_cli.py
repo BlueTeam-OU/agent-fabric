@@ -239,7 +239,7 @@ def main() -> int:
         print("post-review: the locale carve-out's merger may post on another session's locale-only PR")
         # A fabric whose identity.py answers the role the case plants: the
         # merger of a locale PR is fabric-coordinator (agent-fabric
-        # CLAUDE.md, carve-out).
+        # AGENTS.md, carve-out).
         fake = f"{sandbox}/fake-fabric"
         os.makedirs(f"{fake}/runtime")
         with open(f"{fake}/runtime/identity.py", "w", encoding="utf-8") as fh:

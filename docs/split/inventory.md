@@ -38,5 +38,5 @@ top-level path gets its row in the change that adds it.
 | `.agent-fabric/` (this repository's own remits and memory) | instance | operator |
 | `.github/` | engine | stays (the engine's CI; the operator gets its own) |
 | `.claude/` | engine | stays |
-| `CLAUDE.md`, `README.md` | mixed | the engine's text stays; our working rules move to the operator's |
+| `AGENTS.md`, `CLAUDE.md`, `README.md` | mixed | the engine's text stays; our working rules move to the operator's |
 | `LICENSE`, `LICENSES/`, `REUSE.toml`, `.gitignore`, `ruff.toml` | engine | stays |

@@ -40,7 +40,7 @@ if [[ "$(readlink -f "$(git rev-parse --show-toplevel 2>/dev/null)")" == "$(read
 fi
 
 # In agent-fabric ITSELF every commit is the coordinator's: the repository
-# is read-only for every other role (CLAUDE.md, policies/AUTHORITY.md). In
+# is read-only for every other role (AGENTS.md, policies/AUTHORITY.md). In
 # a managed project only .agent-fabric/ is. A merge changes only what
 # differs from the clean three-way merge of its parents; a fold of main
 # is no change of its own (guarded-change.sh).

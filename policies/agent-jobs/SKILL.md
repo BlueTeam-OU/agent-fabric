@@ -120,7 +120,7 @@ Every job after a finished one starts in a fresh session (the owner):
 
 A fresh session costs this conversation's context, and a cold prompt
 cache; that is the point. A launch reads the fabric anew (the prompt,
-charter, CLAUDE.md and hooks that an upgrade updates on disk and a running
+charter, AGENTS.md, CLAUDE.md and hooks that an upgrade updates on disk and a running
 session never re-reads), so a continued session works on stale rules, and
 an earlier job's history should not shape the next. If
 the session-start context says your active job is in another working

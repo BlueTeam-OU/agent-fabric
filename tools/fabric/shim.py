@@ -95,7 +95,7 @@ API = "https://openrouter.ai/api/v1"
 CHECK_TASK = """\
 Do exactly these six steps, in order, using the Read tool for files and the Bash tool for the command; \
 after step 6 read nothing else and write the answer.
-1. Read CLAUDE.md in full.
+1. Read AGENTS.md in full.
 2. Read README.md in full.
 3. Read runtime/openrouter/launch in full.
 4. Read tests/run.sh in full.
@@ -104,7 +104,7 @@ after step 6 read nothing else and write the answer.
 Then answer, from what you read and ran, in four short numbered lines: \
 (a) the API path and session model bin/fabric-status reported; \
 (b) the five capability classes and the openrouter model each maps to in routing/capabilities.json; \
-(c) the one sentence in CLAUDE.md that bans machine attribution in commit messages, quoted; \
+(c) the one sentence in AGENTS.md that bans machine attribution in commit messages, quoted; \
 (d) how many `run "` lines tests/run.sh contains.
 Finish your answer with the exact line: CHECK-COMPLETE
 """
