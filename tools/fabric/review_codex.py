@@ -101,13 +101,25 @@ reported at once, with the reset time when the message gives one. Both end in
 exit 3 and say which kind; any other failed turn stays a failed review, exit 1,
 never retried. The messages are the strings of the pinned Codex 0.162.1
 binary (tests/test_review_codex.py pins them); a message that matches none of
-them is not guessed at. Nothing is posted on any of these. --timeout is each
+them is not guessed at. No review is posted on any of these. --timeout is each
 run's budget, so a capacity spell can take up to four of them plus the 90 s of
 waits.
 
+Codex is an additional review, never a blocking one (the owner, 2026-10-13):
+when the model is unavailable the claude review alone arms, and the arm needs
+a fact on the PR to read. So an unavailable model (exit 3, either kind) posts,
+once per head, a COMMENT review of that commit whose first line is UNAVAILABLE_MARKER's
+(format_marker; parse_marker reads it back, for the arm to import) and one
+human line. It is not posted when a Codex review of that head already stands
+on the PR or an unavailable statement for it does, and never on any other
+failure: a crash is no statement about availability. When the PR cannot be
+read to check that, nothing is posted and a warning says so (unknown stays
+unknown); two runs racing on one head can both post, and the arm reads the
+first. With --no-post the comment is printed to stdout instead, unchecked.
+
 exit 0 posted (or printed); 1 refused or a failed review, nothing posted;
 2 usage; 3 the model is unavailable (at capacity after the retries, or over
-the allowance), nothing posted.
+the allowance), no review posted, the unavailable review above.
 """
 from __future__ import annotations
 
@@ -127,9 +139,12 @@ from urllib.parse import urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import gh  # noqa: E402
 import review_brief  # noqa: E402
 import review_gateway  # noqa: E402
 import routing  # noqa: E402
+from github.review_status.config import REVIEW_MARKER  # noqa: E402 — the reader's own constant, so "a review" means one thing
+from github.review_status.verdicts import engine_of  # noqa: E402
 from lint_rules.schema import validate_json  # noqa: E402 — the fleet's no-dependency validator (ADR-040)
 
 # The engine's own files, beside this one: the schema is the contract this
@@ -165,6 +180,12 @@ EGRESS_FEATURES = ("plugins", "remote_plugin", "plugin_sharing", "apps", "in_app
 SANDBOX_PROOF_TIMEOUT_S = 60
 EXIT_UNAVAILABLE = 3
 CAPACITY, ALLOWANCE = "capacity", "allowance"
+# The fact the arm reads (the owner's policy of 2026-10-13: Codex never blocks). One line, fixed fields, no free text:
+# the backend's words stay in the human line below it.
+UNAVAILABLE_MARKER = "<!-- agent-fabric-engine-unavailable v1 engine={engine} head={head} reason={reason} at={at} -->"
+UNAVAILABLE_RE = re.compile(
+    r"<!-- agent-fabric-engine-unavailable v1 engine=(?P<engine>[a-z]+) head=(?P<head>[0-9a-f]{40}) "
+    r"reason=(?P<reason>allowance|capacity) at=(?P<at>\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) -->")
 # The waits before the first, second and third retry of a run whose model was at capacity, then stop (the owner,
 # 2026-10-13). Time is an input: tests replace both of these.
 CAPACITY_RETRY_DELAYS_S = (10, 20, 60)
@@ -688,6 +709,54 @@ def _one_line(s: str) -> str:
     return " ".join(s.split())
 
 
+def format_marker(head: str, reason: str, at: str, engine: str = ENGINE) -> str:
+    return UNAVAILABLE_MARKER.format(engine=engine, head=head, reason=reason, at=at)
+
+
+def parse_marker(text: str) -> dict[str, str] | None:
+    """The fields of an unavailable comment, or None. Only the body's FIRST line counts, and all of it: a marker
+    quoted further down (a reply, a review quoting code) states nothing, and a line with anything else on it is
+    not ours."""
+    first = (text or "").split("\n", 1)[0].strip()
+    m = UNAVAILABLE_RE.fullmatch(first)
+    return m.groupdict() if m else None
+
+
+def _utc_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def unavailable_comment(e: "ModelUnavailable", head: str, at: str) -> str:
+    """The body: the marker, then one human line that carries the backend's words only as a bounded one-liner."""
+    if e.kind == ALLOWANCE:
+        when = e.reset or "the backend gave no reset time"
+        why = f"over the ChatGPT allowance ({when})"
+    else:
+        why = f"the model stayed at capacity after {e.runs} run(s)"
+    why = why.replace("`", "'")
+    return (f"{format_marker(head, e.kind, at)}\n"
+            f"Codex could not review `{head[:12]}`: {why}; the claude review alone arms, per the owner's policy.\n")
+
+
+def announce_unavailable(repo: str, pr: str, head: str, e: "ModelUnavailable") -> None:
+    """Post the unavailable statement once for this head, as a COMMENT review pinned to it: the carrier the arm reads
+    (devex-tooling, 2026-10-13), which GitHub ties to the commit and which only the PR's author or a listed poster can
+    make count. Not REVIEW_MARKER's first line, so it is never taken for coverage. Raises gh.GhError when the PR
+    cannot be read or the post is not confirmed; the caller turns that into a warning, because the exit status
+    stays the model's."""
+    slug = gh.this_repo(repo)
+    for r in gh.api(f"repos/{slug}/pulls/{pr}/reviews?per_page=100", paginate=True):
+        if r.get("commit_id") != head:
+            continue
+        if (r.get("body") or "").startswith(REVIEW_MARKER) and engine_of(r) == ENGINE:
+            return
+        m = parse_marker(r.get("body") or "")
+        if m and m["engine"] == ENGINE and m["head"] == head:
+            return
+    gh.api(f"repos/{slug}/pulls/{pr}/reviews", method="POST",
+           body={"body": unavailable_comment(e, head, _utc_now()), "event": "COMMENT", "commit_id": head})
+
+
 def render_review(model: str, head: str, rng: str, findings: list[dict], effort_level: str | None = None) -> str:
     """The body post-review gets. Its first line names the engine, the model
     that ran (rule 4) and the level sent, or that none was; post-review puts
@@ -782,6 +851,15 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
             # An allowance is spent for hours: a wait of a minute cannot help, so only the provider's capacity is retried.
             if e.kind != CAPACITY or runs > len(CAPACITY_RETRY_DELAYS_S):
                 e.runs = runs
+                if no_post:
+                    sys.stdout.write(unavailable_comment(e, head, _utc_now()))
+                else:
+                    try:
+                        announce_unavailable(repo, pr, head, e)
+                    except (gh.GhError, OSError, ValueError, TypeError, AttributeError) as err:
+                        # The exit status stays the model's; an unreadable PR is not a licence to guess either way.
+                        print(f"fabric-review: could not post or check the unavailable statement on PR #{pr}: {err}",
+                              file=sys.stderr)
                 raise
             _sleep(CAPACITY_RETRY_DELAYS_S[runs - 1])
     if not no_post and pr_head(repo, pr) != head:
@@ -858,7 +936,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"fabric-review: refused: {e}", file=sys.stderr)
         return 1
     except ModelUnavailable as e:
-        print(f"fabric-review: {e.report()}; nothing posted", file=sys.stderr)
+        print(f"fabric-review: {e.report()}; no review posted", file=sys.stderr)
         return EXIT_UNAVAILABLE
     except FailedReview as e:
         print(f"fabric-review: the Codex review failed, nothing posted: {e}", file=sys.stderr)
