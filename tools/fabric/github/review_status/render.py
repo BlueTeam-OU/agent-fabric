@@ -100,7 +100,7 @@ def render_text(ctx: "Ctx", p: Probe, x: Extras) -> None:
             out(f"      - {jstr(login_of(r))}  commit={jstr(sha8(r.get('commit_id')))}  {jstr(r.get('submitted_at'))}"
                 f"  engine={u['engine']}  head={u['head'][:8]}  reason={u['reason']}")
     if b.outsiders:
-        out(f"  not trusted        : {len(b.outsiders)}   (NOT coverage — not the owner, a member, a collaborator or a configured reviewer)")
+        out(f"  not trusted         : {len(b.outsiders)}   (NOT coverage — not the owner, a member, a collaborator or a configured reviewer)")
         for r in b.outsiders:
             out(f"      - {jstr(login_of(r))}  {jstr(r.get('author_association'))}  commit={jstr(sha8(r.get('commit_id')))}  {jstr(r.get('submitted_at'))}")
     if b.marked_others:

@@ -94,6 +94,11 @@ WHAT COUNTS. Three buckets, reported on their own lines:
       login, and is NOT coverage: the marker is published in every tree,
       and on a public repository anyone can post it;
   self reviews — the author's own thread replies; not coverage.
+A review whose first line is an engine's unavailable marker
+(agent-fabric-engine-unavailable v1) is in none of the three, from any
+account: from the PR author or a named poster it is listed as "engine
+unavailable", for fabric-pr arm, and from any other as "marked, other
+login". It is never coverage.
 A head is reviewed when an independent or a blind review targets it.
 
 AN AUTOMATED REVIEWER is not assumed. A project that runs one names its

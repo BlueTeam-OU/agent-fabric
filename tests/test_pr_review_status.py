@@ -395,6 +395,14 @@ def main() -> int:
     with contextlib.redirect_stdout(buf):
         rs.render_text(ctx, rs.Probe(head=HEAD), rs.Extras([], 0, 0, 0))
     check("...and a real zero reads as one", "  checks              : 0 pass, 0 other\n" in buf.getvalue())
+    every = rs.Buckets(independent=[review("someone")], outsiders=[review("rando", assoc="NONE")], blind=[review("me")],
+                       unavailable=[review("me", body=gone)], marked_others=[review("x")], self_=[review("me")])
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rs.render_text(ctx, rs.Probe(head=HEAD, buckets=every), rs.Extras([], 0, 0, 0))
+    labels = [ln for ln in buf.getvalue().splitlines() if ln.startswith("  ") and not ln.startswith("   ") and " : " in ln]
+    check("every label of the report, each bucket's included, puts its colon in the one column",
+          len(labels) > 8 and {ln.index(" : ") for ln in labels} == {21})
 
     # ── the verdict of a whole run, against a scripted gh ────────────
     # Every reason a run ends in 0, 1, 5 or 2. The polls, reviews and comments

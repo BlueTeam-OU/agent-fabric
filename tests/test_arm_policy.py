@@ -406,10 +406,15 @@ class Reviews(Scratch):
         self.assertEqual((arm_policy.required_engines(p, False), arm_policy.additional_engines(p, False)), (["claude"], ["codex"]))
         self.assertEqual((arm_policy.required_engines(p, True), arm_policy.additional_engines(p, True)), (["claude", "codex"], []))
 
-    def test_additional_reviews_is_a_list_of_distinct_engines_none_of_them_required(self):
+    def test_a_required_engine_is_required_whichever_list_also_names_it(self):
+        # A repository's file requiring codex over a fleet whose additional_reviews names it (objects merge, lists
+        # replace): the merged policy is a policy, and codex is required (review of 47a196e8).
+        p = arm_policy.validate(arm_policy.merge({"reviews": ["claude"], "additional_reviews": ["codex"]}, {"reviews": ["claude", "codex"]}))
+        self.assertEqual((arm_policy.required_engines(p, False), arm_policy.additional_engines(p, False)), (["claude", "codex"], []))
+
+    def test_additional_reviews_is_a_list_of_distinct_engines(self):
         self.assertEqual(arm_policy.validate({"additional_reviews": []})["additional_reviews"], [])
-        for bad in ({"additional_reviews": "codex"}, {"additional_reviews": ["gemini"]}, {"additional_reviews": ["codex", "codex"]},
-                    {"reviews": ["claude", "codex"], "additional_reviews": ["codex"]}):
+        for bad in ({"additional_reviews": "codex"}, {"additional_reviews": ["gemini"]}, {"additional_reviews": ["codex", "codex"]}):
             with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
                 arm_policy.validate(bad)
 
@@ -688,6 +693,8 @@ class PrGateRun(unittest.TestCase):
         self.assertEqual(pr_gate.review_of_head(reader({"blind": blind}), 7, self.HEAD, ["claude"], additional=["codex"]),
                          "claude ✓ codex ✗ (head abcdef12)")
         self.assertEqual(pr_gate.review_of_head(reader({"blind": blind, "unavailable": {"rows": "x"}}), 7, self.HEAD, ["claude"]), "?")
+        for not_an_object in (None, [], "x"):
+            self.assertEqual(pr_gate.review_of_head(reader(not_an_object), 7, self.HEAD, ["claude"], additional=["codex"]), "?", not_an_object)
 
 
 def grant(sender="h/arch", to="h/me", kind="DECISION", field="AUTHORIZES", target=None, mid="01a12-grant", addressed=True, frm=None):

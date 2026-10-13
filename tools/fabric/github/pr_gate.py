@@ -323,7 +323,8 @@ def review_of_head(reader: list[str], num: int, head: str, required: list[str], 
         return "?"
     blind = rs.get("blind") if isinstance(rs, dict) else None
     rows = blind.get("rows") if isinstance(blind, dict) else None
-    marked = rs.get("unavailable", {}).get("rows", []) if isinstance(rs.get("unavailable", {}), dict) else None
+    gone = rs.get("unavailable", {}) if isinstance(rs, dict) else None
+    marked = gone.get("rows", []) if isinstance(gone, dict) else None
     if not isinstance(rows, list) or not isinstance(marked, list):
         return "?"
     return arm_policy.review_summary(arm_policy.engines_on_head(rows, head), required, head, boundary_only, unread,

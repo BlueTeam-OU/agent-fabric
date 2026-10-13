@@ -225,11 +225,8 @@ def validate(doc: Any, where: str = "the policy") -> dict:
     extra = p["additional_reviews"]
     if not isinstance(extra, list) or any(e not in ENGINES for e in extra) or len(set(extra)) != len(extra):
         raise PolicyError(f"{where}: additional_reviews is a list of distinct engines drawn from {', '.join(ENGINES)}")
-    # An engine the policy requires cannot also be one it lets run out: which one it is would be a guess. An engine
-    # in boundary_reviews as well is additional on a plain change and required on a boundary (additional_engines).
-    both = [e for e in extra if e in p["reviews"]]
-    if both:
-        raise PolicyError(f"{where}: {', '.join(both)} is in reviews and in additional_reviews; an engine is one or the other")
+    # An engine the change requires is required, whichever list also names it (additional_engines): a repository
+    # that makes codex required over a fleet that lists it as additional must not also have to empty that list.
     bots = _only_keys(p["bots"], ("dependabot",), f"{where}: bots")
     if "dependabot" in bots:
         d = _only_keys(bots["dependabot"], ("arm", "ecosystems"), f"{where}: bots.dependabot")
@@ -402,7 +399,7 @@ def required_engines(policy: dict, boundary: bool) -> list[str]:
 def additional_engines(policy: dict, boundary: bool) -> list[str]:
     """The engines this pull request asks for beyond the required ones, in ENGINES order: each is satisfied by its
     review of the head or, when it could not run, by its unavailable marker for that head (engines_unavailable).
-    One that required_engines names for this change is required there, not additional."""
+    One that required_engines names for this change is required there, not additional, whichever list names it too."""
     required = required_engines(policy, boundary)
     return [e for e in ENGINES if e in policy["additional_reviews"] and e not in required]
 
