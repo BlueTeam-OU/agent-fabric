@@ -114,6 +114,10 @@ whole when the parent is renamed.
 7. A login reused after its agent retired is a new agent with a new id.
    Certifying a second agent under a login that a recorded agent holds is
    refused.
+8. An agent's persona (ADR-056) — its name, surname, sex for the image
+   and avatar — belongs to its id: a rename or a rebind leaves it, and a
+   reused login (rule 7) is a new agent with a persona of its own
+   (A 2026-10-13).
 
 ## 6. Consequences
 
@@ -160,3 +164,4 @@ The body above reads current; each change's full note is in [history/ADR-039-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-13 | the agent's repository is fabric-agent-<id>; its description names the login, never the id | §2, §5 rule 4 |
+| 2026-10-13 | the persona belongs to the agent id | §5 rule 8 |

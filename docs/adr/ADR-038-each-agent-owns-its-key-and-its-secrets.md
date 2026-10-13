@@ -52,7 +52,7 @@ The store is the agent's own private repository, `BlueTeam-OU/fabric-agent-<id>`
 - one `env/<NAME>.gpg` per secret, the value on the first line.
 
 Its settings — what configures the agent, not what it is doing: its bound
-role, its own model layer, its harness — are plain files under
+role, its own model layer, its harness, its persona (ADR-056) — are plain files under
 `settings/`, which pass(1) does not read. Working state (jobs, plans,
 notes, reviews) is not a setting and is not kept here; it is backed up
 apart.

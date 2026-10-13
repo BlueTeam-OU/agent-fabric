@@ -80,6 +80,10 @@ visible as one: in messages, in presence, in a review's provenance.
 5. A human login enters an agent's account only with `moveto` and the
    host's sudo grant for it; it never becomes an agent's role account,
    and no agent becomes a human's (ADR-010 rule 12).
+6. An agent carries a persona shown behind the prefix "AI" (ADR-056); a
+   human login carries none and is shown by its holder's own name, never
+   with the prefix, so a person and an agent cannot be mistaken for each
+   other on any surface (A 2026-10-13).
 
 ## 6. Consequences
 
@@ -109,3 +113,11 @@ provisioning a human login follows in its own pull request.
   the state stream, rule 16), ADR-038 (each identity's key and store),
   ADR-039 (the agent id).
 - `docs/fleet-deck/session-recovery.md`: the plan this serves.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-044-amendments.md](history/ADR-044-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-13 | an agent carries a persona marked as AI; a human never does | §5 rule 6 |

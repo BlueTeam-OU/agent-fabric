@@ -1,0 +1,538 @@
+{
+  "version": 1,
+  "description": "The surnames an agent may take for its persona (agent-fabric ADR-056 §5 rule 3), one agent per surname: scientists from all over the world, deceased, none whose best-known work or a role held was weapons development. Each entry names the person it comes from and why it passed; `excluded` names the ones the test removed and why, so the list can be reviewed. Curated by fabric-coordinator, checked by the owner; an addition needs the same test.",
+  "surnames": [
+    {
+      "surname": "Anning",
+      "person": "Mary Anning",
+      "from": "England",
+      "known_for": "palaeontology",
+      "lived": "1799-1847"
+    },
+    {
+      "surname": "Arf",
+      "person": "Cahit Arf",
+      "from": "Turkey",
+      "known_for": "algebra, number theory",
+      "lived": "1910-1997"
+    },
+    {
+      "surname": "Aryabhata",
+      "person": "Aryabhata",
+      "from": "India",
+      "known_for": "astronomy, mathematics",
+      "lived": "476-550"
+    },
+    {
+      "surname": "Babbage",
+      "person": "Charles Babbage",
+      "from": "England",
+      "known_for": "computing engines",
+      "lived": "1791-1871"
+    },
+    {
+      "surname": "Banneker",
+      "person": "Benjamin Banneker",
+      "from": "United States",
+      "known_for": "astronomy, almanacs",
+      "lived": "1731-1806"
+    },
+    {
+      "surname": "Biruni",
+      "person": "Abu Rayhan al-Biruni",
+      "from": "Central Asia",
+      "known_for": "geodesy, astronomy",
+      "lived": "973-1050"
+    },
+    {
+      "surname": "Boole",
+      "person": "George Boole",
+      "from": "Ireland",
+      "known_for": "logic",
+      "lived": "1815-1864"
+    },
+    {
+      "surname": "Bose",
+      "person": "Satyendra Nath Bose",
+      "from": "India",
+      "known_for": "quantum statistics",
+      "lived": "1894-1974"
+    },
+    {
+      "surname": "Brahmagupta",
+      "person": "Brahmagupta",
+      "from": "India",
+      "known_for": "mathematics, zero",
+      "lived": "598-668"
+    },
+    {
+      "surname": "Carver",
+      "person": "George Washington Carver",
+      "from": "United States",
+      "known_for": "agricultural science",
+      "lived": "c.1864-1943"
+    },
+    {
+      "surname": "Chagas",
+      "person": "Carlos Chagas",
+      "from": "Brazil",
+      "known_for": "Chagas disease",
+      "lived": "1879-1934"
+    },
+    {
+      "surname": "Copernicus",
+      "person": "Nicolaus Copernicus",
+      "from": "Poland",
+      "known_for": "heliocentrism",
+      "lived": "1473-1543"
+    },
+    {
+      "surname": "Curie",
+      "person": "Marie Sklodowska-Curie",
+      "from": "Poland/France",
+      "known_for": "radioactivity; wartime mobile X-ray units",
+      "lived": "1867-1934"
+    },
+    {
+      "surname": "Darwin",
+      "person": "Charles Darwin",
+      "from": "England",
+      "known_for": "evolution",
+      "lived": "1809-1882"
+    },
+    {
+      "surname": "Euler",
+      "person": "Leonhard Euler",
+      "from": "Switzerland",
+      "known_for": "mathematics",
+      "lived": "1707-1783"
+    },
+    {
+      "surname": "Faraday",
+      "person": "Michael Faraday",
+      "from": "England",
+      "known_for": "electromagnetism; refused to make chemical weapons",
+      "lived": "1791-1867"
+    },
+    {
+      "surname": "Florey",
+      "person": "Howard Florey",
+      "from": "Australia",
+      "known_for": "penicillin",
+      "lived": "1898-1968"
+    },
+    {
+      "surname": "Fourier",
+      "person": "Joseph Fourier",
+      "from": "France",
+      "known_for": "heat, analysis",
+      "lived": "1768-1830"
+    },
+    {
+      "surname": "Franklin",
+      "person": "Rosalind Franklin",
+      "from": "England",
+      "known_for": "DNA structure",
+      "lived": "1920-1958"
+    },
+    {
+      "surname": "Gauss",
+      "person": "Carl Friedrich Gauss",
+      "from": "Germany",
+      "known_for": "mathematics",
+      "lived": "1777-1855"
+    },
+    {
+      "surname": "Hamilton",
+      "person": "William Rowan Hamilton",
+      "from": "Ireland",
+      "known_for": "mechanics, quaternions",
+      "lived": "1805-1865"
+    },
+    {
+      "surname": "Houssay",
+      "person": "Bernardo Houssay",
+      "from": "Argentina",
+      "known_for": "physiology",
+      "lived": "1887-1971"
+    },
+    {
+      "surname": "Humboldt",
+      "person": "Alexander von Humboldt",
+      "from": "Germany",
+      "known_for": "geography, ecology",
+      "lived": "1769-1859"
+    },
+    {
+      "surname": "Hypatia",
+      "person": "Hypatia of Alexandria",
+      "from": "Egypt",
+      "known_for": "mathematics, astronomy",
+      "lived": "c.360-415"
+    },
+    {
+      "surname": "Ibn al-Haytham",
+      "person": "Hasan Ibn al-Haytham",
+      "from": "Arab world",
+      "known_for": "optics, scientific method",
+      "lived": "965-1040"
+    },
+    {
+      "surname": "Ibn Sina",
+      "person": "Abu Ali Ibn Sina (Avicenna)",
+      "from": "Persia",
+      "known_for": "medicine",
+      "lived": "980-1037"
+    },
+    {
+      "surname": "Jang",
+      "person": "Jang Yeong-sil",
+      "from": "Korea",
+      "known_for": "astronomical instruments, water clocks",
+      "lived": "c.1390-c.1450"
+    },
+    {
+      "surname": "Kepler",
+      "person": "Johannes Kepler",
+      "from": "Germany",
+      "known_for": "planetary motion",
+      "lived": "1571-1630"
+    },
+    {
+      "surname": "Kharadze",
+      "person": "Evgeni Kharadze",
+      "from": "Georgia",
+      "known_for": "astronomy, Abastumani Observatory",
+      "lived": "1907-2001"
+    },
+    {
+      "surname": "Khayyam",
+      "person": "Omar Khayyam",
+      "from": "Persia",
+      "known_for": "algebra, calendar",
+      "lived": "1048-1131"
+    },
+    {
+      "surname": "Khwarizmi",
+      "person": "Muhammad ibn Musa al-Khwarizmi",
+      "from": "Persia",
+      "known_for": "algebra, algorithms",
+      "lived": "c.780-c.850"
+    },
+    {
+      "surname": "Kitasato",
+      "person": "Kitasato Shibasaburo",
+      "from": "Japan",
+      "known_for": "bacteriology",
+      "lived": "1853-1931"
+    },
+    {
+      "surname": "Kovalevskaya",
+      "person": "Sofia Kovalevskaya",
+      "from": "Russia",
+      "known_for": "analysis, mechanics",
+      "lived": "1850-1891"
+    },
+    {
+      "surname": "Leloir",
+      "person": "Luis Federico Leloir",
+      "from": "Argentina",
+      "known_for": "biochemistry",
+      "lived": "1906-1987"
+    },
+    {
+      "surname": "Linnaeus",
+      "person": "Carl Linnaeus",
+      "from": "Sweden",
+      "known_for": "taxonomy",
+      "lived": "1707-1778"
+    },
+    {
+      "surname": "Lobachevsky",
+      "person": "Nikolai Lobachevsky",
+      "from": "Russia",
+      "known_for": "non-Euclidean geometry",
+      "lived": "1792-1856"
+    },
+    {
+      "surname": "Lomonosov",
+      "person": "Mikhail Lomonosov",
+      "from": "Russia",
+      "known_for": "chemistry, physics",
+      "lived": "1711-1765"
+    },
+    {
+      "surname": "Lovelace",
+      "person": "Ada Lovelace",
+      "from": "England",
+      "known_for": "first program",
+      "lived": "1815-1852"
+    },
+    {
+      "surname": "Maathai",
+      "person": "Wangari Maathai",
+      "from": "Kenya",
+      "known_for": "ecology, reforestation",
+      "lived": "1940-2011"
+    },
+    {
+      "surname": "Maxwell",
+      "person": "James Clerk Maxwell",
+      "from": "Scotland",
+      "known_for": "electromagnetism",
+      "lived": "1831-1879"
+    },
+    {
+      "surname": "McClintock",
+      "person": "Barbara McClintock",
+      "from": "United States",
+      "known_for": "genetics",
+      "lived": "1902-1992"
+    },
+    {
+      "surname": "Meitner",
+      "person": "Lise Meitner",
+      "from": "Austria",
+      "known_for": "nuclear fission; refused to work on the bomb",
+      "lived": "1878-1968"
+    },
+    {
+      "surname": "Mendel",
+      "person": "Gregor Mendel",
+      "from": "Moravia",
+      "known_for": "heredity",
+      "lived": "1822-1884"
+    },
+    {
+      "surname": "Merian",
+      "person": "Maria Sibylla Merian",
+      "from": "Germany",
+      "known_for": "entomology, illustration",
+      "lived": "1647-1717"
+    },
+    {
+      "surname": "Molina",
+      "person": "Mario Molina",
+      "from": "Mexico",
+      "known_for": "ozone chemistry",
+      "lived": "1943-2020"
+    },
+    {
+      "surname": "Muskhelishvili",
+      "person": "Nikoloz Muskhelishvili",
+      "from": "Georgia",
+      "known_for": "elasticity theory",
+      "lived": "1891-1976"
+    },
+    {
+      "surname": "Noether",
+      "person": "Emmy Noether",
+      "from": "Germany",
+      "known_for": "abstract algebra, symmetry",
+      "lived": "1882-1935"
+    },
+    {
+      "surname": "Odhiambo",
+      "person": "Thomas Odhiambo",
+      "from": "Kenya",
+      "known_for": "insect science",
+      "lived": "1931-2003"
+    },
+    {
+      "surname": "Pasteur",
+      "person": "Louis Pasteur",
+      "from": "France",
+      "known_for": "microbiology, vaccines",
+      "lived": "1822-1895"
+    },
+    {
+      "surname": "Pavlov",
+      "person": "Ivan Pavlov",
+      "from": "Russia",
+      "known_for": "physiology",
+      "lived": "1849-1936"
+    },
+    {
+      "surname": "Planck",
+      "person": "Max Planck",
+      "from": "Germany",
+      "known_for": "quantum theory",
+      "lived": "1858-1947"
+    },
+    {
+      "surname": "Raman",
+      "person": "C. V. Raman",
+      "from": "India",
+      "known_for": "light scattering",
+      "lived": "1888-1970"
+    },
+    {
+      "surname": "Ramanujan",
+      "person": "Srinivasa Ramanujan",
+      "from": "India",
+      "known_for": "number theory",
+      "lived": "1887-1920"
+    },
+    {
+      "surname": "Ramon y Cajal",
+      "person": "Santiago Ramon y Cajal",
+      "from": "Spain",
+      "known_for": "neuroscience",
+      "lived": "1852-1934"
+    },
+    {
+      "surname": "Schrodinger",
+      "person": "Erwin Schrodinger",
+      "from": "Austria",
+      "known_for": "wave mechanics",
+      "lived": "1887-1961"
+    },
+    {
+      "surname": "Theiler",
+      "person": "Max Theiler",
+      "from": "South Africa",
+      "known_for": "yellow fever vaccine",
+      "lived": "1899-1972"
+    },
+    {
+      "surname": "Tsiolkovsky",
+      "person": "Konstantin Tsiolkovsky",
+      "from": "Russia",
+      "known_for": "spaceflight theory",
+      "lived": "1857-1935"
+    },
+    {
+      "surname": "Turing",
+      "person": "Alan Turing",
+      "from": "England",
+      "known_for": "computation; wartime codebreaking, not weapons",
+      "lived": "1912-1954"
+    },
+    {
+      "surname": "Vekua",
+      "person": "Ilia Vekua",
+      "from": "Georgia",
+      "known_for": "partial differential equations",
+      "lived": "1907-1977"
+    },
+    {
+      "surname": "Yukawa",
+      "person": "Hideki Yukawa",
+      "from": "Japan",
+      "known_for": "meson theory; a pacifist",
+      "lived": "1907-1981"
+    },
+    {
+      "surname": "Zhang",
+      "person": "Zhang Heng",
+      "from": "China",
+      "known_for": "astronomy, seismoscope",
+      "lived": "78-139"
+    },
+    {
+      "surname": "Zu",
+      "person": "Zu Chongzhi",
+      "from": "China",
+      "known_for": "mathematics, calendar",
+      "lived": "429-500"
+    }
+  ],
+  "excluded": [
+    {
+      "surname": "Nobel",
+      "why": "dynamite and the armaments firm Bofors; named by the owner"
+    },
+    {
+      "surname": "Oppenheimer",
+      "why": "led the Manhattan Project's weapons laboratory; named by the owner"
+    },
+    {
+      "surname": "Teller",
+      "why": "hydrogen bomb"
+    },
+    {
+      "surname": "Sakharov",
+      "why": "Soviet hydrogen bomb"
+    },
+    {
+      "surname": "Kurchatov",
+      "why": "Soviet atomic bomb programme"
+    },
+    {
+      "surname": "Fermi",
+      "why": "Manhattan Project"
+    },
+    {
+      "surname": "Feynman",
+      "why": "Manhattan Project"
+    },
+    {
+      "surname": "von Neumann",
+      "why": "Manhattan Project, weapons design"
+    },
+    {
+      "surname": "Bohr",
+      "why": "consultant to the Manhattan Project"
+    },
+    {
+      "surname": "Heisenberg",
+      "why": "German nuclear weapons programme"
+    },
+    {
+      "surname": "Wu",
+      "why": "Manhattan Project (Chien-Shiung Wu)"
+    },
+    {
+      "surname": "Haber",
+      "why": "chemical weapons"
+    },
+    {
+      "surname": "Shannon",
+      "why": "wartime fire-control systems"
+    },
+    {
+      "surname": "Chandrasekhar",
+      "why": "wartime ballistics at Aberdeen Proving Ground"
+    },
+    {
+      "surname": "Hubble",
+      "why": "wartime ballistics at Aberdeen Proving Ground"
+    },
+    {
+      "surname": "Hopper",
+      "why": "naval computing used for weapons calculations"
+    },
+    {
+      "surname": "Mendeleev",
+      "why": "smokeless powder for the navy"
+    },
+    {
+      "surname": "Lavoisier",
+      "why": "directed the royal gunpowder administration"
+    },
+    {
+      "surname": "Archimedes",
+      "why": "designed war machines"
+    },
+    {
+      "surname": "Leonardo",
+      "why": "military engineer, designed weapons"
+    },
+    {
+      "surname": "Shen",
+      "why": "Shen Kuo directed military affairs and defence works"
+    },
+    {
+      "surname": "Dirac",
+      "why": "theoretical work on isotope separation for Britain's atomic programme (Tube Alloys)"
+    },
+    {
+      "surname": "Salam",
+      "why": "an early role in Pakistan's Atomic Energy Commission"
+    },
+    {
+      "surname": "Galilei",
+      "why": "his geometric and military compass was designed for artillery gunnery"
+    }
+  ]
+}

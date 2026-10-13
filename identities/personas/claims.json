@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "description": "Which agent holds which surname of identities/personas/surnames.json (agent-fabric ADR-056 §5 rule 4): one agent per surname, the first claim wins, landed by fabric-coordinator. Keyed by the agent id, so a login rename changes nothing.",
+  "claims": {}
+}

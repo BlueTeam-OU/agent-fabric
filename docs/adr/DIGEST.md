@@ -59,6 +59,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | when a gateway session changes Claude account; land and eject thresholds; perishable quota; the switch controller | ADR-052 |
 | a harness other than Claude Code; Codex sessions; AGENTS.md and CLAUDE.md; --harness | ADR-054 |
 | a model at capacity or over allowance; retries; review divert; availability report | ADR-055 |
+| an agent's name, surname, avatar; the "AI" prefix; personas | ADR-056 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -740,6 +741,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   filters nothing — the inbox does (§6).
 - A 2026-09-30 — the relay token comes from the account's own store (§5 rule 6).
 - A 2026-10-04 — cccc recorded among the refused alternatives (§3).
+- A 2026-10-13 — a persona marked as AI is not a human-style identity (§5 rule 3).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
@@ -866,6 +868,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   bundles and recovery copies (§5 rule 4).
 - A reused login is a new agent with a new id (§5 rule 7).
 - A 2026-10-13 — the repository is `fabric-agent-<id>`; its description names host, login, role (§5 rule 4).
+- A 2026-10-13 — the persona belongs to the agent id (§5 rule 8).
 - Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
   secrets repository, P1.
 
@@ -964,6 +967,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   control-plane signing key but the owner's own (§5 rules 2–3).
 - `fabric-ctl all` asks only agents; a human enters an account only by
   moveto (§5 rules 4–5).
+- A 2026-10-13 — an agent carries a persona marked as AI; a human never (§5 rule 6).
 - Keywords: identity, kind, human, operator, Fleet Deck, herdr, deck,
   moveto, placement.
 
@@ -1184,3 +1188,16 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Each provider's strategy (retry waits, seats, allowance action, ordered
   models) is data in one syntax, `routing/policies/availability.json`,
   linted; OpenAI is the less tolerant (§5 rule 7).
+
+### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Proposed)
+
+- A persona — first name, surname, sex (F/M) for the image, avatar — is the
+  agent id's, in `settings/profile.json` of `fabric-agent-<id>` (§5 rule 1).
+- Shown only behind "AI": "AI Ada Maxwell", "AI Ada · Python Dev"; with the
+  login where people and agents both read (§5 rule 2).
+- Surnames from `identities/personas/surnames.json` — worldwide, deceased
+  scientists, none tied to weapons — one per agent, first claim wins;
+  culture agents choose from their culture (§5 rules 3-5).
+- No gender or pronoun; "it" on request (§5 rule 6). Avatars in the
+  fabric's own anime style by brand-comms; the agent may reject any (§5
+  rule 7). Identity and authorship unchanged (§5 rule 8).
