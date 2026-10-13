@@ -96,8 +96,13 @@ def persona(environ: dict[str, str], claims_path: str, avatars: str = AVATARS) -
     if not (first and surname):
         first = surname = None                        # half a profile is no profile
     claims = (_json(claims_path) or {}).get("claims") if agent_id else None
-    claimed = _name(claims.get(agent_id)) if isinstance(claims, dict) else None
+    claim = claims.get(agent_id) if isinstance(claims, dict) else None
+    # A claim is {surname, first_name, pronoun?} (ADR-056 §5 rule 2: the public directory names every agent);
+    # an older claims.json held the surname alone, as a string.
+    claimed = _name(claim.get("surname")) if isinstance(claim, dict) else _name(claim)
     surname = claimed or surname                      # claims.json wins over the profile on the surname (persona-profile schema)
+    if isinstance(claim, dict) and _name(claim.get("first_name")) and not first:
+        first = _name(claim.get("first_name"))        # the directory names an agent whose profile is not committed yet
     if first and surname:
         out.name = f"AI {first} {surname}"
     elif surname:

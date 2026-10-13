@@ -105,6 +105,15 @@ class Persona(unittest.TestCase):
         self.profile(first_name="Ju\x1bne", surname="Mallory")
         self.assertEqual((self.persona().name, self.persona().avatar_path), ("AI Boole", None))
 
+    def test_a_claim_object_names_the_agent_without_a_profile(self):
+        write(self.claims, json.dumps({"claims": {AGENT: {"surname": "Leavitt", "first_name": "June"}}}))
+        self.assertEqual(self.persona().name, "AI June Leavitt", "the directory gives both names")
+
+    def test_a_claim_object_surname_still_wins_over_the_profile(self):
+        self.profile()
+        write(self.claims, json.dumps({"claims": {AGENT: {"surname": "Noether", "first_name": "Lena"}}}))
+        self.assertEqual(self.persona().name, "AI June Noether", "the profile's first name, the claim's surname")
+
     def test_a_malformed_agent_id_or_claims_file_gives_no_name(self):
         write(os.path.join(self.store, ".agent-id"), "not-an-id\n")
         write(self.claims, json.dumps({"claims": {"not-an-id": "Leavitt"}}))
