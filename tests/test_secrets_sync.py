@@ -59,6 +59,7 @@ def main() -> int:
     def fake_fetch_values(pull: bool = True):
         pulls.append(pull)
         return (None, store["error"]) if store["error"] else (dict(store["values"]), None)
+    real_fetch_values = s.fetch_values
     s.fetch_values = fake_fetch_values
     s.fetch_names = lambda: (None, store["error"]) if store["error"] else (list(store["values"]), None)
     real_load_store = s.load_store
@@ -188,6 +189,29 @@ def main() -> int:
                       and "SYNC-SENTINEL" not in jout and "not-an-account-id" not in jout, jout)
                 store["values"]["CODEX_CHATGPT_ACCOUNT_ID"] = CG_ACCOUNT
                 run(s.sync, False, True)
+                # A human login runs no review: nothing is applied for it, with a good pair in hand.
+                os.unlink(signin_path)
+                applied_h, skipped_h = s.apply_signin_file({"CODEX_CHATGPT_ACCESS_TOKEN": cg_access, "CODEX_CHATGPT_ACCOUNT_ID": CG_ACCOUNT}, True)
+                check("a human login applies no sign-in file and says nothing", (applied_h, skipped_h) == (None, None)
+                      and not os.path.exists(signin_path))
+                # The real fetch_values asks the store for the two names (the fake above answers whatever it holds).
+                asked: list = []
+
+                class AskedStore:
+                    def pull(self):
+                        pass
+
+                    def values(self, only):
+                        asked.append(list(only))
+                        return {}
+                real_load = s.load_store
+                s.load_store = lambda: AskedStore()
+                try:
+                    real_fetch_values(False)
+                finally:
+                    s.load_store = real_load
+                check("the store is asked for CODEX_CHATGPT_ACCESS_TOKEN and CODEX_CHATGPT_ACCOUNT_ID", asked
+                      and set(s.CODEX_NAMES) <= set(asked[0]), asked)
                 for gone in ("CODEX_CHATGPT_ACCESS_TOKEN", "CODEX_CHATGPT_ACCOUNT_ID"):
                     store["values"].pop(gone)
                 rc, jout = run(s.sync, False, True)

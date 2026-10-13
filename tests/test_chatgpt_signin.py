@@ -11,6 +11,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -42,6 +43,22 @@ class SignIn(unittest.TestCase):
         with self.assertRaises(cs.NotSignIn) as ctx:
             cs.read_signin(self.tmp)
         self.assertNotIn("sk-fake", str(ctx.exception))
+        # Another auth_mode that nevertheless holds well-formed tokens is still not a ChatGPT sign-in.
+        path = write_signin(self.tmp, EXP)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        doc["auth_mode"] = "apikey"
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        with self.assertRaises(cs.NotSignIn):
+            cs.read_signin(self.tmp)
+
+    def test_a_file_that_is_not_this_logins_is_refused_whatever_its_mode(self):
+        write_signin(self.tmp, EXP)
+        cs.read_signin(self.tmp)          # the control: it is this login's
+        with mock.patch("os.getuid", return_value=os.getuid() + 1):
+            with self.assertRaisesRegex(cs.Refused, "not this login's"):
+                cs.read_signin(self.tmp)
 
     def test_a_file_anyone_else_can_read_is_refused_before_it_is_parsed(self):
         path = write_signin(self.tmp, EXP, mode=0o640)
