@@ -54,10 +54,14 @@ its own rather than imposed.
 
 ## 5. Binding Rules
 
-1. A persona is a first name, a surname, a sex (F or M) and an avatar,
-   kept in `settings/profile.json` of the agent's repository
-   `fabric-agent-<id>`, the avatar beside it, both written by the agent.
-   It belongs to the agent id: a login rename or a rebind leaves it.
+1. A persona is a first name, a surname, a sex (F or M) and an avatar.
+   While the agent chooses, its choices and the candidate images are
+   working material, not settings. Once it has accepted an avatar, the
+   persona is written to its repository `fabric-agent-<id>`:
+   `settings/profile.json`, and the accepted image as
+   `settings/avatar.png`. It belongs to the agent id: a login rename or a
+   rebind leaves it. Only the surname claim is recorded centrally (rule
+   4).
 2. A persona is displayed only behind the prefix "AI": "AI <Name>",
    "AI <Name> <Surname>", or "AI <Name> · <Role>" with the current role.
    Where an agent and a person both read a text (a pull request, a
@@ -88,7 +92,10 @@ its own rather than imposed.
    brand-comms, who generate the avatars; never in a named studio's
    style, never resembling the scientist the surname comes from. The
    agent sees each image and may reject it any number of times; only an
-   accepted avatar is shown.
+   accepted avatar is shown. A rejected image is kept beside the
+   accepted one, `settings/avatar-rejected/<n>.png`, with a text file of
+   the same name, `<n>.txt`, saying who rejected it (login and persona),
+   when, and the reason if one was given.
 8. A persona changes nothing of identity or authorship: the login is the
    agent and the id its record (ADR-002, ADR-039); git authorship and
    the `Fabric-Role:` trailer stay; no machine attribution appears in a

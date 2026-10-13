@@ -8,7 +8,7 @@ import os
 import re
 from typing import Any
 
-from .base import _tracked
+from .base import _tracked, roots
 
 
 def validate_json(schema: dict[str, Any], doc: Any, where: str) -> list[str]:
@@ -380,10 +380,14 @@ def availability_findings(root: str, policy: str) -> list[str]:
     shape = validate_json(schema, doc, where)
     if shape:
         return findings + shape
-    routing_dir = os.path.dirname(os.path.dirname(policy))
-    caps = load_json(os.path.join(routing_dir, "capabilities.json"), "routing/capabilities.json", findings) or {}
-    grade = load_json(os.path.join(routing_dir, "policies", "review-grade.json"), "routing/policies/review-grade.json", findings) or {}
-    switch = load_json(os.path.join(routing_dir, "policies", "account-switch.json"), "routing/policies/account-switch.json", findings) or {}
+    # The policy's siblings are read beside it: an operator's routing/ (roots.routing_policy) holds the three
+    # together, and a test points `policy` into a copy; capabilities.json is engine data and stays the engine's.
+    beside = os.path.dirname(policy)
+    caps = load_json(os.path.join(root, "routing", "capabilities.json"), "routing/capabilities.json", findings) or {}
+    grade = load_json(os.path.join(beside, os.path.basename(roots.routing_policy("review-grade.json", engine=root))),
+                      "routing/policies/review-grade.json", findings) or {}
+    switch = load_json(os.path.join(beside, os.path.basename(roots.routing_policy("account-switch.json", engine=root))),
+                       "routing/policies/account-switch.json", findings) or {}
     graded = set(grade.get("models") or [])
     for prov, s in sorted(doc["providers"].items()):
         routed = ((caps.get("providers") or {}).get(prov) or {}).get("models") or {}
