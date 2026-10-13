@@ -155,7 +155,7 @@ def main() -> int:
         except (ValueError, IndexError, AttributeError):
             first_parent = "x"
         check("--self: the parent's repository, named by its agent id, its store and root key",
-              rc == 0 and bool(pid) and os.path.isdir(f"{t}/remotes/agent-fabric-secrets-{pid}.git") and first_parent is None,
+              rc == 0 and bool(pid) and os.path.isdir(f"{t}/remotes/fabric-agent-{pid}.git") and first_parent is None,
               f"rc={rc}\n{out}")
         check("…its id's time is its home's creation time", bool(pid) and id_ms(pid) == born_ms(f"{t}/parent"),
               f"{pid} vs {born_ms(f'{t}/parent')}")
@@ -213,11 +213,12 @@ def main() -> int:
         kid = lid("kid")
         check("…the re-run enrols it under the id its store already held", bool(kid) and kid == first_id,
               f"{kid} vs {first_id}")
-        check("…its repository's description gives the Linux login and the agent id",
-              f"--description agent-fabric secrets. Linux login: kid. Agent id: {kid}." in read(calls),
+        check("…its repository's description gives the login and host, never the id",
+              "--description agent-fabric agent repository: secrets and settings. Agent kid on far-host. (ADR-038, ADR-039)"
+              in read(calls) and not any(kid in ln.split("--description", 1)[1] for ln in read(calls).split("\n") if "repo create" in ln),
               "\n".join(ln for ln in read(calls).split("\n") if "repo create" in ln))
         check("…its repository is named by its agent id",
-              bool(kid) and os.path.isdir(f"{t}/remotes/agent-fabric-secrets-{kid}.git"), " ".join(listing(f"{t}/remotes")))
+              bool(kid) and os.path.isdir(f"{t}/remotes/fabric-agent-{kid}.git"), " ".join(listing(f"{t}/remotes")))
         check("…its id's time is ITS home's creation time, read on its host",
               bool(kid) and id_ms(kid) == born_ms(f"{t}/kid"), kid)
         check("…and the parent holds a mirror of the child's store",
@@ -234,7 +235,7 @@ def main() -> int:
         check("the parent can now write into the child's store", store("put", "kid", "GH_TOKEN", stdin="top secret\n")[0] == 0)
         rc, out = P(ENROLL, "kid")
         check("a re-run after the parent's put takes it and converges, never pushing the account's older head",
-              rc == 0 and "GH_TOKEN" in subprocess.run(["git", "--git-dir", f"{t}/remotes/agent-fabric-secrets-{kid}.git", "ls-tree",
+              rc == 0 and "GH_TOKEN" in subprocess.run(["git", "--git-dir", f"{t}/remotes/fabric-agent-{kid}.git", "ls-tree",
                                                          "-r", "--name-only", "main"], stdout=subprocess.PIPE, text=True,
                                                         timeout=60, env=git_env()).stdout, f"rc={rc}\n{out}")
         # A mirror that cannot be brought up to date fails the enrolment: a
@@ -254,7 +255,7 @@ def main() -> int:
 
         # A retried assign pushes the parent's own record that an earlier
         # failed push left behind (the parent's remote rejects one push).
-        pr = f"{t}/remotes/agent-fabric-secrets-{pid}.git"
+        pr = f"{t}/remotes/fabric-agent-{pid}.git"
         store("template-set", "work", stdin="sk-ant-oat01-tttttttttttttttttttt\n")
         put(f"{pr}/hooks/pre-receive", "#!/bin/sh\nexit 1\n", 0o755)
         rc, out = store("assign", "work", "kid")
@@ -272,17 +273,24 @@ def main() -> int:
         no_base = {k: v for k, v in parent.items() if k not in ("AGENT_FABRIC_SECRETS_REMOTE_BASE", "GIT_CONFIG_GLOBAL")}
         rc, out = P(ENROLL, "kid", "--dry-run", env=no_base)
         check("the default remote is SSH, the scheme every account can push with",
-              f"store init --agent-id {kid} --remote git@github.com:gzapi-org/agent-fabric-secrets-{kid}.git" in out, out)
+              f"store init --agent-id {kid} --remote git@github.com:BlueTeam-OU/fabric-agent-{kid}.git" in out, out)
 
         # A rename: the login, in lineage and in the description; nothing
         # stored moves.
         rc, out = P(ENROLL, "--rename", "kid", "kiddo")
         check("--rename changes the login and the description; the id, key, repository and mirror stay",
-              rc == 0 and lid("kiddo") == kid and not lid("kid") and os.path.isdir(f"{t}/remotes/agent-fabric-secrets-{kid}.git")
+              rc == 0 and lid("kiddo") == kid and not lid("kid") and os.path.isdir(f"{t}/remotes/fabric-agent-{kid}.git")
               and os.path.isfile(f"{fab}/identities/keys/{kid}.asc")
               and os.path.isdir(f"{t}/parent/.local/share/agent-fabric/children/{kid}/.git")
-              and f"repo edit gzapi-org/agent-fabric-secrets-{kid} --description agent-fabric secrets. Linux login: kiddo. "
-                  f"Agent id: {kid}." in read(calls), f"rc={rc}\n{out}")
+              and f"repo edit BlueTeam-OU/fabric-agent-{kid} --description agent-fabric agent repository: "
+                  "secrets and settings. Agent kiddo on far-host. (ADR-038, ADR-039)" in read(calls), f"rc={rc}\n{out}")
+        rc, out = P(ENROLL, "--describe", "kiddo", "--role", "python-dev")
+        check("--describe rewrites only the description: the role when given, no host for a login the registry does not place",
+              rc == 0 and f"repo edit BlueTeam-OU/fabric-agent-{kid} --description agent-fabric agent repository: "
+                          "secrets and settings. Agent kiddo, role python-dev. (ADR-038, ADR-039)" in read(calls),
+              f"rc={rc}\n{out}")
+        rc, out = P(ENROLL, "--describe", "nobody-here")
+        check("--describe of a login no agent holds is refused", rc == 1 and "no agent with that login" in out, out)
         verify = subprocess.run([sys.executable, STORE, "verify"], env={**base, "AGENT_FABRIC_ROOT": fab},
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
         check("…the renamed agent is written to by its new login, and verifies",

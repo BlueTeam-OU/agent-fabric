@@ -261,13 +261,13 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
             f"{HUMAN_SHARED} only (a human: no other name, no issued key); its store to {login} as a bundle; "
             f"fabric-secrets sync --no-pull as {login}; its inbox cursor to the newest message")
     elif dry:
-        say(f"would: store-enroll.sh {login} --host {host} --born-now; provision identity, share, issue-key openrouter "
+        say(f"would: store-enroll.sh {login} --host {host} --role {role} --born-now; provision identity, share, issue-key openrouter "
             f"and openai (each once); its store to {login} as a bundle; fabric-secrets sync --no-pull as {login}; its "
             "inbox cursor to the newest message")
         say(f"would: fabric-secrets store assign {slug} {login} (token {fp}), before the bundle" if slug else
             "would: assign no Claude account (--no-claude-account: the broker path only)")
     else:
-        secrets_step(s, login, host, o["projects"], slug, fp, human=human)
+        secrets_step(s, login, host, o["projects"], slug, fp, human=human, role=role)
 
     # ---- 6-10 on the host ---------------------------------------------------
     clones = [a for pid in o["projects"] for a in ("--clone", f"{pid}={remote[pid]}")]

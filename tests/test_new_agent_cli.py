@@ -288,6 +288,7 @@ def main() -> int:
             for step in ("useradd", "chmod 700", "mkdir -p", "curl -fsSL https://claude.ai/install.sh | bash -s -- ",
                          "curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash", "append GitHub's published host keys",
                          "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'", "store-enroll.sh zz-fixture-login --host",
+                         " --role backend-dev --born-now;",
                          "provision identity, share, issue-key openrouter and openai",
                          "git clone -q 'git@github.com:fixture-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
                 ok(f"plans: {step}", step in out, out)
@@ -472,7 +473,7 @@ def main() -> int:
                "12. its signing key was NOT registered on GitHub" in out and "github_signing_key.py add" in out, out)
             where = "far-host" if backend == "ssh" else local
             ok("5: the account keyed on its host, its store filled by the parent, and synced",
-               f"store-enroll seq-login --host {where} --born-now" in lines(calls)
+               f"store-enroll seq-login --host {where} --role backend-dev --born-now" in lines(calls)
                and has(r"^secrets provision identity seq-login --host", read(calls))
                and has(r"^secrets provision share seq-login", read(calls))
                and "5. its key made and certified, its store filled and synced" in out, read(calls) + out)

@@ -132,7 +132,7 @@ esac
         check("the parent's own store", r.returncode == 0, r.stderr)
         publish()
         pid = lineage_id(subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip())
-        own_remote = os.path.join(remotes, f"agent-fabric-secrets-{pid}.git")
+        own_remote = os.path.join(remotes, f"fabric-agent-{pid}.git")
         r = kid("git", "ls-remote", own_remote)
         r2 = parent("git", "ls-remote", own_remote)
         check("control: the account reaches no remote, its parent does", r.returncode != 0 and r2.returncode == 0,
@@ -146,7 +146,7 @@ esac
         kid_id = lineage_id("kid")
         publish()
         check("with --born-now the enrolment completes", r.returncode == 0 and bool(kid_id), r.stderr)
-        repo = os.path.join(remotes, f"agent-fabric-secrets-{kid_id}.git")
+        repo = os.path.join(remotes, f"fabric-agent-{kid_id}.git")
         shown = subprocess.run(["git", "--git-dir", repo, "show", "main:.agent-id"], capture_output=True, text=True, env=git_env())
         check("…its first commit reached its repository through the parent", shown.stdout.strip() == kid_id, shown.stderr)
         mirror = os.path.join(t, "parent", ".local", "share", "agent-fabric", "children", kid_id)
