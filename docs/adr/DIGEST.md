@@ -60,6 +60,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | a harness other than Claude Code; Codex sessions; AGENTS.md and CLAUDE.md; --harness | ADR-054 |
 | a model at capacity or over allowance; retries; review divert; availability report | ADR-055 |
 | an agent's name, surname, avatar; the "AI" prefix; personas | ADR-056 |
+| signing commits; an agent's own key; ssh or gpg signing; fabric-sign; timestamps; Verified on GitHub | ADR-057 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1202,3 +1203,15 @@ its record disagree, the record wins. Look it up, never read it whole:
 - No gender or pronoun; "it" on request (§5 rule 6). Avatars in the
   fabric's own anime style by brand-comms; the agent may reject any (§5
   rule 7). Identity and authorship unchanged (§5 rule 8).
+
+### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Proposed)
+
+- Each account signs with its own agent key's signing subkey, never the
+  shared key (§5 rule 1).
+- `fabric-sign` signs OpenPGP or SSH with that one subkey, by
+  `policies/signing.json` per forge or repository (§5 rules 2-3).
+- Every signature timestamped; proof in `refs/notes/fabric-ots`, pushed
+  with the branch (§5 rule 4).
+- One checker: admitted format, lineage-certified key, role held, proof
+  present — hooks, CI, suite (§5 rule 5). Keys on GitHub as signing keys;
+  one shared author stays (§5 rules 6-7).
