@@ -10,7 +10,8 @@ Contract of `settings_put(src)`:
           is not a directory or is a link; an entry that is not a plain
           file or directory when opened (a link, device, FIFO, socket); an
           entry that cannot be read, a file over its size cap, the tree
-          over its total cap; a name git treats as its own (.git*:
+          over its total cap, nested deeper than MAX_DEPTH, a file with
+          several hard links; a name git treats as its own (.git*:
           .gitignore would silently drop files from the commit).
   refused under the lock, after the store is brought up to its remote and
           before anything is written: when the tree carries a profile or an
@@ -21,7 +22,7 @@ Contract of `settings_put(src)`:
           than this store's, or does not agree with the avatar that will
           stand (the tree's, else the store's): avatar.sha256 is the sha256
           of avatar.png; a path below settings/ that already holds a link in
-          the store, or untracked files left there.
+          the store (settings/ itself included), or untracked files left there.
   effect  under the store's write lock, brought up to its remote first
           (verified, ADR-042), then ONE commit signed through the store's
           own path ("agent <login>: settings"), then pushed. Nothing
@@ -53,6 +54,7 @@ from .trust import _commit
 
 MAX_FILE_BYTES = 16 * 1024 * 1024
 MAX_TREE_BYTES = 64 * 1024 * 1024
+MAX_DEPTH = 16
 PROFILE = "profile.json"
 AVATAR = "avatar.png"
 SCHEMA_REL = os.path.join("identities", "schemas", "persona-profile.schema.json")
@@ -65,8 +67,10 @@ def _read_tree(src: str) -> dict[str, bytes]:
     files: dict[str, bytes] = {}
     total = 0
 
-    def walk(dfd: int, prefix: str) -> None:
+    def walk(dfd: int, prefix: str, depth: int) -> None:
         nonlocal total
+        if depth > MAX_DEPTH:
+            raise StoreError(f"{prefix}: nested deeper than {MAX_DEPTH} levels; nothing written")
         try:
             names = sorted(os.listdir(dfd))
         except OSError as e:
@@ -85,7 +89,7 @@ def _read_tree(src: str) -> dict[str, bytes]:
                 except OSError as e:
                     raise StoreError(f"{rel}: {e.strerror or e}; nothing written") from None
                 try:
-                    walk(child, rel)
+                    walk(child, rel, depth + 1)
                 finally:
                     os.close(child)
                 continue
@@ -100,6 +104,9 @@ def _read_tree(src: str) -> dict[str, bytes]:
                 if not stat.S_ISREG(opened.st_mode):
                     raise StoreError(f"{rel}: not a plain file or directory (a link, device, FIFO or socket is "
                                      "refused); nothing written")
+                if opened.st_nlink != 1:
+                    # Another account's hardlink to a file of the agent's own looks like a plain file.
+                    raise StoreError(f"{rel}: a file with several hard links is refused; nothing written")
                 with os.fdopen(fd, "rb", closefd=False) as fh:
                     data = fh.read(MAX_FILE_BYTES + 1)
             except OSError as e:
@@ -120,7 +127,7 @@ def _read_tree(src: str) -> dict[str, bytes]:
         why = "not a directory (a link is not followed)" if e.errno in (errno.ELOOP, errno.ENOTDIR) else (e.strerror or e)
         raise StoreError(f"{src}: {why}; nothing written") from None
     try:
-        walk(top, "")
+        walk(top, "", 0)
     finally:
         os.close(top)
     return files
@@ -147,8 +154,8 @@ def _load_profile(raw: bytes, agent_id: str) -> dict:
 
 
 def _held(store: str, name: str) -> bytes | None:
-    path = os.path.join(store, "settings", name)
-    if os.path.islink(path) or not os.path.isfile(path):
+    path = _destination(store, name)
+    if not os.path.isfile(path):
         return None
     with open(path, "rb") as fh:
         return fh.read()
@@ -174,8 +181,8 @@ def _check_standing(files: dict[str, bytes], store: str, agent_id: str) -> None:
 def _destination(store: str, rel: str) -> str:
     """Below <store>/settings/ with no link on the way: a link committed
     there would carry the write out of settings/."""
-    here = os.path.join(store, "settings")
-    for part in rel.split(os.sep):
+    here = store
+    for part in ("settings", *rel.split(os.sep)):
         here = os.path.join(here, part)
         if os.path.islink(here):
             raise StoreError(f"settings/{rel}: {os.path.relpath(here, store)} is a link in the store; nothing written")
@@ -226,17 +233,17 @@ def settings_put(src: str) -> dict:
             for rel, data in sorted(files.items()):
                 _put_file(dests[rel], data)
             git(store, "add", "-A", "--", "settings")
-            staged_all = set(git(store, "ls-files", "-z", "--", "settings").stdout.decode().split("\0"))
+            staged_all = set(git(store, "ls-files", "-z", "--", "settings").stdout.decode("utf-8", "surrogateescape").split("\0"))
             missing = sorted(f"settings/{rel}" for rel in files if f"settings/{rel}" not in staged_all)
             if missing:
                 raise StoreError(f"{missing[0]} was not staged (git ignores it); nothing written")
             changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
-        except StoreError:
+        except BaseException as e:
+            # Any failure, an interrupt too: the next write refuses a dirty store until it is reset by hand.
             _undo(store, created)
+            if isinstance(e, OSError):
+                raise StoreError(f"{e.filename or 'settings'}: {e.strerror or e}; nothing written") from None
             raise
-        except OSError as e:
-            _undo(store, created)
-            raise StoreError(f"{e.filename or 'settings'}: {e.strerror or e}; nothing written") from None
         if changed:
             _commit(store, f"agent {login()}: settings")
             entries._after_commit(store)

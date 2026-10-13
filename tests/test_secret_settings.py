@@ -207,6 +207,15 @@ def main() -> int:
         with open(os.path.join(big, "huge"), "wb") as fh:
             fh.truncate(16 * 1024 * 1024 + 1)
         refused("a file over the size cap is refused", big, "huge", "size cap")
+        hl = tree("hl", {"a": b"1"})
+        os.link(os.path.join(hl, "a"), os.path.join(tmp, "other-name-for-a"))
+        refused("a file with several hard links is refused", hl, "hard links")
+        deep = tree("dp", {"a": b"1"})
+        nest = deep
+        for i in range(20):
+            nest = os.path.join(nest, "d")
+        os.makedirs(nest)
+        refused("a tree nested too deep is refused by name, not a traceback", deep, "nested deeper")
         locked = tree("lk", {"a": b"1", "locked/b": b"2"})
         os.chmod(os.path.join(locked, "locked"), 0)
         refused("an unreadable directory is refused by name, never skipped", locked, "locked")
@@ -272,8 +281,6 @@ def main() -> int:
         wrong["avatar"]["sha256"] = "0" * 64
         refused("a profile alone whose sha256 is not the store's avatar is refused",
                 tree("pw", {"profile.json": json.dumps(wrong).encode()}), "sha256")
-        for part in ("a link below settings/ in the store", ):
-            pass
 
         before_fail = count()
         broken = tree("brk", {"a-new.txt": b"1", "avatar-rejected/2.png": b"changed", "avatar.png/x": b"z"})
@@ -313,6 +320,31 @@ def main() -> int:
               and "not staged" in p.stderr and count() == n_ign and g("status", "--porcelain", "--untracked-files=all") == "",
               p.stdout + p.stderr)
         subprocess.run(["git", "-C", store, "reset", "-q", "--hard", "HEAD~1"], check=True, env=env)
+
+        # settings/ itself a link in the store: the write would land outside it.
+        outside = os.path.join(tmp, "outside")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "victim"), "w") as fh:
+            fh.write("ORIGINAL")
+        subprocess.run(["git", "-C", store, "rm", "-r", "-q", "settings"], check=True, env=env)
+        os.symlink(outside, os.path.join(store, "settings"))
+        subprocess.run(["git", "-C", store, "add", "-A"], check=True, env=env)
+        subprocess.run(["git", "-C", store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                        "commit", "-q", "-m", "settings is a link"], check=True, env=env)
+        p = run("settings-put", "--from", tree("viaroot", {"victim": b"OVERWRITTEN"}))
+        check("settings/ itself being a link is refused, and nothing outside the store is written",
+              p.returncode == 1 and "is a link" in p.stderr and open(os.path.join(outside, "victim")).read() == "ORIGINAL",
+              p.stdout + p.stderr)
+        subprocess.run(["git", "-C", store, "reset", "-q", "--hard", "HEAD~1"], check=True, env=env)
+
+        # A name that is not UTF-8 is written and staged like any other (no decode error half way).
+        odd = os.path.join(tmp, "odd")
+        os.makedirs(odd)
+        with open(os.path.join(os.fsencode(odd), b"a\xff.txt"), "wb") as fh:
+            fh.write(b"x")
+        p = run("settings-put", "--from", odd)
+        check("a file name that is not UTF-8 is committed, the store left clean", p.returncode == 0
+              and g("status", "--porcelain", "--untracked-files=all") == "", p.stdout + p.stderr)
 
         # A link committed below settings/ in the store carries a write out of it: refused.
         os.symlink(secret, os.path.join(store, "settings", "trap"))
