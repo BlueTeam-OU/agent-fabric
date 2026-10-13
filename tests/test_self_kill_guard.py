@@ -448,14 +448,14 @@ def main() -> int:
         sid = "0000-planted-session"
         envd = os.path.join(cfg, "session-env", sid)
         os.makedirs(envd)
-        for n, text in ((10, "unset X  # ten\n"), (2, "export AGENT_FABRIC_ROOT=/zz-planted-root\n")):
+        for n, text in ((10, "unset X  # ten\n"), (2, "export ZZ_PLANTED=/zz-planted-root\n")):
             with open(os.path.join(envd, f"sessionstart-hook-{n}.sh"), "w") as fh:
                 fh.write(text)
         real_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
         os.environ["CLAUDE_CONFIG_DIR"] = cfg
         try:
             check("shell_prefix: the session's env files, in numeric order",
-                  g.shell_prefix(sid) == "export AGENT_FABRIC_ROOT=/zz-planted-root\nunset X  # ten\n", g.shell_prefix(sid))
+                  g.shell_prefix(sid) == "export ZZ_PLANTED=/zz-planted-root\nunset X  # ten\n", g.shell_prefix(sid))
             d = g.decision("pkill -f '[z]z-planted-root'", CLAUDE, shell=True, session_id=sid)
             check("a pattern only the session's env file carries: the shell is refused",
                   d is not None and "own shell" in d[1], d)
