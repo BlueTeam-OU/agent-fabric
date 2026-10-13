@@ -1,7 +1,8 @@
 # ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker
 
 **Date:** 2026-10-13
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("accepted proceed amending")
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** how every account signs, timestamps and verifies git commits: the signing command git calls for both OpenPGP and SSH, `policies/signing.json` (which format each forge or repository takes), where timestamp proofs live, the checker run by the hooks and CI (`tools/fabric/guards/ban_unsigned_commits.py` and its successor); the signing subkey of each agent key (ADR-038); ADR-038 §6 "Commits"
 **Pillar:** P1
@@ -115,9 +116,11 @@ judged.
 
 ## 8. Decision Status
 
-Proposed. The owner asked for a general signing system in both formats,
-an agent's own key for each, and timestamping kept. Accepting it
-amends ADR-038 §6 "Commits", which waits on it.
+Accepted (the header names the owner's word). The owner asked for a
+general signing system in both formats, an agent's own key for each, and
+timestamping kept. ADR-038 §6 "Commits" is amended with it. Until
+`fabric-sign` and the checker land, accounts keep signing with the
+shared key.
 
 ## References
 

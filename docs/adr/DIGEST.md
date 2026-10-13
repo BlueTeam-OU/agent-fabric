@@ -840,15 +840,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   and never reads (§5 rule 3).
 - No step relies on a shared host (§5 rules 4–5). `sync` reads the store
   alone (§5 rules 7–8).
-- A 2026-09-29 — recovery copies and backups go to Proton Drive.
-- A 2026-09-29 — recovery copies are encrypted to the owner's recovery key.
-- A 2026-09-29 — keys, lineage and repositories are named by the agent id (ADR-039).
+- A 2026-09-29 — recovery copies and backups to Proton Drive.
+- A 2026-09-29 — recovery copies encrypted to the owner's recovery key.
+- A 2026-09-29 — keys, lineage and repositories named by agent id (ADR-039).
 - A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
-- A 2026-09-30 — Doppler removed; `provision` fills a child's store (§5 rules 3, 7–8).
+- A 2026-09-30 — no Doppler; `provision` fills a child's store (§5 rules 3, 7–8).
 - A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
-- A 2026-10-06 — no shell holds a secret; env.sh holds plain values (§5 rule 9).
+- A 2026-10-06 — no shell holds a secret; env.sh is plain values (§5 rule 9).
 - A 2026-10-07 — the Doppler CLI stays (§6).
-- A 2026-10-13 — one repository per agent: secrets and settings, in BlueTeam-OU (§2).
+- A 2026-10-13 — one repository per agent, secrets and settings (§2).
+- A 2026-10-13 — each agent signs commits with its own subkey (§6, ADR-057).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
   Doppler, provision, placement.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
@@ -1204,7 +1205,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   fabric's own anime style by brand-comms; the agent may reject any (§5
   rule 7). Identity and authorship unchanged (§5 rule 8).
 
-### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Proposed)
+### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Accepted)
 
 - Each account signs with its own agent key's signing subkey, never the
   shared key (§5 rule 1).

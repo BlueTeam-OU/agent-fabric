@@ -350,7 +350,7 @@
       "status": "Accepted",
       "date": "2026-09-29",
       "pillar": "P1",
-      "amendments": 9
+      "amendments": 10
     },
     {
       "number": "039",
@@ -518,7 +518,7 @@
       "number": "057",
       "file": "ADR-057-per-agent-commit-signing.md",
       "title": "Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-13",
       "pillar": "P1",
       "amendments": 0
