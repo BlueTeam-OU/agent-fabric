@@ -103,8 +103,10 @@ fleet reports (ADR-029), so it carries that view.
 
 ## 6. Consequences
 
-- Each run pays its own retries (at most about 90 s on a capacity
-  spell); no run is ever blocked by a stale mark.
+- Each run pays its own retries: on a capacity spell, 90 s of waits and
+  up to three more full attempts, each within the engine's time budget
+  (capacity is known only when a turn ends); no run is ever blocked by a
+  stale mark.
 - People see a capacity or allowance pattern across the fleet without
   running a review, and the owner hears of a long outage.
 - Routing gains an order for the review capability; a model added to

@@ -99,10 +99,11 @@ repository whose policy names `reviews`.
    engines is policy data, never this record: `reviews`, and
    `boundary_reviews` for a security-boundary change, in
    `policies/arming.json` for the fleet and in a repository's own
-   policy, whose list replaces the fleet's. An engine is not the review
-   of work written in its own harness: for such a pull request its place
-   in the lists is taken by an engine that did not write it (ADR-054
-   rule 10). `fabric-pr arm` refuses until each required engine has
+   policy, whose list replaces the fleet's. The review class's review is
+   always required (ADR-020). The one exception is ADR-054 rule 10's: for
+   a pull request whose every work commit was written in a Codex
+   session, `codex` in the lists is read as `claude`, since Codex does
+   not review its own harness's work. `fabric-pr arm` refuses until each required engine has
    reviewed, and the refusal names the engine still missing
    (A 2026-10-13).
 7. **The Codex CLI is pinned.** `projects/registry.json` pins the latest

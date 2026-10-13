@@ -47,8 +47,8 @@ live. The earlier text named `["claude", "codex"]` as the default to be
 set once two conditions held; both now hold (every login holds the
 synced access token, rule 8; a Codex review ran from python-dev-01's
 login on #232), and `policies/arming.json` now lists both engines in
-`reviews` and `boundary_reviews`. The waiver for work written in an
-engine's own harness is stated without naming one. No escape hatch for a
+`reviews` and `boundary_reviews`. The review class stays required on every pull request (ADR-020); the
+one exception is ADR-054 rule 10's, for Codex-written work. No escape hatch for a
 Codex capacity failure: a pull request waits for the engine. The owner's
 word, in the coordinator's session: "add codex review for all agents,
 change adr-053 so it don't specify the reviewer - only that review is
