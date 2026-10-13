@@ -653,6 +653,25 @@ def main() -> int:
                rc == 0 and "useradd" in out and "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'" in out
                and "install.sh" not in out and "bootstrap.sh" not in out and "fabric-role bind" not in out
                and "8. role" not in out, f"rc={rc}\n{out}")
+            # The operator's tools (kitty) are a warning for the operator's login only; PATH has every tool of the
+            # contract, and no kitty, so the host-tool line itself stays clean in both runs.
+            full = f"{sandbox}/nokitty"
+            os.makedirs(full)
+            for tool in ("bash", "python3", "getent", "id", "sudo", "hostname", "readlink", "dirname", "basename", "cut", "grep",
+                         "sed", "head", "tail", "tr", "sort", "uniq", "mktemp", "cat", "env", "cp", "mkdir", "rm", "ls", "ln",
+                         "chmod", "tee", "wc", "awk", "xargs", "curl", "ssh", "git", "jq", "gpg", "node", "npm", "sha256sum",
+                         "stat", "pgrep", "timeout", "flock", "useradd", "usermod", "shred", "install", "gh", "paperkey", "openssl",
+                         "cmp"):
+                src = shutil.which(tool, path=base.get("PATH"))
+                if src:
+                    os.symlink(src, f"{full}/{tool}")
+            rc_h, out_h = run("human-here", "--human", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=full)
+            rc_r, out_r = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=full)
+            ok("a missing operator tool is a warning on the operator's login, and the run goes on",
+               rc_h == 0 and has(r"^new-agent: 0\. debian: warning: the operator's desktop lacks kitty", out_h)
+               and has(r"^new-agent: 1\. ", out_h), f"rc={rc_h}\n{out_h}")
+            ok("…and is not said to a role account (positive control: its host audit ran)",
+               has(r"^new-agent: 0\. debian: ", out_r) and "operator's desktop" not in out_r, out_r)
             rc, out = run("human-here", "backend-dev", "--no-claude-account", "--dry-run")
             ok("an agent's run on a login placed as a human is refused", rc == 1 and "human-here is a human login" in out, out)
             rc, out = run("zz-fixture-login", "--human", "--dry-run")

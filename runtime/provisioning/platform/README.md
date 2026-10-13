@@ -31,6 +31,20 @@ to its package; the CI smoke jobs install that list from the map on a
 Fedora and a Debian container and run the suites, so the map is proven
 by being used.
 
+**The operator's list** — what the operator's desktop needs on the host
+the deck is attached from, `FABRIC_OPERATOR_TOOLS` in `detect.sh`:
+`kitty` (the deck draws the agents' avatars with kitty's graphics protocol;
+Ptyxis and VTE cannot). It is not in the host contract: no account's
+script calls it, and CI installs the host list whole. The host audit
+(step 0 of `new-agent` for the operator's own login, `--human`) names a
+missing one as a warning, never a failure.
+
+`packages.sh --operator [platform]` prints the ONE line to paste: the
+install command, the host packages, then the operator's. In a Qubes
+AppVM (`qubesdb-read /type` is `AppVM`) it is headed by the TemplateVM to
+paste it in (`qubesdb-read /qubes-base-template`); without `--operator`
+the output stays one package per line, which CI reads.
+
 A project's extra needs (a container runtime, an image tool, a signing
 wrapper) are the project's own `integration/provisioning/host-check.sh`.
 
@@ -43,7 +57,7 @@ ever done in the TemplateVM**:
 
 | where | what | how it gets there |
 |---|---|---|
-| the TemplateVM | packages only: the host contract above (`node`, `git`, `gh`, `jq`, `python3`, `gpg`, …) | a person, once (`PKG_INSTALL_HINT`); the worker's host audit names a missing one |
+| the TemplateVM | packages only: the host contract above (`node`, `git`, `gh`, `jq`, `python3`, `gpg`, …) and the operator's list (`kitty`) | a person, once, in the template at first run: paste the line `bash runtime/provisioning/platform/packages.sh --operator fedora-qubes` (or `python3 tools/fabric/provisioning/host_platform.py packages --operator fedora-qubes`) prints, then shut the template down and restart the AppVM; the worker's host audit names a missing one |
 | `/rw/config/agent-fabric/accounts/` | the account records — one line per login from `passwd shadow group gshadow subuid subgid`, and `members` (the login's supplementary groups); root, 0600 | `persist_accounts.py`, run by the worker at every account's creation and by `bin/fabric-host <host> persist` for all placements |
 | `/rw/config/rc.local.d/` | `agent-fabric-accounts.rc` (re-adds the records at boot, restores the memberships, enables linger, makes the lease directory `/run/lock/agent-fabric` — ADR-010) and `tmp-size.rc` (`/tmp` size) | `persist_accounts.py` installs and refreshes the first; the second is the operator's |
 | `/etc/tmpfiles.d/agent-fabric.conf` (persistent platforms only) | the lease directory `/run/lock/agent-fabric` for the next boot — on a Qubes AppVM the boot script above makes it instead | `persist_accounts.py` installs it from `platform/agent-fabric.tmpfiles.conf` |

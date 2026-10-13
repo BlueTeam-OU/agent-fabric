@@ -29,6 +29,11 @@ else
 fi
 # The fabric's host contract: what its hooks, scripts and provisioning call.
 FABRIC_HOST_TOOLS=(bash sudo ssh getent pgrep timeout flock stat sha256sum cmp useradd usermod shred install curl python3 node npm git gh jq gpg paperkey openssl)
+# What the operator's desktop needs on the host the deck is attached from:
+# kitty, for the graphics protocol the deck shows the agents' avatars with. Not
+# in FABRIC_HOST_TOOLS on purpose: no account calls it, and CI installs that
+# whole list in its containers (packages.sh --operator adds it).
+FABRIC_OPERATOR_TOOLS=(kitty)
 # The host's own python3 runs what comes before the pin (the installer, the
 # git and Claude Code hooks, bootstrap): no older than CI proves (ADR-040
 # rule 1). Ubuntu 24.04's 3.12 and Debian 12's 3.11 are below it.
