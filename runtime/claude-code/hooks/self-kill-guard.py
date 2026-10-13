@@ -144,24 +144,13 @@ def kill_after_prefixes(words: list[str]) -> list[str]:
 
 
 # A command whose argument is itself a command line: `bash -c '…'`,
-# `sudo sh -c "…"`, `eval '…'`. Its literal payload is judged as a command
-# (review of #242, C3); a payload in a variable is not readable.
+# `sudo sh -c "…"`, `eval '…'`. Every word it is given, and all of them
+# joined, is judged as a command (reviews of #242: C3, then K2). Locating
+# the -c operand modelled bash's option order and missed `bash -o pipefail
+# -c …` and `bash -c -- …`; a word that is no command yields nothing, and
+# a false deny costs a rephrase. A payload in a variable is not readable.
 NESTED = {"bash", "sh", "zsh", "dash", "ksh", "eval"}
 NESTED_DEPTH = 4
-
-
-def nested_payload(words: list[str]) -> str | None:
-    """The command line a shell's -c (in any cluster: -lc) or an eval
-    carries, or None."""
-    if os.path.basename(words[0]) == "eval":
-        return " ".join(words[1:])
-    dash_c = False
-    for w in words[1:]:
-        if w == "--" or not w.startswith("-") or w in ("-", "+"):
-            return w if dash_c and w != "--" else None
-        if not w.startswith("--") and "c" in w[1:]:
-            dash_c = True
-    return None
 
 
 SHELLS = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
@@ -403,9 +392,9 @@ def _tool_commands(pieces: list[str], depth: int) -> list[list[str]]:
             if not words:
                 continue
         if os.path.basename(words[0]) in NESTED:
-            payload = nested_payload(words)
-            if payload and depth < NESTED_DEPTH:
-                out += _tool_commands([drop_heredoc_bodies(payload)], depth + 1)
+            if depth < NESTED_DEPTH and len(words) > 1:
+                texts = list(dict.fromkeys([" ".join(words[1:]), *words[1:]]))
+                out += _tool_commands([drop_heredoc_bodies(t) for t in texts], depth + 1)
         elif os.path.basename(words[0]) in KILL_TOOLS:
             out.append(words)
     return out

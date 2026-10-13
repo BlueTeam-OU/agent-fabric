@@ -359,6 +359,12 @@ def main() -> int:
             ("a watch killed inside eval", f"eval 'kill {inbox}'", "Never kill an inbox watch"),
             ("a watch killed two shells deep", f"""bash -c "sh -c 'kill {inbox}'" """, "Never kill an inbox watch"),
             ("a sibling by pattern inside sh -c", "sh -c \"pkill -f '[z]zsib-bg'\"", f"pid {sib}"),
+            # Wherever the payload stands among the shell's options (round 2, K2).
+            ("a watch killed inside bash -o pipefail -c", f"bash -o pipefail -c 'kill {inbox}'",
+             "Never kill an inbox watch"),
+            ("a watch killed inside bash -c --", f"bash -c -- 'kill {inbox}'", "Never kill an inbox watch"),
+            ("a sibling by pattern inside bash -e -o pipefail -c", "bash -e -o pipefail -c \"pkill -f '[z]zsib-bg'\"",
+             f"pid {sib}"),
         ]
         for label, cmd, want in tree_cases:
             d = hook_in_session(cmd)
