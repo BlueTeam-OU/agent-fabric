@@ -49,7 +49,7 @@ def role_of(login: str, role_ids: list[str], coordinator_logins: set[str], root:
 def agents(root: str | None = None) -> list[dict]:
     lineage = _load(os.path.join(roots.keys_dir(root=root), "lineage.json"))
     claims = _load(roots.personas("claims.json", root=root)).get("claims") or {}
-    catalog = {r["id"]: r.get("title") or r["id"] for r in _load(roots.role_catalog(root=root)).get("roles") or []}
+    catalog = {r["id"]: r.get("short_title") or r.get("title") or r["id"] for r in _load(roots.role_catalog(root=root)).get("roles") or []}
     authority = _load(roots.policy("authority.json", root=root))
     definitions = authority.get("role_definitions") or {}
     holders: set[str] = set()
