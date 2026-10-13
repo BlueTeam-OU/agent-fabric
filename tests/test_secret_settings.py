@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -509,6 +510,38 @@ def main() -> int:
         subprocess.run(["git", "-C", store, "config", "--remove-section", "filter.rot"], check=True, env=env)
         os.unlink(os.path.join(store, "settings", "avatar.png"))
         subprocess.run(["git", "-C", store, "checkout", "--", "settings/avatar.png"], check=True, env=env)
+
+        # A gitlink (submodule) below settings/: a destination inside it would be a write into another repository.
+        sub_repo = os.path.join(tmp, "subrepo")
+        subprocess.run(["git", "init", "-q", "-b", "main", sub_repo], check=True, env=env)
+        subprocess.run(["git", "-C", sub_repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                        "commit", "-q", "--allow-empty", "-m", "s"], check=True, env=env)
+        sub_oid = subprocess.run(["git", "-C", sub_repo, "rev-parse", "HEAD"], capture_output=True, text=True, env=env).stdout.strip()
+        subprocess.run(["git", "clone", "-q", sub_repo, os.path.join(store, "settings", "subm")], check=True, env=env)
+        subprocess.run(["git", "-C", store, "update-index", "--add", "--cacheinfo", f"160000,{sub_oid},settings/subm"], check=True, env=env)
+        subprocess.run(["git", "-C", store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                        "commit", "-q", "-m", "a gitlink"], check=True, env=env)
+        n_sub = count()
+        p = run("settings-put", "--from", tree("viasub", {"avatar-rejected/s.txt": b"s"}))
+        check("a gitlink (submodule) below settings/ is refused, nothing written", p.returncode == 1 and "gitlink" in p.stderr
+              and count() == n_sub, p.stdout + p.stderr)
+        subprocess.run(["git", "-C", store, "reset", "-q", "--hard", "HEAD~1"], check=True, env=env)
+        shutil.rmtree(os.path.join(store, "settings", "subm"), ignore_errors=True)
+
+        # An interrupted catch-up rebase that left a rebase in progress and a stale lock: said, never hidden.
+        class Reb:
+            pass
+        os.makedirs(os.path.join(store, ".git", "rebase-merge"), exist_ok=True)
+        open(os.path.join(store, ".git", "index.lock"), "w").close()
+        try:
+            S._abort_rebase(store)
+            said_reb = "no error"
+        except secret_store.StoreError as e:
+            said_reb = str(e)
+        check("a rebase git cannot abort is said, not reported as undone", "middle of a rebase" in said_reb, said_reb)
+        shutil.rmtree(os.path.join(store, ".git", "rebase-merge"), ignore_errors=True)
+        if os.path.exists(os.path.join(store, ".git", "index.lock")):
+            os.unlink(os.path.join(store, ".git", "index.lock"))
 
         # An inherited GIT_DIR (a hook's environment) must not point any git call of the command at another repository.
         other_repo = os.path.join(tmp, "elsewhere.git")

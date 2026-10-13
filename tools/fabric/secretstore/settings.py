@@ -319,6 +319,21 @@ def _masked():
         signal.pthread_sigmask(signal.SIG_SETMASK, old)
 
 
+def _abort_rebase(store: str) -> None:
+    """A rebase interrupted by a signal is put away; if git cannot (the child was killed holding index.lock), the
+    stale lock is removed, as in _undo, and the abort retried. A rebase still in progress is said, never hidden."""
+    git(store, "rebase", "--abort", check=False)
+    gitdir = os.path.join(store, ".git")
+    if any(os.path.isdir(os.path.join(gitdir, d)) for d in ("rebase-merge", "rebase-apply")):
+        lock = os.path.join(gitdir, "index.lock")
+        if os.path.exists(lock):
+            os.unlink(lock)
+        git(store, "rebase", "--abort", check=False)
+    if any(os.path.isdir(os.path.join(gitdir, d)) for d in ("rebase-merge", "rebase-apply")):
+        raise StoreError(f"{store} is left in the middle of a rebase by the interrupt; put it back by hand "
+                         "(git rebase --abort), nothing was written")
+
+
 def _undo(store: str, created: list[str], made_dirs: list[str] = ()) -> None:
     """The store as it was: tracked files back, the files and directories this run made gone."""
     with _masked():
@@ -388,11 +403,16 @@ def _put(files: dict[str, bytes], state: dict) -> dict:
             # An interrupt inside the rebase bypasses the helper's own abort: nothing of this run is written yet,
             # so what may be left is a rebase in progress, put away here.
             with _masked():
-                git(store, "rebase", "--abort", check=False)
+                _abort_rebase(store)
             raise
         left = git(store, "status", "--porcelain", "--ignored", "--untracked-files=all", "--", "settings").stdout.decode().strip()
         if left:
             raise StoreError(f"{store} has untracked or ignored files below settings/ ({left.splitlines()[0][3:]}); nothing written")
+        gitlinks = [l for l in git(store, "ls-files", "-s", "--", "settings").stdout.decode("utf-8", "surrogateescape").splitlines()
+                    if l.startswith("160000")]
+        if gitlinks:
+            # A submodule below settings/ would take a destination file into another repository, past the reset.
+            raise StoreError(f"{gitlinks[0].split(chr(9), 1)[-1]} is a submodule (gitlink) in the store; nothing written")
         flagged = [l for l in git(store, "ls-files", "-v", "--", "settings").stdout.decode("utf-8", "surrogateescape").splitlines()
                    if l[:1].islower() or l[:1] == "S"]
         if flagged:
