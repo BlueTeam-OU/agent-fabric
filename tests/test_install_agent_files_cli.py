@@ -59,7 +59,6 @@ from __future__ import annotations
 
 import json
 import os
-import pwd
 import re
 import shutil
 import socket
@@ -81,8 +80,28 @@ if not os.path.isfile(INSTALL):
 # this file; anything else is run by bash.
 IS_PY = INSTALL.endswith(".py")
 
-LOGIN = pwd.getpwuid(os.geteuid()).pw_name
-SUFFIX = LOGIN.rsplit("-", 1)[-1]
+# The script reads its login from the password database and has no seam for
+# it, and a login without a hyphen (CI's runner, a bare account) makes the
+# suffix equal the login, which hides a script that forgets to take the
+# suffix. So every process the run starts sees this login, through a
+# sitecustomize on PYTHONPATH (SITECUSTOMIZE) that patches pwd.getpwuid.
+LOGIN = "fixture-qq"
+SUFFIX = "qq"
+assert LOGIN.rsplit("-", 1)[-1] == SUFFIX != LOGIN
+SITECUSTOMIZE = """\
+import os, pwd
+_real = pwd.getpwuid
+def getpwuid(uid):
+    r = _real(uid)
+    if uid != os.getuid() and uid != os.geteuid():
+        return r
+    return pwd.struct_passwd((%r,) + tuple(r)[1:])
+pwd.getpwuid = getpwuid
+""" % LOGIN
+# The shim runs `$AGENT_FABRIC_PYTHON -I script`; -I ignores PYTHONPATH, so
+# the stand-in drops it and runs the interpreter that runs this file.
+PIN_STAND_IN = '#!/bin/sh\n[ "$1" = "-I" ] && shift\nexec "%s" "$@"\n'
+
 HOST = socket.gethostname().split(".")[0]
 CLASSES = ("code-low", "code-medium", "code-high", "code-plan", "code-review")
 WORKER_BODY = ("---\nname: locale-worker\ndescription: The locale worker (agent-fabric) — fixture\n"
@@ -116,6 +135,11 @@ class Fixture(unittest.TestCase):
     def setUp(self) -> None:
         self.sandbox = tempfile.mkdtemp(prefix="iaf.")
         self.addCleanup(shutil.rmtree, self.sandbox, ignore_errors=True)
+        self.login_dir = os.path.join(self.sandbox, "login")
+        write(os.path.join(self.login_dir, "sitecustomize.py"), SITECUSTOMIZE)
+        self.pin = os.path.join(self.sandbox, "pin", "python")
+        write(self.pin, PIN_STAND_IN % PYTHON)
+        os.chmod(self.pin, 0o755)
         self.home = os.path.join(self.sandbox, "home")
         self.fabric = os.path.join(self.sandbox, "fabric")
         self.state = os.path.join(self.sandbox, "state")
@@ -169,7 +193,7 @@ class Fixture(unittest.TestCase):
         # rule 3) and send the reads to data this suite did not build.
         return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": self.home, "LANG": "C.UTF-8",
                 "TMPDIR": self.sandbox, "AGENT_FABRIC_ROOT": self.fabric, "AGENT_FABRIC_STATE_DIR": self.state,
-                "AGENT_FABRIC_PYTHON": PYTHON}
+                "AGENT_FABRIC_PYTHON": self.pin, "PYTHONPATH": self.login_dir, "PYTHONDONTWRITEBYTECODE": "1"}
 
     def run_raw(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
         return subprocess.run([PYTHON if IS_PY else "bash", self.entry, *args],
