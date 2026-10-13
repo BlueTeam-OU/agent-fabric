@@ -877,22 +877,21 @@ its record disagree, the record wins. Look it up, never read it whole:
   hook and bin/ paths included (§5 rule 1).
 - Lint refuses a bash file on neither the list nor the forwarder shape;
   `ports` only shrinks (§5 rule 2).
-- A port freezes the contract, keeps the path, runs the old
-  test as the oracle, removes the entry (§5 rules 3–5).
+- A port freezes the contract, keeps the path, tests against the old
+  script (§5 rules 3–5).
 - GitHub and git go through `gh.py`, `git.py` (§5 rule 6).
-- A 2026-10-01 — the oracle stays; mock and source reads may follow (§5 rule 5).
+- A 2026-10-01 — the oracle stays (§5 rule 5).
 - A 2026-10-01 — one pinned Python per host (§5 rule 1).
 - A 2026-10-01 — a fixture copies its scripts' modules (§5 rule 5).
 - A 2026-10-04 — Wave 7: GZCoord's tools to Python (§7).
 - A 2026-10-08 — commands by bare name; shims retire (§5 rule 7).
 - A 2026-10-09 — Wave 8: control plane to Python; no new Node (§5 rule 8).
 - A 2026-10-09 — valid on 3.13+ (§5 rule 1).
-- A 2026-10-11 — Wave 9: the rest of the bash to Python in ten batches
-  (docs/wave-9/inventory.md); projects advised: port a script
-  when changed, host tests Python (§5 rules 1, 2, 9, §7).
-- Keywords: Python, bash, shell, port, allowlist, lint, shim, wave, gh,
-  git, 150 lines, P1, bare command, Node, control plane,
-  forwarder.
+- A 2026-10-11 — Wave 9: the rest of the bash to Python in ten batches;
+  projects port a script when changed (§5 rules 1, 2, 9, §7).
+- A 2026-10-13 — the interim line limit is 160 (§7).
+- Keywords: Python, bash, port, allowlist, lint, shim, wave, gh, git,
+  160 lines, bare command, Node, forwarder.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 

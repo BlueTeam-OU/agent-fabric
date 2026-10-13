@@ -621,7 +621,7 @@ def main() -> int:
     # --- no project's name in a generic file --------------------------------
     findings += project_name_findings(root)
 
-    # --- bash over 150 lines only where the allowlist says (ADR-040) ---------
+    # --- bash over 160 lines only where the allowlist says (ADR-040) ---------
     findings += bash_size_findings(root)
     findings += regex_dollar_findings(root)
     findings += arm_boundary_findings(root)

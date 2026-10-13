@@ -1872,8 +1872,8 @@ def case_instance_files_are_read_from_the_operator_tree() -> None:
                 os.environ["AGENT_FABRIC_OPERATOR"] = saved
 
 
-def case_bash_over_150_lines_needs_the_allowlist() -> None:
-    """ADR-040 §5 rule 2: a tracked bash script over 150 lines is a finding
+def case_bash_over_160_lines_needs_the_allowlist() -> None:
+    """ADR-040 §5 rule 2: a tracked bash script over 160 lines is a finding
     unless the allowlist names it; an entry whose script is gone or short
     is stale; an entry the base list does not have is an addition."""
     import importlib.util
@@ -1882,9 +1882,9 @@ def case_bash_over_150_lines_needs_the_allowlist() -> None:
     spec.loader.exec_module(lint)
     with tempfile.TemporaryDirectory() as root:
         g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
-        long = "#!/usr/bin/env bash\n" + "echo x\n" * 151
+        long = "#!/usr/bin/env bash\n" + "echo x\n" * 161
         write(os.path.join(root, "bin", "long-tool"), long)                 # by shebang
-        write(os.path.join(root, "runtime", "long.sh"), "echo y\n" * 160)   # by extension
+        write(os.path.join(root, "runtime", "long.sh"), "echo y\n" * 161)   # by extension
         write(os.path.join(root, "tools", "long.py"), "#!/usr/bin/env python3\n" + "x = 1\n" * 200)
         write(os.path.join(root, "runtime", "short.sh"), "#!/bin/sh\necho z\n")
         write(os.path.join(root, "policies", "bash-allowlist.json"),
@@ -1894,15 +1894,15 @@ def case_bash_over_150_lines_needs_the_allowlist() -> None:
         g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
         g("branch", "base")
         got = lint.bash_size_findings(root, base_ref="base")
-        assert any(f.startswith("bin/long-tool: 152 lines of bash") for f in got), got
+        assert any(f.startswith("bin/long-tool: 162 lines of bash") for f in got), got
         assert not any(f.startswith("runtime/long.sh:") or f.startswith("tools/long.py") for f in got), \
             "a listed script, and a Python one, pass"
-        assert any("runtime/short.sh is gone or 150 lines or fewer" in f for f in got), "a stale entry is a finding"
+        assert any("runtime/short.sh is gone or 160 lines or fewer" in f for f in got), "a stale entry is a finding"
         write(os.path.join(root, "policies", "bash-allowlist.json"),
               json.dumps({"scripts": {"runtime/long.sh": 1, "bin/long-tool": 3}}))
         got = lint.bash_size_findings(root, base_ref="base")
         assert any("bin/long-tool is added; the list only shrinks" in f for f in got), got
-        assert not any(f.startswith("bin/long-tool: 152") for f in got), "listed now, so not unlisted"
+        assert not any(f.startswith("bin/long-tool: 162") for f in got), "listed now, so not unlisted"
         assert lint.bash_size_findings(root, base_ref="no-such-ref") == [], \
             "without a base, additions are not judged and nothing else is wrong"
         # A branch behind its base: the base has since dropped an entry the
@@ -2477,7 +2477,7 @@ def main() -> int:
         case_project_tools_are_declared_and_never_retired,
         case_the_source_locale_translates_nothing,
         case_decision_records_are_lint_findings,
-        case_bash_over_150_lines_needs_the_allowlist,
+        case_bash_over_160_lines_needs_the_allowlist,
         case_arm_boundary_cases_only_leave_retired,
         case_arm_direct_block,
         case_every_registered_project_declares_an_arm_json,

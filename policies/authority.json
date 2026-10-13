@@ -75,6 +75,7 @@
         "communication/gzcoord/scripts/",
         "communication/gzcoord/tests/",
         "tests/test_arm_cli.py",
+        "tests/test_arm_policy.py",
         "tests/test_commit_class.py",
         "tests/test_commit_class_cli.py",
         "tests/test_post_review.py",
