@@ -25,15 +25,23 @@ Rows (--json: one line each; otherwise a table):
 alone unless --include-self: stopping it ends the agent the operator is
 working beside. A skipped row is not a failure.
 
+`skipped` for a self account named explicitly (not through `all`) is a refusal
+instead: exit 2, nothing run.
+
 Exit: 0 every row is active (start) or stopped/skipped (stop); 1 any failed
 row; 2 a refusal (an unknown or human login, a bad option) with nothing run.
-The units stay enabled: they come back at boot.
+The units stay enabled: they come back at boot, or at the next bootstrap /
+moveto entry of the account, which runs `enable --now`.
+
+--timeout is the bound of each host call, not of the run: an account takes up to
+four calls, accounts one after another.
 """
 from __future__ import annotations
 
 import os
 import re
 import subprocess
+import time
 from typing import Any, Callable
 
 UNIT = "agent-fabric-agentd.service"
@@ -45,6 +53,10 @@ LOGIN = re.compile(r"[a-z_][a-z0-9_-]*")
 # stdout (or nothing) means systemctl could not ask, which is a failure to
 # read, not a state.
 ACTIVE_STATES = frozenset({"active", "activating", "deactivating", "reloading", "inactive", "failed", "maintenance", "refreshing"})
+# Type=simple: `start` returns once the process is forked, so a daemon that dies
+# in its first moments still reads active. The unit restarts after RestartSec=5,
+# and a read after this settle sees it activating (auto-restart) instead.
+SETTLE_S = 2
 STOPPED_STATES = frozenset({"inactive", "failed"})
 
 Run = Callable[[str, list[str], float], "tuple[int, str, str]"]
@@ -121,7 +133,7 @@ def _act(run: Run, host: str, login: str, uid: int, verb: str, timeout: float) -
         raise StepFailed(f"systemctl --user {verb} exit {rc}: {_say(err) or _say(out) or 'no output'}")
 
 
-def one(op: str, placed: dict, run: Run, timeout: float) -> dict:
+def one(op: str, placed: dict, run: Run, timeout: float, sleep: Callable[[float], None] = time.sleep) -> dict:
     login, host = placed["login"], placed["host"]
     row = lambda state, detail="": {"login": login, "state": state, "detail": detail}  # noqa: E731
     try:
@@ -133,6 +145,7 @@ def one(op: str, placed: dict, run: Run, timeout: float) -> dict:
             if before == "active":
                 return row("active", "already active")
             _act(run, host, login, uid, "start", timeout)
+            sleep(SETTLE_S)
             after = is_active(run, host, login, uid, timeout)
             return row("started", f"was {before}") if after == "active" else row("failed", f"is-active reads {after} after start")
         if before in STOPPED_STATES:
@@ -145,13 +158,13 @@ def one(op: str, placed: dict, run: Run, timeout: float) -> dict:
 
 
 def run_units(op: str, expected: list[dict], *, run: Run, me: str | None, include_self: bool = False,
-              timeout: float = STEP_TIMEOUT_S) -> list[dict]:
+              timeout: float = STEP_TIMEOUT_S, sleep: Callable[[float], None] = time.sleep) -> list[dict]:
     rows = []
     for placed in expected:
         if op == STOP and placed["login"] == me and not include_self:
             rows.append({"login": placed["login"], "state": "skipped", "detail": "this session's own account (--include-self stops it)"})
         else:
-            rows.append(one(op, placed, run, timeout))
+            rows.append(one(op, placed, run, timeout, sleep))
     return rows
 
 

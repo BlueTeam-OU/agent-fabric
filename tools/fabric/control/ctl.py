@@ -20,6 +20,10 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login|all> control-start | control-stop [--include-self] [--json]
     fabric-ctl keygen [--force]
 
+The two control-start / control-stop ops are the exception: they send no request
+and read no replies (the agent that would answer is what they start or stop), and
+their --timeout bounds each host call. Everything below is about the others.
+
 A login becomes an address through the registry's placement
 (<host>/<login>); `all` is every placement that is an agent (a human login
 has no control agent, ADR-044), addressed as "*". The request goes out once;
@@ -135,7 +139,7 @@ USAGE = (
     "       fabric-ctl <login|all> branches --sweep   (an action: the account runs fabric-branches --sweep in each working copy with no uncommitted change and no build or suite running in it)\n"
     "       fabric-ctl <login|all> states [--follow] [--json]\n"
     "       fabric-ctl <coordinator> switch   (the account switch controller's mode and move log, ADR-052; any other account has none)\n"
-    "       fabric-ctl <login|all> control-start [--json]   (starts each account's stopped control agent through the host executor, read back by is-active; sends no request)\n"
+    "       fabric-ctl <login|all> control-start [--json]   (starts each account's stopped control agent through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60)\n"
     "       fabric-ctl <login|all> control-stop [--json] [--include-self]   (stops it, the unit staying enabled; this session's own account's agent only with --include-self)\n"
     "       fabric-ctl keygen [--force]")
 
@@ -1675,8 +1679,14 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     if args["op"] in units.UNIT_OPS:
         # No request, no relay, no token: the agent that would answer is the thing being started or stopped.
         who = gz_whoami() if who is None else who
-        unit_rows = units.run_units(args["op"], expected, run=units_run or units.hostexec_run(registry), me=who.get("agent"),
-                               include_self=args.get("include_self", False), timeout=args["timeout"])
+        include_self = args.get("include_self", False)
+        if args["op"] == units.STOP and not everyone and not include_self and any(e["login"] == who.get("agent") for e in expected):
+            err("fabric-ctl: control-stop would stop this session's own account's agent; --include-self says it is meant; nothing run")
+            return 2
+        # The registry the placements came from is the one hostexec reads, however the operator tree is split from the engine.
+        reg_path = registry if registry is not None else roots.hosts_registry(engine=FABRIC_ROOT, empty_is_set=True)
+        unit_rows = units.run_units(args["op"], expected, run=units_run or units.hostexec_run(reg_path), me=who.get("agent"),
+                               include_self=include_self, timeout=args["timeout"], sleep=sleep)
         if args["json"]:
             for r in unit_rows:
                 out(js.stringify(r))

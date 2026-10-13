@@ -78,7 +78,7 @@ class Units(unittest.TestCase):
         reg = registry(self, placement or {a: "h" for a in fake.states}, kinds)
         out, err = [], io.StringIO()
         with redirect_stderr(err):
-            rc = ctl.main(argv, registry=reg, out=out.append, who=who, units_run=fake)
+            rc = ctl.main(argv, registry=reg, out=out.append, who=who, units_run=fake, sleep=lambda s: None)
         return rc, out, err.getvalue()
 
     def test_start_reports_active_started_and_failed_and_exits_1_on_a_failed_row(self):
@@ -127,6 +127,25 @@ class Units(unittest.TestCase):
         rc, out, _ = self.ctl(["--json", "all", "control-stop", "--include-self"], fake)
         self.assertEqual((rc, fake.states["coordinator"]), (0, "inactive"))
 
+    def test_naming_this_sessions_account_for_stop_is_a_refusal_that_runs_nothing(self):
+        fake = FakeSystemd({"coordinator": "active"})
+        rc, out, err = self.ctl(["coordinator", "control-stop"], fake)
+        self.assertEqual((rc, out, fake.calls), (2, [], []))
+        self.assertIn("--include-self", err)
+        self.assertEqual(self.ctl(["coordinator", "control-stop", "--include-self"], fake)[0], 0)
+
+    def test_start_waits_before_the_read_back_and_a_daemon_that_dies_in_it_is_failed(self):
+        slept = []
+        class Dies(FakeSystemd):
+            def __call__(s, host, argv, timeout):
+                if argv[-2] == "is-active" and slept and s.states["a"] == "active":
+                    return 3, "activating\n", ""   # auto-restart, after the settle
+                return super().__call__(host, argv, timeout)
+        fake = Dies({"a": "inactive"})
+        row = units.one(units.START, {"login": "a", "host": "h"}, fake, 5, sleep=slept.append)
+        self.assertEqual((slept, row["state"]), ([units.SETTLE_S], "failed"))
+        self.assertIn("activating", row["detail"])
+
     def test_start_never_skips_self(self):
         fake = FakeSystemd({"coordinator": "inactive"})
         rc, out, _ = self.ctl(["--json", "coordinator", "control-start"], fake)
@@ -136,7 +155,7 @@ class Units(unittest.TestCase):
         fake = FakeSystemd({"a": "active", "b": "active", "c": "active"}, broken=["a"], hang=["b"])
         reg = registry(self, {"a": "h", "b": "h", "c": "h", "ghost": "h"})
         out = []
-        rc = ctl.main(["--json", "all", "control-stop"], registry=reg, out=out.append, who={"host": "h", "agent": "x"}, units_run=fake)
+        rc = ctl.main(["--json", "all", "control-stop"], registry=reg, out=out.append, who={"host": "h", "agent": "x"}, units_run=fake, sleep=lambda s: None)
         rows = {json.loads(x)["login"]: json.loads(x) for x in out}
         self.assertIn("no state", rows["a"]["detail"])
         self.assertIn("Failed to connect to bus", rows["a"]["detail"])
@@ -150,9 +169,9 @@ class Units(unittest.TestCase):
         reg = registry(self, {"a": "h", "h1": "h"}, {"h1": "human"})
         out, err = [], io.StringIO()
         with redirect_stderr(err):
-            rc = ctl.main(["--json", "all", "control-start"], registry=reg, out=out.append, who=ME, units_run=fake)
+            rc = ctl.main(["--json", "all", "control-start"], registry=reg, out=out.append, who=ME, units_run=fake, sleep=lambda s: None)
             self.assertEqual((rc, [json.loads(x)["login"] for x in out]), (0, ["a"]))
-            self.assertEqual(ctl.main(["h1", "control-start"], registry=reg, out=out.append, who=ME, units_run=fake), 2)
+            self.assertEqual(ctl.main(["h1", "control-start"], registry=reg, out=out.append, who=ME, units_run=fake, sleep=lambda s: None), 2)
         self.assertIn("human login", err.getvalue())
 
     def test_refusals_run_nothing(self):
