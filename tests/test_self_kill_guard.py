@@ -198,6 +198,12 @@ def main() -> int:
                 "bash -c 'kill -9 -1'"):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a negative operand is refused: {cmd}", d is not None and d[0] == "deny" and "negative" in d[1], d)
+    # 0 is the caller's own process group: the shell running the command (round 3).
+    for cmd in ("kill 0", "kill -9 0", "kill -- 0", "kill -s TERM 0", "k''ill 0"):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a zero operand is refused: {cmd}", d is not None and d[0] == "deny" and "zero" in d[1], d)
+    check("…but kill -0 of a pid outside the tree is a signal, not a group: kill -0 999999999",
+          g.decision("kill -0 999999999", CLAUDE, shell=False) is None)
     check("…but a negative first argument is a signal: kill -9 999999999",
           g.decision("kill -9 999999999", CLAUDE, shell=False) is None)
     # A repeat count past sre's limit overflows (pre-existing, review of #242).
@@ -376,6 +382,16 @@ def main() -> int:
             ("builtin kill", f"builtin kill -9 {sib}", f"pid {sib}"),
             ("a protected number beside the word kill, even printed", f"bash -c 'echo kill {inbox}'",
              "Never kill an inbox watch"),
+            # A pid spliced from quoted or escaped pieces, which bash joins
+            # (round 3, S1); and the word kill itself built that way
+            # (round 3, quoted-kill).
+            ("a pid spliced with ''", f"kill {str(sib)[:2]}''{str(sib)[2:]}", f"pid {sib}"),
+            ("a pid spliced with \"\"", f"kill \"{str(sib)[:2]}\"{str(sib)[2:]}", f"pid {sib}"),
+            ("a pid spliced with a backslash", f"kill {str(sib)[:2]}\\{str(sib)[2:]}", f"pid {sib}"),
+            ("a spliced pid inside bash -c", f"bash -c \"kill {str(sib)[:2]}''{str(sib)[2:]}\"", f"pid {sib}"),
+            ("k''ill", f"k''ill {sib}", f"pid {sib}"),
+            ("k\"ill\"", f"k\"ill\" {sib}", f"pid {sib}"),
+            ("\\kill", f"\\kill {sib}", f"pid {sib}"),
             # Wherever the payload stands among the shell's options (round 2, K2).
             ("a watch killed inside bash -o pipefail -c", f"bash -o pipefail -c 'kill {inbox}'",
              "Never kill an inbox watch"),

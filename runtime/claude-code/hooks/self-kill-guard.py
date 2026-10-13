@@ -100,6 +100,20 @@ VALUE_OPTIONS = {
 KILLS = re.compile(r"\b(kill|pkill|killall|xargs\s+(?:-\S+\s+)*kill)\b")
 
 
+def unquoted(command: str) -> str:
+    """The command with every quote and backslash dropped: bash joins
+    `k''ill`, `k"ill"`, `\\kill` into kill and `12''34`, `"12"34`, `12\\34`
+    into 1234, which the raw text hides from a regex (round 3 of #242).
+    Over-joins where bash would not; a false deny is a rephrase."""
+    return re.sub(r"['\"\\]", "", command)
+
+
+def kills(command: str) -> bool:
+    """Whether the command kills at all, read in the raw text and with its
+    quotes dropped."""
+    return bool(KILLS.search(command) or KILLS.search(unquoted(command)))
+
+
 def own_claude_cmdline(proc: str = "/proc", pid: int | None = None) -> str | None:
     """The command line of the nearest ancestor whose command is `claude`."""
     return own_claude(proc, pid)[1]
@@ -279,7 +293,7 @@ def segments(piece: str) -> list[list[str]]:
 def kill_commands(command: str) -> list[list[str]]:
     """Each pgrep, pkill or killall in a command that kills at all, as its
     words from the tool on."""
-    if not KILLS.search(command):
+    if not kills(command):
         return []
     return [w for w in tool_commands(command) if os.path.basename(w[0]) in ("pgrep", "pkill", "killall")]
 
@@ -295,7 +309,7 @@ OWN_JOB = {"$!", "${!}"}
 # hyphenated name; and an integer-looking token, its sign dropped.
 KILL_WORD = re.compile(r"(?<![\w.-])kill(?![\w.-])")
 INTEGER = re.compile(r"(?<![\w.])[+-]?(\d{1,10})(?![\w.])")
-MAX_PIDS = 256
+MAX_PIDS = 512
 
 
 def kill_operands(command: str) -> tuple[list[int], list[str]]:
@@ -308,11 +322,20 @@ def kill_operands(command: str) -> tuple[list[int], list[str]]:
     deny, a rephrase. Unreadable is a variable (`$pid`, `$PPID`, `$$`) or a
     substitution other than one plain pgrep, whose answer the ground truth
     asks list-only; `$!` is the command's own job."""
-    if not KILL_WORD.search(command):
+    flat = unquoted(command)
+    commands = tool_commands(command)
+    # The word kill as bash reads it: in the raw text, with the quotes
+    # dropped, or as a command's unquoted word (`k''ill`, `\kill`).
+    if not (KILL_WORD.search(command) or KILL_WORD.search(flat)
+            or any(os.path.basename(w[0]) == "kill" for w in commands)):
         return [], []
-    pids = list(dict.fromkeys(int(m.group(1)) for m in INTEGER.finditer(command)))[:MAX_PIDS]
+    # Candidates from every form: the raw text, the text with quotes
+    # dropped, and each unquoted word of every command read, nested ones
+    # included — `12''34` is 1234 to bash and 12, 34 to the raw text.
+    texts = [command, flat, *(word for words in commands for word in words)]
+    pids = list(dict.fromkeys(int(m.group(1)) for t in texts for m in INTEGER.finditer(t)))[:MAX_PIDS]
     pieces, held = lift(command), []
-    for words in tool_commands(command):
+    for words in commands:
         if os.path.basename(words[0]) != "kill":
             continue
         for w in words[1:]:
@@ -328,13 +351,15 @@ def kill_groups(command: str) -> list[str]:
     """The negative operands of each `kill`: `-1` is every process the
     user may signal, `-N` a whole process group — either can hold the
     session. A negative number is read as a signal only as the first
-    argument, and `-1` never (round 2 of #242)."""
+    argument, and `-1` never (round 2 of #242). A 0 operand is the
+    caller's own process group, which holds the shell running this very
+    command (round 3)."""
     out = []
     for words in tool_commands(command):
         if os.path.basename(words[0]) != "kill":
             continue
         for i, w in enumerate(words[1:]):
-            if re.fullmatch(r"-\d+", w) and (w == "-1" or i > 0):
+            if (re.fullmatch(r"-\d+", w) and (w == "-1" or i > 0)) or re.fullmatch(r"\+?0+", w):
                 out.append(w)
     return out
 
@@ -939,7 +964,7 @@ def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tr
     why = verdict(command, cmdline)
     if why:
         return "deny", why
-    if not KILLS.search(command):
+    if not kills(command):
         return None
     shell = bool(cmdline) if shell is None else shell
     prefix = shell_prefix(session_id) if shell else ""
@@ -951,10 +976,10 @@ def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tr
         return "deny", message(by_pid)
     groups = kill_groups(command)
     if groups:
-        return "deny", (f"This command kills by a negative operand ({groups[0]}): -1 is every process you may "
-                        "signal and -N a whole process group, either of which can hold this session's claude "
-                        "process, its shell and its tasks. Kill by the exact pid of a process outside this "
-                        "session's tree.")
+        return "deny", (f"This command kills by a negative or zero operand ({groups[0]}): -1 is every process "
+                        "you may signal, 0 the command's own process group and -N a whole process group, any "
+                        "of which can hold this session's claude process, its shell and its tasks. Kill by the "
+                        "exact pid of a process outside this session's tree.")
     # procps's own answer, when it can be asked: it adds denials, never
     # removes one — the reading above stays as the floor.
     truth = ground_truth(command, pid, tree, shell, prefix)
@@ -992,7 +1017,7 @@ def main() -> int:
     pid, cmdline = own_claude()
     # The tree is read only for a command that kills: the hook runs on
     # every Bash call.
-    tree = session_tree(pid) if pid and KILLS.search(command) else {}
+    tree = session_tree(pid) if pid and kills(command) else {}
     d = decision(command, cmdline, pid, tree, session_id=payload.get("session_id"))
     if d:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
