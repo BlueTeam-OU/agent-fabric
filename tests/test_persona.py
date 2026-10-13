@@ -73,8 +73,11 @@ class Persona(unittest.TestCase):
         rc, out, _ = self.run_main("--json", "user")
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out), {"login": "user", "agent_id": IDS[1], "display": "AI First1 Sur1, Coordinator",
-                                           "first_name": "First1", "surname": "Sur1", "role": "fabric-coordinator",
+                                           "first_name": "First1", "surname": "Sur1", "pronoun": None, "role": "fabric-coordinator",
                                            "role_title": "Coordinator"})
+
+    def test_json_carries_the_pronoun_when_the_claim_has_one(self) -> None:
+        self.assertEqual(json.loads(self.run_main("--json", "python-dev-02")[1])["pronoun"], "it")
 
     def test_all_is_one_line_per_claimed_agent(self) -> None:
         rc, out, _ = self.run_main("--all")

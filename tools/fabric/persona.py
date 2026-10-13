@@ -2,7 +2,7 @@
 """tools/fabric/persona.py — how people name an agent (agent-fabric ADR-056).
 
     fabric-persona <login|agent-id>    AI <First> <Surname>, <Role title>
-    fabric-persona --json <who>        {login, agent_id, display, first_name, surname, role, role_title}
+    fabric-persona --json <who>        {login, agent_id, display, first_name, surname, pronoun, role, role_title}
     fabric-persona --all [--json]      one line (or one JSON list) for every agent
 
 People use the name, surname and role, never the login slug (the owner,
@@ -67,7 +67,7 @@ def agents(root: str | None = None) -> list[dict]:
         first, surname = claim["first_name"], claim["surname"]
         out.append({
             "login": login, "agent_id": aid, "display": f"AI {first} {surname}, {title}" if title else f"AI {first} {surname}",
-            "first_name": first, "surname": surname, "role": role, "role_title": title,
+            "first_name": first, "surname": surname, "pronoun": claim.get("pronoun"), "role": role, "role_title": title,
         })
     return out
 
