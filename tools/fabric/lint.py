@@ -109,6 +109,7 @@ from fabric_lint_rules.locales import i18n_default_dictionary_findings, i18n_dic
 from fabric_lint_rules.locales import locale_file_findings, locale_translation_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import locale_alignment_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import locale_worker_findings  # noqa: E402, F401
+from fabric_lint_rules.signing import signing_findings  # noqa: E402, F401
 from fabric_lint_rules.slices import CLASS_DIRS, flat_and_dir_findings, lint_slices, staleness_warnings  # noqa: E402, F401
 
 
@@ -670,6 +671,7 @@ def main() -> int:
     findings += account_switch_findings(root, roots.routing_policy("account-switch.json", engine=root))
     findings += availability_findings(root, roots.routing_policy("availability.json", engine=root))
     findings += personas_findings(roots.personas("surnames.json", engine=root), roots.personas("claims.json", engine=root))
+    findings += signing_findings(root, roots.policy("signing.json", engine=root), roots.projects_registry(engine=root))
 
     # --- role identities ---------------------------------------------------
     template_schema = load_schema(root, schemas, "role-template")
