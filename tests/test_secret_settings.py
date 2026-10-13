@@ -220,6 +220,8 @@ def main() -> int:
         refused("an empty tree is refused by name", tree("empty", {}), "no files")
         refused("profile.json as a directory is refused, not skipped", tree("pd", {"avatar.png": png, "profile.json/x": b"1"}),
                 "profile.json", "plain file")
+        many = tree("many", {f"f{i}": b"x" for i in range(1001)})
+        refused("more files than the cap is refused", many, "more than")
         locked = tree("lk", {"a": b"1", "locked/b": b"2"})
         os.chmod(os.path.join(locked, "locked"), 0)
         refused("an unreadable directory is refused by name, never skipped", locked, "locked")
@@ -352,13 +354,32 @@ def main() -> int:
         refused("a profile alone whose sha256 is not the store's avatar is refused",
                 tree("pw", {"profile.json": json.dumps(wrong).encode()}), "sha256")
 
+        # A plain file where the tree wants a directory: the write fails AFTER the first files were replaced, so the
+        # reset has something to put back (a failure _read_tree can see would never reach the store).
+        with open(os.path.join(store, "settings", "sub"), "w") as fh:
+            fh.write("a file")
+        subprocess.run(["git", "-C", store, "add", "-A"], check=True, env=env)
+        subprocess.run(["git", "-C", store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                        "commit", "-q", "-m", "a plain file"], check=True, env=env)
         before_fail = count()
-        broken = tree("brk", {"a-new.txt": b"1", "avatar-rejected/2.png": b"changed", "avatar.png/x": b"z"})
+        broken = tree("brk", {"a-new.txt": b"1", "avatar-rejected/2.png": b"changed", "sub/x": b"z"})
         p = run("settings-put", "--from", broken)
         check("a write that fails half way puts the store back: nothing staged, modified or left over",
               p.returncode == 1 and "nothing written" in p.stderr and "Traceback" not in p.stderr and g("status", "--porcelain",
               "--untracked-files=all") == "" and not os.path.exists(os.path.join(store, "settings", "a-new.txt"))
               and g("show", "HEAD:settings/avatar-rejected/2.png") == "r" and count() == before_fail, p.stderr[-900:])
+        with open(os.path.join(store, "settings", "avatar-rejected", "2.png")) as fh:
+            check("…and the file the failed run had replaced is the old one on disk", fh.read() == "r")
+        subprocess.run(["git", "-C", store, "reset", "-q", "--hard", "HEAD~1"], check=True, env=env)
+
+        stray = os.path.join(store, "settings", "stray")
+        with open(stray, "w") as fh:
+            fh.write("not from the tree")
+        n_stray = count()
+        p = run("settings-put", "--from", tree("st", {"avatar-rejected/9.txt": b"9"}))
+        check("an untracked file already below settings/ is refused, never swept into the commit",
+              p.returncode == 1 and "untracked" in p.stderr and count() == n_stray, p.stdout + p.stderr)
+        os.unlink(stray)
         p = run("settings-put", "--from", tree("after", {"avatar-rejected/3.txt": b"ok\n"}))
         check("…and the next write works", p.returncode == 0 and "committed" in p.stdout, p.stdout + p.stderr)
 

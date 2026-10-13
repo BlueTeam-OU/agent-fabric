@@ -60,6 +60,7 @@ from .trust import _commit
 MAX_FILE_BYTES = 16 * 1024 * 1024
 MAX_TREE_BYTES = 64 * 1024 * 1024
 MAX_DEPTH = 16
+MAX_FILES = 1000
 PROFILE = "profile.json"
 AVATAR = "avatar.png"
 SCHEMA_REL = os.path.join("identities", "schemas", "persona-profile.schema.json")
@@ -123,6 +124,8 @@ def _read_tree(src: str) -> dict[str, bytes]:
                 raise StoreError(f"{rel}: the tree is over the size cap ({MAX_FILE_BYTES} a file, "
                                  f"{MAX_TREE_BYTES} in all); nothing written")
             files[rel] = data
+            if len(files) > MAX_FILES:
+                raise StoreError(f"more than {MAX_FILES} files; nothing written")
 
     # "link/" resolves the link whatever O_NOFOLLOW says: the final component must really be last.
     src = src.rstrip(os.sep) or os.sep
@@ -172,8 +175,11 @@ def _held(store: str, name: str) -> bytes | None:
         return None
     if not os.path.isfile(path):
         raise StoreError(f"settings/{name} in the store is not a plain file; nothing written")
-    with open(path, "rb") as fh:
-        return fh.read()
+    try:
+        with open(path, "rb") as fh:
+            return fh.read()
+    except OSError as e:
+        raise StoreError(f"settings/{name} in the store: {e.strerror or e}; nothing written") from None
 
 
 def _check_standing(files: dict[str, bytes], store: str, agent_id: str) -> None:
@@ -221,7 +227,10 @@ def _put_file(dest: str, data: bytes) -> None:
 
 def _undo(store: str, created: list[str]) -> None:
     """The store as it was: tracked files back, the files this run made gone."""
-    git(store, "reset", "-q", "--hard", "HEAD", check=False)
+    r = git(store, "reset", "-q", "--hard", "HEAD", check=False)
+    if r.returncode != 0:
+        why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
+        raise StoreError(f"the write failed, and {store} could not be reset ({why}) — reset it before the next write")
     for path in created:
         try:
             os.unlink(path)
