@@ -40,7 +40,9 @@ Claude Code session that is written *for* Claude Code:
   Codex session's tool calls.
 - **Credentials.** Only the coordinator's login is signed in to ChatGPT
   (`~/.codex-chatgpt`); the workspace has device codes disabled, so a
-  sign-in per login means a browser per login.
+  sign-in per login means a browser per login. ADR-053 rule 8 gives
+  every login the access token for reviews instead; a session needs it
+  through its own gateway.
 - **Routing.** The `openai` provider refuses a coding class on purpose
   (`routing.py check`): no harness existed to run one.
 
@@ -138,9 +140,11 @@ ADR-038's line: no login holds a secret it does not need.
    hooks or CI cover what it guards. A guard is three things (ADR-018);
    its Codex wiring adds a suite case, not a fourth.
 7. A Codex session's credential is the gateway's (ADR-052's path, the
-   Responses listener): the login holds a gateway-local key, never the
-   ChatGPT sign-in. One sign-in per ChatGPT seat lives in the
-   coordinator's store, as Claude templates do (ADR-031).
+   Responses listener). The session's gateway reads the same access
+   token file ADR-053 rule 8 syncs to every login for reviews; the
+   refresh token stays with the coordinator's one sign-in per ChatGPT
+   seat. The harness holds only a gateway-local key, which identifies
+   the calling component and guards no secret.
 8. A coding class on the `openai` provider is bound only when a Codex
    session can run it; its model and effort are routing's
    (`routing/capabilities.json`, `routing/effort.json`, carried by `-c
@@ -153,7 +157,11 @@ ADR-038's line: no login holds a secret it does not need.
 10. A pull request authored on Codex is reviewed by the review class as
     THE review (ADR-020); a Codex review of it is not counted as the
     second engine's (ADR-053), since an engine does not review its own
-    harness's work.
+    harness's work. Such a PR does not need `codex` under ADR-053 rule
+    6: `fabric-pr arm` reads the harness from a `Fabric-Harness:`
+    trailer the commit-msg hook stamps beside `Fabric-Role:`, and waives
+    `codex` only when every work commit names `codex`. A commit without
+    the trailer is Claude Code's.
 
 ## 6. Consequences
 
@@ -164,8 +172,9 @@ ADR-038's line: no login holds a secret it does not need.
   free; the Claude-only half no longer misleads them.
 - Two adapters to keep: a launcher change, a new guard or a new
   instruction now has a Codex half, and the suite checks both.
-- 113 tracked files mention `CLAUDE.md` today; each either keeps meaning
-  the Claude entry point or moves to `AGENTS.md` in piece 1.
+- 127 tracked files mention `CLAUDE.md` (`git grep -l CLAUDE.md` at
+  this record's commit); each either keeps meaning the Claude entry
+  point or moves to `AGENTS.md` in piece 1.
 - Cost becomes comparable across engines (ADR-036): verified results per
   seat, measured in the pilot, not assumed.
 
@@ -185,9 +194,9 @@ pull request with its live check:
 
 1. `AGENTS.md`: the rename, the split and the references (fabric-coordinator; instruction files are control plane).
 2. The live check of §5 rule 9 on one login, before any adapter code.
-3. `runtime/codex/`: the launcher's `--harness`, the binding field, `CODEX_HOME` and `config.toml` per login, the prompt as developer instructions.
+3. `runtime/codex/`: the launcher's `--harness`, the binding field, `CODEX_HOME` and `config.toml` per login, the prompt as developer instructions, the `Fabric-Harness:` trailer (rule 10).
 4. The guards' Codex wiring and the launch gate of rule 6.
-5. The session credential through the gateway (rule 7).
+5. The session credential through the gateway (rule 7): the session gateway reads ADR-053 rule 8's token file.
 6. Routing: the owner's choice of model and effort per coding class on `openai`; the subagent mapping.
 7. A pilot: one login named by the owner, one role, a week, measured against a Claude login on the same kind of work.
 

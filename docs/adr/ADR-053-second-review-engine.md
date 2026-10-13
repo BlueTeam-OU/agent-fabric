@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-12, in the session ("adr 053 accepted")
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the review class's engines (ADR-005, ADR-020); `fabric-review --engine codex` (`tools/fabric/review_codex.py`, to be built); the arming policy's `reviews` rule (`identities/schemas/arming.schema.json`, `policies/arming.json`); the Codex pin in `projects/registry.json`; the launcher's Codex profile; the review-brief skill
+**Scope:** the review class's engines (ADR-005, ADR-020); `fabric-review --engine codex` (`tools/fabric/review_codex.py`); the arming policy's `reviews` rule (`identities/schemas/arming.schema.json`, `policies/arming.json`); the Codex pin in `projects/registry.json`; the launcher's Codex profile; the review-brief skill
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -98,9 +98,14 @@ repository whose policy names `reviews`.
    the fleet's default, set in `policies/arming.json` once every login
    holds an unexpired access token (rule 8) and one Codex review has run
    from a login other than the coordinator's; until then `["claude"]`. A
-   repository's own policy may narrow it (A 2026-10-13). `fabric-pr arm` refuses until
-   each required engine has reviewed the current head with no open P1 or
-   P2, and the refusal names the engine still missing.
+   repository's own policy replaces the list, narrower or wider, and its
+   `boundary_reviews` names the engines a security-boundary change needs
+   as well. A pull request whose work was written in Codex sessions does
+   not need `codex`: the review class is already the other engine, and
+   ADR-054 rule 10 keeps Codex from reviewing its own harness's work
+   (A 2026-10-13). `fabric-pr arm` refuses until each required engine
+   has reviewed the current head with no open P1 or P2, and the refusal
+   names the engine still missing.
 7. **The Codex CLI is pinned.** `projects/registry.json` pins the latest
    stable release by version and checksum, as every account tool is
    pinned, and `fabric-tools` installs it.
