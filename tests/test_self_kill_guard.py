@@ -181,6 +181,18 @@ def main() -> int:
                 # fallback once matched and denied (review of #242, C5).
                 'pkill -f "$PAT["', 'pkill -f "${P}("'):
         check(f"a variable pattern asks: {cmd}", (g.decision(cmd, CLAUDE) or ("",))[0] == "ask", g.decision(cmd, CLAUDE))
+    # A pid operand the hook cannot read asks, like a pattern (review of
+    # #242, pre-existing B); one it can read, or the command's own job,
+    # does not.
+    for cmd in ("kill $PPID", "kill $$", "kill -9 \"$pid\"", "kill $(head -1 /run/x.lock)", "kill `cat pidfile`",
+                "kill $(pgrep -x zzqx | head -1)"):
+        check(f"an unreadable pid asks: {cmd}", (g.decision(cmd, CLAUDE, shell=False) or ("",))[0] == "ask",
+              g.decision(cmd, CLAUDE, shell=False))
+    for cmd in ("sleep 9 & kill $!", "kill -0 $pid", "kill -l 9", "kill $(pgrep -x zzqx-nothing-qx)", "kill 999999999"):
+        check(f"a readable or harmless kill: no decision: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
+              g.decision(cmd, CLAUDE, shell=False))
+    check("kill_operands: +pid is the pid, a signal and its value are not", g.kill_operands("kill -s TERM +42 -- 43")
+          == ([42, 43], []), g.kill_operands("kill -s TERM +42 -- 43"))
     # A repeat count past sre's limit overflows (pre-existing, review of #242).
     r = subprocess.run([sys.executable, HOOK], input=json.dumps({"tool_input": {"command": "pkill -f 'a{99999999999}'"}}),
                        capture_output=True, text=True)
@@ -335,6 +347,12 @@ def main() -> int:
             ("gzcoord-inbox by its pid", f"kill {inbox}", "Never kill an inbox watch"),
             ("gzcoord-inbox by its pid, with a signal", f"kill -s TERM {inbox}", "Never kill an inbox watch"),
             ("gzcoord-inbox through $(pgrep -x)", "kill $(pgrep -x gzcoord-inbox)", "Never kill an inbox watch"),
+            # A literal pid of the session's own: its root, a descendant,
+            # spelt with a sign or behind -- (review of #242, C1, C2).
+            ("the claude process by its pid", f"kill {session.pid}", "own claude process"),
+            ("a background task by its exact pid", f"kill {sib}", f"pid {sib}"),
+            ("a background task by +pid", f"kill +{sib}", f"pid {sib}"),
+            ("a background task by pid behind -9 --", f"kill -9 -- {sib}", f"pid {sib}"),
         ]
         for label, cmd, want in tree_cases:
             d = hook_in_session(cmd)
@@ -344,7 +362,8 @@ def main() -> int:
         # same pattern unbracketed is refused, for the shell carries it.
         for label, cmd in (("a pattern matching only an unrelated process", "pgrep -f '[z]zout-unrelated' | xargs kill"),
                            ("an unrelated process by its pid", f"kill {outside.pid}"),
-                           ("a background task by its exact pid", f"kill {sib}")):
+                           ("an unrelated process by +pid", f"kill +{outside.pid}"),
+                           ("kill -0 of a background task: no signal is sent", f"kill -0 {sib}")):
             d = hook_in_session(cmd)
             check(f"in a session, allowed: {label}", d is None, d)
         d = hook_in_session("pkill -f zzout-unrelated")

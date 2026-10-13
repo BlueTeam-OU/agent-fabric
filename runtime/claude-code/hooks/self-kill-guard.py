@@ -267,27 +267,80 @@ def kill_commands(command: str) -> list[list[str]]:
     return [w for w in tool_commands(command) if os.path.basename(w[0]) in ("pgrep", "pkill", "killall")]
 
 
-def kill_pids(command: str) -> list[int]:
-    """The literal pids a `kill` in the command names: signal options and
-    their values skipped, a negative number (a process group) and anything
-    not literal (`$pid`, `%1`) left out."""
+PLACEHOLDER = re.compile(re.escape(SUBST) + r"(\d+)_")
+# What a pid operand may be without being read: the pid of the job this
+# very command last started, a process the command itself owns.
+OWN_JOB = {"$!", "${!}"}
+
+
+def kill_operands(command: str) -> tuple[list[int], list[str]]:
+    """What each `kill` in the command targets: (the literal pids, `+4242`
+    as 4242; the operands it cannot read). Unreadable is a variable (`$pid`,
+    `$PPID`, `$$`) or a substitution other than one plain pgrep, whose
+    answer the ground truth asks list-only; `$!` is the command's own job.
+    Signal options and their values are skipped; a negative number (a
+    process group) and a job spec (`%1`) are neither. `kill -0` and
+    `kill -l` signal nothing and are left out whole."""
     if not KILLS.search(command):
-        return []
-    out = []
+        return [], []
+    pieces = lift(command)
+    pids, held = [], []
     for words in tool_commands(command):
         if os.path.basename(words[0]) != "kill":
             continue
-        it, rest = iter(words[1:]), False
+        args, it, rest, harmless = [], iter(words[1:]), False, False
         for w in it:
-            if not rest and w in ("-s", "-n"):
-                next(it, None)
-            elif not rest and w == "--":
+            if rest or not w.startswith("-"):
+                args.append(w)
+            elif w in ("-s", "-n"):
+                harmless = harmless or next(it, "").upper() in ("0", "SIG0")
+            elif w == "--":
                 rest = True
-            elif not rest and w.startswith("-"):
+            else:   # a signal (-9, -TERM, -0) or a listing (-l, -L, --list, --table)
+                harmless = harmless or w in ("-0", "-SIG0") or w.startswith(("-l", "-L", "--list", "--table"))
+        if harmless:
+            continue
+        for w in args:
+            m = PLACEHOLDER.fullmatch(w)
+            if w.lstrip("+").isdigit() and w.count("+") <= 1:
+                pids.append(int(w.lstrip("+")))
+            elif w in OWN_JOB:
                 continue
-            elif w.isdigit():
-                out.append(int(w))
-    return out
+            elif m and _plain_pgrep(pieces[int(m.group(1))]):
+                continue
+            elif "$" in w or "`" in w or SUBST in w:
+                held.append(PLACEHOLDER.sub("$(…)", w))
+    return pids, held
+
+
+def kill_pids(command: str) -> list[int]:
+    """The literal pids a `kill` in the command names (kill_operands)."""
+    return kill_operands(command)[0]
+
+
+def _plain_pgrep(piece: str) -> bool:
+    """A substitution that is one pgrep with literal arguments: what it
+    prints is what the ground truth asks, list-only."""
+    cmds = [s for s in segments(piece) if s]
+    return (len(cmds) == 1 and os.path.basename(cmds[0][0]) == "pgrep"
+            and pgrep_argvs(cmds[0]) is not None)
+
+
+def lift(command: str) -> list[str]:
+    """The command's substitutions, then what is left of it: each $( … )
+    (and `…`) is a command of its own, lifted out innermost first, and a
+    numbered placeholder word left behind, so `pgrep -u "$(id -un)" -f P`
+    keeps its pattern, `kill $(pgrep -f P)` yields the pgrep, and a kill's
+    operand can say which substitution it reads. Here-document bodies
+    first: a substitution inside one is data too."""
+    pieces, rest = [], drop_heredoc_bodies(command)
+    while True:
+        m = re.search(r"[$<>]\(([^()]*)\)|`([^`]*)`", rest)
+        if not m:
+            break
+        rest = rest[:m.start()] + f"{SUBST}{len(pieces)}_" + rest[m.end():]
+        pieces.append(m.group(1) if m.group(1) is not None else m.group(2))
+    return pieces + [rest]
 
 
 def tool_commands(command: str) -> list[list[str]]:
@@ -295,20 +348,8 @@ def tool_commands(command: str) -> list[list[str]]:
     words from the tool on: substitutions lifted, here-document bodies
     dropped, segments split, compound keywords, assignments and prefixes
     walked past."""
-    # Each $( … ) (and `…`) is a command of its own: lifted out innermost
-    # first, a placeholder word left behind, so `pgrep -u "$(id -un)" -f P`
-    # keeps its pattern and `kill $(pgrep -f P)` yields the pgrep.
-    # Here-document bodies first: a substitution inside one is data too.
-    pieces, rest = [], drop_heredoc_bodies(command)
-    while True:
-        m = re.search(r"[$<>]\(([^()]*)\)|`([^`]*)`", rest)
-        if not m:
-            break
-        pieces.append(m.group(1) if m.group(1) is not None else m.group(2))
-        rest = rest[:m.start()] + SUBST + rest[m.end():]
-    pieces.append(rest)
     out = []
-    for words in (seg for piece in pieces for seg in segments(piece)):
+    for words in (seg for piece in lift(command) for seg in segments(piece)):
         if not words:
             continue
         # A kill behind a prefix is still the kill (review of #68):
@@ -543,8 +584,11 @@ def message(found: list[tuple[str, bool]], pats: list[str] | None = None) -> str
     if any(inbox for _, inbox in found):
         return (f"This command would kill {what}{by}. Never kill an inbox watch: it ends by itself at its next "
                 "delivery, and gzcoord-inbox itself refuses a second watch, so there is nothing to kill.")
-    return (f"This command would kill {what}{by}. Select by the exact pid of a process you started "
-            "(kill <pid>), never by a -f pattern or a name.")
+    if all(label == SHELL_LABEL for label, _ in found):
+        return (f"This command would kill {what}{by}. Select by the exact pid of a process you started "
+                "(kill <pid>), never by a -f pattern or a name.")
+    return (f"This command would kill {what}{by}. A background task of this session stops with TaskStop or "
+            "ends by itself; kill by exact pid only a process outside this session's tree, never by a pattern.")
 
 
 def verdict(command: str, cmdline: str | None) -> str | None:
@@ -788,11 +832,19 @@ def ground_truth(command: str, pid: int | None, tree: Tree | None = None,
     return answer
 
 
-def inbox_pids(command: str, tree: Tree | None = None) -> list[tuple[str, bool]]:
-    """An inbox watch a `kill` names by its pid, read from /proc."""
-    tree = tree or {}
-    return [label_of(p, *tree[p]) if p in tree else label_of(p, read_comm(p), argv, in_tree=False)
-            for p in kill_pids(command) if is_inbox(argv := read_argv(p))]
+def protected_pids(command: str, pid: int | None = None, tree: Tree | None = None) -> list[tuple[str, bool]]:
+    """What a `kill` names by a literal pid that the session must keep: its
+    claude process, any process of its tree (review of #242, C1), or an
+    inbox watch anywhere, read from /proc."""
+    tree, out = tree or {}, []
+    for p in kill_pids(command):
+        if pid and p == pid:
+            out.append((CLAUDE_LABEL, False))
+        elif p in tree:
+            out.append(label_of(p, *tree[p]))
+        elif is_inbox(argv := read_argv(p)):
+            out.append(label_of(p, read_comm(p), argv, in_tree=False))
+    return out
 
 
 UNEXPANDED = re.compile(r"\$(\{|[A-Za-z_])")
@@ -815,7 +867,7 @@ def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tr
     found = hits(command, targets(command, cmdline, tree, shell))
     if found:
         return "deny", message([(label, inbox) for _, label, inbox in found], [p for p, _, _ in found])
-    by_pid = inbox_pids(command, tree)
+    by_pid = protected_pids(command, pid, tree)
     if by_pid:
         return "deny", message(by_pid)
     # procps's own answer, when it can be asked: it adds denials, never
@@ -832,9 +884,17 @@ def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tr
         held = [p for p in pats if unresolved(p)]
         if held:
             return "ask", (f"This command kills by a pattern held in a variable or a command substitution "
-                           f"({held[0].replace(SUBST, '$(…)')}), whose value this hook cannot see; if it matches "
+                           f"({PLACEHOLDER.sub('$(…)', held[0])}), whose value this hook cannot see; if it matches "
                            "this session's claude process, its shell or a process it started, the session dies. "
                            "Kill by the exact pid of a process you started instead, or allow it knowing the value.")
+        # A pid held the same way ($PPID, $$, $(head lock)) can be the
+        # session's own (review of #242, pre-existing B).
+        held = kill_operands(command)[1]
+        if held:
+            return "ask", (f"This command kills a pid held in a variable or a command substitution ({held[0]}), "
+                           "whose value this hook cannot see; if it is this session's claude process, its shell "
+                           "or a process of its tree, the session dies. Kill by a literal pid outside this "
+                           "session's tree, or allow it knowing the value.")
     return None
 
 
