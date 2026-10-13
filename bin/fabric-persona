@@ -1,0 +1,15 @@
+#!/usr/local/bin/fabric-python
+"""fabric-persona — how people name an agent: AI <First> <Surname>, <Role title>.
+
+    fabric-persona <login|agent-id> [--json]
+    fabric-persona --all [--json]
+
+A thin entry point to tools/fabric/persona.py, run by its real path.
+"""
+import os
+import runpy
+import sys
+
+PERSONA = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "tools", "fabric", "persona.py")
+sys.argv[0] = PERSONA
+runpy.run_path(PERSONA, run_name="__main__")
