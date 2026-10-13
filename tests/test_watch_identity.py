@@ -50,7 +50,7 @@ class Persona(unittest.TestCase):
         return wi.persona(self.environ, self.claims, self.avatars)
 
     def profile(self, **over):
-        doc = {"version": 1, "agent_id": AGENT, "first_name": "June", "surname": "Leavitt", "sex": "F",
+        doc = {"version": 1, "agent_id": AGENT, "first_name": "June", "surname": "Profile", "sex": "F",
                "avatar": {"file": "settings/avatar.png", "sha256": "0" * 64, "candidate": 1}, "accepted": "2026-10-13"}
         doc.update(over)
         write(os.path.join(self.store, "settings", "profile.json"), json.dumps(doc))
@@ -89,12 +89,21 @@ class Persona(unittest.TestCase):
                             ("too long", {"surname": "x" * (wi.NAME_MAX + 1)}), ("a newline", {"first_name": "June\nAI Hacker"})):
             with self.subTest(label):
                 self.profile(**over)
-                want = "AI June Leavitt" if "first_name" not in over else "AI Leavitt"       # the claim fills in a surname that is none
-                self.assertEqual(self.persona().name, want)
+                self.assertEqual(self.persona().name, "AI Leavitt", "the claim stands in for a profile that is no profile")
         write(os.path.join(self.store, "settings", "profile.json"), "{not json")
         self.assertEqual(self.persona().name, "AI Leavitt")
         write(os.path.join(self.store, "settings", "profile.json"), "[1, 2]")
         self.assertEqual(self.persona().name, "AI Leavitt")
+
+    def test_half_a_profile_is_no_profile_and_gives_no_name_nor_candidate(self):
+        write(os.path.join(self.avatars, AGENT, "1.png"), b"candidate")
+        for over in ({"first_name": "Ju\x1bne", "surname": "Mallory"}, {"first_name": "June", "surname": ""}):
+            with self.subTest(over):
+                self.profile(**over)
+                self.assertEqual((self.persona().name, self.persona().avatar_path), (None, None))
+        write(self.claims, json.dumps({"claims": {AGENT: "Boole"}}))
+        self.profile(first_name="Ju\x1bne", surname="Mallory")
+        self.assertEqual((self.persona().name, self.persona().avatar_path), ("AI Boole", None))
 
     def test_a_malformed_agent_id_or_claims_file_gives_no_name(self):
         write(os.path.join(self.store, ".agent-id"), "not-an-id\n")

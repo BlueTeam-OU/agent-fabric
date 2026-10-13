@@ -3,9 +3,10 @@
 (agent-fabric ADR-056 rules 1, 2 and 4).
 
   persona(...)        the agent's persona: its display name and the avatar file to show.
-      name     "AI <first name> <surname>" from settings/profile.json in this login's store checkout; else
-               "AI <surname>" from identities/personas/claims.json (keyed by the agent id, read from the store's
-               .agent-id); else None, and the caller shows the login alone. The name is NEVER shown without its "AI".
+      name     "AI <first name> <surname>" from settings/profile.json in this login's store checkout, the surname
+               from identities/personas/claims.json (keyed by the agent id, read from the store's .agent-id) when it
+               has one; with no profile, "AI <surname>" from the claim alone; else None, and the caller shows the
+               login alone. The name is NEVER shown without its "AI".
       avatar   settings/avatar.png in the store checkout, else the candidate the profile names (avatar.candidate) at
                <avatars>/<agent id>/<n>.png, else None. Only regular files, no link followed (avatar.read_file).
       Of the store checkout it reads exactly three files, settings/profile.json, settings/avatar.png (the avatar's own reader) and .agent-id — never env/, where the
@@ -92,6 +93,8 @@ def persona(environ: dict[str, str], claims_path: str, avatars: str = AVATARS) -
     out = Persona(agent_id=agent_id)
     profile = _json(os.path.join(store, "settings", "profile.json"), store)
     first, surname = (_name(profile.get("first_name")), _name(profile.get("surname"))) if profile else (None, None)
+    if not (first and surname):
+        first = surname = None                        # half a profile is no profile
     claims = (_json(claims_path) or {}).get("claims") if agent_id else None
     claimed = _name(claims.get(agent_id)) if isinstance(claims, dict) else None
     surname = claimed or surname                      # claims.json wins over the profile on the surname (persona-profile schema)
