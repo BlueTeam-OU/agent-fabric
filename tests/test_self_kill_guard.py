@@ -176,8 +176,17 @@ def main() -> int:
         check(f"allowed: {label}", g.verdict(cmd, CLAUDE) is None, g.kill_patterns(cmd))
     check("killall -g asks: the group it kills is not in the command", (g.decision("killall -g zzqx", CLAUDE) or ("",))[0] == "ask")
     for cmd in ('pkill -f "$P"', "pgrep -f ${PAT} | xargs kill", 'pkill -f "$(cat pattern.txt)"',
-                'pkill -f "claude-$(id -un)"', "pkill -f claude-`whoami`"):
+                'pkill -f "claude-$(id -un)"', "pkill -f claude-`whoami`",
+                # An invalid regex in an unresolved pattern: its substring
+                # fallback once matched and denied (review of #242, C5).
+                'pkill -f "$PAT["', 'pkill -f "${P}("'):
         check(f"a variable pattern asks: {cmd}", (g.decision(cmd, CLAUDE) or ("",))[0] == "ask", g.decision(cmd, CLAUDE))
+    # A repeat count past sre's limit overflows (pre-existing, review of #242).
+    r = subprocess.run([sys.executable, HOOK], input=json.dumps({"tool_input": {"command": "pkill -f 'a{99999999999}'"}}),
+                       capture_output=True, text=True)
+    check("a regex that overflows the compiler: the hook still exits 0", r.returncode == 0 and not r.stderr,
+          (r.returncode, r.stderr[-300:]))
+    check("…and judges it as text", g._matches("a{99999999999}", "x a{99999999999} y") is True)
     check("a matching pattern still denies through decision()", g.decision("pkill -f claude-fable", CLAUDE)[0] == "deny")
     check("a harmless command: no decision", g.decision("git status", CLAUDE) is None)
     check("still split outside quotes: a real pipe after a quoted word",

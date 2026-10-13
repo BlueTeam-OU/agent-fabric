@@ -500,17 +500,27 @@ def _matches(pat: str, target: str) -> bool:
             # set; a hook's stderr reaches every session.
             warnings.simplefilter("ignore")
             return re.search(pat, target) is not None
-    except re.error:
+    # A repeat count past sre's limit (`a{99999999999}`) overflows, a deep
+    # nesting recurses: neither is a reason to exit non-zero.
+    except (re.error, OverflowError, RecursionError):
         return pat in target
+
+
+def unresolved(pat: str) -> bool:
+    """A pattern holding a variable or a command substitution: its text is
+    not what pgrep will be given, so it is never matched as written."""
+    return bool(UNEXPANDED.search(pat)) or SUBST in pat
 
 
 def hits(command: str, tgts: list[Target]) -> list[tuple[str, str, bool]]:
     """(pattern, label, is an inbox watch) for each target a kill pattern
     of the command selects: a -f pattern judged against the command line,
-    any other against the process name."""
+    any other against the process name. An unresolved pattern takes no
+    part: `"$PAT["` is an invalid regex whose substring fallback denied
+    before the ask could say why (review of #242, C5); it asks instead."""
     out = []
     for pat in kill_patterns(command):
-        if pat == GROUP_MARK:
+        if pat == GROUP_MARK or unresolved(pat):
             continue
         by_name = pat.startswith(NAME_PREFIX)
         pat = pat[len(NAME_PREFIX):] if by_name else pat
@@ -811,7 +821,7 @@ def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tr
             return "ask", ("killall -g kills the whole process group of what it names, and which group this "
                            "session is in is not something this hook can read from the command; allow it "
                            "knowing that, or name processes by pid.")
-        held = [p for p in pats if UNEXPANDED.search(p) or SUBST in p]
+        held = [p for p in pats if unresolved(p)]
         if held:
             return "ask", (f"This command kills by a pattern held in a variable or a command substitution "
                            f"({held[0].replace(SUBST, '$(…)')}), whose value this hook cannot see; if it matches "
