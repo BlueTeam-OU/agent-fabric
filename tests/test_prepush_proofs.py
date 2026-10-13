@@ -161,7 +161,7 @@ def run() -> None:
     check("positive control: the real push attaches and pushes it", r.returncode == 0 and remote_note(sha_d) is not None, r.stderr)
 
     print("a branch pushed as the notes ref's name")
-    unsigned = commit("b", "forged", signed=False)
+    commit("b", "forged", signed=False)
     r = git("b", "push", "-f", "-q", "origin", "HEAD:" + notes.REF)
     check("is checked like any push: the unsigned commit is refused", r.returncode != 0 and remote_note(sha_a) is not None, r.stderr)
     git("b", "reset", "-q", "--hard", "HEAD~1")
@@ -173,7 +173,7 @@ def run() -> None:
     print("history with no proof")
     shutil.rmtree(f"{T}/spool-b", ignore_errors=True)
     git("b", "update-ref", "-d", notes.REF)
-    sha_old = commit("b", "old", signed=False)
+    commit("b", "old", signed=False)
     git("b", "config", "commit.gpgsign", "false")
     r = git("b", "push", "-q", "origin", "HEAD:refs/heads/work-old")
     check("an unsigned commit is still refused by the signature rule", r.returncode != 0, r.stderr)
