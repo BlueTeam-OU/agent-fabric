@@ -238,6 +238,34 @@ def main() -> int:
     merged_only = run_counts(["3"], Hub({"o/this": {3: docs[3]}}), policy=lambda repo, **kw: asked.append(repo) or BOTH)[0]["line"]
     check("a merged pull request reads no policy (the Stop hook pays for open ones only)", asked == [] and merged_only.endswith("merged"), (asked, merged_only))
 
+    print("an additional engine: its review, or its unavailable marker for the head (REQUEST 01a136d2)")
+    hx = "abcdef12" + "3" * 32
+    gone_line = f"<!-- agent-fabric-engine-unavailable v1 engine=codex head={hx} reason=allowance at=2026-10-13T19:00:00Z -->"
+    extra = pr_counts.arm_policy.validate({"reviews": ["claude"], "boundary_reviews": ["claude"], "additional_reviews": ["codex"]})
+
+    def rv(body, oid=hx, login="me"):
+        return {"body": body, "commit": {"oid": oid}, "author": {"login": login}}
+
+    def line_of(reviews, author="me"):
+        doc = dict(pr_doc(4, [commit("a" * 40, "x")], head=hx, reviews=reviews), author={"login": author})
+        return run_counts(["4"], Hub({"o/this": {4: doc}}), policy=extra)[0]["line"]
+    cases = [("codex ✓", [rv(claude_r["body"]), rv(codex_r["body"])], "head reviewed: claude ✓ codex ✓"),
+             ("codex unavailable", [rv(claude_r["body"]), rv(gone_line + "\nspent")], "head reviewed: claude ✓ codex unavailable (allowance)"),
+             ("codex ✗", [rv(claude_r["body"])], "review claude ✓ codex ✗"),
+             ("a marker for another head", [rv(claude_r["body"]), rv(gone_line.replace(hx, "0" * 40))], "review claude ✓ codex ✗"),
+             ("a marker on a review of another commit", [rv(claude_r["body"]), rv(gone_line, oid="0" * 40)], "review claude ✓ codex ✗"),
+             ("a marker from another login", [rv(claude_r["body"]), rv(gone_line, login="rando")], "review claude ✓ codex ✗"),
+             ("the required engine is still required", [rv(gone_line)], "review claude ✗ codex unavailable (allowance)")]
+    for what, reviewed, want_line in cases:
+        line = line_of(reviewed)
+        check(f"{what}: {want_line}", line == f"#4 (1 work, 0 fix) open, unarmed, checks green, {want_line} (head abcdef12)", line)
+    os.environ["AGENT_FABRIC_REVIEW_POSTERS"] = '["ci"]'
+    try:
+        line = line_of([rv(claude_r["body"]), rv(gone_line, login="ci")])
+    finally:
+        del os.environ["AGENT_FABRIC_REVIEW_POSTERS"]
+    check("…unless AGENT_FABRIC_REVIEW_POSTERS names it", "codex unavailable (allowance)" in line, line)
+
     print("legacy markers")
     old = {"body": "<!-- agent-fabric-substitute-review v1 -->", "commit": {"oid": "h" * 40}}
     rows = run_counts(["4"], Hub({"o/this": {4: pr_doc(4, [commit("a" * 40, "x")], reviews=[old])}}))
