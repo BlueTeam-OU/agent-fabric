@@ -37,9 +37,10 @@ CLIENTS = {"clients": {"c": {"settings_repo": "o/settings"}, "bare": {}}}
 
 
 def claude_only(doc: dict | None = None) -> dict:
-    """`doc` over the fleet default, requiring the review class's review alone. ArmRun's fixture simulates exactly that
-    one review of the head, and its cases are about the counts and the gates; the engines' cases name theirs."""
-    return arm_policy.validate({"reviews": ["claude"], "boundary_reviews": ["claude"], **(doc or {})})
+    """`doc` over the fleet default, requiring the review class's review alone and no additional engine. ArmRun's
+    fixture simulates exactly that one review of the head, and its cases are about the counts and the gates; the
+    engines' cases name theirs."""
+    return arm_policy.validate({"reviews": ["claude"], "boundary_reviews": ["claude"], "additional_reviews": [], **(doc or {})})
 
 
 def contents(doc) -> dict:
@@ -356,7 +357,7 @@ class Load(Scratch):
     def test_a_repository_file_overrides_the_fleets_reviews(self):
         self.assertEqual(self.load(Api(contents({"reviews": ["claude", "codex"]})))["reviews"], ["claude", "codex"])
         self.assertEqual(self.load(Api(contents({"reviews": ["claude"]})))["reviews"], ["claude"])
-        self.assertEqual(self.load(Api(error=ghe(404, "Not Found")))["reviews"], ["claude", "codex"])
+        self.assertEqual(self.load(Api(error=ghe(404, "Not Found")))["reviews"], ["claude"])
 
     def test_a_repository_may_raise_the_boundary_minimum_and_never_lower_it_below_the_fleets(self):
         for repo_value, want in ((3, 8), (8, 8), (12, 12)):
@@ -380,10 +381,12 @@ class Load(Scratch):
 class Reviews(Scratch):
     """The `reviews` rule (agent-fabric ADR-053 rule 6): which engines a PR needs. arm.py's refusals are test_arm_cli's."""
 
-    def test_the_default_needs_both_engines(self):
-        self.assertEqual(arm_policy.default()["reviews"], ["claude", "codex"])
-        self.assertEqual(arm_policy.required_engines(arm_policy.default(), False), ["claude", "codex"])
-        self.assertEqual(arm_policy.required_engines(arm_policy.default(), True), ["claude", "codex"])
+    def test_the_default_requires_claude_and_asks_codex_as_an_additional_review(self):
+        # The owner, 2026-10-13: codex is more, never a block; on a boundary change too.
+        d = arm_policy.default()
+        self.assertEqual((d["reviews"], d["boundary_reviews"], d["additional_reviews"]), (["claude"], ["claude"], ["codex"]))
+        self.assertEqual((arm_policy.required_engines(d, False), arm_policy.required_engines(d, True)), (["claude"], ["claude"]))
+        self.assertEqual((arm_policy.additional_engines(d, False), arm_policy.additional_engines(d, True)), (["codex"], ["codex"]))
 
     def test_a_list_replaces_the_fleets_and_never_merges(self):
         self.assertEqual(arm_policy.validate({"reviews": ["codex"]})["reviews"], ["codex"])
@@ -394,9 +397,8 @@ class Reviews(Scratch):
         self.assertEqual(arm_policy.required_engines(p, False), ["claude"])
         self.assertEqual(arm_policy.required_engines(p, True), ["claude", "codex"])
 
-    def test_additional_reviews_are_none_by_default_and_never_change_the_required_ones(self):
-        self.assertEqual(arm_policy.default()["additional_reviews"], [])
-        self.assertEqual(arm_policy.additional_engines(arm_policy.default(), False), [])
+    def test_additional_reviews_never_change_the_required_ones(self):
+        self.assertEqual(arm_policy.additional_engines(arm_policy.validate({"additional_reviews": []}), False), [])
         p = arm_policy.validate({"reviews": ["claude"], "boundary_reviews": ["claude"], "additional_reviews": ["codex"]})
         self.assertEqual((arm_policy.required_engines(p, False), arm_policy.required_engines(p, True)), (["claude"], ["claude"]))
         self.assertEqual((arm_policy.additional_engines(p, False), arm_policy.additional_engines(p, True)), (["codex"], ["codex"]))
@@ -665,8 +667,9 @@ class PrGateRun(unittest.TestCase):
     def test_the_review_is_judged_against_the_engines_of_the_policy_loaded_for_the_repository(self):
         # Supplier review F2: the gate's engines are the repository's, not every engine nor the default's.
         review = mock.Mock(return_value="claude ✓ (head abcdef12)")
-        row = self.rows(lambda r, **k: arm_policy.validate({"reviews": ["claude"]}), review=review)[0]
-        self.assertEqual(review.call_args.args[2:], (self.HEAD, ["claude"], ["codex"], ""))
+        policy = arm_policy.validate({"reviews": ["claude"], "boundary_reviews": ["claude", "codex"], "additional_reviews": []})
+        row = self.rows(lambda r, **k: policy, review=review)[0]
+        self.assertEqual((review.call_args.args[2:], review.call_args.kwargs), ((self.HEAD, ["claude"], ["codex"], ""), {"additional": []}))
         self.assertIn("not every required engine has reviewed the head (claude ✓ (head abcdef12))", row["verdict"])
 
         def unreadable(repo, **kw):
@@ -784,10 +787,10 @@ class ArmRun(unittest.TestCase):
         self.ran = ran
         return rc, out.getvalue()
 
-    def test_under_the_fleet_default_the_claude_review_alone_is_refused_naming_codex(self):
+    def test_under_the_fleet_default_the_claude_review_with_no_codex_review_or_marker_is_refused_naming_codex(self):
         rc, out = self.run_arm(arm_policy.default(), 9)
-        self.assertIn("requires a review by the codex engine of the current head", str(rc), out)
-        self.assertIn("engines required: claude, codex", str(rc))
+        self.assertIn("asks the codex engine's review of the current head", str(rc), out)
+        self.assertIn("engines required: claude; additional: codex", str(rc))
         self.assertFalse([c for c in self.ran if c[:2] == ["pr", "merge"]], self.ran)
 
     def test_the_minimum_is_the_policys(self):
