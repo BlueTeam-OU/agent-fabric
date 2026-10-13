@@ -224,7 +224,7 @@ stub pointing here.
 ## References
 
 - `identities/prompt/team.md` (the band, one open PR, the gate's
-  conditions), `CLAUDE.md` §"Git discipline".
+  conditions), `AGENTS.md` §"Git discipline".
 - `fabric-pr gate`, `runtime/github/commit-class.sh`,
   `fabric-pr review-status`, and their tests.
 - `policies/ban_generated_by_attribution.sh`, `policies/githooks/commit-msg`.

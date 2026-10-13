@@ -275,7 +275,7 @@ it.
 - `docs/adr/sources/ADR-000-the-owners-statement.md` — the owner's statement of
   the vision, 2026-09-27, verbatim.
 - ADR-001, the decision records themselves.
-- `CLAUDE.md` §"Six things that are kept apart" and `README.md` — the
+- `AGENTS.md` §"Six things that are kept apart" and `README.md` — the
   separations this principle names.
 
 ## Amendments
