@@ -137,7 +137,10 @@ def synced_path(environ: dict[str, str]) -> str:
     """Where `fabric-secrets sync` puts this login's synced sign-in, by the writer's own function (gateway_token): the
     one path the writer, the keys read and this reader share, whatever XDG_RUNTIME_DIR says (that is where the review's
     scratch goes). AGENT_FABRIC_RUNTIME_ROOT names another root than /run/user, as a test must."""
-    return gateway_token.token_path(os.getuid(), environ.get(ENV_RUNTIME_ROOT) or gateway_token.RUNTIME_ROOT, gateway_token.SIGNIN_NAME)
+    root = environ.get(ENV_RUNTIME_ROOT) or gateway_token.RUNTIME_ROOT
+    if not os.path.isabs(root):
+        raise Refused(f"{ENV_RUNTIME_ROOT} is not an absolute path ({root!r}); the synced sign-in is not looked for")
+    return gateway_token.token_path(os.getuid(), root, gateway_token.SIGNIN_NAME)
 
 
 def read_synced(environ: dict[str, str], *, now: float | None = None, min_life_s: float = MIN_TOKEN_LIFE_S) -> SignIn:

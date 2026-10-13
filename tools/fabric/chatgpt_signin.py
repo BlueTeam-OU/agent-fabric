@@ -78,11 +78,13 @@ def jwt_exp(token: str) -> int:
     if len(parts) != 3 or not all(BASE64URL.fullmatch(p) for p in parts):
         raise ValueError("not a JWT (three non-empty base64url parts)")
     try:
-        if not isinstance(json.loads(base64.urlsafe_b64decode(parts[0] + "=" * (-len(parts[0]) % 4))), dict):
-            raise ValueError("its header is not a JSON object")
+        header = json.loads(base64.urlsafe_b64decode(parts[0] + "=" * (-len(parts[0]) % 4)))
         payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
-    except (binascii.Error, ValueError, UnicodeDecodeError):
+    # RecursionError: a part of deeply nested JSON (under the file's size cap) is a refusal, not a traceback.
+    except (binascii.Error, ValueError, UnicodeDecodeError, RecursionError):
         raise ValueError("its header or payload is not base64url JSON") from None
+    if not isinstance(header, dict):
+        raise ValueError("its header is not a JSON object")
     exp = payload.get("exp") if isinstance(payload, dict) else None
     if type(exp) is not int:
         raise ValueError("its payload carries no integer exp")

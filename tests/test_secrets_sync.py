@@ -534,6 +534,7 @@ def main() -> int:
                 check("the signing key is not in values_sha256; an applied value is (the control)",
                       rc2 == rc3 == 0 and digest(out2) == digest(out) and digest(out3) != digest(out2), (out2[:200], out3[:200]))
                 # A registry that declares the Codex sign-in names as environment must not get them exported (review of #232).
+                values_before = dict(store["values"])
                 json.dump({"agent_env": {"CODEX_CHATGPT_ACCESS_TOKEN": "x", "CODEX_CHATGPT_ACCOUNT_ID": "y"},
                            "projects": {"demo": {"agent_env": {"DEMO_PORT_OFFSET": "the login stack offset"},
                                                  "plain_env": ["DEMO_PORT_OFFSET", "CODEX_CHATGPT_ACCESS_TOKEN", "CODEX_CHATGPT_ACCOUNT_ID"]}}},
@@ -549,6 +550,7 @@ def main() -> int:
                       out[:300])
                 json.dump({"projects": {"demo": {"agent_env": {"DEMO_PORT_OFFSET": "the login stack offset"}}}},
                           open(os.path.join(fab, "projects", "registry.json"), "w"))
+                store["values"] = values_before          # what the checks below were written against
                 rc, out = run(s.status, True)
                 check("a store holding it is not unexpected, the registry naming it or not",
                       json.loads(out)["unexpected"] == [], out[:300])

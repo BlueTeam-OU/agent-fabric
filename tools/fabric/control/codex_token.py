@@ -16,9 +16,10 @@ token never leaves that home. Every other login gets the access token and the ac
         every placed agent; a fresh one is handed out again at the first tick and then once a day, and at the next tick
         after a distribution that did not reach every login (`codex-assign` answers "unchanged" for a login that has
         it, so a login placed later takes it within a day). A sign-in that is not there is not this account's business
-        and is said once a day. A refresh that fails or does not advance the expiry is said and gives nothing NEW: the
-        tick still hands the sign-in there is to the logins it is due for (the last distribution missed one, or a day
-        has passed) while it has an hour left, and to no other.
+        and is said once a day. A refresh that fails or does not advance the expiry is said and gives nothing NEW: when
+        a distribution is due (the last one missed a login, or a day has passed) the tick still hands the sign-in there
+        is to every placed login, while it had an hour left before the refresh, and when none is due it hands out
+        nothing.
 
 Exit: 0 done, 1 a login, the refresh or the sync failed, 2 usage or a refused request. Prints no token: a row names
 a login, a status and the token's 12-hex fingerprint and expiry.
@@ -104,9 +105,11 @@ def _store_assign(logins: Sequence[str], home: str, force: bool, run: Callable[.
     rows: list[dict] = []
     try:
         parsed = json.loads(r.stdout.decode("utf-8", "replace"))
-        if isinstance(parsed, list) and all(isinstance(x, dict) and isinstance(x.get("login"), str) for x in parsed):
-            rows = parsed
-    except ValueError:
+        if isinstance(parsed, list):
+            # A row is kept only if it is about a login that was asked for and says a status; the others are dropped one
+            # by one, so one malformed row does not cost the valid ones.
+            rows = [x for x in parsed if isinstance(x, dict) and x.get("login") in logins and isinstance(x.get("status"), str)]
+    except (ValueError, RecursionError):
         pass
     # A refusal before any row (no sign-in, a token with too little life): the last line says why, and never a value.
     why = (r.stderr.decode("utf-8", "replace").strip().splitlines() or [f"fabric-secrets store codex-assign gave no row (exit {r.returncode})"])[-1][:200]

@@ -5,6 +5,7 @@ read_owned (a sign-in is the login's alone); jwt_exp's shape checks; the account
 refresh and id tokens never returned or echoed (a sentinel value proves it); the synced file's compact text."""
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -111,7 +112,9 @@ class SignIn(unittest.TestCase):
                            ("a negative exp", f"a.{b64({'exp': -5})}.c"), ("an exp of zero", f"a.{b64({'exp': 0})}.c"),
                            ("an empty header", f".{b64({'exp': EXP})}.sig"), ("an empty signature", f"{b64({'alg': 'x'})}.{b64({'exp': EXP})}."),
                            ("a header and signature of !", f"!.{b64({'exp': EXP})}.!"), ("a header that is not an object", f"{b64([1])}.{b64({'exp': EXP})}.sig"),
-                           ("a header that is not JSON", f"bm90IGpzb24.{b64({'exp': EXP})}.sig")):
+                           ("a header that is not JSON", f"bm90IGpzb24.{b64({'exp': EXP})}.sig"),
+                           ("a header of deeply nested JSON", f"{base64.urlsafe_b64encode(b'[' * 100000).decode().rstrip('=')}.{b64({'exp': EXP})}.sig"),
+                           ("a payload of deeply nested JSON", f"{b64({'alg': 'x'})}.{base64.urlsafe_b64encode(b'[' * 100000).decode().rstrip('=')}.sig")):
             with self.subTest(label):
                 with self.assertRaises(ValueError) as ctx:
                     cs.jwt_exp(tok)
@@ -132,6 +135,10 @@ class SignIn(unittest.TestCase):
         th.join(5)
         self.assertFalse(th.is_alive(), "open() on a FIFO must not block")
         self.assertIn("not a regular file", done[0])
+
+    def test_a_header_that_is_json_but_not_an_object_names_that_cause(self):
+        with self.assertRaisesRegex(ValueError, "header is not a JSON object"):
+            cs.jwt_exp(f"{b64([1])}.{b64({'exp': EXP})}.sig")
 
     def test_the_synced_file_is_compact_header_safe_text_that_reads_back(self):
         text = cs.synced_text(fake_jwt(EXP), ACCOUNT)

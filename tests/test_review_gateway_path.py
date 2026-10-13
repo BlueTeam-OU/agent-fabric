@@ -28,6 +28,10 @@ class Path(unittest.TestCase):
                 self.assertEqual(review_gateway.synced_path(env), want)
         self.assertEqual(want, f"/run/user/{UID}/agent-fabric/gateway/chatgpt-signin.json")
 
+    def test_a_relative_runtime_root_is_refused_not_resolved_against_the_cwd(self):
+        with self.assertRaisesRegex(review_gateway.Refused, "not an absolute path"):
+            review_gateway.synced_path({"AGENT_FABRIC_RUNTIME_ROOT": "rt"})
+
     def test_a_runtime_root_named_to_it_is_the_root_of_the_same_path(self):
         self.assertEqual(review_gateway.synced_path({"AGENT_FABRIC_RUNTIME_ROOT": "/scratch/rt"}),
                          gateway_token.token_path(UID, "/scratch/rt", gateway_token.SIGNIN_NAME))

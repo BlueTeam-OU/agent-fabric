@@ -222,6 +222,16 @@ class StoreStatus(Fakes):
         self.assertEqual(self.main("python-dev-01"), 1)
         self.assertIn("failed", self.out[0])
 
+    def test_one_malformed_row_costs_the_valid_ones_nothing_and_a_row_for_nobody_asked_is_dropped(self):
+        self.rows({"login": "python-dev-01", "status": "written", "token_sha256_12": "d" * 12}, {"status": "written"},
+                  {"login": "zzz-not-asked", "status": "written"}, {"login": "rust-dev-01"})
+        self.exit_code(0)
+        self.assertEqual(self.main("python-dev-01", "rust-dev-01"), 1)
+        self.assertEqual(self.calls("fabric-ctl")[0]["argv"], ["python-dev-01", "secrets-sync"], "the valid row's login is synced")
+        text = "\n".join(self.out)
+        self.assertIn("rust-dev-01", text)
+        self.assertNotIn("zzz-not-asked", text + json.dumps(self.calls("fabric-ctl")))
+
     def test_the_default_root_is_the_checkout_that_holds_bin_fabric_secrets(self):
         self.assertTrue(os.path.isfile(os.path.join(ct.FABRIC, "bin", "fabric-secrets")), ct.FABRIC)
         self.assertEqual(ct.FABRIC, HERE)
