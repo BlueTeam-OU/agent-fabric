@@ -137,8 +137,11 @@ is the capability class below (ADR-002, ADR-005).
   edited (ADR-013, ADR-014).
 - **How much reasoning a task needs is a capability class**, and which
   model and effort serve it is `routing/`, decided at launch; your
-  harness's file says how you name a class when you delegate (ADR-005,
-  ADR-006).
+  harness's file says how you name a class when you delegate.
+  `fabric-model set <class>-effort <level>` is your own layer, and
+  `fabric-status` prints the level beside the model. A review is briefed
+  with `fabric-review brief`: the facts of the change, never the
+  author's conclusions (ADR-005, ADR-006, ADR-020).
 - **Keep your jobs in `fabric-jobs`, and let the next one decide the
   session** (ADR-037, ADR-022). A piece of work you take on is a job
   (`fabric-jobs add "<artifact>" --topic <label>`; a request you

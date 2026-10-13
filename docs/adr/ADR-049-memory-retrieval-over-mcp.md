@@ -141,7 +141,7 @@ meaning.
    is `runtime/claude-code/hooks/session-start.py`, and
    `tests/test_session_start.py` changes with it. The two other texts
    that teach the pull-by-path flow change with it: the retrieval line
-   of `identities/prompt/memory.md` and agent-fabric's `CLAUDE.md`
+   of `identities/prompt/memory.md` and agent-fabric's `AGENTS.md`
    "Knowledge you retrieve".
 
 ## 6. Consequences

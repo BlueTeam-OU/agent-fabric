@@ -49,7 +49,7 @@ def config_path(environ: dict[str, str] | None = None) -> str:
 
 
 def trust(dirs: list[str], path: str, dry_run: bool = False) -> list[tuple[str, str]]:
-    """(dir, "+" newly trusted | "=" already | "-" skipped: not a directory)."""
+    """(dir, "+" a key newly set | "=" all three already set | "-" skipped: not a directory)."""
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)

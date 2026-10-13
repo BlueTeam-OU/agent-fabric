@@ -1,5 +1,3 @@
-# agent-fabric — the control plane, in Claude Code
-
 @AGENTS.md
 
 ## Claude Code
@@ -21,11 +19,8 @@ the same in any harness (ADR-054).
   dispatch without worktree isolation; `code-high` and `code-plan` ask.
   The read-only harness types (`Explore`, `Plan`, `claude-code-guide`)
   name a model and no isolation. `locale-worker` exists on the
-  language-culture logins only. A review is briefed with `fabric-review
-  brief`: the facts of the change, never the author's conclusions
-  (ADR-005, ADR-020).
+  language-culture logins only.
 - **How much a class thinks is routed too** (`routing/effort.json`),
   written into each class's agent file at launch. Never set it per
   dispatch, and never through `CLAUDE_CODE_EFFORT_LEVEL`, which the
-  launcher refuses; `fabric-model set <class>-effort <level>` is your own
-  layer, and `fabric-status` prints the level beside the model (ADR-006).
+  launcher refuses (ADR-006).
