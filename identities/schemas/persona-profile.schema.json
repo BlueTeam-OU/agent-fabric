@@ -68,8 +68,8 @@
     },
     "accepted": {
       "type": "string",
-      "format": "date",
-      "description": "The day the agent accepted its avatar."
+      "description": "The day the agent accepted its avatar.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
     }
   }
 }
