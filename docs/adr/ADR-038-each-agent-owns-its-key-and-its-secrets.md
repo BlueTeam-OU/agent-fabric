@@ -21,7 +21,7 @@ With that form, the only thing left to back up is a key.
 
 The fabric's invariant says who an agent is: its Linux login. Nothing
 says what a key is to that identity. The gap is already visible. Every
-account signs its git commits with the same key, the coordinator's,
+account signs its git commits with the same key, the owner's,
 imported by hand at provisioning. Cryptographically, the fleet is one
 signer.
 
@@ -199,15 +199,15 @@ sharing a machine.
 - **Key storage:** an agent's key has no passphrase, because agents
   decrypt unattended. The account's file permissions guard it, the same
   protection `secrets.env` has.
-- **Commits:** the shared signing key stays until per-agent signing
-  lands. Rule 1 says it must go.
+- **Commits:** each account signs with its own key's signing subkey,
+  in OpenPGP or SSH form as the forge needs, and the shared key stops
+  signing the fleet's work (ADR-057).
 
 ## 7. Future Evolution
 
-- **Per-agent git signing** with the agent's signing subkey, replacing
-  the shared coordinator key; its own record, since it changes the
-  fleet's commits. **The authentication subkey as each agent's SSH key**
-  through gpg-agent, replacing the shared one, likewise.
+- **The authentication subkey as each agent's SSH key** through
+  gpg-agent, replacing the shared one; its own record, since it changes
+  how every account reaches its remotes.
 - **The identity key off the host:** only its subkeys kept online, the
   primary only in the recovery copy, once certifying no longer needs it
   there (the coordinator certifies children with its own).
@@ -252,3 +252,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-10-06 | No secret in a session's shell | Scope, §5 rules 7 and 9, §7: secrets.env is sourced by no shell, env.sh holds plain values, gh holds GH_TOKEN, the launcher and SessionStart keep the session's shell free of secrets |
 | 2026-10-07 | The fabric removes only its own Doppler leftover | §6: the upgrade removes only secrets-source; the Doppler CLI and its config stay for a project's use |
 | 2026-10-13 | one repository per agent holds its secrets and its settings, in BlueTeam-OU | §2 |
+| 2026-10-13 | Commits are signed by each agent's own key, as ADR-057 says | §6 Commits: the agent's signing subkey, OpenPGP or SSH; §7: per-agent signing leaves Future Evolution |

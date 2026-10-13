@@ -60,6 +60,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | a harness other than Claude Code; Codex sessions; AGENTS.md and CLAUDE.md; --harness | ADR-054 |
 | a model at capacity or over allowance; retries; review divert; availability report | ADR-055 |
 | an agent's name, surname, avatar; the "AI" prefix; personas | ADR-056 |
+| signing commits; an agent's own key; ssh or gpg signing; fabric-sign; timestamps; Verified on GitHub | ADR-057 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -839,15 +840,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   and never reads (§5 rule 3).
 - No step relies on a shared host (§5 rules 4–5). `sync` reads the store
   alone (§5 rules 7–8).
-- A 2026-09-29 — recovery copies and backups go to Proton Drive.
-- A 2026-09-29 — recovery copies are encrypted to the owner's recovery key.
-- A 2026-09-29 — keys, lineage and repositories are named by the agent id (ADR-039).
+- A 2026-09-29 — recovery copies and backups to Proton Drive.
+- A 2026-09-29 — recovery copies encrypted to the owner's recovery key.
+- A 2026-09-29 — keys, lineage and repositories named by agent id (ADR-039).
 - A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
-- A 2026-09-30 — Doppler removed; `provision` fills a child's store (§5 rules 3, 7–8).
+- A 2026-09-30 — no Doppler; `provision` fills a child's store (§5 rules 3, 7–8).
 - A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
-- A 2026-10-06 — no shell holds a secret; env.sh holds plain values (§5 rule 9).
+- A 2026-10-06 — no shell holds a secret; env.sh is plain values (§5 rule 9).
 - A 2026-10-07 — the Doppler CLI stays (§6).
-- A 2026-10-13 — one repository per agent: secrets and settings, in BlueTeam-OU (§2).
+- A 2026-10-13 — one repository per agent, secrets and settings (§2).
+- A 2026-10-13 — each agent signs commits with its own subkey (§6, ADR-057).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
   Doppler, provision, placement.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
@@ -1189,7 +1191,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   models) is data in one syntax, `routing/policies/availability.json`,
   linted; OpenAI is the less tolerant (§5 rule 7).
 
-### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Proposed)
+### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Accepted)
 
 - A persona — first name, surname, sex (F/M) for the image, avatar — is the
   agent id's, in `settings/profile.json` of `fabric-agent-<id>` (§5 rule 1).
@@ -1202,3 +1204,16 @@ its record disagree, the record wins. Look it up, never read it whole:
 - No gender or pronoun; "it" on request (§5 rule 6). Avatars in the
   fabric's own anime style by brand-comms; the agent may reject any (§5
   rule 7). Identity and authorship unchanged (§5 rule 8).
+- A 2026-10-13 — candidates wait in /usr/local/share/agent-fabric/avatars/<id>/ (§5 rule 7).
+
+### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Accepted)
+
+- Each account signs with its own agent key's signing subkey, never the
+  shared key (§5 rule 1).
+- `fabric-sign` signs OpenPGP or SSH with that one subkey, by
+  `policies/signing.json` per forge or repository (§5 rules 2-3).
+- Every signature timestamped; proof in `refs/notes/fabric-ots`, pushed
+  with the branch (§5 rule 4).
+- One checker: admitted format, lineage-certified key, role held, proof
+  present — hooks, CI, suite (§5 rule 5). Keys on GitHub as signing keys;
+  one shared author stays (§5 rules 6-7).

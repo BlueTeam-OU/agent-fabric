@@ -1,7 +1,8 @@
 # ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI
 
 **Date:** 2026-10-13
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-13, in the session ("ADR-056 accepted")
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** each agent's persona — its name, its sex for the image, its avatar — kept in `settings/profile.json` of its repository `fabric-agent-<id>` (ADR-038, ADR-039); the surname list `identities/personas/surnames.json` and the claims `identities/personas/claims.json`; how a persona is displayed (the Fleet Deck, the Board, GZCoord, pull requests); the avatar style, owned by brand-comms; ADR-033 §5 rule 3
 **Pillar:** P2
@@ -94,7 +95,10 @@ its own rather than imposed.
 7. The avatar is drawn in the fabric's own style — warm, hand-painted
    anime, soft watercolour backgrounds — written down once by
    brand-comms, who generate the avatars; never in a named studio's
-   style, never resembling the scientist the surname comes from. The
+   style, never resembling the scientist the surname comes from. A
+   candidate waits in `/usr/local/share/agent-fabric/avatars/<agent
+   id>/<n>.png` on the agents' host, written by brand-comms alone and
+   readable by every agent; it is working material, not a setting. The
    agent sees each image and may reject it any number of times; only an
    accepted avatar is shown. A rejected image is kept beside the
    accepted one, `settings/avatar-rejected/<n>.png`, with a text file of
@@ -124,7 +128,7 @@ The surname list grows as agents are added; its test does not change.
 
 ## 8. Decision Status
 
-Proposed. The owner set its shape in the coordinator's session: the "AI"
+Accepted (the header names the owner's word). The owner set its shape in the coordinator's session: the "AI"
 prefix and the display forms, names from all over the world with the
 culture agents choosing from their own, scientists' surnames with none
 related to weapons, each agent choosing its surname, first name and sex,
@@ -137,3 +141,11 @@ rather than a named studio's. ADR-033 §5 rule 3 is clarified with it.
 - ADR-002 (identity), ADR-033 §5 rule 3 (no human-style identity),
   ADR-038 and ADR-039 (the agent's repository and id).
 - `identities/personas/surnames.json`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-056-amendments.md](history/ADR-056-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-13 | Candidate avatars wait in a shared folder on the host | §5 rule 7: candidates in /usr/local/share/agent-fabric/avatars/<id>/, brand-comms writes, every agent reads |
