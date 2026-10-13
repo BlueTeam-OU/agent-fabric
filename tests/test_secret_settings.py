@@ -486,6 +486,14 @@ def main() -> int:
             _signal.signal(_signal.SIGHUP, saved)
         check("a caller that ignores SIGHUP (nohup) keeps ignoring it", during == _signal.SIG_IGN, repr(during))
 
+        # A clean filter (autocrlf) would commit different bytes than the ones validated.
+        subprocess.run(["git", "-C", store, "config", "core.autocrlf", "true"], check=True, env=env)
+        n_crlf = count()
+        p = run("settings-put", "--from", tree("crlf", {"avatar-rejected/crlf.txt": b"a\r\nb\r\n"}))
+        check("a git filter that would change the staged bytes is refused, nothing written", p.returncode == 1
+              and "filter" in p.stderr and count() == n_crlf and g("status", "--porcelain", "--untracked-files=all") == "", p.stdout + p.stderr)
+        subprocess.run(["git", "-C", store, "config", "--unset", "core.autocrlf"], check=True, env=env)
+
         stray = os.path.join(store, "settings", "stray")
         with open(stray, "w") as fh:
             fh.write("not from the tree")

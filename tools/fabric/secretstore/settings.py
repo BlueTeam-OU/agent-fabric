@@ -223,6 +223,24 @@ def _check_standing(files: dict[str, bytes], store: str, agent_id: str) -> None:
         raise StoreError(f"{PROFILE}: avatar.sha256 is not the sha256 of {AVATAR}; nothing written")
 
 
+def _staged_as_validated(store: str, files: dict[str, bytes]) -> None:
+    """What git staged is what was validated: git add runs clean filters (autocrlf, .gitattributes) and skips ignored
+    files, either of which would commit a profile whose avatar hash is not the avatar's. The blob id is the
+    sha1 of "blob <size>\\0" and the bytes, computed here, so no filter has a say."""
+    out = git(store, "ls-files", "-s", "-z", "--", "settings").stdout.decode("utf-8", "surrogateescape")
+    staged = {}
+    for entry in filter(None, out.split("\0")):
+        meta, _, path = entry.partition("\t")
+        staged[path] = meta.split()[1]
+    for rel, data in files.items():
+        path = f"settings/{rel}"
+        if path not in staged:
+            raise StoreError(f"{path} was not staged (git ignores it); nothing written")
+        if staged[path] != hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest():
+            raise StoreError(f"{path} was changed by a git filter (autocrlf, .gitattributes) on its way into the "
+                             "commit; nothing written")
+
+
 def _destination(store: str, rel: str) -> str:
     """Below <store>/settings/ with no link on the way: a link committed
     there would carry the write out of settings/."""
@@ -353,29 +371,24 @@ def _put(files: dict[str, bytes], state: dict) -> dict:
             for rel, data in sorted(files.items()):
                 _put_file(dests[rel], data)
             git(store, "add", "-A", "--", "settings")
-            staged_all = set(git(store, "ls-files", "-z", "--", "settings").stdout.decode("utf-8", "surrogateescape").split("\0"))
-            missing = sorted(f"settings/{rel}" for rel in files if f"settings/{rel}" not in staged_all)
-            if missing:
-                raise StoreError(f"{missing[0]} was not staged (git ignores it); nothing written")
+            _staged_as_validated(store, files)
             changed = git(store, "diff", "--cached", "--quiet", check=False).returncode != 0
+            if changed:
+                _commit(store, f"agent {login()}: settings")
+                state["committed"] = True
         except BaseException as e:
-            # Any failure, an interrupt too: the next write refuses a dirty store until it is reset by hand.
-            _undo(store, created, made_dirs)
+            # One guard from the first write to the end of the commit: any failure or interrupt that comes before
+            # HEAD moved puts the store back; after it, the commit stands. (_commit resets after its own failures;
+            # an interrupt while signing bypasses that.)
+            with _masked():
+                if git(store, "rev-parse", "HEAD").stdout == head:
+                    _undo(store, created, made_dirs)
+                else:
+                    state["committed"] = True
             if isinstance(e, OSError):
                 raise StoreError(f"{e.filename or 'settings'}: {e.strerror or e}; nothing written") from None
             raise
         if changed:
-            try:
-                _commit(store, f"agent {login()}: settings")
-            except BaseException:
-                # _commit resets after its own failures; an interrupt (signing waits on gpg) bypasses that.
-                with _masked():
-                    if git(store, "rev-parse", "HEAD").stdout == head:
-                        _undo(store, created, made_dirs)
-                    else:
-                        state["committed"] = True
-                raise
-            state["committed"] = True
             entries._after_commit(store)
         else:
             entries._push_if_ahead(store)
