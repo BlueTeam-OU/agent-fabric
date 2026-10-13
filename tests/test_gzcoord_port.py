@@ -725,7 +725,7 @@ def _():
         stub.close()
 
 
-@case("a drain, --wait and --held take no lock, even while a watch holds it")
+@case("a drain, --wait, --history, and a watch flag with --held, --history or --replay take no lock while a watch holds it")
 def _():
     stub, _calls = _wait_stub([])
     try:
@@ -733,7 +733,8 @@ def _():
         first = _arm(env, "--until-delivery")
         try:
             _wait_started(first, env)
-            for argv in ([], ["--wait", "1"], ["--history"]):
+            for argv in ([], ["--wait", "1"], ["--history"], ["--held", "--until-delivery"], ["--history", "--follow"],
+                         ["--replay", "1", "--follow"]):
                 r = subprocess.run([P.INBOX_CMD, *argv], env=env, capture_output=True, text=True, timeout=30)
                 ok("already running" not in r.stdout + r.stderr, f"{argv}: {r.stdout}{r.stderr}")
         finally:

@@ -70,10 +70,12 @@ CONTRACT, frozen from the Node:
             reason; under GZCOORD_JOURNAL=off also the bypass warning)
             and no relay-down/back lines; the journal's held-messages
             line is printed only as it exits 6.
+            a second watch's refusal line (watchlock.py), which exits 0
+            without being a delivery.
   stderr    every start-up and refusal line (under --until-delivery, the
             refusals that end it go to stdout instead); the hold's
             held/released
-  exit      0 drained, delivered, nothing for you, relay unreachable on a
+  exit      0 drained, delivered, a second watch refused (one per login), nothing for you, relay unreachable on a
             drain or wait, and (outside --until-delivery) not configured
             or no token; 1 a usage line, replay of no such message, the
             --held "not held"; 2 a control channel named, replay not
