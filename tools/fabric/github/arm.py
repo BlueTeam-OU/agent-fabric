@@ -202,7 +202,7 @@ What it refuses, in order, and why:
      one posted with --model codex,
      and no unresolved review thread (an open P1 or P2 of either engine). The
      refusal names the engine still missing. `boundary_reviews` adds engines for a
-     security-boundary change not waived; agent-fabric ADR-053 rule 6.)
+     security-boundary change not waived; agent-fabric ADR-053 rule 6.
   5. the count rule (fabric-pr gate's classifier; the 8 and the 16 here are
      the default numbers of the repository's arming policy, tools/fabric/
      github/arm_policy.py: the fleet's, with the settings repository's file for
