@@ -292,6 +292,7 @@ def main() -> int:
                          "git clone -q 'git@github.com:fixture-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
                 ok(f"plans: {step}", step in out, out)
             ok("…and verifies nothing", "dry run: nothing verified" in out, out)
+            ok("…and plans the GitHub signing key, sending nothing", "would: 12. register zz-fixture-login's signing subkey" in out, out)
             ok("no account was created", subprocess.run(["getent", "passwd", "zz-fixture-login"], stdout=subprocess.DEVNULL,
                                                          timeout=30).returncode != 0)
             ok("a project clone uses the registry's SSH remote", "git@github.com" in out, out)
@@ -467,6 +468,8 @@ def main() -> int:
             reset_seq()
             rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
             ok("the whole sequence exits 0", rc == 0, f"rc={rc}\n{out}")
+            ok("step 12 is best effort: a login the lineage does not hold leaves it unregistered, said with the line to run, and the run still exits 0",
+               "12. its signing key was NOT registered on GitHub" in out and "github_signing_key.py add" in out, out)
             where = "far-host" if backend == "ssh" else local
             ok("5: the account keyed on its host, its store filled by the parent, and synced",
                f"store-enroll seq-login --host {where} --born-now" in lines(calls)
