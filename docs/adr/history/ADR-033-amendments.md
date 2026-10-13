@@ -21,3 +21,12 @@ row in its rationale staging pass (message
 the next drain. Nothing about the decision changes: §3 gains the
 alternative the owner had already refused, with the reasons the slice
 gave.
+
+### Amendment 2026-10-13 — a persona marked as AI is not a human-style identity (ADR-056)
+
+Rule 3's reason is an agent "appearing to be" a person. ADR-056 gives
+agents personas — a first name, a scientist's surname, an illustrated
+avatar — always behind the prefix "AI", so a persona discloses what it
+is; rule 3 now says so, and still forbids any identity that passes for a
+person. The owner's words, in the coordinator's session: "only we should
+keep ai agent clearly identificable as such".

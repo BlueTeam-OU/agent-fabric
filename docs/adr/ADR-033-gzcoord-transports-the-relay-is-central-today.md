@@ -96,7 +96,8 @@ lets the decentralisation direction (ADR-000, P5) be measured against it.
    bootstrap, direct delivery, authentication and allowlists in the
    adapter. A self-declared `FROM` or `ROLE` is never authentication.
 3. No transport gives an agent a human-style identity toward third
-   parties.
+   parties. A persona shown behind the prefix "AI" (ADR-056) is not one:
+   it says what it is (A 2026-10-13).
 4. A transport candidate is validated with at least two instances, one
    receiving what the other sent; a check of human→agent or agent→channel
    alone proves nothing about the leg the protocol exists for.
@@ -181,3 +182,4 @@ The body above reads current; each change's full note is in [history/ADR-033-ame
 |---|---|---|
 | 2026-09-30 | Doppler is retired: the store holds what Doppler held | §5 rule 6 |
 | 2026-10-04 | cccc recorded as a refused alternative | §3: the owner's refusal, carried until now in a project's rationale slice |
+| 2026-10-13 | a persona marked as AI is not a human-style identity (ADR-056) | §5 rule 3 |

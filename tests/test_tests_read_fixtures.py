@@ -37,6 +37,7 @@ SCANNED = ("tests", "communication/gzcoord/tests")
 # red, or has nothing to read: that is its answer, not a fixture still owed. Everything else moved to
 # fixtures (fabric-coordinator's request 01a11d15-2dc2-7cc9-8e7b-770a36dcf895).
 DELIBERATE = {
+    "tests/test_availability_policy.py": "one case pins the committed policy's shape (OpenAI the less tolerant): the operator's own data; skipped on a stripped copy",
     "tests/test_fabric_status.py": "bin/fabric-status is off the committed bash allowlist: a fact of this tree",
     "tests/test_launch_prompt.py": "every role of the real catalogue renders under the prompt ceiling: the operator's own roles",
     "tests/test_operator_data.py": "the committed operator keys parse as the daemons read them, and every locale carries its reminder: the operator's own data",

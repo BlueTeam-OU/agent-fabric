@@ -8,7 +8,7 @@ import os
 import re
 from typing import Any
 
-from .base import _tracked
+from .base import _tracked, roots
 
 
 def validate_json(schema: dict[str, Any], doc: Any, where: str) -> list[str]:
@@ -359,6 +359,114 @@ def load_json(path: str, where: str, findings: list[str]) -> Any:
     except ValueError as exc:
         findings.append(f"{where}: not valid JSON ({exc})")
         return None
+
+
+def availability_findings(root: str, policy: str, siblings: dict[str, str] | None = None) -> list[str]:
+    """routing/policies/availability.json (agent-fabric ADR-055 §5 rule 7): its schema, then what a schema
+    cannot say. Every provider is one routing knows, and every capability one it routes for that provider; a
+    provider's first model for a capability is the routed one (a run starts there); every code-review model is
+    admitted by the review-grade set, spelt as routing.review_grade_ok spells it (_review_grade); a provider that moves
+    to the next seat on allowance has a second seat, and Anthropic's seats are the account-switch pool (ADR-052
+    moves the logins between them); the OpenAI review engine's retry waits are the ones review_codex.py uses.
+    The sibling policies are read where roots puts them; `siblings` (name -> path) lets a test point them at a
+    copy. An absent file is not judged."""
+    where = "routing/policies/availability.json"
+    if not os.path.exists(policy):
+        return []
+    findings: list[str] = []
+    doc = load_json(policy, where, findings)
+    if doc is None:
+        return findings
+    schema = load_schema(root, os.path.join("routing", "schemas"), "availability")
+    if schema is None:
+        return findings + ["routing/schemas/availability.schema.json: missing, and the policy is judged against it"]
+    shape = validate_json(schema, doc, where)
+    if shape:
+        return findings + shape
+    paths = {n: roots.routing_policy(n, engine=root) for n in ("review-grade.json", "account-switch.json")}
+    paths.update(siblings or {})
+    caps = load_json(os.path.join(root, "routing", "capabilities.json"), "routing/capabilities.json", findings) or {}
+    switch = load_json(paths["account-switch.json"], "routing/policies/account-switch.json", findings) or {}
+    spec = importlib.util.spec_from_file_location("fabric_routing_for_lint", os.path.join(root, "tools", "fabric", "routing.py"))
+    routing = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(routing)
+    providers = caps.get("providers") or {}
+    grade_doc = load_json(paths["review-grade.json"], "routing/policies/review-grade.json", findings)
+    graded = set((grade_doc or {}).get("models") or [])
+    for prov, s in sorted(doc["providers"].items()):
+        if prov not in providers:
+            findings.append(f"{where}: {prov!r} is not a provider routing knows ({', '.join(sorted(providers))})")
+            continue
+        routed = providers[prov].get("models") or {}
+        for cap, models in sorted(s["models"].items()):
+            if routed.get(cap) is None:
+                findings.append(f"{where}: {prov} lists {cap!r}, which routing does not route for {prov}")
+                continue
+            if models[0] != routed[cap]:
+                findings.append(f"{where}: {prov} {cap} starts at {models[0]!r}, but routing resolves it to {routed[cap]!r}")
+            if cap == "code-review":
+                for m in models:
+                    if grade_doc is not None and not _review_grade(routing, m, prov, graded):
+                        findings.append(f"{where}: {prov} {cap} lists {m!r}, which is not in the review-grade set")
+        if s["on_allowance"] == "next-seat" and len(s["seats"]) < 2:
+            findings.append(f"{where}: {prov} moves to the next seat on allowance but names only one seat")
+        if prov == "anthropic":
+            pool = ((switch.get("pool") or {}).get("accounts")) or []
+            if pool and sorted(s["seats"]) != sorted(pool):
+                findings.append(f"{where}: anthropic's seats {s['seats']} are not the account-switch pool {pool}")
+    oa = doc["providers"].get("openai")
+    if oa is not None:
+        src = open(os.path.join(root, "tools", "fabric", "review_codex.py"), encoding="utf-8").read()
+        m = re.search(r"^CAPACITY_RETRY_DELAYS_S = \(([0-9, ]+)\)", src, re.M)
+        used = [int(x) for x in m.group(1).split(",") if x.strip()] if m else None
+        if used != oa["retry_after_s"]:
+            findings.append(f"{where}: openai retry_after_s {oa['retry_after_s']} is not what review_codex.py waits ({used})")
+    return findings
+
+
+def _review_grade(routing: Any, model: str, provider: str, graded: set[str]) -> bool:
+    """routing.review_grade_ok's spelling rule, applied to a set read where roots (or a test) put it: that function
+    reads the set through roots itself, so it cannot judge a test's copy. A copy, kept in step with routing.py's:
+    a native id compares as its adapter's openrouter id, an openrouter id as written."""
+    adapter = routing.ADAPTERS.get(provider)
+    if adapter is not None and provider != "openrouter" and adapter.is_model(model):
+        model = adapter.openrouter_id(model)
+    return model in graded
+
+
+def personas_findings(surnames_path: str, claims_path: str) -> list[str]:
+    """identities/personas/ (agent-fabric ADR-056 §5 rules 3-4): surnames are unique and none is also excluded;
+    every entry names its person and where it is from, every exclusion its reason; a claim is keyed by an agent
+    id, names a listed surname, and no surname is claimed twice. Absent files are not judged."""
+    findings: list[str] = []
+    if os.path.exists(surnames_path):
+        doc = load_json(surnames_path, "identities/personas/surnames.json", findings) or {}
+        names = [s.get("surname") for s in doc.get("surnames") or []]
+        for n in sorted({n for n in names if names.count(n) > 1}):
+            findings.append(f"identities/personas/surnames.json: {n!r} is listed more than once")
+        for s in doc.get("surnames") or []:
+            if not (s.get("surname") and s.get("person") and s.get("from")):
+                findings.append(f"identities/personas/surnames.json: an entry lacks its surname, person or from: {s}")
+        excluded = {e.get("surname") for e in doc.get("excluded") or []}
+        for n in sorted(excluded & set(names)):
+            findings.append(f"identities/personas/surnames.json: {n!r} is both listed and excluded")
+        for e in doc.get("excluded") or []:
+            if not e.get("why"):
+                findings.append(f"identities/personas/surnames.json: the exclusion of {e.get('surname')!r} gives no reason")
+    else:
+        names = []
+    if os.path.exists(claims_path):
+        claims = (load_json(claims_path, "identities/personas/claims.json", findings) or {}).get("claims") or {}
+        held: dict[str, str] = {}
+        for aid, surname in sorted(claims.items()):
+            if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", aid):
+                findings.append(f"identities/personas/claims.json: {aid!r} is not an agent id (a UUIDv7)")
+            if surname not in names:
+                findings.append(f"identities/personas/claims.json: {aid} claims {surname!r}, which is not on the list")
+            if surname in held:
+                findings.append(f"identities/personas/claims.json: {surname!r} is claimed by {held[surname]} and {aid}")
+            held.setdefault(surname, aid)
+    return findings
 
 
 def account_switch_findings(root: str, policy: str) -> list[str]:

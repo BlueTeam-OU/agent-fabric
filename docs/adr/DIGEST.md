@@ -59,6 +59,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | when a gateway session changes Claude account; land and eject thresholds; perishable quota; the switch controller | ADR-052 |
 | a harness other than Claude Code; Codex sessions; AGENTS.md and CLAUDE.md; --harness | ADR-054 |
 | a model at capacity or over allowance; retries; review divert; availability report | ADR-055 |
+| an agent's name, surname, avatar; the "AI" prefix; personas | ADR-056 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -740,6 +741,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   filters nothing — the inbox does (§6).
 - A 2026-09-30 — the relay token comes from the account's own store (§5 rule 6).
 - A 2026-10-04 — cccc recorded among the refused alternatives (§3).
+- A 2026-10-13 — a persona marked as AI is not a human-style identity (§5 rule 3).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
@@ -828,27 +830,26 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
-- One key per login, made in the account, a subkey per use. Its private
-  half leaves only as a recovery copy encrypted to the owner's recovery
-  key, backed up to Proton Drive (§5 rules 1, 6; §6).
+- One key per login, made in the account, a subkey per use; its private
+  half leaves only as an encrypted recovery copy (§5 rules 1, 6; §6).
 - A key is an agent's when committed at `identities/keys/<id>.asc` and
-  certified by its parent recorded in `lineage.json`; lint refuses one
-  without (§5 rule 2).
-- Each agent's secrets are a private pass(1)-format repository,
-  `agent-fabric-secrets-<id>`, encrypted to that key alone: the parent
-  writes (`fabric-secrets put`) and never reads (§5 rule 3).
+  certified by its parent in `lineage.json` (§5 rule 2).
+- Each agent's secrets are pass(1) entries in its private repository
+  `fabric-agent-<id>`, encrypted to that key alone: the parent writes
+  and never reads (§5 rule 3).
 - No step relies on a shared host (§5 rules 4–5). `sync` reads the store
   alone (§5 rules 7–8).
 - A 2026-09-29 — recovery copies and backups go to Proton Drive.
 - A 2026-09-29 — recovery copies are encrypted to the owner's recovery key.
 - A 2026-09-29 — keys, lineage and repositories are named by the agent id (ADR-039).
 - A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
-- A 2026-09-30 — Doppler removed from the code; `provision` fills a child's store (§5 rules 3, 7–8; §7).
+- A 2026-09-30 — Doppler removed; `provision` fills a child's store (§5 rules 3, 7–8).
 - A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
 - A 2026-10-06 — no shell holds a secret; env.sh holds plain values (§5 rule 9).
 - A 2026-10-07 — the Doppler CLI stays (§6).
-- Keywords: secrets, GPG, pass, paperkey, env.sh, bashrc, lineage,
-  custody, Doppler, migration, provision, placement.
+- A 2026-10-13 — one repository per agent: secrets and settings, in BlueTeam-OU (§2).
+- Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
+  Doppler, provision, placement.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing
@@ -863,9 +864,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - `lineage.json` is keyed by id (`login`, `born`, `fingerprint`, parent id);
   keys are `identities/keys/<id>.asc`, their user id `<id>@agents.agent-fabric`,
   certified there by the parent (§5 rules 2–3).
-- Secrets repositories are `agent-fabric-secrets-<id>`, and so are mirrors,
+- Agent repositories are `fabric-agent-<id>`, and so are mirrors,
   bundles and recovery copies (§5 rule 4).
 - A reused login is a new agent with a new id (§5 rule 7).
+- A 2026-10-13 — the repository is `fabric-agent-<id>`; its description names host, login, role (§5 rule 4).
+- A 2026-10-13 — the persona belongs to the agent id (§5 rule 8).
 - Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
   secrets repository, P1.
 
@@ -964,6 +967,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   control-plane signing key but the owner's own (§5 rules 2–3).
 - `fabric-ctl all` asks only agents; a human enters an account only by
   moveto (§5 rules 4–5).
+- A 2026-10-13 — an agent carries a persona marked as AI; a human never (§5 rule 6).
 - Keywords: identity, kind, human, operator, Fleet Deck, herdr, deck,
   moveto, placement.
 
@@ -1167,16 +1171,34 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — reviews start Codex by the session's gateway path, each
   component with its own gateway-local key (§5 rule 7).
 
-### ADR-055 — Model availability is rediscovered by each run; the control plane reports it to people; a review diverts when its only model is unavailable (Proposed)
+### ADR-055 — Model availability is rediscovered by each run; the control plane reports it to people; a review diverts only when its engine is the only one required (Proposed)
 
 - A run learns availability by trying, never from another run's
   observation (§5 rules 1, 5).
 - Retry a capacity failure 10 s, 20 s, 60 s, then report "the chosen model
   is unavailable": at capacity (provider's) or over allowance (ours, with
   the reset) (§5 rule 2).
-- A review whose model is unavailable and is the request's only reviewer
-  diverts to the next model of the review capability's order, named on
-  the review; otherwise it reports and the PR waits (§5 rule 3).
+- A review whose engine is the PR's only required one diverts to the
+  next model of the review order, never onto another named engine's
+  provider, named on the review; under two engines it reports and the
+  PR waits (§5 rule 3).
 - Every unavailability is reported through the control agent for people
   (`fabric-ctl availability`, the Board); the owner hears of a long or
   total outage (§5 rules 4, 6).
+- Each provider's strategy (retry waits, seats, allowance action, ordered
+  models) is data in one syntax, `routing/policies/availability.json`,
+  linted; OpenAI is the less tolerant (§5 rule 7).
+
+### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Proposed)
+
+- A persona — first name, surname, sex (F/M) for the image, avatar — is the
+  agent id's, in `settings/profile.json` of `fabric-agent-<id>` (§5 rule 1).
+- Shown only behind "AI": "AI Ada Maxwell", "AI Ada · Python Dev"; with the
+  login where people and agents both read (§5 rule 2).
+- Surnames from `identities/personas/surnames.json` — worldwide, deceased
+  scientists, none who worked at making a weapon — one per agent, first
+  claim wins; the first name comes from the surname's culture, male or
+  female (§5 rules 3-5).
+- No gender or pronoun; "it" on request (§5 rule 6). Avatars in the
+  fabric's own anime style by brand-comms; the agent may reject any (§5
+  rule 7). Identity and authorship unchanged (§5 rule 8).

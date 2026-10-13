@@ -34,7 +34,7 @@ agent across renames; the login is its current name on its host.
   - the lineage entry;
   - the committed key file;
   - the key's user id address;
-  - the secrets repository `agent-fabric-secrets-<id>`;
+  - the agent's repository `fabric-agent-<id>`;
   - the parent's mirror;
   - the backup bundle;
   - the recovery copy.
@@ -98,9 +98,15 @@ whole when the parent is renamed.
 3. An agent key carries a valid user id addressed to
    `<id>@agents.agent-fabric`. The parent's certification is on that user
    id. `verify` and lint refuse a key without either.
-4. An agent's secrets repository is `<org>/agent-fabric-secrets-<id>`.
-   The parent's mirror is `children/<id>`. The backup bundle is
-   `agent-fabric-secrets-<id>.bundle`. The recovery copy is
+4. An agent's repository, its secrets and its settings (ADR-038), is
+   `BlueTeam-OU/fabric-agent-<id>`; its GitHub description names the
+   agent's host, login and role, never the id, which the name already
+   carries, and a rename updates the description, never the name
+   (A 2026-10-13). Every existing store has been moved and renamed; a
+   store enrolled before the enrolment tooling follows
+   (agent-fabric #236) is minted under the old name and moved the same
+   way. The parent's mirror is `children/<id>`. The backup
+   bundle is `fabric-agent-<id>.bundle`. The recovery copy is
    `recovery/<id>.key.gpg`.
 5. A command that names an agent takes its login or its id and resolves
    it through `lineage.json` before anything else; below that point only
@@ -111,6 +117,10 @@ whole when the parent is renamed.
 7. A login reused after its agent retired is a new agent with a new id.
    Certifying a second agent under a login that a recorded agent holds is
    refused.
+8. An agent's persona (ADR-056) — its name, surname, sex for the image
+   and avatar — belongs to its id: a rename or a rebind leaves it, and a
+   reused login (rule 7) is a new agent with a persona of its own
+   (A 2026-10-13).
 
 ## 6. Consequences
 
@@ -149,3 +159,12 @@ Accepted and in force.
 - ADR-003 — per-agent state, which a moved login carries.
 - `tools/fabric/secret_store.py` (`mint_agent_id`, `verify`, `rename`); `runtime/provisioning/secrets/store-enroll.sh`.
 - `tests/test_secret_store.py`, `tests/test_store_enroll_cli.py`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-039-amendments.md](history/ADR-039-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-13 | the agent's repository is fabric-agent-<id>; its description names the login, never the id | §2, §5 rule 4 |
+| 2026-10-13 | the persona belongs to the agent id | §5 rule 8 |
