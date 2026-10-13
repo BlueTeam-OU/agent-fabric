@@ -9,6 +9,7 @@
     fabric-secrets store id-of LOGIN             the agent id lineage.json records for a login
                                                  (exit 3: no agent with that login)
     fabric-secrets store rename OLD NEW          a login renamed; its id, key and store stay
+    fabric-secrets store settings-put --from DIR the tree under DIR to settings/, one signed commit, pushed (ADR-056)
     fabric-secrets store set NAME [--managed]    the agent writes an entry (value on stdin; from a
                                                  terminal, typed twice, not echoed)
     fabric-secrets store rm NAME [--managed]     the agent removes an entry (a signed commit; absent: exit 0)
@@ -177,6 +178,7 @@ from secretstore.entries import (  # noqa: E402
     pull,
     values,
 )
+from secretstore.settings import settings_put  # noqa: E402
 from secretstore.reserved import RegistryUnreadable, reserved  # noqa: E402
 from secretstore.lock import write_lock  # noqa: E402
 from secretstore.mirrors import (  # noqa: E402
@@ -306,6 +308,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("name")
     s.add_argument("--empty", action="store_true", help="store an empty value on purpose")
     s.add_argument("--managed", action="store_true", help=managed_help)
+    sp = sub.add_parser("settings-put", help="the tree under --from copied to settings/ in this store, one signed "
+                                             "commit, pushed (ADR-056 rule 1)")
+    sp.add_argument("--from", dest="src", required=True, metavar="DIR")
     rme = sub.add_parser("rm", help="remove an entry; history is not rewritten, so a value that may have leaked "
                                     "is rotated at its provider")
     rme.add_argument("name")
@@ -400,6 +405,9 @@ def main(argv: list[str] | None = None) -> int:
             _own_or_managed(args.name, args.managed, "written")
             r = set_entry(args.name, stdin_value(args.empty, args.name))
             print(f"{args.name}: {'set' if r['changed'] else 'unchanged'}")
+        elif args.cmd == "settings-put":
+            r = settings_put(args.src)
+            print(f"settings: {len(r['files'])} file(s) {'committed' if r['changed'] else 'unchanged'}")
         elif args.cmd == "rm":
             _own_or_managed(args.name, args.managed, "removed")
             if args.expect_last is not None and not re.fullmatch(r"[0-9a-f]{40}", args.expect_last):
