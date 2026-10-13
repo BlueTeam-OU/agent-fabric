@@ -196,8 +196,8 @@ What it refuses, in order, and why:
      a forger. The comment records who waived it, the message
      and the reason. A PR that matches no boundary ignores a waiver;
   4b. the review engines (the policy's `reviews`: ["claude", "codex"] in the fleet's
-     default; ["claude"] alone adds nothing to gate 4; a list naming "codex" needs,
-     for EVERY PR, a review of the CURRENT head by each engine named, claude's
+     default): EVERY PR, ["claude"] alone included and a waived boundary
+     too, needs a review of the CURRENT head by each engine named, claude's
      being the review class's `fabric-pr post-review --model fable` and codex's
      one posted with --model codex,
      and no unresolved review thread (an open P1 or P2 of either engine). The
@@ -740,12 +740,12 @@ def arm(argv: list[str]) -> int:
             # by default), and there no class stands in for it.
             boundary_unwaived = is_boundary and not waiver
 
-    # 4b. the review engines the policy requires (ADR-053 rule 6); the fleet's default names claude and codex.
-    # ["claude"] alone adds nothing: the review-class gate above (boundary or direct) is then the only one. Anything else needs
-    # EACH engine's review of the current head, and no open thread from either.
+    # 4b. the review engines the policy requires (ADR-053 rule 6, ADR-020 rule 1); the fleet's default names claude and
+    # codex. Every PR needs EACH named engine's review of the current head, and no open thread from either — ["claude"]
+    # alone included: gate 4 asks a review only of a boundary or a direct repository, so skipping this for a Claude-only
+    # policy armed a plain PR with no review at all (#235, Codex finding 1).
     engines = arm_policy.required_engines(policy, is_boundary and not waiver)
-    if engines != ["claude"]:
-        check_engines(num, head, engines, refuse)
+    check_engines(num, head, engines, refuse)
 
     # 5. the count rule, from pr-gate's classifier
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])

@@ -210,12 +210,14 @@ def main() -> int:
             with open(f"{state}/{name}", "w") as fh:
                 fh.write(text)
 
-        def reset() -> None:
+        def reset(reviewed: bool = True) -> None:
+            """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
+            claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
-            put("review_rc", "1")
+            put("review_rc", "0" if reviewed else "1")
 
         def set_pr(branch: str, body: str, files: list[str], st: str = "OPEN", draft: bool = False) -> None:
             put("pr.json", json.dumps({"number": 7, "state": st, "isDraft": draft, "headRefName": branch,
@@ -322,7 +324,7 @@ def main() -> int:
         rc, out = run("7", "--basis", "b"); check("with its range line the PR arms", rc == 0, out)
 
         print("arm: gate 4 — the security boundary needs a review of the head")
-        reset(); set_pr(me, "plain", mig + ["docs/a.md"]); set_gate(9)
+        reset(reviewed=False); set_pr(me, "plain", mig + ["docs/a.md"]); set_gate(9)
         rc, out = run("7", "--basis", "b")
         check("a migration with no review: refused", rc == 1 and "no review-class review of the current head" in out, out)
         check("asked pr-review-status for the PR as --json", "7 -q --json" in calls().splitlines(), calls())
@@ -350,7 +352,7 @@ def main() -> int:
               rc == 0 and "has the review class's review, and no unresolved thread" in out and "ARMED #7" in out, out)
         check("…and not marked as armed without it", "Security boundary" not in calls(), calls())
         for n in (3, 20):
-            reset(); set_gate(n); rc, out = run("7", "--basis", owner)
+            reset(reviewed=False); set_gate(n); rc, out = run("7", "--basis", owner)
             check(f"…at {n} with the owner's word but no review: refused",
                   rc == 1 and "no review-class review of the current head" in out, out)
             reset(); set_gate(n); put("review_rc", "0"); put("unresolved", "1"); rc, out = run("7", "--basis", owner)
@@ -360,8 +362,9 @@ def main() -> int:
         for path, label in (("apps/backend_dotnet/src/Gzapp.Admin/Drivers/AdminDriverDirectoryRepository.cs", "Drivers/"),
                             ("packages/web-shared/src/auth/refresh.ts", "a lowercase client auth/ (case-insensitive)"),
                             ("apps/backend_dotnet/src/Gzapp.Persistence/Consent/ConsentRepository.cs", "Consent/")):
-            reset(); set_pr(me, "plain", [path])
-            rc, out = run("7", "--basis", "b"); check(f"{label} with no review: refused", rc == 1, out)
+            reset(reviewed=False); set_pr(me, "plain", [path])
+            rc, out = run("7", "--basis", "b")
+            check(f"{label} with no review: refused", rc == 1 and "no review-class review of the current head" in out, out)
         reset(); set_pr(me, "plain", ["apps/backend_dotnet/src/Gzapp.Persistence/DriverPositions/Store.cs"]); put("review_rc", "5")
         rc, out = run("7", "--basis", "b"); check("Regime 3 positions with no review coming (exit 5): refused", rc == 1, out)
         reset(); set_pr(me, "plain", mig); put("review_rc", "0"); put("blind", ""); put("independent", "abcdef01")
@@ -382,18 +385,21 @@ def main() -> int:
         check("no blind.rows: exit 2", rc == 2 and "carried no blind.rows" in out, out)
         reset(); put("review_rc", "2")
         rc, out = run("7", "--basis", "b"); check("pr-review-status exit 2: exit 2", rc == 2, out)
+        # Outside the boundary the review-class gate is not applied; gate 4b still asks the policy's engines (claude).
         reset(); set_pr(me, "plain", ["docs/adr/ADR-054-privacy-regime-separation-four-regimes.md",
                                       "infra/local/grafana/provisioning/dashboards/x.json", "docs/devices/eye-beacon.md"])
-        put("review_rc", "5")
         rc, out = run("7", "--basis", "b")
-        check("docs and local-infra paths matching a boundary word still pass", rc == 0 and "not a security-boundary change" in out, out)
-        reset(); set_pr(me, "plain", ["docs/a.md", "product/i18n/ka-GE.json"]); put("review_rc", "5")
+        check("docs and local-infra paths matching a boundary word still pass", rc == 0 and "not a security-boundary change" in out
+              and "has the review class's review" not in out and "each required engine (claude)" in out, out)
+        reset(); set_pr(me, "plain", ["docs/a.md", "product/i18n/ka-GE.json"])
         rc, out = run("7", "--basis", "b")
-        check("docs + i18n pass without a review", rc == 0 and "not a security-boundary change" in out, out)
-        check("…and the review status was not asked", not any(l[:1].isdigit() for l in calls().splitlines()), calls())
-        reset(); set_pr(me, "plain", ["docs/a.md"])
-        rc, out = run("7", "--basis", "b", "--boundary"); check("--boundary forces the gate on a docs PR", rc == 1, out)
-        reset(); set_pr(me, "plain", ["apps/backend_dotnet/src/Gzapp.Infrastructure/Auth/Tokens.cs->docs/tokens.md"]); set_gate(9)
+        check("docs + i18n pass on the engines' review alone", rc == 0 and "not a security-boundary change" in out
+              and "has the review class's review" not in out and "each required engine (claude)" in out, out)
+        check("…and the review status was asked once, by gate 4b", calls().splitlines().count("7 -q --json") == 1, calls())
+        reset(reviewed=False); set_pr(me, "plain", ["docs/a.md"])
+        rc, out = run("7", "--basis", "b", "--boundary")
+        check("--boundary forces the gate on a docs PR", rc == 1 and "no review-class review" in out, out)
+        reset(reviewed=False); set_pr(me, "plain", ["apps/backend_dotnet/src/Gzapp.Infrastructure/Auth/Tokens.cs->docs/tokens.md"]); set_gate(9)
         rc, out = run("7", "--basis", "b")
         check("a file renamed OUT of a boundary directory is judged by its old name too",
               rc == 1 and "no review-class review" in out, out)
@@ -457,8 +463,13 @@ def main() -> int:
               "Security boundary" not in calls(), calls())
         check("…the replay asked by the id given, the role asked of fabric-ctl for the sender's login",
               f"replay --replay {mid} --json" in calls() and "ctl architect-cto-01 presence --json" in calls(), calls())
-        check("…no review asked and no owner's word needed", not any(l[:1].isdigit() for l in calls().splitlines())
+        check("…the review class's gate lifted (only gate 4b's engines asked) and no owner's word needed",
+              calls().splitlines().count("7 -q --json") == 1 and "has the review class's review" not in out
               and "owner's word" not in out, calls())
+        reset(reviewed=False); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
+        rc, out = waive()
+        check("…but a waived boundary with no review at all: refused, naming claude (the waiver lifts gate 4, not 4b)",
+              rc == 1 and "boundary gate WAIVED" in out and "by the claude engine" in out and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
         rc, out = run("7", "--basis", "b", "--no-boundary", why, "--waiver", "4242", env=wenv)
         check("a waiver named by relay seq: the comment records its MESSAGE-ID", rc == 0
@@ -571,9 +582,16 @@ def main() -> int:
         print("arm: the policy's reviews — each required engine has reviewed the current head (ADR-053 rule 6)")
         both = arm_policy.default()
         check("the fleet default requires both engines", (both["reviews"], both["boundary_reviews"]) == (["claude", "codex"],) * 2, both)
+        # Gate 4 asks a review only of a boundary or a direct repository; a plain PR's review is gate 4b's, whatever
+        # engines the policy names (#235, Codex finding 1: ["claude"] alone once skipped it and armed with none).
+        reset(reviewed=False); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b")
+        check("a claude-only policy, a plain PR with no review: refused, naming claude",
+              rc == 1 and "by the claude engine" in out and "engines required: claude)" in out and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
         rc, out = run("7", "--basis", "b")
-        check("a claude-only policy arms a PR with no review at all, as before", rc == 0 and "ARMED #7" in out, out)
+        check("…with the claude review of the head: armed", rc == 0 and "ARMED #7" in out
+              and "each required engine (claude)" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
         rc, out = run("7", "--basis", "b", policy=both)
         check("the fleet default, only the claude review of the head: refused, naming codex",
@@ -735,7 +753,7 @@ def main() -> int:
                      "tools/foo/.cargo/config.toml", "xtask/.cargo/config", "tools/foo/.Cargo/config.toml",
                      "deny.toml", "crates/claude/channel-core/src/lib.rs", "apps/claude-channel/src/main.rs",
                      "apps/human-desktop/src/recovery_seed.rs"):
-            reset(); set_pr(me, "plain", [path]); set_gate(9)
+            reset(reviewed=False); set_pr(me, "plain", [path]); set_gate(9)
             rc, out = run("7", "--basis", "b", fixture_rules=False, env=iw)
             check(f"InterWeave: {path} is a boundary", rc == 1 and "no review-class review" in out, out)
         reset(); set_pr(me, "plain", ["infra/db/migrations/0053_x.sql", "architecture/adr/0050-x.md",
@@ -776,7 +794,7 @@ def main() -> int:
         check("--help: exit 0, on stdout", rc == 0 and "SECURITY-BOUNDARY" in out and err == "", out)
 
         print("arm (CLI): a refusal, and a question gh could not answer")
-        reset(); set_pr(me, "plain", mig); set_gate(9)
+        reset(reviewed=False); set_pr(me, "plain", mig); set_gate(9)
         rc, out, err = cli("7", "--basis", "b", split=True)
         check("a refusal: exit 1, on stderr, nothing armed or posted",
               rc == 1 and "arm: REFUSED #7 — a security-boundary change with no review-class review" in err and "REFUSED" not in out
@@ -852,7 +870,7 @@ def main() -> int:
             subprocess.run(["git", "init", "-q", d], env=git_env(base_env), check=True, timeout=30)
             subprocess.run(["git", "-C", d, "remote", "add", "origin", url], env=git_env(base_env), check=True, timeout=30)
             clones[name] = d
-        reset(); set_pr(me, "plain", ["crates/transport/libp2p/src/dialing.rs"]); set_gate(9)
+        reset(reviewed=False); set_pr(me, "plain", ["crates/transport/libp2p/src/dialing.rs"]); set_gate(9)
         rc, out = cli("7", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote)
         check("a clone of InterWeave is judged by InterWeave's rules (transport is a boundary there, not in gzapp's)",
               rc == 1 and "no review-class review" in out, out)
