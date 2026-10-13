@@ -69,14 +69,21 @@ repository whose policy names `reviews`.
 2. **One process, read-only, on an extract.** Codex runs once per review
    as a child of the reviewing session, in a scratch extract of the head
    (`git archive`), with its sandbox read-only and a time budget (20
-   minutes by default). The scratch is removed on every path, a timeout
-   or failure included, and the working copy is never touched.
+   minutes by default). Before the run the engine proves the sandbox:
+   Codex's own `codex sandbox` must start read-only on the extract and
+   refuse a write there; a sandbox that does not start or lets the write
+   through is a failed review (A 2026-10-13). The scratch is removed on
+   every path, a timeout or failure included, and the working copy is
+   never touched.
 3. **Its own gateway, never the session's credential.** Codex's base URL
    is the root of a gateway process serving `openai-responses`, and its
    key is that gateway's local key, passed by environment variable only.
    The session's Anthropic base URL and key never reach Codex; the
    account's `~/.codex` is never read. Missing either setting refuses,
-   posting nothing.
+   posting nothing. Codex's own network features (`plugins`,
+   `remote_plugin`, `plugin_sharing`, `apps`, `in_app_updates`) are off
+   in the engine's configuration, so the gateway is the only place it
+   connects to (A 2026-10-13).
 4. **The answer is structured or nothing.** Codex answers with one JSON
    object of findings (level P1-P3, file, line, scenario, expected,
    fix). Anything else is a failed review: nothing is posted and the
@@ -126,3 +133,11 @@ held by the gateway) and the launcher's Codex profile.
   class is the review), ADR-052 (the account-switch policy).
 - The gateway's Stage 6 plan and its plan contract, Schema 1 (BlueTeam-OU/agent-fabric-gateway).
 - `tools/fabric/review_brief.py`, `bin/fabric-review`, `fabric-pr arm` (`tools/fabric/github/arm.py`), `tools/fabric/github/arm_policy.py`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-053-amendments.md](history/ADR-053-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-13 | the sandbox proven before the run; Codex's own fetches off | §5 rules 2 and 3 |

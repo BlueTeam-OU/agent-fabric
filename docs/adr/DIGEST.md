@@ -1144,6 +1144,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   (`["claude"]` by default); `fabric-pr arm` refuses until each has
   reviewed the head with no open P1/P2 (§5 rule 6). Codex is pinned
   (§5 rule 7).
+- A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Proposed)
 
