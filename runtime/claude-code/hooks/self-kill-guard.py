@@ -61,7 +61,7 @@ import time
 import warnings
 import sys
 
-PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command", "setsid", "stdbuf"}
+PREFIXES = {"timeout", "sudo", "env", "nohup", "nice", "xargs", "exec", "command", "builtin", "setsid", "stdbuf"}
 KILL_TOOLS = {"pgrep", "pkill", "killall", "kill"}
 # Words that open or continue a compound command before the command itself.
 COMPOUND = {"{", "}", "!", "if", "then", "elif", "else", "while", "until", "do", "time", "coproc"}
@@ -286,44 +286,53 @@ PLACEHOLDER = re.compile(re.escape(SUBST) + r"(\d+)_")
 OWN_JOB = {"$!", "${!}"}
 
 
+# The word kill as a command anywhere in the text (`/bin/kill`, `command
+# kill`, inside any quoting or nested shell), not pkill, killall or a
+# hyphenated name; and an integer-looking token, its sign dropped.
+KILL_WORD = re.compile(r"(?<![\w.-])kill(?![\w.-])")
+INTEGER = re.compile(r"(?<![\w.])[+-]?(\d{1,10})(?![\w.])")
+MAX_PIDS = 256
+
+
 def kill_operands(command: str) -> tuple[list[int], list[str]]:
-    """What each `kill` in the command targets: (the literal pids, `+4242`
-    as 4242; the operands it cannot read). Unreadable is a variable (`$pid`,
-    `$PPID`, `$$`) or a substitution other than one plain pgrep, whose
-    answer the ground truth asks list-only; `$!` is the command's own job.
-    Signal options and their values are skipped; a negative number (a
-    process group) and a job spec (`%1`) are neither. `kill -0` and
-    `kill -l` signal nothing and are left out whole."""
-    if not KILLS.search(command):
+    """What the command may kill by pid: (every integer-looking token in a
+    command that holds the word kill anywhere; the `kill` operands it
+    cannot read). Reading bash's argument order let spellings through
+    twice — a sticky `-0` before `-s TERM`, a payload after `bash -o
+    pipefail` (round 2 of #242) — so every number counts, signals and
+    values included: a number that is a protected pid by chance is a false
+    deny, a rephrase. Unreadable is a variable (`$pid`, `$PPID`, `$$`) or a
+    substitution other than one plain pgrep, whose answer the ground truth
+    asks list-only; `$!` is the command's own job."""
+    if not KILL_WORD.search(command):
         return [], []
-    pieces = lift(command)
-    pids, held = [], []
+    pids = list(dict.fromkeys(int(m.group(1)) for m in INTEGER.finditer(command)))[:MAX_PIDS]
+    pieces, held = lift(command), []
     for words in tool_commands(command):
         if os.path.basename(words[0]) != "kill":
             continue
-        args, it, rest, harmless = [], iter(words[1:]), False, False
-        for w in it:
-            if rest or not w.startswith("-"):
-                args.append(w)
-            elif w in ("-s", "-n"):
-                harmless = harmless or next(it, "").upper() in ("0", "SIG0")
-            elif w == "--":
-                rest = True
-            else:   # a signal (-9, -TERM, -0) or a listing (-l, -L, --list, --table)
-                harmless = harmless or w in ("-0", "-SIG0") or w.startswith(("-l", "-L", "--list", "--table"))
-        if harmless:
-            continue
-        for w in args:
+        for w in words[1:]:
             m = PLACEHOLDER.fullmatch(w)
-            if w.lstrip("+").isdigit() and w.count("+") <= 1:
-                pids.append(int(w.lstrip("+")))
-            elif w in OWN_JOB:
+            if w in OWN_JOB or (m and _plain_pgrep(pieces[int(m.group(1))])):
                 continue
-            elif m and _plain_pgrep(pieces[int(m.group(1))]):
-                continue
-            elif "$" in w or "`" in w or SUBST in w:
+            if "$" in w or "`" in w or SUBST in w:
                 held.append(PLACEHOLDER.sub("$(…)", w))
     return pids, held
+
+
+def kill_groups(command: str) -> list[str]:
+    """The negative operands of each `kill`: `-1` is every process the
+    user may signal, `-N` a whole process group — either can hold the
+    session. A negative number is read as a signal only as the first
+    argument, and `-1` never (round 2 of #242)."""
+    out = []
+    for words in tool_commands(command):
+        if os.path.basename(words[0]) != "kill":
+            continue
+        for i, w in enumerate(words[1:]):
+            if re.fullmatch(r"-\d+", w) and (w == "-1" or i > 0):
+                out.append(w)
+    return out
 
 
 def kill_pids(command: str) -> list[int]:
@@ -946,6 +955,12 @@ def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tr
     by_pid = protected_pids(command, pid, tree)
     if by_pid:
         return "deny", message(by_pid)
+    groups = kill_groups(command)
+    if groups:
+        return "deny", (f"This command kills by a negative operand ({groups[0]}): -1 is every process you may "
+                        "signal and -N a whole process group, either of which can hold this session's claude "
+                        "process, its shell and its tasks. Kill by the exact pid of a process outside this "
+                        "session's tree.")
     # procps's own answer, when it can be asked: it adds denials, never
     # removes one — the reading above stays as the floor.
     truth = ground_truth(command, pid, tree, shell, prefix)

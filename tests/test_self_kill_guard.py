@@ -188,11 +188,18 @@ def main() -> int:
                 "kill $(pgrep -x zzqx | head -1)"):
         check(f"an unreadable pid asks: {cmd}", (g.decision(cmd, CLAUDE, shell=False) or ("",))[0] == "ask",
               g.decision(cmd, CLAUDE, shell=False))
-    for cmd in ("sleep 9 & kill $!", "kill -0 $pid", "kill -l 9", "kill $(pgrep -x zzqx-nothing-qx)", "kill 999999999"):
+    for cmd in ("sleep 9 & kill $!", "kill -l", "kill -l 9", "echo the word kill, no number", "kill $(pgrep -x zzqx-nothing-qx)", "kill 999999999"):
         check(f"a readable or harmless kill: no decision: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
               g.decision(cmd, CLAUDE, shell=False))
-    check("kill_operands: +pid is the pid, a signal and its value are not", g.kill_operands("kill -s TERM +42 -- 43")
-          == ([42, 43], []), g.kill_operands("kill -s TERM +42 -- 43"))
+    check("kill_operands: every number, its sign dropped", g.kill_operands("kill -s TERM +42 -- -43")
+          == ([42, 43], []), g.kill_operands("kill -s TERM +42 -- -43"))
+    # -1 is every process the user may signal, -N a process group (round 2).
+    for cmd in ("kill -9 -1", "kill -- -1", "kill -1", "kill -- -4242", "kill -TERM -4242", "kill -s KILL -4242",
+                "bash -c 'kill -9 -1'"):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a negative operand is refused: {cmd}", d is not None and d[0] == "deny" and "negative" in d[1], d)
+    check("…but a negative first argument is a signal: kill -9 999999999",
+          g.decision("kill -9 999999999", CLAUDE, shell=False) is None)
     # A repeat count past sre's limit overflows (pre-existing, review of #242).
     r = subprocess.run([sys.executable, HOOK], input=json.dumps({"tool_input": {"command": "pkill -f 'a{99999999999}'"}}),
                        capture_output=True, text=True)
@@ -359,6 +366,16 @@ def main() -> int:
             ("a watch killed inside eval", f"eval 'kill {inbox}'", "Never kill an inbox watch"),
             ("a watch killed two shells deep", f"""bash -c "sh -c 'kill {inbox}'" """, "Never kill an inbox watch"),
             ("a sibling by pattern inside sh -c", "sh -c \"pkill -f '[z]zsib-bg'\"", f"pid {sib}"),
+            # Every number in a command holding the word kill counts, whatever
+            # option order bash would read (round 2, K1).
+            ("a sticky -s 0 before -s TERM", f"kill -s 0 -s TERM {inbox}", "Never kill an inbox watch"),
+            ("a sticky -0 before -s TERM", f"kill -0 -s TERM {inbox}", "Never kill an inbox watch"),
+            ("kill -0 of a background task (no exemption)", f"kill -0 {sib}", f"pid {sib}"),
+            ("/bin/kill", f"/bin/kill {sib}", f"pid {sib}"),
+            ("command kill", f"command kill {sib}", f"pid {sib}"),
+            ("builtin kill", f"builtin kill -9 {sib}", f"pid {sib}"),
+            ("a protected number beside the word kill, even printed", f"bash -c 'echo kill {inbox}'",
+             "Never kill an inbox watch"),
             # Wherever the payload stands among the shell's options (round 2, K2).
             ("a watch killed inside bash -o pipefail -c", f"bash -o pipefail -c 'kill {inbox}'",
              "Never kill an inbox watch"),
@@ -376,8 +393,8 @@ def main() -> int:
                            ("an unrelated process by its pid", f"kill {outside.pid}"),
                            ("an unrelated process by +pid", f"kill +{outside.pid}"),
                            ("an unrelated process by pid inside bash -c", f"bash -c 'kill {outside.pid}'"),
-                           ("a nested shell that only prints a kill", f"bash -c 'echo kill {inbox}'"),
-                           ("kill -0 of a background task: no signal is sent", f"kill -0 {sib}")):
+                           ("a nested shell that only prints a kill", f"bash -c 'echo kill {outside.pid}'"),
+                           ("kill -l, which lists signals", "kill -l")):
             d = hook_in_session(cmd)
             check(f"in a session, allowed: {label}", d is None, d)
         d = hook_in_session("pkill -f zzout-unrelated")
