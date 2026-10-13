@@ -29,7 +29,10 @@ be read) is marked ✓ when a review object carrying the review class's marker
 (the current one, the built-in earlier one, and the project's
 legacy_review_markers from its pr-tools.json) and that engine's model line is
 posted on the head; `head reviewed: ` opens it only when all are (a
-boundary's extra engines are fabric-pr arm's to judge);
+boundary's extra engines are fabric-pr arm's to judge). An engine in
+`additional_reviews` is marked as well: ✓, `unavailable (<reason>)` when its
+marker for the head, from the PR's author or AGENT_FABRIC_REVIEW_POSTERS, is
+the first line of a review on it, or ✗;
 `fabric-pr review-status`, which also counts a configured reviewer's verdict,
 is the gate's reading and costs several calls a pull request. `checks` is the
 head's rollup state (green, red, pending, none yet). A pull request over 100
@@ -61,7 +64,7 @@ import roots  # noqa: E402
 from github import arm_policy, commit_class  # noqa: E402
 from github.pr_split import split_rows  # noqa: E402
 from github.review_status.config import BUILTIN_LEGACY_MARKER, REVIEW_MARKER  # noqa: E402
-from github.review_status.verdicts import engine_of  # noqa: E402
+from github.review_status.verdicts import engine_of, unavailable_of  # noqa: E402
 
 PROG = "fabric-pr counts"
 DEFAULT_TIMEOUT_S = 20.0
@@ -69,12 +72,12 @@ PER_QUERY = 10
 REST_COMMIT_CAP = 250
 REF = re.compile(r"(?:(?P<where>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)?#|(?=[0-9]))(?P<n>[1-9][0-9]*)")
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-FIELDS = """number state isDraft mergedAt headRefOid baseRefName
+FIELDS = """number state isDraft mergedAt headRefOid baseRefName author { login }
   autoMergeRequest { enabledAt } mergeQueueEntry { state }
   mergeCommit { parents(first: 2) { nodes { oid } } }
   commits(first: 100) { totalCount pageInfo { hasNextPage } nodes { commit { oid message parents(first: 3) { totalCount } } } }
   tip: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-  reviews(last: 50) { nodes { body commit { oid } } }"""
+  reviews(last: 50) { nodes { body commit { oid } author { login } } }"""
 
 
 class Unreadable(Exception):
@@ -278,6 +281,33 @@ def engines_on_head(pr: dict, markers: list[str]) -> set[str]:
             if (r.get("commit") or {}).get("oid") == head and any(m in (r.get("body") or "") for m in markers)}
 
 
+def engines_unavailable(pr: dict) -> dict[str, str]:
+    """{engine: reason} of the unavailable markers for the head, from the PR's author or a login in
+    AGENT_FABRIC_REVIEW_POSTERS, as pr-review-status binds them (arm_policy.engines_unavailable reads the same). A
+    posters list that is not a JSON array of strings is none: this line is a report, and none asks more."""
+    try:
+        posters = json.loads(os.environ.get("AGENT_FABRIC_REVIEW_POSTERS") or "[]")
+    except ValueError:
+        posters = []
+    if not isinstance(posters, list) or not all(isinstance(x, str) for x in posters):
+        posters = []
+    author = ((pr.get("author") or {}).get("login") or "")
+    rows = []
+    for r in (pr.get("reviews") or {}).get("nodes") or []:
+        login = ((r.get("author") or {}).get("login") or "")
+        u = unavailable_of(r)
+        if u and login and (login == author or login in posters):
+            rows.append({**u, "commit_sha8": str((r.get("commit") or {}).get("oid") or "")[:8]})
+    return arm_policy.engines_unavailable(rows, str(pr.get("headRefOid") or ""))
+
+
+def additional_engines(repo: str, budget: Budget, cache: dict) -> list[str]:
+    """The engines the repository's policy asks beyond the required ones; none when the policy is unread, which
+    requires every engine (required_engines). Read with it, once per repository."""
+    required_engines(repo, budget, cache)
+    return cache[repo][2]
+
+
 def required_engines(repo: str, budget: Budget, cache: dict) -> tuple[list[str], str]:
     """(the engines the repository's arming policy requires of every pull request, why it is unread or ""), read once
     per repository. One that cannot be read requires every engine and says why: never the default, which could ask
@@ -285,10 +315,10 @@ def required_engines(repo: str, budget: Budget, cache: dict) -> tuple[list[str],
     if repo not in cache:
         try:
             policy = arm_policy.load(repo, api=lambda path, **kw: gh.api(path, timeout=budget.left(), **kw))
-            cache[repo] = (arm_policy.required_engines(policy, False), "")
+            cache[repo] = (arm_policy.required_engines(policy, False), "", arm_policy.additional_engines(policy, False))
         except (arm_policy.PolicyError, arm_policy.PolicyUnavailable, Unreadable) as e:
-            cache[repo] = (list(arm_policy.ENGINES), str(e))
-    return cache[repo]
+            cache[repo] = (list(arm_policy.ENGINES), str(e), [])
+    return cache[repo][:2]
 
 
 class BudgetedFolds(commit_class.Folds):
@@ -324,9 +354,10 @@ def merge_base_of(pr: dict) -> str:
 
 
 def describe(label: str, repo: str, pid: str | None, number: int, pr: dict, budget: Budget,
-             required: Callable[[], tuple[Sequence[str], str]] = lambda: (arm_policy.ENGINES, "")) -> dict:
-    """`required` gives the engines the line marks and why the policy is unread, if it is; it is asked only of an open
-    pull request, so a merged one costs no policy read."""
+             required: Callable[[], tuple[Sequence[str], str]] = lambda: (arm_policy.ENGINES, ""),
+             additional: Callable[[], Sequence[str]] = lambda: ()) -> dict:
+    """`required` gives the engines the line marks and why the policy is unread, if it is, and `additional` the
+    engines it asks beyond them; both are asked only of an open pull request, so a merged one costs no policy read."""
     rows, bodies = commit_rows(pr, repo, number, budget)
     state = str(pr.get("state") or "").upper()
     base = str(pr.get("baseRefName") or "")
@@ -356,7 +387,8 @@ def describe(label: str, repo: str, pid: str | None, number: int, pr: dict, budg
         else:
             engines, unread = required()
             review = arm_policy.review_summary(engines_on_head(pr, markers), list(engines), str(pr.get("headRefOid") or ""),
-                                               unread=unread)
+                                               unread=unread, additional=list(additional()),
+                                               unavailable=engines_unavailable(pr))
             review = review if arm_policy.is_head_reviewed(review) else "review " + review
         row.update(draft=bool(pr.get("isDraft")), armed=armed, checks=checks_word(pr), review=review)
         parts.append(f"{'draft' if row['draft'] else 'open'}, {armed}, checks {row['checks']}, {review}")
@@ -404,7 +436,8 @@ def count_rows(refs: Sequence[str], timeout: float = DEFAULT_TIMEOUT_S, projects
                 try:
                     if isinstance(got, Unreadable):
                         raise got
-                    rows[i] = describe(label, repo, pid, number, got, budget, lambda: required_engines(repo, budget, policies))
+                    rows[i] = describe(label, repo, pid, number, got, budget, lambda: required_engines(repo, budget, policies),
+                                       lambda: additional_engines(repo, budget, policies))
                 except Unreadable as e:
                     rows[i] = {"ref": label, "repo": repo, "number": number, "ok": False, "line": f"{label} cannot be read: {e}"}
                 except gh.GhError as e:
