@@ -8,11 +8,11 @@ and the README keep that path).
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <login>... [--host <id> | --host=<id>] [--role <slug> | --role=<slug>]
             [--born-now] [--dry-run],
-            or --self, or --rename <old> <new>; flags anywhere, in any
+            or --self, or --rename <old> <new>, or --describe <login> [--role <slug>]; flags anywhere, in any
             order. -h/--help prints HELP (below) on stdout, exit 0. No
             login and no --self/--rename: HELP on stderr, exit 2. An
             unknown flag: exit 2. --self with a login, --rename without
-            exactly two: exit 1.
+            exactly two, --describe without exactly one login: exit 1.
   stdin     never read.
   env       AGENT_FABRIC_HOSTS_REGISTRY (default runtime/hosts/registry.json),
             AGENT_FABRIC_HOSTEXEC (default runtime/hostexec/hostexec),

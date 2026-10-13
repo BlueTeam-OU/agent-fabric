@@ -60,11 +60,13 @@ HUMAN_CHANNEL_PROJECT = "agent-fabric"
 
 
 def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str, fp: str, *,
-                 human: bool = False) -> None:
+                 human: bool = False, role: str = "") -> None:
     if s.capture([sys.executable, cfg.STORE, "export-key"])[0] != 0:
         die("this login has no store of its own, so it cannot be a parent: store-enroll.sh --self first; nothing after "
             "it ran")
-    if s.indented([cfg.STORE_ENROLL, login, "--host", host, "--born-now"])[0] != 0:
+    # A human holds no role: the description then names none.
+    named = ["--role", role] if role and not human else []
+    if s.indented([cfg.STORE_ENROLL, login, "--host", host, *named, "--born-now"])[0] != 0:
         die(f"step failed: store-enroll.sh {login}; nothing after it ran")
 
     def provision(label: str, *args: str) -> list:

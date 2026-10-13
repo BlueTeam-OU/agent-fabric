@@ -179,7 +179,7 @@ tools read:
   `--no-pull` applies the copy as it is, once, right after `store
   take-bundle`; `status` reports presence, modes and ages — neither
   prints a value.
-- `secrets/store-enroll.sh <login> [--host <id>] [--born-now]`
+- `secrets/store-enroll.sh <login> [--host <id>] [--role <slug>] [--born-now]`
   (coordinator): the account's id, its private repository, its key and
   store made on its host, the certification, the mirror. With
   `--born-now` (a new account, with no GitHub key yet) its first commit
