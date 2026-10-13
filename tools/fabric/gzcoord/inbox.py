@@ -28,7 +28,9 @@ CONTRACT, frozen from the Node:
                                 unreachable for 15 minutes, 6 a delivery
                                 the journal cannot keep, 7 an internal
                                 error. The session runs it again only
-                                after exit 0 or its own timeout.
+                                after exit 0 or its own timeout, except
+                                the exit 0 below that is a refusal and
+                                not a delivery: its line says not to.
                                 One watch per login: --follow and
                                 --until-delivery hold an exclusive flock
                                 (inbox_parts/watchlock.py) for the
