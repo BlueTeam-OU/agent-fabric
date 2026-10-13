@@ -96,6 +96,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
 sys.path.insert(0, os.path.dirname(TOOL))
 import secret_store  # noqa: E402
+import secretstore.settings as S  # noqa: E402
 from git_env import scrub_process_env  # noqa: E402
 from instance_fixtures import write_secrets_instance  # noqa: E402
 scrub_process_env()
@@ -179,10 +180,24 @@ def main() -> int:
         refused("a source that is not there is refused", os.path.join(tmp, "nope"), "nope")
         refused("a file for a source is refused", tree("f", {"x": b"1"}) + "/x", "not a directory")
         os.symlink(tree("real", {"x": b"1"}), os.path.join(tmp, "linked"))
+        os.symlink(os.path.join(tmp, "real"), os.path.join(tmp, "linked-real"))
+        sharing = tree("sharing", {"a": b"1"})   # a directory that grants search but not read, above the source
+        os.makedirs(os.path.join(tmp, "xonly", "inner"))
+        with open(os.path.join(tmp, "xonly", "inner", "f"), "w") as fh:
+            fh.write("1")
+        os.chmod(os.path.join(tmp, "xonly"), 0o311)
         refused("a link for a source is refused, not followed", os.path.join(tmp, "linked"), "link is not followed")
         refused("a link for a source is refused with a trailing slash too", os.path.join(tmp, "linked") + "/", "link is not followed")
         refused("link/. is no way round the link either", os.path.join(tmp, "linked") + "/.", "link is not followed")
-        refused("a link in an ANCESTOR of the source is refused too, not followed", os.path.join(tmp, "linked", "x"), "link is not followed")
+        os.makedirs(os.path.join(tmp, "real", "sub"))
+        with open(os.path.join(tmp, "real", "sub", "a"), "w") as fh:
+            fh.write("1")
+        got = S._read_tree(os.path.join(tmp, "xonly", "inner"))
+        check("a source below a directory that grants search but not read is read (ancestors are opened O_PATH)",
+              got == {"f": b"1"}, repr(got))
+        os.chmod(os.path.join(tmp, "xonly"), 0o755)
+        refused("a link in an ANCESTOR of the source is refused too, not followed",
+                os.path.join(tmp, "linked-real", "sub"), "in any component of the path")
         refused("a link inside the tree is refused", tree("l", {"a": b"1"}, {"evil": "/etc/passwd"}), "evil")
         refused("a profile that is not JSON is refused", tree("j", {"profile.json": b"{"}), "not JSON")
         refused("a profile off the schema is refused, the field named",
@@ -234,7 +249,6 @@ def main() -> int:
         # The race the path-based check lost: the entry is a plain file when it is looked at and a link
         # (or a FIFO) when it is opened. The lie below stands in for the swap; the open must still refuse.
         from unittest import mock
-        import secretstore.settings as S
         secret = os.path.join(tmp, "private")
         with open(secret, "w") as fh:
             fh.write("agent's own file")
@@ -397,24 +411,49 @@ def main() -> int:
             try:
                 S.settings_put(tree("intr", {"newdir2/a": b"1", "avatar-rejected/int.txt": b"i"}))
                 outcome = "returned"
-            except KeyboardInterrupt:
-                outcome = "interrupted"
+            except secret_store.StoreError as e:
+                outcome = "interrupted" if "interrupted" in str(e) and "nothing written" in str(e) else str(e)
         check("an interrupt in the commit undoes the write: nothing staged, no file or directory left",
               outcome == "interrupted" and g("status", "--porcelain", "--untracked-files=all") == "" and count() == n_int
               and not os.path.exists(os.path.join(store, "settings", "newdir2")), outcome)
 
-        # SIGTERM while signing: the same undo as for Ctrl-C.
+        # SIGTERM and SIGHUP while signing: the same undo as for Ctrl-C, ending as a one-line refusal, the handlers put back.
         import signal as _signal
-        n_term = count()
-        with mock.patch.dict(os.environ, env), mock.patch.object(S, "_commit", side_effect=lambda *a: os.kill(os.getpid(), _signal.SIGTERM)):
+        for sig in (_signal.SIGTERM, _signal.SIGHUP):
+            n_term = count()
+            before_handler = _signal.getsignal(sig)
+            with mock.patch.dict(os.environ, env), mock.patch.object(S, "_commit", side_effect=lambda *a: os.kill(os.getpid(), sig)):
+                try:
+                    S.settings_put(tree(f"term{int(sig)}", {"avatar-rejected/term.txt": b"t"}))
+                    outcome = "returned"
+                except secret_store.StoreError as e:
+                    outcome = "interrupted" if "interrupted" in str(e) and "nothing written" in str(e) else str(e)
+            check(f"{sig.name} during the commit undoes the write like an interrupt, and the handler is put back",
+                  outcome == "interrupted" and g("status", "--porcelain", "--untracked-files=all") == ""
+                  and count() == n_term and _signal.getsignal(sig) == before_handler, outcome)
+
+        # git commit killed by the signal leaves its index.lock: the undo must still succeed.
+        lock_path = os.path.join(store, ".git", "index.lock")
+
+        def killed_commit(*a):
+            open(lock_path, "w").close()
+            raise KeyboardInterrupt
+        n_lock = count()
+        with mock.patch.dict(os.environ, env), mock.patch.object(S, "_commit", side_effect=killed_commit):
             try:
-                S.settings_put(tree("term", {"avatar-rejected/term.txt": b"t"}))
+                S.settings_put(tree("lockt", {"avatar-rejected/lock.txt": b"l"}))
                 outcome = "returned"
-            except KeyboardInterrupt:
-                outcome = "interrupted"
-        check("SIGTERM during the commit undoes the write like an interrupt, and the handler is put back",
-              outcome == "interrupted" and g("status", "--porcelain", "--untracked-files=all") == "" and count() == n_term
-              and _signal.getsignal(_signal.SIGTERM) in (_signal.SIG_DFL, _signal.default_int_handler), outcome)
+            except secret_store.StoreError as e:
+                outcome = "interrupted" if "interrupted" in str(e) and "nothing written" in str(e) else str(e)
+        check("a stale index.lock left by the killed commit does not stop the undo",
+              outcome == "interrupted" and not os.path.exists(lock_path)
+              and g("status", "--porcelain", "--untracked-files=all") == "" and count() == n_lock, outcome)
+
+        # A flagged file would be skipped by git add while the profile naming its hash is staged.
+        subprocess.run(["git", "-C", store, "update-index", "--assume-unchanged", "settings/avatar.png"], check=True, env=env)
+        p = run("settings-put", "--from", tree("flag", {"avatar-rejected/f.txt": b"f"}))
+        check("an assume-unchanged file below settings/ is refused", p.returncode == 1 and "assume-unchanged" in p.stderr, p.stdout + p.stderr)
+        subprocess.run(["git", "-C", store, "update-index", "--no-assume-unchanged", "settings/avatar.png"], check=True, env=env)
 
         stray = os.path.join(store, "settings", "stray")
         with open(stray, "w") as fh:

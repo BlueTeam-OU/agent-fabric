@@ -22,7 +22,12 @@ Contract of `settings_put(src)`:
           than this store's, or does not agree with the avatar that will
           stand (the tree's, else the store's): avatar.sha256 is the sha256
           of avatar.png; a path below settings/ that already holds a link in
-          the store (settings/ itself included), or untracked files left there.
+          the store (settings/ itself included), or untracked or ignored files
+          left there, or a file flagged assume-unchanged or skip-worktree; a
+          store with no remote (the commit would reach no one).
+  signals Ctrl-C, SIGTERM and SIGHUP before the commit exists undo the write
+          and end as a one-line refusal; SIGKILL cannot be handled and leaves
+          the store dirty, which the next run refuses by name.
   effect  under the store's write lock, brought up to its remote first
           (verified, ADR-042), then ONE commit signed through the store's
           own path ("agent <login>: settings"), then pushed. Nothing
@@ -31,10 +36,11 @@ Contract of `settings_put(src)`:
           as it was: tracked files reset, files this run created removed.
   result  {"files": [settings/-relative paths], "changed": bool}.
 
-The components above the source's last one are the caller's own choice of
-path and are resolved as any path is: whoever controls one of them can
-already hand over any tree they like, and a tree only ever holds what the
-walk below admits.
+Every component of the source path is opened without following a link (the
+ancestors by O_PATH, so a directory that only grants search is passed
+through): whoever controls one of them could otherwise point the walk at the
+agent's own directories. A path with a link in it is resolved by its caller
+(realpath) and the real directory named.
 
 Why descriptors: the source may be writable by another account (the threat
 model), so a check by path followed by an open by path is a race: the
@@ -134,13 +140,16 @@ def _read_tree(src: str) -> dict[str, bytes]:
     # on it (another account owning one of the directories) would point the walk at the agent's own files.
     # Whoever needs a link in the path resolves it first (realpath) and names the directory itself.
     parts = [part for part in os.path.abspath(src).split(os.sep) if part]
-    top = os.open(os.sep, _OPEN | os.O_DIRECTORY)
+    # O_PATH for the ancestors: it needs no read permission, so a directory that only grants search (0711, the usual way
+    # to share inside another account's home) is passed through; only the source itself is opened for listing.
+    top = os.open(os.sep, os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC)
     try:
         here = os.sep
-        for part in parts:
+        for i, part in enumerate(parts):
             here = os.path.join(here, part)
+            last = i == len(parts) - 1
             try:
-                nxt = os.open(part, _OPEN | os.O_DIRECTORY, dir_fd=top)
+                nxt = os.open(part, (_OPEN if last else os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC) | os.O_DIRECTORY, dir_fd=top)
             except OSError as e:
                 # O_NOFOLLOW|O_DIRECTORY on a link answers ENOTDIR or ELOOP, by kernel: ask what it is.
                 try:
@@ -152,6 +161,9 @@ def _read_tree(src: str) -> dict[str, bytes]:
                 raise StoreError(f"{here}: {why}; nothing written") from None
             os.close(top)
             top = nxt
+        if not parts:
+            os.close(top)
+            top = os.open(os.sep, _OPEN | os.O_DIRECTORY)
         walk(top, "", 0)
     finally:
         os.close(top)
@@ -250,7 +262,22 @@ def _missing_dirs(store: str, dests: list[str]) -> list[str]:
 
 def _undo(store: str, created: list[str], made_dirs: list[str] = ()) -> None:
     """The store as it was: tracked files back, the files and directories this run made gone."""
+    # A second signal must not cut the undo itself short.
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
+    try:
+        _undo_unmasked(store, created, made_dirs)
+    finally:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGHUP, signal.SIGINT})
+
+
+def _undo_unmasked(store: str, created: list[str], made_dirs: list[str]) -> None:
     r = git(store, "reset", "-q", "--hard", "HEAD", check=False)
+    lock = os.path.join(store, ".git", "index.lock")
+    if r.returncode != 0 and os.path.exists(lock):
+        # A signal killed the git commit that held it (subprocess.run kills its child on an interrupt): git cannot
+        # clean up after SIGKILL. This run holds the store's write lock and its own git is dead, so the lock is stale.
+        os.unlink(lock)
+        r = git(store, "reset", "-q", "--hard", "HEAD", check=False)
     if r.returncode != 0:
         why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
         raise StoreError(f"the write failed, and {store} could not be reset ({why}) — reset it before the next write")
@@ -277,6 +304,8 @@ def settings_put(src: str) -> dict:
     previous = {s: signal.signal(s, _terminate) for s in (signal.SIGTERM, signal.SIGHUP)}
     try:
         return _put(files)
+    except KeyboardInterrupt as e:
+        raise StoreError(f"interrupted ({e or 'Ctrl-C'}), the write undone; nothing written") from None
     finally:
         for s, handler in previous.items():
             signal.signal(s, handler)
@@ -296,6 +325,11 @@ def _put(files: dict[str, bytes]) -> dict:
         left = git(store, "status", "--porcelain", "--ignored", "--untracked-files=all", "--", "settings").stdout.decode().strip()
         if left:
             raise StoreError(f"{store} has untracked or ignored files below settings/ ({left.splitlines()[0][3:]}); nothing written")
+        flagged = [l for l in git(store, "ls-files", "-v", "--", "settings").stdout.decode("utf-8", "surrogateescape").splitlines()
+                   if l[:1].islower() or l[:1] == "S"]
+        if flagged:
+            # assume-unchanged / skip-worktree: git add would skip the file while the profile naming its hash is staged.
+            raise StoreError(f"{flagged[0][2:]} carries an assume-unchanged or skip-worktree flag in the store; nothing written")
         _check_standing(files, store, aid)
         dests = {rel: _destination(store, rel) for rel in files}
         created = [d for d in dests.values() if not os.path.lexists(d)]
