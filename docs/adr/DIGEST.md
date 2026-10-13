@@ -1174,9 +1174,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Retry a capacity failure 10 s, 20 s, 60 s, then report "the chosen model
   is unavailable": at capacity (provider's) or over allowance (ours, with
   the reset) (§5 rule 2).
-- A review whose model is unavailable and is the request's only reviewer
-  diverts to the next model of the review capability's order, named on
-  the review; otherwise it reports and the PR waits (§5 rule 3).
+- A review whose engine is the PR's only required one diverts to the
+  next model of the review order, never onto another named engine's
+  provider, named on the review; under two engines it reports and the
+  PR waits (§5 rule 3).
 - Every unavailability is reported through the control agent for people
   (`fabric-ctl availability`, the Board); the owner hears of a long or
   total outage (§5 rules 4, 6).

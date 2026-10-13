@@ -87,10 +87,14 @@ fleet reports (ADR-029), so it carries that view.
 3. A review diverts to the next model of the review capability's
    ordered list (`routing/capabilities.json`, inside the review-grade
    set) when its own model is unavailable after the retries and it is
-   the only model reviewing that request. The posted review names the
-   model that ran and that it was a divert; it counts for the engine
-   that was required. When another model is reviewing the same request,
-   the review reports and the pull request waits.
+   the only engine the policy requires for that pull request. When the
+   policy requires another engine as well, there is no divert: the
+   review reports and the pull request waits for the engine to return.
+   A divert never lands on a model of a provider whose engine the
+   policy also names — the Codex review never falls back to a Claude
+   model — so a second review stays a different reviewer. The posted
+   review names the model that ran and that it was a divert; it counts
+   for the engine that was required.
 4. Every unavailability a run meets is reported to the control plane —
    model, seat, kind, time, the provider's words — through the
    account's control agent. The report is for people: `fabric-ctl
@@ -130,16 +134,12 @@ first number.
 
 Proposed. The owner set its shape in the coordinator's session:
 retries of 10 s, 20 s and 60 s; a report naming capacity or allowance;
-a divert when the model is the request's only reviewer; availability
-rediscovered locally, tracked centrally only to let people know. Open
-before acceptance: what "the only model reviewing that request" means
-when the policy requires two engines — read here as "no other run of the
-same engine is in flight for that pull request", so a Codex outage
-diverts the Codex review rather than waiting — and which model follows
-`gpt-6.1-sol` in the review order: another OpenAI model (none is in the
-review-grade set today) or a review-grade model of another provider.
-The engine's retries and report (rule 2) are being built ahead of
-acceptance.
+availability rediscovered locally, tracked centrally only to let people
+know; a divert only when the engine is the pull request's only required
+reviewer, so under the fleet's two-engine policy a pull request waits
+out an outage; and a divert never onto the other engine's provider.
+The engine's retries and report (rule 2) are built (#235); the report
+to the control plane and the divert follow acceptance.
 
 ## References
 
