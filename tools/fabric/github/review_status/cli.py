@@ -91,7 +91,10 @@ Options:
                          same): state, merge_state, head,
                          head_reviewed, the three buckets as
                          {count, rows; a blind row also names its
-                         engine, claude or codex}, marked_by_others, not_trusted,
+                         engine, claude or codex}, unavailable {count,
+                         rows: an engine's could-not-run marker, with
+                         its engine, full head and reason},
+                         marked_by_others, not_trusted,
                          no_review_coming ({cause, reason} or null),
                          verdicts, unresolved_threads (null when the
                          lookup failed), checks {pass, other} (both

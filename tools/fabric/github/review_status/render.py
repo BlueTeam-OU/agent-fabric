@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 from github.review_status.base import out, jstr, sha8, jkey, login_of
 from github.review_status.probe import Probe, Extras
-from github.review_status.verdicts import engine_of
+from github.review_status.verdicts import engine_of, unavailable_of
 
 if TYPE_CHECKING:
     from github.pr_review_status import Ctx
@@ -34,6 +34,10 @@ def render_json(ctx: "Ctx", p: Probe, x: Extras, cause: str, reason: str) -> str
         "head_reviewed": "yes" if p.head_reviewed else "no",
         "independent": {"count": len(b.independent), "rows": rows(b.independent, "login", "state", "commit_sha8", "at")},
         "blind": {"count": len(b.blind), "rows": rows(b.blind, "login", "commit_sha8", "at", "engine")},
+        # The marker's own head, in full: the arm counts it only for the exact head it names.
+        "unavailable": {"count": len(b.unavailable),
+                        "rows": [{**rows([r], "login", "commit_sha8", "at")[0], "engine": u["engine"], "head": u["head"],
+                                  "reason": u["reason"]} for r in b.unavailable for u in [unavailable_of(r)]]},
         "not_trusted": {"count": len(b.outsiders), "rows": rows(b.outsiders, "login", "association", "commit_sha8", "at")},
         "no_review_coming": None if not cause else {"cause": cause, "reason": reason or None},
         "marked_by_others": {"count": len(b.marked_others), "rows": rows(b.marked_others, "login", "commit_sha8", "at")},
@@ -89,8 +93,14 @@ def render_text(ctx: "Ctx", p: Probe, x: Extras) -> None:
         # Only a second engine is named: the review class's lines stay as they were.
         eng = "  engine=codex" if engine_of(r) == "codex" else ""
         out(f"      - {jstr(login_of(r))}  commit={jstr(sha8(r.get('commit_id')))}  {jstr(r.get('submitted_at'))}{eng}")
+    if b.unavailable:
+        out(f"  engine unavailable  : {len(b.unavailable)}   (NOT coverage — an additional engine could not run)")
+        for r in b.unavailable:
+            u = unavailable_of(r)
+            out(f"      - {jstr(login_of(r))}  commit={jstr(sha8(r.get('commit_id')))}  {jstr(r.get('submitted_at'))}"
+                f"  engine={u['engine']}  head={u['head'][:8]}  reason={u['reason']}")
     if b.outsiders:
-        out(f"  not trusted         : {len(b.outsiders)}   (NOT coverage — not the owner, a member, a collaborator or a configured reviewer)")
+        out(f"  not trusted        : {len(b.outsiders)}   (NOT coverage — not the owner, a member, a collaborator or a configured reviewer)")
         for r in b.outsiders:
             out(f"      - {jstr(login_of(r))}  {jstr(r.get('author_association'))}  commit={jstr(sha8(r.get('commit_id')))}  {jstr(r.get('submitted_at'))}")
     if b.marked_others:

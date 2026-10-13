@@ -257,6 +257,25 @@ def main() -> int:
     check("a review from a deleted account has no login and is nobody's",
           rs.classify([{"user": None, "author_association": "NONE", "body": ""}], "me", c).outsiders != [])
 
+    # ── an additional engine's unavailable marker ────────────────────
+    full = "abc123de" + "f" * 32
+    gone = f"<!-- agent-fabric-engine-unavailable v1 engine=codex head={full} reason=allowance at=2026-10-13T19:00:00Z -->"
+    b = rs.classify([review("me", body=gone + "\nthe allowance is spent"), review("rando", body=gone, assoc="NONE"),
+                     review("someone", body=gone)], "me", c)
+    check("the author's marker is an unavailable row, not a self review and not coverage",
+          [rs.login_of(r) for r in b.unavailable] == ["me"] and b.self_ == [] and b.blind == [])
+    check("a stranger's or another member's marker stands in for nothing, and is reported as a marked review is",
+          [rs.login_of(r) for r in b.marked_others] == ["rando", "someone"])
+    check("a marker is never an independent review nor an untrusted one, from anyone", b.independent == [] and b.outsiders == [])
+    check("a named poster's marker counts",
+          len(rs.classify([review("ci", body=gone)], "me", cfg(AGENT_FABRIC_REVIEW_POSTERS='["ci"]')).unavailable) == 1)
+    check("the marker must be the FIRST line, whole: quoted, short-sha'd or with a spaced reason it is not one",
+          [rs.unavailable_of({"body": x}) for x in ("see " + gone, "x\n" + gone, gone.replace(full, full[:8]),
+                                                   gone.replace("reason=allowance", "reason=over the allowance"))]
+          == [None, None, None, None])
+    check("its fields are read", rs.unavailable_of({"body": gone}) ==
+          {"engine": "codex", "head": full, "reason": "allowance", "at": "2026-10-13T19:00:00Z"})
+
     # ── verdict comments, refusals, requests ─────────────────────────
     v = rs.verdicts_of([comment("reviewer[bot]", "**Reviewed commit:** `abc1234`"), comment("rando", "Reviewed commit: `abc1234`"),
                         comment("me", "Reviewed commit: `abc1234`"), comment("reviewer[bot]", "nothing here")], "me", c)
@@ -309,10 +328,15 @@ def main() -> int:
     x = rs.Extras([{"path": "a.sh", "isOutdated": True}], 1, 2, 1)
     doc = json.loads(rs.render_json(ctx, rs.Probe(head=HEAD, state="OPEN", mergest="CLEAN", buckets=rs.Buckets(blind=[review("me")])), x, "head-moved", ""))
     check("the --json keys are the contract, in order",
-          list(doc) == ["pr", "state", "merge_state", "head", "head_reviewed", "independent", "blind", "not_trusted",
+          list(doc) == ["pr", "state", "merge_state", "head", "head_reviewed", "independent", "blind", "unavailable", "not_trusted",
                         "no_review_coming", "marked_by_others", "verdicts", "self", "unresolved_threads", "unresolved_paths", "checks"])
     check("pr is a number, a cause carries a null reason", doc["pr"] == 77 and doc["no_review_coming"] == {"cause": "head-moved", "reason": None})
     check("rows carry the 8-character sha", doc["blind"]["rows"] == [{"login": "me", "commit_sha8": "abc123de", "at": "2026-08-07T10:00:00Z", "engine": "claude"}])
+    out_doc = json.loads(rs.render_json(ctx, rs.Probe(head=HEAD, state="OPEN", buckets=rs.Buckets(unavailable=[review("me", body=gone)])),
+                                        x, "", ""))
+    check("an unavailable row carries the marker's full head and its reason, beside the review's own commit",
+          out_doc["unavailable"] == {"count": 1, "rows": [{"login": "me", "commit_sha8": "abc123de", "at": "2026-08-07T10:00:00Z",
+                                                           "engine": "codex", "head": full, "reason": "allowance"}]})
     marker = "<!-- agent-fabric-review v1 -->"
     check("a review posted with --model codex is the codex engine, any other the review class's",
           [rs.engine_of({"body": b}) for b in (f"{marker}\n<!-- model: codex -->\nx", f"{marker}\n<!-- model: fable -->\nx", f"{marker}\nx",
