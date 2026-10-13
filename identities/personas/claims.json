@@ -2,6 +2,7 @@
   "version": 1,
   "description": "Which agent holds which surname of identities/personas/surnames.json (agent-fabric ADR-056 §5 rule 4): one agent per surname, the first claim wins, landed by fabric-coordinator. Keyed by the agent id, so a login rename changes nothing.",
   "claims": {
+    "019bbe31-2fff-7a2f-9849-96bdf286e011": "Babbage",
     "019ffcb2-78fd-7670-93fc-a3577216395f": "Noether",
     "01a00bc1-4716-7e1f-bc43-931dc632f798": "Muskhelishvili",
     "01a00bc1-473a-7be3-bfe2-4b1814f37e09": "Boole",
@@ -22,6 +23,7 @@
     "01a11615-14e1-7139-975c-84ad21a5c91f": "Ramanujan",
     "01a11618-0f9b-7e96-8272-dad8faa1defa": "Lyapunov",
     "01a11619-eab1-74c0-bbd0-42fafa15c39b": "Erdos",
+    "01a1181e-00d9-7754-9b26-445987f94160": "Faraday",
     "01a11a69-f363-7de9-b212-88785c3128e2": "Kovalevskaya",
     "01a11fdd-7964-789c-9bd2-ff45c9b4db16": "Hopper",
     "01a12051-ae61-7f33-a9ae-eedb3153ed42": "Markov",
