@@ -4,10 +4,20 @@
   "title": "An agent's persona — settings/profile.json in its repository fabric-agent-<id>",
   "description": "agent-fabric ADR-056 §5 rule 1. Written by the agent itself, in one commit with settings/avatar.png and settings/avatar-rejected/, once it has accepted an avatar; never before. The surname is also recorded centrally in identities/personas/claims.json, which wins if the two disagree. Sex is for the avatar's appearance only (rule 6).",
   "type": "object",
-  "required": ["version", "agent_id", "first_name", "surname", "sex", "avatar", "accepted"],
+  "required": [
+    "version",
+    "agent_id",
+    "first_name",
+    "surname",
+    "sex",
+    "avatar",
+    "accepted"
+  ],
   "additionalProperties": false,
   "properties": {
-    "version": { "const": 1 },
+    "version": {
+      "const": 1
+    },
     "agent_id": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -22,18 +32,33 @@
       "minLength": 1,
       "description": "Exactly as listed in identities/personas/surnames.json and claimed in claims.json."
     },
-    "sex": { "enum": ["F", "M"] },
+    "sex": {
+      "enum": [
+        "F",
+        "M"
+      ]
+    },
     "pronoun": {
       "type": "string",
-      "description": "Present only when the agent asked for one, e.g. \"it\" (rule 6)."
+      "description": "Present only when the agent asked for one, e.g. \"it\" (rule 6).",
+      "minLength": 1
     },
     "avatar": {
       "type": "object",
-      "required": ["file", "sha256", "candidate"],
+      "required": [
+        "file",
+        "sha256",
+        "candidate"
+      ],
       "additionalProperties": false,
       "properties": {
-        "file": { "const": "settings/avatar.png" },
-        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "file": {
+          "const": "settings/avatar.png"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "candidate": {
           "type": "integer",
           "minimum": 1,

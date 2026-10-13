@@ -72,8 +72,9 @@ judged.
    agent key (ADR-038 §5 rule 1), never another account's and never the
    shared key. Which commits came before is history, never a date:
    `policies/signing.json` names, per repository, the commit on its
-   default branch from which rule 5 applies (`since`); a commit
-   reachable from it keeps the signature it has, and nothing else is
+   default branch that ends the old signing (`since`): `since` and
+   every commit reachable from it keep the signatures they have, rule 5
+   applies to every commit not reachable from it, and nothing else is
    exempt. Once every repository the fleet commits to has its `since`,
    the shared key is removed from every account.
 2. `fabric-sign` is git's signing program for both formats
@@ -89,17 +90,21 @@ judged.
    keyed by the signature, the post-commit hook attaches it as a git
    note on the commit under `refs/notes/fabric-ots`, and the pre-push
    hook attaches any still missing and pushes the notes with the
-   branch. Bootstrap sets `notes.rewriteRef` to that ref, so a note
-   follows an amend or a rebase.
+   branch. A note always holds the proof of its commit's own signature:
+   an amended or rebased commit is signed anew, so both hooks replace a
+   note whose proof does not match it (`git notes add -f`), and
+   `notes.rewriteRef` is never set for this ref.
 5. The checker refuses a commit a branch adds unless: it is signed in a
    format the policy admits for that repository; the key is the signing
    subkey of an agent key under `identities/keys/`, certified along the
    lineage to the root and not revoked; that agent may hold the role
    its `Fabric-Role:` trailer names — it is in the role's committed
    holders (`policies/authority.json` `role_definitions`) or its login,
-   read from `identities/keys/lineage.json`, is the role's name with an
-   optional `-<n>`, the rule `is_holder` applies today
-   (`tools/fabric/guards/charter_authority.py`); and its timestamp
+   read from `identities/keys/lineage.json`, is the role's name, alone
+   or followed by `-<n>` (the rule `is_holder` applies today,
+   `tools/fabric/guards/charter_authority.py`) or by `-<suffix>` of
+   one of the role's locales (`identities/roles/<role>/locale/
+   <suffix>/`, as `language-culture-en`); and its timestamp
    proof is present and matches the signature. It runs in the pre-push
    hook, in CI on every commit a branch adds, and in `tests/run.sh`;
    CI fetches `refs/notes/fabric-ots` before it runs. A range it cannot
