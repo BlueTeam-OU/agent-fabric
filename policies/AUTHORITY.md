@@ -241,7 +241,7 @@ plane's (`test_check_charter_authority_cli.py`).
 
 ## An identity's secrets
 
-Each agent's secrets are its own store, `<org>/agent-fabric-secrets-<id>`
+Each agent's secrets are its own store, `BlueTeam-OU/fabric-agent-<id>`
 (its agent id, ADR-039), encrypted to its key alone (ADR-038): the login writes and reads it; its parent,
 the `fabric-coordinator` login that provisioned it, may add an entry
 (`fabric-secrets store put`) and certifies its key, and reads nothing.

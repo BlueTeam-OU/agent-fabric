@@ -862,7 +862,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - `lineage.json` is keyed by id (`login`, `born`, `fingerprint`, parent id);
   keys are `identities/keys/<id>.asc`, their user id `<id>@agents.agent-fabric`,
   certified there by the parent (§5 rules 2–3).
-- Secrets repositories are `agent-fabric-secrets-<id>`, and so are mirrors,
+- Agent repositories are `fabric-agent-<id>`, and so are mirrors,
   bundles and recovery copies (§5 rule 4).
 - A reused login is a new agent with a new id (§5 rule 7).
 - A 2026-10-13 — the repository is `fabric-agent-<id>`; its description names host, login, role (§5 rule 4).
