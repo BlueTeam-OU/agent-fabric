@@ -4,7 +4,12 @@ You are an agent working on one of the sibling repositories under the
 parent `projects/` directory. This repository is your control plane: who
 you are, what role you hold, what you know, and how your models are
 routed all come from here. Project truth — code, architecture, product
-rules — lives in each project's own repository and its own `CLAUDE.md`.
+rules — lives in each project's own repository and its own instruction
+file (`AGENTS.md` or `CLAUDE.md`).
+
+This file holds what is true whichever harness runs you; a harness's own
+tools, settings and aliases are in its file (`CLAUDE.md` for Claude
+Code), which imports this one (ADR-054).
 
 ## The invariant
 
@@ -86,11 +91,11 @@ is the capability class below (ADR-002, ADR-005).
 
 ## Working here
 
-- **You were launched with your role.** It is in your system prompt —
-  the identity header, the role's charter and brief, and the team and
-  memory sections. The project layer is not: the project's remit for
-  your role (`.agent-fabric/roles/<role>.md`) and the pointer to its
-  `INDEX.md` arrive from the session-start hook and follow your working
+- **You were launched with your role.** It is in your launch
+  instructions — the identity header, the role's charter and brief, and
+  the team and memory sections. The project layer is not: the project's
+  remit for your role (`.agent-fabric/roles/<role>.md`) and the pointer
+  to its `INDEX.md` arrive at session start and follow your working
   copy; everything else loads when an index line matches what you are
   doing. A role is bound from a **login shell**, never inside a session
   (`fabric-role bind <role>`, then launch); a different role is a rebind
@@ -104,7 +109,7 @@ is the capability class below (ADR-002, ADR-005).
   comment whose assumption you changed is updated or removed in the same
   change. The review class checks all of it.
 - **Work in the project's working copy**, under that project's
-  `CLAUDE.md`. From `projects/`, `cd` into the working copy first.
+  instruction file. From `projects/`, `cd` into the working copy first.
 - **A command for the owner fits on one screen line, and you have run
   every part of it you can first.** Past about 100 characters it goes into a short script
   (in the tree, or `$XDG_RUNTIME_DIR/<task>/` when it touches a
@@ -124,31 +129,16 @@ is the capability class below (ADR-002, ADR-005).
   `.agent-fabric/memory/<role>/`. A result is framed as memory from past
   sessions, possibly stale; `solution` slices decay: where one disagrees
   with the tree, the tree is the fact. Durable new knowledge goes to your
-  own Claude memory with a `roles_class`; a drain (`memory/README.md`),
-  run by fabric-coordinator, distils it into the corpus with your name on
-  it. A slice you believe wrong is corrected at its source memory, or by
+  harness's own memory with a `roles_class` (your harness's file says
+  where); a drain (`memory/README.md`), run by fabric-coordinator,
+  distils it into the corpus with your name on it. A slice you believe wrong is corrected at its source memory, or by
   a memory of the same class carrying `merge_target` with the stale
   section's heading, which the next drain puts in its place — never
   edited (ADR-013, ADR-014).
-- **Subagents** name a capability class in `subagent_type` — the five
-  are `code-low`, `code-medium`, `code-high`, `code-plan` and the review
-  class `code-review` — and in `model` the harness tier alias that class
-  rides (`runtime/claude-code/aliases.json`: `haiku`, `sonnet`, `opus`,
-  `fable`; `fable` for `code-plan` and for a review), never a vendor
-  model. What a class resolves to is `routing/`, decided at launch. The
-  dispatch guard refuses a class dispatch whose `model` is not its alias
-  (unset included), a review on anything but `fable`, and a writing
-  dispatch without worktree isolation; `code-high` and `code-plan` ask.
-  The read-only harness types (`Explore`, `Plan`, `claude-code-guide`)
-  name a model and no isolation. `locale-worker` exists on the
-  language-culture logins only. A review is briefed with `fabric-review
-  brief`: the facts of the change, never the author's conclusions
-  (ADR-005, ADR-020).
-- **How much a class thinks is routed too** (`routing/effort.json`),
-  written into each class's agent file at launch. Never set it per
-  dispatch, and never through `CLAUDE_CODE_EFFORT_LEVEL`, which the
-  launcher refuses; `fabric-model set <class>-effort <level>` is your own
-  layer, and `fabric-status` prints the level beside the model (ADR-006).
+- **How much reasoning a task needs is a capability class**, and which
+  model and effort serve it is `routing/`, decided at launch; your
+  harness's file says how you name a class when you delegate (ADR-005,
+  ADR-006).
 - **Keep your jobs in `fabric-jobs`, and let the next one decide the
   session** (ADR-037, ADR-022). A piece of work you take on is a job
   (`fabric-jobs add "<artifact>" --topic <label>`; a request you

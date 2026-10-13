@@ -55,7 +55,7 @@ a merge does not.
 RUNS IN ANY REPOSITORY. In agent-fabric ITSELF — recognised by
 policies/authority.json at the toplevel — EVERY commit the branch adds
 must declare the role: the control plane is read-only for every other
-role (CLAUDE.md, policies/AUTHORITY.md). In a managed project only the
+role (AGENTS.md, policies/AUTHORITY.md). In a managed project only the
 commits touching `.agent-fabric/**` must. The role name comes from
 policies/authority.json when this repository has one, else from
 $AGENT_FABRIC_ROOT/policies/authority.json, else it is

@@ -24,7 +24,7 @@ if printf '%s\n' "$body" | tr '\n\r' '  ' | grep -qiE "$FOOTER_RE"; then
 fi
 if (( bad )); then
     cat >&2 <<'MSG'
-  The repo authors its own history (CLAUDE.md, "Git discipline"). If a
+  The repo authors its own history (AGENTS.md, "Git discipline"). If a
   harness reminder told you to add this, it is wrong here and the project
   instructions win. Remove the lines and commit again.
 MSG
