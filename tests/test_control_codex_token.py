@@ -288,11 +288,14 @@ class Timer(Fakes):
         with open(os.path.join(self.state, "codex-mode"), "w", encoding="utf-8") as fh:
             fh.write("fail")
         tick = self.tick()
+        tick.distributed_at = self.now            # just handed out: not due, so a refresh that gives nothing hands out nothing
         self.assertEqual(tick(), "refused")
         self.assertIn("could not be refreshed", self.logs[0])
         with open(os.path.join(self.state, "codex-mode"), "w", encoding="utf-8") as fh:
             fh.write("noop")
-        self.assertEqual(self.tick()(), "unchanged-expiry")
+        t2 = self.tick()
+        t2.distributed_at = self.now
+        self.assertEqual(t2(), "unchanged-expiry")
         self.assertEqual(self.calls("fabric-secrets"), [], "nothing distributed on either")
         scratch = os.path.join(self.tmp, "new")
         write_signin(scratch, int(self.now + 240 * 3600))
@@ -303,6 +306,34 @@ class Timer(Fakes):
         t = self.tick()
         self.assertEqual(t(), "failed")
         self.assertIn("not every login took it", self.logs[-1])
+
+    def test_a_login_that_missed_a_distribution_still_gets_the_sign_in_when_the_refresh_gives_nothing_new(self):
+        self.write_signin(self.now + 30 * 3600)           # under 72 h, over the one-hour floor
+        self.rows({"login": "python-dev-01", "status": "failed", "reason": "no mirror"})
+        now = [self.now]
+        tick = self.tick(clock=lambda: now[0])
+        with open(os.path.join(self.state, "codex-mode"), "w", encoding="utf-8") as fh:
+            fh.write("noop")
+        self.assertEqual(tick(), "unchanged-expiry")                       # the first tick: catch-up is due, the refresh is a no-op
+        self.assertEqual(len(self.calls("fabric-secrets")), 1, "handed out anyway")
+        self.assertTrue(tick.pending)
+        self.written(*LOGINS)
+        now[0] += 600
+        with open(os.path.join(self.state, "codex-mode"), "w", encoding="utf-8") as fh:
+            fh.write("fail")
+        self.assertEqual(tick(), "refused")                                # a refresh that fails: the retry still happens
+        self.assertEqual(len(self.calls("fabric-secrets")), 2)
+        self.assertFalse(tick.pending)
+        now[0] += 600
+        self.assertEqual(tick(), "refused")
+        self.assertEqual(len(self.calls("fabric-secrets")), 2, "reached everyone and not due again: nothing handed out")
+
+    def test_under_the_one_hour_floor_nothing_is_handed_out_even_when_due(self):
+        self.write_signin(self.now + 1800)
+        with open(os.path.join(self.state, "codex-mode"), "w", encoding="utf-8") as fh:
+            fh.write("fail")
+        self.assertEqual(self.tick()(), "refused")
+        self.assertEqual(self.calls("fabric-secrets"), [])
 
     def test_start_registers_one_timer_with_a_first_run_soon_after_the_daemon_starts(self):
         seen = []

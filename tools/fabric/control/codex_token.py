@@ -39,6 +39,7 @@ import chatgpt_signin  # noqa: E402
 
 DEFAULT_HOME = ".codex-chatgpt"
 REFRESH_BELOW_S = 72 * 3600
+CODEX_MIN_LIFE_S = 3600        # secretstore/accounts.py's floor: a token with less is not distributed
 TICK_S = 6 * 3600
 FIRST_TICK_S = 300
 REFRESH_TIMEOUT_S = 300
@@ -203,19 +204,26 @@ class Tick:
                 self.absent_said = self.clock()
                 self.log(f"agentd: codex sign-in: {why}")
             return "absent"
+        due = self.pending or self.clock() - self.distributed_at >= CATCH_UP_EVERY_S
         if left >= REFRESH_BELOW_S:
-            if not (self.pending or self.clock() - self.distributed_at >= CATCH_UP_EVERY_S):
-                return "fresh"
-            return self.hand_out("handed again to")
+            return self.hand_out("handed again to") if due else "fresh"
         problem = refresh(home, self.env, self.run)
         if problem:
             self.log(f"agentd: codex sign-in has {int(left // 3600)} h left and could not be refreshed: {problem}")
-            return "refused"
+            return self.stale_hand_out(due, left, "refused")
         after, why = life(home, self.clock())
         if after is None or after <= left:
-            self.log("agentd: codex sign-in: the refresh did not advance the expiry; nothing distributed")
-            return "unchanged-expiry"
+            self.log("agentd: codex sign-in: the refresh did not advance the expiry; nothing new to distribute")
+            return self.stale_hand_out(due, left, "unchanged-expiry")
         return self.hand_out(f"refreshed ({int(after // 3600)} h) and handed to")
+
+    def stale_hand_out(self, due: bool, left: float, outcome: str) -> str:
+        """The refresh gave nothing new, but a login that missed the last distribution (or was placed since) still gets
+        the sign-in there is, while it has enough life for a review (the store's own floor); the tick's word stays
+        the refresh's."""
+        if due and left >= CODEX_MIN_LIFE_S:
+            self.hand_out("handed again, unrefreshed, to")
+        return outcome
 
     def hand_out(self, what: str) -> str:
         """Distribute the sign-in to every placed agent; a failure leaves `pending` for the next tick."""

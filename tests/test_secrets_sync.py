@@ -426,7 +426,6 @@ def main() -> int:
                 check("…while an agent's sync in the same sandbox says it skipped the file",
                       any("Codex sign-in file (HOME is not the login's home" in x for x in json.loads(out)["skipped"]), out[:300])
                 kinds({ME: "human"})
-                store["values"] = human
                 store["values"] = {k: v for k, v in human.items() if k != "CLAUDE_BRIDGE_AUTH_TOKEN"}
                 rc, out = run(s.status, False)
                 check("a human without the relay credential: status exits 1, naming it",
