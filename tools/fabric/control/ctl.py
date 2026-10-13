@@ -17,7 +17,12 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <login|all> states [--follow] [--json]
     fabric-ctl <coordinator> switch
+    fabric-ctl <login|all> control-start | control-stop [--include-self] [--json]
     fabric-ctl keygen [--force]
+
+The two control-start / control-stop ops are the exception: they send no request
+and read no replies (the agent that would answer is what they start or stop), and
+their --timeout bounds each host call. Everything below is about the others.
 
 A login becomes an address through the registry's placement
 (<host>/<login>); `all` is every placement that is an agent (a human login
@@ -103,6 +108,7 @@ from control.selftest import SELFTEST_BUDGET_S
 from control.restart import RESTART_BUDGET_S
 from control.sessions import SESSION_ID
 from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, public_key_from, sign_request
+from control import units
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
@@ -133,6 +139,8 @@ USAGE = (
     "       fabric-ctl <login|all> branches --sweep   (an action: the account runs fabric-branches --sweep in each working copy with no uncommitted change and no build or suite running in it)\n"
     "       fabric-ctl <login|all> states [--follow] [--json]\n"
     "       fabric-ctl <coordinator> switch   (the account switch controller's mode and move log, ADR-052; any other account has none)\n"
+    "       fabric-ctl <login|all> control-start [--json]   (starts each account's stopped control agent through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60)\n"
+    "       fabric-ctl <login|all> control-stop [--json] [--include-self]   (stops it, the unit staying enabled; this session's own account's agent only with --include-self)\n"
     "       fabric-ctl keygen [--force]")
 
 FETCH_TIMEOUT_S = 60
@@ -354,6 +362,8 @@ def parse_args(argv: list[str]) -> dict:
             out["sweep"] = True
         elif a == "--follow":
             out["follow"] = True
+        elif a == "--include-self":
+            out["include_self"] = True   # absent otherwise: the parse defaults are pinned by the frozen suite
         elif a == "--topic":
             out["topic"] = nxt()
         elif a.startswith("--topic="):
@@ -382,7 +392,7 @@ def parse_args(argv: list[str]) -> dict:
             out["piece"] = a   # the word after `upgrade` is the piece, never a login
         elif titled and out["title"] is None:
             out["title"] = a   # the word after `jobs-add` or `pool-add` is the title, never a login
-        elif (a in OPS or a == "states") and out["targets"]:
+        elif (a in OPS or a == "states" or a in units.UNIT_OPS) and out["targets"]:
             out["op"] = a
         else:
             out["targets"].append(a)
@@ -393,7 +403,7 @@ def parse_args(argv: list[str]) -> dict:
         out["op"] = "branches-sweep"   # a read and an action are two ops: only the second is signed
     op = out["op"]
     if out["timeout"] is None:
-        out["timeout"] = (5 if op == "ping" else 120 if op == "memory" else 60 if op == "tokens" else 300 if op == "accounts"
+        out["timeout"] = (units.STEP_TIMEOUT_S if op in units.UNIT_OPS else 5 if op == "ping" else 120 if op == "memory" else 60 if op == "tokens" else 300 if op == "accounts"
                           else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
                           else 240 if op == "secrets-sync" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
@@ -431,6 +441,9 @@ def parse_args(argv: list[str]) -> dict:
             raise CtlError("pool-add names the one login that holds the pool")
     if op == "tools-install" and (out["tool"] is None or not TOOL_NAME.fullmatch(out["tool"])):
         raise CtlError("tools-install takes a tool name: fabric-ctl <login|all> tools-install <tool>")
+    bad = units.check_args(out)
+    if bad:
+        raise CtlError(bad)
     if out["follow"] and op != "states":
         raise CtlError("--follow goes with states only")
     if op == "jobs-add":
@@ -1644,7 +1657,8 @@ def _agentd():
 
 def main(argv: list[str] | None = None, *, registry: str | None = None, call: Callable[..., Any] | None = None,
          out: Callable[[str], None] = _out, err: Callable[[str], None] = _err, sleep: Callable[[float], None] = time.sleep,
-         now: Callable[[], float] = time.time, who: dict | None = None, token: str | None = None) -> int:
+         now: Callable[[], float] = time.time, who: dict | None = None, token: str | None = None,
+         units_run: units.Run | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     try:
         args = parse_args(argv)
@@ -1662,6 +1676,23 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         err(f"fabric-ctl: {picked['refused']}")
         return 2
     expected, everyone = picked["expected"], picked.get("everyone", False)
+    if args["op"] in units.UNIT_OPS:
+        # No request, no relay, no token: the agent that would answer is the thing being started or stopped.
+        who = gz_whoami() if who is None else who
+        include_self = args.get("include_self", False)
+        if args["op"] == units.STOP and not everyone and not include_self and any(e["login"] == who.get("agent") for e in expected):
+            err("fabric-ctl: control-stop would stop this session's own account's agent; --include-self says it is meant; nothing run")
+            return 2
+        # The registry the placements came from is the one hostexec reads, however the operator tree is split from the engine.
+        reg_path = registry if registry is not None else roots.hosts_registry(engine=FABRIC_ROOT, empty_is_set=True)
+        unit_rows = units.run_units(args["op"], expected, run=units_run or units.hostexec_run(reg_path), me=who.get("agent"),
+                               include_self=include_self, timeout=args["timeout"], sleep=sleep)
+        if args["json"]:
+            for r in unit_rows:
+                out(js.stringify(r))
+        else:
+            out(units.table(unit_rows))
+        return 0 if units.ok(args["op"], unit_rows) else 1
     if args["op"] == "restart" and len(expected) > 1:
         # One account at a time: a fleet's sessions are not all down at once, and each row is read before the next is stopped.
         rcs = [main(["--json"] * bool(args["json"]) + ["--timeout", str(args["timeout"]), e["login"], "restart"], registry=registry, call=call,
