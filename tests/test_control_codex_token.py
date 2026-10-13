@@ -44,6 +44,9 @@ fail = os.path.join(state, "store-fail")
 if os.path.exists(fail):
     sys.stderr.write(open(fail).read())
     sys.exit(1)
+code = os.path.join(state, "store-exit")
+if os.path.exists(code):
+    sys.exit(int(open(code).read()))
 """
 CTL_BODY = """
 sys.exit(int(open(os.path.join(state, "ctl-exit")).read()) if os.path.exists(os.path.join(state, "ctl-exit")) else 0)
@@ -174,6 +177,79 @@ class Command(Fakes):
         with open(os.path.join(self.state, "ctl-exit"), "w", encoding="utf-8") as fh:
             fh.write("3")
         self.assertEqual(self.main("python-dev-01"), 1)
+
+
+class StoreStatus(Fakes):
+    """The store command's exit status is read beside its rows (review of #232, claim 4)."""
+
+    def exit_code(self, n):
+        with open(os.path.join(self.state, "store-exit"), "w", encoding="utf-8") as fh:
+            fh.write(str(n))
+
+    def test_a_non_zero_exit_with_an_empty_list_is_a_failure_with_a_row_per_login(self):
+        self.rows()
+        self.exit_code(1)
+        self.assertEqual(self.main("python-dev-01", "rust-dev-01"), 1)
+        self.assertEqual(len(self.out), 2)
+        self.assertTrue(all("failed" in line for line in self.out), self.out)
+        self.assertEqual(self.calls("fabric-ctl"), [])
+
+    def test_a_login_the_store_gave_no_row_for_is_failed_and_the_others_are_still_synced(self):
+        self.rows({"login": "python-dev-01", "status": "written", "token_sha256_12": "c" * 12})
+        self.assertEqual(self.main("python-dev-01", "rust-dev-01"), 1)
+        self.assertIn("rust-dev-01", " ".join(self.out))
+        self.assertEqual(self.calls("fabric-ctl")[0]["argv"], ["python-dev-01", "secrets-sync"])
+
+    def test_a_non_zero_exit_beside_rows_that_all_succeeded_is_a_failure_but_the_successes_sync(self):
+        self.written("python-dev-01")
+        self.exit_code(1)
+        self.assertEqual(self.main("python-dev-01"), 1)
+        self.assertIn("exited non-zero though every row succeeded", self.said[0])
+        self.assertEqual(self.calls("fabric-ctl")[0]["argv"], ["python-dev-01", "secrets-sync"])
+
+    def test_a_zero_exit_beside_a_failed_row_is_a_failure_too(self):
+        self.rows({"login": "python-dev-01", "status": "failed", "reason": "no mirror"})
+        self.assertEqual(self.main("python-dev-01"), 1)
+
+    def test_rows_without_a_login_are_no_rows(self):
+        self.rows({"status": "written"})
+        self.exit_code(0)
+        self.assertEqual(self.main("python-dev-01"), 1)
+        self.assertIn("failed", self.out[0])
+        self.out.clear()
+        self.rows({"status": "written"}, "not a row")
+        self.exit_code(0)
+        self.assertEqual(self.main("python-dev-01"), 1)
+        self.assertIn("failed", self.out[0])
+
+    def test_one_malformed_row_costs_the_valid_ones_nothing_and_a_row_for_nobody_asked_is_dropped(self):
+        self.rows({"login": "python-dev-01", "status": "written", "token_sha256_12": "d" * 12}, {"status": "written"},
+                  {"login": "zzz-not-asked", "status": "written"}, {"login": "rust-dev-01"})
+        self.exit_code(0)
+        self.assertEqual(self.main("python-dev-01", "rust-dev-01"), 1)
+        self.assertEqual(self.calls("fabric-ctl")[0]["argv"], ["python-dev-01", "secrets-sync"], "the valid row's login is synced")
+        text = "\n".join(self.out)
+        self.assertIn("rust-dev-01", text)
+        self.assertNotIn("zzz-not-asked", text + json.dumps(self.calls("fabric-ctl")))
+
+    def test_the_default_root_is_the_checkout_that_holds_bin_fabric_secrets(self):
+        self.assertTrue(os.path.isfile(os.path.join(ct.FABRIC, "bin", "fabric-secrets")), ct.FABRIC)
+        self.assertEqual(ct.FABRIC, HERE)
+        seen = []
+
+        class Ticker:
+            def __init__(self, name, fn, every_s, first_s=0.0):
+                seen.append(fn)
+
+            def start(self):
+                return self
+        saved = os.environ.pop("AGENT_FABRIC_ROOT", None)
+        try:
+            ct.start(Ticker, lambda m: None, agents=lambda: LOGINS, env={})
+        finally:
+            if saved is not None:
+                os.environ["AGENT_FABRIC_ROOT"] = saved
+        self.assertEqual(seen[0].root, HERE)
 
 
 class Refresh(Fakes):

@@ -207,7 +207,8 @@ def project_agent_env(root: str | None = None) -> list[str]:
     except RegistryUnreadable:
         return []
     # Fabric-wide names first (registry top-level agent_env), then each project's.
-    return [n for n in declared if n not in ENV_NAMES and n not in STORE_ONLY]
+    # CODEX_NAMES are applied into a token file only: a registry that declares them must not export them (secrets.env, env.sh).
+    return [n for n in declared if n not in ENV_NAMES and n not in STORE_ONLY and n not in CODEX_NAMES]
 
 
 # What a human login's work needs (ADR-044 rule 3): who it is, and the
@@ -273,7 +274,7 @@ def plain_env_names(root: str | None = None) -> list[str]:
     names: list[str] = []
     for holder in [reg, *((reg.get("projects") or {}).values())]:
         for n in (holder.get("plain_env") or []):
-            if n not in names and n not in ENV_NAMES and n not in STORE_ONLY:
+            if n not in names and n not in ENV_NAMES and n not in STORE_ONLY and n not in CODEX_NAMES:
                 names.append(n)
     return names
 
