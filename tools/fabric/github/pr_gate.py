@@ -151,7 +151,7 @@ GATE_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
     mergeQueueEntry { position state }
     autoMergeRequest { enabledAt }
     statusCheckRollup { contexts(first: 100) { pageInfo { hasNextPage endCursor } nodes {
-      ... on CheckRun { name status conclusion }
+      ... on CheckRun { name status conclusion databaseId checkSuite { app { slug } workflowRun { workflow { databaseId } } } }
       ... on StatusContext { context state } } } } } } }"""
 # The rest of the checks past GATE_QUERY's first 100. Read whole or not at
 # all: a red check on page two read as "green" would let a PR be armed.
@@ -161,7 +161,7 @@ CONTEXTS_QUERY = """query($owner: String!, $name: String!, $number: Int!, $after
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     headRefOid
     statusCheckRollup { contexts(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes {
-      ... on CheckRun { name status conclusion }
+      ... on CheckRun { name status conclusion databaseId checkSuite { app { slug } workflowRun { workflow { databaseId } } } }
       ... on StatusContext { context state } } } } } } }"""
 CONTEXT_PAGES = 50
 RED = re.compile(r"FAILURE|ERROR|TIMED_OUT|CANCELLED|ACTION_REQUIRED|STARTUP_FAILURE")
@@ -280,7 +280,34 @@ def gate_state(repo: str, num: int, head: str) -> dict | None:
     }
 
 
+def latest_runs(nodes: list[dict]) -> list[dict]:
+    """The latest run of each check on the head. The rollup keeps every run:
+    a workflow cancelled by a reopen or re-run beside the run that replaced
+    it, the old one red (FleetDeck #31). A check is its app, its workflow and
+    its name, so a job of the same name in two workflows stays two checks;
+    the latest is the highest check-run id, which a queued re-run already has
+    and a startedAt does not. A run missing any of them is kept as it is:
+    collapsing on a guess could hide a red behind another check's green."""
+    def key(n: dict) -> tuple | None:
+        suite = obj(n.get("checkSuite"))
+        app = obj(suite.get("app")) if suite is not None else None
+        run = obj(suite.get("workflowRun")) if suite is not None else None
+        workflow = obj(run.get("workflow")) if run is not None else None
+        rid = n.get("databaseId")
+        slug = app.get("slug") if app is not None else None
+        if not isinstance(n.get("name"), str) or not isinstance(rid, int) or isinstance(rid, bool) or not isinstance(slug, str):
+            return None
+        return (slug, workflow.get("databaseId") if workflow is not None else None, n["name"])
+    latest: dict[tuple, int] = {}
+    for n in nodes:
+        k = key(n)
+        if k is not None:
+            latest[k] = max(latest.get(k, n["databaseId"]), n["databaseId"])
+    return [n for n in nodes if (k := key(n)) is None or n["databaseId"] == latest[k]]
+
+
 def checks_of(nodes: list[dict]) -> str:
+    nodes = latest_runs(nodes)
     red = [jq_str(alt(n.get("name"), n.get("context"))) if alt(n.get("name"), n.get("context")) is not None else ""
            for n in nodes if RED.search(str(alt(n.get("conclusion"), n.get("state"), "")))]
     pending = sum(1 for n in nodes

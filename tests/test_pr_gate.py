@@ -86,6 +86,45 @@ def main() -> int:
           pr_gate.checks_of([{"context": "legacy", "state": "FAILURE"}]) == "red:legacy"
           and pr_gate.checks_of([{"context": "legacy", "state": "PENDING"}]) == "pending:1")
 
+    print("the latest run of each check (FleetDeck #31: a cancelled run beside its re-run)")
+
+    def run(name: str, rid: int, conclusion: str | None, workflow: int | None = 380837037,
+            app: str = "github-actions", status: str = "COMPLETED") -> dict:
+        return {"name": name, "status": status, "conclusion": conclusion, "databaseId": rid,
+                "checkSuite": {"app": {"slug": app},
+                               "workflowRun": {"workflow": {"databaseId": workflow}} if workflow else None}}
+    # #31's head as GitHub answered it on 2026-10-14: the reopen cancelled CI
+    # run 38522927016 and its re-run passed every check.
+    fleetdeck_31 = [
+        run("conventional-commits", 115716547937, "FAILURE"),
+        run("conventional-commits", 115717824527, "SUCCESS"),
+        run("check (ubuntu-latest)", 115716547993, "CANCELLED"),
+        run("check (ubuntu-latest)", 115717824255, "SUCCESS"),
+        run("check (debian-12)", 115717824603, "SUCCESS"),
+        run("check (debian-12)", 115716547766, "CANCELLED"),
+        run("Analyze (rust)", 115716537341, "SUCCESS", workflow=376801829),
+        run("CodeQL", 115716727210, "SUCCESS", workflow=None, app="github-advanced-security"),
+    ]
+    check("a cancelled run superseded by a passing re-run: green", pr_gate.checks_of(fleetdeck_31) == "green")
+    check("…whichever order the rollup lists them in", pr_gate.checks_of(fleetdeck_31[::-1]) == "green")
+    check("a re-run still queued over a red: pending, not red",
+          pr_gate.checks_of([run("check", 10, "FAILURE"), run("check", 11, None, status="QUEUED")]) == "pending:1")
+    check("a passing run superseded by a failing re-run: red",
+          pr_gate.checks_of([run("check", 10, "SUCCESS"), run("check", 11, "FAILURE")]) == "red:check")
+    check("the same name in two workflows is two checks: one red is red",
+          pr_gate.checks_of([run("build", 10, "FAILURE", workflow=1), run("build", 11, "SUCCESS", workflow=2)]) == "red:build")
+    check("the same name from two apps is two checks: one red is red",
+          pr_gate.checks_of([run("scan", 10, "FAILURE", app="a"), run("scan", 11, "SUCCESS", app="b")]) == "red:scan")
+    check("a run with no id or suite is never collapsed: its red stays",
+          pr_gate.checks_of([{"name": "check", "status": "COMPLETED", "conclusion": "FAILURE"}, run("check", 11, "SUCCESS")])
+          == "red:check")
+    check("runs with an id but no app are kept, never collapsed into one another",
+          pr_gate.checks_of([{"name": "check", "status": "COMPLETED", "conclusion": "FAILURE", "databaseId": 10},
+                             {"name": "check", "status": "COMPLETED", "conclusion": "SUCCESS", "databaseId": 11,
+                              "checkSuite": None}]) == "red:check")
+    check("the reds are named in the rollup's order",
+          pr_gate.checks_of([run("b", 10, "FAILURE"), run("a", 11, "FAILURE"), run("b", 9, "SUCCESS")]) == "red:b,a")
+
     print("the review reader's blind rows, per engine (REQUEST 01a13693)")
     with tempfile.TemporaryDirectory() as tmp:
         script = os.path.join(tmp, "reader")
