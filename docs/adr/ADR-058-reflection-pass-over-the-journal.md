@@ -93,9 +93,9 @@ bounded: a week of messages, a capped read, one job.
   that learnt them, through the same judgement as everything else.
 - Each agent spends one job a week on it; a quiet week costs a short
   read.
-- `fabric-reflect`, the cursor, the weekly job and the drain report's
-  count are to build (decided, not yet built; until they are, no pass
-  runs).
+- `fabric-reflect` and its cursor are built (#264); the weekly job and
+  the drain report's count are to build (decided, not yet built; until
+  the job is on the lists, no pass runs).
 
 ## 7. Future Evolution
 
@@ -105,9 +105,8 @@ more than GZCoord messages.
 
 ## 8. Decision Status
 
-Accepted; the build waits on python-dev (`fabric-reflect`,
-the cursor) and on the coordinator (the weekly job, the drain report's
-count).
+Accepted; `fabric-reflect` and the cursor are built (#264); the weekly
+job and the drain report's count wait on the coordinator.
 
 ## References
 
