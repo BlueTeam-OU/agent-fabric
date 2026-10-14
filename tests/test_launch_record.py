@@ -59,10 +59,14 @@ class Profile(unittest.TestCase):
                 self.assertIsNone(lr.profile_provider(f, "a", "r"), bad)
             self.assertIsNone(lr.profile_provider(os.path.join(d, "absent.json"), "a", "r"))
         import resume
-        real = os.path.join(HERE, "routing", "profiles.json")
-        for login, role in (("python-dev-03", "python-dev"), ("x-01", "python-dev"), ("x-01", None)):
-            with mock.patch.dict(os.environ, {"AGENT_FABRIC_RESUME_PROFILES": real}):
-                self.assertEqual(lr.profile_provider(real, login, role), resume.profile_provider(login, role), (login, role))
+        with tempfile.TemporaryDirectory(prefix="launch-record.") as d:
+            fixture = os.path.join(d, "profiles.json")
+            with open(fixture, "w") as fh:
+                json.dump({"defaults": {"launch_provider": "openrouter"}, "roles": {"r": {"launch_provider": "anthropic"}},
+                           "agents": {"a": {"launch_provider": "gateway"}}}, fh)
+            for login, role in (("a", "r"), ("b", "r"), ("b", "zz"), ("b", None)):
+                with mock.patch.dict(os.environ, {"AGENT_FABRIC_RESUME_PROFILES": fixture}):
+                    self.assertEqual(lr.profile_provider(fixture, login, role), resume.profile_provider(login, role), (login, role))
 
 
 class Record(unittest.TestCase):
@@ -175,6 +179,7 @@ class Step(unittest.TestCase):
             with mock.patch.object(worker, "record_launch_provider", lambda w: order.append("record")), \
                     mock.patch.object(worker, "bootstrap_and_bind", lambda w: order.append("bootstrap")), \
                     mock.patch.object(worker, "toolchains", lambda w: order.append("toolchains")), \
+                    mock.patch.object(worker, "operator_ssh", lambda w: None), \
                     mock.patch.object(worker, "verify", lambda w: 0), redirect_stderr(io.StringIO()):
                 w.a = wa.parse_args(["finish", LOGIN, *(["--human"] if human else ["backend-dev", "--no-claude-account"]), "--dry-run"])
                 worker.finish(w)

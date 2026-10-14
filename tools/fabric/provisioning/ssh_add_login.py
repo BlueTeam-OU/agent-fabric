@@ -12,7 +12,8 @@ whose registry entry pins an sshd. Idempotent: the same login again changes
 nothing and restarts sshd once more.
 
 WHAT IT TRUSTS, and refuses to go on without (each is a refusal, exit 1, one
-`ssh-add-login: <why>` line, and nothing written before it):
+`ssh-add-login: <why>` line, and nothing written before it but the empty lock
+  file .ssh-add-login.lock in the staging, which flock needs):
   the staging  AGENT_FABRIC_SSH_STAGE (/rw/config/agent-fabric-ssh) is a
                directory, and its drop-in, its authorized_keys directory and
                files, and restore.sh are each root-owned, not a symlink and
