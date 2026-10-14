@@ -33,6 +33,7 @@ import tempfile
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+import review_brief  # noqa: E402
 from github import common, local  # noqa: E402
 
 REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"
@@ -75,9 +76,16 @@ quoting `backticks` or $vars passed through `-f body="…"` is expanded
 by the shell before gh sees it, and that has already posted a mangled
 comment in this repo.
 
+Only a pinned review covers a head (agent-fabric ADR-020 §5 rule 10).
+A report that carries the brief's agent-fabric-dispatch v1 header is
+posted only when every such header says "evidence_mode": "pinned"; a
+working-tree one, or a header it cannot read, is refused before the PR
+is read. A report with no header posts as before.
+
 Exit codes:
   0  posted
-  2  invocation problem, or the PR belongs to another session"""
+  2  invocation problem, a working-tree report, or the PR belongs to
+     another session"""
 
 # Kept identical to pr_reply's: a wrong "names no session" means writing
 # to somebody else's PR.
@@ -88,6 +96,9 @@ LOCALE_FILE = re.compile(r"identities/roles/[^/\n]+/locale/[^/\n]+/[^/\n]+")
 # without an error: a list that long may be cut, so it is not read as
 # whole (re-review of #70).
 FILE_LIST_CAP = 3000
+# The dispatch header a brief opens with (review_brief.dispatch_header), when a report carries it: a fence of three
+# or more backticks or tildes whose info string is the header's version, closed by the same fence.
+DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})" + re.escape(review_brief.DISPATCH_VERSION) + r"[ \t]*$")
 
 
 class Refused(Exception):
@@ -137,6 +148,38 @@ def locale_only(repo: str, pr: str) -> bool:
     return all(isinstance(p, str) and LOCALE_FILE.fullmatch(p) for p in paths)
 
 
+def evidence_refusal(body: str) -> str:
+    """Why a report may not be posted as the review of a head, or "" when it may. agent-fabric ADR-020 §5 rule 10:
+    only a pinned review covers a head, so every dispatch header in the report must say evidence_mode "pinned". A
+    report with none posts as before (its cost is attributed inferred). A header that cannot be read refuses: it
+    claims a dispatch whose evidence it then does not show."""
+    lines = body.split("\n")
+    i = 0
+    while i < len(lines):
+        m = DISPATCH_FENCE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        close = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(1)), None)
+        if close is None:
+            return f"its {review_brief.DISPATCH_VERSION} header (line {i + 1}) is never closed"
+        try:
+            header = json.loads("\n".join(lines[i + 1:close]))
+        except ValueError:
+            header = None
+        mode = header.get("evidence_mode") if isinstance(header, dict) else None
+        if not isinstance(header, dict):
+            return f"its {review_brief.DISPATCH_VERSION} header (line {i + 1}) is not a JSON object"
+        if mode != "pinned":
+            said = f"says evidence_mode {mode!r}" if mode is not None else "names no evidence_mode"
+            return (f"its {review_brief.DISPATCH_VERSION} header (line {i + 1}) {said}: only a pinned review, which "
+                    "read the range's commits through git, covers a head (agent-fabric ADR-020 §5 rule 10). A "
+                    "working-tree review read the live clone; keep its report out of the PR, or review the pushed "
+                    "range pinned and post that")
+        i = close + 1
+    return ""
+
+
 def identity(fabric: str, *args: str) -> str:
     ident = os.path.join(fabric, "runtime", "identity.py")
     if not os.path.exists(ident):
@@ -184,6 +227,10 @@ def run(argv: list[str], stdin) -> int:
     body = stdin
     if not body.strip(" \t\n"):
         die("the review body is empty.")
+    # Before anything is read of the PR: what the report is decides it, whichever PR it names, --dry-run too.
+    refusal = evidence_refusal(body)
+    if refusal:
+        die(f"not posting this report as the review of a head: {refusal}.")
 
     try:
         repo = gh.this_repo()
