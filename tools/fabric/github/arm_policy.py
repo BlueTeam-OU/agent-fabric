@@ -81,7 +81,7 @@ DEFAULT: dict[str, Any] = {
     "commits": {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}},
     "reviews": ["claude"],
     "boundary_reviews": ["claude"],
-    "additional_reviews": [],
+    "additional_reviews": ["codex"],
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
 }

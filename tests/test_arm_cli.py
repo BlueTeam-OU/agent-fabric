@@ -602,8 +602,8 @@ def main() -> int:
 
         print("arm: the policy's reviews — each required engine has reviewed the current head (ADR-053 rule 6)")
         d = arm_policy.default()
-        check("the built-in default requires claude and asks no additional review (codex waits for #245's marker tool)",
-              (d["reviews"], d["boundary_reviews"], d["additional_reviews"]) == (["claude"], ["claude"], []), str(d))
+        check("the built-in default requires claude and asks codex as an additional review",
+              (d["reviews"], d["boundary_reviews"], d["additional_reviews"]) == (["claude"], ["claude"], ["codex"]), str(d))
         both = dict(claude_only, reviews=["claude", "codex"], boundary_reviews=["claude", "codex"])
         # Gate 4 asks a review only of a boundary or a direct repository; a plain PR's review is gate 4b's, whatever
         # engines the policy names (#235, Codex finding 1: ["claude"] alone once skipped it and armed with none).
@@ -985,25 +985,20 @@ def main() -> int:
         check("GH_REPO with no owner: exit 2, never 1, nothing armed",
               rc == 2 and "cannot read the repository" in out and "pr merge" not in calls(), out)
 
-        # The process reads the fleet policy file itself (no repository file in the settings repository). The test's
-        # fabric root holds a fixture file that requires claude and asks codex as an additional review, as the fleet's
-        # will once #245 posts the marker: the PRs it arms are reviewed by both, or carry codex's unavailable marker.
-        fleet_root = os.path.join(state, "fleetroot")
-        os.makedirs(os.path.join(fleet_root, "policies"), exist_ok=True)
-        with open(os.path.join(fleet_root, "policies", "arming.json"), "w") as fh:
-            json.dump({"reviews": ["claude"], "boundary_reviews": ["claude"], "additional_reviews": ["codex"]}, fh)
-        fleet_env = {"AGENT_FABRIC_OPERATOR": fleet_root}
+        # The process reads the fleet policy file itself (no repository file in the settings repository), which
+        # requires claude and asks codex as an additional review: the PRs it arms are reviewed by both, or carry
+        # codex's unavailable marker for the head.
         def both_reviewed() -> None:
             put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
 
         print("arm (CLI): the fleet policy file, read by the process")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
-        rc, out, err = cli("7", "--basis", "b", split=True, env=fleet_env)
+        rc, out, err = cli("7", "--basis", "b", split=True)
         check("only the claude review of the head: exit 1, refused naming codex, nothing armed",
               rc == 1 and "asks the codex engine's review" in err and "engines required: claude; additional: codex" in err
               and "pr merge" not in calls(), err)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("unavailable", f"{HEAD}@abcdef01:allowance")
-        rc, out = cli("7", "--basis", "b", "--dry-run", env=fleet_env)
+        rc, out = cli("7", "--basis", "b", "--dry-run")
         check("…with codex's unavailable marker for the head: the claude review alone arms (dry run)",
               rc == 0 and "DRY RUN" in out and "codex unavailable (allowance)" in out and "pr merge" not in calls(), out + calls())
 

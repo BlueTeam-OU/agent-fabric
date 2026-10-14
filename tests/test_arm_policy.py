@@ -381,14 +381,12 @@ class Load(Scratch):
 class Reviews(Scratch):
     """The `reviews` rule (agent-fabric ADR-053 rule 6): which engines a PR needs. arm.py's refusals are test_arm_cli's."""
 
-    def test_the_default_requires_claude_and_asks_no_additional_review_until_the_marker_tool_lands(self):
-        # No tool posts codex's unavailable marker before #245, so listing codex as additional would stop every arm.
+    def test_the_default_requires_claude_and_asks_codex_as_an_additional_review(self):
+        # The owner, 2026-10-13: codex is more, never a block; on a boundary change too.
         d = arm_policy.default()
-        self.assertEqual((d["reviews"], d["boundary_reviews"], d["additional_reviews"]), (["claude"], ["claude"], []))
+        self.assertEqual((d["reviews"], d["boundary_reviews"], d["additional_reviews"]), (["claude"], ["claude"], ["codex"]))
         self.assertEqual((arm_policy.required_engines(d, False), arm_policy.required_engines(d, True)), (["claude"], ["claude"]))
-        self.assertEqual((arm_policy.additional_engines(d, False), arm_policy.additional_engines(d, True)), ([], []))
-        p = arm_policy.validate({"additional_reviews": ["codex"]})
-        self.assertEqual((arm_policy.additional_engines(p, False), arm_policy.additional_engines(p, True)), (["codex"], ["codex"]))
+        self.assertEqual((arm_policy.additional_engines(d, False), arm_policy.additional_engines(d, True)), (["codex"], ["codex"]))
 
     def test_a_list_replaces_the_fleets_and_never_merges(self):
         self.assertEqual(arm_policy.validate({"reviews": ["codex"]})["reviews"], ["codex"])
@@ -789,8 +787,8 @@ class ArmRun(unittest.TestCase):
         self.ran = ran
         return rc, out.getvalue()
 
-    def test_under_a_policy_asking_codex_the_claude_review_with_no_codex_review_or_marker_is_refused_naming_codex(self):
-        rc, out = self.run_arm(dict(arm_policy.default(), additional_reviews=["codex"]), 9)
+    def test_under_the_fleet_default_the_claude_review_with_no_codex_review_or_marker_is_refused_naming_codex(self):
+        rc, out = self.run_arm(arm_policy.default(), 9)
         self.assertIn("asks the codex engine's review of the current head", str(rc), out)
         self.assertIn("engines required: claude; additional: codex", str(rc))
         self.assertFalse([c for c in self.ran if c[:2] == ["pr", "merge"]], self.ran)
