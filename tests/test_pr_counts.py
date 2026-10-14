@@ -252,10 +252,10 @@ def main() -> int:
         return run_counts(["4"], Hub({"o/this": {4: doc}}), policy=extra)[0]["line"]
     cases = [("codex ✓", [rv(claude_r["body"]), rv(codex_r["body"])], "head reviewed: claude ✓ codex ✓"),
              ("codex unavailable", [rv(claude_r["body"]), rv(gone_line + "\nspent")], "head reviewed: claude ✓ codex unavailable (allowance)"),
-             ("codex ✗", [rv(claude_r["body"])], "review claude ✓ codex ✗"),
-             ("a marker for another head", [rv(claude_r["body"]), rv(gone_line.replace(hx, "0" * 40))], "review claude ✓ codex ✗"),
-             ("a marker on a review of another commit", [rv(claude_r["body"]), rv(gone_line, oid="0" * 40)], "review claude ✓ codex ✗"),
-             ("a marker from another login", [rv(claude_r["body"]), rv(gone_line, login="rando")], "review claude ✓ codex ✗"),
+             ("codex absent", [rv(claude_r["body"])], "head reviewed: claude ✓ codex absent"),
+             ("a marker for another head", [rv(claude_r["body"]), rv(gone_line.replace(hx, "0" * 40))], "head reviewed: claude ✓ codex absent"),
+             ("a marker on a review of another commit", [rv(claude_r["body"]), rv(gone_line, oid="0" * 40)], "head reviewed: claude ✓ codex absent"),
+             ("a marker from another login", [rv(claude_r["body"]), rv(gone_line, login="rando")], "head reviewed: claude ✓ codex absent"),
              ("the required engine is still required", [rv(gone_line)], "review claude ✗ codex unavailable (allowance)")]
     for what, reviewed, want_line in cases:
         line = line_of(reviewed)

@@ -422,8 +422,8 @@ class Reviews(Scratch):
 
 
 class ReviewLine(unittest.TestCase):
-    """The line arm, gate and counts print: an additional engine is ✓, unavailable (<reason>) or ✗, and only ✗ keeps
-    "head reviewed" off it. The marker stands in only for the exact head it names, on a review of that head."""
+    """The line arm, gate and counts print: an additional engine is ✓, unavailable (<reason>) or absent, and none of
+    them keeps "head reviewed" off it (#264 F1). The marker stands in only for the exact head it names, on a review of that head."""
     HEAD = "abcdef12" + "3" * 32
 
     def gone(self, head=None, commit=None, engine="codex", reason="allowance"):
@@ -437,7 +437,7 @@ class ReviewLine(unittest.TestCase):
     def test_the_three_states(self):
         self.assertEqual(self.line({"claude", "codex"}), "head reviewed: claude ✓ codex ✓ (head abcdef12)")
         self.assertEqual(self.line({"claude"}, [self.gone()]), "head reviewed: claude ✓ codex unavailable (allowance) (head abcdef12)")
-        self.assertEqual(self.line({"claude"}), "claude ✓ codex ✗ (head abcdef12)")
+        self.assertEqual(self.line({"claude"}), "head reviewed: claude ✓ codex absent (head abcdef12)")
 
     def test_an_unavailable_additional_engine_never_stands_in_for_a_required_one(self):
         self.assertEqual(self.line(set(), [self.gone()]), "claude ✗ codex unavailable (allowance) (head abcdef12)")
@@ -448,7 +448,7 @@ class ReviewLine(unittest.TestCase):
     def test_a_marker_for_another_head_or_on_a_review_of_another_commit_counts_for_nothing(self):
         other = "0123abcd" + "4" * 32
         for mark in (self.gone(head=other), self.gone(commit=other), self.gone(head=self.HEAD[:39] + "9"), {"engine": "codex"}, "x"):
-            self.assertEqual(self.line({"claude"}, [mark]), "claude ✓ codex ✗ (head abcdef12)", mark)
+            self.assertEqual(self.line({"claude"}, [mark]), "head reviewed: claude ✓ codex absent (head abcdef12)", mark)
 
     def test_a_review_of_the_head_is_the_mark_whatever_marker_is_there_too(self):
         self.assertEqual(self.line({"claude", "codex"}, [self.gone()]), "head reviewed: claude ✓ codex ✓ (head abcdef12)")
@@ -727,7 +727,7 @@ class PrGateRun(unittest.TestCase):
         self.assertEqual(pr_gate.review_of_head(reader({"blind": blind, "unavailable": gone}), 7, self.HEAD, ["claude"], additional=["codex"]),
                          "head reviewed: claude ✓ codex unavailable (allowance) (head abcdef12)")
         self.assertEqual(pr_gate.review_of_head(reader({"blind": blind}), 7, self.HEAD, ["claude"], additional=["codex"]),
-                         "claude ✓ codex ✗ (head abcdef12)")
+                         "head reviewed: claude ✓ codex absent (head abcdef12)")
         self.assertEqual(pr_gate.review_of_head(reader({"blind": blind, "unavailable": {"rows": "x"}}), 7, self.HEAD, ["claude"]), "?")
         for not_an_object in (None, [], "x"):
             self.assertEqual(pr_gate.review_of_head(reader(not_an_object), 7, self.HEAD, ["claude"], additional=["codex"]), "?", not_an_object)

@@ -674,7 +674,7 @@ def main() -> int:
         absent = ("pr comment 7 --body Arming basis: b — 9 work commits, head abcdef01. codex: absent, no review or marker on"
                   " abcdef01: armed on the claude review alone.")
         check("codex with neither review nor marker: absent, armed on claude alone, said in the output and in the basis",
-              rc == 0 and "ARMED #7" in out and "review=claude ✓ codex ✗ (head abcdef01)" in out
+              rc == 0 and "ARMED #7" in out and "review=head reviewed: claude ✓ codex absent (head abcdef01)" in out
               and "codex: absent, no review or marker on abcdef01" in out and absent in calls()
               and calls().count(f"pr merge 7 --merge --auto --match-head-commit {HEAD}") == 1, out + calls())
         other = "0123456789abcdef0123456789abcdef01234567"
@@ -683,7 +683,7 @@ def main() -> int:
                            (f"{HEAD}@01234567:allowance", "…one naming this head on a review of another commit")):
             reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("unavailable", mark)
             rc, out = run("7", "--basis", "b", policy=extra)
-            check(f"{what} is no marker of this head: codex absent, armed", rc == 0 and "codex ✗" in out
+            check(f"{what} is no marker of this head: codex absent, armed", rc == 0 and "codex absent (head" in out
                   and "could not run" not in out and absent in calls(), out + calls())
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", ""); put("unavailable", f"{HEAD}@abcdef01:allowance")
         rc, out = run("7", "--basis", "b", policy=extra)

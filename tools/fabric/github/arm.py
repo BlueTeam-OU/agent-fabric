@@ -205,8 +205,9 @@ What it refuses, in order, and why:
      one posted with --model codex,
      and no unresolved review thread (an open P1 or P2 of either engine). The
      refusal opens with the line fabric-pr gate and fabric-pr counts print too,
-     "review=claude ✓ codex ✗ (head 6bc0ad18)" ("head reviewed: " opens it only
-     when every one is there), and names the engine still missing.
+     "review=claude ✗ codex ✓ (head 6bc0ad18)" ("head reviewed: " opens it only
+     when every required engine is there; an additional one with neither its
+     review nor its marker reads "codex absent"), and names the engine missing.
      `boundary_reviews` adds engines for a
      security-boundary change not waived; agent-fabric ADR-053 rule 6.
      An engine in `additional_reviews` is asked too, never required: its
