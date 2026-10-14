@@ -276,7 +276,7 @@ def main() -> int:
         run("add", "a queued high job", "--priority", "high")
         r = run("next")
         check("`next` takes it ahead of a queued high job, and says why",
-              r.returncode == 0 and r.stdout.splitlines()[0].startswith("j6") and "blocker cleared: pr:o/r#7" in r.stdout.splitlines()[0], r.stdout)
+              r.returncode == 0 and r.stdout.splitlines()[0].startswith("j6") and "blocker cleared: pr:o/r#7" in r.stdout.splitlines()[0], r.stdout + r.stderr)
         check("…and it is active, its blockers dropped", job("j6")["state"] == "active" and "blockers" not in job("j6"))
         run("block", "j6", "--on", "pr:o/r#7")
         r = run("start", "j7")

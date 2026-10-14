@@ -209,7 +209,8 @@ def switch_job(args) -> int:
     session = session_id()
     old = last_worked(listed, session)
     settled = None
-    if old:
+    # The job just left is the one taken again (a blocker that cleared at once, a job paused and resumed): nothing was left.
+    if old and old["id"] != nxt["id"]:
         try:
             here = vcs.toplevel(os.getcwd())
         except vcs.VcsError as e:
@@ -232,7 +233,7 @@ def switch_job(args) -> int:
         was_cleared = blockers_note(job, cache) if job["state"] == "blocked" and bl.cleared_flag(job, cache) is True else ""
         resumed = job.get("reason") if job["state"] == "paused" else None
         where = f"branch {choice.branch}" if choice.branch else f"no branch ({choice.note})"
-        mark = f"switch from {old['id']} ({settled}); {where}" if old else f"switch; {where}"
+        mark = f"switch from {old['id']} ({settled}); {where}" if settled else f"switch; {where}"
         if choice.kind == "blocked":
             on = f"pr:{choice.repo}#{choice.pr}"
             was_blocked = job["state"] == "blocked"
@@ -246,7 +247,7 @@ def switch_job(args) -> int:
             job["blockers"] = list(dict.fromkeys(before[1] + [on])) if was_blocked else [on]
         else:
             transition(doc, job, "active", note=mark, branch=choice.branch, worktree=choice.worktree)
-        if old:
+        if settled:
             find(doc, old["id"]).setdefault("log", []).append(
                 {"at": identity.now_iso(), "kind": "switch", "note": f"switch to {job['id']}: {settled}; {where}"})   # no `state`: fleet.log_times reads the state of an entry as a transition
         verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, job=dict(job))

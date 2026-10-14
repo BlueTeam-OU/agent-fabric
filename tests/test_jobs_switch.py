@@ -282,7 +282,12 @@ def main() -> int:
         j1 = w.working("blocked on a merged pull request")
         gh_says({"o/r#5": "MERGED"})
         w.sw("block", j1, "--on", "pr:o/r#5")
-        settles(w, j1, "a blocker that already cleared means the job is not blocked", "has cleared")
+        w.add("the next job")
+        rc, out, err = w.switch("j2")
+        check("a blocker that already cleared means the job is not blocked: leaving it for another by name is refused", rc == 1 and "has cleared" in err
+              and w.job("j2")["state"] == "queued", err)
+        rc, out, err = w.switch()
+        check("…and a plain switch takes the job whose wait is over, before anything queued", rc == 0 and out.startswith(j1), out + err)
         gh_says({"o/r#5": "OPEN"})
         w.sw("start", j1)
         gh_says({"o/r#6": "OPEN"})
@@ -368,6 +373,14 @@ def main() -> int:
         w.add("third")
         rc, out, err = w.switch()
         check("a message that arrived after the session started but before this job did is owed (the earlier of the two)", rc == 1 and RID in err, err)
+
+        w = World()
+        j1 = w.working("blocked and cleared at once")
+        gh_says({"o/r#5": "MERGED"})
+        w.sw("block", j1, "--on", "pr:o/r#5")
+        rc, out, err = w.switch()
+        check("the job just blocked, whose blocker has already cleared, is taken again: nothing to settle first",
+              rc == 0 and out.startswith(j1) and w.job(j1)["state"] == "active" and "switch" in w.job(j1)["log"][-1]["note"], out + err)
 
         print("an active job is never passed; nothing queued is the pool's offer, as before")
         w = World()
