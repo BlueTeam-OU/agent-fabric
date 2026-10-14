@@ -210,7 +210,7 @@ def main() -> int:
         field("status", "completed", "the last API message ends its turn")
         field("status_source", "transcript:end_turn", "the evidence")
         check("completed_at is an ISO UTC time",
-              isinstance(row.get("completed_at"), str) and bool(re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$", row["completed_at"])),
+              isinstance(row.get("completed_at"), str) and bool(re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z", row["completed_at"])),
               json.dumps(row))
         check("no text of the transcript reaches the ledger", "NEVER-IN-THE-LEDGER" not in "\n".join(lines()))
         modes = (oct(os.stat(ledger).st_mode & 0o777) if os.path.exists(ledger) else None,
