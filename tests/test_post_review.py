@@ -77,9 +77,17 @@ def main() -> int:
          "- F1 (P2) quotes:\n  - " + tree.replace("\n", "\n    "), True),
         ("a pinned header, then a list item opening a working-tree one: refused",
          f"{pinned}\n- " + tree.replace("\n", "\n  "), True),
-        ("the name in prose: refused", f"{pinned}\nF1 (P3) the agent-fabric-dispatch header is long", True),
-        ("the version in inline code: refused", "F1 (P3) `agent-fabric-dispatch v1` is long", True),
-        ("a pinned header's own body naming nothing: posts", f"{pinned}\nF1 (P3) the dispatch header is long", False),
+        ("a header nested in a list item's blockquote: refused",
+         "1. F1 quotes:\n   > " + tree.replace("\n", "\n   > "), True),
+        ("a spaced fence in a blockquote: refused", "\n".join("> " + l for l in tree.replace("```agent", "``` agent", 1).split("\n")), True),
+        # Only a fence opens a header: prose and a quoted hunk naming it carry none, and post (supplier review, F1).
+        ("the name in prose: posts", f"{pinned}\nF1 (P3) the agent-fabric-dispatch header is long", False),
+        ("the version in inline code: posts", "F1 (P3) `agent-fabric-dispatch v1` is long", False),
+        ("a quoted diff adding and removing a header's fence: posts, + and - opening no list item",
+         "F1 (P2) quotes the hunk:\n```diff\n+```agent-fabric-dispatch v1\n+{}\n+```\n-```agent-fabric-dispatch v1\n```", False),
+        ("a list item whose marker has a tab: refused", "-\t" + tree.replace("\n", "\n  "), True),
+        ("a quoted hunk naming it: posts",
+         "F1 (P2)\n```\n+DISPATCH_VERSION = \"agent-fabric-dispatch v1\"\n```", False),
     ):
         why = post_review.evidence_refusal(body)
         check(label, bool(why) is refused and (not refused or "agent-fabric-dispatch v1" in why))
@@ -91,11 +99,14 @@ def main() -> int:
 
     blockquoted = post_review.evidence_refusal("F1 (P2) …\n\n" + "\n".join("> " + l for l in tree.split("\n")))
     check(f"a stray name's refusal names its line and says what to do (got {blockquoted!r})",
-          blockquoted.startswith("line 3 names agent-fabric-dispatch outside") and "blockquote" in blockquoted
-          and "Take the line out" in blockquoted)
+          blockquoted.startswith("line 3 opens an agent-fabric-dispatch fence") and "blockquote" in blockquoted
+          and "Take the block out" in blockquoted)
     later = post_review.evidence_refusal(f"{pinned}\nF1\n> {pinned.splitlines()[0]}")
     check("a stray after a recognised header is counted from the report's first line",
-          later.startswith(f"line {len(pinned.splitlines()) + 2} names"))
+          later.startswith(f"line {len(pinned.splitlines()) + 2} opens"))
+    check("a line is counted by \\n, not by every break splitlines knows",
+          post_review.evidence_refusal(f"F1 a\u2028b\x0cc\nF2\n> {tree.splitlines()[0]}").startswith("line 3 ")
+          and "header at line 2 " in post_review.evidence_refusal(f"F1 a\u2028b\n{tree}"))
 
     print("the posted report carries no dispatch header (review of #259, risk 1)")
     named = header(range="a..b", job_id="j9")
