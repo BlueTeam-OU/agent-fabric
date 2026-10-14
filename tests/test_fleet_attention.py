@@ -56,7 +56,7 @@ class Levels(unittest.TestCase):
         f = self.fleet(states_rows(a={"state": "blocked", "since": "2027-01-15T07:30:00Z"}), jobs_rows(a=[job("j1", "queued"), job("j2", "queued")]))
         r = attention(f.fetch(["attention"]), "a")
         self.assertEqual(r["status"], "ok")
-        self.assertEqual(r["data"], {"level": "needs_input", "reason": None, "since": "2027-01-15T07:30:00Z", "blocked": 0, "pending": 2, **UNKNOWN_S3})
+        self.assertEqual(r["data"], {"level": "needs_input", "reason": None, "since": "2027-01-15T07:30:00Z", "blocked": 0, "pending": 2, "paused": 0, **UNKNOWN_S3})
 
     def test_needs_input_wins_over_a_blocked_job(self):
         f = self.fleet(states_rows(a={"state": "blocked", "since": "2027-01-15T07:30:00Z"}), jobs_rows(a=[job("j1", "blocked", "a review")]))
@@ -67,7 +67,7 @@ class Levels(unittest.TestCase):
         f = self.fleet(states_rows(a={"state": "idle", "since": "2027-01-15T06:00:00Z"}),
                        jobs_rows(a=[job("j1", "blocked", "owner's word on the merge", "2027-01-15T07:10:00Z"), job("j2", "queued")]))
         d = attention(f.fetch(["attention"]), "a")["data"]
-        self.assertEqual(d, {"level": "waiting", "reason": "owner's word on the merge", "since": "2027-01-15T07:10:00Z", "blocked": 1, "pending": 1, **UNKNOWN_S3})
+        self.assertEqual(d, {"level": "waiting", "reason": "owner's word on the merge", "since": "2027-01-15T07:10:00Z", "blocked": 1, "pending": 1, "paused": 0, **UNKNOWN_S3})
 
     def test_with_several_blocked_jobs_the_most_recently_updated_gives_the_reason_the_first_among_equals(self):
         jobs = [job("j1", "blocked", "older", "2027-01-15T05:00:00Z"), job("j2", "blocked", "newest", "2027-01-15T08:00:00Z"),
@@ -83,12 +83,19 @@ class Levels(unittest.TestCase):
         for state in ("working", "idle", "none"):
             f = self.fleet(states_rows(a={"state": state}), jobs_rows(a=[job("j1", "active"), job("j2", "delivered")]))
             d = attention(f.fetch(["attention"]), "a")["data"]
-            self.assertEqual(d, {"level": "none", "reason": None, "since": None, "blocked": 0, "pending": 0, **UNKNOWN_S3}, state)
+            self.assertEqual(d, {"level": "none", "reason": None, "since": None, "blocked": 0, "pending": 0, "paused": 0, **UNKNOWN_S3}, state)
 
     def test_the_counts_are_blocked_and_queued_jobs_only(self):
         jobs = [job("j1", "blocked", "x"), job("j2", "blocked", "y"), job("j3", "queued"), job("j4", "active"), job("j5", "delivered")]
         d = attention(self.fleet(states_rows(), jobs_rows(a=jobs)).fetch(["attention"]), "a")["data"]
         self.assertEqual((d["blocked"], d["pending"]), (2, 1))
+
+    def test_a_paused_job_is_counted_apart_and_is_no_wait_on_anyone(self):
+        paused = [job("j1", "paused"), job("j2", "paused"), job("j3", "queued"), job("j4", "blocked", "owner's word", "2027-01-15T07:10:00Z")]
+        d = attention(self.fleet(states_rows(), jobs_rows(a=paused)).fetch(["attention"]), "a")["data"]
+        self.assertEqual((d["blocked"], d["pending"], d["paused"], d["level"]), (1, 1, 2, "waiting"))
+        only = attention(self.fleet(states_rows(), jobs_rows(a=[job("j1", "paused", "x")])).fetch(["attention"]), "a")["data"]
+        self.assertEqual((only["level"], only["reason"], only["since"], only["blocked"], only["paused"]), ("none", None, None, 0, 1))
 
     def test_a_needs_input_whose_since_is_not_a_time_string_has_a_null_since(self):
         f = self.fleet(states_rows(a={"state": "blocked", "since": 7}), jobs_rows(a=[]))
