@@ -72,6 +72,17 @@ def main() -> int:
               stat.S_IMODE(os.stat(saved).st_mode) == 0o600
               and all(stat.S_IMODE(os.stat(d).st_mode) == 0o700 for d in levels),
               [oct(stat.S_IMODE(os.stat(d).st_mode)) for d in levels])
+        def mode_of(rnd: str, pr: str = "7") -> object:
+            with open(os.path.join(os.path.dirname(os.path.dirname(saved)), f"pr-{pr}", f"round-{rnd}.json"),
+                      encoding="utf-8") as fh:
+                return json.load(fh).get("evidence_mode")
+        check("a round with no dispatch header records no evidence mode, never a guessed one", mode_of("1") is None,
+              mode_of("1"))
+        run("save", "99", "2", stdin='```agent-fabric-dispatch v1\n{"evidence_mode": "working-tree"}\n```\n\n## 1.\n')
+        check("…a round records the mode its report's dispatch header names (ADR-020 rule 10)",
+              mode_of("2", "99") == "working-tree", mode_of("2", "99"))
+        run("save", "99", "3", stdin='```agent-fabric-dispatch v1\nnot json\n```\n')
+        check("…and a header it cannot read as unreadable", mode_of("3", "99") == "unreadable", mode_of("3", "99"))
         r = run("save", "7", "1", stdin="  \n")
         check("an empty report is refused", r.returncode == 1 and "no report" in r.stderr, r.stderr)
         r = run("save", "x7", "1", stdin="r")

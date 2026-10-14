@@ -156,7 +156,13 @@ without the block is attributed `inferred` by the cost hook.
 `pinned` for a range, `working-tree` for a diff file) is named in the
 header and in a line under `## Repository`. `pinned`: the reviewer reads
 the range's commits through git; `working-tree`: it reads the files on
-disk.
+disk. The reviewer opens its report with the brief's header, copied
+unchanged, so the mode travels with the report: `fabric-pr post-review`
+refuses a report whose header says `working-tree` (only a pinned review
+covers a head), and `fabric-review save` records each round's mode in
+`round-<N>.json` beside `round-<N>.md` (`null` when the report has no
+header). A re-review request carries `evidence` over from the previous
+one.
 
 ## The dispatch
 
