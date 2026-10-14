@@ -232,6 +232,7 @@ def run() -> None:
     for login in ("python-dev-04", "web-dev-01", "language-culture-en", "devex-tooling"):
         agent(login, "user")
     agent("orphan-dev", "user", certify=False)
+    agent("devex-child", "devex-tooling")    # certified by its parent before the parent was revoked
     agent("owner", None)     # the shared key's stand-in: signs, in no lineage
     write_fleet(revoked=("devex-tooling",))
     os.makedirs(os.path.join(FABRIC, "identities", "roles", "orphan-dev"), exist_ok=True)
@@ -315,6 +316,13 @@ def run() -> None:
     r = guard()
     check("a key its parent never certified (the chain does not verify): refused",
           refused(r, "lineage does not certify"), r.stderr)
+
+    branch("revoked-parent")
+    commit("devex-child", "devex-tooling")
+    r = guard()
+    check("a good key under a revoked ancestor: refused", refused(r, "devex-child") or refused(r, AGENTS["devex-child"]["id"]), r.stderr)
+    check("  ... and the refusal names the revoked ancestor",
+          f"ancestor {AGENTS['devex-tooling']['id']} is revoked" in r.stderr, r.stderr)
 
     print("threat model: the role")
     branch("coord")
