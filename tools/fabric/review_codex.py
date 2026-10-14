@@ -371,7 +371,7 @@ def load_request(path: str, allow_rationale: bool) -> tuple[dict, str]:
     """The request and its rendered brief, unchanged (rule 1)."""
     with open(path, encoding="utf-8") as f:
         req = review_brief.parse_request(f.read())
-    brief = review_brief.render(req, allow_rationale=allow_rationale)
+    brief = review_brief.render(req, allow_rationale=allow_rationale, engine="codex", purpose="second-engine-review")
     if not req.get("range"):
         raise Refused("the Codex engine reviews a pushed head: the request needs a range, not a diff file")
     return req, brief
