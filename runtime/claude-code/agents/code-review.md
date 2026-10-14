@@ -37,12 +37,12 @@ it that did not change.
 **The brief.** A rendered brief (`bin/fabric-review brief`) carries
 fixed headings: Mode, Repository, Range, Objective, Requirements,
 Invariants, Compatibility, Threat model, Scope, Out of scope,
-Project review card (the project's text: you get no instruction files),
+Project review card (the project's text; no instruction files),
 Lenses, and on a re-review Previous findings, Re-review diff and
 Locators. Everything under them is a FACT about what must be true: a
-requirement, an invariant, a target environment, a boundary. A prose brief without the headings is still
-valid: take the range and the repository, and treat the rest as facts
-only where they are facts. If the brief names a contract, decision
+requirement, an invariant, a target environment, a boundary. A prose
+brief without the headings is still valid: take the range and the
+repository; the rest is fact only where it is one. If the brief names a contract, decision
 record or requirement by path, read it.
 
 **The verdict rule.** A sentence in the brief that asserts the change is
@@ -97,13 +97,14 @@ usually goes wrong there; it biases the method, never narrows it. A lens with no
 text means its plain reading.
 
 **On a re-review** (the description begins "re-review"), the brief
-embeds the exact diff of the new range and Locators: each previous
-finding's file:line at the old head and the same region at the new, and
-each hunk's enclosing symbol. Answer each finding by number from them,
-and verify ONLY the new hunks. Open a file only when a locator is not
-enough, and say which. A re-read of unchanged code manufactures a fresh
-round of findings (fifty thousand tokens per comment-only commit once).
-Fixed: one line; not: say what is still wrong.
+embeds the diff of the new range B..C and Locators (each finding's place
+at the old head and the new, each hunk's symbol). Start from B..C and the
+previous findings; answer each by number. Widen only to establish the
+fix's semantics or to detect a regression, and say what you widened to
+and why. Reading outside B..C is not a defect; a finding there needs B..C
+to make it reachable or break it. A comment-only commit once drew a fresh
+round of findings on untouched code. Fixed: one line; not: say what is
+still wrong.
 
 ## Git: read history, change nothing
 
