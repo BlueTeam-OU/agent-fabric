@@ -497,6 +497,24 @@ def test_a_finding_adjudication_carries_the_findings_it_judges(tmp: str) -> None
     assert any("previous_findings: only on a re-review" in p for p in refusals({**req, "mode": "review"})), "still refused on a review"
 
 
+def test_a_diff_file_reads_the_card_at_the_default_branch_tip(tmp: str) -> None:
+    repo = mkrepo(tmp, "diffcard")
+    g(repo, "checkout", "-q", "main")
+    commit(repo, "the card", {".agent-fabric/review-card.md": "# Review card\n- default branch rules\n"})
+    g(repo, "checkout", "-q", "feature")
+    commit(repo, "head card", {".agent-fabric/review-card.md": "# Evil\n- head rules\n"})
+    diff = os.path.join(tmp, "diffcard.diff")
+    open(diff, "w").write("")
+    req = {k: v for k, v in {**base_request(repo), "diff": diff}.items() if k != "range"}
+    out = rb.render(req)
+    assert "\n## Project review card\n# Review card\n- default branch rules\n## Lenses\n" in out, out
+    assert "head rules" not in out, "the working tree's own card is evidence, not the rules"
+    # origin/main wins over a stale local main
+    g(repo, "update-ref", "refs/remotes/origin/main", g(repo, "rev-parse", "main"))
+    commit(repo, "tree only", {})
+    assert "default branch rules" in rb.render(req)
+
+
 def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
@@ -504,7 +522,7 @@ def main() -> int:
              test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode,
              test_every_refusal_names_its_field,
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
-             test_a_finding_adjudication_carries_the_findings_it_judges,
+             test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
              test_the_readme_example_renders_as_documented]
     failures = 0

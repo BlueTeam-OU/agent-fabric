@@ -298,6 +298,13 @@ def default_ref(repo: str) -> str | None:
     return None
 
 
+def _default_tip(repo: object) -> str | None:
+    """The default branch's tip, where a diff file (a working tree with no
+    base commit) reads the card: the same governed source as a ranged review's."""
+    ref = default_ref(repo) if isinstance(repo, str) and repo else None
+    return _commit_of(repo, ref) if ref else None
+
+
 def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
     """({base_sha, head_sha, card_base}, refusals) for a ranged request: both
     ends resolved now, and the card's base (the request's `card_base`, which
@@ -544,7 +551,7 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     for key, heading in (("requirements", "Requirements"), ("invariants", "Invariants"), ("compatibility", "Compatibility"),
                          ("threat_model", "Threat model"), ("scope", "Scope"), ("out_of_scope", "Out of scope")):
         out += [f"## {heading}", _items(req.get(key))]
-    text, _ = card(req["repository"], info["card_base"] if info else None)
+    text, _ = card(req["repository"], info["card_base"] if info else _default_tip(req["repository"]))
     out += ["## Project review card", text if text else "(none)"]
     if mode == "re-review" or (mode == "finding-adjudication" and req.get("previous_findings")):
         # Fenced: the previous report carries headings at the brief's own

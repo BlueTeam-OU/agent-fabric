@@ -142,10 +142,13 @@ outage procedure.
    renderer refuses otherwise by name. The head's copy is evidence under
    review like any other file: a change that edits the card is reviewed
    under the base's card, with the card's own diff in scope, and the new
-   card governs only reviews whose base includes it. With the card in
-   place the reviewer's agent file omits the project's instruction files
-   (`omitClaudeMd`): what a reviewer needs of a project is the card, the
-   brief, the lenses and the tree.
+   card governs only reviews whose base includes it. A diff file has no
+   base, so its card is read at the default branch's tip. The reviewer's
+   agent file omits the project's instruction files (`omitClaudeMd`)
+   unconditionally: what a reviewer needs of a project is the card, the
+   brief, the lenses and the tree. Where a project has no card yet, its
+   reviewer gets no project text but the brief, the lenses and the tree;
+   the gzapp and InterWeave cards are to follow.
 10. **A review names its evidence mode, and only a pinned review covers a
     head.** A request is `evidence: pinned` (the default for a ranged
     request; a diff file names no commits and is working-tree) or
