@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md (the rule every session reads); tests/run.sh, tests/leak-check.sh, tests/test_leak-check.sh, tests/scratch.mjs, tests/static.sh; the temporary directories of tools/fabric/assemble.py and tools/fabric/harvest_memory.py
+**Scope:** identities/prompt/team.md (the rule every session reads); tests/run.sh, tests/run.py, tests/test_leak-check.sh, tests/scratch.mjs, tests/static.sh; the temporary directories of tools/fabric/assemble.py and tools/fabric/harvest_memory.py
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -60,8 +60,8 @@ branch that caused it, where it is cheapest to fix.
 2. `tests/run.sh` makes a new directory under the account's temporary
    directory for the run, exports it as `TMPDIR`, removes it on exit
    (a signal exits, and the exit removes), and before that fails the run
-   naming every entry left in it (`tests/leak-check.sh`;
-   `tests/test_leak-check.sh` plants one to prove it fires).
+   naming every entry left in it (`tests/run.py`'s leak report;
+   `tests/test_run.py` plants one to prove it fires).
 3. A node suite makes its temporary directories through
    `scratch()` from `tests/scratch.mjs`, which removes them at process
    exit and on SIGINT, SIGTERM and SIGHUP; `tests/static.sh` refuses an
@@ -91,7 +91,7 @@ branch that caused it, where it is cheapest to fix.
 ## 7. Future Evolution
 
 None stated. A managed project that wants the same check can take the
-shape of `tests/run.sh` and `tests/leak-check.sh`.
+shape of `tests/run.py` and its leak report.
 
 ## 8. Decision Status
 
@@ -102,7 +102,7 @@ check (agent-fabric #26).
 
 - `identities/prompt/team.md` ("A test run leaves behind nothing it did
   not find").
-- `tests/run.sh`, `tests/leak-check.sh`, `tests/test_leak-check.sh`,
+- `tests/run.sh`, `tests/run.py`, `tests/test_leak-check.sh`, `tests/test_run.py`,
   `tests/scratch.mjs`, `tests/static.sh`.
 - `.agent-fabric/memory/fabric-coordinator/threads/suite-scratch-leak.md`
   (the measurement of 2026-09-20).

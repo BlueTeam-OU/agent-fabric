@@ -361,8 +361,8 @@ def arm_declared_findings(root: str) -> list[str]:
 
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
 # ending in "/" is a directory, any other one file, as in an entry. The
-# guards and what they import (git.py) or run in CI (the suite runners and
-# the helper they source); the definitions; runtime/claude-code/ whole — the
+# guards and what they import (git.py) or run in CI (the suite runners:
+# run.sh and static.sh and the Python they forward to); the definitions; runtime/claude-code/ whole — the
 # reviewer's agent file, the harness hooks and the settings that register
 # them, the workspace prompt, and what installs them; the role, routing,
 # prompt and review-brief code (review and re-review of #75).
@@ -376,7 +376,7 @@ CONTRIBUTOR_NEVER = (
     "tests/run.py", "tests/static.py", "tests/run_python_suites.py",
     "tools/fabric/secretstore/lineage.py", "tests/test_lineage_fence.py",
     "tests/test_contributors.py", "tests/test_agent_fabric_dir_authority.py", "tests/test_charter_authority.py",
-    "tests/leak-check.sh", "runtime/identity.py", "runtime/claude-code/",
+    "runtime/identity.py", "runtime/claude-code/",
     "bin/fabric-role", "tools/fabric/role.py", "tools/fabric/routing.py", "tools/fabric/launch_prompt.py",
     "bin/fabric-review", "tools/fabric/review_brief.py",
     # Runs as root on every host and installs the interpreter every tool runs on.

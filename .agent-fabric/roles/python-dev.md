@@ -81,7 +81,8 @@ checked return code; a body goes on stdin, never into argv.
 `policies/` (but the allowlist), `communication/gzcoord/protocol/`,
 `docs/adr/`, `memory/`, `.agent-fabric/`, `.github/`, the guards under
 `tools/fabric/guards/` and the `tools/fabric/git.py` they import, the
-lint, `tests/run.sh`, `tests/static.sh` and `tests/leak-check.sh`, all
+lint, `tests/run.sh`, `tests/static.sh` and the `run.py`, `static.py` and
+`run_python_suites.py` they forward to, all
 of `runtime/claude-code/` (its `bootstrap.sh` too, though a Wave 5
 script: the coordinator ports it), the role, routing, prompt and
 review-brief code — `policies/authority.json` lists each. A rule you
