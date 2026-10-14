@@ -434,9 +434,10 @@ def review_summary(have: set[str], required: list[str], head: str, boundary_only
     """"claude ✓ codex absent (head 6bc0ad18)", one mark per engine, opened by "head reviewed: " when every required
     engine has reviewed. `boundary_only` engines (a policy's boundary_reviews beyond its reviews, for a reader that
     does not judge the boundary) are marked and not required. `additional` engines are marked "✓", "unavailable
-    (<reason>)" when `unavailable` has their marker for this head, or "absent" with neither; " ✗ (boundary only)" follows either
-    when `boundary_only` names it too (arm requires its review of a boundary, and no marker stands in); they never block, so the line opens "head
-    reviewed" when every required engine is "✓" (#264 F1: the gate must not show blocked what arm arms).
+    (<reason>)" when `unavailable` has their marker for this head, or "absent" with neither. When `boundary_only`
+    names one too, arm requires its review of a boundary and no marker stands in: "✗ (boundary only)" replaces
+    "absent", or follows "unavailable (<reason>)". They never block, so the line opens "head reviewed" when every
+    required engine is "✓" (#264 F1: the gate must not show blocked what arm arms).
     `unread` is why the policy could not be read, when every engine was required for that reason: said on the line,
     or a missing engine reads as the repository's own requirement."""
     unavailable = unavailable or {}

@@ -95,8 +95,10 @@ WHAT A ROW SAYS
          are marked "(boundary only)" and not required here: arm judges
          the boundary. An additional engine (`additional_reviews`) is
          marked ✓, "unavailable (<reason>)" when its marker for the
-         head stands in, or absent with neither, which never blocks
-         ("✗ (boundary only)" when a boundary also requires it). An unreadable policy
+         head stands in, or absent with neither, which never blocks.
+         When a boundary also requires it, no marker stands in: "✗
+         (boundary only)" replaces absent, or follows "unavailable
+         (<reason>)". An unreadable policy
          requires every engine; ? is a reader that could not answer
   verdict one of:
     MERGEABLE — arm (8–16 work commits, gate met: post the basis, arm)
