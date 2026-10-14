@@ -111,7 +111,7 @@ def unsigned(repo: str, *rev_args: str) -> list[tuple[str, str]]:
     """(short sha, subject) of every commit `git log <rev_args>` lists whose
     object carries no signature header. Merges are listed too. Raises
     git.GitError."""
-    out = git.run(repo, "log", "--format=%H%x09%s", *rev_args, errors="replace").stdout
+    out = git.run(repo, "log", "--no-show-signature", "--format=%H%x09%s", *rev_args, errors="replace").stdout
     listed = [(sha, subject) for sha, _, subject in (line.partition("\t") for line in out.splitlines() if line)]
     if not listed:
         return []
@@ -326,7 +326,7 @@ class Judge:
                "-c", f"gpg.ssh.allowedSignersFile={self.allowed}", "-c", "gpg.ssh.revocationFile=",
                "-c", "gpg.minTrustLevel=undefined"]
         env = {**os.environ, "GNUPGHOME": self.home}
-        out = git.run(repo, *cfg, "log", "--no-walk=unsorted", "--stdin", "--format=%H%x1f%G?%x1f%GF%x1f%GS%x1e",
+        out = git.run(repo, *cfg, "log", "--no-show-signature", "--no-walk=unsorted", "--stdin", "--format=%H%x1f%G?%x1f%GF%x1f%GS%x1e",
                       input="".join(s + "\n" for s in shas), env=env, errors="replace").stdout
         verdicts = {}
         for rec in out.split("\x1e"):
@@ -351,7 +351,7 @@ class Judge:
         for sha in shas:
             why = self._why(repo, sha, verdicts.get(sha), notes.get(sha))
             if why:
-                subject = git.run(repo, "log", "-1", "--format=%s", sha, errors="replace").stdout.strip()
+                subject = git.run(repo, "log", "--no-show-signature", "-1", "--format=%s", sha, errors="replace").stdout.strip()
                 out.append(f"{sha[:10]} {subject[:50]}: {why}")
         return out
 
@@ -382,7 +382,7 @@ class Judge:
         if agent in self.excluded:
             return self.excluded[agent]
         login = (self.lineage.get(agent) or {}).get("login") or ""
-        trailers = git.run(repo, "log", "-1", "--format=%(trailers:key=Fabric-Role,valueonly,unfold)", sha,
+        trailers = git.run(repo, "log", "--no-show-signature", "-1", "--format=%(trailers:key=Fabric-Role,valueonly,unfold)", sha,
                            errors="replace").stdout.strip().splitlines()
         role = trailers[-1].strip() if trailers else ""
         if not role:

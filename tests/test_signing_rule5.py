@@ -416,6 +416,31 @@ def run() -> None:
           refused(r, "not an ancestor") and stray in r.stderr, r.stdout + r.stderr)
     write_operator(since=old)
 
+    print("log.showSignature=true in the clone")
+    write_operator(since=old, fmt="openpgp")
+    git("config", "log.showSignature", "true")
+    try:
+        branch("show-sig")
+        good_sha = commit("python-dev-04", "python-dev", fmt="openpgp")
+        bad_sha = commit(None, "python-dev")
+        found = guard_mod.unsigned(REPO, "main..HEAD")
+        check("unsigned lists exactly the unsigned commit, no verification line in the way",
+              [s for s, _ in found] == [bad_sha[:10]], found)
+        j = guard_mod.Judge(env(AGENT_FABRIC_OPERATOR=FABRIC), "openpgp")
+        try:
+            why = j.refusals(REPO, [good_sha, bad_sha])
+        finally:
+            j.close()
+        check("  ... and rule 5 passes the signed one, refuses the other for having no signature",
+              len(why) == 1 and why[0].startswith(bad_sha[:10]) and "no signature" in why[0], why)
+        branch("show-sig-ok")
+        commit("python-dev-04", "python-dev", fmt="openpgp")
+        r = guard()
+        check("  ... and the entry point passes a good branch", passed(r), r.stdout + r.stderr)
+    finally:
+        git("config", "--unset", "log.showSignature")
+        write_operator(since=old)
+
     print("the policy and the checker's own pieces")
     with open(os.path.join(FABRIC, "policies", "signing.json"), "w", encoding="utf-8") as f:
         f.write("{not json")
