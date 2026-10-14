@@ -380,7 +380,8 @@ def main() -> int:
         w.sw("block", j1, "--on", "pr:o/r#5")
         rc, out, err = w.switch()
         check("the job just blocked, whose blocker has already cleared, is taken again: nothing to settle first",
-              rc == 0 and out.startswith(j1) and w.job(j1)["state"] == "active" and "switch" in w.job(j1)["log"][-1]["note"], out + err)
+              rc == 0 and out.startswith(j1) and w.job(j1)["state"] == "active" and w.job(j1)["log"][-1]["note"].startswith("switch; ")
+              and " from " not in w.job(j1)["log"][-1]["note"].split(";")[0], out + err + w.job(j1)["log"][-1]["note"])
 
         print("an active job is never passed; nothing queued is the pool's offer, as before")
         w = World()
@@ -697,17 +698,20 @@ def main() -> int:
         rc, out, err = w.switch()
         check("…and answering it clears it, as it does any other (the positive control)", rc == 0, err)
 
-        def broken_row(metadata: str, recorded: str) -> World:
+        def broken_row(metadata: str | None, recorded: str) -> World:
             """A world whose journal holds one inbound request with `metadata` as its metadata_json, journaled at `recorded`."""
             w = World()
             j = w.add("bad row")
             w.switch()
             w.sw("drop", j, "done")
             w.add("n")
-            w.journal(("in", request(RID, "no")))
+            w.journal(("in", request(RID, "yes")))
             conn = sqlite3.connect(subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "where"], env=os.environ,
                                                   capture_output=True, text=True).stdout.strip())
-            conn.execute("UPDATE episodes SET metadata_json=?, recorded_at=? WHERE message_id=?", (metadata, recorded, RID))
+            if metadata is None:      # keep the metadata the journal wrote: only the receipt time is broken
+                conn.execute("UPDATE episodes SET recorded_at=? WHERE message_id=?", (recorded, RID))
+            else:
+                conn.execute("UPDATE episodes SET metadata_json=?, recorded_at=? WHERE message_id=?", (metadata, recorded, RID))
             conn.commit()
             conn.close()
             return w
@@ -715,6 +719,12 @@ def main() -> int:
         check("a row whose metadata cannot be read, journaled before the job, is outside its window", rc == 0, err)
         rc, out, err = broken_row("[1]", "2099-01-01T00:00:00Z").switch()
         check("metadata that parses but is no object is as unreadable: owed", rc == 1 and RID in err and "could not be read" in err, err)
+
+        rc, out, err = broken_row(None, "not a time").switch()
+        check("a readable row with no usable receipt time is owed, and the refusal names its subject",
+              rc == 1 and RID in err and "receipt time could not be read" in err and "please do" in err, err)
+        rc, out, err = broken_row(None, "2000-01-01T00:00:00Z").switch()
+        check("…and the same row with a usable time, before the job, is outside its window (the positive control)", rc == 0, err)
 
         print("blocked_on owner's decision, a dangling link in memory, a repeated pull request")
         w = World()

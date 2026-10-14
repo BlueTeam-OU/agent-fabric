@@ -79,7 +79,7 @@ PROC  `proc` per account (fleet_proc.py, local or through fabric-host): {uid, cp
 
 ATTENTION  `attention` (Fleet Deck's "needs you" views) is told from the `states` and `jobs` records of the same
   fetch, which a fetch that names it reads and shows too (like prs_unplaced with prs). It has no source of its
-  own and no cache entry: it is as fresh as its inputs. data = {level, reason, since, blocked, pending, context_pct, context_at, output}:
+  own and no cache entry: it is as fresh as its inputs. data = {level, reason, since, blocked, pending, paused, context_pct, context_at, output}:
     level    needs_input  the account's most-wanting session waits on a PERSON (session-state's `blocked`:
                           a permission prompt, an input or elicitation dialog); wins over waiting
              waiting      an open job is blocked, on something that is not a person
@@ -90,7 +90,9 @@ ATTENTION  `attention` (Fleet Deck's "needs you" views) is told from the `states
              control characters and white space collapsed, cut at 80 characters, content NOT scrubbed
              (it can name a path): a view shows it as text only
     since    needs_input: that session's `since`; waiting: that job's `updated`; else null; null too where unknown
-    blocked, pending  the numbers of open jobs in state blocked and queued
+    blocked, pending, paused  the numbers of open jobs in state blocked, queued and paused. A paused job is open
+             work its agent set aside by choice: it waits on no one, so it is never counted in `blocked` and never
+             moves the level to waiting
   `at` is the oldest of the two inputs' read times. Stale when an input is (data from the last good values,
   `age_s` the oldest, `why` both); failed, never level `none`, when an input failed, when the account's state
   is `unknown` (no fresh state record), or when the jobs answer is not a list. A human login has no control
@@ -798,7 +800,8 @@ def attention_data(states: Any, jobs: Any) -> dict[str, Any] | str:
         return "jobs: the answer carries no list of jobs"
     blocked = [j for j in listed if j.get("state") == "blocked"]
     pending = sum(1 for j in listed if j.get("state") == "queued")
-    base = {"blocked": len(blocked), "pending": pending}
+    paused = sum(1 for j in listed if j.get("state") == "paused")
+    base = {"blocked": len(blocked), "pending": pending, "paused": paused}
     base.update(attention_session(states))
     if states["state"] == "blocked":
         reason = states.get("reason") if states.get("reason") in ("permission", "question") else None

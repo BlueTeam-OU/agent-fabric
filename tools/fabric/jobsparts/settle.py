@@ -111,8 +111,9 @@ def owed_replies(since: float | None) -> list[dict] | str:
             continue
         # A row that is neither readable nor dated cannot be told from one that asks for a reply: owed, never let through.
         if not readable or (since is not None and at is None):
-            owed.append({"id": mid, "type": kind, "from": sender,
-                         "subject": "(its " + ("record" if not readable else "receipt time") + " could not be read)"})
+            # A readable record still names its subject: the owed reply is found by what it is about.
+            subject = "(its record could not be read)" if not readable else f"{str(meta.get('SUBJECT', ''))[:70]} (its receipt time could not be read)"
+            owed.append({"id": mid, "type": kind, "from": sender, "subject": subject})
             continue
         owed.append({"id": mid, "type": kind, "from": sender, "subject": str(meta.get("SUBJECT", ""))[:70]})
     return owed
