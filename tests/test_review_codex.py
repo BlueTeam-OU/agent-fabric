@@ -1074,11 +1074,11 @@ def main() -> int:
         check("…what the events do not give is unknown, not 0 or a guess: turns, first_turn_context, agent ids",
               all(row.get(k) is None for k in ("turns", "first_turn_context", "agent_id", "agent_type", "tool_use_id",
                                                "repository", "description")), row)
-        check("…the brief carries the dispatch header: attribution dispatch, its purpose, evidence and shas copied; the PR the request "
-              "did not name stays unknown, never filled from the review's own",
-              (row.get("attribution"), row.get("purpose"), row.get("evidence"), row.get("pr"), row.get("dispatch_id") is not None,
-               row.get("base_sha") is not None, len(str(row.get("head_sha"))))
-              == ("dispatch", "second-engine-review", "pinned", None, True, True, 40), row)
+        check("…the brief carries the dispatch header: attribution dispatch, its purpose, evidence and shas copied, and the PR "
+              "this review was told (the request named none), so the cost reaches that PR",
+              (row.get("attribution"), row.get("purpose"), row.get("evidence"), row.get("pr"), row.get("review_id"),
+               row.get("dispatch_id") is not None, row.get("base_sha") is not None, len(str(row.get("head_sha"))))
+              == ("dispatch", "second-engine-review", "pinned", 7, "fixture#7", True, True, 40), row)
         check("…the thread id is the session, the times are UTC and the wall time a number",
               row.get("session_id") == "01a13195-6c03-7e02-94f7-7a304e1e64d6"
               and str(row.get("started_at", "")).endswith("Z") and str(row.get("completed_at", "")).endswith("Z")
@@ -1113,6 +1113,15 @@ def main() -> int:
         check("a brief with the header: attribution dispatch, the header's purpose and fields (not this review's head), engine codex",
               (two["attribution"], two["purpose"], two["dispatch_id"], two["repository"], two["review_round"], two["job_id"],
                two["head_sha"], two["engine"], two["effort"]) == ("dispatch", "re-review", "d-9", "o/r", 2, "j9", "a" * 40, "codex", "high"), two)
+        named = os.path.join(tmp, "req", "NAMED.yaml")
+        with open(named, "w") as f:
+            f.write(open(req).read() + "pr: 9\n")
+        def header_pr(brief: str) -> object:
+            return json.loads(brief.split("\n", 1)[1].split("\n```\n", 1)[0])["pr"]
+        told, mine = review_codex.load_request(req, False, "7"), review_codex.load_request(named, False, "7")
+        check("load_request: a request that names no PR is told this review's; one that names its own keeps it",
+              (told[0]["pr"], header_pr(told[1]), mine[0]["pr"], header_pr(mine[1]), header_pr(review_codex.load_request(req, False)[1]))
+              == ("7", 7, "9", 9, None), (told[0]["pr"], header_pr(told[1]), mine[0]["pr"], header_pr(mine[1])))
         bare = review_codex.ledger_row(obs, brief="# brief\n", pr="7", head="b" * 40, model="m", level=None, now="n")
         check("a brief without the header: attribution inferred, the PR and head this review holds, the repository unknown",
               (bare["attribution"], bare["pr"], bare["head_sha"], bare["repository"], bare["evidence"])

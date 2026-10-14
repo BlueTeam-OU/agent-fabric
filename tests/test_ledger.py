@@ -9,6 +9,7 @@ import json
 import multiprocessing
 import os
 import pwd
+import re
 import sys
 import tempfile
 
@@ -137,6 +138,21 @@ def main() -> int:
     check("the row's evidence comes from the header's evidence_mode and from no other key (the header never writes `evidence`)",
           ledger.dispatch_header(header('{"evidence_mode": "working-tree"}'))[1] == {"evidence": "working-tree"}
           and ledger.dispatch_header(header('{"evidence": "pinned"}'))[1] == {}, 0)
+    real = {"repository": "github.com/BlueTeam-OU/agent-fabric", "review_id": "agent-fabric#257", "pr": 257, "purpose": "second-engine-review"}
+    kind, f = ledger.dispatch_header(header(json.dumps(real)))
+    check("the header in the renderer's real shape: the host prefix dropped and the repository lowercased, the review_id's # kept",
+          kind == "dispatch" and f == {"repository": "blueteam-ou/agent-fabric", "review_id": "agent-fabric#257", "pr": 257,
+                                       "purpose": "second-engine-review"}, f)
+    check("…a repository with a host and a port, or a bare owner/name, reads the same; one with no owner is dropped",
+          ledger.dispatch_header(header('{"repository": "git.example:8443/O/R"}'))[1] == {"repository": "o/r"}
+          and ledger.dispatch_header(header('{"repository": "O/R"}'))[1] == {"repository": "o/r"}
+          and ledger.dispatch_header(header('{"repository": "agent-fabric"}'))[1] == {})
+    hook = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runtime", "claude-code", "hooks",
+                             "subagent-ledger.py"), encoding="utf-8").read()
+    for name, mine in (("IDENT", ledger.IDENT), ("HEADER_REPO", ledger.REPO)):
+        theirs = re.search(rf'^{name} = re\.compile\(r"\^?(.*?)\$?"\)', hook, re.MULTILINE)
+        check(f"{name}: the same pattern as the hook that writes the claude rows", bool(theirs) and theirs.group(1) == mine.pattern,
+              (theirs.group(1) if theirs else None, mine.pattern))
     check("a tilde fence of any length", ledger.dispatch_header(header('{"pr": 3}', "~~~~"))[1] == {"pr": 3})
     check("a header whose body is not an object is invalid-header", ledger.dispatch_header(header("[1]"))[0] == "invalid-header"
           and ledger.dispatch_header(header("{oops"))[0] == "invalid-header")
