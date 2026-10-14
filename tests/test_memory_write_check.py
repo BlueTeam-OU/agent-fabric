@@ -62,6 +62,27 @@ def main() -> int:
             ("a credential by shape", memory(mem, "c", "c", "  roles_class: solution\n", "token ghp_" + "A" * 36),
              "by shape"),
         ]
+        # ADR-050 rule 7: warned, never refused; matched exactly and case-sensitively.
+        events = [
+            ("FIXED: starts the description", "FIXED: the cache bug", True),
+            ("FIXED then a space", "FIXED the cache bug", True),
+            ("MERGED, CLOSED and DONE", "DONE with the port", True),
+            ("a #number", "#198 and its reader", True),
+            ("a PR number", "PR 250 landed", True),
+            ("a date and a colon", "2026-10-14: the drain ran", True),
+            ("Fixed in lower case is prose", "Fixed paths are resolved first", False),
+            ("a date with no colon", "2026-10-14 is the day the drain moved", False),
+            ("FIXED glued to a word", "FIXEDPOINT arithmetic", False),
+            ("a # with no digits", "# of retries is capped", False),
+            ("PR with no number", "PR review is blind", False),
+            ("an event word after the start", "the cache was FIXED: twice", False),
+        ]
+        for label, description, warns in events:
+            path = memory(mem, "ev", description, "  roles_class: domain\n", "body")
+            rc, out = run(path)
+            good = rc == 0 and (("reads as an event" in out) if warns else not out)
+            print(f"  {'ok  ' if good else 'FAIL'} event: {label}" + ("" if good else f": {out!r}"))
+            fails += not good
         for label, path, expect in cases:
             rc, out = run(path)
             wants = (expect,) if isinstance(expect, str) else (expect or ())

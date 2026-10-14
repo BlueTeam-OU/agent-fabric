@@ -12,6 +12,9 @@ language without its English rendering), or refuse the slice it becomes
 fact is fresh, instead of the coordinator finding it at the drain, weeks
 later (agent-fabric ADR-013).
 
+Beyond the drain's verdict it advises, never refusing (ADR-050): a description
+shaped like an event (rule 7).
+
 Silent for anything else: another path, MEMORY.md, a memory without a
 `roles_class` (private by choice), and a memory the drain would take.
 The decision is the harvester's own (`judge_memory`) and the budget
@@ -40,6 +43,11 @@ def _load(name: str, rel: str):
     return mod
 
 
+# ADR-050 rule 7: a description shaped like an event is a record, not a lesson (rubric test 6). Exact and
+# case-sensitive on purpose: "Fixed the cache" is prose a lesson may open with, "FIXED:" is a changelog line.
+EVENT_RE = re.compile(r"(?:(?:FIXED|MERGED|CLOSED|DONE)[: ]|#\d+|PR \d+|\d{4}-\d{2}-\d{2}:)")
+
+
 def problems(path: str) -> list[str]:
     hm = _load("fabric_harvest", "tools/fabric/harvest_memory.py")
     parsed = hm.parse_memory(path)
@@ -57,7 +65,12 @@ def problems(path: str) -> list[str]:
     if approx > budget * lint.BUDGET_TOLERANCE:
         return [f"~{approx} tokens: one memory is one section, over the {budget}-token slice budget lint "
                 "allows — condense it, or split it into several memories"]
-    return []
+    # Below here only advice: the drain takes the memory as it is.
+    found = []
+    if EVENT_RE.match(parsed["description"]):
+        found.append("the description reads as an event (FIXED, MERGED, CLOSED, DONE, a #number, a PR number or a "
+                     "dated line): git and the PR hold events, so write the lesson it taught (rubric test 6)")
+    return found
 
 
 def main() -> int:
