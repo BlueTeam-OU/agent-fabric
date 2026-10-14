@@ -11,7 +11,9 @@ Contract, frozen from run.sh:
            a misspelt one ran nothing and said "all suites passed" (review of #68).
   stdout   `== <label>` before each suite's own output, the python suites' runner under its own headers, the leak report,
            and last `tests/run.py: <n> suite(s) FAILED` when any failed, else `tests/run.py: all suites passed` (run.sh's
-           two lines under the new name).
+           two lines under the new name). Started by the forwarder tests/run.sh, which sets AGENT_FABRIC_RUNNER=tests/run.sh,
+           every line this file prints under its own name says `tests/run.sh:` instead — CI and every reader of the last
+           line see what they saw — and the variable does not reach the suites.
   exit     0 every suite passed; 1 some failed (the count is on the last line, and `FAILED_SUITES=<n>` is the python
            runner's); 2 an invocation error; 128+signal when stopped by INT/TERM/HUP (130, 143, 129).
 
@@ -35,6 +37,10 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SECTIONS = ("all", "static", "python", "bash")
+RUNNER_VARIABLE = "AGENT_FABRIC_RUNNER"
+# What this run calls itself; main() says "tests/run.sh" when the forwarder started it. Only that one other name is
+# accepted: the value is printed, and anything else is ignored.
+PROG = "tests/run.py"
 # Cleanup ends the suites' processes with TERM, KILLs what is left after this long, and waits about twice as long in all.
 TERM_GRACE_S = 5.0
 KILL_WAIT_S = 10.0
@@ -94,6 +100,7 @@ def short_dir(environ: dict[str, str]) -> str:
 def run_environment(environ: dict[str, str], scratch: str) -> dict[str, str]:
     env = dict(environ)
     env["TMPDIR"] = scratch
+    env.pop(RUNNER_VARIABLE, None)
     # A suite that block-buffers its stdout shows nothing in a CI log until it ends (the 2026-10-11 audit could not
     # time a case from one).
     env["PYTHONUNBUFFERED"] = "1"
@@ -200,7 +207,7 @@ def invoke(label: str | None, argv: list[str], env: dict[str, str], cwd: str) ->
         try:
             proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL)
         except OSError as e:
-            print(f"tests/run.py: {argv[0]} could not be started: {e}", file=sys.stderr, flush=True)
+            print(f"{PROG}: {argv[0]} could not be started: {e}", file=sys.stderr, flush=True)
             return 127
         return proc.wait()
     except BaseException:
@@ -245,9 +252,11 @@ def leak_report(directory: str, before: list[str]) -> bool:
 def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     environ = dict(os.environ if environ is None else environ)
+    global PROG
+    PROG = "tests/run.sh" if environ.get(RUNNER_VARIABLE) == "tests/run.sh" else "tests/run.py"
     what = args[0] if args else "all"
     if len(args) > 1 or what not in SECTIONS:
-        print(f"tests/run.py: no section '{' '.join(args)}' (all, static, python, bash)", file=sys.stderr)
+        print(f"{PROG}: no section '{' '.join(args)}' (all, static, python, bash)", file=sys.stderr)
         return 2
     scratch = tempfile.mkdtemp(prefix="af-t.", dir=short_dir(environ))
     env = run_environment(environ, scratch)
@@ -280,9 +289,9 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         print(flush=True)
         failed += leak_report(scratch, before)
         if failed:
-            print(f"tests/run.py: {failed} suite(s) FAILED")
+            print(f"{PROG}: {failed} suite(s) FAILED")
             return 1
-        print("tests/run.py: all suites passed")
+        print(f"{PROG}: all suites passed")
         return 0
     except Signalled as s:
         return 128 + int(s.args[0])

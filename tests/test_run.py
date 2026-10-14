@@ -127,6 +127,34 @@ def main() -> int:
         check("a check whose file is missing is a failed suite, never skipped", r.returncode == 1
               and "tests/run.py: 1 suite(s) FAILED" in r.stdout, (r.returncode, r.stdout, r.stderr))
 
+        print("through the forwarders tests/run.sh and tests/static.sh, which CI and every habit call")
+
+        def via(base: str, script: str, *args: str, **extra: str) -> subprocess.CompletedProcess:
+            # Copied in untracked, so the tree's count of bash scripts stays what the cases above state.
+            shutil.copy(os.path.join(TESTS, script), os.path.join(base, "tests", script))
+            return subprocess.run(["bash", os.path.join(base, "tests", script), *args], cwd=base, env=env(base, **extra),
+                                  capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+
+        base = fresh(files={"tests/test_ok.py": suite("print('RAN', os.environ.get('AGENT_FABRIC_RUNNER'))\n")})
+        r = via(base, "run.sh", "python")
+        check("run.sh python: the run says so last under run.sh's own name, exit 0, and no suite sees the variable",
+              r.returncode == 0 and r.stdout.rstrip().rsplit("\n", 1)[-1] == "tests/run.sh: all suites passed" and "RAN None" in r.stdout,
+              (r.returncode, r.stdout[-300:], r.stderr))
+        base = fresh(files={"tests/test_bad.py": suite("sys.exit(3)\n")})
+        r = via(base, "run.sh", "python")
+        check("…a failing suite: exit 1 and `tests/run.sh: 1 suite(s) FAILED` last",
+              r.returncode == 1 and r.stdout.rstrip().rsplit("\n", 1)[-1] == "tests/run.sh: 1 suite(s) FAILED", (r.returncode, r.stdout[-300:]))
+        r = via(base, "run.sh", "bogus")
+        check("…a misspelt section: exit 2 and run.sh says so on stderr, nothing made",
+              r.returncode == 2 and r.stderr.startswith("tests/run.sh: no section 'bogus'") and not runs_left(base), (r.returncode, r.stderr))
+        r = run(base, "bogus", AGENT_FABRIC_RUNNER="something else")
+        check("run.py itself keeps its own name, and a runner name that is not the forwarder's is ignored",
+              r.returncode == 2 and r.stderr.startswith("tests/run.py: no section"), r.stderr)
+        base = fresh(scripts={"good.sh": "#!/usr/bin/env bash\necho fine\n"})
+        r = via(base, "static.sh")
+        check("static.sh: the static checks' own output and exit status", r.returncode == 0 and r.stdout.startswith("static: 1 bash script(s)"),
+              (r.returncode, r.stdout, r.stderr))
+
         print("the run's own environment and directory")
         base = fresh(files={"tests/test_env.py": suite(
             "import json\n"
