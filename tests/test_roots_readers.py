@@ -188,7 +188,15 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
     import shutil
     import subprocess
     base = {k: v for k, v in os.environ.items() if k not in ("AGENT_FABRIC_ROOT", "AGENT_FABRIC_OPERATOR")}
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as box:
+        # The operator tree lies among the same neighbours as this checkout: the staleness pass judges a path a slice cites in a
+        # sibling project (`../NAME/...`) only when that checkout is beside the tree and leaves it unchecked, silent, when not, so a
+        # login with sibling checkouts counted more warnings for this checkout than for a copy in a lone directory (j157).
+        tmp = os.path.join(box, os.path.basename(ROOT))
+        beside = os.path.dirname(ROOT)
+        for name in os.listdir(beside):
+            if name != os.path.basename(ROOT):
+                os.symlink(os.path.join(beside, name), os.path.join(box, name))
         # A whole checkout, not a few directories: the staleness pass (ADR-050 rule 2) judges the paths and anchors a
         # slice cites in the tree the corpus lies in, and an operator tree is that — a clone, with its history.
         git_env = {**{k: v for k, v in base.items() if not k.startswith("GIT_")}, "GIT_CONFIG_GLOBAL": os.devnull}
