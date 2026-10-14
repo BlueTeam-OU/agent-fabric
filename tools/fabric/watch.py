@@ -61,7 +61,10 @@ CONTRACT:
             height (one line less, so the last newline does not scroll the
             title off): the title and the identity stay, the jobs take what
             is left after a third for the pull requests, and a cut block
-            ends with "… N more". --once is never cut.
+            ends with "… N more"; no line is longer than the pane is wide
+            (wide characters count two cells). The pane's size is read from
+            the kernel on every screen, so a resize is followed. --once is
+            never cut.
   avatar    from settings/avatar.png of the store checkout, else the
             candidate the profile names, else none (avatar.py). On a pane of a
             host listed in runtime/control/watch-graphics.json (TERM_PROGRAM) the PNG file is transmitted as it is
@@ -70,7 +73,7 @@ CONTRACT:
             show); anywhere else it is drawn with Unicode half blocks in
             24-bit colour from the stdlib PNG decoder (8-bit RGB or RGBA,
             not interlaced; any other file shows no avatar), decoded once
-            and cached by the file's sha256 as pixels, never as escapes.
+            and cached by the file's sha256 and the size as pixels, never as escapes.
   exit      0 when it leaves (q, end of input, Ctrl-C, or --once); 2 usage.
 
 It is read-only: it runs bin/fabric-status --json, bin/fabric-jobs list --json
@@ -93,7 +96,6 @@ import math
 import os
 import re
 import select
-import shutil
 import subprocess
 import sys
 import termios
@@ -265,7 +267,7 @@ def jobs_block(jobs_text: str) -> list[str]:
 
 
 class AvatarSlot:
-    """The avatar of the identity header: its left-hand prefixes (HEADER_ROWS of them), or None when there is nothing to
+    """The avatar of the identity header: its left-hand prefixes (box rows of them), or None when there is nothing to
     draw. mode "kitty" transmits the PNG file as it is; "blocks" draws half blocks from the decoded, cached pixels,
     which a thread of its own decodes, so the first screens show the room it will take and never wait for it."""
 
@@ -414,39 +416,62 @@ class Deck:
             self.disk.wait(3.0)
             rows[8 if box == FULL_BOX else 5] = self.disk_row()           # the reading, if it finished
         prefixes = self.slot.prefixes() if columns >= AVATAR_MIN_COLUMNS else None
+        cut = pane_rows > 0 and columns > 1            # on a pane: no line wraps into a second row
         if prefixes is None:
-            return list(rows), name
-        return [Row(prefix, text) for prefix, text in zip(prefixes, rows)], name
+            return [fit(r, columns - 1) for r in rows] if cut else list(rows), name
+        width = columns - text_column(box) - 1
+        return [Row(prefix, fit(text, width) if cut else text) for prefix, text in zip(prefixes, rows)], name
 
     def disk_row(self) -> str:
         kb, age, why = self.disk.value()
         return "disk     " + (f"{watch_resources.human_kb(kb)} (read {clock_text(age)} ago)" if kb is not None else (why or "reading…"))
 
 
+def cells(char: str) -> int:
+    return 0 if unicodedata.combining(char) else 2 if unicodedata.east_asian_width(char) in "WF" else 1
+
+
+def fit(text: str, width: int) -> str:
+    """The line as printable() shows it, cut to `width` terminal cells (a wide character is two): a line that wraps takes
+    two rows of the pane and pushes the title off it. Tabs are expanded first, as they are when drawn."""
+    out, used = [], 0
+    for char in printable(text):
+        used += cells(char)
+        if used > width:
+            break
+        out.append(char)
+    return "".join(out)
+
+
 def clip(lines: list[str], n: int) -> list[str]:
-    """At most n lines; the last of a cut block says how many it hides."""
+    """At most n lines (at least one when there are any); the last of a cut block says how many it hides, so a block is
+    never dropped without a word."""
+    n = max(1, n) if lines else 0
     if len(lines) <= n:
         return lines
-    return lines[:n - 1] + [f"… {len(lines) - n + 1} more"] if n > 0 else []
+    return lines[:n - 1] + [f"… {len(lines) - n + 1} more"]
 
 
 def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: float, stamp: str, rows: int = 0, columns: int = 0) -> list[Line]:
     """The three blocks. rows > 0 is the pane's height: the screen is cut to rows - 1 lines, because the newline that ends
     the last one would scroll a full pane and push the title off the top. The title and the identity stay; the jobs and
     the pull requests share what is left, the jobs first, the pull requests keeping a third of it at least one line. columns > 0 cuts a job or
-    pull-request line to the width, since a wrapped line takes two rows of the pane."""
-    if rows > 0 and columns > 1:
-        jobs = [j[:columns - 1] for j in jobs]
-        prs = "\n".join(l[:columns - 1] for l in prs.split("\n"))
+    pull-request line, and the title, to the width, since a wrapped line takes two rows of the pane (the identity's own
+    lines are cut by Deck.identity, which knows where its text starts)."""
     pr_lines = prs.split("\n")
+    title = f"── {name} ({stamp}; q leaves) ──"
+    if rows > 0 and columns > 1:
+        jobs = [fit(j, columns - 1) for j in jobs]
+        pr_lines = [fit(l, columns - 1) for l in pr_lines]
+        title = fit(title, columns - 1)
     if rows > 0:
         room = max(0, rows - 1 - (len(identity) + 5))
         pr_n = min(len(pr_lines), max(1, room // 3))
         job_n = min(len(jobs), max(0, room - pr_n))
-        pr_n = min(len(pr_lines), max(0, room - job_n))
+        pr_n = min(len(pr_lines), max(1, room - job_n))
         jobs, pr_lines = clip(jobs, job_n), clip(pr_lines, pr_n)
     lines: list[Line] = [
-        f"── {name} ({stamp}; q leaves) ──", *identity, "",
+        title, *identity, "",
         "── jobs ──", *jobs, "",
         f"── pull requests (read {int(prs_age)} s ago) ──", *pr_lines,
     ]
@@ -479,10 +504,13 @@ def wait_for_q(seconds: float, fd: int = 0) -> bool:
 
 def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
           clock: Callable[[], float] = time.monotonic, wait: Callable[[float], bool] = wait_for_q,
-          out=None, deck: Deck | None = None, columns: int = 80, rows: int = 0) -> int:
+          out=None, deck: Deck | None = None, columns: int = 80, rows: int = 0,
+          pane: Callable[[], tuple[int, int]] | None = None) -> int:
     prs, prs_at = "", None
     deck = deck or Deck(dict(os.environ), os.path.join(root, "identities", "personas", "claims.json"))
     while True:
+        if pane is not None:
+            columns, rows = pane()                     # asked on every screen: a pane is resized under a running watch
         if prs_at is None or clock() - prs_at >= prs_every:
             read = pulls(root, projects, stop=(lambda: False) if once else (lambda: wait(0)))
             if read is None:
@@ -494,6 +522,16 @@ def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
         draw(screen(identity, name, jobs_block(jobs), prs, clock() - prs_at, time.strftime("%H:%M:%S"), rows, columns), clear=not once, out=out)
         if once or wait(every):
             return 0
+
+
+def pane_size(fd: int = 1) -> tuple[int, int]:
+    """(columns, rows) of the terminal on fd, from the kernel, not from LINES/COLUMNS (an exported stale value would size
+    the box and the cut wrongly); 80 x 24 when it does not say."""
+    try:
+        size = os.get_terminal_size(fd)
+    except OSError:
+        return 80, 24
+    return size.columns or 80, size.lines or 24
 
 
 def parse(argv: list[str]) -> tuple[float, float, bool] | None:
@@ -538,12 +576,11 @@ def main(argv: list[str]) -> int:
     root = fabric_root()
     mode = ("kitty" if os.environ.get("TERM_PROGRAM") in kitty_terminals(root) else "blocks") if on_terminal else None
     deck = Deck(dict(os.environ), os.path.join(root, "identities", "personas", "claims.json"), mode)
-    size = shutil.get_terminal_size((80, 24)) if on_terminal else None
-    columns = size.columns if size else 0
-    # --once is a document, not a pane: never cut. The height is read once, as the width is.
-    rows = size.lines if size and not once else 0
+    # --once is a document, not a pane: never cut, and its width is read once.
+    columns = pane_size()[0] if on_terminal else 0
+    pane = pane_size if on_terminal and not once else None
     try:
-        return watch(root, projects, every, prs_every, once, deck=deck, columns=columns, rows=rows)
+        return watch(root, projects, every, prs_every, once, deck=deck, columns=columns, pane=pane)
     except KeyboardInterrupt:
         return 0
     finally:

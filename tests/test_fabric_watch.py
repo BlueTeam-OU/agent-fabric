@@ -196,6 +196,31 @@ def main() -> int:
     tiny = watch.screen(ident, "n", many, prs12, 0.0, "00:00:00", rows=8)
     check("a pane smaller than the identity: still no more than rows - 1 lines", len(tiny) == 7, len(tiny))
 
+    print("in-process: no line wraps, no block vanishes, the pane is asked on every screen")
+    wide = watch.screen(ident, "n" * 80, ["x" * 300, "漢" * 100, "a\tb" * 40], ("p" * 300 + "\n") * 2, 0.0, "00:00:00", rows=40, columns=60)
+    check("every line, the title too, is at most 59 cells (a tab is expanded, a wide character is two)",
+          all(sum(watch.cells(c) for c in watch.printable(l)) <= 59 for l in wide if isinstance(l, str)), [len(l) for l in wide])
+    one = watch.screen(["i"] * 6, "n", [f"j{i}" for i in range(5)], "pr1\npr2", 0.0, "00:00:00", rows=13)
+    check("one row left: the jobs say how many they hide, not nothing", "… 5 more" in one, one)
+    none = watch.screen(["i"] * 6, "n", ["j1", "j2"], "pr1", 0.0, "00:00:00", rows=12)
+    check("no row left: still no more than rows - 1 lines", len(none) <= 11, none)
+    sizes = iter([(80, 40), (80, 40), (80, 18)])
+    seen = []
+    saved_screen = watch.screen
+    try:
+        watch.screen = lambda *a, **k: seen.append((a[6], a[7])) or ["x"]
+        watch.pulls, watch.run = (lambda *a, **k: "prs"), (lambda *a, **k: "x")
+        n = [0]
+        def two(seconds: float) -> bool:
+            n[0] += 1
+            return n[0] >= 3
+        watch.watch("/r", "/p", 30.0, 300.0, False, clock=lambda: 0.0, wait=two, out=io.StringIO(), deck=quiet_deck(),
+                    pane=lambda: next(sizes))
+    finally:
+        watch.screen, (watch.pulls, watch.run) = saved_screen, saved
+    check("the pane is asked on every screen: a resize is followed", seen == [(40, 80), (40, 80), (18, 80)], seen)
+    check("pane_size: the kernel's answer, or 80 x 24 when it has none", watch.pane_size(-1) == (80, 24), watch.pane_size(-1))
+
     shutil.rmtree(scratch_home, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0

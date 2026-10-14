@@ -13,7 +13,10 @@ import base64
 import io
 import json
 import os
+import fcntl
 import pty
+import struct
+import termios
 import re
 import select
 import shutil
@@ -215,6 +218,10 @@ class Slot(unittest.TestCase):
         self.assertIn("pd-x · python-dev", text)
         self.assertIn("model m9 · effort high", text)
         self.assertTrue(short[5].text.startswith("disk"))
+        long_status = json.dumps({"agent": "pd-x", "role": "python-dev", "api": {"session_model": "m" * 80}, "session_effort": {"reported": "high"}})
+        narrow, _ = deck.identity(long_status, columns=60, pane_rows=20)
+        self.assertTrue(any("mmmm" in r.text for r in narrow))
+        self.assertTrue(all(len(r.text) <= 60 - watch.text_column(watch.SMALL_BOX) - 1 for r in narrow), [r.text for r in narrow])
         deck.identity(status, pane_rows=40)
         deck.slot.wait()
         tall, _ = deck.identity(status, pane_rows=40)
@@ -273,7 +280,7 @@ class Once(unittest.TestCase):
         os.makedirs(os.path.join(self.root, "runtime", "control"))
         shutil.copy(os.path.join(HERE, "runtime", "control", "watch-graphics.json"), os.path.join(self.root, "runtime", "control"))
 
-    def run_once(self, term_program: str | None, tty: bool) -> str:
+    def run_once(self, term_program: str | None, tty: bool, winsize: tuple[int, int] | None = None, many_jobs: int = 0) -> str:
         env = {"HOME": os.path.join(self.tmp, "home"), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "AGENT_FABRIC_ROOT": self.root,
                "TMPDIR": self.tmp}
         if term_program:
@@ -282,6 +289,8 @@ class Once(unittest.TestCase):
         if not tty:
             return subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60, check=True, stdin=subprocess.DEVNULL).stdout
         master, slave = pty.openpty()
+        if winsize:
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", winsize[1], winsize[0], 0, 0))
         try:
             proc = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, close_fds=True)
         finally:
@@ -320,6 +329,15 @@ class Once(unittest.TestCase):
         self.assertNotIn(f"{ESC}_G", out)
         self.assertNotIn(f"a{ESC}", out)
         self.assertIn("a?[2Jb", out)
+
+    def test_once_is_never_cut_nor_shrunk_whatever_the_height_of_the_terminal(self):
+        jobs = ",".join(f'{{"id":"j{i}","state":"queued","priority":"normal","title":"t{i}"}}' for i in range(1, 41))
+        put(os.path.join(self.root, "bin", "fabric-jobs"), f"#!/bin/sh\necho '[{jobs}]'\n")
+        os.chmod(os.path.join(self.root, "bin", "fabric-jobs"), 0o755)
+        out = self.run_once(None, tty=True, winsize=(100, 20))
+        self.assertIn("t40", out)
+        self.assertNotIn(" more", out)
+        self.assertEqual(len([l for l in out.split("\n") if "▀" in l]), 10)
 
     def test_under_herdr_the_avatar_is_one_kitty_transmission_of_the_files_bytes(self):
         out = self.run_once("herdr", tty=True)
