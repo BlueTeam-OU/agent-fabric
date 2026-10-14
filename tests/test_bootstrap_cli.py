@@ -46,6 +46,7 @@ LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 UID = os.geteuid()
 REAL_HOME = pwd.getpwuid(os.geteuid()).pw_dir
 UNIT = "agent-fabric-agentd"
+BACKUP = "agent-fabric-state-backup"
 RELAY = "gzcoord-relay"
 HOOK_REL = "policies/githooks"
 # The plain tools the script and what it runs call. Anything not here, and
@@ -116,7 +117,7 @@ FAKE_BODIES = {
     "systemctl": r'''
 case "$*" in
   "--user daemon-reload") exit "${FAKE_RELOAD_RC:-0}" ;;
-  "--user is-active "*) u="${*: -1}"; v="FAKE_ACTIVE_${u//-/_}"; s="${!v:-active}"; echo "$s"; [[ "$s" == active ]]; exit ;;
+  "--user is-active "*) u="${*: -1}"; v="FAKE_ACTIVE_${u//[-.]/_}"; s="${!v:-active}"; echo "$s"; [[ "$s" == active ]]; exit ;;
 esac
 exit 0
 ''',
@@ -641,6 +642,14 @@ def first_run() -> None:
     check("step 6: …the fabric's unit, mode 644, under XDG_CONFIG_HOME (where systemctl --user reads)",
           read(unit) == read(f"{FR}/runtime/control/{UNIT}.service") and mode(unit) == 0o644)
     check("step 6: …nothing under HOME/.config/systemd", not os.path.exists(f"{H}/.config/systemd"))
+    bk = f"{a.units}/{BACKUP}"
+    check("step 6a: the state backup's service and timer installed, the timer's enabling refused for want of a manager, said",
+          L[k + 2:k + 5] == [f"  +  {bk}.service", f"  +  {bk}.timer",
+                             f"  !  {BACKUP}.timer: installed, not enabled — no user manager at {a.run}/bus "
+                             f"(systemd absent, or no login session; the next bootstrap with one enables it)"], "\n".join(L[k + 2:k + 5]))
+    check("step 6a: …both the fabric's files, mode 644",
+          all(read(f"{bk}.{x}") == read(f"{FR}/runtime/control/{BACKUP}.{x}") and mode(f"{bk}.{x}") == 0o644
+              for x in ("service", "timer")))
     check("step 6: no user manager: systemctl and loginctl never called", a.calls("systemctl") == [] and a.calls("loginctl") == [],
           a.calls())
     check("step 6b: no relay venv: no relay unit, no relay line",
@@ -648,7 +657,7 @@ def first_run() -> None:
 
     # Step 7.
     check("step 7: the detector's venv made and its package installed, said",
-          L[k + 2] == f"  +  {VENV} ({pkg})", L[k + 2:k + 3])
+          L[k + 5] == f"  +  {VENV} ({pkg})", L[k + 5:k + 6])
     check("step 7: …by the venv's own pip, quietly, the pinned package",
           a.calls("pip") == [["pip", "install", "-q", pkg]] and a.calls("python3") == [["python3", "-m", "venv", VENV]],
           a.calls())
@@ -657,10 +666,10 @@ def first_run() -> None:
 
     # The summary counts the script's own puts, links, the user settings and
     # step 5's lines; the agent files, steps 4, 5b and 7 are not in it.
-    n_written = 2 + 2 + len(cmds) + 1 + len(SKILLS) + 2 + 1
+    n_written = 2 + 2 + len(cmds) + 1 + len(SKILLS) + 2 + 1 + 2
     check("the summary counts what was written",
-          L[k + 3:] == [f"bootstrap: {n_written} written, 2 already current.",
-                        f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 3:]))
+          L[k + 6:] == [f"bootstrap: {n_written} written, 2 already current.",
+                        f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 6:]))
     check("curl, ss, pgrep, uv and sudo never called",
           not [c for c in a.calls() if c[0] in ("curl", "ss", "pgrep", "uv", "sudo", "pip3")], a.calls())
     check("the script's own temporary directory is gone", os.listdir(a.tmp) == [], os.listdir(a.tmp))
@@ -674,7 +683,7 @@ def first_run() -> None:
     check("second run: the tree is unchanged (paths, modes, content)", before == after, diff(before, after))
     plus = [x for x in r2.lines if x.startswith("  +  ") or x.startswith("  -  ")]
     check("second run: nothing said written or removed", plus == [], "\n".join(plus))
-    n_same = 2 + 2 + len(cmds) + 1 + len(SKILLS) + 4 + 1
+    n_same = 2 + 2 + len(cmds) + 1 + len(SKILLS) + 4 + 1 + 2
     check("second run: the summary says all of it current",
           f"bootstrap: 0 written, {n_same} already current." in r2.lines, r2.out)
     check("second run: step 4 says =", f"  =  {FR}: core.hooksPath = {HOOK_REL}" in r2.lines)
@@ -894,17 +903,25 @@ def user_manager() -> None:
     a.bus()
     r = bootstrap(a, env=a.env(FAKE_ACTIVE_agent_fabric_agentd="active"))
     check("exit 0, nothing on stderr", r.rc == 0 and r.err == "", r)
-    check("reload, enable --now, restart (the unit changed), is-active, in that order",
+    check("reload, enable --now, restart (the unit changed), is-active, in that order; then the backup timer the same way",
           a.calls("systemctl") == [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", UNIT],
-                                   ["systemctl", "--user", "restart", UNIT], ["systemctl", "--user", "is-active", UNIT]],
+                                   ["systemctl", "--user", "restart", UNIT], ["systemctl", "--user", "is-active", UNIT],
+                                   ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", f"{BACKUP}.timer"],
+                                   ["systemctl", "--user", "restart", f"{BACKUP}.timer"], ["systemctl", "--user", "is-active", f"{BACKUP}.timer"]],
           a.calls("systemctl"))
+    check("the backup timer's line says its state",
+          f"  *  {BACKUP}.timer: active (systemctl --user list-timers {BACKUP}.timer)" in r.lines, r.out)
     check("the line says its state",
           f"  *  {UNIT}: active (systemctl --user status {UNIT})" in r.lines, r.out)
     a.clear_log()
     r = bootstrap(a, env=a.env(FAKE_ACTIVE_agent_fabric_agentd="inactive"))
-    check("unchanged unit: no restart", a.calls("systemctl") == [["systemctl", "--user", "daemon-reload"],
-                                                                ["systemctl", "--user", "enable", "--now", UNIT],
-                                                                ["systemctl", "--user", "is-active", UNIT]], a.calls("systemctl"))
+    check("unchanged units: no restart, the timer enabled again (idempotent)",
+          a.calls("systemctl") == [["systemctl", "--user", "daemon-reload"],
+                                   ["systemctl", "--user", "enable", "--now", UNIT],
+                                   ["systemctl", "--user", "is-active", UNIT],
+                                   ["systemctl", "--user", "daemon-reload"],
+                                   ["systemctl", "--user", "enable", "--now", f"{BACKUP}.timer"],
+                                   ["systemctl", "--user", "is-active", f"{BACKUP}.timer"]], a.calls("systemctl"))
     check("…and an inactive unit says so", f"  *  {UNIT}: inactive (systemctl --user status {UNIT})" in r.lines, r.out)
     # A changed unit under the daemon's own upgrade: the restart is its caller's.
     put(f"{a.units}/{UNIT}.service", "[Unit]\nDescription=agent-fabric old\n")
@@ -916,13 +933,26 @@ def user_manager() -> None:
     a.clear_log()
     r = bootstrap(a, env=a.env(FAKE_RELOAD_RC="1"))
     check("a manager that will not reload: installed, not started, said; nothing enabled",
-          a.calls("systemctl") == [["systemctl", "--user", "daemon-reload"]]
+          a.calls("systemctl") == [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "daemon-reload"]]
           and f"  !  {UNIT}: installed, not started — no user manager at {a.run}/bus (loginctl enable-linger {LOGIN}, or the next login starts it)" in r.lines,
           f"{a.calls('systemctl')}\n{r.out}")
     a.clear_log()
     r = bootstrap(a, env=a.env(PATH=path_without("systemctl")))
     check("no systemctl on the host: installed, not started, exit 0",
           r.rc == 0 and f"  !  {UNIT}: installed, not started — no user manager at {a.run}/bus (loginctl enable-linger {LOGIN}, or the next login starts it)" in r.lines, r)
+    check("…and the backup timer: installed, the missing manager said, not a failure",
+          f"  !  {BACKUP}.timer: installed, not enabled — no user manager at {a.run}/bus "
+          f"(systemd absent, or no login session; the next bootstrap with one enables it)" in r.lines
+          and os.path.isfile(f"{a.units}/{BACKUP}.timer") and "NOT written" not in r.out, r)
+    # A timer whose file changed is restarted, so a new schedule takes effect; the service alone changed is not the timer's business.
+    put(f"{a.units}/{BACKUP}.timer", "[Timer]\nOnCalendar=weekly\n")
+    a.clear_log()
+    r = bootstrap(a)
+    check("a changed timer file: enabled, then restarted",
+          ["systemctl", "--user", "enable", "--now", f"{BACKUP}.timer"] in a.calls("systemctl")
+          and a.calls("systemctl").index(["systemctl", "--user", "restart", f"{BACKUP}.timer"])
+          > a.calls("systemctl").index(["systemctl", "--user", "enable", "--now", f"{BACKUP}.timer"])
+          and read(f"{a.units}/{BACKUP}.timer") == read(f"{a.fr}/runtime/control/{BACKUP}.timer"), a.calls("systemctl"))
 
 
 def relay() -> None:
