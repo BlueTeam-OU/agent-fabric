@@ -101,9 +101,10 @@ no reason to continue. A session that has worked a job gets a fresh session
 for the next, however alike the two are, and `next` prints the one command
 that starts it (`fabric-fresh --job <id>`); the agent confirms by running
 it. A session that has worked none (just launched, so already fresh)
-takes the job in place. "Worked" is read from the list: a transition into or out
-of `active` writes the harness session id (CLAUDE_CODE_SESSION_ID) into the
-job's log entry, and a session is one that appears in any entry, so a session
+takes the job in place. "Worked" is read from the list: a transition whose old
+or new state is `active` (a start, a block, a delivery or a drop of the active
+job) writes the harness session id (CLAUDE_CODE_SESSION_ID), when the
+environment has one, into the job's log entry, and a session is one that appears in any entry, so a session
 launched with its job already active is known once it finishes it. With no session id in the
 environment (an unlaunched shell) any job that has left `active` counts, so `next` says fresh.
 """
