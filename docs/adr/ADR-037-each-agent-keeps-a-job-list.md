@@ -92,8 +92,7 @@ Why these choices:
    decision. `paused` is the agent's own choice to set the job aside for
    other work; a paused job is taken back by name, and the transition
    (rule 10) offers it before queued jobs of the same priority
-   (A 2026-10-14) (decided, not yet built; until it is, a paused job is
-   `blocked` with a 'paused: <why>' reason, as the agent-jobs skill says).
+   (A 2026-10-14).
 3. A job carries its project, its working copy and, when the agent sets
    one, a topic. `fabric-jobs next` asks whether this session has already worked a job
    (a job entered or left `active` in it, by the harness session id the
@@ -178,9 +177,8 @@ Why these choices:
        branch off a freshly fetched default branch, named from the job.
        No job starts on a branch behind the default branch.
     Each switch appends one line to both jobs' logs: the outcome and
-    the evidence checked, and the branch chosen. Until the switch is
-    built, `fabric-jobs next` stands and the agent makes these checks
-    by hand.
+    the evidence checked, and the branch chosen. `fabric-jobs switch`
+    is built (#255); `next` is its alias.
 11. A `REQUEST` addressed `TO` a login is a job on that login's list,
     queued without anyone remembering to put it there (decided, not yet
     built; until it is, the receiver adds it): the receiver's

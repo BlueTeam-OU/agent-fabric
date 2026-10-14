@@ -644,7 +644,7 @@ def says_the_job_list(tmp: str, relays: list) -> None:
     assert "jobs —" not in context_of(run_hook({"cwd": here}, env))
     jobs("add", "the job here"); jobs("add", "the job there", "--working-copy", there)
     ctx = context_of(run_hook({"cwd": here}, env))
-    assert "jobs — none active; 2 queued. `fabric-jobs next`" in ctx, ctx
+    assert "jobs — none active; 2 queued. `fabric-jobs switch`" in ctx, ctx
     jobs("start", "j1")
     ctx = context_of(run_hook({"cwd": here}, env))
     assert "jobs — active j1: the job here; 1 queued" in ctx and "Your active job is in" not in ctx, ctx
@@ -706,6 +706,12 @@ def says_the_job_list(tmp: str, relays: list) -> None:
     for doc_ in ({}, {"jobs": []}, {"jobs": [{"id": "j1", "state": "queued", "blockers": ["pr:o/r#1"]}]},
                  {"jobs": [{"id": "j1", "state": "blocked"}]}, {"jobs": [{"id": "j1", "state": "blocked", "blockers": []}]}):
         assert hook.cleared_jobs(doc_) == [] and not ran, (doc_, ran)
+    # A paused job (the agent's own choice, ADR-037 rule 2) is counted apart from a blocked one, and alone it still
+    # makes a line: a list of only paused jobs is not an empty list.
+    line = hook.jobs_line({"jobs": [{"id": "j1", "state": "paused"}, {"id": "j2", "state": "blocked"},
+                                    {"id": "j3", "state": "queued"}]}, None)
+    assert line and "1 queued, 1 paused, 1 blocked" in line[0], line
+    assert hook.jobs_line({"jobs": [{"id": "j1", "state": "paused"}]}, None), "a paused job alone is still said"
     assert hook.cleared_jobs({"jobs": [{"id": "j1", "state": "blocked", "blockers": ["pr:o/r#1"]}]}) == [] and len(ran) == 1 \
         and ran[0][-3:] == ["list", "--json", "--stored"], ran   # the control: a blocker makes the one stored read
     # The cleared part is bounded: three jobs are named, the rest counted.
