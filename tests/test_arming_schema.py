@@ -76,7 +76,11 @@ REAL = json.load(open(os.path.join(ROOT, "policies", "arming.json"), encoding="u
 check("the committed policies/arming.json", REAL, True)
 try:
     applied = arm_policy.validate(REAL, "policies/arming.json")
-    ok = applied["mode"] == REAL["mode"] and applied["commits"]["min"] == REAL["commits"]["min"]
+    # The file equals the built-in default on today's keys, so a reader that ignored its document would answer the same
+    # for the file itself: the control is a copy with one value moved, which only a reader that applies it reflects.
+    moved = arm_policy.validate({**REAL, "commits": {**REAL["commits"], "min": REAL["commits"]["min"] + 1}}, "moved")
+    ok = (applied["mode"] == REAL["mode"] and applied["commits"]["min"] == REAL["commits"]["min"]
+          and moved["commits"]["min"] == REAL["commits"]["min"] + 1)
     detail = applied
 except arm_policy.PolicyError as e:
     ok, detail = False, e

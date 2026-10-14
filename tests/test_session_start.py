@@ -31,7 +31,7 @@ def id_un() -> str:
     return subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
 
 
-def listener() -> tuple[socket.socket, list]:
+def listener() -> tuple[socket.socket, list, threading.Thread]:
     """A local port that records each request line it is sent and answers nothing: a stand-in relay that shows
     whether a process reached for one."""
     srv = socket.socket()
@@ -51,8 +51,21 @@ def listener() -> tuple[socket.socket, list]:
                     hits.append(conn.recv(200).split(b"\r\n")[0])   # the request line alone: the headers carry the bearer token
                 except OSError:
                     hits.append(b"")
-    threading.Thread(target=accept, daemon=True).start()
-    return srv, hits
+    thread = threading.Thread(target=accept, daemon=True)
+    thread.start()
+    return srv, hits, thread
+
+
+def stop_listener(srv: socket.socket, thread: threading.Thread) -> None:
+    """close() from another thread does not wake a blocked accept() on Linux, and the port would stay open for the
+    rest of the run; shutdown() does."""
+    try:
+        srv.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass   # not listening any more
+    srv.close()
+    thread.join(timeout=5)
+    assert not thread.is_alive(), "the stand-in relay's accept thread did not end"
 
 
 def git_repo(path: str, remote: str) -> None:
@@ -604,6 +617,15 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
 def test_hook_says_the_job_list(tmp: str) -> None:
     """Silent with no open job; the active job and the queue when there is
     one; a warning when the active job's working copy is not this session's."""
+    relays: list = []
+    try:
+        says_the_job_list(tmp, relays)
+    finally:
+        for srv, thread in relays:
+            stop_listener(srv, thread)
+
+
+def says_the_job_list(tmp: str, relays: list) -> None:
     state = os.path.join(tmp, "state"); os.makedirs(os.path.join(state, "agents", id_un()))
     env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
     here, there = os.path.join(tmp, "here"), os.path.join(tmp, "there")
@@ -653,8 +675,14 @@ def test_hook_says_the_job_list(tmp: str) -> None:
         json.dump(doc, fh)
     # The relay is a local listener that records who connects: the state stream (queue.py waits, which a plain list
     # asks for a queued job from a message) is the other way out of the hook, and it fails quietly by design.
-    relay, relay_hits = listener()
-    wired = {**stubbed, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.getsockname()[1]}", "CLAUDE_BRIDGE_AUTH_TOKEN": "t"}
+    relay, relay_hits, relay_thread = listener()
+    relays.append((relay, relay_thread))
+    # An empty HOME: the relay token is read from the account's secrets.env before the environment, and the real one
+    # must not be sent to a test's socket.
+    bare_home = os.path.join(tmp, "bare-home")
+    os.makedirs(bare_home)
+    wired = {**stubbed, "HOME": bare_home, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.getsockname()[1]}",
+             "CLAUDE_BRIDGE_AUTH_TOKEN": "t"}
     cache_path = os.path.join(state, "agents", id_un(), "jobs-blockers.json")
     before = open(cache_path, encoding="utf-8").read()
     started = time.monotonic()
@@ -666,7 +694,7 @@ def test_hook_says_the_job_list(tmp: str) -> None:
     # The positive control for the two assertions above: a plain list from the same environment does reach the relay.
     jobs("list", env=wired)
     assert relay_hits, "a plain `fabric-jobs list` did not ask the state stream, so the no-network case proves nothing"
-    relay.close()
+    stop_listener(*relays.pop())
     # cleared_jobs runs no subprocess unless a blocked job has a blocker.
     spec = importlib.util.spec_from_file_location("session_start_hook_cleared",
                                                   os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.py"))

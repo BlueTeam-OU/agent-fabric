@@ -85,10 +85,10 @@ def main() -> int:
     rc, out = reply("#115 (10 work, 2 fix) is open.\n#115 is ready to merge.")
     check("a PR counted once in the reply passes on every line", out is None, out)
     for line in ("merge " + "-" * 200000, "merge " + "a." * 100000):
-        t0 = time.monotonic()
+        t0 = children_cpu()
         reply(line)
-        check(f"a {len(line)}-character run of separators is read in under a second", time.monotonic() - t0 < 1,
-              time.monotonic() - t0)
+        check(f"a {len(line)}-character run of separators is read in under a second of CPU", children_cpu() - t0 < 1,
+              children_cpu() - t0)
     for text in ("**#115** (3 work, 0 fix) is ready.", "|#115| (3 work, 0 fix) merged",
                  "| #115 | (3 work, 0 fix) | merged |", "**#115**: (3 work, 0 fix) ready",
                  "PR **#115** (3 work, 0 fix) is ready.\n**#115** is merged."):
