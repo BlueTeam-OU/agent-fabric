@@ -341,6 +341,8 @@ def rule_5() -> None:
     check("a branch rebased onto a default-branch commit rule 5 refuses: the push passes",
           push("feat") == 0, err)
 
+    added_range()
+
     bind("backend-dev"); fixture("plain")
     since = git("rev-parse", "HEAD")[1].strip()
     policy({slug: {"format": "openpgp", "since": since}})
@@ -349,6 +351,36 @@ def rule_5() -> None:
     check("listed with since set, the default branch unknown in the clone: refused, says to fetch",
           push() == 1 and "fetch" in err, err)
     SIGNING_REPO = ""
+
+
+def added_range() -> None:
+    """_added on a NEW branch (remote all zeros), whose scope holds a `--not`: the exclusions are in front of it, so
+    a base and a since that no remote-tracking ref holds are still excluded. Behind the `--not` they read as
+    positive and the range was the whole history. Positive control: the ranges that must stay."""
+    sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+    import githooks_prepush
+    d = f"{T}/added"
+    os.makedirs(d)
+
+    def g(*a: str) -> str:
+        return subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@example.invalid", *a], env=env(), check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q", "-b", "main")
+    shas = {}
+    for name in ("since", "base", "feat1", "feat2"):
+        g("commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", name)
+        shas[name] = g("rev-parse", "HEAD")
+        if name == "base":
+            g("branch", "dflt")             # the default tip, held by a local branch only: no remote-tracking ref has it
+    saved = os.getcwd()
+    os.chdir(d)
+    try:
+        got = githooks_prepush._added("main", ZERO, "dflt", shas["since"])
+        check("a new branch: only what is above base and since is judged", got == [shas["feat2"], shas["feat1"]]
+              or sorted(got) == sorted([shas["feat1"], shas["feat2"]]), got)
+        check("an existing remote branch: its own range, base and since excluded too",
+              githooks_prepush._added("main", shas["feat1"], "dflt", shas["since"]) == [shas["feat2"]])
+    finally:
+        os.chdir(saved)
 
 
 def shipped_patterns() -> None:
