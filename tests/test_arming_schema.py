@@ -81,7 +81,7 @@ try:
     moved = arm_policy.validate({**REAL, "commits": {**REAL["commits"], "min": REAL["commits"]["min"] + 1}}, "moved")
     ok = (applied["mode"] == REAL["mode"] and applied["commits"]["min"] == REAL["commits"]["min"]
           and moved["commits"]["min"] == REAL["commits"]["min"] + 1)
-    detail = applied
+    detail = {"applied": applied, "moved": moved}
 except arm_policy.PolicyError as e:
     ok, detail = False, e
 print(f"  {'ok  ' if ok else 'FAIL'} the committed policies/arming.json [arm_policy.validate]" + ("" if ok else f": {detail}"))

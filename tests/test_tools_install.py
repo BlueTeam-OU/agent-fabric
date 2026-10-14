@@ -384,7 +384,7 @@ def main() -> int:
         decl = tools_install.declarations(real, "codex")
         check("agent-fabric declares codex as an account tool", [pid for pid, _ in decl] == ["agent-fabric"], decl)
         if not decl:   # codex_reg and the size-bound cases below index decl[0]: stop here, the failure above says why
-            print("1 FAILED")
+            print(f"{fails} FAILED")
             return 1
         pin = decl[0][1]["install"]
         root = "package/vendor/x86_64-unknown-linux-musl"
