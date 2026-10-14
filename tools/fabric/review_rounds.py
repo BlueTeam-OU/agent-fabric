@@ -67,7 +67,7 @@ MAX_LOCATORS = 200
 # A previous finding names its place as path:line or path:line-line.
 FINDING_REF = re.compile(r"(?<![\w./+-])([\w./+-]*[\w+-]\.\w+):(\d+)(?:[-\u2013](\d+))?")
 FINDING_NO = re.compile(r"^\s*(?:#+\s*)?\**(\d+)[.):]")
-HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$")
+HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)\Z")
 
 
 class Refused(Exception):
