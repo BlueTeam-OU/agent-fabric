@@ -431,17 +431,19 @@ HEAD_REVIEWED = "head reviewed"
 
 def review_summary(have: set[str], required: list[str], head: str, boundary_only: list[str] = (), unread: str = "",
                    additional: list[str] = (), unavailable: dict[str, str] | None = None) -> str:
-    """"claude ✓ codex ✗ (head 6bc0ad18)", one mark per required engine, opened by "head reviewed: " when all are
-    there. `boundary_only` engines (a policy's boundary_reviews beyond its reviews, for a reader that does not judge
-    the boundary) are marked and not required. `additional` engines are marked "✓", "unavailable (<reason>)" when
-    `unavailable` has their marker for this head, or "absent" with neither; they never block, so the line opens "head
+    """"claude ✓ codex absent (head 6bc0ad18)", one mark per engine, opened by "head reviewed: " when every required
+    engine has reviewed. `boundary_only` engines (a policy's boundary_reviews beyond its reviews, for a reader that
+    does not judge the boundary) are marked and not required. `additional` engines are marked "✓", "unavailable
+    (<reason>)" when `unavailable` has their marker for this head, or "absent" with neither ("✗ (boundary only)" when
+    `boundary_only` names it too: arm requires it of a boundary); they never block, so the line opens "head
     reviewed" when every required engine is "✓" (#264 F1: the gate must not show blocked what arm arms).
     `unread` is why the policy could not be read, when every engine was required for that reason: said on the line,
     or a missing engine reads as the repository's own requirement."""
     unavailable = unavailable or {}
     marks = [f"{e} {'✓' if e in have else '✗'}" for e in required]
     extra = [e for e in additional if e not in required]
-    marks += [f"{e} {'✓' if e in have else f'unavailable ({unavailable[e]})' if e in unavailable else 'absent'}" for e in extra]
+    marks += [f"{e} {'✓' if e in have else f'unavailable ({unavailable[e]})' if e in unavailable
+                         else '✗ (boundary only)' if e in boundary_only else 'absent'}" for e in extra]
     marks += [f"{e} {'✓' if e in have else '✗'} (boundary only)" for e in boundary_only if e not in required and e not in extra]
     line = f"{' '.join(marks)} (head {head[:8]}{f'; policy unread, every engine required: {unread}' if unread else ''})"
     met = all(e in have for e in required)

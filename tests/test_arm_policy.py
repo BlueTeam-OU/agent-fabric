@@ -439,6 +439,14 @@ class ReviewLine(unittest.TestCase):
         self.assertEqual(self.line({"claude"}, [self.gone()]), "head reviewed: claude ✓ codex unavailable (allowance) (head abcdef12)")
         self.assertEqual(self.line({"claude"}), "head reviewed: claude ✓ codex absent (head abcdef12)")
 
+    def test_an_absent_additional_engine_a_boundary_also_requires_reads_boundary_only(self):
+        # The gate passes it as both (pr_gate.engines_required, engines_additional): arm requires it of a boundary.
+        line = arm_policy.review_summary({"claude"}, ["claude"], self.HEAD, ["codex"], additional=["codex"])
+        self.assertEqual(line, "head reviewed: claude ✓ codex ✗ (boundary only) (head abcdef12)")
+        line = arm_policy.review_summary({"claude"}, ["claude"], self.HEAD, ["codex"], additional=["codex"],
+                                         unavailable={"codex": "allowance"})
+        self.assertEqual(line, "head reviewed: claude ✓ codex unavailable (allowance) (head abcdef12)")
+
     def test_an_unavailable_additional_engine_never_stands_in_for_a_required_one(self):
         self.assertEqual(self.line(set(), [self.gone()]), "claude ✗ codex unavailable (allowance) (head abcdef12)")
         self.assertEqual(arm_policy.engines_unavailable([self.gone(engine="claude")], self.HEAD), {"claude": "allowance"})

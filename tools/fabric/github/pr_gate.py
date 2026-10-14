@@ -64,7 +64,7 @@ per PR now carries all of it, and a verdict.
 
 WHAT A ROW SAYS
   #N  <owner> [(me)]  commits=T (W work, F fix, M merge[, R netted by a revert])  checks=<green|red:<names>|pending:<k>|none-yet|?>
-      review=<[head reviewed: ]claude ✓ codex ✗ (head <sha8>)|?>  threads=<u>  armed=<yes|no>
+      review=<[head reviewed: ]claude ✓ codex ✓|unavailable (<reason>)|absent (head <sha8>)|?>  threads=<u>  armed=<yes|no>
       queue=<pos>  verdict
 
   owner  the session that opened it — <host>/<login> from the branch
@@ -95,7 +95,8 @@ WHAT A ROW SAYS
          are marked "(boundary only)" and not required here: arm judges
          the boundary. An additional engine (`additional_reviews`) is
          marked ✓, "unavailable (<reason>)" when its marker for the
-         head stands in, or ✗, which blocks. An unreadable policy
+         head stands in, or absent with neither, which never blocks
+         ("✗ (boundary only)" when a boundary also requires it). An unreadable policy
          requires every engine; ? is a reader that could not answer
   verdict one of:
     MERGEABLE — arm (8–16 work commits, gate met: post the basis, arm)
@@ -346,7 +347,7 @@ def review_of_head(reader: list[str], num: int, head: str, required: list[str], 
     """Each required engine's review of `head`, and each additional engine's review or unavailable marker, read as
     fabric-pr arm reads them (pr-review-status --json's blind.rows and unavailable.rows, arm_policy.engines_on_head
     and engines_unavailable) and said as arm_policy.review_summary says it: "head reviewed: ..." only when every
-    one is there. A reader that cannot run or answer is "?", like one that could not read the PR
+    required engine is there. A reader that cannot run or answer is "?", like one that could not read the PR
     — the bash read a missing reader as "none"."""
     try:
         r = subprocess.run([*reader, str(num), "-q", "--json"], capture_output=True, text=True, timeout=300,
