@@ -806,16 +806,14 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-037 — Each agent keeps a job list (Accepted)
 
 - One list per login, `agents/<login>/jobs.json`, written only through
-  `runtime/identity.py`; states queued, active (one at a time), paused,
-  blocked, delivered, done, dropped (§5 rules 1–2).
+  `runtime/identity.py`; states queued, active (one at a time), paused
+  (unbuilt: `blocked`, 'paused: <why>'), blocked, delivered, done, dropped (§5 rules 1–2).
 - `fabric-jobs next`: a session that has worked a job gets
   `fabric-fresh --job <id>` for the next, in the job's working copy; one
-  that has worked none takes it in place (§5 rule 3).
-- Jobs come from the agent and from the owner (`fabric-ctl <login>
-  jobs-add`); a GZCoord request becomes a job only when its receiver adds
-  it (§5 rules 4–5).
-- The owner reads every list with `fabric-ctl <login|all> jobs` (§5
-  rule 6).
+  that worked none takes it in place (§5 rule 3).
+- Jobs come from the agent and the owner (`fabric-ctl <login> jobs-add`);
+  a GZCoord request becomes one only when its receiver adds it (§5 rules 4–5).
+- The owner reads every list: `fabric-ctl <login|all> jobs` (§5 rule 6).
 - A 2026-10-08 — priority (blocking, high, normal, low) orders `next`,
   never preempting; a job others wait on ranks blocking (`waits_on`); a
   role pool; after a job ends, take the next (§5 rules 7–10).

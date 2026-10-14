@@ -92,7 +92,8 @@ Why these choices:
    decision. `paused` is the agent's own choice to set the job aside for
    other work; a paused job is taken back by name, and the transition
    (rule 10) offers it before queued jobs of the same priority
-   (A 2026-10-14).
+   (A 2026-10-14) (decided, not yet built; until it is, a paused job is
+   `blocked` with a 'paused: <why>' reason, as the agent-jobs skill says).
 3. A job carries its project, its working copy and, when the agent sets
    one, a topic. `fabric-jobs next` asks whether this session has already worked a job
    (a job entered or left `active` in it, by the harness session id the
