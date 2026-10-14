@@ -388,6 +388,7 @@ CONTRIBUTOR_NEVER = (
     "tools/fabric/bootstrap.py", "tools/fabric/fabric_writes.py", "tools/fabric/install_agent_files.py",
     # Writes and reads each agent's private conversational history (ADR-041).
     "tools/fabric/episodic.py", "tools/fabric/episodic_import.py", "tools/fabric/relay.py", "tools/fabric/history.py", "bin/fabric-history",
+    "tools/fabric/reflect.py", "bin/fabric-reflect",
     # Reads the relay as the account, with its token, and prints what it finds.
     "tools/fabric/relay_catchup.py",
     # Derives a re-review's brief, as review_brief.py renders one.
