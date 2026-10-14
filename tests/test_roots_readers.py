@@ -233,11 +233,14 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
                                                       {**base, "AGENT_FABRIC_OPERATOR": probed_tree}, base)
         finally:
             shutil.rmtree(probed_tree, ignore_errors=True)
+        # A failing lint prints its findings on stderr and nothing on stdout, so the two stdouts alone read '' vs '' (j157).
+        said = lambda r: f"rc {r.returncode}\nstdout: {r.stdout[-600:]}\nstderr: {r.stderr[-600:]}"  # noqa: E731
+        assert plain.returncode == 0, f"lint without an operator is not clean: {said(plain)}"
         assert (over.returncode, over.stdout) == (plain.returncode, plain.stdout), \
-            f"with the operator: rc {over.returncode}\n{over.stdout[-600:]}\nwithout: rc {plain.returncode}\n{plain.stdout[-300:]}"
+            f"with the operator: {said(over)}\nwithout: {said(plain)}"
         count = lambda r: int(re.findall(r"(\d+) warning", r.stdout)[-1])  # noqa: E731
         assert probed.returncode == 0 and again.stdout == plain.stdout and count(probed) == count(plain) + 1, \
-            f"lint did not follow the operator's memory: {probed.stdout[-300:]!r} vs {plain.stdout[-300:]!r}"
+            f"lint did not follow the operator's memory: {said(probed)}\nwithout: {said(plain)}\nagain: {said(again)}"
 
 
 def case_fabric_labels_do_not_depend_on_the_checkouts_name() -> None:

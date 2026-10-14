@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""identities/schemas/arming.schema.json: the fleet default (kept below as
-FLEET_DEFAULT; policies/arming.json is added with the reader, step C)
+"""identities/schemas/arming.schema.json: the fleet default (policies/arming.json
+itself, and DEFAULT below, the first fleet default written as a fixture)
 and a repository's own policy validate against it, and a policy that
 could not be applied (an unknown key, a value out of range) does not.
 Judged by lint's validator both ways: jsonschema when present, and the
-structural fallback the pinned interpreter runs (ADR-040)."""
+structural fallback the pinned interpreter runs (ADR-040); the real file
+is also read by arm_policy.validate, the reader that applies it."""
 from __future__ import annotations
 
 import copy
@@ -14,11 +15,13 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric", "github"))
 from lint_rules import schema as lint_schema  # noqa: E402
+import arm_policy  # noqa: E402
 
 SCHEMA = json.load(open(os.path.join(ROOT, "identities", "schemas", "arming.schema.json"), encoding="utf-8"))
 
-# The fleet default as step C will commit it to policies/arming.json.
+# The fleet default as first written, kept as a fixture; the committed policies/arming.json is loaded below.
 DEFAULT = {
     "mode": "auto",
     "method": "merge",
@@ -69,6 +72,27 @@ def mutated(base: dict, *path: str, value: object) -> dict:
 
 check("the fleet default", DEFAULT, True)
 check("a queue policy", QUEUE, True)
+REAL = json.load(open(os.path.join(ROOT, "policies", "arming.json"), encoding="utf-8"))
+check("the committed policies/arming.json", REAL, True)
+try:
+    applied = arm_policy.validate(REAL, "policies/arming.json")
+    # The file equals the built-in default on today's keys, so a reader that ignored its document would answer the same
+    # for the file itself: the control is a copy with one value moved, which only a reader that applies it reflects.
+    moved = arm_policy.validate({**REAL, "commits": {**REAL["commits"], "min": REAL["commits"]["min"] + 1}}, "moved")
+    ok = (applied["mode"] == REAL["mode"] and applied["commits"]["min"] == REAL["commits"]["min"]
+          and moved["commits"]["min"] == REAL["commits"]["min"] + 1)
+    detail = {"applied": applied, "moved": moved}
+except arm_policy.PolicyError as e:
+    ok, detail = False, e
+print(f"  {'ok  ' if ok else 'FAIL'} the committed policies/arming.json [arm_policy.validate]" + ("" if ok else f": {detail}"))
+failures += not ok
+try:   # the control: the reader refuses what the schema refuses, so the line above can fail
+    arm_policy.validate({**REAL, "autoo": True}, "policies/arming.json")
+    ok = False
+except arm_policy.PolicyError as e:
+    ok = "autoo" in str(e)
+print(f"  {'ok  ' if ok else 'FAIL'} arm_policy.validate refuses an unknown key in the committed policy")
+failures += not ok
 check("an empty policy (every field optional)", {}, True)
 check("auto with an unknown key", {"mode": "auto", "autoo": True}, False, "autoo")
 check("an unknown key nested", mutated(QUEUE, "queue", "depth", value=3), False, "depth")
