@@ -23,7 +23,8 @@ is), then prints the rendered brief:
   previous_findings  --report, or the newest round saved for --pr
   lenses             [general], unless --keep-lenses
   card_base          the first round's base, so the card stays the one the
-                     first round read (review_brief.py)
+                     first round read (review_brief.py); a symbolic first
+                     base is refused unless the request pins card_base
   review_id          kept, else <repository>#<PR> when the PR is known
   review_round       the previous round's number plus one (the first is 1)
   pr                 --pr, where the request names none
@@ -328,7 +329,7 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
     first_base = req["range"].split("..", 1)[0]
     if not req.get("card_base") and not re.fullmatch(r"[0-9a-f]{7,40}", first_base):
         raise Refused(f"the range's base {first_base!r} is not a commit id, so the first round's card cannot be "
-                      "recovered: set card_base in the request to the commit round 1 used (git rev-parse)")
+                      "recovered: set card_base in the request to the commit round 1 used (the base_sha in round 1's dispatch header)")
     nxt["card_base"] = req.get("card_base") or _commit(repo_dir, first_base)
     if (rid := review_brief.default_review_id(nxt)):
         nxt["review_id"] = rid
