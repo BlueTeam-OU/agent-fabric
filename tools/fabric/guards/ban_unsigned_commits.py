@@ -430,7 +430,8 @@ def require_since_on(base: str, since: str) -> None:
         raise git.GitError("git cat-file", f"the policy's since {since[:12]} is not in this clone (shallow? fetch it)")
     if not git.ok(".", "merge-base", "--is-ancestor", since, base):
         raise git.GitError("git merge-base", f"the policy's since {since} is not an ancestor of {base}: "
-                           "it must be a commit on the default branch")
+                           "it must be a commit on the default branch (or "
+                           f"{base} is stale and predates it: fetch the remote first)")
 
 
 def judged_commits(base: str, head: str, since: str) -> list[str]:

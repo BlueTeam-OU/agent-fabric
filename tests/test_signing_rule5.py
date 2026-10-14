@@ -421,7 +421,7 @@ def run() -> None:
     write_operator(since=stray)
     r = guard()
     check("a since on a side branch, not on the default branch: refused, naming the sha",
-          refused(r, "not an ancestor") and stray in r.stderr, r.stdout + r.stderr)
+          refused(r, "not an ancestor") and stray in r.stderr and "fetch the remote first" in r.stderr, r.stdout + r.stderr)
     write_operator(since=old)
 
     print("log.showSignature=true in the clone")
