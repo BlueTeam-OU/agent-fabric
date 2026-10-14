@@ -17,6 +17,10 @@ import subprocess
 import sys
 import tempfile
 
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+
+own_instance_tree()
+
 os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 # Every git here, the fixtures' too, is the test's own: an inherited
 # GIT_DIR or work tree would point them at the caller's repository.
