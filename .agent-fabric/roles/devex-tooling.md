@@ -25,8 +25,9 @@ here (2026-10-03). A role that wants its remit changed proposes it.
   `projects/gzapp/integration/gh/` and `projects/interweave/integration/gh/`
   (an `arm.json` is a project's security boundary in path form: a change
   that narrows one asks that project's architect-cto first);
-- the GZCoord command-line tools, `communication/gzcoord/scripts/`, and
-  their tests, `communication/gzcoord/tests/`;
+- the GZCoord command-line tools' tests, `communication/gzcoord/tests/`
+  (the tools themselves moved to `tools/fabric/gzcoord/` in Wave 7, inside
+  python-dev's entry);
 - the toolkit's own tests under `tests/`, each named in the entry
   (`test_pr_*`, `test_post_review*`, `test_trial_merge*`,
   `test_commit_class*`, `test_arm_cli`). Not `bin/`, whose commands are other roles'

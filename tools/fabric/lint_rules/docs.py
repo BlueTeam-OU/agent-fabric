@@ -584,7 +584,7 @@ def agent_source_findings(root: str) -> list[str]:
 # found one project's port variable in a role skill, its gpg wrapper in
 # the provisioner, its channel as a GZCoord default.
 GENERIC_DIRS = ("identities/roles", "runtime/provisioning", "runtime/claude-code", "runtime/hostexec",
-                "runtime/openrouter", "tools/fabric", "bin", "communication/gzcoord/scripts",
+                "runtime/openrouter", "tools/fabric", "bin",
                 "communication/gzcoord/skills")
 
 
