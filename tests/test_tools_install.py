@@ -605,7 +605,7 @@ def main() -> int:
             try:
                 tools_install.fetch_https("https://example.invalid/asset")
                 refused = None
-            except ValueError as e:
+            except (ValueError, AssertionError) as e:   # the stand-in asserts on an unbounded read
                 refused = str(e)
             check("an endless body is refused after reading one byte past the bound",
                   refused == "the asset is over 4096 bytes" and Endless.asked == [4097], (refused, Endless.asked))
