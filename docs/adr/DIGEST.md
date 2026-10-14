@@ -323,7 +323,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — a drain-bound memory is judged when written, by a
   user-scope hook (rule 14).
 - A 2026-10-10 — the role's holder judges truth: ADR-050 (rules 11, 12, 14,
-  15), decided, not yet built.
+  15), built (the report half of its rule 11 is not).
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
   watermark, bundle, hygiene, redacted, tier.
@@ -344,7 +344,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   class; ambiguous refuses the run, unresolved is reported every drain;
   the correction keeps its own heading (§5 rules 7–8).
 - A 2026-10-10 — a retitle replaces only the section it names; a body-less
-  `merge_target` retires a section (rules 4, 7, ADR-050); not yet built.
+  `merge_target` retires a section (rules 4, 7, ADR-050); built (the report of retitles is not).
 - Keywords: collision, SUPERSEDING, supersede, keep-both, drop,
   --collision-decisions, same-agent, retitle, merge_target, correction,
   observed, idempotent, budget part.
@@ -806,28 +806,26 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-037 — Each agent keeps a job list (Accepted)
 
 - One list per login, `agents/<login>/jobs.json`, written only through
-  `runtime/identity.py`; states queued, active (one at a time), blocked,
-  delivered, done, dropped (§5 rules 1–2).
+  `runtime/identity.py`; states queued, active (one at a time), paused
+  (unbuilt: `blocked`, 'paused: <why>'), blocked, delivered, done, dropped (§5 rules 1–2).
 - `fabric-jobs next`: a session that has worked a job gets
   `fabric-fresh --job <id>` for the next, in the job's working copy; one
-  that has worked none takes it in place (§5 rule 3).
-- Jobs come from the agent and from the owner (`fabric-ctl <login>
-  jobs-add`); a GZCoord request becomes a job only when its receiver adds
-  it (§5 rules 4–5).
-- The owner reads every list with `fabric-ctl <login|all> jobs` (§5
-  rule 6).
+  that worked none takes it in place (§5 rule 3).
+- Jobs come from the agent and the owner (`fabric-ctl <login> jobs-add`);
+  a GZCoord request becomes one only when its receiver adds it (§5 rules 4–5).
+- The owner reads every list: `fabric-ctl <login|all> jobs` (§5 rule 6).
 - A 2026-10-08 — priority (blocking, high, normal, low) orders `next`,
-  never preempting; a job others wait on ranks blocking via the state
-  stream's `waits_on`; a role pool; after a job ends,
-  take the next (§5 rules 7–10).
-- A 2026-10-09 — a stale waiter still ranks the job blocking (§5 rule 8).
+  never preempting; a job others wait on ranks blocking (`waits_on`); a
+  role pool; after a job ends, take the next (§5 rules 7–10).
+- A 2026-10-09 — a stale waiter still ranks blocking (§5 rule 8).
 - A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
 - A 2026-10-09 — a job may be a plan's step (§5 rule 11).
 - A 2026-10-11 — every job after a worked one starts fresh (§5 rule 3).
 - A 2026-10-12 — checkable blockers; a cleared job is taken first (§5 rule 8).
-- Keywords: job, to-do, jobs.json, fabric-jobs, next, topic, fresh
-  session, restart, fabric-fresh --job, working copy, intake, priority,
-  blocking, pool, claim, P3.
+- A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
+- Keywords: job, jobs.json, fabric-jobs, next, switch, paused, fresh
+  session, fabric-fresh --job, working copy, intake, priority,
+  blocking, pool, claim.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 

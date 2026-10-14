@@ -227,12 +227,12 @@ arrive, and each can be traced to who learnt it, where and when.
     blocks, and names a credential by its kind only (A 2026-09-28). It
     also warns on an event-shaped description (rubric test 6) and asks for
     `anchors` on a `solution` or `workflow` memory (ADR-050 rules 1 and 7)
-    (A 2026-10-10) (decided, not yet built; until it is, the hook does neither).
+    (A 2026-10-10).
 15. Truth is judged where the knowledge lives: a stale-hard or
     maybe-stale flag, or a reader's stale or wrong mark, goes in one
     REQUEST to the role's holder, who corrects or confirms the section by
     a `merge_target` memory; the drain applies no judgement of its own
-    (ADR-050 rules 1 to 6) (A 2026-10-10) (decided, not yet built; until it is, `memory_check.py` finds gone paths only and fabric-coordinator sends the flags).
+    (ADR-050 rules 1 to 6) (A 2026-10-10).
 
 ## 6. Consequences
 

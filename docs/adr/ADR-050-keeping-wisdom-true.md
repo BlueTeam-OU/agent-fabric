@@ -93,26 +93,22 @@ name; and addresses and home paths that the hygiene patterns did not catch.
 
 ## 5. Binding Rules
 
-Where a rule says "decided, not yet built", the behaviour is not in the
-tree; the words after it say what happens until it is. Section 6 names the
-builder of each.
+Where a rule says "not yet built", the behaviour is not in the
+tree; the words after it say what happens until it is.
 
-1. **Anchors** (decided, not yet built; until it is, `memory_check.py`
-   reads cited paths only and no memory carries anchors). A memory whose
+1. **Anchors.** A memory whose
    `roles_class` is `solution` or `workflow` may carry
    `anchors: [<path>::<symbol or literal>]` in its `metadata:` block: a
    repository path, and after `::` a symbol name or a literal string that
    path must contain. `harvest_memory.parse_memory` carries them to the
    claim, `identities/schemas/claims.schema.json` admits them,
    `slices.claim_block` renders them into the section's provenance line,
-   and the hint of `memory-write-check.py` asks for them on a `solution`
-   or `workflow` memory that has none. A memory of any other class that
+   and `memory-write-check.py` asks for them on a `solution` or `workflow`
+   memory that has none, reading them as `parse_memory` does. A memory of any other class that
    carries `anchors` keeps its claim: the harvest drops the anchors with a
    warning, so the schema never sees them and a drain is never refused for
    them.
-2. **Mechanical detection** (decided, not yet built; until it is,
-   `memory_check.py` sorts by cited path only and no lint warning exists).
-   `tools/fabric/memory_check.py` sorts every section as exactly one of
+2. **Mechanical detection.** `tools/fabric/memory_check.py` sorts every section as exactly one of
    five outcomes, and a slice it cannot read is reported `unreadable`,
    never routed. `stale-hard`: an anchor's path is gone, an anchor's
    symbol or literal is no longer in its file, or a path the section cites
@@ -127,15 +123,17 @@ builder of each.
    The check runs anywhere there is a checkout, needs no network and no
    model, and is also a lint warning from `lint_rules/slices.py`, never an
    error.
-3. **A flag is routed to one agent** (decided, not yet built; until it is,
-   fabric-coordinator runs `fabric-memory-check` beside the drain and sends
-   its `stale-hard` findings by hand). The routing key is per section: the agent that last wrote the
+3. **A flag is routed to one agent** (`tools/fabric/memory_flags.py` decides
+   and renders, `memory_flagrun.py` sends). The routing key is per section: the agent that last wrote the
    section, which the drain keeps per section in its own state beside
    `memory-drain-reads.json` (a slice's provenance names the role, never
    the login, as it travels into every repository), if it
    still holds the section's role; else the role's running holder; else its
-   lowest-numbered holder. Until the assembler records it, the key is the
-   role's running holder, else its lowest-numbered holder. A `shared/`
+   lowest-numbered holder. The assembler records the writer per section
+   (`section_writers` in the drain report, one agent per section, the last
+   to write it), and the flag run routes by it as above; a section with no
+   recorded writer, or whose writer no longer holds the role, goes to the
+   running holder, else the lowest-numbered one. A `shared/`
    section is routed by its section's role as recorded in *Observed*; if
    that names several roles, by the first. The drain sends one REQUEST per
    agent listing its flags, each with the slice, the heading, the anchor
@@ -153,26 +151,21 @@ builder of each.
    assembler's same-claim rule (`writer.py`; `tests/test_assemble.py`
    `test_the_same_claim_again_is_never_a_collision_whatever_its_date`). The
    drain never edits a flagged section itself.
-5. **The reader's judgement** (decided, not yet built; until it is, the
-   no mark exists: ADR-049's server and harvest that carry them are not
-   built; once they are, the marks are listed in the drain report and
-   nobody is routed them). A
+5. **The reader's judgement** (`memory_flags.py` routes the marks; the drain
+   report carries them as `memory_marks` and `memory_helpful`). A
    `memory_mark` of `stale` or `wrong` (ADR-049 rule 3) is carried in the
    harvest bundle, from each login's own `memory-marks.jsonl`, through
    `fabric-ctl <login> memory`, and is routed as rule 3 routes a flag, by
    the section the mark names. `helpful` marks are counted per section id
    in the drain report.
-6. **The central assist is advisory** (decided, not yet built; until it
-   is, a flag carries no hint). For a `maybe-stale` section the drain may
+6. **The central assist is advisory** (`tools/fabric/memory_hint.py`). For a `maybe-stale` section the drain may
    attach a hint: one model call per flagged section, through the harness
    CLI on the coordinator's account, given the section and the diff of its
    anchors since *Observed*, asked which sentence looks wrong. The hint is
    text in the flag's REQUEST, marked as a model's guess; no flag, section
    or slice changes because of it, and a drain with no model available
    runs the same without it.
-7. **A lesson, not a record** (decided, not yet built; until it is, the
-   rubric has five tests, the hook does not warn on events and a section
-   cannot be retired). The rubric gains test 6, "a lesson, not a record".
+7. **A lesson, not a record.** The rubric has test 6, "a lesson, not a record".
    `memory-write-check.py` warns on a description shaped like an event,
    matched exactly and case-sensitively: it starts with `FIXED`, `MERGED`,
    `CLOSED` or `DONE` in capitals followed by `:` or a space, or with
@@ -182,18 +175,20 @@ builder of each.
    lesson replaces one-off values with parameters. The assembler retires a
    section when a `merge_target` memory names its heading and has no body
    (`slices.remove_sections`); the retired section leaves the corpus, and
-   its text stays in git. The retire path needs three changes:
+   its text stays in git. The retire path is built:
    `claims.schema.json` admits a retire claim whose body is empty,
-   `parse_memory` produces it, and `writer.py` removes the section where it
-   now replaces it with an empty heading.
-8. **Review horizons, listed, never expired** (decided, not yet built;
-   until it is, no horizon is listed). The drain report lists each
+   `parse_memory` produces it, and `writer.py` removes the section.
+8. **Review horizons, listed, never expired** (built in the drain
+   report). The drain report lists each
    `solution` section older than 30 days and each `workflow` section older
    than 90 days whose *Observed* date no confirmation has re-dated, and
    each section no `memory_read` returned in the last 8 weeks. The horizon
    counts reads, not finds: the ids a read returned, which ADR-049 rule 7
-   decides the harvest bundle carries; until ADR-049 is built there is
-   nothing to count and the list is empty. The drain keeps the per-section
+   decides the harvest bundle carries. ADR-049's server and the
+   bundle's read ids exist, so the drain counts them now (`ids_read`,
+   `memory_horizons.record_reads`); the unread list stays empty for a
+   section until the drain has watched it for 8 weeks, since before that
+   the answer is unknown, not "unread". The drain keeps the per-section
    last-read date in its own state file, `memory-drain-reads.json`, in the
    drain's agent state directory (`agents/<login>/`, beside
    `memory-calls.jsonl`), and writes it on every drain. Nothing is
@@ -201,27 +196,25 @@ builder of each.
    3 routes a flag, to its owning role, whose holder confirms it
    (re-dating), corrects it or retires it; the owner is not asked per
    section.
-9. **A `merge_target` into a shared slice names `shared_with`** (decided,
-   not yet built; until it is, nothing warns). `memory-write-check.py`
-   warns when a memory's `merge_target` names no heading in the role's own
-   slices and the memory has no `shared_with`.
+9. **A `merge_target` into a shared slice names `shared_with`.**
+   `memory-write-check.py` warns when a memory's `merge_target` names no
+   heading in the role's own slices of its class and the memory has no
+   `shared_with`; slices it cannot read, it says nothing of.
 10. **A correction's author retires what it replaces.** The author of a
     correction memory retires the memory it replaces, in its own Claude
     memory, when the correction is written. After a drain applies a
     `merge_target` correction, the author retires the correction memory
     too, until the harvest drops applied corrections itself. The drain
-    report lists every applied correction (decided, not yet built; until
-    it is, the list is absent).
-11. **A retitle replaces only the section it names** (decided, not yet
-    built; until it is, the assembler replaces every section of the
-    topic). The same-agent retitle (ADR-014 rule 4(a)) replaces a section
+    report lists every applied correction (`applied_corrections`).
+11. **A retitle replaces only the section it names** (partly built: the
+    assembler's half is built; the report half is python-dev-01's request).
+    The same-agent retitle (ADR-014 rule 4(a)) replaces a section
     only when the claim names it by `merge_target` or shares its cue; a
     claim that shares nothing with the topic's sections is a new topic.
-    Until the assembler does this, the drain report lists every same-agent
-    retitle it applies (itself decided, not yet built; until it is, a
-    retitle is only printed as `SUPERSEDED, same agent`).
-12. **Hygiene patterns** (decided, not yet built; until it is, the existing
-    patterns apply). `policies/hygiene.json` gains patterns for
+    The assembler does this (`slices.shares_cue`, `collisions.py`). The
+    drain report lists every same-agent retitle it applies (not yet built;
+    until it is, a retitle is only printed as `SUPERSEDED, same agent`).
+12. **Hygiene patterns.** `policies/hygiene.json` has patterns for
     private-network addresses and for `/home/<login>/` paths, applied in
     every project as ADR-013 rule 10 applies the existing ones.
 13. **The drain runs per project.** The assembler has no domain-only mode;
@@ -235,22 +228,16 @@ builder of each.
 
 ## 6. Consequences
 
-- **python-dev-03** builds rules 1 to 5 as memory plan step s8: the
-  anchors (the schema, `parse_memory`, `claim_block`), the checker's five
-  verdicts, the flag routing and the section's last-writer provenance, the
-  marks routing, and the retire path with the `claims.schema.json` body
-  change for a retire claim.
-- **fabric-coordinator** builds the text and small hook changes as
-  follow-ups to plan steps s2 and s9: the hook's anchors hint, event
-  warning and `shared_with` warning (rules 1, 7, 9), the rubric test, the
-  hygiene patterns (rule 12), the drain report's lists and state file
-  (rules 3, 8, 10, 11) and the manual (`memory/README.md`,
-  `identities/prompt/memory.md`). The model hint (rule 6) is
-  fabric-coordinator's, last, and can be left out without changing any
-  other rule. python-dev-03 also builds the assembler's retitle change
-  (rule 11, ADR-014 rule 4(a); the report's list covers it until then) and
-  the lint warning of rule 2, with s8. Rules 5 and 8 need ADR-049's server
-  and harvest (plan s4) first.
+- Built: rules 1 to 10, 12, 13 and 14, and the assembler's half of rule 11.
+  The anchors are `parse_memory`, the claims schema and `claim_block`; the
+  checker is `memory_check.py` with its lint warning; the flags are routed
+  by `memory_flags.py` and `memory_flagrun.py` from the assembler's
+  `section_writers`; the model hint is `memory_hint.py`; the drain report
+  carries the marks, the horizons and the applied corrections; the retire
+  path is the schema's empty body, `parse_memory` and `writer.py`. The
+  rubric has test 6 and the promote verdict, and the hook
+  (`memory-write-check.py`) warns on rules 1, 7 and 9. Not built: the
+  report half of rule 11, python-dev-01's request.
 - fabric-coordinator's drain gains work (routing, the report's lists) and
   loses the work it could not do well: judging a section it cannot see
   the code of.

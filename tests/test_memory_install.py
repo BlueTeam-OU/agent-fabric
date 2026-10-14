@@ -95,6 +95,22 @@ def main() -> int:
             check(f"{label}: exit 3, one line on stderr, the file untouched", rc == 3 and out == "" and err.count("\n") == 1
                   and open(path, encoding="utf-8").read() == doc and not [f for f in os.listdir(t) if f.endswith(".tmp")], f"{rc} {out!r} {err!r}")
 
+        print("a file that cannot be read")
+        unreadable = config("{}")
+        os.chmod(unreadable, 0)
+        directory = os.path.join(t, "adir.json")
+        os.mkdir(directory)
+        cases = [("a directory", directory)]
+        if os.geteuid() != 0:   # root reads a mode-000 file
+            cases.insert(0, ("mode 000", unreadable))
+        for label, path in cases:
+            rc, out, err = run(path)
+            check(f"{label}: exit 3, one line naming the path and why, nothing written, no traceback",
+                  rc == 3 and out == "" and "Traceback" not in err and err.count("\n") == 1 and path in err and "unreadable" in err
+                  and not [f for f in os.listdir(t) if f.endswith(".tmp")], f"{rc} {out!r} {err!r}")
+        check("mode 000 file or directory: still as it was", os.path.isdir(directory) and os.stat(unreadable).st_mode & 0o777 == 0)
+        os.chmod(unreadable, 0o600)
+
         print("the temporary file")
         import importlib.util
         spec = importlib.util.spec_from_file_location("fabric_memory_install", INSTALL)
