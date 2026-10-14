@@ -236,8 +236,13 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
         # A failing lint prints its findings on stderr and nothing on stdout, so the two stdouts alone read '' vs '' (j157).
         said = lambda r: f"rc {r.returncode}\nstdout: {r.stdout[-600:]}\nstderr: {r.stderr[-600:]}"  # noqa: E731
         assert plain.returncode == 0, f"lint without an operator is not clean: {said(plain)}"
+        # The two outputs differ by lines the last 600 characters of each cannot show (a login where only this case is red, j157):
+        # say which lines, and where the lint read them from.
+        import difflib
+        said_diff = lambda a, b: "\n".join(list(difflib.unified_diff(a.splitlines(), b.splitlines(), "without", "with the operator", lineterm="", n=0))[:60])  # noqa: E731
         assert (over.returncode, over.stdout) == (plain.returncode, plain.stdout), \
-            f"with the operator: {said(over)}\nwithout: {said(plain)}"
+            (f"with the operator: {said(over)}\nwithout: {said(plain)}\nstdout diff:\n{said_diff(plain.stdout, over.stdout)}"
+             f"\nstderr diff:\n{said_diff(plain.stderr, over.stderr)}\noperator tree: {tmp}")
         count = lambda r: int(re.findall(r"(\d+) warning", r.stdout)[-1])  # noqa: E731
         assert probed.returncode == 0 and again.stdout == plain.stdout and count(probed) == count(plain) + 1, \
             f"lint did not follow the operator's memory: {said(probed)}\nwithout: {said(plain)}\nagain: {said(again)}"
