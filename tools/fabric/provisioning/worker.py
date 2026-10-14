@@ -49,7 +49,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 TOOLS = os.path.dirname(HERE)
 sys.path.insert(0, TOOLS)
 import roots  # noqa: E402
-from provisioning import host_platform, host_steps as hs, verify as vf, worker_args as wa  # noqa: E402
+from provisioning import host_platform, host_steps as hs, launch_record as lr, verify as vf, worker_args as wa  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(TOOLS))
 PY = "/usr/local/bin/fabric-python"
@@ -408,6 +408,7 @@ def finish(w: Worker) -> int:
                             f"git clone -q '{remote}' ~/projects/'{pid}'")
             w.say(f"6. {pid} cloned from {remote}")
     if not a.human:     # 7-9 never for a human (ADR-044 rule 2)
+        record_launch_provider(w)
         bootstrap_and_bind(w)
         toolchains(w)
     # ---- 10. verify, and what is left for a person
@@ -416,6 +417,26 @@ def finish(w: Worker) -> int:
         return 0
     w.say("10. verification")
     return verify(w)
+
+
+def record_launch_provider(w: Worker) -> None:
+    """---- 6b. the provider of the account's first launch. Before bootstrap, which installs the agent files for the
+    recorded provider. A role whose provider nothing names is left to the launcher's default, said."""
+    a = w.a
+    profile = lr.profile_provider(roots.routing_profiles(engine=w.root), a.login, a.role)
+    provider = lr.choose(profile, a.account, a.no_account)
+    if provider is None:
+        w.say("6b. no launch provider recorded: no profile layer names one and no Claude account was asked for")
+        return
+    record = os.path.join(w.root, "tools", "fabric", "provisioning", "launch_record.py")
+    if a.dry:
+        w.say(f"would: as {a.login}: launch_record.py {provider}")
+        return
+    got = w.as_login([PY, "-I", record, provider], login_shell=False)
+    if got.returncode != 0:
+        tail(got.stdout)
+        w.die(f"step failed: launch_record.py {provider} as {a.login}; nothing after it ran")
+    w.say(f"6b. first launch on {provider} recorded")
 
 
 def bootstrap_and_bind(w: Worker) -> None:
