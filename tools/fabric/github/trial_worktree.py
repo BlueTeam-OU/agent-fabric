@@ -1,7 +1,7 @@
 """tools/fabric/github/trial_worktree.py — the scratch worktree of a
 trial-merge run: made under the scratch directory, the branches merged into
 it, and everything it left removed however the run ended (a killed run's
-leftovers swept by the next one). Split out of trial_merge.py, unchanged;
+leftovers swept by the next one). Split out of trial_merge.py (8d26c88a);
 its contract is that module's header."""
 from __future__ import annotations
 
@@ -166,14 +166,19 @@ def cleanup(top: str, wt: str, cpid: int | None) -> None:
     # scan again until a pass finds no member not yet signalled; a process
     # with a fatal signal pending cannot complete a fork, so this ends. The
     # bound is for a member that catches TERM and keeps forking.
+    # A /proc that cannot be listed (EMFILE) ends the scan, never the
+    # removals below.
     signalled: set[int] = set()
-    for _ in range(SWEEP_PASSES):
-        fresh = [pid for pid in worktree_procs(wt, cpid) if pid not in signalled]
-        if not fresh:
-            break
-        for pid in fresh:
-            terminate(pid)
-        signalled.update(fresh)
+    try:
+        for _ in range(SWEEP_PASSES):
+            fresh = [pid for pid in worktree_procs(wt, cpid) if pid not in signalled]
+            if not fresh:
+                break
+            for pid in fresh:
+                terminate(pid)
+            signalled.update(fresh)
+    except OSError:
+        pass
     # Each step on its own: a git that times out (git.py's bound) must not
     # keep the scratch tree and the pid file from going (review of #71).
     for step in (lambda: git.run(top, *NO_HOOKS, "worktree", "remove", "--force", wt, check=False),
