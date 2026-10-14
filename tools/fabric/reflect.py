@@ -4,7 +4,7 @@ reflection pass, and the cursor that says where that was (agent-fabric
 ADR-058). Behind bin/fabric-reflect.
 
     fabric-reflect [--max N] [--full] [--json]      the next pass
-    fabric-reflect done [--through ROW] [--max N]   the pass is finished
+    fabric-reflect done --through ROW [--max N]     the pass is finished
     fabric-reflect status [--json]                  the cursor, and what waits
 
 A pass prints the GZCoord messages of this login's own episodic journal
@@ -22,9 +22,12 @@ Reading moves nothing. `done` records, in this login's state
 (reflect-cursor.json, written atomically), the last message of the pass; it
 is the only thing that does, so a pass that was interrupted before `done`
 is read again from the same message. `done --through ROW` closes exactly the
-pass that printed "through row ROW" (its --json: "through"); without it
-`done` closes the first --max messages after the cursor, which is that same
-pass unless the journal changed meanwhile. The cursor never moves back.
+pass that printed "through row ROW" (its --json: "through"); ROW is
+mandatory, because a `done` that worked out its own end would close what the
+journal gained or the --max differed by since the pass, messages no pass
+showed. ROW is refused when it lies more than --max messages past the cursor
+(a pass shows at most that many; give `done` the --max the pass had). The
+cursor never moves back.
 
 The cursor is a position in the journal's insertion order (SQLite rowid),
 not a time: a message imported late lands after the messages already read
@@ -213,14 +216,15 @@ def cmd_done(conn, owner: str, args) -> int:
     with identity.agent_lock():
         cur = cursor(conn, owner)
         have = cur.get("row", 0)
-        if args.through is not None:
-            row = conn.execute("SELECT rowid, id FROM episodes WHERE source=? AND rowid=?",
-                               (episodic.SOURCE, args.through)).fetchone()
-            if row is None:
-                raise CursorError(f"row {args.through} is not a message of this journal; `fabric-reflect` prints the row to close")
-        else:
-            rows = waiting(conn, have, args.max)
-            row = (rows[-1]["row"], rows[-1]["id"]) if rows else None
+        row = conn.execute("SELECT rowid, id FROM episodes WHERE source=? AND rowid=?",
+                           (episodic.SOURCE, args.through)).fetchone()
+        if row is None:
+            raise CursorError(f"row {args.through} is not a message of this journal; `fabric-reflect` prints the row to close")
+        shown = conn.execute("SELECT COUNT(*) FROM episodes WHERE source=? AND rowid > ? AND rowid <= ?",
+                             (episodic.SOURCE, have, row[0])).fetchone()[0]
+        if shown > args.max:
+            raise CursorError(f"row {args.through} is {shown} messages past the cursor; a pass of --max {args.max} "
+                              "never showed that far: give `done` the --max of the pass, or close the row it printed")
         if row is None or row[0] <= have:
             print(f"fabric-reflect: nothing to close; the cursor stays at row {have}")
             return 0
@@ -251,6 +255,8 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     if args.max < 1:
         ap.error("--max is at least 1")
+    if args.action == "done" and args.through is None:
+        ap.error("done needs --through ROW, the row the pass printed")
     if args.through is not None and (args.action != "done" or args.through < 1):
         ap.error("--through ROW belongs to `done` and is at least 1")
     try:

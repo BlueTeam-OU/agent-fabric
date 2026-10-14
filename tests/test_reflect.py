@@ -133,9 +133,17 @@ def main() -> int:
         check("the next pass starts after it", not set(ids(r2.stdout)) & set(ids(r1.stdout)) and "3 more message(s)" in r2.stdout, r2.stdout[-300:])
         # The hint a pass prints closes exactly that pass (review of #256, finding 2).
         check("done never moves the cursor back", "nothing to close" in run("done", "--through", "1").stdout)
-        check("done with no --through closes the first --max", "closed through" in run("done", "--max", "100").stdout
+        # Review of #264, F4: a done that works out its own end closes unshown messages.
+        bare = run("done")
+        check("done without --through is refused, closes nothing", bare.returncode == 2 and "--through" in bare.stderr
+              and run("status").stdout.count("cursor: row %d," % through) == 1, bare.stderr)
+        check("done --through a row past what --max shows is refused, closes nothing",
+              run("done", "--max", "2", "--through", str(through + 3)).returncode == 1
+              and run("status").stdout.count("cursor: row %d," % through) == 1)
+        last = json.loads(run("--max", "100", "--json").stdout)["through"]
+        check("done --through the end of a pass that fits closes it", "closed through" in run("done", "--through", str(last)).stdout
               and "nothing waits since the last pass" in run().stdout)
-        check("…and again with nothing waiting is a no-op", "nothing to close" in run("done").stdout)
+        check("…and again with nothing waiting is a no-op", "nothing to close" in run("done", "--through", str(last)).stdout)
 
         # A message that arrives after the cursor is read by the next pass.
         conn = ep.connect()
