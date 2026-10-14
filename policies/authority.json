@@ -89,7 +89,9 @@
         "tests/test_pr_sessions.py",
         "tests/test_pr_sessions_cli.py",
         "tests/test_trial_merge.py",
-        "tests/test_trial_merge_cli.py"
+        "tests/test_trial_merge_cli.py",
+        "tests/test_pr_counts.py",
+        "tests/test_fabric_pr.py"
       ],
       "excluding": [
         "tools/fabric/guards/",

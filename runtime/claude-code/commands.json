@@ -12,6 +12,7 @@
     "fabric-lease": "bin/fabric-lease",
     "fabric-locale": "bin/fabric-locale",
     "fabric-model": "bin/fabric-model",
+    "fabric-persona": "bin/fabric-persona",
     "fabric-results": "bin/fabric-results",
     "fabric-review": "bin/fabric-review",
     "fabric-role": "bin/fabric-role",
@@ -36,7 +37,8 @@
     "fabric-plan": "bin/fabric-plan",
     "fabric-repo-settings": "bin/fabric-repo-settings",
     "fabric-repo-policy": "bin/fabric-repo-policy",
-    "fabric-ssh-hosts": "bin/fabric-ssh-hosts"
+    "fabric-ssh-hosts": "bin/fabric-ssh-hosts",
+    "fabric-sign": "bin/fabric-sign"
   },
   "replaces": {
     "_comment": "A command's earlier target, which bootstrap recognises as a link it made and moves to the current one; without it an account keeps the old link, the allow rule is withheld (user-settings.py) and every use asks. These entries stay until every account has been bootstrapped onto the Python commands, and until 2026-11-10 at the earliest: they are how a link left from the deleted GZCoord Node shims is re-pointed, and without them it dangles and the command leaves PATH. Another entry is added when a command moves.",
@@ -56,6 +58,7 @@
     "fabric-resume": "starts a session: it is run in an account's shell by a person or by moveto --resume, never by a session, so no allow rule",
     "fabric-watch": "a status pane's loop until q, started by moveto --watch in an account's pane, never by a session: an allow rule would let a session hang on it",
     "fabric-secret-run": "runs whatever command follows `--`, with the agent's own secrets in its environment: an allow rule would allow every command, so it asks as any command does",
-    "fabric-host": "`run` executes any command on a host as any account (the operator's instrument): allowing it would allow everything"
+    "fabric-host": "`run` executes any command on a host as any account (the operator's instrument): allowing it would allow everything",
+    "fabric-sign": "git's signing program (ADR-057), linked so gpg.program, gpg.ssh.program and the post-commit hook name one path: any arguments but its own it hands to gpg or ssh-keygen, so an allow rule would allow every gpg command, an export of the secret key included"
   }
 }

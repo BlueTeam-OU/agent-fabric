@@ -67,7 +67,9 @@ QUEUE_DEFAULTS = {"grouping": "allgreen", "build": 5, "merge_max": 5, "merge_min
 RULESET_PARAMETERS = {"build": "max_entries_to_build", "merge_max": "max_entries_to_merge", "merge_min": "min_entries_to_merge",
                       "wait_minutes": "min_entries_to_merge_wait_minutes", "check_timeout_minutes": "check_response_timeout_minutes"}
 
-# The fleet default, as policies/arming.json has it: what a tree without that file gets.
+# The fleet default, as policies/arming.json has it: what a tree without that file gets. additional_reviews is empty
+# until the tool that posts codex's unavailable marker lands (agent-fabric ADR-055 rule 8): listing codex earlier
+# would refuse every arm.
 DEFAULT: dict[str, Any] = {
     "mode": "auto",
     "method": "merge",
@@ -77,8 +79,9 @@ DEFAULT: dict[str, Any] = {
     "delete_branch_on_merge": False,
     "queue": {},
     "commits": {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}},
-    "reviews": ["claude", "codex"],
-    "boundary_reviews": ["claude", "codex"],
+    "reviews": ["claude"],
+    "boundary_reviews": ["claude"],
+    "additional_reviews": [],
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
 }
@@ -221,6 +224,11 @@ def validate(doc: Any, where: str = "the policy") -> dict:
         engines = p[key]
         if not isinstance(engines, list) or not engines or any(e not in ENGINES for e in engines) or len(set(engines)) != len(engines):
             raise PolicyError(f"{where}: {key} is a non-empty list of distinct engines drawn from {', '.join(ENGINES)}")
+    extra = p["additional_reviews"]
+    if not isinstance(extra, list) or any(e not in ENGINES for e in extra) or len(set(extra)) != len(extra):
+        raise PolicyError(f"{where}: additional_reviews is a list of distinct engines drawn from {', '.join(ENGINES)}")
+    # An engine the change requires is required, whichever list also names it (additional_engines): a repository
+    # that makes codex required over a fleet that lists it as additional must not also have to empty that list.
     bots = _only_keys(p["bots"], ("dependabot",), f"{where}: bots")
     if "dependabot" in bots:
         d = _only_keys(bots["dependabot"], ("arm", "ecosystems"), f"{where}: bots.dependabot")
@@ -390,6 +398,22 @@ def required_engines(policy: dict, boundary: bool) -> list[str]:
     return [e for e in ENGINES if e in wanted]
 
 
+def additional_engines(policy: dict, boundary: bool) -> list[str]:
+    """The engines this pull request asks for beyond the required ones, in ENGINES order: each is satisfied by its
+    review of the head or, when it could not run, by its unavailable marker for that head (engines_unavailable).
+    One that required_engines names for this change is required there, not additional, whichever list names it too."""
+    required = required_engines(policy, boundary)
+    return [e for e in ENGINES if e in policy["additional_reviews"] and e not in required]
+
+
+def engines_unavailable(rows: Any, head: str) -> dict[str, str]:
+    """{engine: reason} from pr-review-status --json's unavailable.rows: the markers naming `head` in full, on a
+    review object of that head (a marker for another head, or one re-anchored onto this one, says nothing of it)."""
+    return {r["engine"]: str(r.get("reason") or "") for r in rows or []
+            if isinstance(r, dict) and isinstance(r.get("engine"), str) and r.get("head") == head and head
+            and r.get("commit_sha8") == head[:8]}
+
+
 def engines_on_head(rows: Any, head: str) -> set[str]:
     """The engines with a review of `head` among pr-review-status --json's blind.rows: the reading fabric-pr arm gates
     on, and the gate and counts report. A row with no engine is the review class's: reviews posted before the field
@@ -402,15 +426,22 @@ def engines_on_head(rows: Any, head: str) -> set[str]:
 HEAD_REVIEWED = "head reviewed"
 
 
-def review_summary(have: set[str], required: list[str], head: str, boundary_only: list[str] = (), unread: str = "") -> str:
+def review_summary(have: set[str], required: list[str], head: str, boundary_only: list[str] = (), unread: str = "",
+                   additional: list[str] = (), unavailable: dict[str, str] | None = None) -> str:
     """"claude ✓ codex ✗ (head 6bc0ad18)", one mark per required engine, opened by "head reviewed: " when all are
     there. `boundary_only` engines (a policy's boundary_reviews beyond its reviews, for a reader that does not judge
-    the boundary) are marked and not required. `unread` is why the policy could not be read, when every engine was
-    required for that reason: said on the line, or a missing engine reads as the repository's own requirement."""
+    the boundary) are marked and not required. `additional` engines are marked "✓", "unavailable (<reason>)" when
+    `unavailable` has their marker for this head, or "✗", and the line opens "head reviewed" only when none is "✗".
+    `unread` is why the policy could not be read, when every engine was required for that reason: said on the line,
+    or a missing engine reads as the repository's own requirement."""
+    unavailable = unavailable or {}
     marks = [f"{e} {'✓' if e in have else '✗'}" for e in required]
-    marks += [f"{e} {'✓' if e in have else '✗'} (boundary only)" for e in boundary_only if e not in required]
+    extra = [e for e in additional if e not in required]
+    marks += [f"{e} {'✓' if e in have else f'unavailable ({unavailable[e]})' if e in unavailable else '✗'}" for e in extra]
+    marks += [f"{e} {'✓' if e in have else '✗'} (boundary only)" for e in boundary_only if e not in required and e not in extra]
     line = f"{' '.join(marks)} (head {head[:8]}{f'; policy unread, every engine required: {unread}' if unread else ''})"
-    return f"{HEAD_REVIEWED}: {line}" if all(e in have for e in required) else line
+    met = all(e in have for e in required) and all(e in have or e in unavailable for e in extra)
+    return f"{HEAD_REVIEWED}: {line}" if met else line
 
 
 def is_head_reviewed(summary: str) -> bool:

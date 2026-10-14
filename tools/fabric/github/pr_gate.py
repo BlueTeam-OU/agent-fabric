@@ -93,8 +93,10 @@ WHAT A ROW SAYS
          --json. "head reviewed: " opens it only when every one is
          there. Engines only a security boundary adds (`boundary_reviews`)
          are marked "(boundary only)" and not required here: arm judges
-         the boundary. An unreadable policy requires every engine; ? is
-         a reader that could not answer
+         the boundary. An additional engine (`additional_reviews`) is
+         marked ✓, "unavailable (<reason>)" when its marker for the
+         head stands in, or ✗, which blocks. An unreadable policy
+         requires every engine; ? is a reader that could not answer
   verdict one of:
     MERGEABLE — arm (8–16 work commits, gate met: post the basis, arm)
     MERGEABLE — ask the owner (under 8 work commits, gate met)
@@ -302,10 +304,11 @@ def review_reader() -> list[str]:
 
 
 def review_of_head(reader: list[str], num: int, head: str, required: list[str], boundary_only: list[str] = (),
-                   unread: str = "") -> str:
-    """Each required engine's review of `head`, read as fabric-pr arm reads it (pr-review-status --json's
-    blind.rows, arm_policy.engines_on_head) and said as arm_policy.review_summary says it: "head reviewed: ..."
-    only when every one is there. A reader that cannot run or answer is "?", like one that could not read the PR
+                   unread: str = "", additional: list[str] = ()) -> str:
+    """Each required engine's review of `head`, and each additional engine's review or unavailable marker, read as
+    fabric-pr arm reads them (pr-review-status --json's blind.rows and unavailable.rows, arm_policy.engines_on_head
+    and engines_unavailable) and said as arm_policy.review_summary says it: "head reviewed: ..." only when every
+    one is there. A reader that cannot run or answer is "?", like one that could not read the PR
     — the bash read a missing reader as "none"."""
     try:
         r = subprocess.run([*reader, str(num), "-q", "--json"], capture_output=True, text=True, timeout=300,
@@ -320,9 +323,12 @@ def review_of_head(reader: list[str], num: int, head: str, required: list[str], 
         return "?"
     blind = rs.get("blind") if isinstance(rs, dict) else None
     rows = blind.get("rows") if isinstance(blind, dict) else None
-    if not isinstance(rows, list):
+    gone = rs.get("unavailable", {}) if isinstance(rs, dict) else None
+    marked = gone.get("rows", []) if isinstance(gone, dict) else None
+    if not isinstance(rows, list) or not isinstance(marked, list):
         return "?"
-    return arm_policy.review_summary(arm_policy.engines_on_head(rows, head), required, head, boundary_only, unread)
+    return arm_policy.review_summary(arm_policy.engines_on_head(rows, head), required, head, boundary_only, unread,
+                                     additional, arm_policy.engines_unavailable(marked, head))
 
 
 def engines_required(policy: dict | str) -> tuple[list[str], list[str], str]:
@@ -334,6 +340,12 @@ def engines_required(policy: dict | str) -> tuple[list[str], list[str], str]:
         return list(arm_policy.ENGINES), [], policy
     every = arm_policy.required_engines(policy, False)
     return every, [e for e in arm_policy.required_engines(policy, True) if e not in every], ""
+
+
+def engines_additional(policy: dict | str) -> list[str]:
+    """The engines a policy asks beyond the required ones (additional_reviews), judged as for a change that is no
+    boundary, as engines_required judges it; an unreadable policy has none, since it requires every engine."""
+    return [] if isinstance(policy, str) else arm_policy.additional_engines(policy, False)
 
 
 def awaiting_supply(body: str) -> list[str]:
@@ -594,7 +606,7 @@ def run(argv: list[str]) -> int:
             note(f"could not read pull request #{num} from GitHub (the graphql read failed); nothing is invented — "
                  "run again.")
             return 2
-        review = review_of_head(reader, num, head, *engines_required(policy))
+        review = review_of_head(reader, num, head, *engines_required(policy), additional=engines_additional(policy))
         awaiting = awaiting_supply(p.get("body") or "")
         owner = owner_of(branch)
         known = commits is not None
