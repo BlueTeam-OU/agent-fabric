@@ -277,7 +277,7 @@ def main() -> int:
         cgit("checkout", "-q", "feature")
         r = run("next", creq, "--report", report2, cwd=crepo)
         check("a symbolic first base with no card_base is refused, naming card_base; nothing written",
-              r.returncode == 1 and "card_base" in r.stderr
+              r.returncode == 1 and "is not a commit id" in r.stderr and "card_base" in r.stderr
               and not os.path.exists(os.path.join(tmp, "scratch", "CARD-rr2.json")), (r.returncode, r.stderr))
         with open(creq, "a") as f:
             f.write(f"card_base: {c0}\n")
