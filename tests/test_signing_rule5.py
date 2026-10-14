@@ -43,6 +43,8 @@ GNUPG = os.path.join(T, "g")
 FABRIC = os.path.join(T, "fabric")
 REPO = os.path.join(T, "repo")
 SPOOL = os.path.join(T, "spool")
+SCRATCH = os.path.join(T, "tmp")
+os.makedirs(SCRATCH)
 FAKE_OTS = os.path.join(T, "ots")
 SLUG = "acme/widget"
 fails = 0
@@ -73,8 +75,10 @@ def env(**extra: str) -> dict[str, str]:
          "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
          "AGENT_FABRIC_PYTHON": sys.executable, "FABRIC_SIGN_OTS": FAKE_OTS, "FABRIC_SIGN_SPOOL": SPOOL,
          "PYTHONDONTWRITEBYTECODE": "1"}
-    if os.environ.get("TMPDIR"):
-        e["TMPDIR"] = os.environ["TMPDIR"]
+    # Its own, removed with T: git (2.47, Debian stable) leaves a
+    # .git_signing_key_tmp* in $TMPDIR for every commit it signs with a literal
+    # SSH key through gpg.ssh.program, which the runner's leak check reports.
+    e["TMPDIR"] = SCRATCH
     e.update(extra)
     return e
 
