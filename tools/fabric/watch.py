@@ -460,20 +460,24 @@ def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: 
     lines are cut by Deck.identity, which knows where its text starts)."""
     pr_lines = prs.split("\n")
     title = f"── {name} ({stamp}; q leaves) ──"
+    jobs_head, prs_head = "── jobs ──", f"── pull requests (read {int(prs_age)} s ago) ──"
     if rows > 0 and columns > 1:
         jobs = [fit(j, columns - 1) for j in jobs]
         pr_lines = [fit(l, columns - 1) for l in pr_lines]
         title = fit(title, columns - 1)
+        jobs_head, prs_head = (fit(h, columns - 1) for h in (jobs_head, prs_head))
     if rows > 0:
         room = max(0, rows - 1 - (len(identity) + 5))
+        # clip keeps a line for each non-empty block (the count of what it hides), so the cut at the end takes a block's
+        # last line only below two spare rows, where no layout holds both and the tail of the screen goes.
         pr_n = min(len(pr_lines), max(1, room // 3))
         job_n = min(len(jobs), max(0, room - pr_n))
         pr_n = min(len(pr_lines), max(1, room - job_n))
         jobs, pr_lines = clip(jobs, job_n), clip(pr_lines, pr_n)
     lines: list[Line] = [
         title, *identity, "",
-        "── jobs ──", *jobs, "",
-        f"── pull requests (read {int(prs_age)} s ago) ──", *pr_lines,
+        jobs_head, *jobs, "",
+        prs_head, *pr_lines,
     ]
     return lines[:rows - 1] if rows > 0 else lines
 

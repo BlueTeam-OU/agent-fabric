@@ -200,6 +200,11 @@ def main() -> int:
     wide = watch.screen(ident, "n" * 80, ["x" * 300, "漢" * 100, "a\tb" * 40], ("p" * 300 + "\n") * 2, 0.0, "00:00:00", rows=40, columns=60)
     check("every line, the title too, is at most 59 cells (a tab is expanded, a wide character is two)",
           all(sum(watch.cells(c) for c in watch.printable(l)) <= 59 for l in wide if isinstance(l, str)), [len(l) for l in wide])
+    narrow = watch.screen(["i"] * 6, "n", ["j"], "p", 123.0, "00:00:00", rows=40, columns=30)
+    check("…the block headers too: nothing is wider than 29 cells at 30 columns", all(sum(watch.cells(c) for c in l) <= 29 for l in narrow), narrow)
+    two = watch.screen(["i"] * 6, "n", [f"j{i}" for i in range(5)], "pr1\npr2\npr3", 0.0, "00:00:00", rows=14)
+    check("two rows left: the jobs and the pull requests each say how many they hide",
+          "… 5 more" in two and any(l.startswith("… ") for l in two[two.index(next(l for l in two if "pull requests" in l)):]), two)
     one = watch.screen(["i"] * 6, "n", [f"j{i}" for i in range(5)], "pr1\npr2", 0.0, "00:00:00", rows=13)
     check("one row left: the jobs say how many they hide, not nothing", "… 5 more" in one, one)
     none = watch.screen(["i"] * 6, "n", ["j1", "j2"], "pr1", 0.0, "00:00:00", rows=12)
