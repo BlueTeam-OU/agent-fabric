@@ -60,6 +60,8 @@ Passenger itineraries are computed in the engine's clock, never the host's.
 - apps/backend_dotnet/src/Gzapp.PassengerApi/Transit/
 ## Out of scope
 - the OTP image bump in the same PR (#746, reviewed)
+## Project review card
+(none)
 ## Lenses
 ### general
 …
@@ -93,7 +95,16 @@ report` keeps a round's report under this account's state, and
 from the previous request (mode, the range from its head to `HEAD`, that
 report as `previous_findings`, `general` alone unless `--keep-lenses`)
 and renders it; it refuses when the head has not moved
-(`tools/fabric/review_rounds.py`).
+(`tools/fabric/review_rounds.py`). The rendered re-review also embeds the
+range's exact diff (up to 64 KB, else its `--stat` and a note) and
+Locators: each previous finding's file:line at the old head and the same
+region at the new, and each hunk's enclosing symbol. They are derived at
+render time and are not written into `REQUEST-rr<N>.json`.
+
+**The project review card.** The reviewer runs without the project's
+instruction files (`omitClaudeMd`); `<repository>/.agent-fabric/review-card.md`
+(at most 2048 bytes, refused over) is rendered under `## Project review
+card`, `(none)` when the file is absent.
 
 ## The dispatch
 

@@ -166,6 +166,68 @@ def main() -> int:
         check("neither --report nor --pr: usage, exit 2", r.returncode == 2, r.stderr)
         r = run("next", req, "--pr", "7", "--head", "nonesuch")
         check("a --head that is no commit is refused", r.returncode == 1 and "not a commit" in r.stderr, r.stderr)
+
+        print("delta-first")
+        # A real file history: the fix inserts three lines above a finding's
+        # line (a move) and rewrites another finding's line.
+        drepo = os.path.join(tmp, "work", "deltarepo")
+        os.makedirs(drepo)
+
+        def dgit(*a: str) -> str:
+            return subprocess.run(["git", "-C", drepo, *a], env=env, check=True, capture_output=True,
+                                  text=True, timeout=30).stdout.strip()
+
+        dgit("init", "-q", "-b", "main")
+        body = ["def alpha():\n", "    return 1\n", "\n"] + [f"x{i} = {i}\n" for i in range(4, 20)] + \
+               ["def beta():\n", "    return 'old'\n", "\n"] + [f"y{i} = {i}\n" for i in range(24, 31)]
+        with open(os.path.join(drepo, "a.py"), "w") as f:
+            f.writelines(body)
+        dgit("add", "a.py")
+        dgit("commit", "-q", "--no-gpg-sign", "-m", "one")
+        b1 = dgit("rev-parse", "HEAD")
+        new_body = ["# header 1\n", "# header 2\n", "# header 3\n"] + body
+        new_body[new_body.index("    return 'old'\n")] = "    return 'new'\n"
+        with open(os.path.join(drepo, "a.py"), "w") as f:
+            f.writelines(new_body)
+        dgit("commit", "-q", "--no-gpg-sign", "-am", "two")
+        drep = os.path.join(tmp, "scratch", "dreport.md")
+        with open(drep, "w") as f:
+            f.write("## Findings on the change\n1. P2 likely: `a.py:19` is a leftover; also see localhost:8080 and ghost.py:3.\n"
+                    "2. P3 confirmed: a.py:21 returns the wrong value.\n")
+        dreq = os.path.join(tmp, "scratch", "DREQ.yaml")
+        with open(dreq, "w") as f:
+            f.write(f"mode: review\nrepository: {drepo}\nrange: {b1[:12]}..{b1[:12]}\nobjective: >-\n  It exists.\n")
+        r = run("next", dreq, "--report", drep, cwd=drepo)
+        out = r.stdout
+        diff_text = subprocess.run(["git", "-C", drepo, "diff", b1, "HEAD"], env=env, capture_output=True, text=True,
+                                   timeout=30).stdout.rstrip("\n")
+        check("the re-review's brief embeds the exact diff of its range",
+              r.returncode == 0 and f"## Re-review diff\nThe exact diff of the range above.\n```diff\n{diff_text}\n```\n" in out,
+              (r.stderr, out[-600:]))
+        check("…the finding at a moved line is located at its new line",
+              "- finding 1: a.py:19 at " in out and "is now a.py:22 (moved +3)" in out, out[-900:])
+        check("…a rewritten line is named as rewritten, with its new line",
+              "- finding 2: a.py:21 at " in out and "is now a.py:24-24 (rewritten in the range)" in out, out[-900:])
+        check("…text that only looks like a locator (a path the old head lacks) is not listed",
+              "localhost" not in out.split("## Locators")[-1] and "ghost.py" not in out.split("## Locators")[-1], out[-900:])
+        check("…each hunk's enclosing symbol is listed where git names one",
+              "def alpha" in out.split("enclosing symbol")[-1] or "def beta" in out.split("enclosing symbol")[-1]
+              or "(none)" in out.split("enclosing symbol")[-1], out[-400:])
+        nxt_d = json.load(open(os.path.join(tmp, "scratch", "DREQ-rr2.json")))
+        check("…none of it is written into the derived request", "Locators" not in json.dumps(nxt_d) and "diff" not in nxt_d, nxt_d)
+
+        # Over the cap: the diffstat and a note, not the diff.
+        with open(os.path.join(drepo, "big.txt"), "w") as f:
+            f.write("".join(f"line {i} " + "z" * 60 + "\n" for i in range(1200)))
+        dgit("add", "big.txt")
+        dgit("commit", "-q", "--no-gpg-sign", "-m", "three")
+        r = run("next", dreq, "--report", drep, cwd=drepo)
+        tail = r.stdout.split("## Re-review diff")[-1].split("## Locators")[0]
+        check("a diff over 64 KB is replaced by its --stat and a note saying so",
+              r.returncode == 0 and "over the 65536-byte cap" in tail and " big.txt | 1200 +" in tail
+              and "line 1199 zzzz" not in r.stdout, (r.stderr, tail[:600]))
+        nxt_big = [x for x in os.listdir(os.path.join(tmp, "scratch")) if x.startswith("DREQ-rr")]
+        check("…and each run wrote its own numbered request", sorted(nxt_big) == ["DREQ-rr2.json", "DREQ-rr3.json"], nxt_big)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")

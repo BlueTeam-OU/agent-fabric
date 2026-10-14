@@ -22,7 +22,12 @@ is), then prints the rendered brief:
                      .. HEAD of the request's repository (or --head)
   previous_findings  --report, or the newest round saved for --pr
   lenses             [general], unless --keep-lenses
-Everything else is carried over unchanged. It refuses when the head has
+Everything else is carried over unchanged. The brief it prints also embeds
+the range's exact diff (up to 64 KB; over that, its --stat and a note) and
+Locators: each previous finding's path:line at the old head and the same
+region at the new (a line map read from the diff), and each hunk's
+enclosing symbol where the hunk header names one. They are computed at
+render time and are not in REQUEST-rr<N>.json. It refuses when the head has
 not moved: there is nothing to re-review.
 
 WHY. A round by hand was: copy the report to a file, edit mode, range,
@@ -54,6 +59,15 @@ import identity  # noqa: E402
 import review_brief  # noqa: E402
 
 ROUND_RE = re.compile(r"^round-(\d+)\.md$")
+# The embedded diff of a re-review: past this the brief carries the diffstat
+# and a note instead, so the brief never costs more than the reviewer would
+# pay reading the range (agent-fabric ADR-020).
+DIFF_CAP = 64 * 1024
+MAX_LOCATORS = 200
+# A previous finding names its place as path:line or path:line-line.
+FINDING_REF = re.compile(r"(?<![\w./+-])([\w./+-]*[\w+-]\.\w+):(\d+)(?:[-\u2013](\d+))?")
+FINDING_NO = re.compile(r"^\s*(?:#+\s*)?\**(\d+)[.):]")
+HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$")
 
 
 class Refused(Exception):
@@ -120,6 +134,111 @@ def _commit(repo_dir: str, rev: str) -> str:
     return r.stdout.strip()
 
 
+def _git_out(repo_dir: str, *args: str) -> bytes:
+    r = subprocess.run(["git", "-C", repo_dir, "-c", "core.quotepath=off", *args], capture_output=True, timeout=120)
+    if r.returncode != 0:
+        raise Refused(f"git {' '.join(args[:2])} failed in {repo_dir}: {r.stderr.decode(errors='replace').strip()}")
+    return r.stdout
+
+
+def _line_map(repo_dir: str, old: str, new: str) -> dict[str, dict]:
+    """{old path: {"new": new path or None, "hunks": [(a, b, c, d, symbol)]}}
+    from `git diff -U0 -M old new`: a hunk replaces old lines a..a+b-1 with
+    new lines c..c+d-1 (b == 0: inserted after old line a). -U0 so that a
+    hunk is exactly the changed lines, and its header names the symbol git's
+    funcname rule finds above them."""
+    out = _git_out(repo_dir, "diff", "-U0", "-M", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", old, new).decode("utf-8", "replace")
+    files: dict[str, dict] = {}
+    cur: dict | None = None
+    in_body = False
+    old_path = new_path = None
+    for line in out.split("\n"):
+        if line.startswith("diff --git "):
+            in_body, cur, old_path, new_path = False, None, None, None
+        elif not in_body and line.startswith("rename from "):
+            old_path = line[len("rename from "):]
+        elif not in_body and line.startswith("rename to "):
+            new_path = line[len("rename to "):]
+            files[old_path] = cur = {"new": new_path, "hunks": []}
+        elif not in_body and line.startswith("--- "):
+            old_path = None if line == "--- /dev/null" else line[6:]
+        elif not in_body and line.startswith("+++ "):
+            new_path = None if line == "+++ /dev/null" else line[6:]
+            if old_path is not None:
+                cur = files.setdefault(old_path, {"new": new_path, "hunks": []})
+                cur["new"] = new_path
+        elif (m := HUNK_RE.match(line)) and cur is not None:
+            in_body = True
+            a, b, c, d = (int(m.group(i)) if m.group(i) is not None else 1 for i in (1, 2, 3, 4))
+            cur["hunks"].append((a, b, c, d, m.group(5).strip()))
+        elif line.startswith("Binary files "):
+            in_body = True
+    return files
+
+
+def _locate(files: dict[str, dict], path: str, line: int) -> str:
+    """Where old `path:line` is in the new tree, as words."""
+    entry = files.get(path)
+    if entry is None:
+        return f"{path}:{line} (unchanged: the file is not in the range)"
+    if entry["new"] is None:
+        return "the file is deleted in the range"
+    shift = 0
+    for a, b, c, d, _ in entry["hunks"]:
+        if b > 0 and a <= line < a + b:
+            return (f"{entry['new']}:{c}-{c + d - 1} (rewritten in the range)" if d > 0
+                    else f"(the line is deleted in the range, at {entry['new']}:{c})")
+        if (b > 0 and a + b - 1 < line) or (b == 0 and a < line):
+            shift += d - b
+        else:
+            break
+    where = f"{entry['new']}:{line + shift}"
+    note = "unchanged" if shift == 0 and entry["new"] == path else f"moved {shift:+d}"
+    return f"{where} ({note})"
+
+
+def _delta(repo_dir: str, old: str, new: str, report: str) -> dict:
+    """What a re-review is briefed with besides the findings: the range's
+    exact diff, and where each finding's line and each hunk is now, so the
+    reviewer answers from the brief and opens a file only when it must."""
+    raw = _git_out(repo_dir, "diff", "--no-color", "--no-ext-diff", old, new)
+    delta: dict = {}
+    if len(raw) <= DIFF_CAP:
+        delta["diff"] = raw.decode("utf-8", "replace").rstrip("\n")
+    else:
+        delta["diff"] = None
+        delta["note"] = f"The diff is {len(raw)} bytes, over the {DIFF_CAP}-byte cap, so only its diffstat is embedded."
+        delta["stat"] = _git_out(repo_dir, "diff", "--stat", "--no-color", "--no-ext-diff", old, new).decode("utf-8", "replace").rstrip("\n")
+    files = _line_map(repo_dir, old, new)
+    locators: list[str] = []
+    seen: set = set()
+    number = None
+    with open(report, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    for line in text.split("\n"):
+        if (m := FINDING_NO.match(line)):
+            number = m.group(1)
+        for ref in FINDING_REF.finditer(line):
+            path, first, last = ref.group(1), int(ref.group(2)), ref.group(3)
+            key = (number, path, first, last)
+            # A path the old head does not have is prose that looks like a
+            # locator (localhost:8080), not a finding's place.
+            if key in seen or subprocess.run(["git", "-C", repo_dir, "cat-file", "-e", f"{old}:{path}"],
+                                             capture_output=True, timeout=30).returncode != 0:
+                continue
+            seen.add(key)
+            end = f" to {_locate(files, path, int(last))}" if last else ""
+            locators.append(f"- finding {number or '?'}: {path}:{first}{'-' + last if last else ''} at {old[:12]} is now "
+                            f"{_locate(files, path, first)}{end}")
+    symbols = [f"- {entry['new']}:{c}{'-' + str(c + d - 1) if d > 1 else ''}: {sym}"
+               for entry in files.values() if entry["new"] for _, _, c, d, sym in entry["hunks"] if sym]
+    for lines in (locators, symbols):
+        if len(lines) > MAX_LOCATORS:
+            lines[MAX_LOCATORS:] = [f"(and {len(lines) - MAX_LOCATORS} more, not listed)"]
+    delta["locators"], delta["symbols"] = locators, symbols
+    return delta
+
+
 def _next_path(request_path: str) -> str:
     """REQUEST-rr<N>.json beside the first request, N one past the highest
     already there, whichever round's request this is."""
@@ -171,7 +290,8 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
         raise Refused("the re-review request does not validate:\n  " + "\n  ".join(problems))
     # Rendered before it is written: a render that refuses leaves no orphan
     # request for the next attempt to number past (review of #89).
-    brief = review_brief.render(nxt, allow_rationale=allow_rationale)
+    brief = review_brief.render(nxt, allow_rationale=allow_rationale,
+                                delta=_delta(repo_dir, old_head, new_head, report))
     path = _next_path(request_path)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(nxt, f, indent=2)

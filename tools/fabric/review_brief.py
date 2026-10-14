@@ -62,6 +62,11 @@ FREE_TEXT_KEYS = ("objective", "requirements", "invariants", "compatibility", "t
 RANGE_RE = re.compile(r"^[A-Za-z0-9_./~^-]+\.\.[A-Za-z0-9_./~^-]+$")
 LENS_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 MANY_LENSES = 3
+# The project's own text a reviewer gets (agent-fabric ADR-020): the reviewer
+# runs without the project's instruction files (omitClaudeMd), so this card
+# is all of it, and it is re-sent every turn: a cap, refused over, not truncated.
+CARD_PATH = os.path.join(".agent-fabric", "review-card.md")
+CARD_CAP = 2048
 
 # Verdict-shaped phrasing: the author's conclusion about the change, not
 # a fact about what must be true. Kept short and each one actionable —
@@ -240,6 +245,22 @@ def lenses(lenses_dir: str | None = None) -> dict[str, dict]:
     return out
 
 
+def card(repo: object) -> tuple[str | None, str | None]:
+    """(card text, refusal) for <repository>/.agent-fabric/review-card.md.
+    No file: (None, None). Over CARD_CAP bytes: a refusal naming the file and
+    its size, never a cut card: a truncated rule would read as a whole one."""
+    if not isinstance(repo, str) or not repo:
+        return None, None
+    path = os.path.join(repo, CARD_PATH)
+    if not os.path.isfile(path):
+        return None, None
+    with open(path, "rb") as f:
+        raw = f.read()
+    if len(raw) > CARD_CAP:
+        return None, f"{path}: the project review card is {len(raw)} bytes, over the {CARD_CAP}-byte cap; shorten it"
+    return raw.decode("utf-8", errors="replace").strip(), None
+
+
 # --- validation --------------------------------------------------------------
 
 def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
@@ -265,6 +286,7 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
         problems.append("repository: required (the live clone's path)")
     elif not os.path.isdir(os.path.join(repo, ".git")) and not os.path.isfile(os.path.join(repo, ".git")):
         problems.append(f"repository: {repo} is not a git working copy")
+    problems += [refusal] if (refusal := card(repo)[1]) else []
     rng, diff = req.get("range"), req.get("diff")
     if bool(rng) == bool(diff):
         problems.append("range / diff: exactly one — a base..head range, or a diff file in the scratchpad")
@@ -312,9 +334,20 @@ def _items(values: list[str] | None) -> str:
     return "\n".join(f"- {v}" for v in values) if values else "(none stated)"
 
 
-def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = False) -> str:
+def _fence(text: str, info: str = "") -> list[str]:
+    """`text` verbatim inside a fence longer than any backtick run in it."""
+    fence = "`" * max(3, max((len(m) for m in re.findall(r"`+", text)), default=0) + 1)
+    return [fence + info, text, fence]
+
+
+def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = False,
+           delta: dict | None = None) -> str:
     """The brief, or a RequestError naming every problem. Byte-stable for
-    the same request and lens files."""
+    the same request and lens files. `delta` is what review_rounds derives
+    for a re-review and keeps out of the saved request: {"diff": the range's
+    diff text, or None with "note" and "stat" when it was too large,
+    "locators": lines, "symbols": lines}; the brief's format lives here and
+    nowhere else."""
     problems = validate(req, lenses_dir)
     rationale = rationale_findings(req)
     if rationale and not allow_rationale:
@@ -334,6 +367,8 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     for key, heading in (("requirements", "Requirements"), ("invariants", "Invariants"), ("compatibility", "Compatibility"),
                          ("threat_model", "Threat model"), ("scope", "Scope"), ("out_of_scope", "Out of scope")):
         out += [f"## {heading}", _items(req.get(key))]
+    text, _ = card(req["repository"])
+    out += ["## Project review card", text if text else "(none)"]
     if mode == "re-review":
         # Fenced: the previous report carries headings at the brief's own
         # level, and verbatim inside a fence is still verbatim. The fence
@@ -343,6 +378,18 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
         fence = "`" * max(3, max((len(m) for m in re.findall(r"`+", report)), default=0) + 1)
         out += ["## Previous findings", "Verify only the hunks of the range above against these, answering each by number.",
                 fence + "markdown", report, fence]
+        if delta:
+            if delta.get("diff") is not None:
+                out += ["## Re-review diff", "The exact diff of the range above."] + _fence(delta["diff"], "diff")
+            else:
+                out += ["## Re-review diff", delta.get("note", "The diff was too large to embed."),
+                        "The diffstat of the range above:"] + _fence(delta.get("stat", ""))
+            out += ["## Locators",
+                    "Answer each previous finding from these and the diff above; open a file only when a locator is not enough, and say which.",
+                    "Each previous finding's file:line at the old head, and the same region at the new head:"]
+            out += list(delta.get("locators") or []) or ["(no previous finding names a file:line)"]
+            out += ["Each changed hunk's enclosing symbol, where the diff names one:"]
+            out += list(delta.get("symbols") or []) or ["(none)"]
     out.append("## Lenses")
     if not names:
         out.append("(none named; the constitution's method applies)")
