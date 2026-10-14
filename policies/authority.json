@@ -59,6 +59,8 @@
         "tools/fabric/relay.py",
         "tools/fabric/history.py",
         "bin/fabric-history",
+        "tools/fabric/reflect.py",
+        "bin/fabric-reflect",
         "tools/fabric/relay_catchup.py",
         "tools/fabric/review_rounds.py"
       ]
@@ -124,6 +126,8 @@
         "tools/fabric/relay.py",
         "tools/fabric/history.py",
         "bin/fabric-history",
+        "tools/fabric/reflect.py",
+        "bin/fabric-reflect",
         "tools/fabric/relay_catchup.py",
         "tools/fabric/review_rounds.py"
       ]
