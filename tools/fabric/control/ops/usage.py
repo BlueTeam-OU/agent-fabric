@@ -17,6 +17,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
+import ledger  # noqa: E402 — util puts tools/fabric on sys.path
 from . import util
 from gzcoord import gzmsg, jsvalues as js  # noqa: E402 — util puts tools/fabric on sys.path
 from gzcoord.inbox_parts.tokens import synced_var  # noqa: E402
@@ -447,7 +448,92 @@ def _num0(v: Any) -> float | int:
     return util.whole(n) if n == n and n not in (float("inf"), float("-inf")) else 0
 
 
-def tokens(home: str | None = None, days: float = TOKENS_DAYS, now: float | None = None) -> dict:
+ENGINE_NAME = re.compile(r"[a-z][a-z0-9-]{0,31}")
+
+
+def ledger_tokens(file: str, since: float, now: float) -> dict:
+    """The dispatch ledger's rows (tools/fabric/ledger.py, row v1) in input-token
+    equivalents, as the models above:
+
+    by_purpose  {purpose: {engine: {rows, unknown, input, cache_write, cache_read, output, equiv}}} — the
+                rows INSIDE THE WINDOW by the row's purpose (the dispatch header's, else other-subagent)
+                and the engine that ran
+    by_pr       {owner/name: {"<pr>": {purpose: {engine: equiv}}}} — every row that names a repository
+                and a pull request, in or out of the window: a PR's cost is its own rows, and its
+                reviews happened before it merged, possibly before any window began
+    unknown_by_pr  {owner/name: {"<pr>": n}} — rows of that PR whose cost is unknown, left out of by_pr
+    ledger      {status, rows, unknown, skipped, undated}: "ok" or "unreadable" (nothing else then);
+                rows counted in the window; rows whose input or output the run did not report (a
+                timed-out Codex run emits no usage), counted here and added to no equivalent, since
+                unknown is not 0; lines that were not a v1 row, or held a count that is not a number,
+                or a purpose or engine that is not a name; rows with no usable completed_at/started_at
+                (left out of by_purpose only)
+
+    A null cache count is 0 (a Codex row has no cache write); a count that is something else is skipped.
+    A row is in the window by its completed_at, else its started_at."""
+    try:
+        rows, skipped = ledger.rows(file)
+    except OSError as e:
+        return {"ledger": {"status": "unreadable", "error": errno.errorcode.get(e.errno or 0) or "OSError"}}
+    by_purpose: dict[str, dict[str, dict[str, int]]] = {}
+    by_pr: dict[str, dict[str, dict[str, dict[str, int]]]] = {}
+    unknown_by_pr: dict[str, dict[str, int]] = {}
+    counted = unknown = undated = 0
+    for row in rows:
+        purpose, engine = row.get("purpose"), row.get("engine")
+        counts = {k: row.get(k) for k in ("input", "cache_write", "cache_read", "output")}
+        if not (isinstance(purpose, str) and ledger.IDENT.fullmatch(purpose) and isinstance(engine, str)
+                and ENGINE_NAME.fullmatch(engine)) \
+                or any(v is not None and ledger.count(v) is None for v in counts.values()):
+            skipped += 1
+            continue
+        known = counts["input"] is not None and counts["output"] is not None
+        c = {k: v or 0 for k, v in counts.items()}
+        eq = equivalent(c)
+        repo, pr = row.get("repository"), ledger.count(row.get("pr"))
+        if isinstance(repo, str) and pr is not None:
+            if known:
+                cell = by_pr.setdefault(repo, {}).setdefault(str(pr), {}).setdefault(purpose, {})
+                cell[engine] = cell.get(engine, 0) + eq
+            else:
+                unknown_by_pr.setdefault(repo, {})[str(pr)] = unknown_by_pr.get(repo, {}).get(str(pr), 0) + 1
+        at = row.get("completed_at") if isinstance(row.get("completed_at"), str) else row.get("started_at")
+        ts = util.date_parse_ms(at) if isinstance(at, str) else None
+        if ts is None:
+            undated += 1
+            continue
+        if not since <= ts <= now:
+            continue
+        t = by_purpose.setdefault(purpose, {}).setdefault(engine, {"rows": 0, "unknown": 0, **{k: 0 for k in c}, "equiv": 0})
+        t["rows"] += 1
+        counted += 1
+        if not known:
+            t["unknown"] += 1
+            unknown += 1
+            continue
+        for k, v in c.items():
+            t[k] += v
+        t["equiv"] += eq
+    return {"by_purpose": by_purpose, "by_pr": by_pr, "unknown_by_pr": unknown_by_pr,
+            "ledger": {"status": "ok", "rows": counted, "unknown": unknown, "skipped": skipped, "undated": undated}}
+
+
+def tokens(home: str | None = None, days: float = TOKENS_DAYS, now: float | None = None, state: str | None = None) -> dict:
+    """The models' tokens from the session transcripts and, with `state` (the login's state directory), the
+    dispatch ledger's beside them (ledger_tokens). Without `state` the ledger is not read: a caller that names
+    no state directory is not handed whatever the account running it has."""
+    result = _transcript_tokens(home, days, now)
+    if state is not None:
+        now = time.time() * 1000 if now is None else now
+        try:
+            result.update(ledger_tokens(os.path.join(state, ledger.FILE), now - days * 86400000, now))
+        except (ValueError, OverflowError, RecursionError) as e:
+            # Whatever a ledger line holds never costs the transcript answer above.
+            result["ledger"] = {"status": "unreadable", "error": type(e).__name__}
+    return result
+
+
+def _transcript_tokens(home: str | None, days: float, now: float | None) -> dict:
     home = os.path.expanduser("~") if home is None else home
     now = time.time() * 1000 if now is None else now
     since = now - days * 86400000
