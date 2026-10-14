@@ -17,6 +17,10 @@ import subprocess
 import sys
 import tempfile
 
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+
+own_instance_tree()
+
 os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 # Every git here, the fixtures' too, is the test's own: an inherited
 # GIT_DIR or work tree would point them at the caller's repository.
@@ -56,7 +60,15 @@ def main() -> int:
         os.chmod(os.path.join(broken, "git"), 0o755)
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
-        env.update(AGENT_FABRIC_LAUNCH_PROFILE="p", AGENT_FABRIC_LAUNCH_OPENING="1", AGENT_FABRIC_STATE_DIR=state,
+        # The fabric root the relaunch check asks about: a directory with no
+        # remote, so the launcher's verdict is "skip". Left unset, it is the
+        # real checkout, and a PR head that origin/main has moved past is
+        # "blocked" — every case here would fail on main's progress, not on
+        # this file's subject (test_fabric_fresh_cli covers the refusal).
+        no_remote = os.path.join(t, "fabric")
+        os.makedirs(no_remote)
+        env.update(AGENT_FABRIC_ROOT=no_remote,
+                   AGENT_FABRIC_LAUNCH_PROFILE="p", AGENT_FABRIC_LAUNCH_OPENING="1", AGENT_FABRIC_STATE_DIR=state,
                    AGENT_FABRIC_FRESH_KILL=os.path.join(bin_, "record-kill"),
                    AGENT_FABRIC_FRESH_COMM="no-such-proc")
 
