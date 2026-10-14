@@ -248,6 +248,58 @@ def main() -> int:
         rc, out, err = w.switch()
         check("once on origin's default branch it is (positive control)", rc == 0 and f"{sha[:10]} on origin/main" in out, out + err)
 
+        def git(w: World, *a: str) -> None:
+            subprocess.run(["git", "-C", w.repo, *a], check=True, env=git_env())
+        contrib = "host/agent/for/user/the-thing"
+        w = World()
+        j1 = w.working("done as a contributor branch")
+        git(w, "checkout", "-q", "-b", contrib)
+        git(w, "commit", "-q", "--allow-empty", "-m", "supplied")
+        git(w, "push", "-q", "origin", contrib)
+        git(w, "checkout", "-q", "main")
+        w.sw("deliver", j1, contrib)
+        w.sw("done", j1)
+        settles(w, j1, "a branch whose head is not on the default branch is no evidence, and the refusal names it",
+                f"branch {contrib} is not on origin/main")
+        git(w, "merge", "-q", "--no-ff", "-m", "folded", contrib)
+        git(w, "push", "-q", "origin", "main")
+        rc, out, err = w.switch()
+        check("a branch whose head is on origin's default branch settles done (the positive control)",
+              rc == 0 and f"branch {contrib} on origin/main" in out, out + err)
+
+        w = World()
+        j1 = w.working("a done job with the wrong artifact")
+        git(w, "checkout", "-q", "-b", contrib)
+        git(w, "commit", "-q", "--allow-empty", "-m", "supplied")
+        git(w, "push", "-q", "origin", contrib)
+        git(w, "checkout", "-q", "main")
+        git(w, "merge", "-q", "--no-ff", "-m", "folded", contrib)
+        git(w, "push", "-q", "origin", "main")
+        w.sw("done", j1)
+        settles(w, j1, "a done job with no artifact cannot be left", "done needs evidence")
+        rc, out, err = w.sw("deliver", j1, f"origin/{contrib}")
+        check("deliver on a done job appends evidence and does not reopen it",
+              rc == 0 and w.job(j1)["state"] == "done" and w.job(j1)["artifacts"] == [f"origin/{contrib}"], out + err)
+        rc, out, err = w.switch()
+        check("…and the appended evidence settles it (a branch named as origin/<ref>)", rc == 0 and f"branch {contrib} on origin/main" in out, out + err)
+
+        w = World()
+        j1 = w.working("dropped stays closed")
+        w.sw("drop", j1, "no longer wanted")
+        rc, out, err = w.sw("deliver", j1, contrib)
+        check("a dropped job takes no evidence: a closed job is not reopened", rc == 1 and "not reopened" in err, out + err)
+
+        w = World()
+        j1 = w.working("delivered as a branch")
+        git(w, "checkout", "-q", "-b", contrib)
+        git(w, "commit", "-q", "--allow-empty", "-m", "supplied")
+        git(w, "checkout", "-q", "main")
+        w.sw("deliver", j1, contrib, "tools/fabric/x.py")
+        settles(w, j1, "a branch that is not on origin is no delivery (a path beside it is no failure)", "delivered needs an artifact")
+        git(w, "push", "-q", "origin", contrib)
+        rc, out, err = w.switch()
+        check("once on origin, the branch is the delivery (the positive control)", rc == 0 and f"branch {contrib} on origin" in out, out + err)
+
         arts = sys.modules["fabric_jobs"].settle.artifacts_of({"artifacts": ["1234567", "abcdefa", "o/r#3", "reply:" + RID]}, "o/r")
         check("an abbreviated sha of seven digits, or of seven letters, is read as one; a pull request and a reply are read beside it",
               arts == {"prs": [("o/r", "3")], "shas": ["1234567", "abcdefa"], "replies": [RID]}, arts)

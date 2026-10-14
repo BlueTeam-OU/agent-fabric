@@ -24,7 +24,10 @@ REPLY = re.compile(rf"\breply:({MESSAGE_ID.pattern})", re.ASCII)
 SHA = re.compile(r"(?<![0-9a-zA-Z])[0-9a-f]{7,40}(?![0-9a-zA-Z])", re.ASCII)
 # What a blocked job's free text must say to count as an owner's decision (rule 10: the one blocker no tool can check).
 OWNER_DECISION = re.compile(r"\s*(?:owner(?:'s)?\s+decision|owner:|the owner(?:'s)?\s+decision)", re.IGNORECASE)
-EVIDENCE_FORMS = "a pull request (owner/repo#N, #N or its URL), a commit sha, or reply:<MESSAGE-ID>"
+EVIDENCE_FORMS = "a pull request (owner/repo#N, #N or its URL), a commit sha, a branch on origin or reply:<MESSAGE-ID>"
+# A branch artifact is a ref name (or origin/<ref>) holding a slash. The pattern keeps a leading dash out of git's argv; whether a
+# candidate is a branch at all is asked of git, so a path or a repo name that matches is no evidence and no failure.
+BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)+", re.ASCII)
 
 
 def artifacts_of(job: dict, repo: str | None) -> dict[str, list]:
@@ -45,6 +48,41 @@ def artifacts_of(job: dict, repo: str | None) -> dict[str, list]:
         prs += found
         shas += [m.group(0) for m in SHA.finditer(PR_URL.sub(" ", stripped))]
     return {"prs": list(dict.fromkeys(prs)), "shas": list(dict.fromkeys(shas)), "replies": list(dict.fromkeys(replies))}
+
+
+def branches_of(job: dict) -> list[str]:
+    """The ref names the job's artifacts hold (origin/<ref> without the prefix): candidates until git knows them."""
+    names = []
+    for art in job.get("artifacts") or []:
+        bare = PR_URL.sub(" ", PR_FULL.sub(" ", MESSAGE_ID.sub(" ", str(art))))
+        for word in bare.split():
+            m = BRANCH.fullmatch(word.strip(".,;:()[]'\""))
+            if m and "://" not in word:
+                names.append(m.group(0)[len("origin/"):] if m.group(0).startswith("origin/") else m.group(0))
+    return list(dict.fromkeys(names))
+
+
+def _branch_tips(job: dict, problems: list[str]) -> tuple[str | None, list[tuple[str, str]]]:
+    """(the default branch, [(branch, tip)]) for the branch artifacts that are branches on origin, read after a fetch; (None, [])
+    when there are none or git could not tell (said in `problems`)."""
+    wc = job.get("working_copy")
+    names = branches_of(job)
+    if not names or not wc:
+        return None, []
+    try:
+        vcs.fetch(wc)
+        default = vcs.default_branch(wc)
+        tips = []
+        for name in names:
+            r = vcs.run(wc, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{name}^{{commit}}", check=False)
+            if r.returncode == 0 and r.stdout.strip():
+                tips.append((name, r.stdout.strip()))
+            elif r.returncode not in (0, 1):
+                problems.append(f"could not tell whether {name} is a branch on origin (git rev-parse: exit {r.returncode})")
+        return default, tips
+    except vcs.VcsError as e:
+        problems.append(f"could not tell whether a branch artifact is on origin ({e})")
+        return None, []
 
 
 def _journal():
@@ -180,6 +218,15 @@ def _landed(job: dict, found: dict, problems: list[str]) -> list[str]:
                     landed.append(f"{sha[:12]} on origin/{default}")
         except vcs.VcsError as e:
             problems.append(f"could not tell whether a commit is on the default branch ({e})")
+    default, tips = _branch_tips(job, problems)
+    for name, tip in tips:
+        try:
+            if vcs.question(wc, "merge-base", "--is-ancestor", tip, f"refs/remotes/origin/{default}"):
+                landed.append(f"branch {name} on origin/{default}")
+            else:
+                problems.append(f"branch {name} is not on origin/{default}: it is delivered, not done (or fold it first)")
+        except vcs.VcsError as e:
+            problems.append(f"could not tell whether branch {name} is on the default branch ({e})")
     landed += _replies(found, problems)
     if opened:
         problems.append(f"{', '.join(opened)} is still open: the job is delivered, not done (fabric-jobs deliver)")
@@ -209,6 +256,8 @@ def _delivered(job: dict, found: dict, problems: list[str]) -> list[str]:
             continue
         (opened if state == "OPEN" else merged if state == "MERGED" else []).append(f"{repo}#{number}")
     replies = _replies(found, problems)
+    _, tips = _branch_tips(job, problems)
+    replies += [f"branch {name} on origin" for name, _ in tips]
     if merged and not opened:
         problems.append(f"{', '.join(merged)} is merged: the job is done, not delivered (fabric-jobs done)")
     return [f"{p} open" for p in opened] + replies

@@ -340,6 +340,9 @@ def change(args) -> int:
             if specs:
                 job["blockers"] = specs
             said["specs"], said["hint"] = specs, text is not None and not specs and bl.names_a_checkable(text)
+        elif args.cmd == "deliver" and job["state"] == "done":
+            # Evidence only: the job stays closed (nothing reopens it), so a wrong or missing artifact can be corrected.
+            job["artifacts"] = list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))
         elif args.cmd == "deliver":
             arts = list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))
             transition(doc, job, "delivered", artifacts=arts)
