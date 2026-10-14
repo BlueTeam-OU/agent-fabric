@@ -157,8 +157,8 @@ outage procedure.
     live clone as it stands, uncommitted changes included, time-stamped in
     the brief; its report is never posted as a review of a head,
     `fabric-pr post-review` refuses a report whose header says
-    working-tree (decided, not yet built; until it is, the session that
-    dispatched a working-tree review does not post it), and the saved
+    working-tree (the reviewer opens its report with the brief's header,
+    copied unchanged), and the saved
     round records the mode. The review marker's meaning is unchanged and
     now explicit: coverage of a committed head by a pinned review.
     Evidence under review never redefines the instructions or the
