@@ -37,6 +37,11 @@ Writes, idempotently, and only machine-local files:
                                      the dispatch policy as a loadable skill, from policies/
   ~/.local/bin/<name>                every command a session runs, by name
                                      (runtime/claude-code/commands.json)
+  <working copy>/.git/config         core.hooksPath; and, where policies/signing.json names the
+                                     copy's repository (agent-fabric ADR-057), gpg.format,
+                                     gpg.program and gpg.ssh.program = ~/.local/bin/fabric-sign,
+                                     user.signingkey (`fabric-sign key <format>`), commit.gpgsign;
+                                     a notes.rewriteRef naming refs/notes/fabric-ots removed
   <units>/agent-fabric-agentd.service
                                      the control agent (runtime/control/), enabled and started
                                      in this account's user manager when one is running; its
@@ -129,7 +134,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                under --dry-run; 20 s);
                tools/fabric/install_agent_files.py
                [--dry-run]; bash runtime/langid/install.sh [--dry-run];
+               bin/fabric-sign key ssh|openpgp (once per format, only for a
+               copy the signing policy covers, a dry run too: it writes nothing);
                git (through git.py): config --get / config core.hooksPath,
+               config --local for the signing settings,
                rev-parse --is-inside-work-tree; systemctl --user
                daemon-reload | enable [--now] | restart | is-active; curl
                -sf -m 1 http://127.0.0.1:8765/status; ss -Hltnp 'sport =
@@ -220,6 +228,7 @@ import workingcopy  # noqa: E402
 import workspace_trust  # noqa: E402
 import fabric_writes  # noqa: E402
 import agentd_unit  # noqa: E402
+from guards import signing_policy  # noqa: E402
 
 MARKER = b"agent-fabric"
 HOOKS_REL = "policies/githooks"
@@ -615,6 +624,9 @@ class Bootstrap:
         if rc != 0:
             raise Stop(rc)
 
+    def local_bin(self) -> str:
+        return os.environ.get("AGENT_FABRIC_LOCAL_BIN") or os.path.join(self.home, ".local", "bin")
+
     def link_commands(self) -> None:
         # Every command a session is told to run, on PATH under its own name
         # (runtime/claude-code/commands.json): a skill says `gzcoord-send <file>`,
@@ -623,7 +635,7 @@ class Bootstrap:
         # fabric made — to this checkout or another one's same path — is
         # refreshed; anything else at that name is the account's and is refused,
         # never replaced.
-        local_bin = os.environ.get("AGENT_FABRIC_LOCAL_BIN") or os.path.join(self.home, ".local", "bin")
+        local_bin = self.local_bin()
         # Read first, then loop: a list that cannot be read inside a process
         # substitution linked nothing and reported success (review of #42).
         try:
@@ -757,6 +769,113 @@ class Bootstrap:
         say(f"  +  {wc} ({pid}): origin {origin} -> {target} (moved)")
         self.changed += 1
 
+    # --- signing (agent-fabric ADR-057 §5 rules 2-4) ----------------------
+
+    def signing_policy(self) -> dict | None:
+        """policies/signing.json, read once; None (said once, counted NOT
+        written) when it cannot be read: no working copy is then touched."""
+        if not hasattr(self, "_signing_policy"):
+            try:
+                self._signing_policy = signing_policy.load(roots.policy("signing.json", engine=self.root))
+            except signing_policy.PolicyError as e:
+                warn(f"  !  {e}; no working copy's signing settings written")
+                self.failed += 1
+                self._signing_policy = None
+        return self._signing_policy
+
+    def signing_key(self, fmt: str) -> tuple[str | None, str]:
+        """(user.signingkey's value, "") from `fabric-sign key <fmt>`, or
+        (None, why). Once per format a run: it is the account's one key."""
+        cache = self.__dict__.setdefault("_signing_keys", {})
+        if fmt not in cache:
+            try:
+                r = subprocess.run([self.src("bin/fabric-sign"), "key", fmt], capture_output=True, check=False,
+                                   timeout=120, stdin=subprocess.DEVNULL)
+                out = r.stdout.decode("utf-8", "replace").strip()
+                tail = (r.stderr.decode("utf-8", "replace").strip().splitlines() or [f"exit {r.returncode}"])[-1]
+                if r.returncode != 0 or len(out.splitlines()) != 1:
+                    cache[fmt] = (None, tail if r.returncode != 0 else f"it printed {len(out.splitlines())} lines, not one")
+                else:
+                    cache[fmt] = (out, "")
+            except (OSError, subprocess.SubprocessError) as e:
+                cache[fmt] = (None, f"{type(e).__name__}: {e}")
+        return cache[fmt]
+
+    def local_config(self, repo: str, key: str) -> str | None:
+        try:
+            r = gitcmd.run(repo, "config", "--local", "--get", key, check=False)
+        except gitcmd.GitError:
+            return None
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    def signing(self, wc: str, pid: str, registry: dict) -> None:
+        # 5c. A working copy of a repository policies/signing.json names
+        #     signs with this account's own key, in the format the policy
+        #     gives it, through fabric-sign (ADR-057 §5 rules 2-3: no other
+        #     place sets the format). A repo config, as the hooks path; one
+        #     the policy does not name keeps whatever it has. Never
+        #     notes.rewriteRef for the proofs (rule 4): an amended commit is
+        #     signed anew, and a carried-over note would be another
+        #     signature's proof, so a value pointing there is removed.
+        policy = self.signing_policy()
+        if policy is None:
+            return
+        remotes = ((registry.get("projects") or {}).get(pid) or {}).get("remotes") or []
+        slug = next((s for s in (signing_policy.slug_of(u, workingcopy.parse_remote) for u in remotes) if s), None)
+        covered, entry = signing_policy.entry_for(policy, slug, registry, workingcopy.parse_remote)
+        if covered is None:
+            return
+        fmt = entry["format"]
+        program = os.path.join(self.local_bin(), "fabric-sign")
+        target = os.path.realpath(self.src("bin/fabric-sign"))
+        if not self.dry_run and not (os.path.islink(program) and os.path.realpath(program) == target):
+            warn(f"  !  {wc} ({pid}): {program} is not this fabric's fabric-sign; its signing settings left as they are")
+            self.failed += 1
+            return
+        value, why = self.signing_key(fmt)
+        if value is None:
+            # Never a half config: without the key nothing is written, and
+            # the copy signs as it did (a commit refused for a key that
+            # cannot sign would stop the account's work).
+            warn(f"  !  {wc} ({pid}): fabric-sign key {fmt} gave no key ({why}); its signing settings left as they are")
+            self.failed += 1
+            return
+        want = {"gpg.format": fmt, "gpg.program": program, "gpg.ssh.program": program,
+                "user.signingkey": value, "commit.gpgsign": "true"}
+        have = {k: self.local_config(wc, k) for k in want}
+        rewrite = gitcmd.run(wc, "config", "--local", "--get-all", "notes.rewriteRef", check=False).stdout.split()
+        stale_rewrite = signing_policy.NOTES_REF in rewrite
+        if have == want and not stale_rewrite:
+            say(f"  =  {wc} ({pid}): signing ({fmt})")
+            self.same += 1
+            return
+        if not self.dry_run:
+            done: list[str] = []
+            try:
+                for k, v in want.items():
+                    if have[k] != v:
+                        self.git_set(wc, k, v)
+                        done.append(k)
+                if stale_rewrite:
+                    gitcmd.run(wc, "config", "--local", "--fixed-value", "--unset-all", "notes.rewriteRef",
+                               signing_policy.NOTES_REF)
+            except (Stop, gitcmd.GitError) as e:
+                # Put back what this run changed: a copy half moved to the
+                # new key would sign with one setting from each.
+                for k in done:
+                    if have[k] is None:
+                        gitcmd.run(wc, "config", "--local", "--unset-all", k, check=False)
+                    else:
+                        gitcmd.run(wc, "config", "--local", k, have[k], check=False)
+                warn(f"  !  {wc} ({pid}): signing settings not written ({getattr(e, 'message', None) or e}); "
+                     "left as they were")
+                self.failed += 1
+                return
+        shown = value if len(value) <= 48 else value[:44] + "..."
+        say(f"  +  {wc} ({pid}): signing = {fmt}, {shown}, through {program}"
+            + (" (notes.rewriteRef for the proofs removed)" if stale_rewrite else ""))
+        self.changed += 1
+
     def working_copy_hooks(self) -> list[str]:
         # 5. The same hooks in every registered working copy beside this checkout:
         #    they carry the attribution ban and the .agent-fabric/ fence (only a
@@ -771,6 +890,7 @@ class Bootstrap:
             self_pid = workingcopy.resolve(self.root, registry).get("project") or ""
             if self_pid:
                 self.repoint(self.root, self_pid, registry)
+                self.signing(self.root, self_pid, registry)
         except SystemExit as e:
             warn(f"  !  {self.root}: {e.code}; its origin left as it is")
             self.failed += 1
@@ -817,6 +937,7 @@ class Bootstrap:
             else:
                 say(f"  =  {wc} ({pid}): core.hooksPath")
                 self.same += 1
+            self.signing(wc, pid, registry)
         return trusted
 
     def trust(self, trusted: list[str]) -> None:

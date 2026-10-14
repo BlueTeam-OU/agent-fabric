@@ -83,8 +83,9 @@ def agents(root: str | None = None, bad: list[str] | None = None) -> list[dict]:
     return out
 
 
-def find(who: str, root: str | None = None) -> dict | None:
-    for a in agents(root):
+def find(who: str, root: str | None = None, bad: list[str] | None = None) -> dict | None:
+    """The one lookup by login or agent id; a malformed claim is left out and reported in `bad`, as agents() does."""
+    for a in agents(root, bad):
         if who in (a["login"], a["agent_id"]):
             return a
     return None
@@ -110,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"fabric-persona: the claim of {aid} is not {{surname, first_name}}", file=sys.stderr)
         return 2 if broken else 0
     broken = []
-    a = next((x for x in agents(bad=broken) if args.who in (x["login"], x["agent_id"])), None)
+    a = find(args.who, bad=broken)
     if a is None and broken:
         lineage = _load(os.path.join(roots.keys_dir(), "lineage.json"))
         for aid in broken:

@@ -5,7 +5,8 @@
   persona(...)        the agent's persona: its display name and the avatar file to show.
       name     "AI <first name> <surname>" from settings/profile.json in this login's store checkout, the surname
                and the first name from identities/personas/claims.json (keyed by the agent id, read from the store's
-               .agent-id) when it has them, the public directory winning over the profile; with no profile, "AI <surname>" from the claim alone; else None, and the caller shows the
+               .agent-id) when it has them, the public directory winning over the profile; with no profile, "AI <first> <surname>" from a claim object, or "AI <surname>" from an older
+               surname-only claim; else None, and the caller shows the
                login alone. The name is NEVER shown without its "AI".
       avatar   settings/avatar.png in the store checkout, else the candidate the profile names (avatar.candidate) at
                <avatars>/<agent id>/<n>.png, else None. Only regular files, no link followed (avatar.read_file).

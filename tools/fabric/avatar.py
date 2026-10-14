@@ -225,26 +225,27 @@ def read_file(path: str) -> bytes:
     return data
 
 
-def grid_of(data: bytes, cache_dir: str, decoder=decode) -> list[list[tuple[int, int, int]]]:
-    """The 2*ROWS x COLS grid of the PNG `data`, from the cache when it holds it, else decoded and cached."""
+def grid_of(data: bytes, cache_dir: str, decoder=decode, cols: int = COLS, rows: int = ROWS) -> list[list[tuple[int, int, int]]]:
+    """The 2*rows x cols grid of the PNG `data`, from the cache when it holds it, else decoded and cached. The size is
+    in the file's name: a pane of another height asks for another grid of the same picture, and neither replaces the other."""
     key = hashlib.sha256(data).hexdigest()
-    path = os.path.join(cache_dir, f"avatar-{key}.json")
+    path = os.path.join(cache_dir, f"avatar-{key}.json" if (cols, rows) == (COLS, ROWS) else f"avatar-{key}-{cols}x{rows}.json")
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
         flat = doc["pixels"]
-        if (doc.get("cols"), doc.get("rows")) == (COLS, 2 * ROWS) and isinstance(flat, list) and len(flat) == COLS * 2 * ROWS \
+        if (doc.get("cols"), doc.get("rows")) == (cols, 2 * rows) and isinstance(flat, list) and len(flat) == cols * 2 * rows \
                 and all(isinstance(p, list) and len(p) == 3 and all(type(v) is int and 0 <= v <= 255 for v in p) for p in flat):
-            return [[tuple(p) for p in flat[r * COLS:(r + 1) * COLS]] for r in range(2 * ROWS)]
+            return [[tuple(p) for p in flat[r * cols:(r + 1) * cols]] for r in range(2 * rows)]
     except (OSError, ValueError, KeyError, TypeError):
         pass                                                  # absent or unusable: decode again
-    width, height, bpp, rows = decoder(data)
-    grid = cell_grid(width, height, bpp, rows)
+    width, height, bpp, pixel_rows = decoder(data)
+    grid = cell_grid(width, height, bpp, pixel_rows, cols, 2 * rows)
     try:
         os.makedirs(cache_dir, mode=0o700, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=cache_dir, prefix=".avatar-")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"cols": COLS, "rows": 2 * ROWS, "pixels": [list(p) for row in grid for p in row]}, fh)
+            json.dump({"cols": cols, "rows": 2 * rows, "pixels": [list(p) for row in grid for p in row]}, fh)
         os.replace(tmp, path)
     except OSError:
         pass                                                  # a cache that cannot be written costs a decode next time
