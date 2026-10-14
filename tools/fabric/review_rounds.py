@@ -22,6 +22,11 @@ is), then prints the rendered brief:
                      .. HEAD of the request's repository (or --head)
   previous_findings  --report, or the newest round saved for --pr
   lenses             [general], unless --keep-lenses
+  card_base          the first round's base, so the card stays the one the
+                     first round read (review_brief.py)
+  review_id          kept, else <repository>#<PR> when the PR is known
+  review_round       the previous round's number plus one (the first is 1)
+  pr                 --pr, where the request names none
 Everything else is carried over unchanged. The brief it prints also embeds
 the range's exact diff (up to 64 KB; over that, its --stat and a note) and
 Locators: each previous finding's path:line at the old head and the same
@@ -249,7 +254,7 @@ def _next_path(request_path: str) -> str:
 
 
 def next_request(request_path: str, report: str, head: str | None, keep_lenses: bool,
-                 allow_rationale: bool = False) -> tuple[str, dict, str]:
+                 allow_rationale: bool = False, pr: str | None = None) -> tuple[str, dict, str]:
     with open(request_path, encoding="utf-8") as f:
         req = review_brief.parse_request(f.read())
     if not os.path.isfile(report):
@@ -285,6 +290,15 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
     nxt["previous_findings"] = os.path.abspath(report)
     if not keep_lenses:
         nxt["lenses"] = ["general"]
+    # What every round of one review shares, and what this round is. The
+    # card is the first round's: this range's base is the previous head,
+    # which the default branch does not contain (agent-fabric ADR-020).
+    if pr and "pr" not in nxt:
+        nxt["pr"] = pr
+    nxt["card_base"] = req.get("card_base") or _commit(repo_dir, req["range"].split("..", 1)[0])
+    if (rid := review_brief.default_review_id(nxt)):
+        nxt["review_id"] = rid
+    nxt["review_round"] = (review_brief._count(req.get("review_round")) or 1) + 1
     problems = review_brief.validate(nxt)
     if problems:
         raise Refused("the re-review request does not validate:\n  " + "\n  ".join(problems))
@@ -345,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
                         raise Refused(f"{args[0]} names no repository: name the round's with --repo")
                     repo = os.path.basename(os.path.normpath(named))
                 report = newest_round(_repo_name(repo), _pr(pr))
-            path, _, brief = next_request(args[0], report, head, keep, allow)
+            path, _, brief = next_request(args[0], report, head, keep, allow, pr)
             print(f"fabric-review: wrote {path}", file=sys.stderr)
             sys.stdout.write(brief)
             return 0

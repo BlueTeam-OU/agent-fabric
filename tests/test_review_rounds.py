@@ -112,6 +112,16 @@ def main() -> int:
         check("from a round's own request: REQUEST-rr3.json, range from that round's head, --report taken",
               r.returncode == 0 and nxt3["range"] == f"{head2[:12]}..{head3[:12]}"
               and nxt3["previous_findings"] == report2, (r.stderr, nxt3))
+        check("…the first round's base is carried as card_base, so the card stays the first round's",
+              nxt.get("card_base") == base and nxt3.get("card_base") == base, (nxt.get("card_base"), nxt3.get("card_base"), base))
+        check("…review_round counts up from 1 and the review_id and pr are filled",
+              nxt.get("review_round") == 2 and nxt3.get("review_round") == 3
+              and nxt.get("pr") == "7" and nxt.get("review_id") == "myrepo#7", (nxt, nxt3))
+        header = json.loads(r.stdout.split("\n```\n", 1)[0].split("\n", 1)[1]) if r.stdout.startswith("```agent-fabric-dispatch v1\n") else {}
+        check("…and the brief opens with the dispatch header: a re-review of round 3 over base..head",
+              header.get("purpose") == "re-review" and header.get("review_round") == 3 and header.get("pr") == 7
+              and header.get("review_id") == "myrepo#7" and header.get("base_sha") == head2 and header.get("head_sha") == head3,
+              header)
         keep_req = os.path.join(tmp, "scratch", "KEEP.yaml")
         shutil.copy(req, keep_req)
         r = run("next", keep_req, "--report", report2, "--keep-lenses")

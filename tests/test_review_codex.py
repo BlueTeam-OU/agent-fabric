@@ -409,8 +409,15 @@ def main() -> int:
         check("the extract holds the head's files and not the uncommitted one",
               rec["cwd_files"] == ["app.py"], rec["cwd_files"])
         brief = subprocess.run([REVIEW, "brief", req], env=env0, capture_output=True, text=True, timeout=60).stdout
+        # The dispatch header differs per render (its id, its time) and per engine
+        # (codex, second-engine-review); everything after it is the brief unchanged.
+        def after_header(text: str) -> str:
+            return text.split("\n```\n", 1)[1] if text.startswith("```agent-fabric-dispatch v1\n") else text
+        sent_header = rec["prompt"].split("\n```\n", 1)[0]
+        check("the prompt opens with a dispatch header naming the second engine",
+              '"engine": "codex"' in sent_header and '"purpose": "second-engine-review"' in sent_header, sent_header)
         check("the prompt is the rendered brief, unchanged, then the answer shape",
-              bool(brief) and rec["prompt"] == brief.rstrip("\n") + "\n" + review_codex.ANSWER_SHAPE, rec["prompt"][-400:])
+              bool(brief) and after_header(rec["prompt"]) == after_header(brief).rstrip("\n") + "\n" + review_codex.ANSWER_SHAPE, rec["prompt"][-400:])
         cenv = rec["env"]
         leaked = sorted(k for k in cenv if k.startswith(("ANTHROPIC_", "CLAUDE", "OPENAI_"))
                         or k in ("FABRIC_SESSION_SECRET", "GH_STATE", "AGENT_FABRIC_CODEX_BASE_URL"))

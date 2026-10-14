@@ -37,12 +37,31 @@ lenses: [protocol]
 
 `bin/fabric-review brief request.yaml` renders:
 
-```markdown
+````markdown
+```agent-fabric-dispatch v1
+{
+  "dispatch_id": "6f1c2a3e-0b7d-4c55-9a52-1d2e3f4a5b6c",
+  "parent_session_id": "…",
+  "job_id": null,
+  "project": "gzapp",
+  "repository": "github.com/BlueTeam-OU/gzapp",
+  "pr": null,
+  "review_id": null,
+  "review_round": 1,
+  "purpose": "primary-review",
+  "engine": "claude",
+  "evidence_mode": "pinned",
+  "base_sha": "…",
+  "head_sha": "…",
+  "started_at": "2026-10-14T10:00:00Z"
+}
+```
 # Review brief (agent-fabric review brief v1)
 ## Mode
 review
 ## Repository
 /home/user/projects/gzapp (the live clone; read-only for you)
+Evidence: pinned. Read the range's commits through git (git show <sha>:path, git diff, git log); the files on disk may be a different state.
 ## Range
 origin/main..HEAD
 ## Objective
@@ -67,7 +86,7 @@ Passenger itineraries are computed in the engine's clock, never the host's.
 …
 ### protocol
 …
-```
+````
 
 Every heading is rendered, an empty one as `(none stated)`: a field the
 dispatcher forgot is visible to the reviewer, never silently gone. An
@@ -84,8 +103,9 @@ unknown key is refused (`invariant:` → "did you mean invariants?").
 
 **A re-review** carries `mode: re-review`, the range of the *fix commits
 only*, and `previous_findings: <the previous report, a file>`; the
-constitution then verifies only the new hunks against those findings, by
-number. A re-review carries only the lenses it names — `general`
+constitution then starts from those hunks and findings, answering by
+number, and widens only to establish the fix's semantics or to detect a
+regression, saying what it widened to and why. A re-review carries only the lenses it names — `general`
 included: it verifies, it does not explore — so one that names none pays
 for no lens text.
 
@@ -102,9 +122,41 @@ region at the new, and each hunk's enclosing symbol. They are derived at
 render time and are not written into `REQUEST-rr<N>.json`.
 
 **The project review card.** The reviewer runs without the project's
-instruction files (`omitClaudeMd`); `<repository>/.agent-fabric/review-card.md`
-(at most 2048 bytes, refused over) is rendered under `## Project review
+instruction files (`omitClaudeMd`); `.agent-fabric/review-card.md` (at
+most 2048 bytes, refused over) is rendered under `## Project review
 card`, `(none)` when the file is absent.
+
+*The card is the base's, never the head's* (agent-fabric ADR-020). It is
+read as `git show <base_sha>:.agent-fabric/review-card.md`, where the
+base is the range's left end (a symbolic base resolves as a head does,
+to the commit it names now), and never from the working tree or the
+head: a change under review must not write its own rules of review. The
+renderer refuses, naming the base, a base that is not an ancestor of the
+default branch (the registry's `default_branch`, else origin's HEAD, else
+`main`; the remote-tracking ref where there is one). A PR that changes
+the card is therefore reviewed under the base's card, with the card's own
+diff in the reviewed range as evidence. A re-review's range starts at
+the previous head, which the default branch does not contain, so
+`review_rounds.py next` writes the first round's base into the request
+as `card_base`, and the card is read there.
+
+**The dispatch header.** The brief's first block is a fenced
+`agent-fabric-dispatch v1` JSON object: `dispatch_id` (minted at render),
+`parent_session_id`, `job_id` (the request's, else fabric-jobs' active
+job), `project`, `repository`, `pr`, `review_id`, `review_round`,
+`purpose` (from `mode`: `primary-review`, `re-review`,
+`finding-adjudication`; the second engine writes `second-engine-review`
+itself), `engine`, `evidence_mode`, `base_sha`, `head_sha`, `started_at`.
+The request takes `pr` and `job_id` as optional fields (and `review_id`,
+`review_round`, which `review_rounds.py next` fills: the id is kept, else
+`<repository>#<PR>`, and the round is the previous one plus one). A brief
+without the block is attributed `inferred` by the cost hook.
+
+**The evidence mode.** `evidence: pinned | working-tree` (default
+`pinned` for a range, `working-tree` for a diff file) is named in the
+header and in a line under `## Repository`. `pinned`: the reviewer reads
+the range's commits through git; `working-tree`: it reads the files on
+disk.
 
 ## The dispatch
 
