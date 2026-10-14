@@ -68,7 +68,9 @@ def append(file: str, row: Mapping[str, Any]) -> None:
     fd = os.open(file, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
-        os.write(fd, line.encode("ascii"))
+        data = line.encode("ascii")
+        while data:   # a short write under the lock is finished before another writer starts
+            data = data[os.write(fd, data):]
     finally:
         os.close(fd)
 

@@ -722,14 +722,15 @@ class Tokens(Base):
               + row(agent_id="a2", purpose="re-review", pr=7)                       # 335
               + row(engine="codex", purpose="second-engine-review", session_id="t", agent_id=None, cache_write=None, cache_read=600, input=300, output=50)   # 300+60+250 = 610
               + row(agent_id="a3", repository=None, pr=None)                        # counted, in no PR
+              + row(agent_id="a3b", repository=None, pr=7)                          # a PR number alone names no PR
               + row(agent_id="a4", completed_at=iso(now - 30 * DAY))                # outside the window
               + row(agent_id="a5", completed_at=None, started_at=None)              # undated
               + row(agent_id="a6", output="many")                                   # a count that is not a number: skipped
               + row(agent_id="a7", schema_version=2)                                # another schema: skipped
               + "not json\n")
         t = ops.tokens(self.home(), now=now, state=state)
-        self.assertEqual(t["ledger"], {"status": "ok", "rows": 4, "skipped": 3, "undated": 1})
-        self.assertEqual(t["by_purpose"]["review"]["claude"], {"rows": 2, "input": 20, "cache_write": 200, "cache_read": 2000, "output": 40, "equiv": 670})
+        self.assertEqual(t["ledger"], {"status": "ok", "rows": 5, "skipped": 3, "undated": 1})
+        self.assertEqual(t["by_purpose"]["review"]["claude"], {"rows": 3, "input": 30, "cache_write": 300, "cache_read": 3000, "output": 60, "equiv": 1005})
         self.assertEqual(t["by_purpose"]["re-review"]["claude"]["equiv"], 335)
         self.assertEqual(t["by_purpose"]["second-engine-review"]["codex"],
                          {"rows": 1, "input": 300, "cache_write": 0, "cache_read": 600, "output": 50, "equiv": 610}, "a null count is 0 here, not a guess")
@@ -745,7 +746,7 @@ class Tokens(Base):
         u = ops.tokens(self.home(), now=now, state=bad)
         self.assertEqual((u["ledger"]["status"], "by_purpose" in u), ("unreadable", False), "a ledger that cannot be read is not 'no rows'")
         c = ops.collect("tokens", {"home": self.home(), "who": WHO, "state": state})
-        self.assertEqual(c["tokens"]["ledger"]["rows"], 4, "the section reads the state directory the context names")
+        self.assertEqual(c["tokens"]["ledger"]["rows"], 5, "the section reads the state directory the context names")
 
 
 class Collect(Base):

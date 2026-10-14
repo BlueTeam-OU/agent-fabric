@@ -239,15 +239,17 @@ else:
     results.add_ledger(into, {"o/r": {"7": {"review": {"claude": 300}, "second-engine-review": {"codex": 100}}, "8": {"review": {"claude": 50}}}})
     results.add_ledger(into, {"o/r": {"7": {"review": {"claude": 200}}}, "p/q": {"7": {"review": {"claude": 1}}}})
     results.add_ledger(into, {"o/r": {"9": {"review": {"claude": "many", "codex": True, "x": -1}}}, "bad": 5})
+    results.add_ledger(into, {"o/r": {"11": {"review": {"claude": 5000}}}})
     results.add_ledger(into, None)
     check("add_ledger sums logins' answers; a number that is not a count is left out whole",
-          into == {"o/r": {"7": {"review": {"claude": 500}, "second-engine-review": {"codex": 100}}, "8": {"review": {"claude": 50}}},
+          into == {"o/r": {"7": {"review": {"claude": 500}, "second-engine-review": {"codex": 100}}, "8": {"review": {"claude": 50}},
+                           "11": {"review": {"claude": 5000}}},
                    "p/q": {"7": {"review": {"claude": 1}}}}, into)
-    rc = results.review_cost([("o/r", 7), ("o/r", 8), ("o/r", 10)], into)
+    rc = results.review_cost([("o/r", 7), ("o/r", 8), ("o/r", 10), ("o/r", 11)], into)
     check("review_cost: results with rows counted, a result without rows left out of the medians (10 has none)",
-          (rc["verified"], rc["with_rows"]) == (3, 2), rc)
+          (rc["verified"], rc["with_rows"]) == (4, 3), rc)
     check("…median and total per purpose/engine; a purpose a result with rows lacks counts 0 for it",
-          rc["by_purpose"] == {"review/claude": {"median": 275, "total": 550}, "second-engine-review/codex": {"median": 50, "total": 100}}, rc)
+          rc["by_purpose"] == {"review/claude": {"median": 500, "total": 5550}, "second-engine-review/codex": {"median": 0, "total": 100}}, rc)
     check("…the same PR number in another repository is not this one's",
           results.review_cost([("p/q", 7)], into)["by_purpose"] == {"review/claude": {"median": 1, "total": 1}})
     check("…no ledger rows for any: with_rows 0", results.review_cost([("o/r", 10)], into) == {"verified": 1, "with_rows": 0, "by_purpose": {}})

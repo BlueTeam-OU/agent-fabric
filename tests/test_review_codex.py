@@ -1074,6 +1074,33 @@ def main() -> int:
         check("…no brief or answer text in it", "app.py" not in json.dumps(row) and "scenario" not in json.dumps(row), row)
         check("…the ledger file is private", os.stat(ledger_file).st_mode & 0o777 == 0o600, oct(os.stat(ledger_file).st_mode))
 
+        # The row builder on its own: two runs (a capacity retry) sum; a brief with the dispatch header gives the header's.
+        def stream(*turns: dict) -> str:
+            with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
+                fh.write('{"type":"thread.started","thread_id":"th-1"}\n'
+                         + "".join(json.dumps({"type": "turn.completed", "usage": u}) + "\n" for u in turns))
+            return fh.name
+        r1 = review_codex.read_events(stream({"input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 5},
+                                             {"input_tokens": 10, "output_tokens": "x", "bogus": 1}))
+        check("read_events: usage summed over the turns, a field no turn reported stays unknown, a non-count is left out",
+              r1.usage == {"input_tokens": 110, "cached_input_tokens": 40, "cache_write_input_tokens": None,
+                           "output_tokens": 5, "reasoning_output_tokens": None} and r1.thread_id == "th-1", r1.usage)
+        obs = review_codex.Observed()
+        obs.add(r1, "2026-10-14T10:00:00Z", 1.5)
+        obs.add(review_codex.read_events(stream({"input_tokens": 7, "output_tokens": 3})), "2026-10-14T10:01:00Z", 2.0)
+        obs.status = ("completed", "codex:answer")
+        hdr = ('```agent-fabric-dispatch v1\n{"dispatch_id": "d-9", "purpose": "re-review", "repository": "o/r", "pr": 7, '
+               '"review_round": 2, "head_sha": "' + "a" * 40 + '", "engine": "claude", "job_id": "j9"}\n```\n# brief\n')
+        two = review_codex.ledger_row(obs, brief=hdr, pr="7", head="b" * 40, model="m", level="high", now="2026-10-14T10:02:00Z")
+        check("two runs: tokens summed (input 117 less 40 cached = 77), wall time summed, started_at the first run's",
+              (two["input"], two["cache_read"], two["output"], two["wall_time"], two["started_at"])
+              == (77, 40, 8, 3.5, "2026-10-14T10:00:00Z"), two)
+        check("a brief with the header: attribution dispatch, the header's purpose and fields (not this review's head), engine codex",
+              (two["attribution"], two["purpose"], two["dispatch_id"], two["repository"], two["review_round"], two["job_id"],
+               two["head_sha"], two["engine"], two["effort"]) == ("dispatch", "re-review", "d-9", "o/r", 2, "j9", "a" * 40, "codex", "high"), two)
+        sparse = review_codex.ledger_row(obs, brief=hdr.replace("a" * 40, "zz"), pr="7", head="b" * 40, model="m", level=None, now="n")
+        check("…a header field in the wrong shape is unknown, never filled from the review's own head (a row's head_sha is "
+              "what a reproduction is checked against)", sparse["head_sha"] is None and sparse["effort"] is None, sparse)
         fresh_ledger(); set_pr(); mode("capacity ok")
         inproc("7", req)
         rows = ledger_rows()
@@ -1117,6 +1144,12 @@ def main() -> int:
         fresh_ledger(); set_pr(); mode("ok")
         r = run("7", req, env={**env0, "AGENT_FABRIC_CODEX_KEY": ""})
         check("a refusal before Codex started writes no row (positive control above: the same file takes rows)",
+              r.returncode == 1 and not codex_ran() and ledger_rows() == [], (r.stderr, ledger_rows()))
+        fresh_ledger(); set_pr(); mode("ok")
+        with open(os.path.join(state, "sandbox-mode"), "w") as f:
+            f.write("fail")
+        r = run("7", req)
+        check("a sandbox that cannot start (the facts known, Codex never run): no row either",
               r.returncode == 1 and not codex_ran() and ledger_rows() == [], (r.stderr, ledger_rows()))
         fresh_ledger(); set_pr(); mode("ok")
         os.makedirs(ledger_file)   # a ledger that cannot be written: the path is a directory
