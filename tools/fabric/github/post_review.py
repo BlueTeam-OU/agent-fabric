@@ -80,7 +80,11 @@ Only a pinned review covers a head (agent-fabric ADR-020 §5 rule 10).
 A report that carries the brief's agent-fabric-dispatch v1 header is
 posted only when every such header says "evidence_mode": "pinned"; a
 working-tree one, or a header it cannot read, is refused before the PR
-is read. A report with no header posts as before.
+is read. A header is read only as a fenced block of its own; any other
+line naming agent-fabric-dispatch (in a blockquote, a list item, prose,
+or another version) is refused, naming the line. A report with no
+header posts as before; a pinned one posts with every header taken out,
+since a header names the dispatching session.
 
 Exit codes:
   0  posted
@@ -97,8 +101,14 @@ LOCALE_FILE = re.compile(r"identities/roles/[^/\n]+/locale/[^/\n]+/[^/\n]+")
 # whole (re-review of #70).
 FILE_LIST_CAP = 3000
 # The dispatch header a brief opens with (review_brief.dispatch_header), when a report carries it: a fence of three
-# or more backticks or tildes whose info string is the header's version, closed by the same fence.
-DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})" + re.escape(review_brief.DISPATCH_VERSION) + r"[ \t]*$")
+# or more backticks or tildes whose info string is the header's version, closed by the same fence. CommonMark lets
+# spaces stand between a fence and its info string, and a model reformatting the header may write them: a spaced
+# header unmatched would post a working-tree report as one with no header (review of #259, F5; ledger.FENCE agrees).
+DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*" + re.escape(review_brief.DISPATCH_VERSION) + r"[ \t]*$")
+# The header's name without its version: a line naming it outside a header DISPATCH_FENCE recognises is a header
+# this tool cannot read (quoted in a blockquote or a list item, or another version), so it refuses rather than post
+# it unchecked (review of #259, risk 1).
+DISPATCH_NAME = review_brief.DISPATCH_VERSION.split()[0]
 
 
 class Refused(Exception):
@@ -167,14 +177,9 @@ def evidence_refusal(body: str) -> str:
     # splitlines, not split("\n"): a report with CRLF line ends keeps its \r on every line otherwise, and the
     # opening fence would not match where the closing one does.
     lines = body.splitlines()
-    i = 0
-    while i < len(lines):
-        m = DISPATCH_FENCE.match(lines[i])
-        if not m:
-            i += 1
-            continue
+    read: set[int] = set()
+    for i, close in _dispatch_headers(lines):
         where = f"the {review_brief.DISPATCH_VERSION} header at line {i + 1}"
-        close = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(1)), None)
         if close is None:
             return f"{where} is never closed"
         try:
@@ -189,8 +194,45 @@ def evidence_refusal(body: str) -> str:
             return (f"{where} {said}, and only a pinned review covers a head (agent-fabric ADR-020 §5 rule 10). "
                     "Every header in a report counts, one it quotes too: a working-tree review stays out of the PR "
                     "(review the pushed range pinned and post that); a quoted header is taken out of the report")
-        i = close + 1
+        read.update(range(i, close + 1))
+    stray = next((n for n, line in enumerate(lines) if n not in read and DISPATCH_NAME in line), None)
+    if stray is not None:
+        return (f"line {stray + 1} names {DISPATCH_NAME} outside a {review_brief.DISPATCH_VERSION} header this tool "
+                "reads, a fenced block of its own: a header in a blockquote or a list item, or of another version, "
+                "may say working-tree unchecked. Take the line out, or reword it without the name")
     return ""
+
+
+def _dispatch_headers(lines: list[str]):
+    """(opening line, closing line) of each dispatch header in order; the closing line is None for one never
+    closed, and then the scan stops there."""
+    i = 0
+    while i < len(lines):
+        m = DISPATCH_FENCE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        close = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(1)), None)
+        yield i, close
+        if close is None:
+            return
+        i = close + 1
+
+
+def without_dispatch_headers(body: str) -> str:
+    """The report as it is posted: every dispatch header taken out. A header names the dispatching session
+    (parent_session_id), its job and maybe a local clone path, which the repo keeps out of what it publishes; the
+    ledger reads the header from the transcript, and evidence_refusal has read the mode already, so the PR loses
+    nothing. Only after evidence_refusal passed: it is what makes every header closed. A report with none is
+    posted byte for byte."""
+    spans = list(_dispatch_headers(body.splitlines()))
+    if not spans:
+        return body
+    drop = {j for i, close in spans for j in range(i, close + 1)}
+    # Kept with their own line ends, and the same split as the scan's: splitlines breaks at U+2028, \x0c and the
+    # like too, and a rejoin with "\n" would rewrite those in the findings that stay.
+    kept = body.splitlines(keepends=True)
+    return "".join(line for n, line in enumerate(kept) if n not in drop).strip("\r\n")
 
 
 def identity(fabric: str, *args: str) -> str:
@@ -244,6 +286,9 @@ def run(argv: list[str], stdin) -> int:
     refusal = evidence_refusal(body)
     if refusal:
         die(f"not posting this report as the review of a head: {refusal}.")
+    body = without_dispatch_headers(body)
+    if not body.strip(" \t\n"):
+        die("the review body is empty once its dispatch header is taken out.")
 
     try:
         repo = gh.this_repo()
