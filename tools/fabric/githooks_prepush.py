@@ -280,7 +280,9 @@ def _rule5(remote_name: str, lines: list[str]) -> None:
             if len(fields) != 4 or ZERO.match(fields[1]):
                 continue
             _, local, _, remote = fields
-            judged += [s for s in _git("rev-list", *_scope(local, remote), f"^{since}").split() if s not in judged]
+            # ^base as CI has it: a branch rebased onto, or merged with, the
+            # default branch must not be judged for the default branch's commits.
+            judged += [s for s in _git("rev-list", *_scope(local, remote), f"^{base}", f"^{since}").split() if s not in judged]
     except ban_unsigned_commits.git.GitError as e:
         raise Refused(f"{slug} is cut over and the pushed range cannot be read: {e}") from None
     judge = None

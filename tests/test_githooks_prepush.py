@@ -326,6 +326,25 @@ def rule_5() -> None:
     check("listed with since set: a commit failing rule 5 is refused", push() == 1 and "rule 5" in err, err)
     check("  ... and nothing reached the remote", git("rev-parse", "main", cwd=REMOTE)[1].strip() == since, "main moved")
 
+    # A branch rebased onto a default-branch commit the lineage refuses: the
+    # hook judges what CI judges (head ^base ^since), not the default branch's.
+    hooks_off = ("-c", "core.hooksPath=/dev/null")
+    bind("backend-dev"); fixture("plain")
+    since = git("rev-parse", "HEAD")[1].strip()
+    policy({slug: {"format": "openpgp", "since": since}})
+    git("checkout", "-q", "-b", "feat")
+    git(*hooks_off, "push", "-q", "origin", "feat")
+    git("checkout", "-q", "main")
+    commit("content/default.md")
+    git(*hooks_off, "push", "-q", "origin", "main")
+    git("checkout", "-q", "-B", "feat", "main")
+    check("a branch rebased onto a default-branch commit rule 5 refuses: the push passes",
+          push("feat") == 0, err)
+
+    bind("backend-dev"); fixture("plain")
+    since = git("rev-parse", "HEAD")[1].strip()
+    policy({slug: {"format": "openpgp", "since": since}})
+    commit("content/c.md")
     git("update-ref", "-d", "refs/remotes/origin/main")
     check("listed with since set, the default branch unknown in the clone: refused, says to fetch",
           push() == 1 and "fetch" in err, err)
