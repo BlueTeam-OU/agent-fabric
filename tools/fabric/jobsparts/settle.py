@@ -9,7 +9,6 @@ import calendar
 import json
 import os
 import re
-import sqlite3
 import time
 from fabric_jobs import blockers as bl
 from fabric_jobs import vcs
