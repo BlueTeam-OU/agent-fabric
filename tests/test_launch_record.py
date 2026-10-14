@@ -141,7 +141,9 @@ class Step(unittest.TestCase):
     def test_the_step_runs_the_recorder_as_the_account_on_the_pinned_python(self):
         calls, err = self.run_step(self.worker("--claude-account", "slug=aabbccddeeff"))
         self.assertEqual(len(calls), 1, calls)
-        self.assertIn(["-I", SCRIPT, "anthropic"], [calls[0][i:i + 3] for i in range(len(calls[0]) - 2)])
+        account_copy = os.path.join(f"/home/{LOGIN}", "projects", "agent-fabric", "tools", "fabric", "provisioning", "launch_record.py")
+        self.assertIn(["-I", account_copy, "anthropic"], [calls[0][i:i + 3] for i in range(len(calls[0]) - 2)],
+                      "run from the account's own clone: it cannot read the worker's checkout (homes are 700)")
         self.assertIn("-u", calls[0])
         self.assertIn(LOGIN, calls[0])
         self.assertIn("6b. first launch on anthropic recorded", err)

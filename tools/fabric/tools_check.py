@@ -67,7 +67,8 @@ def prove(proof: str) -> tuple[str, str]:
     """('ok', first line), ('missing', why), ('timeout', why) or ('failed', why).
     A timeout is its own state: a proof that is slow under load (every account
     proving at once after a reboot) says nothing about the tool, and a session
-    that read "failed" reported the tool missing. It is rerun, not installed."""
+    that read "failed" reported the tool missing. The status says to rerun the check; it is not a
+    verdict on the tool (fabric-tools --install still treats any status but ok as absent)."""
     try:
         argv = shlex.split(proof)
     except ValueError as e:

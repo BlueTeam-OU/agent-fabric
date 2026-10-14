@@ -15,6 +15,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr
 from unittest import mock
@@ -63,6 +64,8 @@ class Staging(unittest.TestCase):
         out = {}
         for d, _, fs in os.walk(self.stage):
             for f in fs:
+                if f == ".ssh-add-login.lock":
+                    continue      # the empty file flock needs; it carries no state
                 p = os.path.join(d, f)
                 out[os.path.relpath(p, self.stage)] = open(p, encoding="utf-8").read()
         return out
@@ -115,6 +118,41 @@ class Adds(Staging):
         with mock.patch.object(sal, "RESTORE_TIMEOUT_S", 0.2), self.assertRaisesRegex(sal.Refused, "did not finish within"):
             sal.run_restore(slow)
         self.assertIsNone(sal.run_restore(self.put("ok.sh", "#!/bin/sh\nexit 0\n", 0o755)))
+
+
+class Races(Staging):
+    def test_j81_logins_added_together_all_land_in_allowusers(self):
+        import threading
+        real = sal.read_text
+
+        def slow(path):
+            text = real(path)
+            if path.endswith(".conf"):
+                time.sleep(0.05)      # the window between reading the drop-in and writing it
+            return text
+        logins = [f"zz-{i:02d}" for i in range(6)]
+        errors: list[BaseException] = []
+
+        def one(n):
+            try:
+                self.add(n, entry=account(n))
+            except BaseException as exc:      # noqa: BLE001 — surfaced below
+                errors.append(exc)
+        with mock.patch.object(sal, "read_text", slow):
+            ts = [threading.Thread(target=one, args=(n,)) for n in logins]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join(30)
+        self.assertEqual(errors, [])
+        names = self.read("50-agent-fabric.conf").split("AllowUsers ")[1].split("\n")[0].split()
+        self.assertEqual(names, sorted(["alpha-01", "beta-02", *logins]))
+        self.assertEqual(sorted(os.listdir(os.path.join(self.stage, "authorized_keys"))), sorted(["alpha-01", "beta-02", *logins]))
+
+    def test_a_temporary_file_a_killed_run_left_does_not_block_later_runs(self):
+        self.put("authorized_keys/.zz-99.123.new", "half", 0o600)
+        self.add()
+        self.assertEqual(self.read("authorized_keys/gamma-03"), LINE)
 
 
 class RefusesTheLogin(Staging):
@@ -281,6 +319,7 @@ class WorkerStep(unittest.TestCase):
             calls, err, stopped = self.step(self.worker(), reg)
             self.assertEqual((calls, stopped), ([], None), reg)
             self.assertIn("pins no sshd", err)
+            self.assertIn(f"ssh_add_login.py {LOGIN}", err, "the message names the command to run once it does")
 
     def test_an_unreadable_registry_stops_the_run_it_is_not_taken_for_no_pin(self):
         for reg in (None, "not json", "[]"):

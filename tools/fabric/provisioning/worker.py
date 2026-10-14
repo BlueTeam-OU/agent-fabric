@@ -430,7 +430,9 @@ def record_launch_provider(w: Worker) -> None:
     if provider is None:
         w.say("6b. no launch provider recorded: no profile layer names one and no Claude account was asked for")
         return
-    record = os.path.join(w.root, "tools", "fabric", "provisioning", "launch_record.py")
+    # The account's own clone (step 4 brought it to origin/main), not this worker's checkout: homes are 700, so the
+    # account cannot read the coordinator's tree it is run from.
+    record = os.path.join(w.home, "projects", "agent-fabric", "tools", "fabric", "provisioning", "launch_record.py")
     if a.dry:
         w.say(f"would: as {a.login}: launch_record.py {provider}")
         return
@@ -483,7 +485,7 @@ def operator_ssh(w: Worker) -> None:
     joins AllowUsers and gets its root-owned keys file from the staging ssh-operator.sh made (ssh_add_login.py has what
     it trusts), with no reboot. A host without the pin has no sshd staged; that is said, not made up. The pin is read
     from THIS host's checkout, which a far host may not have updated yet: then the step says it is skipped and
-    ssh_add_login.py is the line to run once it has."""
+    `sudo fabric-python -I tools/fabric/provisioning/ssh_add_login.py <login>` is the line to run once it has."""
     here = hs.host_check(w.a.login).split("\n", 1)[0]
     path = roots.hosts_registry(engine=w.root)
     try:
@@ -492,7 +494,8 @@ def operator_ssh(w: Worker) -> None:
     except (OSError, ValueError, AttributeError) as exc:
         w.die(f"step failed: the host registry {path} could not be read for the sshd pin ({exc}); nothing after it ran")
     if not isinstance(entry, dict) or not isinstance(entry.get("sshd"), dict):
-        w.say(f"9b. ssh: {here} pins no sshd in this checkout's registry; the operator's ssh is not set up for {w.a.login}")
+        w.say(f"9b. ssh: {here} pins no sshd in this checkout's registry; the operator's ssh is not set up for {w.a.login} "
+              f"(once it is: sudo {PY} -I {os.path.join(w.root, 'tools', 'fabric', 'provisioning', 'ssh_add_login.py')} {w.a.login})")
         return
     script = os.path.join(w.root, "tools", "fabric", "provisioning", "ssh_add_login.py")
     w.must([*w.sudo, "-n", PY, "-I", script, w.a.login], describe=f"{script} {w.a.login} (the operator's ssh)")

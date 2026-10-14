@@ -44,6 +44,7 @@ CONTRACT
 """
 from __future__ import annotations
 
+import fcntl
 import os
 import pwd
 import re
@@ -102,7 +103,8 @@ def check_account(login: str, entry: pwd.struct_passwd | None, uid_min: int) -> 
 def operator_key(stage: str, libexec: str, owner: int) -> str:
     keys = os.path.join(stage, "authorized_keys")
     trusted(keys, owner, directory=True)
-    names = sorted(os.listdir(keys))
+    # Dotfiles are skipped as restore.sh's glob skips them: a temporary file a killed run left must not block every later one.
+    names = sorted(n for n in os.listdir(keys) if not n.startswith("."))
     if not names:
         raise Refused(f"no keys file is staged in {keys}; run ssh-operator.sh first")
     prefix = f'command="{libexec}/enter-ssh",restrict,pty '
@@ -170,6 +172,26 @@ def add_login(login: str, stage: str, libexec: str, *, entry: pwd.struct_passwd 
               uid_min: int = UID_MIN, restore: Callable[[str], None] = run_restore) -> None:
     check_account(login, entry, uid_min)
     trusted(stage, owner, directory=True)
+    with locked(stage):
+        _add_locked(login, stage, libexec, owner, restore)
+
+
+def locked(stage: str):
+    """One run at a time per staging, from the read of the drop-in to the end of restore.sh: two logins provisioned
+    together would each read AllowUsers before the other wrote it, and the later write would drop the earlier name
+    while its worker reported success. The lock file is the staging's own (root-owned); a stale one is no lock,
+    since flock dies with its holder."""
+    class Lock:
+        def __enter__(self):
+            self.fd = os.open(os.path.join(stage, ".ssh-add-login.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(self.fd, fcntl.LOCK_EX)
+
+        def __exit__(self, *exc):
+            os.close(self.fd)
+    return Lock()
+
+
+def _add_locked(login: str, stage: str, libexec: str, owner: int, restore: Callable[[str], None]) -> None:
     conf = os.path.join(stage, "50-agent-fabric.conf")
     trusted(conf, owner)
     restore_sh = os.path.join(stage, "restore.sh")

@@ -407,6 +407,10 @@ def main() -> int:
         put(f"{src}/tools/fabric/relay_catchup.py", "#!/usr/bin/env python3\nimport sys\n"
             f'open("{seq}/account-calls", "a").write("relay_catchup " + " ".join(sys.argv[1:]) + "\\n")\n')
         put(f"{src}/runtime/openrouter/launch", '#!/usr/bin/env bash\necho "launch: resolved profile x"\n', 0o755)
+        # The account's clone holds the real recorder: step 6b runs it from there, as the account (j125).
+        for f in ("provisioning/launch_record.py", "fabric_writes.py", "launch_provider_record.py"):
+            os.makedirs(os.path.dirname(f"{src}/tools/fabric/{f}"), exist_ok=True)
+            shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{src}/tools/fabric/{f}")
         sh("git", "-C", src, "init", "-q", "-b", "main")
         sh("git", "-C", src, "add", "-A")
         sh("git", "-C", src, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q",

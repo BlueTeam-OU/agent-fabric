@@ -676,7 +676,7 @@ class Ticker:
 def start_tools_report(keeper: tools_mod.ToolsKeeper | None = None, every_ms: float = tools_mod.TOOLS_INTERVAL_MS,
                        first_s: float = 0.0, binding_file: str | None = None, watch_every_ms: float = tools_mod.BINDING_POLL_MS,
                        stat: Callable[[str], float] = lambda f: os.stat(f).st_mtime * 1000) -> tools_mod.ToolsKeeper:
-    """At start, then every `every_ms`, and when the binding file changes
+    """After `first_s` (the account's stagger), then every `every_ms`, and when the binding file changes
     (tools.mjs startToolsReport). `fabric-tools --all` keeps the tools of
     the account's bound role only, and a rebind (fabric-role bind, then a
     relaunch) does not restart the daemon: the next session would start on
