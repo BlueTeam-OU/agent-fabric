@@ -11,7 +11,7 @@ gzapp (`.agent-fabric/memory/`), never here.
   (`config.json`), the subsystem context its sessions read (`CLAUDE.md`)
   and the snippet its root `CLAUDE.md` carries (`CLAUDE.snippet.md`).
 - `gh/` — forwarders to the pull-request tooling, which is general and
-  lives in `runtime/github/`: the repository comes from the working copy
+  is `fabric-pr` (`tools/fabric/github/`): the repository comes from the working copy
   it runs in and the session from the login; no record of retired
   clones is kept, and an older working-copy prefix is this session's
   only when it names this working copy and not the repository itself. `pr-reply.sh` and `pr-sessions.sh` (2026-09-14)

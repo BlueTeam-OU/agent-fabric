@@ -2209,7 +2209,13 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
 
         excl = [n for n in lint.CONTRIBUTOR_NEVER if n.startswith(("tools/", "tests/"))]
         good = {"role": "python-dev", "paths": ["tools/", "tests/", "policies/bash-allowlist.json"], "excluding": excl}
+        for d in ("tools", "tests"):
+            os.makedirs(os.path.join(root, d))
+        write(os.path.join(root, "policies", "bash-allowlist.json"), "{}")
         assert findings(good) == [], findings(good)
+        got = findings({**good, "paths": good["paths"] + ["runtime/github/"]})
+        assert got == ["policies/authority.json: contributors[0] (python-dev): path 'runtime/github/' is not in "
+                       "the tree; drop it or say where its files went"], got
         assert findings() == [], "no contributor, nothing to say"
         assert findings({**good, "merges": True}) == [], "a boolean merges is whole"
         got = findings({**good, "merges": "yes"})
