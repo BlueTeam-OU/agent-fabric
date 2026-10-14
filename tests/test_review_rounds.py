@@ -81,6 +81,9 @@ def main() -> int:
         run("save", "99", "2", stdin='```agent-fabric-dispatch v1\n{"evidence_mode": "working-tree"}\n```\n\n## 1.\n')
         check("…a round records the mode its report's dispatch header names (ADR-020 rule 10)",
               mode_of("2", "99") == "working-tree", mode_of("2", "99"))
+        run("save", "99", "4", stdin='``` agent-fabric-dispatch v1\n{"evidence_mode": "working-tree"}\n```\n')
+        check("a space between the fence and the info string still reads (CommonMark; review round 1 of #259: F5)",
+              mode_of("4", "99") == "working-tree", mode_of("4", "99"))
         run("save", "99", "3", stdin='```agent-fabric-dispatch v1\nnot json\n```\n')
         check("…and a header it cannot read as unreadable", mode_of("3", "99") == "unreadable", mode_of("3", "99"))
         r = run("save", "7", "1", stdin="  \n")

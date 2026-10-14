@@ -65,7 +65,7 @@ import review_brief  # noqa: E402
 
 ROUND_RE = re.compile(r"^round-(\d+)\.md$")
 # The opening of a dispatch header block, as post-review reads it (tools/fabric/github/post_review.py).
-DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})" + re.escape(review_brief.DISPATCH_VERSION) + r"[ \t]*$")
+DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*" + re.escape(review_brief.DISPATCH_VERSION) + r"[ \t]*$")
 # The embedded diff of a re-review: past this the brief carries the diffstat
 # and a note instead, so the brief never costs more than the reviewer would
 # pay reading the range (agent-fabric ADR-020).
