@@ -154,8 +154,13 @@ def end_tree(root: int, sleep=time.sleep, term_grace: float = TERM_GRACE_S, kill
     The tree is walked again and again, not once: a root left running starts its next child the moment one dies (a test
     script's next step, the python runner's next queued suite), and that child is in no earlier snapshot. TERM until the
     grace is over, KILL after, until nothing alive is left below the root or the wait is over; the root is killed last.
-    (A child started between the last walk and the root's kill is not reached; stopping the root first would close that
-    window, and no test can reach a window that narrow.)"""
+    The root is STOPPED first: the walk only ever ends the root's children, and one that has just died is replaced by the
+    root's next (reproduced: the python runner started every queued suite after the first TERM, 40 of 40). A stopped
+    root starts nothing, and a KILL still ends it."""
+    try:
+        os.kill(root, signal.SIGSTOP)
+    except OSError:
+        pass
     started = time.monotonic()
     termed: set[int] = set()
     while True:
@@ -189,20 +194,32 @@ def invoke(label: str | None, argv: list[str], env: dict[str, str], cwd: str) ->
         print(f"\n== {label}", flush=True)
     else:
         sys.stdout.flush()
+    proc = None
+    already = set(children_of(os.getpid()))
     try:
-        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL)
-    except OSError as e:
-        print(f"tests/run.py: {argv[0]} could not be started: {e}", file=sys.stderr, flush=True)
-        return 127
-    try:
+        try:
+            proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL)
+        except OSError as e:
+            print(f"tests/run.py: {argv[0]} could not be started: {e}", file=sys.stderr, flush=True)
+            return 127
         return proc.wait()
     except BaseException:
         # subprocess.run would kill only its child, orphaning the child's own: the tree is ended while it is still a tree.
         # A second signal must not cut that short (a runner's cancel sends INT, then TERM).
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, signal.SIG_IGN)
-        end_tree(proc.pid)
-        proc.wait()
+        # The signal may land after the child exists and before `proc` holds it (a handler runs between two bytecodes):
+        # the children this call added are then the suite, found by what appeared since.
+        if proc is not None:
+            end_tree(proc.pid)
+            proc.wait()
+        else:
+            for pid in sorted(set(children_of(os.getpid())) - already):
+                end_tree(pid)
+                try:
+                    os.waitpid(pid, 0)
+                except ChildProcessError:
+                    pass
         raise
 
 
