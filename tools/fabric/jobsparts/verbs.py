@@ -137,9 +137,11 @@ def last_worked(doc: dict, session: str | None) -> dict | None:
     session id (an unlaunched shell) the job that last left `active`, as session_worked reads it."""
     if session is None:
         return next((j for j in doc["jobs"] if doc.get("last") == j["id"]), None)
+    # Stamps have one-second resolution: of jobs touched in the same second, the one that last left `active` (doc["last"]) is
+    # the one just worked, else the later in the list.
     stamped = [(max(e.get("at", "") for e in j.get("log", []) if e.get("session") == session), j)
-               for j in doc["jobs"] if any(e.get("session") == session for e in j.get("log", []))]
-    return max(stamped, key=lambda p: p[0])[1] if stamped else None
+               for j in reversed(doc["jobs"]) if any(e.get("session") == session for e in j.get("log", []))]
+    return max(stamped, key=lambda p: (p[0], p[1]["id"] == doc.get("last")))[1] if stamped else None
 
 
 def discard(choice) -> None:

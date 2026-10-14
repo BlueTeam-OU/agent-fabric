@@ -19,7 +19,9 @@ PR_FULL = re.compile(rf"(?<![\w/.-])({_REPO})#([1-9][0-9]{{0,8}})\b", re.ASCII)
 PR_URL = re.compile(rf"github\.com/({_REPO})/pull/([1-9][0-9]{{0,8}})", re.ASCII)
 PR_BARE = re.compile(r"(?:\bPR\s*#?|(?<![\w/.-])#)([1-9][0-9]{0,8})\b", re.ASCII | re.IGNORECASE)
 REPLY = re.compile(rf"\breply:({MESSAGE_ID.pattern})", re.ASCII)
-SHA = re.compile(r"(?<![0-9a-zA-Z])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}(?![0-9a-zA-Z])", re.ASCII)
+# Any 7-40 hex word: an abbreviated sha can be all digits (one in 27 at seven characters) or all letters. A word that is no commit here
+# is "not evidence" when probed, never a failure, so the loose reading costs a probe.
+SHA = re.compile(r"(?<![0-9a-zA-Z])[0-9a-f]{7,40}(?![0-9a-zA-Z])", re.ASCII)
 # What a blocked job's free text must say to count as an owner's decision (rule 10: the one blocker no tool can check).
 OWNER_DECISION = re.compile(r"\s*(?:owner(?:'s)?\s+decision|owner:|the owner(?:'s)?\s+decision)", re.IGNORECASE)
 EVIDENCE_FORMS = "a pull request (owner/repo#N, #N or its URL), a commit sha, or reply:<MESSAGE-ID>"

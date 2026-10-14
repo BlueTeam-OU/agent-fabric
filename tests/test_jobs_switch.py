@@ -244,6 +244,10 @@ def main() -> int:
         rc, out, err = w.switch()
         check("once on origin's default branch it is (positive control)", rc == 0 and f"{sha[:10]} on origin/main" in out, out + err)
 
+        arts = sys.modules["fabric_jobs"].settle.artifacts_of({"artifacts": ["1234567", "abcdefa", "o/r#3", "reply:" + RID]}, "o/r")
+        check("an abbreviated sha of seven digits, or of seven letters, is read as one; a pull request and a reply are read beside it",
+              arts == {"prs": [("o/r", "3")], "shas": ["1234567", "abcdefa"], "replies": [RID]}, arts)
+
         print("settling the old job: delivered")
         w = World()
         j1 = w.working("delivered")
@@ -503,13 +507,16 @@ def main() -> int:
         w.switch()
         w.sw("drop", j1, "done")
         w.add("n")
+        w.journal(("in", request("01a12bae-9f03-7d83-8795-bcac9d940242").replace("REQUEST", "REPLY", 1)))
         w.journal(("in", request(RID2).replace("REQUEST", "QUESTION", 1)))
         rc, out, err = w.switch()
         check("a message that arrived before the job started does not hold the switch; one that arrived during it, a QUESTION, does",
-              rc == 1 and RID2 in err and RID not in err, err)
+              rc == 1 and RID2 in err and RID not in err and "0242" not in err, err)
         w.journal(("out", answer("01a12bae-0000-7000-8000-000000000009", RID2)))
         rc, out, err = w.switch()
         check("…answered, it switches (the positive control)", rc == 0, err)
+        check("…and leaving a job adds no second 'done' to its log (the finish time stays the finish)",
+              [e.get("state") for e in w.job(j1)["log"]].count("dropped") == 1, repr(w.job(j1)["log"]))
 
         w = World()
         j1 = w.working("first")
