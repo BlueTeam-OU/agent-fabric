@@ -607,7 +607,13 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {"pool-claim": pool_claim(request, me=me, holder=pool_holder(control_config()), file=pool_file(),
                                          **_only(ctx, "pool_opts", "role_of", "now"))}
     elif op == "tools-install":
-        data = {"tools-install": tools_mod.tools_install(request, home=home, root=root, **(ctx.get("install_opts") or {}))}
+        verdict = tools_mod.tools_install(request, home=home, root=root, **(ctx.get("install_opts") or {}))
+        data = {"tools-install": verdict}
+        # An installed tool is present now; the report would say 'missing' until the hourly run. In the
+        # background: the proofs take up to 15 s each and the reply must not wait on them. `refresh_again`,
+        # because a run already in flight began before the install and its answer is stale on arrival.
+        if verdict.get("status") == "installed" and ctx.get("tools_refresh"):
+            threading.Thread(target=ctx["tools_refresh"], name="tools report after install", daemon=True).start()
     elif op == "gateway-install":
         data = {"gateway-install": gateway_mod.gateway_install(request, home=home, root=root, **(ctx.get("gateway_install_opts") or {}))}
     elif op == "local-prune":
@@ -805,7 +811,7 @@ def main(argv: list[str] | None = None) -> int:
         # The tools report (tools.py): at start, so a reboot or a new registry
         # is answered at once, every hour, and when the role binding changes.
         # The proofs run in the background and never delay a reply.
-        start_tools_report(binding_file=who.get("binding"))
+        ctx["tools_refresh"] = start_tools_report(binding_file=who.get("binding")).refresh_again
         # Only the resident daemon samples: a --once run would add a lone
         # sample with no minute behind it.
         pressure_sampler = pressure.sampler()
