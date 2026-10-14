@@ -14,7 +14,8 @@ later (agent-fabric ADR-013).
 
 Beyond the drain's verdict it advises, never refusing (ADR-050): a description
 shaped like an event (rule 7), a `solution` or `workflow` memory without
-anchors (rule 1).
+anchors (rule 1), a `merge_target` naming no section of the role's own
+slices when no `shared_with` is given (rule 9).
 
 Silent for anything else: another path, MEMORY.md, a memory without a
 `roles_class` (private by choice), and a memory the drain would take.
@@ -49,6 +50,38 @@ def _load(name: str, rel: str):
 EVENT_RE = re.compile(r"(?:(?:FIXED|MERGED|CLOSED|DONE)[: ]|#\d+|PR \d+|\d{4}-\d{2}-\d{2}:)")
 
 
+def unresolved_merge_target(hm, parsed: dict) -> str | None:
+    """ADR-050 rule 9: the warning for a `merge_target` that names no section of the writing role's own slices
+    of the memory's class and has no `shared_with`; None when it holds, or when the slices cannot be read
+    (the role or project unbound, no working copy, no slice of the class): nothing is said then, never a guess.
+    The directories are the layout's and the headings the assembler's own reading, as `resolve_targets` looks."""
+    target = parsed["merge_target"]
+    if not target or parsed["shared_with"]:
+        return None
+    try:
+        ctx = hm.identity.resolve_context(cwd=os.getcwd())
+        role, project = ctx.get("role"), ctx.get("project")
+        if not role or not project:
+            return None
+        sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
+        from assembler.core import CLASS_FILES  # noqa: E402 — needs the path above
+        from assembler.slices import read_existing_slice  # noqa: E402
+        klass = parsed["roles_class"]
+        base = hm.layout.class_home(klass, role, project)
+        directory = os.path.join(base, CLASS_FILES[klass])
+        files = [os.path.join(directory, n) for n in sorted(os.listdir(directory)) if n.endswith(".md")] \
+            if os.path.isdir(directory) else []
+        flat = os.path.join(base, f"{CLASS_FILES[klass]}.md")
+        files += [flat] if os.path.isfile(flat) else []
+        if not files or any(target in read_existing_slice(f)[1] for f in files):
+            return None
+    except (Exception, SystemExit):  # noqa: BLE001 — unreadable slices say nothing; the other warnings still stand
+        return None
+    return (f"merge_target {target!r} names no section of the {klass} slices of {role}, and no shared_with: if the "
+            "section is in a shared slice, name the roles that own it in shared_with, or the drain files this "
+            "beside it, not in its place")
+
+
 def problems(path: str) -> list[str]:
     hm = _load("fabric_harvest", "tools/fabric/harvest_memory.py")
     parsed = hm.parse_memory(path)
@@ -75,6 +108,9 @@ def problems(path: str) -> list[str]:
         found.append(f"a {parsed['roles_class']} memory with no anchors: add `anchors: [<path>::<symbol or literal>]` "
                      "to its metadata so the next check can tell when the tree outgrows it (ADR-050 rule 1)"
                      + "".join(f"; {w}" for w in parsed["anchor_problems"]))
+    target = unresolved_merge_target(hm, parsed)
+    if target:
+        found.append(target)
     return found
 
 

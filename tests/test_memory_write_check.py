@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import subprocess
 import sys
 import tempfile
@@ -29,9 +30,9 @@ def memory(dirpath: str, name: str, description: str, meta: str, body: str) -> s
     return path
 
 
-def run(path: str, raw: str | None = None, env: dict | None = None) -> tuple[int, str]:
+def run(path: str, raw: str | None = None, env: dict | None = None, cwd: str | None = None) -> tuple[int, str]:
     data = raw if raw is not None else json.dumps({"tool_name": "Write", "tool_input": {"file_path": path}})
-    p = subprocess.run([sys.executable, HOOK], input=data, capture_output=True, text=True, env=env)
+    p = subprocess.run([sys.executable, HOOK], input=data, capture_output=True, text=True, env=env, cwd=cwd)
     if env is not None and p.stderr.strip():
         return 1, "stderr: " + p.stderr.strip()
     if not p.stdout.strip():
@@ -39,6 +40,62 @@ def run(path: str, raw: str | None = None, env: dict | None = None) -> tuple[int
     doc = json.loads(p.stdout)
     assert doc["hookSpecificOutput"]["hookEventName"] == "PostToolUse", doc
     return p.returncode, doc["hookSpecificOutput"]["additionalContext"]
+
+
+def merge_target_cases() -> int:
+    """ADR-050 rule 9, against a fixture corpus: the role's solution slice holds one section, and the writer is
+    bound to that role and project through a state directory of its own, so nothing of the live corpus is read."""
+    fails = 0
+    with tempfile.TemporaryDirectory() as tmp:
+        wc = os.path.join(tmp, "wc")
+        slices = os.path.join(wc, ".agent-fabric", "memory", "fixture-role", "solution")
+        os.makedirs(slices)
+        with open(os.path.join(slices, "topic.md"), "w", encoding="utf-8") as fh:
+            fh.write("---\nrole: fixture-role\n---\n\n## The held section\n\ntext\n\n## Another section\n\ntext\n")
+        state = os.path.join(tmp, "state")
+        os.makedirs(os.path.join(state, "agents", pwd.getpwuid(os.geteuid()).pw_name))
+        binding = os.path.join(state, "agents", pwd.getpwuid(os.geteuid()).pw_name, "binding.json")
+        with open(binding, "w", encoding="utf-8") as fh:
+            json.dump({"role": "fixture-role", "project": "fixture-proj", "working_copy": wc}, fh)
+        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state}
+        env.pop("AGENT_FABRIC_WORKING_COPY", None)
+        home = os.path.join(tmp, ".claude", "projects", "slug", "memory")
+        os.makedirs(home)
+        elsewhere = os.path.join(tmp, "elsewhere")      # not a git checkout: the project comes from the binding
+        os.makedirs(elsewhere)
+
+        def target(name: str, heading: str, extra: str = "", klass: str = "solution") -> str:
+            return memory(home, name, "a correction", f"  roles_class: {klass}\n{ANCHORS}  merge_target: \"{heading}\"\n{extra}",
+                          "body")
+
+        cases = [
+            ("a target naming a section of the role's slice", target("t1", "The held section"), None),
+            ("a target naming a second section of it", target("t2", "Another section"), None),
+            ("a target naming nothing of it, no shared_with", target("t3", "A shared section"), "no shared_with"),
+            ("the same, with shared_with", target("t4", "A shared section", "  shared_with: other-role\n"), None),
+            ("a target in a class the role has no slice of", target("t5", "The held section", klass="workflow"), None),
+            ("a retire (no body) of a missing section", memory(home, "t6", "retire", f"  roles_class: solution\n{ANCHORS}  merge_target: \"Gone\"\n", ""),
+             "no shared_with"),
+            ("no merge_target at all", memory(home, "t7", "plain", ANCHORED, "body"), None),
+        ]
+        for label, path, expect in cases:
+            rc, out = run(path, env=env, cwd=elsewhere)
+            good = rc == 0 and ((not out) if expect is None else expect in out)
+            print(f"  {'ok  ' if good else 'FAIL'} merge_target: {label}" + ("" if good else f": {out!r}"))
+            fails += not good
+        # Unreadable slices say nothing: no binding, no working copy, a slice no one can parse.
+        os.remove(binding)
+        rc, out = run(target("t8", "A shared section"), env=env, cwd=elsewhere)
+        good = rc == 0 and not out
+        print(f"  {'ok  ' if good else 'FAIL'} merge_target: no binding, so no role: silent" + ("" if good else f": {out!r}"))
+        fails += not good
+        with open(binding, "w", encoding="utf-8") as fh:
+            json.dump({"role": "fixture-role", "project": "fixture-proj", "working_copy": os.path.join(tmp, "no-such")}, fh)
+        rc, out = run(target("t9", "A shared section"), env=env, cwd=elsewhere)
+        good = rc == 0 and not out
+        print(f"  {'ok  ' if good else 'FAIL'} merge_target: a working copy that is gone: silent" + ("" if good else f": {out!r}"))
+        fails += not good
+    return fails
 
 
 def main() -> int:
@@ -146,6 +203,7 @@ def main() -> int:
         print(f"  {'ok  ' if good else 'FAIL'} a fabric the harvester cannot load: silent, exit 0"
               + ("" if good else f": rc={rc} {out!r}"))
         fails += not good
+    fails += merge_target_cases()
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
