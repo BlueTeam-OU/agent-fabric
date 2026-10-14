@@ -110,7 +110,9 @@ DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*" + re.escape(review_bri
 # so it refuses rather than post it unchecked (review of #259, risk 1). Not every line naming it: prose and a quoted
 # hunk carry no header, and a Codex review naming it in a finding would be refused and lost (supplier review, F1).
 DISPATCH_NAME = review_brief.DISPATCH_VERSION.split()[0]
-STRAY_FENCE = re.compile(r"^[ \t]*(?:(?:>|[*+-]|\d{1,9}[.)])[ \t]*)*(`{3,}|~{3,})[ \t]*" + re.escape(DISPATCH_NAME))
+# A list marker needs whitespace after it, as in CommonMark: a quoted diff's "+```" or "-```" opens no list item
+# (re-review, finding 1).
+STRAY_FENCE = re.compile(r"^[ \t]*(?:>[ \t]*|(?:[*+-]|\d{1,9}[.)])[ \t]+)*(`{3,}|~{3,})[ \t]*" + re.escape(DISPATCH_NAME))
 
 
 class Refused(Exception):

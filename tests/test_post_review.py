@@ -83,6 +83,9 @@ def main() -> int:
         # Only a fence opens a header: prose and a quoted hunk naming it carry none, and post (supplier review, F1).
         ("the name in prose: posts", f"{pinned}\nF1 (P3) the agent-fabric-dispatch header is long", False),
         ("the version in inline code: posts", "F1 (P3) `agent-fabric-dispatch v1` is long", False),
+        ("a quoted diff adding and removing a header's fence: posts, + and - opening no list item",
+         "F1 (P2) quotes the hunk:\n```diff\n+```agent-fabric-dispatch v1\n+{}\n+```\n-```agent-fabric-dispatch v1\n```", False),
+        ("a list item whose marker has a tab: refused", "-\t" + tree.replace("\n", "\n  "), True),
         ("a quoted hunk naming it: posts",
          "F1 (P2)\n```\n+DISPATCH_VERSION = \"agent-fabric-dispatch v1\"\n```", False),
     ):
