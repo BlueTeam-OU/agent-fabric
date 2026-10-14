@@ -100,13 +100,15 @@ taken back by `switch <id>` or when it is first in the order.
 `switch` (alias `next`) is the transition between jobs (rule 10, amended 2026-10-14), three steps, a refusal naming every
 check that failed and changing nothing:
   1. The job this session worked last is settled with its evidence, by the state it is left in. done: a pull request merged or
-     a commit on origin's default branch; delivered: a pull request open; blocked: a checkable blocker not yet cleared, or
+     a commit or a branch (a contributor branch: name or origin/<name>) whose head is on origin's default branch; delivered: a pull
+     request open or a branch on origin; blocked: a checkable blocker not yet cleared, or
      "owner: <the decision awaited>" as text; paused: its branch pushed; dropped: a reason. Evidence is read from the job's
      artifacts (owner/repo#N, #N, a pull request URL, a commit sha, or reply:<MESSAGE-ID>, which counts for a job whose
      artifact is a REPLY, when the journal holds it as sent). Whatever the outcome: no uncommitted change in the job's working
      copy, its worktree or this directory's checkout; every inbound message addressed to this login with REPLY-EXPECTED: yes
      has a REPLY of this login in the journal; and a file in the working copy's memory directory changed since the job last
      became active. A check that cannot be told is a failure, said as such, never a pass.
+     `deliver <id> <artifact>` on a done job appends evidence and leaves it closed (a dropped job takes none).
   2. The next job starts in a fresh session after a worked one (rule 3, unchanged): `fabric-fresh --job <id>` is printed.
   3. Its branch is chosen before any work: the job's own branch when it has begun one that no pull request merged; else this
      login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
