@@ -18,9 +18,11 @@ anchors (rule 1), a `merge_target` naming no section of the role's own
 slices when no `shared_with` is given (rule 9).
 
 Silent for anything else: another path, MEMORY.md, a memory without a
-`roles_class` (private by choice), and a memory the drain would take.
-The decision is the harvester's own (`judge_memory`) and the budget
-lint's (its constants), imported; nothing here restates a rule.
+`roles_class` (private by choice), and a memory the drain would take that
+draws none of the advice above. The drain's decision is the harvester's own
+(`judge_memory`) and the budget lint's (its constants), imported; the one
+rule restated here is ADR-050 rule 7's pattern (EVENT_RE), which
+tests/test_memory_write_check.py pins.
 A credential is named by its kind, never shown. Never blocks: any
 failure is silence and exit 0.
 """
