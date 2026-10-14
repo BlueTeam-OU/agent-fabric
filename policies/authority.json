@@ -16,7 +16,6 @@
         "tools/",
         "tests/",
         "bin/",
-        "runtime/github/",
         "runtime/openrouter/",
         "runtime/provisioning/",
         "runtime/control/",
@@ -68,7 +67,6 @@
     {
       "role": "devex-tooling",
       "paths": [
-        "runtime/github/",
         "tools/fabric/github/",
         "projects/gzapp/integration/gh/",
         "projects/interweave/integration/gh/",

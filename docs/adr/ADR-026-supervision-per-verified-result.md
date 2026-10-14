@@ -110,7 +110,7 @@ agents' private context.
 
 - The counter is `fabric-results` (`tools/fabric/results.py`). It reads
   the review marker on each head, the checks, reverts, and fixes named
-  by `runtime/github/commit-class.sh`, the band's floor, and owner
+  by `tools/fabric/github/commit_class.py`, the band's floor, and owner
   corrections in commit subjects. Not yet read: the relay's `OWNER-WORD`
   sections (a reader over message metadata and section markers) and the
   drain reports' `collision_decisions`.
@@ -137,7 +137,7 @@ Accepted and in force.
 - ADR-000 §5, P3 (Today, Direction) and P7 (Direction).
 - ADR-001 (§5 rule 2), ADR-014 (contested claims), ADR-019 (the band and the gate), ADR-020
   (the review), ADR-024 (carrying the owner's word).
-- `runtime/github/commit-class.sh`, `fabric-pr review-status`,
+- `tools/fabric/github/commit_class.py`, `fabric-pr review-status`,
   `fabric-pr gate`; `memory/RUBRIC.md` ("Telemetry, not
   quotas").
 

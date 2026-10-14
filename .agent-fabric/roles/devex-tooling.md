@@ -18,9 +18,9 @@ here (2026-10-03). A role that wants its remit changed proposes it.
 **Yours here, as a contributor.** The code your entry in
 `policies/authority.json` lists:
 
-- the GitHub toolkit: the shims under `runtime/github/` (pr-gate,
-  pr-reply, post-review, pr-review-status, pr-sessions, trial-merge) and
-  their Python under `tools/fabric/github/`;
+- the GitHub toolkit under `tools/fabric/github/`, run as `fabric-pr`
+  and its verbs (gate, reply, post-review, review-status, sessions,
+  trial-merge, arm);
 - gzapp's `gh` forwarders and both projects' arm rules, under
   `projects/gzapp/integration/gh/` and `projects/interweave/integration/gh/`
   (an `arm.json` is a project's security boundary in path form: a change
