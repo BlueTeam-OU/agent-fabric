@@ -466,9 +466,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   rule 8).
 - A 2026-10-05 — the reviewer inherits no secret: every command its fence
   lets through runs with a clean environment (§5 rule 4).
+- A 2026-10-14 — the project review card governs from the base, never
+  the head, and the reviewer's agent file omits the project's instruction
+  files (§5 rule 9); a review names its evidence mode, only `pinned`
+  (`git show <head>:<path>`) counts as coverage of a head, and
+  `working-tree` is labelled and never posted as a review of a head
+  (§5 rule 10).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
-  review-grade, substitute.
+  review-grade, substitute, review card, evidence mode, pinned,
+  working-tree.
 
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 
