@@ -24,8 +24,9 @@ def _own_since_findings(root: str, doc: dict, registry_path: str) -> list[str]:
     """The checker refuses a `since` that is not on the default branch; the
     repository lint runs in is held to the same, so a bad one is found when
     the policy is edited and not by the first red CI. No git repository, no
-    origin the policy covers, or a since this clone lacks: nothing said (the
-    checker says the last, with the whole clone in front of it)."""
+    origin the policy covers, a registry default_branch with no
+    refs/remotes/origin/<it> in the clone, or a since this clone lacks: nothing
+    said (the checker still refuses, with the whole clone in front of it)."""
     sink: list[str] = []
     try:
         remote = subprocess.run(["git", "-C", root, "config", "--get", "remote.origin.url"], capture_output=True,
@@ -35,15 +36,24 @@ def _own_since_findings(root: str, doc: dict, registry_path: str) -> list[str]:
         since = signing_policy.entry_for(doc, slug, registry, workingcopy.parse_remote)[1].get("since") if slug else None
         if not since:
             return []
-        has_main = subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", "origin/main^{commit}"],
-                                  capture_output=True, timeout=30).returncode == 0
-        base = "origin/main" if has_main else "HEAD"
+        branch = None
+        for entry in (registry.get("projects") or {}).values():
+            slugs = [signing_policy.slug_of(u, workingcopy.parse_remote) for u in entry.get("remotes") or []]
+            if slug.lower() in (x.lower() for x in slugs if x):
+                branch = entry.get("default_branch")
+                break
+        base = f"refs/remotes/origin/{branch}" if branch else None
+        # Never HEAD: a branch that carries its own since would pass. A tracking
+        # ref that is missing is a clone to fetch; the checker still refuses.
+        if base is None or subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", f"{base}^{{commit}}"],
+                                          capture_output=True, timeout=30).returncode != 0:
+            return []
         rc = subprocess.run(["git", "-C", root, "merge-base", "--is-ancestor", since, base], capture_output=True,
                             timeout=30).returncode
     except (OSError, subprocess.SubprocessError):
         return []
     if rc == 1:
-        return [f"{WHERE}: since {since} for {slug} is not an ancestor of {base}: it must be a commit on the default branch"]
+        return [f"{WHERE}: since {since} for {slug} is not an ancestor of {base}: it must be a commit on the default branch (or {base} is stale: fetch origin first)"]
     return []
 
 

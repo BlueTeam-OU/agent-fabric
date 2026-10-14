@@ -25,7 +25,7 @@ T = tempfile.mkdtemp(prefix="sigpol.")
 POLICY = os.path.join(T, "signing.json")
 REGISTRY_PATH = os.path.join(T, "registry.json")
 REGISTRY = {"version": 1, "projects": {
-    "widget": {"remotes": ["git@github.com:acme/widget.git", "https://github.com/acme/widget"]},
+    "widget": {"remotes": ["git@github.com:acme/widget.git", "https://github.com/acme/widget"], "default_branch": "main"},
     "moved": {"remotes": ["git@github.com:neworg/thing.git", "git@github.com:oldorg/thing.git"]},
 }}
 SHA = "a" * 40
@@ -122,6 +122,15 @@ def main() -> None:
     def own_findings(since: str, root: str = own) -> list[str]:
         write({**good, "repositories": {"acme/widget": {"since": since}}})
         return lint.signing_findings(root, POLICY, REGISTRY_PATH)
+    # HEAD is main here and on_side is on no branch HEAD reaches; with no
+    # refs/remotes/origin/main the check is skipped, never made against HEAD.
+    check("no tracking ref for the registry's default branch: skipped silently",
+          own_findings(on_side) == [], own_findings(on_side))
+    g("update-ref", "refs/remotes/origin/main", on_main)
+    g("checkout", "-q", "side")
+    check("the check is against the tracking ref, not HEAD (HEAD is on the side branch)",
+          any("not an ancestor" in x for x in own_findings(on_side)), own_findings(on_side))
+    g("checkout", "-q", "main")
     check("a since on the default branch: clean", own_findings(on_main) == [], own_findings(on_main))
     f = own_findings(on_side)
     check("a since on a side branch: refused", any("not an ancestor" in x and on_side in x for x in f), f)
