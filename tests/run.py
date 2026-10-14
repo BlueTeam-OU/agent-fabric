@@ -11,7 +11,9 @@ Contract, frozen from run.sh:
            a misspelt one ran nothing and said "all suites passed" (review of #68).
   stdout   `== <label>` before each suite's own output, the python suites' runner under its own headers, the leak report,
            and last `tests/run.py: <n> suite(s) FAILED` when any failed, else `tests/run.py: all suites passed` (run.sh's
-           two lines under the new name).
+           two lines under the new name). Started by the forwarder tests/run.sh, which sets AGENT_FABRIC_RUNNER=tests/run.sh,
+           every line this file prints under its own name says `tests/run.sh:` instead — CI and every reader of the last
+           line see what they saw — and the variable does not reach the suites.
   exit     0 every suite passed; 1 some failed (the count is on the last line, and `FAILED_SUITES=<n>` is the python
            runner's); 2 an invocation error; 128+signal when stopped by INT/TERM/HUP (130, 143, 129).
 
@@ -35,6 +37,10 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SECTIONS = ("all", "static", "python", "bash")
+RUNNER_VARIABLE = "AGENT_FABRIC_RUNNER"
+# What this run calls itself; main() says "tests/run.sh" when the forwarder started it. Only that one other name is
+# accepted: the value is printed, and anything else is ignored.
+PROG = "tests/run.py"
 # Cleanup ends the suites' processes with TERM, KILLs what is left after this long, and waits about twice as long in all.
 TERM_GRACE_S = 5.0
 KILL_WAIT_S = 10.0
@@ -94,6 +100,7 @@ def short_dir(environ: dict[str, str]) -> str:
 def run_environment(environ: dict[str, str], scratch: str) -> dict[str, str]:
     env = dict(environ)
     env["TMPDIR"] = scratch
+    env.pop(RUNNER_VARIABLE, None)
     # A suite that block-buffers its stdout shows nothing in a CI log until it ends (the 2026-10-11 audit could not
     # time a case from one).
     env["PYTHONUNBUFFERED"] = "1"
@@ -154,8 +161,13 @@ def end_tree(root: int, sleep=time.sleep, term_grace: float = TERM_GRACE_S, kill
     The tree is walked again and again, not once: a root left running starts its next child the moment one dies (a test
     script's next step, the python runner's next queued suite), and that child is in no earlier snapshot. TERM until the
     grace is over, KILL after, until nothing alive is left below the root or the wait is over; the root is killed last.
-    (A child started between the last walk and the root's kill is not reached; stopping the root first would close that
-    window, and no test can reach a window that narrow.)"""
+    The root is STOPPED first: the walk only ever ends the root's children, and one that has just died is replaced by the
+    root's next (reproduced: the python runner started every queued suite after the first TERM, 40 of 40). A stopped
+    root starts nothing, and a KILL still ends it."""
+    try:
+        os.kill(root, signal.SIGSTOP)
+    except OSError:
+        pass
     started = time.monotonic()
     termed: set[int] = set()
     while True:
@@ -189,20 +201,32 @@ def invoke(label: str | None, argv: list[str], env: dict[str, str], cwd: str) ->
         print(f"\n== {label}", flush=True)
     else:
         sys.stdout.flush()
+    proc = None
+    already = set(children_of(os.getpid()))
     try:
-        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL)
-    except OSError as e:
-        print(f"tests/run.py: {argv[0]} could not be started: {e}", file=sys.stderr, flush=True)
-        return 127
-    try:
+        try:
+            proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL)
+        except OSError as e:
+            print(f"{PROG}: {argv[0]} could not be started: {e}", file=sys.stderr, flush=True)
+            return 127
         return proc.wait()
     except BaseException:
         # subprocess.run would kill only its child, orphaning the child's own: the tree is ended while it is still a tree.
         # A second signal must not cut that short (a runner's cancel sends INT, then TERM).
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, signal.SIG_IGN)
-        end_tree(proc.pid)
-        proc.wait()
+        # The signal may land after the child exists and before `proc` holds it (a handler runs between two bytecodes):
+        # the children this call added are then the suite, found by what appeared since.
+        if proc is not None:
+            end_tree(proc.pid)
+            proc.wait()
+        else:
+            for pid in sorted(set(children_of(os.getpid())) - already):
+                end_tree(pid)
+                try:
+                    os.waitpid(pid, 0)
+                except ChildProcessError:
+                    pass
         raise
 
 
@@ -228,9 +252,11 @@ def leak_report(directory: str, before: list[str]) -> bool:
 def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     environ = dict(os.environ if environ is None else environ)
+    global PROG
+    PROG = "tests/run.sh" if environ.get(RUNNER_VARIABLE) == "tests/run.sh" else "tests/run.py"
     what = args[0] if args else "all"
     if len(args) > 1 or what not in SECTIONS:
-        print(f"tests/run.py: no section '{' '.join(args)}' (all, static, python, bash)", file=sys.stderr)
+        print(f"{PROG}: no section '{' '.join(args)}' (all, static, python, bash)", file=sys.stderr)
         return 2
     scratch = tempfile.mkdtemp(prefix="af-t.", dir=short_dir(environ))
     env = run_environment(environ, scratch)
@@ -263,9 +289,9 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         print(flush=True)
         failed += leak_report(scratch, before)
         if failed:
-            print(f"tests/run.py: {failed} suite(s) FAILED")
+            print(f"{PROG}: {failed} suite(s) FAILED")
             return 1
-        print("tests/run.py: all suites passed")
+        print(f"{PROG}: all suites passed")
         return 0
     except Signalled as s:
         return 128 + int(s.args[0])
