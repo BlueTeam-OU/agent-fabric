@@ -169,8 +169,10 @@ def group(messages: list[dict]) -> list[list[dict]]:
     return list(groups.values())
 
 
-def render(groups: list[list[dict]], full: bool, patterns: list, through: int | None, left: int, shown: int) -> list[str]:
+def render(groups: list[list[dict]], full: bool, patterns: list, through: int | None, left: int, shown: int,
+           max_: int = DEFAULT_MAX) -> list[str]:
     mk = lambda m, k: (history.mask(m[k], m["episode"], patterns) if isinstance(m[k], str) else m[k]) or ""  # noqa: E731 — every printed field is a stored claim
+    flag = f" --max {max_}" if max_ != DEFAULT_MAX else ""  # done checks against the default when the hint omits it
     out = [f"# {BANNER}", f"# {shown} message(s) in {len(groups)} thread(s), oldest first"
            + (f"; through row {through}" if through is not None else "")]
     for g in groups:
@@ -186,9 +188,9 @@ def render(groups: list[list[dict]], full: bool, patterns: list, through: int | 
                 text = text[:CUT] + f"\n… ({len(m['content']) - CUT} more characters: fabric-history --thread {mk(m, 'message_id')} --full)"
             out.append(text.rstrip("\n"))
     if left:
-        out.append(f"\n# {left} more message(s) wait for the next pass: run `fabric-reflect done --through {through}` for this one, then `fabric-reflect`")
+        out.append(f"\n# {left} more message(s) wait for the next pass: run `fabric-reflect done --through {through}{flag}` for this one, then `fabric-reflect`")
     elif shown:
-        out.append(f"\n# nothing else waits; `fabric-reflect done --through {through}` closes this pass, even when it wrote no memory")
+        out.append(f"\n# nothing else waits; `fabric-reflect done --through {through}{flag}` closes this pass, even when it wrote no memory")
     else:
         out.append("\n# nothing waits since the last pass")
     return out
@@ -208,7 +210,7 @@ def cmd_read(conn, owner: str, args, patterns: list) -> int:
               for k in ("date", "direction", "peer", "type", "message_id", "in_reply_to", "subject", "state", "content")}
              for m in g] for g in groups]}, indent=1))
     else:
-        print("\n".join(render(groups, args.full, patterns, through, left, len(window))))
+        print("\n".join(render(groups, args.full, patterns, through, left, len(window), args.max)))
     return 0
 
 
@@ -225,7 +227,7 @@ def cmd_done(conn, owner: str, args) -> int:
         if shown > args.max:
             raise CursorError(f"row {args.through} is {shown} messages past the cursor; a pass of --max {args.max} "
                               "never showed that far: give `done` the --max of the pass, or close the row it printed")
-        if row is None or row[0] <= have:
+        if row[0] <= have:
             print(f"fabric-reflect: nothing to close; the cursor stays at row {have}")
             return 0
         write_cursor(owner, row[0], row[1])

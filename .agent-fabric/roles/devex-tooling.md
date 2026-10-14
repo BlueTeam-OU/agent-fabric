@@ -90,8 +90,8 @@ Python, standard library only, on the interpreter the fabric pins.
   `.agent-fabric/`.
 - `.github/`: CI here runs the authority guards, so its workflows stay
   fabric-coordinator's.
-- The guards, the lint, `tests/run.sh`, `tests/static.sh` and
-  `tests/leak-check.sh`.
+- The guards, the lint, `tests/run.sh`, `tests/static.sh` and the
+  `run.py`, `static.py` and `run_python_suites.py` they forward to.
 - All of `runtime/claude-code/`.
 - The review-brief code (`fabric-review`, `review_brief.py`,
   `review_rounds.py`).

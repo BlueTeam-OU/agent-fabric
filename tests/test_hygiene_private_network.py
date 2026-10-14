@@ -22,6 +22,8 @@ FINE = [
     "Version 1.10.0.1 and 2.10.0.0.5 shipped.", "Public 8.8.8.8, 1.1.1.1 and 172.15.0.1 and 172.32.0.1 and 192.169.0.1.",
     "Address 110.1.2.3 and 1.10.2.3 and 10.1.2.3.4.", "192.168.1 is not an address, nor 10.1.2.", "Release 3.10.100.256.",
     "Path /home/<login>/x and ~/projects and /srv/home/alice/x and ./home/alice/x.", "a /home directory and /home/ alone",
+    # A section number is no address (a gzapp slice cited §10.2.1.4, 2026-10-14).
+    "fix the §10.2.1.4 sites, see §192.168.1.1 and §172.16.0.1",
 ]
 
 
