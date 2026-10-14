@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md (the PR rules every session reads); fabric-pr gate, runtime/github/commit-class.sh, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; `fabric-repo-settings` and the GitHub-side settings of gzapi-org/agent-fabric
+**Scope:** identities/prompt/team.md (the PR rules every session reads); fabric-pr gate, tools/fabric/github/commit_class.py, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; `fabric-repo-settings` and the GitHub-side settings of gzapi-org/agent-fabric
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -123,7 +123,7 @@ not on a pipe's exit status.
    `Answers:` alone and `work` on a hand-committed revert, and refuses
    any other commit without the trailer; a merge declares nothing
    (A 2026-10-08). Work commits are counted by
-   `runtime/github/commit-class.sh` from the declaration: a merge is a
+   `tools/fabric/github/commit_class.py` from the declaration: a merge is a
    merge; `Kind: work` is work; `Kind: review-fix` is a fix, unless what
    it answers is another pull request's review, when it is this one's
    work, except a pull request folded into this one (closed unmerged,
@@ -225,7 +225,7 @@ stub pointing here.
 
 - `identities/prompt/team.md` (the band, one open PR, the gate's
   conditions), `AGENTS.md` §"Git discipline".
-- `fabric-pr gate`, `runtime/github/commit-class.sh`,
+- `fabric-pr gate`, `tools/fabric/github/commit_class.py`,
   `fabric-pr review-status`, and their tests.
 - `policies/ban_generated_by_attribution.sh`, `policies/githooks/commit-msg`.
 - `fabric-repo-settings`, `.github/workflows/ci.yml`.

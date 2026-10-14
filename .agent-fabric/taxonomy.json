@@ -64,7 +64,6 @@
         "tools/fabric/",
         "tests/",
         "bin/",
-        "runtime/github/",
         "runtime/openrouter/",
         "runtime/provisioning/"
       ],
