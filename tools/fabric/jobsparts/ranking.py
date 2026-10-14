@@ -13,14 +13,15 @@ def stored_priority(job: dict) -> str | None:
 
 
 def queue_order(doc: dict, waits: dict[str, list[str]] | None = None) -> list[Job]:
-    """The queued jobs in the order `next` takes them: highest effective
-    priority, then the oldest."""
-    queued = [(i, j) for i, j in enumerate(doc["jobs"]) if j["state"] == "queued"]
+    """The queued and paused jobs in the order `switch` takes them: highest
+    effective priority, a paused job before a queued one of the same priority
+    (ADR-037 rule 2: work set aside is offered first), then the oldest."""
+    queued = [(i, j) for i, j in enumerate(doc["jobs"]) if j["state"] in ("queued", "paused")]
     for _, j in queued:
         if stored_priority(j) is None:
             raise Refused(f"{j['id']} has priority {j.get('priority')!r}, none of {', '.join(PRIORITIES)}: the queue "
                           f"cannot be ordered; set it with fabric-jobs prio {j['id']} <priority>")
-    return [j for _, j in sorted(queued, key=lambda q: (PRIORITIES.index(effective_priority(q[1], waits)), q[0]))]
+    return [j for _, j in sorted(queued, key=lambda q: (PRIORITIES.index(effective_priority(q[1], waits)), q[1]["state"] != "paused", q[0]))]
 
 
 def message_of(job: dict) -> str | None:

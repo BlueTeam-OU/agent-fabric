@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 from instance_fixtures import write_operator_projects  # noqa: E402 — tests/, the script's own directory
+import jobs_world  # noqa: E402 — tests/, the script's own directory
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 scrub_process_env()
 
@@ -24,6 +25,19 @@ JOBS = os.path.join(ROOT, "bin", "fabric-jobs")
 def message(kind: str, to: str, mid: str, subject: str, project: str = "fixture") -> str:
     return (f"[GZCOORD/1] {kind}\nFROM: other-host/sender\nROLE: backend-dev\nPROJECT: {project}\n{to}\n"
             f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{mid}\nSUBJECT: {subject}\n\nREQUEST:\nplease\n")
+
+
+FAKE_GH = """#!/usr/bin/env python3
+import json, sys
+a = sys.argv[1:]
+if a[:2] == ["pr", "list"]:
+    print("[]")
+elif a[:2] == ["pr", "view"]:
+    print(json.dumps({"state": "OPEN" if a[2] == "2" else "MERGED"}))
+else:
+    sys.stderr.write("fake gh: unsupported: " + " ".join(a) + "\\n")
+    sys.exit(1)
+"""
 
 
 def fake_relay(records: list[dict], state: list[dict] | None = None) -> http.server.HTTPServer:
@@ -125,12 +139,30 @@ def main() -> int:
         env["AGENT_FABRIC_OPERATOR"] = write_operator_projects(
             os.path.join(tmp, "operator"), {"fixture-proj": ["git@example.org:fixture-org/fixture-proj.git"],
                                             "fixture-nowhere": ["git@example.org:fixture-org/fixture-nowhere.git"]})
-        repo_a, repo_b = os.path.join(tmp, "alpha"), os.path.join(tmp, "beta")
-        for r in (repo_a, repo_b):
-            os.makedirs(r)
-            subprocess.run(["git", "init", "-q", r], check=True, env=git_env())
+        # The world `switch` settles against (ADR-037 rule 10): every checkout has a bare origin with main pushed, gh says every
+        # pull request is merged and none is this login's, and the memory directory changes before each switch. A case about
+        # the settling itself builds the world it needs instead (below).
+        origins = os.path.join(tmp, "origins")
+        os.makedirs(origins)
+        fake_bin = os.path.join(tmp, "fakebin")
+        os.makedirs(fake_bin)
+        with open(os.path.join(fake_bin, "gh"), "w", encoding="utf-8") as fh:
+            fh.write(FAKE_GH)
+        os.chmod(os.path.join(fake_bin, "gh"), 0o755)
+        env["PATH"] = fake_bin + os.pathsep + env.get("PATH", "")
+        env["GH_REPO"] = jobs_world.GH_REPO
+        env.update(jobs_world.identity_env())
+
+        def seeded(path: str) -> str:
+            return jobs_world.seeded(path, origins)
+
+        repo_a, repo_b = seeded(os.path.join(tmp, "alpha")), seeded(os.path.join(tmp, "beta"))
 
         def run(*argv: str, cwd: str = repo_a) -> subprocess.CompletedProcess:
+            if argv[:1] in (("next",), ("switch",)):
+                jobs_world.touch_memory(env["HOME"], cwd)
+            if argv[:1] == ("done",):
+                jobs_world.landed(env["AGENT_FABRIC_STATE_DIR"], login, argv[1])
             return subprocess.run([JOBS, *argv], cwd=cwd, env=env, capture_output=True, text=True)
 
         def jobs() -> list[dict]:
@@ -226,8 +258,7 @@ def main() -> int:
         os.makedirs(os.path.join(tmp, "state-bound", "agents", login))
         with open(os.path.join(tmp, "state-bound", "agents", login, "binding.json"), "w", encoding="utf-8") as fh:
             json.dump({"agent": login, "host": host, "role": "backend-dev", "project": "fixture-proj"}, fh)
-        unreg = os.path.join(tmp, "aaa-unregistered")   # sorts before fixture-proj-copy
-        subprocess.run(["git", "init", "-q", unreg], check=True, env=git_env())
+        unreg = seeded(os.path.join(tmp, "aaa-unregistered"))   # sorts before fixture-proj-copy
         p = run("add", "a fixture job", "--project", "fixture-proj", cwd=unreg)
         check("the bound project's job skips an unregistered checkout, the current one included",
               p.returncode == 0 and jobs()[0]["working_copy"] == gz, p.stderr + repr(jobs()))
@@ -258,7 +289,7 @@ def main() -> int:
         check("going active records the session in the log", jobs()[0]["log"][-1].get("session") == "sess-A", repr(jobs()[0]))
         p = run("next")
         check("next refuses while a job is active", p.returncode == 1 and "still active" in p.stderr, p.stderr)
-        run("deliver", "j1", "x#1")
+        run("deliver", "j1", "fixture-org/fixture-proj#2")
         p = run("next")
         check("same project, working copy and topic: still a fresh session once this one worked a job",
               "j2" in p.stdout and "fresh session" in p.stdout and "fabric-fresh --job j2" in p.stdout
@@ -269,13 +300,13 @@ def main() -> int:
         run("done", "j2")
         p = run("next")
         check("another topic: a fresh session", "fabric-fresh --job j3" in p.stdout, p.stdout)
-        run("block", "j3", "a reply")
+        run("block", "j3", "owner: a reply")
         p = run("next")
         check("another working copy: a fresh session", "fabric-fresh --job j4" in p.stdout, p.stdout)
         run("done", "j4")
         p = run("next", "j3")
         check("a named blocked job can be next", p.returncode == 0 and "j3" in p.stdout
-              and "fabric-fresh --job j3" in p.stdout, p.stdout)
+              and "fabric-fresh --job j3" in p.stdout, p.stdout + p.stderr)
         run("done", "j3")
         saved = env.get("CLAUDE_CODE_SESSION_ID")
         env["CLAUDE_CODE_SESSION_ID"] = "sess-B"
@@ -307,6 +338,7 @@ def main() -> int:
         env["CLAUDE_CODE_SESSION_ID"] = saved
         env_nosession = {k: v for k, v in env.items() if k != "CLAUDE_CODE_SESSION_ID"}
         run("add", "g")
+        jobs_world.touch_memory(env["HOME"], repo_a)
         p = subprocess.run([JOBS, "next"], cwd=repo_a, env=env_nosession, capture_output=True, text=True)
         check("no session id: a job that has left active counts, so fresh", "fabric-fresh --job j9" in p.stdout, p.stdout + p.stderr)
         run("done", "j9")
@@ -321,7 +353,7 @@ def main() -> int:
         run("done", "j11")
         env["CLAUDE_CODE_SESSION_ID"] = saved
         p = run("next", "j3")
-        check("next refuses a closed job", p.returncode == 1 and "next takes a queued" in p.stderr, p.stderr)
+        check("next refuses a closed job", p.returncode == 1 and "switch takes a queued" in p.stderr, p.stderr)
 
         # Priority (ADR-037 rule 7): the highest first, then the oldest; an
         # active job is never passed; a blocked one keeps its place.
@@ -334,7 +366,7 @@ def main() -> int:
         check("add --priority stores it; none given is normal",
               [j.get("priority") for j in jobs()] == ["normal", "low", "high", "high", "blocking"], repr(jobs()))
         run("start", "j5")
-        run("block", "j5", "a reply")
+        run("block", "j5", "owner: a reply")
         p = run("list")
         check("list shows each job's priority", " high " in p.stdout and " low " in p.stdout, p.stdout)
         p = run("next")

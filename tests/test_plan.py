@@ -121,13 +121,13 @@ def states(w: world, reader: Any) -> dict[str, tuple[str, str | None]]:
 
 # ── rule 3: a step's state ──────────────────────────────────────────
 
-@case("a linked step is its job's state, whichever of the six it is")
+@case("a linked step is its job's state, whichever of the seven it is")
 def _():
     for state in plan.JOB_STATES:
         with world() as w:
             make(w, ("one", "dev-01", "", "dev-01:j4"))
             rows = {"dev-01": [job(4, state)]}
-            got = states(w, Reader(open_=rows if state in ("queued", "active", "blocked", "delivered") else {},
+            got = states(w, Reader(open_=rows if state in ("queued", "active", "paused", "blocked", "delivered") else {},
                                    closed=rows if state in ("done", "dropped") else {}))
             check(got == {"s1": (state, None)}, (state, got))
 
@@ -172,8 +172,8 @@ def _():
 def _():
     with world() as w:
         make(w, ("a", "dev-01", "", "dev-01:j1"))
-        got = states(w, Reader(open_={"dev-01": [{"id": "j1", "state": "paused"}]}))
-        check(got["s1"][0] == "unknown" and "'paused'" in got["s1"][1], got)
+        got = states(w, Reader(open_={"dev-01": [{"id": "j1", "state": "stalled"}]}))
+        check(got["s1"][0] == "unknown" and "'stalled'" in got["s1"][1], got)
         doc = plan.identity.read_plan("p")
         doc["steps"][0]["job"] = "dev-01/j1"
         plan.identity.update_plan("p", lambda _d: doc)

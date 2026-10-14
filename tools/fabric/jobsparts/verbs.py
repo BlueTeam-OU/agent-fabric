@@ -3,7 +3,11 @@ A part of tools/fabric/jobs.py, whose docstring is the contract."""
 from __future__ import annotations
 
 import json
+import os
 import sys
+from fabric_jobs import vcs
+from fabric_jobs.settle import settle
+from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
 from fabric_jobs.base import MESSAGE_ID, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
@@ -126,8 +130,18 @@ def show_job(args) -> int:
     return 0
 
 
-def next_job(args) -> int:
-    """next: start the next job and say whether it needs a fresh session."""
+def last_worked(doc: dict, session: str | None) -> dict | None:
+    """The job this session worked most recently: the one whose latest log entry written in `session` is newest. With no
+    session id (an unlaunched shell) the job that last left `active`, as session_worked reads it."""
+    if session is None:
+        return next((j for j in doc["jobs"] if doc.get("last") == j["id"]), None)
+    stamped = [(max(e.get("at", "") for e in j.get("log", []) if e.get("session") == session), j)
+               for j in doc["jobs"] if any(e.get("session") == session for e in j.get("log", []))]
+    return max(stamped, key=lambda p: p[0])[1] if stamped else None
+
+
+def switch_job(args) -> int:
+    """switch (and its alias next): settle the job being left with its evidence, start the next, choose its branch."""
     # Read before the lock: the stream is a relay call, and the list's
     # lock is every writer's.
     listed = identity.read_jobs()
@@ -146,46 +160,102 @@ def next_job(args) -> int:
             note = (f"; blocker cleared on {', '.join(j['id'] for j in ready)} ({'; '.join(j['blocked_on'] for j in ready if j.get('blocked_on'))})"
                     if ready else "")
             raise Refused(f"{current['id']} is still active ({current['title']}); deliver, block, "
-                          f"finish or drop it first, then ask for the next{note}")
+                          f"finish, pause or drop it first, then switch{note}")
         if args.id:
             nxt = find(doc, args.id)
-            if nxt["state"] not in ("queued", "blocked"):
-                raise Refused(f"{nxt['id']} is {nxt['state']}; next takes a queued or blocked job")
+            if nxt["state"] not in ("queued", "blocked", "paused"):
+                raise Refused(f"{nxt['id']} is {nxt['state']}; switch takes a queued, paused or blocked job")
         elif ready:
             nxt = ready[0]       # its wait is over: it goes first, ahead of anything queued
         else:
             nxt = next(iter(queue_order(doc, waits)), None)
             if nxt is None:
                 raise NothingQueued("no queued job")
-        verdict = decide(doc, nxt, session_id())
-        who = waiters(nxt, waits)
-        was_cleared = blockers_note(nxt, cache) if nxt["state"] == "blocked" and bl.cleared_flag(nxt, cache) is True else ""
-        transition(doc, nxt, "active")
-        return verdict, dict(nxt), who, was_cleared
+        return nxt
+
     try:
-        verdict, job, who, was_cleared = mutate(pick)
+        nxt = pick(listed)
     except NothingQueued:
         raise Refused(f"no queued job; {pool_offer()}")
-    if args.json:
-        print(json.dumps(verdict, ensure_ascii=False, indent=2))
-    else:
-        print(line(job) + was_cleared)
-        if who and stored_priority(job) != "blocking":
-            print(f"  ranked blocking: {named(who, stale)} {'waits' if len(who) == 1 else 'wait'} on its request "
-                  f"(stored {stored_priority(job)})")
-        if verdict["fresh"]:
-            print(f"fresh session: this one has already worked {verdict['worked']}; every job starts in a fresh one.")
-            # The agent runs it, never the person: an agent once handed this line to the owner as a
-            # "! command" instead of running it (the owner, 2026-10-11: "should not ask, should do").
-            print(f"  run it yourself, now, once your work is committed (never hand it to the owner): fabric-fresh --job {job['id']}")
+    session = session_id()
+    old = last_worked(listed, session)
+    settled = None
+    if old:
+        here = vcs.toplevel(os.getcwd())
+        places = list(dict.fromkeys(p for p in (old.get("working_copy"), old.get("worktree"), here) if p))
+        evidence, problems = settle(old, places)
+        if problems:
+            raise Refused(f"cannot leave {old['id']} ({old['state']}) yet; fix:\n" + "\n".join(f"  - {p}" for p in problems))
+        settled = f"{old['state']}: " + "; ".join(evidence)
+    choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged)
+    verdict_for = {}
+
+    def commit(doc):
+        again = pick(doc)
+        if again["id"] != nxt["id"]:
+            raise Refused(f"the list changed while the branch was prepared ({again['id']} is now first, not {nxt['id']}): run switch again")
+        job = find(doc, nxt["id"])
+        verdict = decide(doc, job, session)
+        who = waiters(job, waits)
+        was_cleared = blockers_note(job, cache) if job["state"] == "blocked" and bl.cleared_flag(job, cache) is True else ""
+        resumed = job.get("reason") if job["state"] == "paused" else None
+        where = f"branch {choice.branch}" if choice.branch else f"no branch ({choice.note})"
+        mark = f"switch from {old['id']} ({settled}); {where}" if old else f"switch; {where}"
+        if choice.kind == "blocked":
+            on = f"pr:{choice.repo}#{choice.pr}"
+            transition(doc, job, "blocked", blocked_on=on, note=mark)
+            job["blockers"] = [on]
         else:
-            print("continue here: this session has worked no job yet, so it is already fresh.")
+            transition(doc, job, "active", note=mark, branch=choice.branch, worktree=choice.worktree)
+        if old:
+            find(doc, old["id"]).setdefault("log", []).append(
+                {"at": identity.now_iso(), "state": old["state"], "note": f"switch to {job['id']}: {settled}; {where}"})
+        verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, job=dict(job))
+    mutate(commit)
+    verdict, job = verdict_for["verdict"], verdict_for["job"]
+    if args.json:
+        print(json.dumps({**verdict, "branch": choice.branch, "worktree": choice.worktree, "branch_kind": choice.kind, "settled": settled},
+                         ensure_ascii=False, indent=2))
+        return 0
+    print(line(job) + verdict_for["was_cleared"])
+    if choice.kind == "blocked":
+        print(f"  blocked, not started: {choice.note}. It waits on pr:{choice.repo}#{choice.pr}; run fabric-jobs switch again for another job.")
+        return 0
+    if verdict_for["resumed"]:
+        print(f"  resumes paused work: {verdict_for['resumed']}")
+    if settled:
+        print(f"  left {old['id']}: {settled}")
+    print(f"  branch {choice.branch} ({choice.note}) in {choice.worktree}")
+    if verdict_for["who"] and stored_priority(job) != "blocking":
+        print(f"  ranked blocking: {named(verdict_for['who'], stale)} {'waits' if len(verdict_for['who']) == 1 else 'wait'} on its request "
+              f"(stored {stored_priority(job)})")
+    if verdict["fresh"]:
+        print(f"fresh session: this one has already worked {verdict['worked']}; every job starts in a fresh one.")
+        # The agent runs it, never the person: an agent once handed this line to the owner as a
+        # "! command" instead of running it (the owner, 2026-10-11: "should not ask, should do").
+        print(f"  run it yourself, now, once your work is committed (never hand it to the owner): fabric-fresh --job {job['id']}")
+    else:
+        print("continue here: this session has worked no job yet, so it is already fresh.")
     return 0
 
 
+def branch_here() -> dict:
+    """The branch checked out where `pause` runs, with its checkout; nothing when that is the default branch, detached, or not
+    a checkout: a paused job names the branch holding its work or switch refuses it."""
+    here = vcs.toplevel(os.getcwd())
+    if not here:
+        return {}
+    try:
+        name = vcs.run(here, "symbolic-ref", "-q", "--short", "HEAD", check=False).stdout.strip()
+        return {} if not name or name == vcs.default_branch(here) else {"branch": name, "worktree": here}
+    except vcs.VcsError:
+        return {}
+
+
 def change(args) -> int:
-    """prio, start, block, deliver, done, drop: one job changed under the lock."""
+    """prio, start, pause, block, deliver, done, drop: one job changed under the lock."""
     said: dict = {}
+    paused_branch = branch_here() if args.cmd == "pause" else {}
 
     def change(doc):
         job = find(doc, args.id)
@@ -196,6 +266,14 @@ def change(args) -> int:
             job["updated"] = identity.now_iso()
         elif args.cmd == "start":
             transition(doc, job, "active")
+        elif args.cmd == "pause":
+            if job["state"] != "active":
+                raise Refused(f"{job['id']} is {job['state']}; only the active job is paused (it is the agent's own choice to set work aside)")
+            why = " ".join(args.why.split())
+            if not why:
+                raise Refused("pause needs a reason: fabric-jobs pause <id> \"<why>\"")
+            # The branch the paused work is on, read from where this command runs: switch asks that it is pushed.
+            transition(doc, job, "paused", reason=why, note=why, **paused_branch)
         elif args.cmd == "block":
             mid = args.on_request.strip().lower() if args.on_request is not None else None
             if mid is not None and not MESSAGE_ID.fullmatch(mid):

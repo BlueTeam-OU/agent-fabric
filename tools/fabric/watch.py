@@ -218,7 +218,7 @@ FULL_BOX = (avatar.COLS, avatar.ROWS)
 SMALL_BOX = (12, 6)                            # same aspect: a cell is about twice as tall as wide
 TALL_PANE_ROWS = 30                            # the full box only from here up; below, it is half a 20-row pane
 JOB_PRIORITIES = ("blocking", "high", "normal", "low")      # fabric-jobs' own order (jobsparts/base.py)
-JOB_STATES = ("active", "blocked", "queued", "delivered")
+JOB_STATES = ("active", "paused", "blocked", "queued", "delivered")
 HEADER_ROWS = avatar.ROWS
 
 

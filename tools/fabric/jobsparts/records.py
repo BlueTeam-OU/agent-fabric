@@ -56,6 +56,8 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
     if state != "blocked":
         job.pop("waits_on", None)
         job.pop("blockers", None)
+    if state == "active":
+        job.pop("reason", None)         # a paused job's why belongs to the pause; an active job has none
     now = identity.now_iso()
     # Entering or leaving `active`, not only entering: a session launched with
     # its job already active never activates it, and is known by finishing it.
