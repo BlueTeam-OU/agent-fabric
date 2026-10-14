@@ -212,12 +212,14 @@ def without_dispatch_headers(body: str) -> str:
     ledger reads the header from the transcript, and evidence_refusal has read the mode already, so the PR loses
     nothing. Only after evidence_refusal passed: it is what makes every header closed. A report with none is
     posted byte for byte."""
-    lines = body.splitlines()
-    spans = list(_dispatch_headers(lines))
+    spans = list(_dispatch_headers(body.splitlines()))
     if not spans:
         return body
     drop = {j for i, close in spans for j in range(i, close + 1)}
-    return "\n".join(line for n, line in enumerate(lines) if n not in drop).strip("\n")
+    # Kept with their own line ends, and the same split as the scan's: splitlines breaks at U+2028, \x0c and the
+    # like too, and a rejoin with "\n" would rewrite those in the findings that stay.
+    kept = body.splitlines(keepends=True)
+    return "".join(line for n, line in enumerate(kept) if n not in drop).strip("\r\n")
 
 
 def identity(fabric: str, *args: str) -> str:

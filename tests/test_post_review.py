@@ -63,7 +63,7 @@ def main() -> int:
          '```agent-fabric-dispatch v1\n{"evidence_mode": "working-tree", "evidence_mode": "pinned"}\n```', True),
         ("a pinned header whose JSON quotes a fence: posts",
          "````agent-fabric-dispatch v1\n{\"evidence_mode\": \"pinned\", \"note\": \"```\"}\n````", False),
-   
+
         # CommonMark allows spaces between the fence and its info string (review of #259, F5).
         ("a spaced fence, working-tree: refused", tree.replace("```agent", "``` agent", 1) + "\nF1", True),
         ("a spaced tilde fence with a tab, working-tree: refused",
@@ -87,6 +87,9 @@ def main() -> int:
         ("a pinned header on top: only the findings", f"{named}\n\nF1 (P2) …", "F1 (P2) …"),
         ("a spaced fence: taken out too", named.replace("```agent", "``` agent", 1) + "\nF1", "F1"),
         ("CRLF line ends: taken out", (named + "\nF1").replace("\n", "\r\n"), "F1"),
+        ("CRLF line ends: the rest keeps them", (named + "\nF1\nF2\n").replace("\n", "\r\n"), "F1\r\nF2"),
+        ("line breaks splitlines knows besides \\n: kept as they are",
+         f"{named}\nF1 a\u2028b\x0cc\x1dd\u0085e", "F1 a\u2028b\x0cc\x1dd\u0085e"),
         ("two headers, one quoted: both out, the prose kept",
          f"{named}\nF1 quotes it:\n\n````markdown\n{named}\n````\nF2", "F1 quotes it:\n\n````markdown\n````\nF2"),
         ("a longer fence holding a fence-like line: the whole header out",
