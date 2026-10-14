@@ -237,7 +237,11 @@ or lost, so it is rendered, not improvised:
    in the background and dispatch the review class in the same turn, on
    the same head and the same request; never wait for one to start the
    other. Each engine's findings are then judged by the review class
-   (ADR-053 rule 5) once both are in.
+   (ADR-053 rule 5) once both are in: **one judging dispatch per head**,
+   whose brief carries every open finding of both engines and which
+   answers each by number, never one dispatch per finding (27 judge
+   dispatches measured, median 214k tokens each, 17 of 19 confirming
+   what the thread already said).
 4. **A re-review** is `mode: re-review`, the range of the fix commits
    only, and `previous_findings:` — the previous report, a file. The
    constitution verifies only the new hunks against those findings, by
