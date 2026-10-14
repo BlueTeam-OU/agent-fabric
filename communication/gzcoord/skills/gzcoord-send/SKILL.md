@@ -143,7 +143,10 @@ gzcoord-send <file> --force    # post even if the addressee has no session
 `gzcoord-send` normalizes the text (a pasted message carries terminal
 indentation), validates it as the last step before it leaves — a message
 that fails is not sent — and refuses a `FROM` that is not your address:
-the sender is the login, never a claim. It resolves the relay, the
+the sender is the login, never a claim. It exits 2 and posts nothing when the type's own
+section is empty (REQUEST, REPLY, OBSERVATION, QUESTION, DECISION; CONTEXT for a HANDOFF;
+CONTEXT and NOTES both for an INFO), `--dry-run` included, and a body of whitespace or invisible
+characters counts as empty. It resolves the relay, the
 channel and the token exactly as the inbox does (your project's
 integration; the token from the file `fabric-secrets sync` writes,
 `~/.config/agent-fabric/secrets.env`, which no shell sources). It prints `sent seq <n> <TYPE> <id>` and nothing else — the
