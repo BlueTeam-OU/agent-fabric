@@ -237,8 +237,12 @@ def switch_job(args) -> int:
             on = f"pr:{choice.repo}#{choice.pr}"
             was_blocked = job["state"] == "blocked"
             before = (job.get("blocked_on"), list(job.get("blockers") or []))
+            if was_blocked and not before[1]:
+                # Its only gate is words (an owner's decision): a checkable blocker added beside it would clear on its own and
+                # let the job be taken while the decision is still awaited.
+                raise Refused(f"{job['id']} is blocked on {before[0]!r}, which nothing can check: resolve that before it is blocked on a pull request")
             # A job already blocked keeps its blockers and waits_on: the pull request is added, never substituted.
-            transition(doc, job, "blocked", blocked_on=f"{before[0]}; {on}" if was_blocked and before[0] else on, note=mark)
+            transition(doc, job, "blocked", blocked_on=(before[0] if on in before[1] else f"{before[0]}; {on}") if was_blocked and before[0] else on, note=mark)
             job["blockers"] = list(dict.fromkeys(before[1] + [on])) if was_blocked else [on]
         else:
             transition(doc, job, "active", note=mark, branch=choice.branch, worktree=choice.worktree)

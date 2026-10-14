@@ -83,25 +83,30 @@ def owed_replies(since: float | None) -> list[dict] | str:
         try:
             answered = {str(r[0]).lower() for r in conn.execute(
                 "SELECT in_reply_to FROM episodes WHERE direction='outbound' AND type='REPLY' AND in_reply_to IS NOT NULL")}
-            rows = conn.execute("SELECT message_id, type, sender, metadata_json, happened_at FROM episodes WHERE direction='inbound' "
-                                "AND type IN ('REQUEST', 'QUESTION') AND message_id IS NOT NULL ORDER BY happened_at, rowid").fetchall()
+            rows = conn.execute("SELECT message_id, type, sender, metadata_json, recorded_at FROM episodes WHERE direction='inbound' "
+                                "AND type IN ('REQUEST', 'QUESTION') AND message_id IS NOT NULL ORDER BY recorded_at, rowid").fetchall()
         finally:
             conn.close()
     except Exception as e:  # noqa: BLE001
         return f"journal: {e}"[:160]
     owed = []
-    for mid, kind, sender, meta_json, happened in rows:
+    for mid, kind, sender, meta_json, received in rows:
         try:
             meta = json.loads(meta_json)
-            at = calendar.timegm(time.strptime(str(happened), "%Y-%m-%dT%H:%M:%SZ"))
-        except (ValueError, OverflowError):
-            owed.append({"id": mid, "type": kind, "from": sender, "subject": "(its record could not be read)"})
-            continue
-        if since is not None and at < since:
+        except ValueError:
             continue
         if not isinstance(meta, dict) or str(meta.get("REPLY-EXPECTED", "")).strip().lower() != "yes":
             continue
         if me not in re.split(r"[\s,]+", str(meta.get("TO", ""))) or str(mid).lower() in answered:
+            continue
+        # recorded_at, when the inbox journaled it: a backlog the sender wrote before this session started is received during it.
+        # A time that cannot be read is owed, said so: never a message let through for want of a date.
+        try:
+            at = calendar.timegm(time.strptime(str(received), "%Y-%m-%dT%H:%M:%SZ"))
+        except (ValueError, OverflowError):
+            owed.append({"id": mid, "type": kind, "from": sender, "subject": "(its receipt time could not be read) " + str(meta.get("SUBJECT", ""))[:40]})
+            continue
+        if since is not None and at < since:
             continue
         owed.append({"id": mid, "type": kind, "from": sender, "subject": str(meta.get("SUBJECT", ""))[:70]})
     return owed
@@ -132,10 +137,16 @@ def memory_changed(job: dict, candidates: list[str]) -> str | None:
     newest = 0.0
     for d in dirs:
         try:
-            for name in os.listdir(d):
-                newest = max(newest, os.stat(os.path.join(d, name)).st_mtime)
+            names = os.listdir(d)
         except OSError as e:
             return f"the memory directory {d} could not be read ({e.strerror or e})"
+        for name in names:
+            try:
+                newest = max(newest, os.stat(os.path.join(d, name)).st_mtime)
+            except FileNotFoundError:
+                continue        # gone since the listing, or a dangling link: not a change
+            except OSError as e:
+                return f"{os.path.join(d, name)} could not be read ({e.strerror or e})"
     if newest <= since:
         return (f"your memory directory has not changed during {job['id']}: write what it taught you "
                 "(one fact per file, with a roles_class) before leaving it")

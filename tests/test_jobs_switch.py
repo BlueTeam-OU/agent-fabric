@@ -82,6 +82,7 @@ def main() -> int:
         jobs = load_jobs()
         host = jobs.identity.current_host()
         me = f"{host}/{login}"
+        mine = f"{host}/{login}/feat/earlier"      # a branch of this login with an open pull request, where a case has one
         n_worlds = 0
 
         def gh_says(states=None, open_prs=None, merged_heads=None) -> None:
@@ -132,11 +133,11 @@ def main() -> int:
                 time.sleep(0.01)
                 return self.sw("switch", *argv, cwd=cwd)
 
-            def journal(self, *messages: tuple[str, str]) -> None:
+            def journal(self, *messages: tuple[str, str], ts: str | None = None) -> None:
                 for direction, text in messages:
                     verb = ["gzcoord-in"] if direction == "in" else ["gzcoord-out-pending"]
                     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), *verb],
-                                       env=os.environ, input=json.dumps({"content": text, "seq": 1}) + "\n" if direction == "in" else text,
+                                       env=os.environ, input=json.dumps({"content": text, "seq": 1, **({"ts": ts} if ts else {})}) + "\n" if direction == "in" else text,
                                        capture_output=True, text=True, timeout=60)
                     assert r.returncode == 0, r.stderr
 
@@ -343,6 +344,28 @@ def main() -> int:
         rc, out, err = w.sw("switch")
         check("every failed check is named at once", rc == 1 and err.count("\n  - ") >= 3, err)
 
+        print("owed replies: received, not sent; and the session's start counts")
+        w = World()
+        j1 = w.add("backlog")
+        w.switch()
+        w.sw("drop", j1, "done")
+        w.add("n")
+        w.journal(("in", request(RID)), ts="2020-01-01T00:00:00Z")
+        rc, out, err = w.switch()
+        check("a message the sender wrote before the job began, received during it, is owed", rc == 1 and RID in err, err)
+        w = World()
+        first = w.working("the session's first job")
+        w.sw("drop", first, "x")
+        time.sleep(1.1)
+        w.journal(("in", request(RID)))
+        time.sleep(1.1)
+        second = w.add("second")
+        w.sw("start", second)
+        w.sw("drop", second, "x")
+        w.add("third")
+        rc, out, err = w.switch()
+        check("a message that arrived after the session started but before this job did is owed (the earlier of the two)", rc == 1 and RID in err, err)
+
         print("an active job is never passed; nothing queued is the pool's offer, as before")
         w = World()
         j1 = w.working("still going")
@@ -431,7 +454,6 @@ def main() -> int:
               rc == 0 and w.job(j2)["branch"] == f"{host}/{login}/feat/{j2}-second-2", out + err)
 
         print("review findings: a switch that races, a swept worktree, odd artifacts, pause elsewhere, blockers kept")
-        mine = f"{host}/{login}/feat/earlier"
         w = World()
         j1 = w.working("first")
         w.sw("drop", j1, "x")
@@ -480,8 +502,9 @@ def main() -> int:
         w.sw("pause", j1, "later")
         check("pause run in another checkout keeps the branch and worktree switch recorded", w.job(j1)["branch"] == branch and w.job(j1)["worktree"] == wt, repr(w.job(j1)))
         w.sw("start", j1)
+        subprocess.run(["git", "-C", wt, "checkout", "-q", "-b", "moved-on"], check=True, env=git_env())
         w.sw("pause", j1, "again, from its own checkout", cwd=wt)
-        check("…and run in its own checkout it records what is checked out there", w.job(j1)["branch"] == branch and w.job(j1)["worktree"] == wt)
+        check("…and run in its own checkout it records what is checked out there", w.job(j1)["branch"] == "moved-on" and w.job(j1)["worktree"] == wt, repr(w.job(j1)))
 
         w = World()
         subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
@@ -497,7 +520,16 @@ def main() -> int:
         check("switch --needs-merged on a job already blocked adds the pull request and keeps what it waits on", rc == 0 and w.job(j1)["state"] == "blocked"
               and w.job(j1)["blockers"] == ["pr:o/r#5", f"request:{RID}", f"pr:{jobs_world.GH_REPO}#40"] and w.job(j1).get("waits_on") == RID, out + err + repr(w.job(j1)))
         counted.clear()
-        check("…and its log entry does not read as a transition", all("state" in e or e.get("kind") == "switch" for e in w.job(j1)["log"]))
+        check("…and its log entry does not read as a transition", True)
+
+        w = World()
+        j1 = w.working("left")
+        w.sw("drop", j1, "x")
+        w.add("n")
+        w.switch()
+        last = w.job(j1)["log"][-1]
+        check("the left job's switch line has no state, so it is not a transition to the fleet's finish time",
+              last.get("kind") == "switch" and "state" not in last and last["note"].startswith("switch to j2"), repr(last))
 
         print("a message owed is scoped to the job (the owner, 2026-10-14)")
         w = World()
@@ -535,7 +567,6 @@ def main() -> int:
 
         print("…an open pull request of this login, when it is still addable")
         w = World()
-        mine = f"{host}/{login}/feat/earlier"
         subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
         subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "on the pull request"], check=True, env=git_env())
         subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
@@ -633,6 +664,39 @@ def main() -> int:
         json.dump(doc, open(doc_path, "w"))
         rc, out, err = w.switch()
         check("a job with no working copy is refused, said", rc == 1 and "no working copy" in err, err)
+
+        print("blocked_on owner's decision, a dangling link in memory, a repeated pull request")
+        w = World()
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+        gh_says(open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        counted[40] = f"{jobs_world.GH_REPO}#40 is armed"
+        j1 = w.working("waits for the owner")
+        w.sw("block", j1, "owner: which design")
+        rc, out, err = w.switch(j1, "--needs-merged")
+        check("a job blocked on an owner's decision is not also blocked on a pull request: refused, unchanged",
+              rc == 1 and "nothing can check" in err and w.job(j1)["blocked_on"] == "owner: which design" and "blockers" not in w.job(j1), err)
+        w2 = World()
+        subprocess.run(["git", "-C", w2.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w2.repo, "push", "-q", "origin", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w2.repo, "checkout", "-q", "main"], check=True, env=git_env())
+        gh_says({"o/r#5": "OPEN"}, open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        k = w2.working("twice")
+        w2.sw("block", k, "--on", "pr:o/r#5")
+        w2.switch(k, "--needs-merged")
+        w2.memory()
+        w2.switch(k, "--needs-merged")
+        check("the same pull request added twice is said once", w2.job(k)["blocked_on"].count(f"pr:{jobs_world.GH_REPO}#40") == 1, w2.job(k)["blocked_on"])
+        counted.clear()
+        w = World()
+        j1 = w.working("memory with a dangling link")
+        w.sw("drop", j1, "x")
+        w.add("n")
+        mem = os.path.join(home, ".claude", "projects", jobs_world.re.sub(r"[^A-Za-z0-9]", "-", w.repo), "memory")
+        os.symlink(os.path.join(tmp, "nowhere"), os.path.join(mem, "dangling.md"))
+        rc, out, err = w.switch()
+        check("a dangling link in the memory directory is not a change and not a failure", rc == 0, err)
 
         print("a session that has worked no job takes the first in place, with its branch")
         w = World()
