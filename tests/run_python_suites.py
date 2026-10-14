@@ -196,6 +196,11 @@ def main() -> int:
         if stopping.is_set():
             return
         status, output = run_suite(path, timeout_s)
+        # A suite ended by INT, TERM or HUP (killed by it, or exiting 128+n) means the signal went to the whole group, and the runner's own handler is on its
+        # way: the worker that got here first must not start the next suite before it has run (a group INT started a third
+        # suite, MARK2, with two slots).
+        if status in (-signal.SIGINT, -signal.SIGTERM, -signal.SIGHUP, 128 + signal.SIGINT, 128 + signal.SIGTERM, 128 + signal.SIGHUP):
+            stopping.wait(STOP_GRACE_S)
         with printing:
             sys.stdout.write(f"\n== {path}\n")
             sys.stdout.flush()
@@ -204,7 +209,15 @@ def main() -> int:
             failed += status != 0
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=int(slots)) as pool:
-        list(pool.map(run, ordered_suites()))
+        futures = [pool.submit(run, path) for path in ordered_suites()]
+        # A timed wait, not pool.map's untimed one: a signal Python handles only in the main thread, and a main thread
+        # blocked in an untimed lock acquire runs its handler only when something wakes it — a group INT reached it 5 s late,
+        # after the suites it had killed let the workers start the next ones.
+        pending = set(futures)
+        while pending:
+            _, pending = concurrent.futures.wait(pending, timeout=0.1)
+        for future in futures:
+            future.result()
     if stopping.is_set():
         return 128 + stop_signal
     # A suite's output is written whole and may end without a newline: the count starts a line of its own.
