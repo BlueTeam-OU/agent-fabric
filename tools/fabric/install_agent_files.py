@@ -329,7 +329,16 @@ class Installer:
         outs = []
         for call in calls:
             r = subprocess.run([sys.executable, os.path.join(mcp, "install.py"), *call, *flags],
-                               stdout=subprocess.PIPE, text=True, check=False)
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+            if r.returncode == 3:
+                # The installer's UNUSABLE: the login's own file cannot be read or is not JSON, nothing was written.
+                # websearch-locale is not configured there; the step says so on both streams and goes on (as
+                # memory_search does), rather than failing every login's bootstrap on a file only it can fix.
+                for line in (ln for ln in r.stderr.split("\n") if ln != ""):
+                    print(line, file=sys.stderr)
+                    say(line)
+                continue
+            sys.stderr.write(r.stderr)
             if r.returncode != 0:
                 return r.returncode
             outs.append(r.stdout.rstrip("\n"))

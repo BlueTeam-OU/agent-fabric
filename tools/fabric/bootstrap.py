@@ -175,12 +175,13 @@ bash behaved, fixed here with its case changed:
      deny-websearch read the file first), before user-settings.py could
      refuse it. install.py now says one line and leaves the file alone
      (exit 0 for allow-websearch and remove, which have nothing to take
-     out of a file the harness cannot read either; exit 1 for set and
-     deny-websearch, which cannot write theirs). On any login but a
-     language-culture one the run carries on to user-settings.py's own
-     refusal, counted NOT written; on a language-culture login the
-     installer's deny-websearch is that exit 1, and the run ends in the
-     agent files, said in install.py's one line, not a traceback.
+     out of a file the harness cannot read either; exit 3, UNUSABLE, for
+     set and deny-websearch, which cannot write theirs; an unreadable
+     file, mode 000 or a directory, is the same). install_agent_files
+     reads 3 as "websearch-locale not configured": it says the line on
+     both streams and carries on, so the run reaches user-settings.py's
+     own refusal, counted NOT written, on every login. Any other non-zero
+     status is a fault and ends the agent files step.
   4. put() re-made a .before-agent-fabric backup each time a fabric file
      carrying no "agent-fabric" marker changed (the guard, three of the
      skills), so the second change replaced the person's original with the

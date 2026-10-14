@@ -101,12 +101,32 @@ def main() -> int:
         check("a WebSearch the login denied itself (no marker) is left alone", (rc, out) == (0, "") and read(path)["permissions"]["deny"] == ["WebSearch"])
 
         print("a file that is not JSON")
-        for op, want_rc in (("set", 1), ("deny-websearch", 1), ("remove", 0), ("allow-websearch", 0)):
+        for op, want_rc in (("set", 3), ("deny-websearch", 3), ("remove", 0), ("allow-websearch", 0)):
             path = config("{ nope")
             args = [op] + ([SERVER, LOCALE] if op == "set" else [])
             rc, out, err = run(path, *args)
             check(f"{op}: left alone, one line on stderr, exit {want_rc}, no traceback", rc == want_rc and open(path).read() == "{ nope" and "Traceback" not in err
-                  and err.count("\n") == 1 and "not JSON" in err, err)
+                  and err.count("\n") == 1 and "not JSON" in err and path in err and out == "", err)
+        path = config("[1, 2]")
+        rc, out, err = run(path, "set", SERVER, LOCALE)
+        check("a JSON file that is not an object is not replaced by `set`", rc == 3 and open(path).read() == "[1, 2]" and "not an object" in err, err)
+
+        print("a file that cannot be read")
+        unreadable = config("{}")
+        os.chmod(unreadable, 0)
+        directory = os.path.join(t, "adir.json")
+        os.mkdir(directory)
+        cases = [("a directory", directory)]
+        if os.geteuid() != 0:   # root reads a mode-000 file
+            cases.insert(0, ("mode 000", unreadable))
+        for label, path in cases:
+            for op, want_rc in (("set", 3), ("deny-websearch", 3), ("remove", 0), ("allow-websearch", 0)):
+                args = [op] + ([SERVER, LOCALE] if op == "set" else [])
+                rc, out, err = run(path, *args)
+                check(f"{label}, {op}: nothing written, one line naming the path and why, exit {want_rc}, no traceback",
+                      rc == want_rc and out == "" and "Traceback" not in err and err.count("\n") == 1 and path in err and "unreadable" in err, err)
+            check(f"{label}: still as it was", os.path.isdir(path) if label == "a directory" else os.stat(path).st_mode & 0o777 == 0)
+        os.chmod(unreadable, 0o600)
         rc, out, err = run(config({}))
         check("too few arguments: usage on stderr, exit 2", rc == 2 and "install.py" in err)
 

@@ -339,6 +339,15 @@ def main() -> int:
         check("install.py exiting 7 makes the installer exit 7 with no count line, class files already written",
               r.returncode == 7 and "agent files (" not in r.stdout and os.path.isfile(os.path.join(cfg, "agents", "code-low.md")), f"{r.returncode} {r.stdout}")
 
+        # install.py's exit 3 (UNUSABLE) is "websearch-locale not configured": said, and the run goes on.
+        root, home, cfg = fixture()
+        put(root, "runtime/mcp/websearch-locale/fail", "3")
+        put(root, "runtime/mcp/websearch-locale/err.txt", "  !  c.json: unreadable (Permission denied); left alone, nothing written\n")
+        r = run(root, home, cfg)
+        check("install.py exiting 3: said on both streams, the run goes on to its summary, exit 0",
+              r.returncode == 0 and "unreadable (Permission denied)" in r.stdout and "unreadable (Permission denied)" in r.stderr
+              and r.stdout.splitlines()[-1].startswith("agent files ("), f"{r.returncode} {r.stdout} {r.stderr}")
+
         # The backup: a file carrying the marker is never backed up, one without is, once.
         root, home, cfg = fixture()
         a = os.path.join(cfg, "agents")
