@@ -161,8 +161,9 @@ def dispatch_header(brief: str) -> tuple[str, dict]:
     for k in HEADER_IDENT:
         if isinstance(doc.get(k), str) and IDENT.fullmatch(doc[k]):
             out[k] = doc[k]
-    if doc.get("evidence") in EVIDENCE:
-        out["evidence"] = doc["evidence"]
+    # The header writes the mode as `evidence_mode` (review_brief.dispatch_header); the row's v1 key is `evidence`.
+    if doc.get("evidence_mode") in EVIDENCE:
+        out["evidence"] = doc["evidence_mode"]
     if isinstance(doc.get("started_at"), str) and len(doc["started_at"]) <= 40 and _zoned(doc["started_at"]):
         out["started_at"] = doc["started_at"]
     for k in HEADER_INT:
