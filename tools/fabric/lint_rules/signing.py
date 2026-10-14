@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import subprocess
 
 from .base import workingcopy
 from .schema import load_json, load_schema, validate_json
@@ -17,6 +18,33 @@ _spec = importlib.util.spec_from_file_location(
     os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "guards", "signing_policy.py"))
 signing_policy = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(signing_policy)
+
+
+def _own_since_findings(root: str, doc: dict, registry_path: str) -> list[str]:
+    """The checker refuses a `since` that is not on the default branch; the
+    repository lint runs in is held to the same, so a bad one is found when
+    the policy is edited and not by the first red CI. No git repository, no
+    origin the policy covers, or a since this clone lacks: nothing said (the
+    checker says the last, with the whole clone in front of it)."""
+    sink: list[str] = []
+    try:
+        remote = subprocess.run(["git", "-C", root, "config", "--get", "remote.origin.url"], capture_output=True,
+                                text=True, timeout=30)
+        registry = (load_json(registry_path, "projects/registry.json", sink) or {}) if os.path.exists(registry_path) else {}
+        slug = signing_policy.slug_of(remote.stdout.strip(), workingcopy.parse_remote) if remote.returncode == 0 else None
+        since = signing_policy.entry_for(doc, slug, registry, workingcopy.parse_remote)[1].get("since") if slug else None
+        if not since:
+            return []
+        has_main = subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", "origin/main^{commit}"],
+                                  capture_output=True, timeout=30).returncode == 0
+        base = "origin/main" if has_main else "HEAD"
+        rc = subprocess.run(["git", "-C", root, "merge-base", "--is-ancestor", since, base], capture_output=True,
+                            timeout=30).returncode
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if rc == 1:
+        return [f"{WHERE}: since {since} for {slug} is not an ancestor of {base}: it must be a commit on the default branch"]
+    return []
 
 
 def signing_findings(root: str, policy_path: str, registry_path: str) -> list[str]:
@@ -39,6 +67,7 @@ def signing_findings(root: str, policy_path: str, registry_path: str) -> list[st
     findings += [f"{WHERE}: {p}" for p in signing_policy.shape_problems(doc)]
     if findings or not isinstance(doc.get("repositories"), dict):
         return sorted(set(findings))
+    findings += _own_since_findings(root, doc, registry_path)
     registry: dict = {}
     if os.path.exists(registry_path):
         registry = load_json(registry_path, "projects/registry.json", findings) or {}

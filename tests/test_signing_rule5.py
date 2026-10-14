@@ -399,13 +399,22 @@ def run() -> None:
     git("checkout", "-q", "pre-cut")
     write_operator(since=old)
     check("(control) the same commits once since is set: refused", guard().returncode == 1)
-    branch("reach")
+    git("checkout", "-q", "main")
     reached = commit("owner", "python-dev", fmt="openpgp", note=False)
+    branch("reach")
     commit("python-dev-04", "python-dev")
     write_operator(since=reached)
     r = guard()
     check("a commit since reaches (since itself, by the shared key, no proof) passes as it was; the one after is judged",
           passed(r) and "1 judged" in r.stdout, r.stdout + r.stderr)
+    branch("side-since")
+    stray = commit("owner", "python-dev", fmt="openpgp", note=False)
+    commit("python-dev-04", "python-dev")
+    write_operator(since=stray)
+    r = guard()
+    check("a since on a side branch, not on the default branch: refused, naming the sha",
+          refused(r, "not an ancestor") and stray in r.stderr, r.stdout + r.stderr)
+    write_operator(since=old)
 
     print("the policy and the checker's own pieces")
     with open(os.path.join(FABRIC, "policies", "signing.json"), "w", encoding="utf-8") as f:

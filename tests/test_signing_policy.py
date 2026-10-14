@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -98,6 +99,32 @@ def main() -> None:
     check("not JSON", any("not valid JSON" in x for x in f), f)
     os.remove(POLICY)
     check("no policy: nothing to judge", lint.signing_findings(HERE, POLICY, REGISTRY_PATH) == [])
+
+    print("the lint: the since of the repository it runs in")
+    own = os.path.join(T, "own")
+    os.makedirs(own)
+
+    def g(*a: str) -> str:
+        return subprocess.run(["git", "-C", own, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                               "-c", "commit.gpgsign=false", *a], capture_output=True, text=True, check=True).stdout.strip()
+    g("init", "-q", "-b", "main")
+    g("remote", "add", "origin", "git@github.com:acme/widget.git")
+    g("commit", "-q", "--allow-empty", "-m", "one")
+    on_main = g("rev-parse", "HEAD")
+    g("checkout", "-q", "-b", "side")
+    g("commit", "-q", "--allow-empty", "-m", "two")
+    on_side = g("rev-parse", "HEAD")
+    g("checkout", "-q", "main")
+
+    def own_findings(since: str, root: str = own) -> list[str]:
+        write({**good, "repositories": {"acme/widget": {"since": since}}})
+        return lint.signing_findings(root, POLICY, REGISTRY_PATH)
+    check("a since on the default branch: clean", own_findings(on_main) == [], own_findings(on_main))
+    f = own_findings(on_side)
+    check("a since on a side branch: refused", any("not an ancestor" in x and on_side in x for x in f), f)
+    plain = os.path.join(T, "plain")
+    os.makedirs(plain)
+    check("no git repository: skipped silently", own_findings(on_side, plain) == [], own_findings(on_side, plain))
 
 
 try:

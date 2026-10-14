@@ -424,9 +424,14 @@ def policy_entry(env: dict[str, str]) -> tuple[str | None, dict]:
 
 def judged_commits(base: str, head: str, since: str) -> list[str]:
     """The commits base..head adds that `since` does not reach. Raises
-    git.GitError, a `since` this clone lacks included."""
+    git.GitError, a `since` this clone lacks included, and one that is not on
+    `base` (the default branch's tip): a since on a side branch would exempt
+    every commit it reaches."""
     if git.run(".", "cat-file", "-e", f"{since}^{{commit}}", check=False).returncode != 0:
         raise git.GitError("git cat-file", f"the policy's since {since[:12]} is not in this clone (shallow? fetch it)")
+    if not git.ok(".", "merge-base", "--is-ancestor", since, base):
+        raise git.GitError("git merge-base", f"the policy's since {since} is not an ancestor of {base}: "
+                           "it must be a commit on the default branch")
     return git.run(".", "rev-list", head, f"^{base}", f"^{since}").stdout.split()
 
 
