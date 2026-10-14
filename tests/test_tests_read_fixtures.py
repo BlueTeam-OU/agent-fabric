@@ -49,6 +49,7 @@ DELIBERATE = {
     "tests/test_arm_policy.py": "the operator's fleet default arming policy loads through arm_policy and is the built-in default, and agrees with its schema: the operator's own file",
     "tests/test_tools_install.py": "the registry pins the Codex CLI (ADR-053 rule 7) at a version and digest the installer accepts: the operator's own pin",
     "tests/test_host_check.py": "the gzapp host probe is the project's own integration file (instance data): its test runs the operator's script on purpose, and a stripped copy has none to run",
+    "tests/test_hygiene_private_network.py": "the committed policies/hygiene.json keeps private-network addresses and /home/<login>/ paths out of a slice: the operator's own list",
     "tests/test_githooks_prepush.py": "the brand projects' committed direct.pr_paths send secret-shaped files to a pull request and design files direct: the operator's own files",
 }
 

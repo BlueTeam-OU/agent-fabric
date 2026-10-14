@@ -1,6 +1,10 @@
 {
   "description": "The fabric's own hygiene list, applied to every slice, skill and prompt section in every project, beside the credential and language checks in tools/fabric/layout.py and each project's .agent-fabric/hygiene.json. A person is named by role, never by name — the CEO, the owner, an agent by its login: a distilled slice travels into every project's repository and a name in it is a privacy matter, not a style one (decided 2026-09-16). refer_as says what the corpus says instead. Written by fabric-coordinator.",
   "patterns": [
-    {"pattern": "\\bAndrea(\\s+Benetton)?\\b", "label": "person's name -- refer to the CEO by role", "refer_as": "the CEO"}
+    {"pattern": "\\bAndrea(\\s+Benetton)?\\b", "label": "person's name -- refer to the CEO by role", "refer_as": "the CEO"},
+    {"pattern": "(?<![0-9.])10(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){2}\\.(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])|x)(?![0-9]|\\.[0-9])", "label": "private-network address (10.0.0.0/8) -- say 'a private address' or name the role", "refer_as": "a private-network address"},
+    {"pattern": "(?<![0-9.])192\\.168\\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])|x)(?![0-9]|\\.[0-9])", "label": "private-network address (192.168.0.0/16) -- say 'a private address' or name the role", "refer_as": "a private-network address"},
+    {"pattern": "(?<![0-9.])172\\.(?:1[6-9]|2[0-9]|3[01])\\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])|x)(?![0-9]|\\.[0-9])", "label": "private-network address (172.16.0.0/12) -- say 'a private address' or name the role", "refer_as": "a private-network address"},
+    {"pattern": "(?<![\\w.~/-])/home/[a-z_][a-z0-9_-]*/", "label": "a /home/<login>/ path -- write the path from the repository root or ~/", "refer_as": "~/"}
   ]
 }
