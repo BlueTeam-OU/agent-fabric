@@ -277,9 +277,13 @@ def main() -> int:
         git(w, "push", "-q", "origin", "main")
         w.sw("done", j1)
         settles(w, j1, "a done job with no artifact cannot be left", "done needs evidence")
+        w.job(j1)
+        before = w.job(j1)["updated"]
+        time.sleep(1.1)
         rc, out, err = w.sw("deliver", j1, f"origin/{contrib}")
         check("deliver on a done job appends evidence and does not reopen it",
               rc == 0 and w.job(j1)["state"] == "done" and w.job(j1)["artifacts"] == [f"origin/{contrib}"], out + err)
+        check("…and stamps the job as updated", w.job(j1)["updated"] > before, w.job(j1))
         rc, out, err = w.switch()
         check("…and the appended evidence settles it (a branch named as origin/<ref>)", rc == 0 and f"branch {contrib} on origin/main" in out, out + err)
 
@@ -317,6 +321,20 @@ def main() -> int:
         j1 = w.working("delivered, naming the default branch")
         w.sw("deliver", j1, "origin/main")
         settles(w, j1, "…nor is it a delivery", "delivered needs an artifact")
+
+        w = World()
+        j1 = w.working("done as a contributor branch the default branch fast-forwarded to")
+        git(w, "checkout", "-q", "-b", contrib)
+        git(w, "commit", "-q", "--allow-empty", "-m", "supplied")
+        git(w, "push", "-q", "origin", contrib)
+        git(w, "checkout", "-q", "main")
+        git(w, "merge", "-q", "--ff-only", contrib)
+        git(w, "push", "-q", "origin", "main")
+        w.sw("deliver", j1, contrib)
+        w.sw("done", j1)
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("a branch the default branch was fast-forwarded to shares its tip and still settles done", rc == 0 and f"branch {contrib} on origin/main" in out, out + err)
 
         w = World()
         j1 = w.working("squash-merged, its branch left un-folded")

@@ -65,8 +65,7 @@ def branches_of(job: dict) -> list[str]:
 def _branch_tips(job: dict, problems: list[str]) -> tuple[str | None, list[tuple[str, str]]]:
     """(the default branch, [(branch, tip)]) for the branch artifacts that are branches on origin now (asked of the remote, so a
     branch deleted there is none although its tracking ref lingers); (None, []) when there are none or git could not tell
-    (said in `problems`). A branch at the default branch's own tip (the default branch, origin/HEAD, a branch with no commit of its own) is no contributor
-    branch: a job's note that it was "merged into origin/main" is no evidence of its work."""
+    (said in `problems`). The default branch itself and origin/HEAD are no contributor branch: a job's note that it was "merged into origin/main" is no evidence of its work."""
     wc = job.get("working_copy")
     names = branches_of(job)
     if not names or not wc:
@@ -74,13 +73,14 @@ def _branch_tips(job: dict, problems: list[str]) -> tuple[str | None, list[tuple
     try:
         vcs.fetch(wc)
         default = vcs.default_branch(wc)
-        base = vcs.text(wc, "rev-parse", "--verify", f"refs/remotes/origin/{default}^{{commit}}")
         tips = []
         for name in names:
+            if name in (default, "HEAD"):
+                continue        # by name, not by tip: a branch fast-forwarded into the default branch shares its tip and is still a branch
             r = vcs.run(wc, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{name}^{{commit}}", check=False)
             if r.returncode not in (0, 1):
                 problems.append(f"could not tell whether {name} is a branch on origin (git rev-parse: exit {r.returncode})")
-            elif r.returncode == 0 and r.stdout.strip() != base and vcs.remote_tip(wc, name) == r.stdout.strip():
+            elif r.returncode == 0 and vcs.remote_tip(wc, name) == r.stdout.strip():
                 tips.append((name, r.stdout.strip()))
         return default, tips
     except vcs.VcsError as e:
