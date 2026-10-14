@@ -152,7 +152,8 @@ def main() -> int:
               r.returncode == 2 and r.stderr.startswith("tests/run.py: no section"), r.stderr)
         base = fresh(scripts={"good.sh": "#!/usr/bin/env bash\necho fine\n"})
         r = via(base, "static.sh")
-        check("static.sh: the static checks' own output and exit status", r.returncode == 0 and r.stdout.startswith("static: 1 bash script(s)"),
+        check("static.sh: the static checks' own output and exit status", r.returncode == 0 and "static: 1 bash script(s)\n" in r.stdout
+              and r.stdout.rstrip().rsplit("\n", 1)[-1].startswith(("static: all bash scripts parse", "static: passed, but NOT run here")),
               (r.returncode, r.stdout, r.stderr))
 
         print("the run's own environment and directory")
