@@ -23,7 +23,7 @@ from unittest import mock
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
-from github import arm, arm_policy, pr_gate, repo_policy  # noqa: E402
+from github import arm, arm_policy, pr_gate, repo_policy, repo_settings  # noqa: E402
 from lint_rules import schema as lint_schema  # noqa: E402
 
 RULESET = os.path.join(HERE, "tools", "fabric", "github-ruleset-main.json")
@@ -495,6 +495,39 @@ class Threshold(unittest.TestCase):
         self.assertEqual(p["commits"]["classes"]["tooling"], {"paths": "^tools/", "min": 1})
         self.assertEqual(p["commits"]["classes"]["ddl"], {"paths": "^db/", "min": 1})
         self.assertNotIn("ddl", self.P["commits"]["classes"], "the policy given is not changed")
+
+
+class RepoSettings(unittest.TestCase):
+    """fabric-repo-settings writes the merge fields fabric-repo-policy compares, from the one function both read: they
+    once disagreed, squash and rebase allowed by one and refused by the other, and every arm warned twice (REQUEST
+    01a139bb)."""
+
+    def test_the_settings_state_none_of_the_fields_the_policy_decides(self):
+        self.assertEqual(set(repo_settings.REPOSITORY) & set(arm_policy.REPOSITORY_FIELDS), set())
+        self.assertEqual(set(repo_policy.REPOSITORY_FIELDS), set(arm_policy.REPOSITORY_FIELDS))
+
+    def test_what_the_settings_write_is_what_the_policy_check_wants(self):
+        for doc in (FABRIC_POLICY, {"method": "squash", "mode": "owner-only", "delete_branch_on_merge": True}, {}):
+            policy = arm_policy.validate(doc)
+            with mock.patch.object(arm_policy, "load", return_value=policy) as load:
+                written = repo_settings.repository("O/R")
+            load.assert_called_once_with("O/R")
+            desired = arm_policy.render(policy)
+            self.assertEqual({f: written[f] for f in arm_policy.REPOSITORY_FIELDS}, desired["repository"], doc)
+            found = repo_policy.differences(desired, {"repository": written, "ruleset": desired["ruleset"]}, "n")
+            self.assertEqual([x for x in found if x.startswith("repository ")], [], doc)
+        self.assertEqual([written[f] for f in ("allow_merge_commit", "allow_squash_merge", "allow_rebase_merge")], [True, False, False],
+                         "the fleet default: merge commits only")
+
+    def test_a_policy_that_cannot_be_read_writes_nothing(self):
+        for error in (arm_policy.PolicyUnavailable("o/settings cannot be read (HTTP 403)"), arm_policy.PolicyError("bad")):
+            api = mock.Mock()
+            with mock.patch.object(arm_policy, "load", side_effect=error), mock.patch.object(gh, "api", api):
+                with self.assertRaises(gh.GhError) as e:
+                    repo_settings.apply("O/R")
+            self.assertIn("the arming policy", str(e.exception))
+            self.assertIn(str(error), str(e.exception))
+            api.assert_not_called()
 
 
 class Render(unittest.TestCase):
