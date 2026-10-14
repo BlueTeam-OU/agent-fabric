@@ -7,7 +7,7 @@ import re
 import sys
 from collections import defaultdict
 from typing import Any
-from assembler.core import layout, CLASS_FILES, Run
+from assembler.core import layout, CLASS_FILES, Run, in_report
 from assembler.slices import read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, shares_cue
 from assembler.targets import existing_sections, slice_candidates, is_carried
 
@@ -196,6 +196,11 @@ def check_collisions(run: Run) -> int | None:
                 # The new title wins: the sections that share its cue are retired
                 # and the claim takes the first one's place.
                 claim["_retire"] = list(cue_mates)
+                for old in cue_mates:
+                    home = next((p for p in candidates if old in read_existing_slice(p)[1]), None)
+                    run.retitles.append({"key": key_id, "old_heading": old, "new_heading": heading, "agent": agent,
+                                         "project": run.project, "slice": in_report(run, home) if home else "",
+                                         "decided_by": rule or "owner"})
             elif decision == "supersede":
                 claim["merge_target"] = heading
                 claim["_inferred_target"] = True      # the owner's or the same-agent rule's, not the author's: no rule 10 record

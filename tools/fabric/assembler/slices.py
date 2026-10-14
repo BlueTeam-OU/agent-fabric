@@ -38,6 +38,8 @@ def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
     report["shared_slices"] = len(report["shared_topics"])
     report["collision_decisions"] = [d for d in report.get("collision_decisions") or []
                                      if not any(str(d.get("key", "")).startswith(k + "#") for k in keys)]
+    report["retitles"] = [r for r in report.get("retitles") or []
+                          if not any(str(r.get("key", "")).startswith(k + "#") for k in keys)]
 
 
 def merge_reports(previous: dict[str, Any], current: dict[str, Any],
@@ -104,6 +106,8 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
         decisions.pop(d["key"], None)
         decisions[d["key"]] = d
     merged["collision_decisions"] = list(decisions.values())
+    # A later run of the stamp finds the old section gone and lists nothing, so the earlier run's entries are carried.
+    merged["retitles"] = [*(previous.get("retitles") or []), *current["retitles"]]
     sources = dict(previous.get("telemetry_sources") or {})
     sources.update(current["telemetry_sources"])
     merged["telemetry_sources"] = sources

@@ -73,6 +73,20 @@ class Contract(Base):
         self.assertRegex(T.parse_run(0, json.dumps({**DOC, "ok": "true"}))["error"], r"without projects, tools and ok", "ok is a boolean or it is not there")
 
 
+class Stagger(Base):
+    def test_j177_the_first_run_waits_a_share_of_the_window_fixed_by_the_address_zero_disables_it_a_malformed_value_is_the_default(self):
+        a, b = "h/pd-01", "h/pd-02"
+        da, db = T.first_run_delay_s(a, {}), T.first_run_delay_s(b, {})
+        self.assertNotEqual(da, db, "two accounts do not start together")
+        for d in (da, db):
+            self.assertTrue(0 <= d < T.TOOLS_STAGGER_S, d)
+        self.assertEqual(da, T.first_run_delay_s(a, {}), "a restart keeps its place")
+        self.assertEqual(T.first_run_delay_s(a, {T.STAGGER_ENV: "0"}), 0)
+        self.assertEqual(T.first_run_delay_s(a, {T.STAGGER_ENV: "10"}), da / T.TOOLS_STAGGER_S * 10)
+        for bad in ("soon", "-5", "nan", "inf", ""):
+            self.assertEqual(T.first_run_delay_s(a, {T.STAGGER_ENV: bad}), da, bad)
+
+
 class Run(Base):
     def test_runs_the_accounts_bin_fabric_tools_by_argv_exit_1_is_an_answer_exit_2_a_timeout_and_no_command_are_failures(self):
         argv_file = os.path.join(self.scratch("tools-argv-"), "argv")

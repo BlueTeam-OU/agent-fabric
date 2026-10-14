@@ -391,6 +391,8 @@ class Run:
     ambiguous_targets: list[str] = field(default_factory=list)
     unresolved_targets: list[str] = field(default_factory=list)
     applied_decisions: list[dict[str, str]] = field(default_factory=list)
+    # ADR-050 rule 11: each section a retitle retires, one entry per old heading, so the report says what changed without stderr.
+    retitles: list[dict[str, str]] = field(default_factory=list)
     written: list[str] = field(default_factory=list)
     retired_in: list[str] = field(default_factory=list)   # sibling parts a supersede touched: path, section, rewritten|removed
     # ADR-050 rule 3: who last wrote each section this run touched, "<slice as the report names it>#<heading>" ->

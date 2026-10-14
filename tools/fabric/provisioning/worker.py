@@ -36,6 +36,7 @@ CONTRACT, frozen from the shell
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -49,7 +50,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 TOOLS = os.path.dirname(HERE)
 sys.path.insert(0, TOOLS)
 import roots  # noqa: E402
-from provisioning import host_platform, host_steps as hs, verify as vf, worker_args as wa  # noqa: E402
+from provisioning import host_platform, host_steps as hs, launch_record as lr, verify as vf, worker_args as wa  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(TOOLS))
 PY = "/usr/local/bin/fabric-python"
@@ -408,14 +409,38 @@ def finish(w: Worker) -> int:
                             f"git clone -q '{remote}' ~/projects/'{pid}'")
             w.say(f"6. {pid} cloned from {remote}")
     if not a.human:     # 7-9 never for a human (ADR-044 rule 2)
+        record_launch_provider(w)
         bootstrap_and_bind(w)
         toolchains(w)
+        operator_ssh(w)
     # ---- 10. verify, and what is left for a person
     if a.dry:
         w.say("dry run: nothing verified")
         return 0
     w.say("10. verification")
     return verify(w)
+
+
+def record_launch_provider(w: Worker) -> None:
+    """---- 6b. the provider of the account's first launch. Before bootstrap, which installs the agent files for the
+    recorded provider. A role whose provider nothing names is left to the launcher's default, said."""
+    a = w.a
+    profile = lr.profile_provider(roots.routing_profiles(engine=w.root), a.login, a.role)
+    provider = lr.choose(profile, a.account, a.no_account)
+    if provider is None:
+        w.say("6b. no launch provider recorded: no profile layer names one and no Claude account was asked for")
+        return
+    # The account's own clone (step 4 brought it to origin/main), not this worker's checkout: homes are 700, so the
+    # account cannot read the coordinator's tree it is run from.
+    record = os.path.join(w.home, "projects", "agent-fabric", "tools", "fabric", "provisioning", "launch_record.py")
+    if a.dry:
+        w.say(f"would: as {a.login}: launch_record.py {provider}")
+        return
+    got = w.as_login([PY, "-I", record, provider], login_shell=False)
+    if got.returncode != 0:
+        tail(got.stdout)
+        w.die(f"step failed: launch_record.py {provider} as {a.login}; nothing after it ran")
+    w.say(f"6b. first launch on {provider} recorded")
 
 
 def bootstrap_and_bind(w: Worker) -> None:
@@ -453,6 +478,29 @@ def bootstrap_and_bind(w: Worker) -> None:
             if re.search(r"bound|refus", line, re.I):
                 _log(f"   {line}\n")
     w.say(f"8. role {a.role} bound (from {where})")
+
+
+def operator_ssh(w: Worker) -> None:
+    """---- 9b. the operator's ssh into the account (ADR-048), on a host whose registry entry pins an sshd: the login
+    joins AllowUsers and gets its root-owned keys file from the staging ssh-operator.sh made (ssh_add_login.py has what
+    it trusts), with no reboot. A host without the pin has no sshd staged; that is said, not made up. The pin is read
+    from THIS host's checkout, which a far host may not have updated yet: then the step says it is skipped and
+    `sudo fabric-python -I tools/fabric/provisioning/ssh_add_login.py <login>` is the line to run once it has."""
+    here = hs.host_check(w.a.login).split("\n", 1)[0]
+    path = roots.hosts_registry(engine=w.root)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            entry = ((json.load(fh).get("hosts") or {}).get(here) or {})
+    except (OSError, ValueError, AttributeError) as exc:
+        w.die(f"step failed: the host registry {path} could not be read for the sshd pin ({exc}); nothing after it ran")
+    if not isinstance(entry, dict) or not isinstance(entry.get("sshd"), dict):
+        w.say(f"9b. ssh: {here} pins no sshd in this checkout's registry; the operator's ssh is not set up for {w.a.login} "
+              f"(once it is: sudo {PY} -I {os.path.join(w.root, 'tools', 'fabric', 'provisioning', 'ssh_add_login.py')} {w.a.login})")
+        return
+    script = os.path.join(w.root, "tools", "fabric", "provisioning", "ssh_add_login.py")
+    w.must([*w.sudo, "-n", PY, "-I", script, w.a.login], describe=f"{script} {w.a.login} (the operator's ssh)")
+    if not w.a.dry:
+        w.say(f"9b. ssh: {w.a.login} is in AllowUsers with its keys file, sshd restarted")
 
 
 def toolchains(w: Worker) -> None:

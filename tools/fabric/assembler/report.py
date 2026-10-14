@@ -244,6 +244,7 @@ def report(run: Run) -> int:
         "migrated": run.migrated,
         "title_collisions": collisions,
         "collision_decisions": run.applied_decisions,
+        "retitles": run.retitles,
         "merge_target_unresolved": run.unresolved_targets,
         "harvest": harvest_meta,
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},

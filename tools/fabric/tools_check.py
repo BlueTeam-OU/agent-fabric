@@ -64,7 +64,11 @@ def bound_role() -> str | None:
 
 
 def prove(proof: str) -> tuple[str, str]:
-    """('ok', first line) or ('missing', why) or ('failed', why)."""
+    """('ok', first line), ('missing', why), ('timeout', why) or ('failed', why).
+    A timeout is its own state: a proof that is slow under load (every account
+    proving at once after a reboot) says nothing about the tool, and a session
+    that read "failed" reported the tool missing. The status says to rerun the check; it is not a
+    verdict on the tool (fabric-tools --install still treats any status but ok as absent)."""
     try:
         argv = shlex.split(proof)
     except ValueError as e:
@@ -74,7 +78,7 @@ def prove(proof: str) -> tuple[str, str]:
     except FileNotFoundError:
         return "missing", f"{argv[0]} not found"
     except subprocess.TimeoutExpired:
-        return "failed", f"no answer within {PROOF_TIMEOUT_S} s"
+        return "timeout", f"not answered in {PROOF_TIMEOUT_S} s, rerun fabric-tools"
     except OSError as e:
         return "failed", f"{argv[0]}: {e.strerror or e}"
     first = next((ln.strip() for ln in (r.stdout + "\n" + r.stderr).splitlines() if ln.strip()), "")

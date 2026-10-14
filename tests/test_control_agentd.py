@@ -630,6 +630,22 @@ class Answer(Scratch):
             self.assertEqual((r["op"], list(r["data"])[0]), (op, op))
             self.assertEqual(r["data"][op]["status"], "refused", (op, r["data"][op]))
 
+    def test_j55_an_installed_tool_refreshes_the_tools_report_in_the_background_any_other_verdict_does_not(self):
+        for verdict, refreshed in (("installed", True), ("current", False), ("failed", False)):
+            done = threading.Event()
+            code = 1 if verdict == "failed" else 0
+            body = json.dumps({"status": verdict, "tool": "doppler"}).encode()
+
+            def run(argv, **kw):
+                if code:
+                    raise subprocess.CalledProcessError(code, argv, output=body)
+                return SimpleNamespace(stdout=body)
+            ctx = {"me": {"address": "h/a"}, "started": now_iso(), "home": self.scratch(), "root": self.scratch(),
+                   "install_opts": {"run": run}, "tools_refresh": done.set}
+            r = agentd.answer({"id": "q", "op": "tools-install", "to": "*", "args": {"tool": "doppler"}, "from": "h/user"}, ctx)
+            self.assertEqual(r["data"]["tools-install"]["status"], verdict)
+            self.assertIs(done.wait(5 if refreshed else 0.3), refreshed, verdict)
+
 
 class Wire(Daemon):
     def test_once_primes_from_the_newest_record_answers_a_live_request_never_acks_never_answers_history(self):
@@ -1038,7 +1054,7 @@ class Resident(Daemon):
                                                               "where": "account", "optional": False, "why": "x"}]}
         py = os.path.join(self.scratch("agentd-py-"), "python")
         executable(py, f"#!/usr/bin/env bash\ncat <<'J'\n{json.dumps(doc)}\nJ\nexit 1\n")
-        env = {"AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_PYTHON": py}
+        env = {"AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_PYTHON": py, "AGENT_FABRIC_TOOLS_STAGGER_S": "0"}
         r = self.with_relay()
         once = self.run_once(r.url(), **env)
         self.assertEqual(once.status, 0, once.stderr)
