@@ -213,8 +213,9 @@ What it refuses, in order, and why:
      review of the head, or its unavailable marker for that exact head
      (posted when it cannot run: "codex unavailable (allowance)" on the
      line), lets the arm proceed, and the basis says it armed without it;
-     with neither it is refused like a required one. Its open P1 or P2
-     still blocks. The marker counts only as the first line of a review
+     with neither it is absent, and the arm proceeds on the required
+     reviews ("codex: absent, no review or marker on <head>" in the output
+     and the basis). Its open P1 or P2 still blocks. The marker counts only as the first line of a review
      object on the head, from the account a blind review counts from.
   5. the count rule (fabric-pr gate's classifier; the 8 and the 16 here are
      the default numbers of the repository's arming policy, tools/fabric/

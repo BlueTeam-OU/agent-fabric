@@ -402,7 +402,8 @@ def required_engines(policy: dict, boundary: bool) -> list[str]:
 
 def additional_engines(policy: dict, boundary: bool) -> list[str]:
     """The engines this pull request asks for beyond the required ones, in ENGINES order: each is satisfied by its
-    review of the head or, when it could not run, by its unavailable marker for that head (engines_unavailable).
+    review of the head or, when it could not run, by its unavailable marker for that head (engines_unavailable); with
+    neither it is absent and never blocks the arm (arm.check_engines).
     One that required_engines names for this change is required there, not additional, whichever list names it too."""
     required = required_engines(policy, boundary)
     return [e for e in ENGINES if e in policy["additional_reviews"] and e not in required]
