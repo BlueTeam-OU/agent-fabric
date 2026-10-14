@@ -94,10 +94,17 @@ def _unreadable(path: str):
 
 def _walk(root: str, arc: str, out: dict, skipped: list) -> None:
     """Every regular file below root as arc/<relative>; the rest is named in skipped."""
+    # A link at the root of a tree is the same hazard as one inside it: scandir
+    # follows it, and whatever it points at would be committed and pushed.
     try:
-        entries = sorted(os.scandir(root), key=lambda e: e.name)
+        mode = os.lstat(root).st_mode
     except FileNotFoundError:
         return
+    if not stat.S_ISDIR(mode):
+        skipped.append(root)
+        return
+    try:
+        entries = sorted(os.scandir(root), key=lambda e: e.name)
     except OSError as e:
         raise StoreError(f"{root}: {e.strerror}; nothing was backed up") from None
     for e in entries:
@@ -106,6 +113,8 @@ def _walk(root: str, arc: str, out: dict, skipped: list) -> None:
             skipped.append(e.path)
         elif e.is_dir(follow_symlinks=False):
             _walk(e.path, name, out, skipped)
+        elif not e.is_file(follow_symlinks=False):
+            skipped.append(e.path)       # a socket, device: opening one can block or fail
         else:
             data = _read_regular(e.path)
             if data is None:
@@ -114,10 +123,14 @@ def _walk(root: str, arc: str, out: dict, skipped: list) -> None:
                 out[name] = data
 
 
-def _episodic(path: str) -> bytes | None:
+def _episodic(path: str, skipped: list) -> bytes | None:
     """sqlite's online backup of the journal: the live file has a wal and a
     shm beside it, and a copy of the three is not a consistent database."""
-    if not os.path.isfile(path):
+    try:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            skipped.append(path)
+            return None
+    except FileNotFoundError:
         return None
     with tempfile.TemporaryDirectory() as tmp:
         copy = os.path.join(tmp, EPISODIC)
@@ -142,12 +155,15 @@ def collect(state_dir: str, claude_dir: str) -> tuple[dict[str, bytes], list[str
     files: dict[str, bytes] = {}
     skipped: list[str] = []
     for name in STATE_FILES:
-        data = _read_regular(os.path.join(state_dir, name))
+        path = os.path.join(state_dir, name)
+        data = _read_regular(path)
         if data is not None:
             files[f"state/{name}"] = data
+        elif os.path.lexists(path):
+            skipped.append(path)
     for tree in STATE_TREES:
         _walk(os.path.join(state_dir, tree), f"state/{tree}", files, skipped)
-    db = _episodic(os.path.join(state_dir, EPISODIC))
+    db = _episodic(os.path.join(state_dir, EPISODIC), skipped)
     if db is not None:
         files[f"state/{EPISODIC}"] = db
     projects = os.path.join(claude_dir, "projects")
@@ -156,6 +172,9 @@ def collect(state_dir: str, claude_dir: str) -> tuple[dict[str, bytes], list[str
     except FileNotFoundError:
         names = []
     for p in names:
+        if os.path.islink(os.path.join(projects, p)):
+            skipped.append(os.path.join(projects, p))
+            continue
         _walk(os.path.join(projects, p, HARNESS_MEMORY), f"claude/projects/{p}/{HARNESS_MEMORY}", files, skipped)
     _walk(os.path.join(claude_dir, "plans"), "claude/plans", files, skipped)
     if sum(len(b) for b in files.values()) > MAX_BYTES:
@@ -246,16 +265,27 @@ def state_restore(dest: str, source: str | None = None) -> dict:
         raise StoreError(f"{source}: not a state backup ({e}); nothing was restored") from None
     with tar:
         members = tar.getmembers()
+        names = set()
         for m in members:
             if not m.isreg():
                 raise StoreError(f"the backup holds {m.name!r}, which is not a regular file; nothing was restored")
             _member_name(m.name)
+            if m.name in names:
+                raise StoreError(f"the backup holds {m.name!r} twice; nothing was restored")
+            names.add(m.name)
+        for n in names:
+            parts = n.split("/")
+            if any("/".join(parts[:i]) in names for i in range(1, len(parts))):
+                raise StoreError(f"the backup holds {n!r} below a file of the same name; nothing was restored")
         os.makedirs(dest, mode=0o700, exist_ok=True)
         for m in members:
             target = os.path.join(dest, m.name)
             os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
             data = tar.extractfile(m).read()
-            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(data)
+            try:
+                fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
+            except OSError as e:
+                raise StoreError(f"{target}: {e.strerror}; the restore stopped here") from None
     return {"dest": dest, "files": len(members)}

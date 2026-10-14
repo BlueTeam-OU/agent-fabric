@@ -1283,7 +1283,7 @@ else:
             for never in (os.path.join(sdir, "tools.json"), os.path.join(sdir, "binding.json"), os.path.join(claude, "settings.json"),
                           os.path.join(claude, "projects", "p1", "transcript.jsonl"), os.path.join(claude, "projects", "p1", "memory", "..", "x.jsonl")):
                 put_file(never, "NEVER-BACKED-UP\n")
-            os.symlink("/etc/hostname", os.path.join(sdir, "reviews", "link"))
+            os.symlink(os.path.join(sdir, "tools.json"), os.path.join(sdir, "reviews", "link"))   # a target that exists
             db = sqlite3.connect(os.path.join(sdir, "episodic.db"))
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("CREATE TABLE t (v TEXT)")
@@ -1367,6 +1367,41 @@ else:
             seen, skipped_l = statecopy.collect(lk, os.path.join(tmp, "no-claude"))
             check("a listed file that is a link is left out, its target's content with it",
                   sorted(seen) == ["state/jobs.json"] and not any(b"NEVER" in v for v in seen.values()), repr(sorted(seen)))
+            check("…and named among the skipped", os.path.join(lk, "role-history.jsonl") in skipped_l, repr(skipped_l))
+            # A link at the ROOT of a walked tree, or at the journal, is no
+            # less outside content than one inside it.
+            rt = os.path.join(tmp, "rooted-state")
+            outside = os.path.join(tmp, "outside-dir")
+            put_file(os.path.join(outside, "SECRET"), "NEVER\n")
+            os.makedirs(rt)
+            os.symlink(outside, os.path.join(rt, "reviews"))
+            os.symlink(os.path.join(sdir, "episodic.db"), os.path.join(rt, "episodic.db"))
+            rc_ = os.path.join(tmp, "rooted-claude")
+            os.makedirs(os.path.join(rc_, "projects", "evil"))
+            os.symlink(outside, os.path.join(rc_, "plans"))
+            os.symlink(outside, os.path.join(rc_, "projects", "evil", "memory"))
+            os.makedirs(os.path.join(rc_, "projects", "p2"))
+            os.symlink(os.path.join(rc_, "projects", "evil"), os.path.join(rc_, "projects", "linked"))
+            put_file(os.path.join(rc_, "projects", "p2", "memory", "ok.md"), "fine\n")   # the control
+            seen, skipped_r = statecopy.collect(rt, rc_)
+            check("a link at the root of a tree, or at the journal, is skipped and named, never followed",
+                  sorted(seen) == ["claude/projects/p2/memory/ok.md"] and len(skipped_r) == 5, repr((sorted(seen), skipped_r)))
+            import socket
+            sk = socket.socket(socket.AF_UNIX)
+            sk.bind(os.path.join(rt, "sock-in-state"))
+            os.makedirs(os.path.join(rt, "x"))
+            os.replace(os.path.join(rt, "sock-in-state"), os.path.join(rc_, "projects", "p2", "memory", "sock"))
+            seen, skipped_s = statecopy.collect(rt, rc_)
+            sk.close()
+            check("a socket among the files is skipped and named, not a failure",
+                  "claude/projects/p2/memory/ok.md" in seen and os.path.join(rc_, "projects", "p2", "memory", "sock") in skipped_s, repr(skipped_s))
+            for label, members in (("a name twice", [("state/a", tarfile.REGTYPE), ("state/a", tarfile.REGTYPE)]),
+                                   ("a file and a path below it", [("state/a", tarfile.REGTYPE), ("state/a/b", tarfile.REGTYPE)])):
+                d3 = os.path.join(tmp, "restored-dup")
+                q = run_state(senv, "restore", d3, "--from", crafted(*members))
+                check(f"state restore of a tar with {label}: refused whole in one line, nothing written",
+                      q.returncode == 1 and "nothing was restored" in q.stderr and "Traceback" not in q.stderr
+                      and not os.path.exists(d3), q.stdout + q.stderr)
             db.close()
             # The parent's backup carries the child's copy to Proton, names it
             # in the manifest and checks it back.
@@ -1379,6 +1414,23 @@ else:
                   and f"{KID}.tar.gpg" in sman.get("state_copies", {}), rp.stderr + p.stdout + p.stderr)
             p = run(penv, "backup", "--verify")
             check("…and --verify checks it against the manifest", p.returncode == 0, p.stdout + p.stderr)
+            # The child's store is the child's to write: a copy under another
+            # agent's name, or a link, is not carried (what a child pushes is
+            # not trusted to name a file of the parent's or a sibling's).
+            mir = os.path.join(parent["HOME"], ".local", "share", "agent-fabric", "children", KID, "state")
+            shutil.copy(os.path.join(mir, f"{KID}.tar.gpg"), os.path.join(mir, f"{PID}.tar.gpg"))
+            p = run(penv, "backup")
+            sman = json.load(open(os.path.join(drive, "my-files", "agent-fabric", "secrets", "manifest.json")))
+            check("backup carries only the file named for the store's own agent id",
+                  p.returncode == 0 and sorted(sman.get("state_copies", {})) == [f"{KID}.tar.gpg"], repr(sman.get("state_copies")) + p.stderr)
+            os.remove(os.path.join(mir, f"{PID}.tar.gpg"))
+            from secretstore.backup import _own_copy
+            oc = os.path.join(tmp, "own-copy")
+            put_file(os.path.join(oc, "state", "a.tar.gpg"), "x")
+            os.symlink(os.path.join(oc, "state", "a.tar.gpg"), os.path.join(oc, "state", "l.tar.gpg"))
+            check("a store's copy is its regular file by name: a link, or a name that is not there, is not carried",
+                  _own_copy(oc, "state", "a.tar.gpg") == os.path.join(oc, "state", "a.tar.gpg")
+                  and _own_copy(oc, "state", "l.tar.gpg") is None and _own_copy(oc, "state", "b.tar.gpg") is None)
             with open(os.path.join(sf, f"{KID}.tar.gpg"), "ab") as fh:
                 fh.write(b"replaced")
             p = run(penv, "backup", "--verify")

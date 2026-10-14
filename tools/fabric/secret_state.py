@@ -10,8 +10,8 @@
                                            the copy decrypted into DIR, which is empty or absent; never
                                            over live state. FILE defaults to this store's own copy.
 
-Runs AS THE LOGIN, by hand or from the daily user timer
-(runtime/control/agent-fabric-state-backup.timer). Environment read:
+Runs AS THE LOGIN, by hand, or from the daily user timer
+(runtime/control/agent-fabric-state-backup.timer) once bootstrap installs it. Environment read:
 AGENT_FABRIC_STATE_DIR / XDG_STATE_HOME (runtime/identity.py: the state
 dir), HOME (the harness's ~/.claude), AGENT_FABRIC_SECRET_STORE, and
 what secretstore reads. stdout: one line per result; stderr: errors and the
