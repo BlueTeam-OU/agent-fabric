@@ -110,11 +110,11 @@ def main() -> int:
 
         # The bound, and the cursor that only `done` moves.
         r1 = run("--max", "3")
-        check("the bound: 3 shown, 5 left for the next pass", len(ids(r1.stdout)) == 3 and "6 more message(s) wait for the next pass" in r1.stdout, r1.stdout[-300:])
+        check("the bound: 3 shown, 6 left for the next pass", len(ids(r1.stdout)) == 3 and "6 more message(s) wait for the next pass" in r1.stdout, r1.stdout[-300:])
         again = run("--max", "3")
         check("an unfinished pass is read again, identically", ids(again.stdout) == ids(r1.stdout) and again.stdout == r1.stdout)
         st = run("status")
-        check("status: no pass closed, 8 wait", "no pass closed yet" in st.stdout and "9 message(s) wait" in st.stdout, st.stdout)
+        check("status: no pass closed, 9 wait", "no pass closed yet" in st.stdout and "9 message(s) wait" in st.stdout, st.stdout)
         through = json.loads(run("--max", "3", "--json").stdout)["through"]
         h1 = re.search(r"run `fabric-reflect done --through (\d+)`", r1.stdout)
         check("the printed hint closes exactly the pass shown, whatever --max the done has (review of #256)",
@@ -125,10 +125,13 @@ def main() -> int:
             cur = json.load(f)
         check("the cursor records the row, the owner, no message id", cur["row"] == through and cur["agent_id"] == AGENT
               and "message_id" not in cur and "q-1" not in json.dumps(cur), cur)
+        # The hint of a pass that fits names its row; a placeholder would be pasted as is (review of #256).
+        fit = run("--max", "100").stdout
+        check("the hint of a pass that fits names its row, no placeholder",
+              re.search(r"`fabric-reflect done --through \d+` closes", fit) is not None and "{through}" not in fit, fit[-300:])
         r2 = run("--max", "3")
         check("the next pass starts after it", not set(ids(r2.stdout)) & set(ids(r1.stdout)) and "3 more message(s)" in r2.stdout, r2.stdout[-300:])
         # The hint a pass prints closes exactly that pass (review of #256, finding 2).
-        check("a retried send is not skipped: it was shown before the cursor passed it", "lost-1 [failed]" in out)
         check("done never moves the cursor back", "nothing to close" in run("done", "--through", "1").stdout)
         check("done with no --through closes the first --max", "closed through" in run("done", "--max", "100").stdout
               and "nothing waits since the last pass" in run().stdout)

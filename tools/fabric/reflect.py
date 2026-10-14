@@ -89,8 +89,8 @@ def read_cursor(owner: str) -> dict:
 
 
 def cursor(conn: sqlite3.Connection, owner: str) -> dict:
-    """read_cursor, and a cursor past the end of the journal refused: the
-    journal was replaced or truncated, and "nothing waits" would be false."""
+    """read_cursor, and a cursor whose recorded episode is not at its row refused
+    (journal replaced, restored, vacuumed or truncated): "nothing waits" would be false."""
     cur = read_cursor(owner)
     if not cur:
         return cur
@@ -185,7 +185,7 @@ def render(groups: list[list[dict]], full: bool, patterns: list, through: int | 
     if left:
         out.append(f"\n# {left} more message(s) wait for the next pass: run `fabric-reflect done --through {through}` for this one, then `fabric-reflect`")
     elif shown:
-        out.append("\n# nothing else waits; `fabric-reflect done --through {through}` closes this pass, even when it wrote no memory")
+        out.append(f"\n# nothing else waits; `fabric-reflect done --through {through}` closes this pass, even when it wrote no memory")
     else:
         out.append("\n# nothing waits since the last pass")
     return out
