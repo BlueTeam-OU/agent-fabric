@@ -168,7 +168,7 @@ def hooks_problem(hooks) -> str | None:
     # file: iterating it wrote its keys or characters back as entries.
     # Refused, the file left untouched, like an unreadable one.
     if isinstance(hooks, dict):
-        for event in ("PostToolUse", *SESSION_EVENTS):
+        for event in ("PostToolUse", "SubagentStop", *SESSION_EVENTS):
             if event in hooks and not isinstance(hooks[event], list):
                 return f"hooks.{event} is not a list"
     return None
@@ -277,6 +277,20 @@ def watch_on_stop_hook() -> dict:
         "timeout": 5}]}
 
 
+# One ledger row per subagent run (hooks/subagent-ledger.py), at user scope
+# so every dispatch of the account is counted wherever its session started:
+# the subagent's transcript is the only source of its usage (review
+# economics P1, 2026-10-14). One SubagentStop entry, by script name.
+SUBAGENT_LEDGER = "subagent-ledger.py"
+
+
+def subagent_ledger_hook() -> dict:
+    return {"hooks": [{
+        "type": "command",
+        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", SUBAGENT_LEDGER)}"',
+        "timeout": 10}]}
+
+
 def with_one(hooks: dict, event: str, script: str, entry: dict) -> dict:
     """`hooks` with exactly one entry for `script` on `event`, the current
     one; every other entry kept as it was."""
@@ -297,7 +311,8 @@ def with_one(hooks: dict, event: str, script: str, entry: dict) -> dict:
 
 def with_fabric_hooks(hooks: dict) -> dict:
     hooks = with_one(with_freshness(with_session_state(with_memory_check(hooks))), "Stop", PR_COUNTS, pr_counts_hook())
-    return with_one(hooks, "Stop", WATCH_ON_STOP, watch_on_stop_hook())
+    hooks = with_one(hooks, "Stop", WATCH_ON_STOP, watch_on_stop_hook())
+    return with_one(hooks, "SubagentStop", SUBAGENT_LEDGER, subagent_ledger_hook())
 
 
 # The environment override is for a test, which must never write the

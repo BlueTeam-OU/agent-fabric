@@ -102,6 +102,26 @@ def main() -> int:
         check("watch-on-stop: one entry on Stop, this checkout's", [c for c in stops if "watch-on-stop.py" in c] == [watch], stops)
         check("watch-on-stop: pr-counts kept beside it", any("pr-counts.py" in c for c in stops), stops)
 
+        # The subagent ledger rides SubagentStop, once, at this path.
+        ledger = f'python3 "{HERE}/runtime/claude-code/hooks/subagent-ledger.py"'
+        subs = [h["command"] for e in json.load(open(settings))["hooks"]["SubagentStop"] for h in e["hooks"]]
+        check("subagent-ledger: one entry on SubagentStop, this checkout's", subs == [ledger], subs)
+        doc = json.load(open(settings))
+        doc["hooks"]["SubagentStop"] = [{"hooks": [{"type": "command", "command": "mine-sub.sh"}]},
+            {"hooks": [{"type": "command", "command": 'python3 "/old/runtime/claude-code/hooks/subagent-ledger.py"'}]}]
+        write(doc)
+        run()
+        subs = [h["command"] for e in json.load(open(settings))["hooks"]["SubagentStop"] for h in e["hooks"]]
+        check("subagent-ledger: the old checkout's entry replaced, the account's own kept", subs == ["mine-sub.sh", ledger], subs)
+
+        raw = '{"hooks": {"SubagentStop": {"hooks": []}}}'
+        with open(settings, "w") as f:
+            f.write(raw)
+        r = run()
+        out = r.stdout + r.stderr
+        check("a SubagentStop that is not a list is refused, untouched",
+              r.returncode == 1 and "SubagentStop is not a list" in out and open(settings).read() == raw, (r.returncode, out))
+
         raw = '{"hooks": {"Notification": {"hooks": []}}}'
         with open(settings, "w") as f:
             f.write(raw)
