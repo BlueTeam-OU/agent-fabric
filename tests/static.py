@@ -59,7 +59,8 @@ def bash_scripts() -> list[str]:
 def tool(argv: list[str]) -> int:
     """A tool's status; one that cannot run or does not finish is a failure said by name, never a pass."""
     try:
-        return subprocess.run(argv, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=TOOL_TIMEOUT_S).returncode
+        return subprocess.run(argv, cwd=ROOT, stdin=subprocess.DEVNULL, timeout=TOOL_TIMEOUT_S,
+                              check=False).returncode
     except subprocess.TimeoutExpired:
         print(f"  ✗ {argv[0]} did not finish within {TOOL_TIMEOUT_S} s")
     except OSError as e:
@@ -109,7 +110,7 @@ def check_host_keys() -> bool:
         return True
     want = sorted(read_text("runtime/provisioning/github-host-keys.fingerprints").splitlines())
     p = subprocess.run(["ssh-keygen", "-lf", os.path.join(ROOT, "runtime/provisioning/github-host-keys")],
-                       capture_output=True, text=True, timeout=TOOL_TIMEOUT_S)
+                       capture_output=True, text=True, timeout=TOOL_TIMEOUT_S, check=False)
     have = []
     for line in p.stdout.splitlines():
         fields = line.split()
@@ -151,7 +152,7 @@ def check_module_urls() -> bool:
     for f in tracked("*.mjs"):
         src = read_text(f)
         names = sorted(set(URL_BOUND.findall(src)))
-        named = re.compile(r"\b(?:%s)\.pathname" % "|".join(map(re.escape, names))) if names else None
+        named = re.compile(rf"\b(?:{'|'.join(map(re.escape, names))})\.pathname") if names else None
         for n, line in enumerate(src.split("\n"), 1):
             if line.lstrip().startswith("//"):
                 continue            # a comment may name the idiom to forbid it
