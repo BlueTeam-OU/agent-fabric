@@ -526,6 +526,18 @@ def main() -> int:
         with contextlib.redirect_stdout(io.StringIO()) as shown:     # the report is for a person; here it is the thing checked
             reported = runner.leak_report(d, before)
         check("leak_report: an added entry is true, and named", reported is True and "   added" in shown.getvalue(), shown.getvalue())
+        # What the bash cases held before #267 retired leak-check.sh: an entry already there is never named, a name with a
+        # space or a glob character is one whole line, and the count is exact.
+        d2 = os.path.join(sandbox, "leak2")
+        os.makedirs(os.path.join(d2, "existing"))
+        before2 = runner.leak_snapshot(d2)
+        for name in ("a b", "star*.py"):
+            os.makedirs(os.path.join(d2, name))
+        with contextlib.redirect_stdout(io.StringIO()) as shown2:
+            runner.leak_report(d2, before2)
+        lines = [l for l in shown2.getvalue().splitlines() if l.startswith("   ")]
+        check("leak_report: exactly the added entries, whole, and never one that was there before",
+              lines == ["   a b", "   star*.py"], shown2.getvalue())
         check("short_dir: the runtime directory when it is a writable directory, else /tmp",
               runner.short_dir({"XDG_RUNTIME_DIR": d}) == d and runner.short_dir({"XDG_RUNTIME_DIR": os.path.join(d, "added")}) == "/tmp"
               and runner.short_dir({}) == "/tmp")
