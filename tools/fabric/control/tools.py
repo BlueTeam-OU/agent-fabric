@@ -33,6 +33,7 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
 from typing import Any, Callable
 
 from control.ops import util
@@ -45,9 +46,31 @@ BINDING_POLL_MS = 30 * 1000
 # run out and keep the first report for ever, with one log line.
 TOOLS_RUN_TIMEOUT_MS = 15 * 60 * 1000
 MAX_BUFFER = 4 * 1024 * 1024
+# Every account's control agent runs the proofs at its own start, and after a reboot or a fleet upgrade that is
+# all of them at once: the proofs then time out against each other. The first run waits a share of this window
+# fixed by the account's address (not hash(): that is salted per process), so a restart keeps its place.
+TOOLS_STAGGER_S = 240
+STAGGER_ENV = "AGENT_FABRIC_TOOLS_STAGGER_S"
 
 # tools/fabric/control/ -> the checkout this code is in.
 _CODE_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
+
+
+def first_run_delay_s(address: str, environ: dict[str, str] | None = None) -> float:
+    """Seconds this account waits before its first run. The window is
+    STAGGER_ENV when it is a non-negative number (0 disables it, for a test);
+    a malformed value is the default window, not a silent no-stagger."""
+    env = os.environ if environ is None else environ
+    window = TOOLS_STAGGER_S
+    raw = env.get(STAGGER_ENV)
+    if raw is not None:
+        try:
+            v = float(raw)
+            if v >= 0 and v == v and v != float("inf"):
+                window = v
+        except ValueError:
+            pass
+    return zlib.crc32(address.encode("utf-8")) % 1000 / 1000 * window
 
 
 def report_file(directory: str | None = None) -> str:

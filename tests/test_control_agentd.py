@@ -1054,7 +1054,7 @@ class Resident(Daemon):
                                                               "where": "account", "optional": False, "why": "x"}]}
         py = os.path.join(self.scratch("agentd-py-"), "python")
         executable(py, f"#!/usr/bin/env bash\ncat <<'J'\n{json.dumps(doc)}\nJ\nexit 1\n")
-        env = {"AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_PYTHON": py}
+        env = {"AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_PYTHON": py, "AGENT_FABRIC_TOOLS_STAGGER_S": "0"}
         r = self.with_relay()
         once = self.run_once(r.url(), **env)
         self.assertEqual(once.status, 0, once.stderr)
