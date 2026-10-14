@@ -6,13 +6,16 @@ copy and project it is in, and never touches the role.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 import socket
@@ -26,6 +29,30 @@ HOOK = os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.sh")
 
 def id_un() -> str:
     return subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+
+
+def listener() -> tuple[socket.socket, list]:
+    """A local port that records each request line it is sent and answers nothing: a stand-in relay that shows
+    whether a process reached for one."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    hits: list = []
+
+    def accept() -> None:
+        while True:
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return   # closed by the test
+            with conn:
+                conn.settimeout(2)
+                try:
+                    hits.append(conn.recv(200))
+                except OSError:
+                    hits.append(b"")
+    threading.Thread(target=accept, daemon=True).start()
+    return srv, hits
 
 
 def git_repo(path: str, remote: str) -> None:
@@ -581,8 +608,17 @@ def test_hook_says_the_job_list(tmp: str) -> None:
     env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
     here, there = os.path.join(tmp, "here"), os.path.join(tmp, "there")
     git_repo(here, "https://example.invalid/here.git"); git_repo(there, "https://example.invalid/there.git")
-    jobs = lambda *a: subprocess.run([os.path.join(ROOT, "bin", "fabric-jobs"), *a], cwd=here, env=env,
-                                     capture_output=True, text=True, check=True)
+    jobs = lambda *a, env=env: subprocess.run([os.path.join(ROOT, "bin", "fabric-jobs"), *a], cwd=here, env=env,  # noqa: E731
+                                              capture_output=True, text=True, check=True)
+    # gh and fabric-ctl that fail and say they were called, in front of PATH from here on: `block --on` checks its blocker
+    # through gh, and with the real one the case would reach GitHub (j161).
+    stubs, called = os.path.join(tmp, "stubs"), os.path.join(tmp, "network-called")
+    os.makedirs(stubs)
+    for name in ("gh", "fabric-ctl"):
+        with open(os.path.join(stubs, name), "w", encoding="utf-8") as fh:
+            fh.write(f"#!/bin/sh\necho {name} >> {called}\nexit 1\n")
+        os.chmod(os.path.join(stubs, name), 0o755)
+    stubbed = {**env, "PATH": stubs + os.pathsep + os.environ["PATH"]}
     assert "jobs —" not in context_of(run_hook({"cwd": here}, env))
     jobs("add", "the job here"); jobs("add", "the job there", "--working-copy", there)
     ctx = context_of(run_hook({"cwd": here}, env))
@@ -595,7 +631,9 @@ def test_hook_says_the_job_list(tmp: str) -> None:
     assert f"active j2: the job there; 1 blocked" in ctx and f"Your active job is in {there}, and this session is in {here}" in ctx \
         and "fabric-fresh --job j2" in ctx, ctx
     # A blocked job whose checkable blocker the cache says cleared is named, from the cache alone.
-    jobs("block", "j2", "--on", "pr:example/none#5", "a PR")
+    jobs("block", "j2", "--on", "pr:example/none#5", "a PR", env=stubbed)
+    if os.path.exists(called):
+        os.unlink(called)   # what block's own check asked of gh is not the hook's
     with open(os.path.join(state, "agents", id_un(), "jobs-blockers.json"), "w", encoding="utf-8") as fh:
         json.dump({"pr:example/none#5": {"state": "cleared", "detail": "merged", "checked_at": time.time()}}, fh)
     ctx = context_of(run_hook({"cwd": here}, env))
@@ -613,23 +651,36 @@ def test_hook_says_the_job_list(tmp: str) -> None:
                    "pr:example/none#6": {"state": "waiting", "detail": "open", "checked_at": 1.0}}, fh)
     with open(jp, "w", encoding="utf-8") as fh:
         json.dump(doc, fh)
-    stubs, called = os.path.join(tmp, "stubs"), os.path.join(tmp, "network-called")
-    os.makedirs(stubs)
-    for name in ("gh", "fabric-ctl"):
-        with open(os.path.join(stubs, name), "w", encoding="utf-8") as fh:
-            fh.write(f"#!/bin/sh\necho {name} >> {called}\nexit 1\n")
-        os.chmod(os.path.join(stubs, name), 0o755)
+    # The relay is a local listener that records who connects: the state stream (queue.py waits, which a plain list
+    # asks for a queued job from a message) is the other way out of the hook, and it fails quietly by design.
+    relay, relay_hits = listener()
+    wired = {**stubbed, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.getsockname()[1]}", "CLAUDE_BRIDGE_AUTH_TOKEN": "t"}
     cache_path = os.path.join(state, "agents", id_un(), "jobs-blockers.json")
     before = open(cache_path, encoding="utf-8").read()
     started = time.monotonic()
-    ctx = context_of(run_hook({"cwd": here}, {**env, "PATH": stubs + os.pathsep + os.environ["PATH"]}))
+    ctx = context_of(run_hook({"cwd": here}, wired))
     assert "blocker cleared: j2 (pr:example/none#5)" in ctx, ctx
     assert not os.path.exists(called), open(called, encoding="utf-8").read()
+    assert not relay_hits, relay_hits
     assert open(cache_path, encoding="utf-8").read() == before and time.monotonic() - started < 8
-    # The cleared part is bounded: three jobs are named, the rest counted.
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("session_start_hook_jobs",
+    # The positive control for the two assertions above: a plain list from the same environment does reach the relay.
+    jobs("list", env=wired)
+    assert relay_hits, "a plain `fabric-jobs list` did not ask the state stream, so the no-network case proves nothing"
+    relay.close()
+    # cleared_jobs runs no subprocess unless a blocked job has a blocker.
+    spec = importlib.util.spec_from_file_location("session_start_hook_cleared",
                                                   os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.py"))
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+    ran: list = []
+    hook.subprocess = types.SimpleNamespace(run=lambda argv, **kw: ran.append(argv) or subprocess.CompletedProcess(argv, 1, "", ""),
+                                            DEVNULL=subprocess.DEVNULL)
+    for doc_ in ({}, {"jobs": []}, {"jobs": [{"id": "j1", "state": "queued", "blockers": ["pr:o/r#1"]}]},
+                 {"jobs": [{"id": "j1", "state": "blocked"}]}, {"jobs": [{"id": "j1", "state": "blocked", "blockers": []}]}):
+        assert hook.cleared_jobs(doc_) == [] and not ran, (doc_, ran)
+    assert hook.cleared_jobs({"jobs": [{"id": "j1", "state": "blocked", "blockers": ["pr:o/r#1"]}]}) == [] and len(ran) == 1 \
+        and ran[0][-3:] == ["list", "--json", "--stored"], ran   # the control: a blocker makes the one stored read
+    # The cleared part is bounded: three jobs are named, the rest counted.
     hook = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(hook)
     line = hook.jobs_line({"jobs": [{"id": "j1", "state": "active", "title": "t"}]}, None,
