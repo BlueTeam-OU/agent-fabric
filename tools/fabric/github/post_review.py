@@ -105,10 +105,12 @@ FILE_LIST_CAP = 3000
 # spaces stand between a fence and its info string, and a model reformatting the header may write them: a spaced
 # header unmatched would post a working-tree report as one with no header (review of #259, F5; ledger.FENCE agrees).
 DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*" + re.escape(review_brief.DISPATCH_VERSION) + r"[ \t]*$")
-# The header's name without its version: a line naming it outside a header DISPATCH_FENCE recognises is a header
-# this tool cannot read (quoted in a blockquote or a list item, or another version), so it refuses rather than post
-# it unchecked (review of #259, risk 1).
+# A fence whose info string starts with the header's name, behind any blockquote or list markers: one DISPATCH_FENCE
+# does not recognise (quoted in a blockquote or a list item, or another version) is a header this tool cannot read,
+# so it refuses rather than post it unchecked (review of #259, risk 1). Not every line naming it: prose and a quoted
+# hunk carry no header, and a Codex review naming it in a finding would be refused and lost (supplier review, F1).
 DISPATCH_NAME = review_brief.DISPATCH_VERSION.split()[0]
+STRAY_FENCE = re.compile(r"^[ \t]*(?:(?:>|[*+-]|\d{1,9}[.)])[ \t]*)*(`{3,}|~{3,})[ \t]*" + re.escape(DISPATCH_NAME))
 
 
 class Refused(Exception):
@@ -173,13 +175,16 @@ def evidence_refusal(body: str) -> str:
     every one, a header the report quotes included, because nothing tells the report's own header from a quote,
     and a report wrongly refused is posted again without the quote while one wrongly posted claims coverage it does
     not give. A report with none posts as before (its cost is attributed inferred). A header that cannot be read
-    refuses: it claims a dispatch whose evidence it then does not show."""
+    refuses: it claims a dispatch whose evidence it then does not show, and so does a fence opening one that is not
+    read as a header at all (in a blockquote or a list item, or another version). A line is named as an editor
+    counts it, by "\n"."""
     # splitlines, not split("\n"): a report with CRLF line ends keeps its \r on every line otherwise, and the
     # opening fence would not match where the closing one does.
     lines = body.splitlines()
+    line_no = _newline_numbers(body)
     read: set[int] = set()
     for i, close in _dispatch_headers(lines):
-        where = f"the {review_brief.DISPATCH_VERSION} header at line {i + 1}"
+        where = f"the {review_brief.DISPATCH_VERSION} header at line {line_no[i]}"
         if close is None:
             return f"{where} is never closed"
         try:
@@ -195,12 +200,22 @@ def evidence_refusal(body: str) -> str:
                     "Every header in a report counts, one it quotes too: a working-tree review stays out of the PR "
                     "(review the pushed range pinned and post that); a quoted header is taken out of the report")
         read.update(range(i, close + 1))
-    stray = next((n for n, line in enumerate(lines) if n not in read and DISPATCH_NAME in line), None)
+    stray = next((n for n, line in enumerate(lines) if n not in read and STRAY_FENCE.match(line)), None)
     if stray is not None:
-        return (f"line {stray + 1} names {DISPATCH_NAME} outside a {review_brief.DISPATCH_VERSION} header this tool "
-                "reads, a fenced block of its own: a header in a blockquote or a list item, or of another version, "
-                "may say working-tree unchecked. Take the line out, or reword it without the name")
+        return (f"line {line_no[stray]} opens an {DISPATCH_NAME} fence that is not an {review_brief.DISPATCH_VERSION} "
+                "header this tool reads, a fenced block of its own: a header in a blockquote or a list item, or of "
+                "another version, may say working-tree unchecked. Take the block out of the report")
     return ""
+
+
+def _newline_numbers(body: str) -> list[int]:
+    """The 1-based "\n" line each of body.splitlines() starts on: splitlines also breaks at U+2028, \x0c and the
+    like, which an editor, sed -n or nl do not count (supplier review, F2)."""
+    numbers, n = [], 1
+    for line in body.splitlines(keepends=True):
+        numbers.append(n)
+        n += line.count("\n")
+    return numbers
 
 
 def _dispatch_headers(lines: list[str]):
