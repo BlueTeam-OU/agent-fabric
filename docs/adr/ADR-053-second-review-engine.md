@@ -108,7 +108,7 @@ repository whose policy names `reviews`.
    not review its own harness's work. An engine listed under
    `additional_reviews` reviews when it can and never blocks: its review
    of the head, or its unavailable marker for that head, satisfies it
-   (ADR-055 rule 8; the fleet lists codex there once the marker is posted). `fabric-pr arm` refuses
+   (ADR-055 rule 8; the fleet lists codex there). `fabric-pr arm` refuses
    until each required engine has reviewed, and each additional engine
    has reviewed or left its marker, and the refusal names the engine
    still missing (A 2026-10-13).
