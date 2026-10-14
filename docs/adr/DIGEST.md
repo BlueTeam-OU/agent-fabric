@@ -323,7 +323,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — a drain-bound memory is judged when written, by a
   user-scope hook (rule 14).
 - A 2026-10-10 — the role's holder judges truth: ADR-050 (rules 11, 12, 14,
-  15), decided, not yet built.
+  15), built (the report half of its rule 11 is not).
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
   watermark, bundle, hygiene, redacted, tier.
@@ -344,7 +344,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   class; ambiguous refuses the run, unresolved is reported every drain;
   the correction keeps its own heading (§5 rules 7–8).
 - A 2026-10-10 — a retitle replaces only the section it names; a body-less
-  `merge_target` retires a section (rules 4, 7, ADR-050); not yet built.
+  `merge_target` retires a section (rules 4, 7, ADR-050); built (the report of retitles is not).
 - Keywords: collision, SUPERSEDING, supersede, keep-both, drop,
   --collision-decisions, same-agent, retitle, merge_target, correction,
   observed, idempotent, budget part.
