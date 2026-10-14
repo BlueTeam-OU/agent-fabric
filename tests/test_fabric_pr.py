@@ -181,6 +181,9 @@ def main() -> int:
         got = pr_gate.review_of_head([reader, "review-status"], 5, "abcdef0123", ["claude"])
         check("pr_gate runs the reader's whole head (program and verb) before the number",
               got == "head reviewed: claude ✓ (head abcdef01)", got)
+        got = pr_gate.review_of_head([reader, "review-status"], 5, "abcdef0123", ["claude"], additional=["codex"])
+        check("…and an additional codex with neither review nor marker reads absent, the head reviewed (#264 F1)",
+              got == "head reviewed: claude ✓ codex absent (head abcdef01)", got)
 
     print("pass" if not fails else f"{fails} FAILED")
     return 1 if fails else 0

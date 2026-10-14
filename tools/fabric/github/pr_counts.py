@@ -32,7 +32,9 @@ posted on the head; `head reviewed: ` opens it only when all are (a
 boundary's extra engines are fabric-pr arm's to judge). An engine in
 `additional_reviews` is marked as well: ✓, `unavailable (<reason>)` when its
 marker for the head, from the PR's author or AGENT_FABRIC_REVIEW_POSTERS, is
-the first line of a review on it, or ✗;
+the first line of a review on it, or `absent` with neither, which never keeps
+`head reviewed: ` off. When a boundary also requires it, no marker stands in:
+`✗ (boundary only)` replaces `absent`, or follows `unavailable (<reason>)`;
 `fabric-pr review-status`, which also counts a configured reviewer's verdict,
 is the gate's reading and costs several calls a pull request. `checks` is the
 head's rollup state (green, red, pending, none yet). A pull request over 100

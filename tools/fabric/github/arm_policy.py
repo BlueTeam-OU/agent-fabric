@@ -70,7 +70,8 @@ RULESET_PARAMETERS = {"build": "max_entries_to_build", "merge_max": "max_entries
                       "wait_minutes": "min_entries_to_merge_wait_minutes", "check_timeout_minutes": "check_response_timeout_minutes"}
 
 # The fleet default, as policies/arming.json has it: what a tree without that file gets. codex is additional (agent-fabric
-# ADR-055 rule 8): the tool that posts its unavailable marker has landed, so listing it no longer refuses an arm.
+# ADR-055 rule 8): its review counts when present, and with neither a review nor an unavailable marker on the head it
+# is absent and the arm proceeds on the required reviews (#264 F1).
 DEFAULT: dict[str, Any] = {
     "mode": "auto",
     "method": "merge",
@@ -401,7 +402,8 @@ def required_engines(policy: dict, boundary: bool) -> list[str]:
 
 def additional_engines(policy: dict, boundary: bool) -> list[str]:
     """The engines this pull request asks for beyond the required ones, in ENGINES order: each is satisfied by its
-    review of the head or, when it could not run, by its unavailable marker for that head (engines_unavailable).
+    review of the head or, when it could not run, by its unavailable marker for that head (engines_unavailable); with
+    neither it is absent and never blocks the arm (arm.check_engines).
     One that required_engines names for this change is required there, not additional, whichever list names it too."""
     required = required_engines(policy, boundary)
     return [e for e in ENGINES if e in policy["additional_reviews"] and e not in required]
@@ -429,19 +431,31 @@ HEAD_REVIEWED = "head reviewed"
 
 def review_summary(have: set[str], required: list[str], head: str, boundary_only: list[str] = (), unread: str = "",
                    additional: list[str] = (), unavailable: dict[str, str] | None = None) -> str:
-    """"claude ✓ codex ✗ (head 6bc0ad18)", one mark per required engine, opened by "head reviewed: " when all are
-    there. `boundary_only` engines (a policy's boundary_reviews beyond its reviews, for a reader that does not judge
-    the boundary) are marked and not required. `additional` engines are marked "✓", "unavailable (<reason>)" when
-    `unavailable` has their marker for this head, or "✗", and the line opens "head reviewed" only when none is "✗".
+    """"claude ✓ codex absent (head 6bc0ad18)", one mark per engine, opened by "head reviewed: " when every required
+    engine has reviewed. `boundary_only` engines (a policy's boundary_reviews beyond its reviews, for a reader that
+    does not judge the boundary) are marked and not required. `additional` engines are marked "✓", "unavailable
+    (<reason>)" when `unavailable` has their marker for this head, or "absent" with neither. When `boundary_only`
+    names one too, arm requires its review of a boundary and no marker stands in: "✗ (boundary only)" replaces
+    "absent", or follows "unavailable (<reason>)". They never block, so the line opens "head reviewed" when every
+    required engine is "✓" (#264 F1: the gate must not show blocked what arm arms).
     `unread` is why the policy could not be read, when every engine was required for that reason: said on the line,
     or a missing engine reads as the repository's own requirement."""
     unavailable = unavailable or {}
     marks = [f"{e} {'✓' if e in have else '✗'}" for e in required]
     extra = [e for e in additional if e not in required]
-    marks += [f"{e} {'✓' if e in have else f'unavailable ({unavailable[e]})' if e in unavailable else '✗'}" for e in extra]
+
+    def additional_mark(e: str) -> str:
+        if e in have:
+            return "✓"
+        said = f"unavailable ({unavailable[e]})" if e in unavailable else None
+        # A boundary's engine is not stood in for by its marker (arm requires its review there): the line says so.
+        if e in boundary_only:
+            return f"{said} ✗ (boundary only)" if said else "✗ (boundary only)"
+        return said or "absent"
+    marks += [f"{e} {additional_mark(e)}" for e in extra]
     marks += [f"{e} {'✓' if e in have else '✗'} (boundary only)" for e in boundary_only if e not in required and e not in extra]
     line = f"{' '.join(marks)} (head {head[:8]}{f'; policy unread, every engine required: {unread}' if unread else ''})"
-    met = all(e in have for e in required) and all(e in have or e in unavailable for e in extra)
+    met = all(e in have for e in required)
     return f"{HEAD_REVIEWED}: {line}" if met else line
 
 
