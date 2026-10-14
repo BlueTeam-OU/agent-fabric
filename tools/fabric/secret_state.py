@@ -44,7 +44,9 @@ def main(argv: list[str] | None = None) -> int:
             res = state_copy(identity.agent_state_dir(), os.path.join(os.path.expanduser("~"), ".claude"))
             for path in res["skipped"]:
                 print(f"fabric-secrets state: skipped {path} (not a regular file)", file=sys.stderr)
-            print(f"{res['path']}: {'written' if res['changed'] else 'unchanged'}, {res['files']} file(s)")
+            # The name only: the folder is the secrets store's, and CodeQL's
+            # clear-text-logging rule takes any path from it for a secret.
+            print(f"state/{os.path.basename(res['path'])}: {'written' if res['changed'] else 'unchanged'}, {res['files']} file(s)")
         else:
             res = state_restore(args.dest, args.source)
             print(f"{res['dest']}: {res['files']} file(s) restored")
