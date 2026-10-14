@@ -97,7 +97,8 @@ def main() -> int:
 
     print("fabric_secrets — the verb, else the sync")
     here = os.path.join(ROOT, "tools", "fabric")
-    for verb, mod in (("store", "secret_store.py"), ("provision", "store_provision.py"), ("selftest", "secret_selftest.py")):
+    for verb, mod in (("store", "secret_store.py"), ("provision", "store_provision.py"), ("selftest", "secret_selftest.py"),
+                      ("state", "secret_state.py")):
         check(f"{mod} exists", os.path.isfile(f"{here}/{mod}"))
         with Execs() as e:
             fabric_secrets.main(["fabric-secrets", verb, "a", "--b"])
@@ -150,9 +151,10 @@ def main() -> int:
     src_dir.cleanup()
 
     print("fabric-secrets — the forwarder reaches the dispatcher, whichever path it is called by")
-    for verb in ("store", "provision", "selftest"):
+    for verb in ("store", "provision", "selftest", "state"):
         r = subprocess.run([FORWARDERS["fabric-secrets"], verb, "--help"], capture_output=True, text=True, env=env, timeout=120)
-        mod = {"store": "secret_store.py", "provision": "store_provision.py", "selftest": "secret_selftest.py"}[verb]
+        mod = {"store": "secret_store.py", "provision": "store_provision.py", "selftest": "secret_selftest.py",
+               "state": "secret_state.py"}[verb]
         d = subprocess.run([sys.executable, f"{here}/{mod}", "--help"], capture_output=True, text=True, env=env, timeout=120)
         check(f"{verb} --help is {mod} --help, stream for stream",
               (r.stdout, r.stderr, r.returncode) == (d.stdout, d.stderr, d.returncode), (r.stderr[:200], r.returncode, d.returncode))

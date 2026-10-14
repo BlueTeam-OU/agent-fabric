@@ -1257,6 +1257,133 @@ else:
                   and os.path.exists(os.path.join(kdrive, f"recovery-key-{second['fingerprint'][-16:]}.asc"))
                   and not os.path.exists(os.path.join(kdrive, f"recovery-key-{first['fingerprint'][-16:]}.asc"))
                   and not os.listdir(os.path.join(drive, "trash")), repr(second))
+            # The login's working state (statecopy.py): the child backs it up
+            # into its own store, the parent's backup carries it to Proton.
+            import sqlite3, tarfile, io
+            from unittest import mock
+            STATE_TOOL = os.path.join(ROOT, "tools", "fabric", "secret_state.py")
+
+            def run_state(env: dict, *args: str) -> subprocess.CompletedProcess:
+                return subprocess.run([sys.executable, STATE_TOOL, *args], env=env, cwd=tmp, capture_output=True, text=True)
+            chome = child["HOME"]
+            senv = {**child, "AGENT_FABRIC_STATE_DIR": os.path.join(chome, "state")}
+            import pwd
+            sdir = os.path.join(chome, "state", "agents", pwd.getpwuid(os.getuid()).pw_name)
+            claude = os.path.join(chome, ".claude")
+
+            def put_file(path: str, text: str) -> None:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w") as fh:
+                    fh.write(text)
+            put_file(os.path.join(sdir, "jobs.json"), '{"jobs": []}')
+            put_file(os.path.join(sdir, "role-history.jsonl"), "{}\n")
+            put_file(os.path.join(sdir, "reviews", "r1", "note.md"), "review\n")
+            put_file(os.path.join(claude, "projects", "p1", "memory", "m.md"), "memory\n")
+            put_file(os.path.join(claude, "plans", "plan.md"), "plan\n")
+            for never in (os.path.join(sdir, "tools.json"), os.path.join(sdir, "binding.json"), os.path.join(claude, "settings.json"),
+                          os.path.join(claude, "projects", "p1", "transcript.jsonl"), os.path.join(claude, "projects", "p1", "memory", "..", "x.jsonl")):
+                put_file(never, "NEVER-BACKED-UP\n")
+            os.symlink("/etc/hostname", os.path.join(sdir, "reviews", "link"))
+            db = sqlite3.connect(os.path.join(sdir, "episodic.db"))
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("CREATE TABLE t (v TEXT)")
+            db.execute("INSERT INTO t VALUES ('kept in the wal')")
+            db.commit()       # left open: the -wal and -shm files are live beside it
+            p = run_state(senv, "backup")
+            ckey = f"state/{KID}.tar.gpg"
+            pushed = lambda: subprocess.run(["git", "--git-dir", remote, "ls-tree", "-r", "--name-only", "main"], env=child,
+                                            capture_output=True, text=True).stdout.split()
+            check("state backup: the copy and its meta are committed to the login's store and pushed",
+                  p.returncode == 0 and "written" in p.stdout and ckey in pushed() and f"state/{KID}.meta" in pushed(), p.stdout + p.stderr)
+            check("…a link in the file set is skipped and named, not followed", "reviews/link" in p.stderr, p.stderr)
+            dest = os.path.join(tmp, "restored")
+            q = run_state(senv, "restore", dest)
+            got = sorted(os.path.relpath(os.path.join(dp, f), dest) for dp, _, fs in os.walk(dest) for f in fs)
+            check("state restore: exactly the file set, no settings, secrets, transcripts or other state",
+                  q.returncode == 0 and got == sorted([
+                      "state/jobs.json", "state/role-history.jsonl", "state/reviews/r1/note.md", "state/episodic.db",
+                      "claude/projects/p1/memory/m.md", "claude/plans/plan.md"]), q.stdout + q.stderr + repr(got))
+            try:
+                kept = sqlite3.connect(os.path.join(dest, "state", "episodic.db")).execute("SELECT v FROM t").fetchall()
+            except sqlite3.Error as e:
+                kept = f"unreadable: {e}"
+            check("…the journal is a consistent database holding what was in the wal", kept == [("kept in the wal",)], repr(kept))
+            check("…files 0600", all(os.stat(os.path.join(dest, g)).st_mode & 0o777 == 0o600 for g in got))
+            head = lambda: subprocess.run(["git", "--git-dir", remote, "rev-parse", "main"], env=child, capture_output=True, text=True).stdout
+            before = head()
+            p = run_state(senv, "backup")
+            check("state backup again, nothing changed: unchanged, no commit", p.returncode == 0 and "unchanged" in p.stdout and head() == before, p.stdout + p.stderr)
+            put_file(os.path.join(sdir, "jobs.json"), '{"jobs": [1]}')
+            p = run_state(senv, "backup")
+            check("…a changed file is a new commit", p.returncode == 0 and "written" in p.stdout and head() != before, p.stdout + p.stderr)
+            packets = subprocess.run(["gpg", "--list-packets", os.path.join(child["AGENT_FABRIC_SECRET_STORE"], ckey)], env=child,
+                                     capture_output=True, text=True).stdout.count(":pubkey enc packet:")
+            check("…encrypted to the login's key and the owner's recovery key", packets == 2, str(packets))
+            q = run_state(senv, "restore", dest)
+            check("state restore over a directory that holds files is refused, nothing written",
+                  q.returncode == 1 and "empty directory" in q.stderr and "Traceback" not in q.stderr, q.stdout + q.stderr)
+            # A tar that is not this backup's shape: refused whole, before its first file.
+            ckfpr = open(os.path.join(child["AGENT_FABRIC_SECRET_STORE"], ".gpg-id")).read().split()[0]
+
+            def crafted(*members: tuple) -> str:
+                buf = io.BytesIO()
+                with tarfile.open(fileobj=buf, mode="w") as t:
+                    for name, kind in members:
+                        ti = tarfile.TarInfo(name)
+                        ti.type = kind
+                        ti.linkname = "/etc/passwd" if kind != tarfile.REGTYPE else ""
+                        data = b"x" if kind == tarfile.REGTYPE else b""
+                        ti.size = len(data)
+                        t.addfile(ti, io.BytesIO(data))
+                out = os.path.join(tmp, "crafted.tar.gpg")
+                subprocess.run(["gpg", "--batch", "--yes", "--trust-model", "always", "-r", ckfpr, "-o", out, "-e"], env=child,
+                               input=buf.getvalue(), check=True, capture_output=True)
+                return out
+            for label, members in (("a name that climbs out", [("state/ok", tarfile.REGTYPE), ("state/../../out", tarfile.REGTYPE)]),
+                                   ("an absolute name", [("/tmp/abs", tarfile.REGTYPE)]),
+                                   ("a root that is neither", [("other/x", tarfile.REGTYPE)]),
+                                   ("a link", [("state/ok", tarfile.REGTYPE), ("state/l", tarfile.SYMTYPE)])):
+                d2 = os.path.join(tmp, "restored-crafted")
+                q = run_state(senv, "restore", d2, "--from", crafted(*members))
+                check(f"state restore of a tar with {label}: refused whole, nothing written",
+                      q.returncode == 1 and "nothing was restored" in q.stderr and not os.path.exists(d2)
+                      and not os.path.exists(os.path.join(tmp, "out")), q.stdout + q.stderr)
+            q = run_state(senv, "restore", os.path.join(tmp, "restored-ok"), "--from", crafted(("state/ok", tarfile.REGTYPE)))
+            check("…and a tar of the same shape with nothing wrong is restored (the refusals' control)",
+                  q.returncode == 0 and os.path.isfile(os.path.join(tmp, "restored-ok", "state", "ok")), q.stdout + q.stderr)
+            from secretstore import statecopy
+            with mock.patch.object(statecopy, "MAX_BYTES", 10):
+                try:
+                    statecopy.collect(sdir, claude)
+                    capped = ""
+                except secret_store.StoreError as e:
+                    capped = str(e)
+            check("a file set over the cap is refused, naming its largest member", "nothing was backed up" in capped and "state/" in capped, capped)
+            # A listed file that is a link is not this login's state to copy
+            # (the walk's own link check does not cover the named files).
+            lk = os.path.join(tmp, "linked-state")
+            put_file(os.path.join(lk, "jobs.json"), "{}")
+            os.symlink(os.path.join(sdir, "tools.json"), os.path.join(lk, "role-history.jsonl"))
+            seen, skipped_l = statecopy.collect(lk, os.path.join(tmp, "no-claude"))
+            check("a listed file that is a link is left out, its target's content with it",
+                  sorted(seen) == ["state/jobs.json"] and not any(b"NEVER" in v for v in seen.values()), repr(sorted(seen)))
+            db.close()
+            # The parent's backup carries the child's copy to Proton, names it
+            # in the manifest and checks it back.
+            rp = run(penv, "refresh-mirror", "kid")
+            p = run(penv, "backup")
+            sf = os.path.join(drive, "my-files", "agent-fabric", "state")
+            sman = json.load(open(os.path.join(drive, "my-files", "agent-fabric", "secrets", "manifest.json")))
+            check("backup carries each login's state copy to state/ and names it in the manifest",
+                  rp.returncode == 0 and p.returncode == 0 and f"{KID}.tar.gpg" in (os.listdir(sf) if os.path.isdir(sf) else [])
+                  and f"{KID}.tar.gpg" in sman.get("state_copies", {}), rp.stderr + p.stdout + p.stderr)
+            p = run(penv, "backup", "--verify")
+            check("…and --verify checks it against the manifest", p.returncode == 0, p.stdout + p.stderr)
+            with open(os.path.join(sf, f"{KID}.tar.gpg"), "ab") as fh:
+                fh.write(b"replaced")
+            p = run(penv, "backup", "--verify")
+            check("…a state copy that is not the manifest's is a finding", p.returncode == 1
+                  and f"state/{KID}.tar.gpg: its sha256 is not the manifest's" in p.stdout, p.stdout + p.stderr)
             # A lapsed session is said in the CLI's words, never a traceback.
             open(os.path.join(tmp, "no-session"), "w").close()
             p = run(penv, "backup")

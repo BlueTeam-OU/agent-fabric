@@ -34,7 +34,7 @@ from .lock import write_lock
 # ── Proton Drive: the stores' backup and the keys' recovery copies ─────
 # The owner's decision (ADR-038 §7): a dedicated Proton account holds, in
 # /my-files/agent-fabric/, every store as a git bundle (ciphertext only)
-# with a manifest, and each key's recovery copy. The CLI's session is an
+# with a manifest, each key's recovery copy and each login's working-state copy. The CLI's session is an
 # entry of the running login's own store (PROTON_DRIVE_CREDENTIALS_STORE=
 # pass over this store), so it is readable by this login alone; `auth
 # login` is the owner's, in a terminal. Nothing here prints a value.
@@ -208,6 +208,13 @@ def backup() -> dict:
                 if f.endswith(".key.gpg"):
                     manifest.setdefault("recovery_copies", {})[f] = _sha256_file(os.path.join(rdir, f))
                     _upload(os.path.join(rdir, f), _proton_folder(f"{PROTON_ROOT}/keys"))
+            # A login's working-state copy (statecopy.py) stands alone in
+            # state/ the same way: encrypted already, named by its agent id.
+            sdir = os.path.join(d, "state")
+            for f in sorted(os.listdir(sdir)) if os.path.isdir(sdir) else []:
+                if f.endswith(".tar.gpg"):
+                    manifest.setdefault("state_copies", {})[f] = _sha256_file(os.path.join(sdir, f))
+                    _upload(os.path.join(sdir, f), _proton_folder(f"{PROTON_ROOT}/state"))
         mpath = os.path.join(tmp, "manifest.json")
         with open(mpath, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
@@ -241,11 +248,14 @@ def verify_backup() -> list[str]:
                 findings.append(f"{rec['bundle']}: git bundle verify fails")
         # The recovery copies stand alone in keys/ for a restore: each is
         # checked against the hash the manifest took when it went up.
-        for f, sha in sorted((manifest.get("recovery_copies") or {}).items()):
-            got = _proton("filesystem", "download", "-f", "remove", f"{PROTON_ROOT}/keys/{f}", tmp, check=False)
-            local = os.path.join(tmp, f)
-            if got.returncode != 0 or not os.path.exists(local):
-                findings.append(f"keys/{f}: could not be downloaded")
-            elif _sha256_file(local) != sha:
-                findings.append(f"keys/{f}: its sha256 is not the manifest's")
+        for folder_name, key in (("keys", "recovery_copies"), ("state", "state_copies")):
+            for f, sha in sorted((manifest.get(key) or {}).items()):
+                got = _proton("filesystem", "download", "-f", "remove", f"{PROTON_ROOT}/{folder_name}/{f}", tmp, check=False)
+                local = os.path.join(tmp, f)
+                if got.returncode != 0 or not os.path.exists(local):
+                    findings.append(f"{folder_name}/{f}: could not be downloaded")
+                elif _sha256_file(local) != sha:
+                    findings.append(f"{folder_name}/{f}: its sha256 is not the manifest's")
+                if os.path.exists(local):
+                    os.remove(local)
     return findings
