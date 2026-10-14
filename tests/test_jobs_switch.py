@@ -11,13 +11,16 @@ import importlib.util
 import io
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 import jobs_world  # noqa: E402 — tests/, the script's own directory
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 scrub_process_env()
+own_instance_tree()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RID = "01a12bae-9f03-7d83-8795-bcac9d940240"
@@ -670,7 +673,6 @@ def main() -> int:
         w.sw("drop", j1, "done")
         w.add("n")
         w.journal(("in", request(RID, "no")))       # makes the journal exist
-        import sqlite3
         path = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "where"], env=os.environ, capture_output=True, text=True).stdout.strip()
         conn = sqlite3.connect(path)
         conn.execute("UPDATE episodes SET metadata_json='not json', recorded_at='2099-01-01T00:00:00Z' WHERE message_id=?", (RID,))
@@ -678,6 +680,28 @@ def main() -> int:
         conn.close()
         rc, out, err = w.switch()
         check("a journal row whose metadata cannot be read is owed, never let through", rc == 1 and RID in err and "could not be read" in err, err)
+        w.journal(("out", answer("01a12bae-0000-7000-8000-000000000011", RID)))
+        rc, out, err = w.switch()
+        check("…and answering it clears it, as it does any other (the positive control)", rc == 0, err)
+
+        def broken_row(metadata: str, recorded: str) -> World:
+            """A world whose journal holds one inbound request with `metadata` as its metadata_json, journaled at `recorded`."""
+            w = World()
+            j = w.add("bad row")
+            w.switch()
+            w.sw("drop", j, "done")
+            w.add("n")
+            w.journal(("in", request(RID, "no")))
+            conn = sqlite3.connect(subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "where"], env=os.environ,
+                                                  capture_output=True, text=True).stdout.strip())
+            conn.execute("UPDATE episodes SET metadata_json=?, recorded_at=? WHERE message_id=?", (metadata, recorded, RID))
+            conn.commit()
+            conn.close()
+            return w
+        rc, out, err = broken_row("not json", "2000-01-01T00:00:00Z").switch()
+        check("a row whose metadata cannot be read, journaled before the job, is outside its window", rc == 0, err)
+        rc, out, err = broken_row("[1]", "2099-01-01T00:00:00Z").switch()
+        check("metadata that parses but is no object is as unreadable: owed", rc == 1 and RID in err and "could not be read" in err, err)
 
         print("blocked_on owner's decision, a dangling link in memory, a repeated pull request")
         w = World()

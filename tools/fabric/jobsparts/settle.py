@@ -91,24 +91,28 @@ def owed_replies(since: float | None) -> list[dict] | str:
         return f"journal: {e}"[:160]
     owed = []
     for mid, kind, sender, meta_json, received in rows:
-        try:
-            meta = json.loads(meta_json)
-        except ValueError:
-            # Cannot be told whether it asks for a reply or is addressed here: owed, never let through.
-            owed.append({"id": mid, "type": kind, "from": sender, "subject": "(its record could not be read)"})
+        # Whether it was answered and whether it falls in the window are read from the row itself, so a row whose metadata cannot be
+        # read still clears by a reply and by age; only what stays undetermined after them is owed.
+        if str(mid).lower() in answered:
             continue
-        if not isinstance(meta, dict) or str(meta.get("REPLY-EXPECTED", "")).strip().lower() != "yes":
-            continue
-        if me not in re.split(r"[\s,]+", str(meta.get("TO", ""))) or str(mid).lower() in answered:
-            continue
-        # recorded_at, when the inbox journaled it: a backlog the sender wrote before this session started is received during it.
-        # A time that cannot be read is owed, said so: never a message let through for want of a date.
+        at = None
         try:
             at = calendar.timegm(time.strptime(str(received), "%Y-%m-%dT%H:%M:%SZ"))
         except (ValueError, OverflowError):
-            owed.append({"id": mid, "type": kind, "from": sender, "subject": "(its receipt time could not be read) " + str(meta.get("SUBJECT", ""))[:40]})
+            pass
+        if since is not None and at is not None and at < since:
             continue
-        if since is not None and at < since:
+        try:
+            meta = json.loads(meta_json)
+        except ValueError:
+            meta = None
+        readable = isinstance(meta, dict)
+        if readable and (str(meta.get("REPLY-EXPECTED", "")).strip().lower() != "yes" or me not in re.split(r"[\s,]+", str(meta.get("TO", "")))):
+            continue
+        # A row that is neither readable nor dated cannot be told from one that asks for a reply: owed, never let through.
+        if not readable or (since is not None and at is None):
+            owed.append({"id": mid, "type": kind, "from": sender,
+                         "subject": "(its " + ("record" if not readable else "receipt time") + " could not be read)"})
             continue
         owed.append({"id": mid, "type": kind, "from": sender, "subject": str(meta.get("SUBJECT", ""))[:70]})
     return owed
