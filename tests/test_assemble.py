@@ -2449,6 +2449,7 @@ def test_a_retitled_memory_replaces_its_own_old_section(tmp: str) -> None:
     ])})
     with_agents(drain, {"a1": "dev-01", "a2": "dev-01", "a3": "dev-01", "a4": "dev-01", "b1": "dev-02", "b2": "dev-02"})
     assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert json.loads(read(report_path(out)))["retitles"] == [], "no retitle, an empty list"
     retitle = {"class": "domain", "topic": "tracker", "title": "Issue 851 is merged",
                "body": "Merged on 2026-09-24.", "evidence": ["a3"], "observed_at": "2026-09-24"}
     set_claims(claims_dir, "alpha", [retitle])
@@ -2459,6 +2460,14 @@ def test_a_retitled_memory_replaces_its_own_old_section(tmp: str) -> None:
     report = json.loads(read(report_path(out)))
     assert any(d.get("rule") == "same-agent" and d["decision"] == "supersede"
                and d["key"].endswith("tracker#Issue 851 is merged") for d in report["collision_decisions"]), report["collision_decisions"]
+    # ADR-050 rule 11: the report names the retitle, so nobody reads stderr for it.
+    assert report["retitles"] == [{"key": "alpha/domain:tracker#Issue 851 is merged", "old_heading": "Issue 851 is open",
+                                   "new_heading": "Issue 851 is merged", "agent": "dev-01", "project": report["project"],
+                                   "slice": report["retitles"][0]["slice"], "decided_by": "same-agent"}], report["retitles"]
+    assert report["retitles"][0]["slice"].endswith("tracker.md"), report["retitles"]
+    # The same drain again finds nothing to retire; its report is the same stamp's merge and keeps what the first said.
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert json.loads(read(report_path(out)))["retitles"] == report["retitles"]
     text = read(tracker)
     assert "## Issue 851 is merged" in text and "Issue 851 is open" not in text and "Waiting" not in text, text
     assert "description: Issue 851 is merged" in text, text
@@ -3252,6 +3261,26 @@ def test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_repo
     assert "springfield" not in read(report_path(out)).lower()
 
 
+def test_a_held_slice_takes_its_retitles_out_of_the_report(tmp: str) -> None:
+    """--hold drops what an earlier run of the stamp said of the slice, its retitles with its collision decisions."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "tracker", "title": "Issue 851 is open", "body": "Waiting.", "evidence": ["a1"],
+         "observed_at": "2026-09-20"},
+        {"class": "domain", "topic": "kept", "title": "Kept", "body": "Stays.", "evidence": ["a2"]}])})
+    with_agents(drain, {"a1": "dev-01", "a2": "dev-01", "a3": "dev-01"})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [{"class": "domain", "topic": "tracker", "title": "Issue 851 is merged", "body": "Merged.",
+                                      "evidence": ["a3"], "observed_at": "2026-09-24"}])
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert len(json.loads(read(report_path(out)))["retitles"]) == 1, "the control: the retitle is reported before the hold"
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/domain:tracker"], fh)
+    proc = run_assemble(drain, claims_dir, out, "--hold", hold)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(read(report_path(out)))["retitles"] == []
+
+
 def test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains(tmp: str) -> None:
     """--hold: the coordinator holds a slice back from a drain. A hand
     revert after a first run left the report naming it in files,
@@ -3695,6 +3724,7 @@ def main() -> int:
         test_a_malformed_hygiene_list_stops_the_drain_in_one_line,
         test_a_name_scoped_others_stays_in_its_own_projects_slices_only,
         test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_report,
+        test_a_held_slice_takes_its_retitles_out_of_the_report,
         test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains,
         test_a_flat_file_moved_in_is_deduplicated_by_text_and_restamped,
         test_every_role_the_project_binds_with_domain_slices_gets_an_index,
