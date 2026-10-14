@@ -4,7 +4,8 @@ A part of secret_store.py's family; the owner's j179 (2026-10-13) is the request
 CONTRACT of `state_copy(state_dir, claude_dir)`
   input   what the login worked on, nothing else (a closed list, never a
           walk of the home):
-            <state_dir>/jobs.json, role-history.jsonl, gzcoord-sent.jsonl
+            <state_dir>/jobs.json, role-history.jsonl, gzcoord-sent.jsonl,
+            reflect-cursor.json
             <state_dir>/reviews/**
             <state_dir>/episodic.db        through sqlite's online backup,
                                            never a copy of the live file
