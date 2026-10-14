@@ -18,6 +18,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 from github import trial_merge as tm  # noqa: E402
+from github import trial_worktree as tw  # noqa: E402
 
 
 def sh(cwd: str, *args: str) -> str:
@@ -277,6 +278,28 @@ def main() -> int:
         finally:
             sleeper.kill()
             sleeper.wait()
+
+        print("cleanup scans again until a pass finds no one new: a scan is not atomic against fork")
+        # Scripted /proc listings: 102 is forked by 101 after the first
+        # listing, so only a second pass sees it (j128: a lease-run check's
+        # sleep outlived the run under a full tests/run.sh).
+        listings = [[101], [101, 102], [101, 102]]
+        scans, ended = [], []
+        real_procs, real_terminate = tw.worktree_procs, tw.terminate
+        tw.worktree_procs = lambda wt, cpid: scans.append(cpid) or list(listings[min(len(scans), len(listings)) - 1])
+        tw.terminate = lambda pid, group=False: ended.append((pid, group))
+        try:
+            tw.cleanup(repo, os.path.join(scratch, "no-such-wt"), 100)
+            check("the group, then each member once, the late child included",
+                  ended == [(100, True), (101, False), (102, False)])
+            check("…and it stops at the first pass with no one new", len(scans) == 3)
+            listings[:] = [list(range(1000, 1000 + n)) for n in range(1, tw.SWEEP_PASSES + 5)]
+            scans.clear()
+            tw.cleanup(repo, os.path.join(scratch, "no-such-wt"), 100)
+            check(f"…and a check that keeps forking is scanned {tw.SWEEP_PASSES} times, no more",
+                  len(scans) == tw.SWEEP_PASSES)
+        finally:
+            tw.worktree_procs, tw.terminate = real_procs, real_terminate
 
         print("the free-space arithmetic and its refusals")
         old = os.environ.get("AGENT_FABRIC_TRIAL_MIN_FREE_KB")

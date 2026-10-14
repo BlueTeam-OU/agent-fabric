@@ -42,6 +42,9 @@ NO_HOOKS = ("-c", "core.hooksPath=/dev/null")
 # last line if it still fails.
 ADD_PAUSES = (0.2, 0.5, 1, 2)
 
+# How many times cleanup scans for the check's processes (see there).
+SWEEP_PASSES = 20
+
 
 def pid_alive(pid_file: str) -> bool:
     try:
@@ -157,8 +160,20 @@ def cleanup(top: str, wt: str, cpid: int | None) -> None:
         signal.signal(sig, signal.SIG_IGN)
     if cpid is not None:
         terminate(cpid, group=True)
-    for pid in worktree_procs(wt, cpid):
-        terminate(pid)
+    # Unlike killpg, a /proc scan is not atomic against fork: a member
+    # signalled just after it forked leaves a child the listing missed
+    # (sh's `cd / && sleep &` subshell forking its sleep, under load). So
+    # scan again until a pass finds no member not yet signalled; a process
+    # with a fatal signal pending cannot complete a fork, so this ends. The
+    # bound is for a member that catches TERM and keeps forking.
+    signalled: set[int] = set()
+    for _ in range(SWEEP_PASSES):
+        fresh = [pid for pid in worktree_procs(wt, cpid) if pid not in signalled]
+        if not fresh:
+            break
+        for pid in fresh:
+            terminate(pid)
+        signalled.update(fresh)
     # Each step on its own: a git that times out (git.py's bound) must not
     # keep the scratch tree and the pid file from going (review of #71).
     for step in (lambda: git.run(top, *NO_HOOKS, "worktree", "remove", "--force", wt, check=False),
