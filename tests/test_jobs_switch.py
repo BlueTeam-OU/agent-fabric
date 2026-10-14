@@ -277,7 +277,6 @@ def main() -> int:
         git(w, "push", "-q", "origin", "main")
         w.sw("done", j1)
         settles(w, j1, "a done job with no artifact cannot be left", "done needs evidence")
-        w.job(j1)
         before = w.job(j1)["updated"]
         time.sleep(1.1)
         rc, out, err = w.sw("deliver", j1, f"origin/{contrib}")

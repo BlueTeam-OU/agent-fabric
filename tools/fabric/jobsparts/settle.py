@@ -75,7 +75,7 @@ def _branch_tips(job: dict, problems: list[str]) -> tuple[str | None, list[tuple
         default = vcs.default_branch(wc)
         tips = []
         for name in names:
-            if name in (default, "HEAD"):
+            if name in (default, "HEAD"):       # HEAD also fails remote_tip below; named so the intent does not hang on that
                 continue        # by name, not by tip: a branch fast-forwarded into the default branch shares its tip and is still a branch
             r = vcs.run(wc, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{name}^{{commit}}", check=False)
             if r.returncode not in (0, 1):
