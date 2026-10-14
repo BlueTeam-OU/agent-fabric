@@ -13,8 +13,9 @@ most --max of them (default 200), grouped by thread: IN-REPLY-TO chains,
 and messages in no chain by their SUBJECT. Each carries its MESSAGE-ID,
 direction, peer and date; a body is cut to 1500 characters unless --full (--json is never cut).
 When more wait than the pass holds it says how many are left for the next.
-A send the carrier never accepted is not a message anyone received and is
-left out. Credential-shaped values are withheld as fabric-history withholds
+A send the carrier did not accept is shown tagged [failed], like a
+[pending] one: a retry updates the same journal row, so a pass that skipped
+it would never show it once it went through. Credential-shaped values are withheld as fabric-history withholds
 them (ADR-041 rule 7), in both output forms.
 
 Reading moves nothing. `done` records, in this login's state
@@ -26,10 +27,10 @@ pass that printed "through row ROW" (its --json: "through"); without it
 pass unless the journal changed meanwhile. The cursor never moves back.
 
 The cursor is a position in the journal's insertion order (SQLite rowid),
-not a time: a message imported late, or retried after a failure, lands
-after the messages already read and is read by the next pass. A send that
-was pending when a pass read it is shown tagged [pending] and is not read
-again once the cursor is past it.
+not a time: a message imported late lands after the messages already read
+and is read by the next pass. A send that was pending or failed when a pass
+read it is shown tagged and is not shown again once the cursor is past it,
+whatever becomes of it.
 
 Nothing here writes memory: the agent drafts and judges (ADR-058 rule 3).
 
@@ -91,9 +92,15 @@ def cursor(conn: sqlite3.Connection, owner: str) -> dict:
     """read_cursor, and a cursor past the end of the journal refused: the
     journal was replaced or truncated, and "nothing waits" would be false."""
     cur = read_cursor(owner)
-    last = conn.execute("SELECT COALESCE(MAX(rowid), 0) FROM episodes").fetchone()[0]
-    if cur.get("row", 0) > last:
-        raise CursorError(f"the cursor is at row {cur['row']} but the journal ends at row {last}; "
+    if not cur:
+        return cur
+    # The episode the cursor closed on must still sit at that row: a restored
+    # or vacuumed journal keeps the owner but moves the rows, and a row that
+    # means nothing would skip messages without a word.
+    at = conn.execute("SELECT id FROM episodes WHERE rowid=?", (cur["row"],)).fetchone()
+    if at is None or at[0] != cur.get("episode"):
+        raise CursorError(f"the cursor at row {cur['row']} does not match this journal (it ends at row "
+                          f"{conn.execute('SELECT COALESCE(MAX(rowid), 0) FROM episodes').fetchone()[0]}); "
                           f"remove {cursor_path()} to read the journal from the start")
     return cur
 
@@ -105,12 +112,14 @@ def write_cursor(owner: str, row: int, episode_id: str) -> None:
     identity.atomic_write(cursor_path(), json.dumps(body, indent=1, sort_keys=True) + "\n", mode=0o600)
 
 
-def waiting(conn: sqlite3.Connection, after: int) -> list[sqlite3.Row]:
-    """Every readable message after the cursor, oldest first (all of them: the
-    caller cuts the pass; the count of what is left is the rest)."""
-    return conn.execute(
-        "SELECT rowid AS row, * FROM episodes WHERE source=? AND rowid > ? "
-        "AND NOT (direction='outbound' AND state='failed') ORDER BY rowid", (episodic.SOURCE, after)).fetchall()
+def waiting(conn: sqlite3.Connection, after: int, limit: int) -> list[sqlite3.Row]:
+    """The first `limit` messages after the cursor, oldest first."""
+    return conn.execute("SELECT rowid AS row, * FROM episodes WHERE source=? AND rowid > ? ORDER BY rowid LIMIT ?",
+                        (episodic.SOURCE, after, limit)).fetchall()
+
+
+def count_waiting(conn: sqlite3.Connection, after: int) -> int:
+    return conn.execute("SELECT COUNT(*) FROM episodes WHERE source=? AND rowid > ?", (episodic.SOURCE, after)).fetchone()[0]
 
 
 def describe(r: sqlite3.Row) -> dict:
@@ -158,7 +167,7 @@ def group(messages: list[dict]) -> list[list[dict]]:
 
 
 def render(groups: list[list[dict]], full: bool, patterns: list, through: int | None, left: int, shown: int) -> list[str]:
-    mk = lambda m, k: history.mask(m[k], m["episode"], patterns) or ""  # noqa: E731 — every printed field is a stored claim
+    mk = lambda m, k: (history.mask(m[k], m["episode"], patterns) if isinstance(m[k], str) else m[k]) or ""  # noqa: E731 — every printed field is a stored claim
     out = [f"# {BANNER}", f"# {shown} message(s) in {len(groups)} thread(s), oldest first"
            + (f"; through row {through}" if through is not None else "")]
     for g in groups:
@@ -174,9 +183,9 @@ def render(groups: list[list[dict]], full: bool, patterns: list, through: int | 
                 text = text[:CUT] + f"\n… ({len(m['content']) - CUT} more characters: fabric-history --thread {mk(m, 'message_id')} --full)"
             out.append(text.rstrip("\n"))
     if left:
-        out.append(f"\n# {left} more message(s) wait for the next pass: run `fabric-reflect done` for this one, then `fabric-reflect`")
+        out.append(f"\n# {left} more message(s) wait for the next pass: run `fabric-reflect done --through {through}` for this one, then `fabric-reflect`")
     elif shown:
-        out.append("\n# nothing else waits; `fabric-reflect done` closes this pass, even when it wrote no memory")
+        out.append("\n# nothing else waits; `fabric-reflect done --through {through}` closes this pass, even when it wrote no memory")
     else:
         out.append("\n# nothing waits since the last pass")
     return out
@@ -184,9 +193,9 @@ def render(groups: list[list[dict]], full: bool, patterns: list, through: int | 
 
 def cmd_read(conn, owner: str, args, patterns: list) -> int:
     cur = cursor(conn, owner)
-    rows = waiting(conn, cur.get("row", 0))
-    window = rows[:args.max]
-    left = len(rows) - len(window)
+    after = cur.get("row", 0)
+    window = waiting(conn, after, args.max)
+    left = count_waiting(conn, after) - len(window)
     through = window[-1]["row"] if window else None
     groups = group([describe(r) for r in window])
     if args.json:
@@ -210,7 +219,7 @@ def cmd_done(conn, owner: str, args) -> int:
             if row is None:
                 raise CursorError(f"row {args.through} is not a message of this journal; `fabric-reflect` prints the row to close")
         else:
-            rows = waiting(conn, have)[:args.max]
+            rows = waiting(conn, have, args.max)
             row = (rows[-1]["row"], rows[-1]["id"]) if rows else None
         if row is None or row[0] <= have:
             print(f"fabric-reflect: nothing to close; the cursor stays at row {have}")
@@ -222,7 +231,7 @@ def cmd_done(conn, owner: str, args) -> int:
 
 def cmd_status(conn, owner: str, args) -> int:
     cur = cursor(conn, owner)
-    n = len(waiting(conn, cur.get("row", 0)))
+    n = count_waiting(conn, cur.get("row", 0))
     info = {"cursor_row": cur.get("row", 0), "done_at": cur.get("done_at"), "waiting": n}
     if args.json:
         print(json.dumps(info, indent=1))
