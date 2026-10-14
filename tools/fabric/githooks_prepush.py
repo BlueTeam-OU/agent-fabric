@@ -230,6 +230,73 @@ def _signed(lines: list[str]) -> None:
         raise Refused(ban_unsigned_commits.refusal(found))
 
 
+def _default_tip(remote_name: str, slug: str | None) -> str | None:
+    """The remote-tracking ref of the repository's default branch: the
+    registry's default_branch of the project that has `slug` as a remote,
+    else the remote's HEAD symref. None when neither resolves to a commit."""
+    candidates: list[str] = []
+    try:
+        projects = (workingcopy.load_registry(roots.projects_registry(environ=os.environ)).get("projects") or {}).values()
+    except (OSError, ValueError):
+        projects = []
+    for entry in projects:
+        slugs = [ban_unsigned_commits.signing_policy.slug_of(u, workingcopy.parse_remote) for u in entry.get("remotes") or []]
+        if slug and slug.lower() in (s.lower() for s in slugs if s) and entry.get("default_branch"):
+            candidates.append(f"refs/remotes/{remote_name}/{entry['default_branch']}")
+    p = subprocess.run(["git", "symbolic-ref", "-q", f"refs/remotes/{remote_name}/HEAD"], capture_output=True,
+                       text=True, timeout=GIT_TIMEOUT_S)
+    if p.returncode == 0 and p.stdout.strip():
+        candidates.append(p.stdout.strip())
+    for ref in candidates:
+        if subprocess.run(["git", "rev-parse", "-q", "--verify", f"{ref}^{{commit}}"], capture_output=True,
+                          timeout=GIT_TIMEOUT_S).returncode == 0:
+            return ref
+    return None
+
+
+def _rule5(remote_name: str, lines: list[str]) -> None:
+    """The judgement CI applies (ban_unsigned_commits.main) to the commits
+    the refs add, once the repository's policies/signing.json entry has a
+    `since`; with none, nothing is judged here."""
+    env = dict(os.environ)
+    try:
+        slug, entry = ban_unsigned_commits.policy_entry(env)
+    except ban_unsigned_commits.signing_policy.PolicyError as e:
+        raise Refused(f"the signing policy cannot be read: {e}") from None
+    except ban_unsigned_commits.git.GitError as e:
+        raise Refused(f"the signing policy's repository could not be found ({e})") from None
+    since = entry.get("since")
+    if not since:
+        return
+    base = _default_tip(remote_name, slug)
+    if base is None:
+        raise Refused(f"{slug} is cut over (since {since[:12]}) and its default branch is not known in this clone: "
+                      f"fetch {remote_name} first")
+    judged: list[str] = []
+    try:
+        ban_unsigned_commits.require_since_on(base, since)
+        for line in lines:
+            fields = line.split()
+            if len(fields) != 4 or ZERO.match(fields[1]):
+                continue
+            _, local, _, remote = fields
+            judged += [s for s in _git("rev-list", *_scope(local, remote), f"^{since}").split() if s not in judged]
+    except ban_unsigned_commits.git.GitError as e:
+        raise Refused(f"{slug} is cut over and the pushed range cannot be read: {e}") from None
+    judge = None
+    try:
+        judge = ban_unsigned_commits.Judge(env, entry["format"])
+        refused = judge.refusals(".", judged)
+    except (ban_unsigned_commits.git.GitError, OSError, subprocess.SubprocessError) as e:
+        raise Refused(f"the signatures could not be judged: {e}") from None
+    finally:
+        if judge is not None:
+            judge.close()
+    if refused:
+        raise Refused("\n  ".join([f"{len(refused)} of {len(judged)} pushed commit(s) refused under agent-fabric "
+                                    f"ADR-057 §5 rule 5 ({slug}, since {since[:12]}):", *refused]))
+
+
 def check(remote_name: str, lines: list[str]) -> None:
     lines = _branch_lines(lines)
     if not lines:
@@ -238,6 +305,7 @@ def check(remote_name: str, lines: list[str]) -> None:
     if not dry:
         _attach_proofs(lines)
     _signed(lines)
+    _rule5(remote_name, lines)
     _check_direct(lines, remote_name)
     # A push that deletes anything pushes no notes: the hook runs before the
     # deletion, and the nested push would move the very ref a deletion names.

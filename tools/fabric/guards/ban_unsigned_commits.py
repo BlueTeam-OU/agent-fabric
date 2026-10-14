@@ -422,9 +422,8 @@ def policy_entry(env: dict[str, str]) -> tuple[str | None, dict]:
     return slug, signing_policy.entry_for(policy, slug, registry, workingcopy.parse_remote)[1]
 
 
-def judged_commits(base: str, head: str, since: str) -> list[str]:
-    """The commits base..head adds that `since` does not reach. Raises
-    git.GitError, a `since` this clone lacks included, and one that is not on
+def require_since_on(base: str, since: str) -> None:
+    """Raises git.GitError unless `since` is in this clone and an ancestor of
     `base` (the default branch's tip): a since on a side branch would exempt
     every commit it reaches."""
     if git.run(".", "cat-file", "-e", f"{since}^{{commit}}", check=False).returncode != 0:
@@ -432,6 +431,12 @@ def judged_commits(base: str, head: str, since: str) -> list[str]:
     if not git.ok(".", "merge-base", "--is-ancestor", since, base):
         raise git.GitError("git merge-base", f"the policy's since {since} is not an ancestor of {base}: "
                            "it must be a commit on the default branch")
+
+
+def judged_commits(base: str, head: str, since: str) -> list[str]:
+    """The commits base..head adds that `since` does not reach. Raises
+    git.GitError (see require_since_on)."""
+    require_since_on(base, since)
     return git.run(".", "rev-list", head, f"^{base}", f"^{since}").stdout.split()
 
 

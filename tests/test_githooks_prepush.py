@@ -42,6 +42,7 @@ ZERO = "0" * 40
 
 fails = 0
 err = ""
+SIGNING_REPO = ""   # the repository the policy is read for; the fixture's origin is a path, with no owner/name
 
 DIRECT = {"description": "fixture", "roles": ["brand-comms"],
           "pr_paths": r"^\.claude/|^\.github/|(^|/)package\.json$|^public/.*\.js$|(^|/)(bin|scripts|tools)/"
@@ -63,6 +64,8 @@ def env() -> dict:
          if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_", "GZCOORD_", "GIT_", "XDG_")) and k != "CLAUDECODE"}
     e.update(HOME=HOME, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
              AGENT_FABRIC_STATE_DIR=STATE, AGENT_FABRIC_OPERATOR=OPERATOR, GNUPGHOME=GNUPG)
+    if SIGNING_REPO:
+        e["AGENT_FABRIC_SIGNING_REPOSITORY"] = SIGNING_REPO
     return e
 
 
@@ -285,6 +288,48 @@ def run() -> None:
     os.remove(f"{REPO}/.agent-fabric-project")
     commit(".claude/settings.json")
     check("passes", push() == 0, err)
+
+    rule_5()
+
+
+def rule_5() -> None:
+    """ADR-057 §5 rule 5 at pre-push: with nothing listed, nothing new is
+    refused; a listed repository with since set judges the pushed range as CI
+    does. The fixture key is in no lineage, so every pushed commit fails it."""
+    global SIGNING_REPO
+    slug = "acme/widget"
+    SIGNING_REPO = slug
+    write_registry(f"{OPERATOR}/projects", {"projects": {
+        "plain": {"remotes": [], "default_branch": "main"},
+        "direct": {"remotes": [], "default_branch": "main"},
+        "widget": {"remotes": [f"git@github.com:{slug}.git"], "default_branch": "main"},
+    }})
+
+    def policy(repositories: dict) -> None:
+        write_json(f"{OPERATOR}/policies/signing.json", {"default": {"format": "openpgp", "since": None},
+                                                         "repositories": repositories})
+    print("rule 5 at pre-push")
+    policy({})
+    bind("backend-dev"); fixture("plain")
+    commit("content/b.md")
+    check("no repository listed: a commit rule 5 would refuse is admitted", push() == 0, err)
+
+    policy({slug: {"format": "openpgp", "since": None}})
+    bind("backend-dev"); fixture("plain")
+    commit("content/b.md")
+    check("listed with since null: nothing new is refused", push() == 0, err)
+
+    bind("backend-dev"); fixture("plain")
+    since = git("rev-parse", "HEAD")[1].strip()
+    policy({slug: {"format": "openpgp", "since": since}})
+    commit("content/b.md")
+    check("listed with since set: a commit failing rule 5 is refused", push() == 1 and "rule 5" in err, err)
+    check("  ... and nothing reached the remote", git("rev-parse", "main", cwd=REMOTE)[1].strip() == since, "main moved")
+
+    git("update-ref", "-d", "refs/remotes/origin/main")
+    check("listed with since set, the default branch unknown in the clone: refused, says to fetch",
+          push() == 1 and "fetch" in err, err)
+    SIGNING_REPO = ""
 
 
 def shipped_patterns() -> None:
