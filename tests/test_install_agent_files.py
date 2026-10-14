@@ -297,6 +297,23 @@ def main() -> int:
         check("an unusable .claude.json (exit 3): said on both streams, the run goes on to its summary, exit 0",
               r.returncode == 0 and "unusable (top level" in r.stdout and "unusable (top level" in r.stderr
               and r.stdout.splitlines()[-1].startswith("agent files ("), f"{r.returncode} {r.stdout} {r.stderr}")
+        # The real installer on an unreadable ~/.claude.json (a directory; mode 000 when not root): bootstrap says it
+        # and carries on, never a traceback (review round 1 of #253).
+        for label in ("a directory", "mode 000"):
+            if label == "mode 000" and os.geteuid() == 0:
+                continue
+            root, home, cfg = fixture()
+            shutil.copy(os.path.join(HERE, "runtime", "mcp", "fabric-memory", "install.py"), os.path.join(root, "runtime", "mcp", "fabric-memory", "install.py"))
+            cj = os.path.join(cfg, ".claude.json")
+            if label == "a directory":
+                os.mkdir(cj)
+            else:
+                put(cfg, ".claude.json", "{}")
+                os.chmod(cj, 0)
+            r = run(root, home, cfg)
+            check(f"the real fabric-memory installer on {label} as .claude.json: said on both streams, exit 0, the summary reached",
+                  r.returncode == 0 and "Traceback" not in r.stderr and "unreadable" in r.stdout and "unreadable" in r.stderr
+                  and r.stdout.splitlines()[-1].startswith("agent files ("), f"{r.returncode} {r.stdout} {r.stderr}")
         root, home, cfg = fixture()
         put(root, "runtime/mcp/fabric-memory/fail", "1")
         put(root, "runtime/mcp/fabric-memory/err.txt", "Traceback (most recent call last):\nPermissionError: [Errno 13] denied\n")

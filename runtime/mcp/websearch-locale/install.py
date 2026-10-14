@@ -29,9 +29,9 @@ unreadable: mode 000, a directory), then exit 0 for `remove` and
 `allow-websearch` (nothing of the fabric's can be in force in a file the
 harness cannot read either) and UNUSABLE (3) for `set` and `deny-websearch`
 (theirs is not written). 3 is the status fabric-memory/install.py uses for
-the same thing, and never 1, which an uncaught fault such as an unwritable
-directory exits with: bootstrap (install_agent_files.locale_search) reads 3
-as "websearch-locale not configured", says the line and goes on, and any
+the same thing (unreadable included), and never 1, which an uncaught fault such as an unwritable
+directory exits with: bootstrap (install_agent_files.locale_search and memory_search) reads 3
+as "not configured" for that installer's server, says the line and goes on, and any
 other non-zero status fails the step. It once raised here, and bootstrap
 ended in a traceback before the user settings' own writer could refuse
 the file.
