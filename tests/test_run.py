@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -284,29 +285,38 @@ def main() -> int:
             check(f"{name}: the directory is gone and the suite's grandchild is ended", not runs_left(base)
                   and (gc == 0 or not os.path.exists(f"/proc/{gc}") or open(f"/proc/{gc}/stat").read().rsplit(")", 1)[1].split()[0] == "Z"),
                   (runs_left(base), gc))
-        # More suites than slots: the runner starts the next one the moment a slot frees, and a stop frees them all.
+        # More suites than slots: the runner starts the next one the moment a slot frees, and a stop frees them all. The
+        # runner prints a suite's output when the suite ends, so a stop that kills it instead of asking loses what the
+        # running suites said (round 2 of #265).
         suites = {f"tests/test_q{i}.py": suite("open(os.path.join(os.environ['STARTED'], 'q%d' % " + str(i) + "), 'w').close()\n"
+                                              "print('MARK%d' % " + str(i) + ", flush=True)\n"
                                               "import time; time.sleep(30)\n") for i in range(8)}
         for sig, name in ((signal.SIGTERM, "TERM"), (signal.SIGINT, "INT"), (signal.SIGHUP, "HUP")):
             base = fresh(files=suites)
             started = os.path.join(sandbox, f"started-{name}")
             os.makedirs(started)
-            p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, env=env(base, STARTED=started))
+            p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
             for _ in range(100):
                 if len(os.listdir(started)) >= 2:
                     break
                 time.sleep(0.1)
-            before = len(os.listdir(started))
+            time.sleep(0.5)       # the suites' MARK lines are written; the runner holds them until the suites end
+            before = sorted(os.listdir(started))
             p.send_signal(sig)
             try:
-                rc = p.wait(timeout=30)
+                out, _ = p.communicate(timeout=30)
+                rc = p.returncode
             except subprocess.TimeoutExpired:
                 p.kill()
-                rc = None
+                out, rc = p.communicate()[0], None
             time.sleep(0.5)
-            check(f"{name} during the python section: the two running suites are ended and no queued suite is started",
-                  before == 2 and len(os.listdir(started)) == 2 and rc == 128 + int(sig), (before, sorted(os.listdir(started)), rc))
+            after = sorted(os.listdir(started))
+            shown = sorted(set(re.findall(r"MARK\d", out)))
+            check(f"{name} during the python section: no queued suite starts, the exit is {128 + int(sig)}",
+                  len(before) == 2 and after == before and rc == 128 + int(sig), (before, after, rc))
+            check(f"{name} during the python section: what the two running suites had printed still reaches stdout, and no count of failures",
+                  len(shown) == 2 and "FAILED_SUITES" not in out, (shown, out[-300:]))
         base = fresh(scripts={"good.sh": "#!/usr/bin/env bash\necho fine\n"})
         grandchild = os.path.join(sandbox, "gc-KILL")
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "static"], cwd=base, stdout=subprocess.DEVNULL,

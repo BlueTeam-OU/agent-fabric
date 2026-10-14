@@ -21,6 +21,12 @@ the memory available now allows (SUITE_MEM_MIB each, an assumption not a measure
 AGENT_FABRIC_TEST_SUITE_TIMEOUT_S (default SUITE_TIMEOUT_S) is ended with its processes, printed with what it had written
 and a line naming the budget, and counted as failed. A bad budget is the same exit 2 as a bad job count.
 
+A stop (INT, TERM or HUP) is handled here, not left to the caller: no further suite is started, each running suite's
+tree is TERMed once per process and KILLed after STOP_GRACE_S, what the running suites had written is printed under
+their headers, and the exit status is 128+signal with no FAILED_SUITES line (suites never ran: unknown, not 0). The
+output is buffered until a suite ends, so a runner that is killed instead of asked loses it; that is why run.py TERMs this
+process first and waits.
+
 A caller that starts this in the background (`&`, then `wait`, as run.sh did so that a trap fires at once) hands it INT and QUIT
 ignored, because bash starts an async command that way, and every suite would inherit that (test_fabric_lease_cli asserts its
 command is not deaf to them). set -m would restore them but puts each job in a group of its own,
@@ -49,6 +55,13 @@ SUITE_TIMEOUT_S = 900.0
 # The jobs the machine's memory allows: MemAvailable over this assumed peak per suite (several suites start gpg agents,
 # git repositories and servers). Unknown memory (no /proc/meminfo) bounds nothing.
 SUITE_MEM_MIB = 1024
+# After a stop, how long a suite's tree has to end on TERM before it is KILLed.
+STOP_GRACE_S = 5.0
+
+stopping = threading.Event()
+stop_signal = 0
+running: set[subprocess.Popen] = set()
+running_lock = threading.Lock()
 
 
 def ordered_suites() -> list[str]:
@@ -99,6 +112,11 @@ def run_suite(path: str, timeout_s: float) -> tuple[int, bytes]:
     """(status, output). A suite past its budget is ended with its tree and reported with what it had printed and a line
     naming the budget; its status is 124, the one timeout(1) uses."""
     proc = subprocess.Popen([sys.executable, path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    with running_lock:
+        running.add(proc)
+    # A stop that came between the start and the registration found nothing to end: it is ended here.
+    if stopping.is_set():
+        end_trees([proc], signal.SIGTERM)
     try:
         out, _ = proc.communicate(timeout=timeout_s)
         return proc.returncode, out
@@ -117,11 +135,41 @@ def run_suite(path: str, timeout_s: float) -> tuple[int, bytes]:
                                                  "it started still holds its pipe, so the rest of its output is lost\n").encode()
         note = f"\n{path}: still running after its {timeout_s:g} s budget; ended\n".encode()
         return 124, out + note
+    finally:
+        with running_lock:
+            running.discard(proc)
+
+
+def end_trees(procs: list[subprocess.Popen], sig: int) -> None:
+    for proc in procs:
+        for pid in [*descendants(proc.pid), proc.pid]:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+
+
+def on_stop(signum: int, _frame: object) -> None:
+    """The first signal ends the run's work; a second changes nothing (a runner's cancel sends INT, then TERM). The suites'
+    trees get TERM once; whatever is still running after the grace is KILLed, so the run ends within about the grace."""
+    global stop_signal
+    if stopping.is_set():
+        return
+    stop_signal = signum
+    stopping.set()
+    with running_lock:
+        procs = list(running)
+    end_trees(procs, signal.SIGTERM)
+    killer = threading.Timer(STOP_GRACE_S, lambda: end_trees(list(running), signal.SIGKILL))
+    killer.daemon = True
+    killer.start()
 
 
 def main() -> int:
-    for sig in (signal.SIGINT, signal.SIGQUIT):
-        signal.signal(sig, signal.SIG_DFL)
+    signal.signal(signal.SIGQUIT, signal.SIG_DFL)
+    # SIGINT too is taken over here, which also replaces the ignored disposition a background start hands down.
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, on_stop)
     os.chdir(os.path.dirname(HERE))
     slots = os.environ.get("AGENT_FABRIC_TEST_JOBS") or str(os.cpu_count() or 1)
     if not (slots.isdigit() and int(slots) >= 1):
@@ -145,6 +193,8 @@ def main() -> int:
 
     def run(path: str) -> None:
         nonlocal failed
+        if stopping.is_set():
+            return
         status, output = run_suite(path, timeout_s)
         with printing:
             sys.stdout.write(f"\n== {path}\n")
@@ -155,6 +205,8 @@ def main() -> int:
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=int(slots)) as pool:
         list(pool.map(run, ordered_suites()))
+    if stopping.is_set():
+        return 128 + stop_signal
     # A suite's output is written whole and may end without a newline: the count starts a line of its own.
     print(f"\nFAILED_SUITES={failed}")
     return 1 if failed else 0

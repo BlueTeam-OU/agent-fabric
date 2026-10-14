@@ -156,14 +156,25 @@ def alive(pid: int) -> bool:
         return False
 
 
-def end_tree(root: int, sleep=time.sleep, term_grace: float = TERM_GRACE_S, kill_wait: float = KILL_WAIT_S) -> None:
+def end_tree(root: int, sleep=time.sleep, term_grace: float = TERM_GRACE_S, kill_wait: float = KILL_WAIT_S,
+             graceful: bool = False) -> None:
     """Ends `root` and everything below it, or a suite still writing would recreate the scratch directory or fail in it.
-    The tree is walked again and again, not once: a root left running starts its next child the moment one dies (a test
-    script's next step, the python runner's next queued suite), and that child is in no earlier snapshot. TERM until the
-    grace is over, KILL after, until nothing alive is left below the root or the wait is over; the root is killed last.
-    The root is STOPPED first: the walk only ever ends the root's children, and one that has just died is replaced by the
-    root's next (reproduced: the python runner started every queued suite after the first TERM, 40 of 40). A stopped
-    root starts nothing, and a KILL still ends it."""
+    The root is STOPPED first: a root left running starts its next child the moment one dies (a test script's next step,
+    the python runner's next queued suite: 40 of 40 started after the first TERM), and that child is in no earlier
+    snapshot. A stopped root starts nothing, and a KILL still ends it. Then the tree is walked again and again, not once:
+    TERM until the grace is over, KILL after, until nothing alive is left below the root or the wait is over; the root is
+    killed last, never before its children, or they would be reparented out of the walk.
+    A root that is `graceful` (the python runner, which buffers its suites' output and ends their trees itself) is asked
+    first: it gets TERM, is waited for up to `kill_wait`, and only when it is still there is it treated as above, so a stop
+    loses what the running suites had printed only when the runner does not answer."""
+    started = time.monotonic()
+    if graceful:
+        try:
+            os.kill(root, signal.SIGTERM)
+        except OSError:
+            pass
+        while alive(root) and time.monotonic() - started < kill_wait:
+            sleep(0.1)
     try:
         os.kill(root, signal.SIGSTOP)
     except OSError:
@@ -194,7 +205,7 @@ def end_tree(root: int, sleep=time.sleep, term_grace: float = TERM_GRACE_S, kill
         pass
 
 
-def invoke(label: str | None, argv: list[str], env: dict[str, str], cwd: str) -> int:
+def invoke(label: str | None, argv: list[str], env: dict[str, str], cwd: str, graceful: bool = False) -> int:
     """One suite in the foreground, its output inherited so it appears as it is written. A command that cannot be started
     is a failed suite said by name, never a skipped one; a suite killed by a signal is a failure (negative status)."""
     if label is not None:
@@ -218,7 +229,7 @@ def invoke(label: str | None, argv: list[str], env: dict[str, str], cwd: str) ->
         # The signal may land after the child exists and before `proc` holds it (a handler runs between two bytecodes):
         # the children this call added are then the suite, found by what appeared since.
         if proc is not None:
-            end_tree(proc.pid)
+            end_tree(proc.pid, graceful=graceful)
             proc.wait()
         else:
             for pid in sorted(set(children_of(os.getpid())) - already):
@@ -277,7 +288,7 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         if what in ("all", "static"):
             failed += invoke("static (bash -n, shellcheck, ruff)", [PY, os.path.join(HERE, "static.py")], env, ROOT) != 0
         if what in ("all", "python"):
-            failed += invoke(None, [PY, os.path.join(HERE, "run_python_suites.py")], env, ROOT) != 0
+            failed += invoke(None, [PY, os.path.join(HERE, "run_python_suites.py")], env, ROOT, graceful=True) != 0
             failed += invoke("corpus lint", [PY, "tools/fabric/lint.py"], env, ROOT) != 0
             failed += invoke("routing check", [PY, "tools/fabric/routing.py", "check"], env, ROOT) != 0
         if what in ("all", "bash"):
