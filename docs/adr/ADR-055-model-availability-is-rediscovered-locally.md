@@ -123,7 +123,9 @@ fleet reports (ADR-029), so it carries that view.
    head, posted by `fabric-review --engine codex` when the engine cannot
    run (over the allowance, or at capacity after rule 2's waits) as a
    review object from an account whose reviews count; with neither, the
-   arm refuses. Never paid API spend in its place: the engine rides the
+   engine is absent: the arm proceeds on the required reviews and says
+   "codex: absent" in its summary and posted basis, and the gate reads it
+   the same way. Never paid API spend in its place: the engine rides the
    subscription only.
 
 ## 6. Consequences
@@ -177,3 +179,4 @@ The body above reads current; each change's full note is in [history/ADR-055-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-13 | Codex is an additional review: unavailable, the claude review alone arms | §5 rule 8: arming.json reviews claude, additional_reviews codex; review or unavailable marker per head; no API spend |
+| 2026-10-14 | An absent additional review does not stop an arm | §5 rule 8: neither review nor marker on the head is "absent"; the arm proceeds and says so; the gate reads the same |
