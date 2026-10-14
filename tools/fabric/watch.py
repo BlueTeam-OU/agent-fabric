@@ -25,7 +25,10 @@ CONTRACT:
             protocol), COLUMNS; XDG_CACHE_HOME (the avatar's cache); the
             rest passes to the commands untouched.
   stdout    three blocks, in this order:
-              identity       beside the avatar (20 x 10 cells; on a terminal
+              identity       beside the avatar (20 x 10 cells, 12 x 6 on a pane
+                             of fewer than 30 rows, where the text is 6
+                             lines too: the blank ones, the second engine
+                             and a line of the harness are left out; on a terminal
                              only, and not on one narrower than 52 columns):
                                "AI <first name> <surname>" from the persona
                                (watch_identity.persona; the login alone when
@@ -54,7 +57,14 @@ CONTRACT:
             seconds; the pull requests ask GitHub, so they are read every
             --prs-every seconds and shown from the last read in between,
             with its age. Each screen clears the last; --once prints one
-            and no clear.
+            and no clear. On a terminal the screen is cut to the pane's
+            height (one line less, so the last newline does not scroll the
+            title off): the title and the identity stay, the jobs take what
+            is left after a third for the pull requests, and a cut block
+            ends with "… N more"; no line is longer than the pane is wide
+            (wide characters count two cells). The pane's size is read from
+            the kernel on every screen, so a resize is followed. --once is
+            never cut.
   avatar    from settings/avatar.png of the store checkout, else the
             candidate the profile names, else none (avatar.py). On a pane of a
             host listed in runtime/control/watch-graphics.json (TERM_PROGRAM) the PNG file is transmitted as it is
@@ -63,7 +73,7 @@ CONTRACT:
             show); anywhere else it is drawn with Unicode half blocks in
             24-bit colour from the stdlib PNG decoder (8-bit RGB or RGBA,
             not interlaced; any other file shows no avatar), decoded once
-            and cached by the file's sha256 as pixels, never as escapes.
+            and cached by the file's sha256 and the size as pixels, never as escapes.
   exit      0 when it leaves (q, end of input, Ctrl-C, or --once); 2 usage.
 
 It is read-only: it runs bin/fabric-status --json, bin/fabric-jobs list --json
@@ -86,7 +96,6 @@ import math
 import os
 import re
 import select
-import shutil
 import subprocess
 import sys
 import termios
@@ -205,11 +214,25 @@ class Row:
 
 Line = str | Row
 AVATAR_MIN_COLUMNS = 52
-TEXT_COLUMN = avatar.COLS + 2
-GO_TO_TEXT = f"\033[{TEXT_COLUMN}G"            # kitty draws over the cells; the text is written beside them
+FULL_BOX = (avatar.COLS, avatar.ROWS)
+SMALL_BOX = (12, 6)                            # same aspect: a cell is about twice as tall as wide
+TALL_PANE_ROWS = 30                            # the full box only from here up; below, it is half a 20-row pane
 JOB_PRIORITIES = ("blocking", "high", "normal", "low")      # fabric-jobs' own order (jobsparts/base.py)
 JOB_STATES = ("active", "blocked", "queued", "delivered")
 HEADER_ROWS = avatar.ROWS
+
+
+def box_for(pane_rows: int) -> tuple[int, int]:
+    """The avatar's (columns, rows) of cells: the full box on a tall pane or when the height is not known (0)."""
+    return SMALL_BOX if 0 < pane_rows < TALL_PANE_ROWS else FULL_BOX
+
+
+def text_column(box: tuple[int, int]) -> int:
+    return box[0] + 2
+
+
+def go_to_text(box: tuple[int, int]) -> str:
+    return f"\033[{text_column(box)}G"          # kitty draws over the cells; the text is written beside them
 
 
 def rank(value: object, order: tuple[str, ...]) -> int:
@@ -244,41 +267,42 @@ def jobs_block(jobs_text: str) -> list[str]:
 
 
 class AvatarSlot:
-    """The avatar of the identity header: its left-hand prefixes (HEADER_ROWS of them), or None when there is nothing to
+    """The avatar of the identity header: its left-hand prefixes (box rows of them), or None when there is nothing to
     draw. mode "kitty" transmits the PNG file as it is; "blocks" draws half blocks from the decoded, cached pixels,
     which a thread of its own decodes, so the first screens show the room it will take and never wait for it."""
 
     def __init__(self, mode: str | None, cache_dir: str):
         self.mode, self.cache_dir = mode, cache_dir
+        self.box = FULL_BOX
         self.path: str | None = None
         self._prefixes: list[str] | None = None
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
-    def set_path(self, path: str | None) -> None:
+    def set_path(self, path: str | None, box: tuple[int, int] = FULL_BOX) -> None:
         with self._lock:
-            if self.mode is None or path == self.path:
+            if self.mode is None or (path, box) == (self.path, self.box):
                 return
-            self.path, self._prefixes = path, None
+            self.path, self.box, self._prefixes = path, box, None
             if path is None:
                 return
-            self._thread = threading.Thread(target=self._load, args=(path,), name="watch-avatar", daemon=True)
+            self._thread = threading.Thread(target=self._load, args=(path, box), name="watch-avatar", daemon=True)
             self._thread.start()
 
-    def _load(self, path: str) -> None:
+    def _load(self, path: str, box: tuple[int, int]) -> None:
         try:
             data = avatar.read_file(path)
             if self.mode == "kitty":
                 avatar.decode(data)                          # what is sent is a file this would draw: never bytes that only start like a PNG
-                escape = avatar.kitty_escape(data)
-                prefixes = None if escape is None else [escape + GO_TO_TEXT] + [GO_TO_TEXT] * (HEADER_ROWS - 1)
+                escape = avatar.kitty_escape(data, *box)
+                prefixes = None if escape is None else [escape + go_to_text(box)] + [go_to_text(box)] * (box[1] - 1)
             else:
-                grid = avatar.grid_of(data, self.cache_dir)
+                grid = avatar.grid_of(data, self.cache_dir, cols=box[0], rows=box[1])
                 prefixes = [row + "  " for row in avatar.half_blocks(grid)]
         except avatar.Refused:
             prefixes = None                                  # not an avatar this draws: none shown
         with self._lock:
-            if path == self.path:
+            if (path, box) == (self.path, self.box):
                 self._prefixes = prefixes if prefixes is not None else []
 
     def prefixes(self) -> list[str] | None:
@@ -286,7 +310,7 @@ class AvatarSlot:
             if self.mode is None or self.path is None:
                 return None
             if self._prefixes is None:
-                return [" " * TEXT_COLUMN] * HEADER_ROWS     # loading: the room it will take
+                return [" " * text_column(self.box)] * self.box[1]     # loading: the room it will take
             return self._prefixes or None
 
     def wait(self, timeout: float = 30.0) -> None:
@@ -336,8 +360,9 @@ class Deck:
         self.versions: dict[str, str | None] = {}
         self.version_of = version_of
 
-    def text_rows(self, status_text: str) -> tuple[list[str], str]:
-        """(HEADER_ROWS lines of text, the name the title says)."""
+    def text_rows(self, status_text: str, box: tuple[int, int] = FULL_BOX) -> tuple[list[str], str]:
+        """(as many lines of text as the box has rows, the name the title says). The small box is 6 rows: the blank
+        lines go, the harness joins the login and the model its effort, and the second engine is left out."""
         status, problem = parse_object(status_text)
         persona = watch_identity.persona(self.environ, self.claims_path)
         login = str((status or {}).get("agent") or "(login unknown)")
@@ -350,6 +375,22 @@ class Deck:
         load, mem = watch_resources.host_load(self.proc), watch_resources.host_memory(self.proc)
         self.disk.poll()
         kb, age, why = self.disk.value()
+        account = f"account  cpu {'-' if mine['cpu_pct'] is None else mine['cpu_pct']}%  mem {watch_resources.human_kb(mine['rss_kb'])}  ({mine['procs']} processes)"
+        host = ("host     load " + (" ".join(f"{v:.2f}" for v in load) if load else "-")
+                + "  free " + (f"{watch_resources.human_kb(mem[0])} of {watch_resources.human_kb(mem[1])}" if mem else "-"))
+        disk = "disk     " + (f"{watch_resources.human_kb(kb)} (read {clock_text(age)} ago)" if kb is not None else (why or "reading…"))
+        if box != FULL_BOX:
+            rows = [
+                persona.name or login,
+                f"{login} · {role} · {harness or '-'} {self.versions.get(harness or '') or ''}".rstrip(),
+                f"model {models['model'] or '-'} · effort {models['effort'] or '-'}",
+                account, host, disk,
+            ]
+            if status is None:
+                said = (problem or "(fabric-status: no answer)").split("\n")[:2]
+                rows[1:3] = said + [""] * (2 - len(said))
+            self.slot.set_path(persona.avatar_path, box)
+            return rows, persona.name or login
         rows = [
             persona.name or login,
             f"{login} · {role}",
@@ -357,41 +398,99 @@ class Deck:
             f"model {models['model'] or '-'} · effort {models['effort'] or '-'}",
             models["engine"] or "",
             "",
-            f"account  cpu {'-' if mine['cpu_pct'] is None else mine['cpu_pct']}%  mem {watch_resources.human_kb(mine['rss_kb'])}  ({mine['procs']} processes)",
-            "host     load " + (" ".join(f"{v:.2f}" for v in load) if load else "-")
-            + "  free " + (f"{watch_resources.human_kb(mem[0])} of {watch_resources.human_kb(mem[1])}" if mem else "-"),
-            "disk     " + (f"{watch_resources.human_kb(kb)} (read {clock_text(age)} ago)" if kb is not None else (why or "reading…")),
+            account, host, disk,
             "",
         ]
         if status is None:
             # fabric-status did not answer: what it said, in place of the login, harness and model lines
             said = (problem or "(fabric-status: no answer)").split("\n")[:5]
             rows[1:6] = said + [""] * (5 - len(said))
-        self.slot.set_path(persona.avatar_path)
+        self.slot.set_path(persona.avatar_path, box)
         return rows, persona.name or login
 
-    def identity(self, status_text: str, once: bool = False, columns: int = 80) -> tuple[list[Line], str]:
-        rows, name = self.text_rows(status_text)
+    def identity(self, status_text: str, once: bool = False, columns: int = 80, pane_rows: int = 0) -> tuple[list[Line], str]:
+        box = box_for(pane_rows)
+        rows, name = self.text_rows(status_text, box)
         if once:
             self.slot.wait()
             self.disk.wait(3.0)
-            rows[8] = self.disk_row()                                     # the reading, if it finished
+            rows[8 if box == FULL_BOX else 5] = self.disk_row()           # the reading, if it finished
         prefixes = self.slot.prefixes() if columns >= AVATAR_MIN_COLUMNS else None
+        cut = pane_rows > 0 and columns > 1            # on a pane: no line wraps into a second row
         if prefixes is None:
-            return list(rows), name
-        return [Row(prefix, text) for prefix, text in zip(prefixes, rows)], name
+            return [fit(r, columns - 1) for r in rows] if cut else list(rows), name
+        width = columns - text_column(box) - 1
+        return [Row(prefix, fit(text, width) if cut else text) for prefix, text in zip(prefixes, rows)], name
 
     def disk_row(self) -> str:
         kb, age, why = self.disk.value()
         return "disk     " + (f"{watch_resources.human_kb(kb)} (read {clock_text(age)} ago)" if kb is not None else (why or "reading…"))
 
 
-def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: float, stamp: str) -> list[Line]:
-    return [
-        f"── {name} ({stamp}; q leaves) ──", *identity, "",
-        "── jobs ──", *jobs, "",
-        f"── pull requests (read {int(prs_age)} s ago) ──", *prs.split("\n"),
-    ]
+def cells(char: str) -> int:
+    return 0 if unicodedata.combining(char) else 2 if unicodedata.east_asian_width(char) in "WF" else 1
+
+
+def fit(text: str, width: int) -> str:
+    """The line as printable() shows it, cut to `width` terminal cells (a wide character is two): a line that wraps takes
+    two rows of the pane and pushes the title off it. Tabs are expanded first, as they are when drawn."""
+    out, used = [], 0
+    for char in printable(text):
+        used += cells(char)
+        if used > width:
+            break
+        out.append(char)
+    return "".join(out)
+
+
+def clip(lines: list[str], n: int) -> list[str]:
+    """At most n lines (at least one when there are any); the last of a cut block says how many it hides, so a block is
+    never dropped without a word."""
+    n = max(1, n) if lines else 0
+    if len(lines) <= n:
+        return lines
+    return lines[:n - 1] + [f"… {len(lines) - n + 1} more"]
+
+
+def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: float, stamp: str, rows: int = 0, columns: int = 0) -> list[Line]:
+    """The three blocks. rows > 0 is the pane's height: the screen is cut to rows - 1 lines, because the newline that ends
+    the last one would scroll a full pane and push the title off the top. The title and the identity stay; the jobs and
+    the pull requests share what is left, the jobs first, the pull requests keeping a third of it at least one line;
+    on a pane too short for both, the jobs alone (see the comment below). columns > 1 cuts a job or
+    pull-request line, the block headers and the title to the width, since a wrapped line takes two rows of the pane (the identity's own
+    lines are cut by Deck.identity, which knows where its text starts)."""
+    pr_lines = prs.split("\n")
+    title = f"── {name} ({stamp}; q leaves) ──"
+    jobs_head, prs_head = "── jobs ──", f"── pull requests (read {int(prs_age)} s ago) ──"
+    if rows > 0 and columns > 1:
+        jobs = [fit(j, columns - 1) for j in jobs]
+        pr_lines = [fit(l, columns - 1) for l in pr_lines]
+        title = fit(title, columns - 1)
+        jobs_head, prs_head = (fit(h, columns - 1) for h in (jobs_head, prs_head))
+    show_jobs = show_prs = True
+    if rows > 0:
+        # A block costs its blank line and header and needs a line of its own (clip makes it the count of what it hides),
+        # so both blocks need 6 spare rows. With fewer, the jobs are shown alone (the pull requests alone when there are
+        # none) in what the title and identity leave, and with under 3 neither: a header with nothing under it reads as
+        # an empty block.
+        spare = rows - 1 - (len(identity) + 1)
+        both = spare >= 6
+        show_jobs = both or (spare >= 3 and bool(jobs))
+        show_prs = both or (spare >= 3 and not jobs)
+        if both:
+            room = spare - 4
+            pr_n = min(len(pr_lines), max(1, room // 3))
+            job_n = min(len(jobs), max(1, room - pr_n))
+            pr_n = min(len(pr_lines), max(1, room - job_n))
+        else:
+            job_n = pr_n = spare - 2
+        jobs, pr_lines = clip(jobs, job_n), clip(pr_lines, pr_n)
+    lines: list[Line] = [title, *identity]
+    if show_jobs:
+        lines += ["", jobs_head, *jobs]
+    if show_prs:
+        lines += ["", prs_head, *pr_lines]
+    return lines[:rows - 1] if rows > 0 else lines
 
 
 def draw(lines: list[Line] | str, clear: bool, out=None) -> None:
@@ -420,10 +519,13 @@ def wait_for_q(seconds: float, fd: int = 0) -> bool:
 
 def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
           clock: Callable[[], float] = time.monotonic, wait: Callable[[float], bool] = wait_for_q,
-          out=None, deck: Deck | None = None, columns: int = 80) -> int:
+          out=None, deck: Deck | None = None, columns: int = 80, rows: int = 0,
+          pane: Callable[[], tuple[int, int]] | None = None) -> int:
     prs, prs_at = "", None
     deck = deck or Deck(dict(os.environ), os.path.join(root, "identities", "personas", "claims.json"))
     while True:
+        if pane is not None:
+            columns, rows = pane()                     # asked on every screen: a pane is resized under a running watch
         if prs_at is None or clock() - prs_at >= prs_every:
             read = pulls(root, projects, stop=(lambda: False) if once else (lambda: wait(0)))
             if read is None:
@@ -431,10 +533,20 @@ def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
             prs, prs_at = read, clock()
         status = run([os.path.join(root, "bin", "fabric-status"), "--json"], merge=False)
         jobs = run([os.path.join(root, "bin", "fabric-jobs"), "list", "--json"], merge=False)
-        identity, name = deck.identity(status, once=once, columns=columns)
-        draw(screen(identity, name, jobs_block(jobs), prs, clock() - prs_at, time.strftime("%H:%M:%S")), clear=not once, out=out)
+        identity, name = deck.identity(status, once=once, columns=columns, pane_rows=rows)
+        draw(screen(identity, name, jobs_block(jobs), prs, clock() - prs_at, time.strftime("%H:%M:%S"), rows, columns), clear=not once, out=out)
         if once or wait(every):
             return 0
+
+
+def pane_size(fd: int = 1) -> tuple[int, int]:
+    """(columns, rows) of the terminal on fd, from the kernel, not from LINES/COLUMNS (an exported stale value would size
+    the box and the cut wrongly); 80 x 24 when it does not say."""
+    try:
+        size = os.get_terminal_size(fd)
+    except OSError:
+        return 80, 24
+    return size.columns or 80, size.lines or 24
 
 
 def parse(argv: list[str]) -> tuple[float, float, bool] | None:
@@ -479,9 +591,11 @@ def main(argv: list[str]) -> int:
     root = fabric_root()
     mode = ("kitty" if os.environ.get("TERM_PROGRAM") in kitty_terminals(root) else "blocks") if on_terminal else None
     deck = Deck(dict(os.environ), os.path.join(root, "identities", "personas", "claims.json"), mode)
-    columns = shutil.get_terminal_size((80, 24)).columns if on_terminal else 0
+    # --once is a document, not a pane: never cut, and its width is read once.
+    columns = pane_size()[0] if on_terminal else 0
+    pane = pane_size if on_terminal and not once else None
     try:
-        return watch(root, projects, every, prs_every, once, deck=deck, columns=columns)
+        return watch(root, projects, every, prs_every, once, deck=deck, columns=columns, pane=pane)
     except KeyboardInterrupt:
         return 0
     finally:

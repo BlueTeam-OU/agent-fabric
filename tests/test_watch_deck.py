@@ -13,7 +13,10 @@ import base64
 import io
 import json
 import os
+import fcntl
 import pty
+import struct
+import termios
 import re
 import select
 import shutil
@@ -133,10 +136,34 @@ class Slot(unittest.TestCase):
     def test_kitty_mode_transmits_the_file_as_it_is_once_and_moves_to_the_text_column_on_every_row(self):
         rows = self.slot("kitty").prefixes()
         self.assertEqual(len(rows), 10)
-        self.assertTrue(rows[0].endswith(watch.GO_TO_TEXT) and rows[0].startswith(f"{ESC}_G"))
-        self.assertEqual(rows[1:], [watch.GO_TO_TEXT] * 9)
+        self.assertTrue(rows[0].endswith(watch.go_to_text(watch.FULL_BOX)) and rows[0].startswith(f"{ESC}_G"))
+        self.assertEqual(rows[1:], [watch.go_to_text(watch.FULL_BOX)] * 9)
         payload = "".join(re.findall(r";([A-Za-z0-9+/=]*)" + re.escape(f"{ESC}\\"), rows[0]))
         self.assertEqual(base64.b64decode(payload), self.png)
+
+    def test_the_small_box_is_six_rows_of_twelve_cells_in_both_modes(self):
+        small = watch.box_for(20)
+        self.assertEqual((small, watch.box_for(29), watch.box_for(30), watch.box_for(0)), (watch.SMALL_BOX, watch.SMALL_BOX, watch.FULL_BOX, watch.FULL_BOX))
+        for mode in ("blocks", "kitty"):
+            s = watch.AvatarSlot(mode, os.path.join(self.tmp, "cache"))
+            s.set_path(self.path, small)
+            s.wait()
+            rows = s.prefixes()
+            self.assertEqual(len(rows), 6, mode)
+            if mode == "blocks":
+                self.assertTrue(all(r.count("▀") == 12 for r in rows))
+            else:
+                self.assertIn("c=12,r=6,", rows[0])
+                self.assertTrue(rows[0].endswith(watch.go_to_text(small)) and watch.go_to_text(small) != watch.go_to_text(watch.FULL_BOX))
+
+    def test_a_pane_that_changes_size_redraws_the_avatar_at_the_new_size(self):
+        s = watch.AvatarSlot("blocks", os.path.join(self.tmp, "cache"))
+        s.set_path(self.path, watch.SMALL_BOX)
+        s.wait()
+        self.assertEqual(len(s.prefixes()), 6)
+        s.set_path(self.path, watch.FULL_BOX)
+        s.wait()
+        self.assertEqual(len(s.prefixes()), 10)
 
     def test_no_mode_is_no_avatar_and_no_file_is_none(self):
         self.assertIsNone(self.slot(None).prefixes())
@@ -160,7 +187,7 @@ class Slot(unittest.TestCase):
     def test_while_it_loads_the_room_it_will_take_is_blank(self):
         s = watch.AvatarSlot("blocks", self.tmp)
         s.path = self.path                                           # chosen, thread not started: loading
-        self.assertEqual(s.prefixes(), [" " * watch.TEXT_COLUMN] * 10)
+        self.assertEqual(s.prefixes(), [" " * watch.text_column(watch.FULL_BOX)] * 10)
 
     def test_a_narrow_terminal_gets_no_avatar_and_a_wide_one_does(self):
         deck = watch.Deck({"HOME": self.tmp, "AGENT_FABRIC_SECRET_STORE": os.path.join(self.tmp, "store")}, os.path.join(self.tmp, "claims.json"),
@@ -175,6 +202,30 @@ class Slot(unittest.TestCase):
         self.assertTrue(all(isinstance(r, str) for r in narrow))
         self.assertTrue(all(isinstance(r, watch.Row) for r in wide))
         self.assertEqual(len(wide), watch.HEADER_ROWS)
+
+    def test_a_short_pane_has_a_header_as_tall_as_the_small_avatar(self):
+        deck = watch.Deck({"HOME": self.tmp, "AGENT_FABRIC_SECRET_STORE": os.path.join(self.tmp, "store")}, os.path.join(self.tmp, "claims.json"),
+                          "blocks", proc=os.path.join(self.tmp, "proc"), uid=0, disk=FakeDisk(), version_of=lambda h: "1")
+        put(os.path.join(self.tmp, "store", "settings", "avatar.png"), self.png)
+        put(os.path.join(self.tmp, "store", ".agent-id"), AGENT)
+        status = json.dumps({"agent": "pd-x", "role": "python-dev", "api": {"session_model": "m9"}, "session_effort": {"reported": "high"}})
+        deck.identity(status, pane_rows=20)
+        deck.slot.wait()
+        short, _ = deck.identity(status, pane_rows=20)
+        self.assertEqual(len(short), 6)
+        self.assertTrue(all(isinstance(r, watch.Row) for r in short))
+        text = "\n".join(r.text for r in short)
+        self.assertIn("pd-x · python-dev", text)
+        self.assertIn("model m9 · effort high", text)
+        self.assertTrue(short[5].text.startswith("disk"))
+        long_status = json.dumps({"agent": "pd-x", "role": "python-dev", "api": {"session_model": "m" * 80}, "session_effort": {"reported": "high"}})
+        narrow, _ = deck.identity(long_status, columns=60, pane_rows=20)
+        self.assertTrue(any("mmmm" in r.text for r in narrow))
+        self.assertTrue(all(len(r.text) <= 60 - watch.text_column(watch.SMALL_BOX) - 1 for r in narrow), [r.text for r in narrow])
+        deck.identity(status, pane_rows=40)
+        deck.slot.wait()
+        tall, _ = deck.identity(status, pane_rows=40)
+        self.assertEqual(len(tall), watch.HEADER_ROWS)
 
     def test_a_failed_fabric_status_shows_what_it_said_in_place_of_the_login_lines(self):
         deck = watch.Deck({"HOME": self.tmp}, os.path.join(self.tmp, "claims.json"), None, proc=os.path.join(self.tmp, "proc"), uid=0,
@@ -229,7 +280,7 @@ class Once(unittest.TestCase):
         os.makedirs(os.path.join(self.root, "runtime", "control"))
         shutil.copy(os.path.join(HERE, "runtime", "control", "watch-graphics.json"), os.path.join(self.root, "runtime", "control"))
 
-    def run_once(self, term_program: str | None, tty: bool) -> str:
+    def run_once(self, term_program: str | None, tty: bool, winsize: tuple[int, int] | None = None, many_jobs: int = 0) -> str:
         env = {"HOME": os.path.join(self.tmp, "home"), "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "AGENT_FABRIC_ROOT": self.root,
                "TMPDIR": self.tmp}
         if term_program:
@@ -238,6 +289,8 @@ class Once(unittest.TestCase):
         if not tty:
             return subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60, check=True, stdin=subprocess.DEVNULL).stdout
         master, slave = pty.openpty()
+        if winsize:
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", winsize[1], winsize[0], 0, 0))
         try:
             proc = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, close_fds=True)
         finally:
@@ -276,6 +329,15 @@ class Once(unittest.TestCase):
         self.assertNotIn(f"{ESC}_G", out)
         self.assertNotIn(f"a{ESC}", out)
         self.assertIn("a?[2Jb", out)
+
+    def test_once_is_never_cut_nor_shrunk_whatever_the_height_of_the_terminal(self):
+        jobs = ",".join(f'{{"id":"j{i}","state":"queued","priority":"normal","title":"t{i}"}}' for i in range(1, 41))
+        put(os.path.join(self.root, "bin", "fabric-jobs"), f"#!/bin/sh\necho '[{jobs}]'\n")
+        os.chmod(os.path.join(self.root, "bin", "fabric-jobs"), 0o755)
+        out = self.run_once(None, tty=True, winsize=(100, 20))
+        self.assertIn("t40", out)
+        self.assertNotIn(" more", out)
+        self.assertEqual(len([l for l in out.split("\n") if "▀" in l]), 10)
 
     def test_under_herdr_the_avatar_is_one_kitty_transmission_of_the_files_bytes(self):
         out = self.run_once("herdr", tty=True)

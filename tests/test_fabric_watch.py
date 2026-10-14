@@ -178,6 +178,59 @@ def main() -> int:
     os.close(wfd)
     check("printable keeps text, replaces C1", watch.printable("a\x9bb\tc") == "a?b     c", watch.printable("a\x9bb\tc"))
 
+    print("in-process: the screen fits the pane")
+    ident = [f"id{i}" for i in range(10)]
+    many = [f"j{i} job" for i in range(40)]
+    prs12 = "\n".join(f"pr{i}" for i in range(12))
+    fit = watch.screen(ident, "n", many, prs12, 3.0, "00:00:00", rows=20)
+    check("20-row pane: at most 19 lines, so the last newline scrolls nothing", len(fit) <= 19, len(fit))
+    check("…the title and the whole identity stay", fit[0].startswith("── n (") and fit[1:11] == ident, fit[:3])
+    check("…each cut block says what it hides", any(l.startswith("… ") and l.endswith(" more") for l in fit[11:]) and sum(l.startswith("… ") for l in fit) == 2, fit)
+    check("…the pull requests keep a line", any(l.startswith("pr") or l.startswith("… ") for l in fit[fit.index(next(l for l in fit if "pull requests" in l)):]), fit)
+    few = watch.screen(ident, "n", ["j1 a"], "pr", 0.0, "00:00:00", rows=20)
+    check("a screen that fits is not cut", len(few) == 11 + 1 + 2 + 1 + 2 and "… " not in "".join(few[12:]), few)
+    full = watch.screen(ident, "n", many, prs12, 0.0, "00:00:00")
+    check("no height (--once, not a terminal): nothing is cut", len(full) == 11 + 1 + 1 + 40 + 1 + 1 + 12, len(full))
+    wide = watch.screen(ident, "n", ["x" * 300], "p" * 300, 0.0, "00:00:00", rows=30, columns=80)
+    check("a long line is cut to the width", all(len(l) <= 79 for l in wide[12:] if l and not l.startswith("──")), [len(l) for l in wide])
+    tiny = watch.screen(ident, "n", many, prs12, 0.0, "00:00:00", rows=8)
+    check("a pane smaller than the identity: still no more than rows - 1 lines", len(tiny) == 7, len(tiny))
+
+    print("in-process: no line wraps, no block vanishes, the pane is asked on every screen")
+    wide = watch.screen(ident, "n" * 80, ["x" * 300, "漢" * 100, "a\tb" * 40], ("p" * 300 + "\n") * 2, 0.0, "00:00:00", rows=40, columns=60)
+    check("every line, the title too, is at most 59 cells (a tab is expanded, a wide character is two)",
+          all(sum(watch.cells(c) for c in watch.printable(l)) <= 59 for l in wide if isinstance(l, str)), [len(l) for l in wide])
+    narrow = watch.screen(["i"] * 6, "n", ["j"], "p", 123.0, "00:00:00", rows=40, columns=30)
+    check("…the block headers too: nothing is wider than 29 cells at 30 columns", all(sum(watch.cells(c) for c in l) <= 29 for l in narrow), narrow)
+    two = watch.screen(["i"] * 6, "n", [f"j{i}" for i in range(5)], "pr1\npr2\npr3", 0.0, "00:00:00", rows=14)
+    check("two rows left: the jobs and the pull requests each say how many they hide",
+          "… 5 more" in two and any(l.startswith("… ") for l in two[two.index(next(l for l in two if "pull requests" in l)):]), two)
+    five = [f"j{i}" for i in range(5)]
+    for r, shown in ((13, ["j0", "j1", "… 3 more"]), (12, ["j0", "… 4 more"]), (11, ["… 5 more"])):
+        got = watch.screen(["i"] * 6, "n", five, "pr1\npr2", 0.0, "00:00:00", rows=r)
+        check(f"{r} rows, fewer than 6 spare: the jobs alone, in all the room, no empty header",
+              got[-len(shown):] == shown and not any("pull requests" in l for l in got) and len(got) <= r - 1, got)
+    none = watch.screen(["i"] * 6, "n", five, "pr1", 0.0, "00:00:00", rows=9)
+    check("under 3 spare rows: title and identity only, no header with nothing under it", len(none) == 7 and not any("──" in l for l in none[1:]), none)
+    nojobs = watch.screen(["i"] * 6, "n", [], "pr1\npr2\npr3", 0.0, "00:00:00", rows=13)
+    check("no jobs, 5 spare: the pull requests alone", nojobs[-3:] == ["pr1", "pr2", "pr3"] and not any(l == "── jobs ──" for l in nojobs), nojobs)
+    sizes = iter([(80, 40), (80, 40), (80, 18)])
+    seen = []
+    saved_screen = watch.screen
+    try:
+        watch.screen = lambda *a, **k: seen.append((a[6], a[7])) or ["x"]
+        watch.pulls, watch.run = (lambda *a, **k: "prs"), (lambda *a, **k: "x")
+        n = [0]
+        def two(seconds: float) -> bool:
+            n[0] += 1
+            return n[0] >= 3
+        watch.watch("/r", "/p", 30.0, 300.0, False, clock=lambda: 0.0, wait=two, out=io.StringIO(), deck=quiet_deck(),
+                    pane=lambda: next(sizes))
+    finally:
+        watch.screen, (watch.pulls, watch.run) = saved_screen, saved
+    check("the pane is asked on every screen: a resize is followed", seen == [(40, 80), (40, 80), (18, 80)], seen)
+    check("pane_size: the kernel's answer, or 80 x 24 when it has none", watch.pane_size(-1) == (80, 24), watch.pane_size(-1))
+
     shutil.rmtree(scratch_home, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0

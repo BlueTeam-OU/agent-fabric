@@ -247,6 +247,13 @@ class Cache(unittest.TestCase):
         write(blocked, b"")
         self.assertEqual(len(avatar.grid_of(self.data, os.path.join(blocked, "sub"), self.decoder)), 2 * avatar.ROWS)
 
+    def test_a_grid_of_another_size_is_cached_beside_the_first_not_over_it(self):
+        full = avatar.grid_of(self.data, self.cache, self.decoder)
+        small = avatar.grid_of(self.data, self.cache, self.decoder, cols=12, rows=6)
+        self.assertEqual((len(small), len(small[0]), len(full), len(full[0])), (12, 12, 2 * avatar.ROWS, avatar.COLS))
+        self.assertEqual(avatar.grid_of(self.data, self.cache, self.decoder), full)
+        self.assertEqual(avatar.grid_of(self.data, self.cache, lambda d: 1 / 0, cols=12, rows=6), small)   # from its own file
+
     def test_a_refused_file_raises_and_leaves_no_cache(self):
         with self.assertRaises(avatar.Refused):
             avatar.grid_of(png(4, 4, picture(4, 4, 3), colour=0, raw=bytes(20)), self.cache)
