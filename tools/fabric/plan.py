@@ -54,7 +54,7 @@ CTL_TIMEOUT_S = 20          # fabric-ctl's own wait for the control agents' repl
 LOGIN = re.compile(r"[a-z_][a-z0-9_-]{0,31}", re.ASCII)
 STEP_ID = re.compile(r"s[1-9][0-9]{0,3}", re.ASCII)
 LINK = re.compile(r"([a-z_][a-z0-9_-]{0,31}):(j[1-9][0-9]*)", re.ASCII)
-JOB_STATES = ("queued", "active", "blocked", "delivered", "done", "dropped")   # tools/fabric/jobs.py STATES
+JOB_STATES = ("queued", "active", "paused", "blocked", "delivered", "done", "dropped")   # tools/fabric/jobs.py STATES
 TITLE_MAX = 200
 EST_MAX = 3650
 

@@ -39,6 +39,8 @@ class Job(_JobKeys, total=False):
     priority: str
     waits_on: str
     blockers: list[str]
+    branch: str
+    worktree: str
 
 
 def _load(name: str, path: str):
@@ -51,10 +53,10 @@ def _load(name: str, path: str):
 identity = _load("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identity.py"))
 
 
-STATES = ("queued", "active", "blocked", "delivered", "done", "dropped")
+STATES = ("queued", "active", "paused", "blocked", "delivered", "done", "dropped")
 
 
-OPEN = ("queued", "active", "blocked", "delivered")
+OPEN = ("queued", "active", "paused", "blocked", "delivered")
 
 
 TERMINAL = ("done", "dropped")

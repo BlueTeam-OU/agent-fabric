@@ -11,7 +11,8 @@ import subprocess
 import sys
 import tempfile
 from instance_fixtures import write_operator_projects  # noqa: E402 — tests/, the script's own directory
-from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+import jobs_world  # noqa: E402 — tests/, the script's own directory
+from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
 scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,11 +28,17 @@ open(os.path.join(d, "gh.calls"), "a").write(" ".join(a) + "\\n")
 states = json.load(open(os.path.join(d, "gh.states")))
 if a[:2] == ["pr", "view"] and "--repo" in a:
     key = a[a.index("--repo") + 1] + "#" + a[2]
+    if key == "fixture-org/fixture-proj#1":      # jobs_world.LANDED, the artifact `done` is given
+        print(json.dumps({"state": "MERGED"}))
+        sys.exit(0)
     if key in states:
         print("[]" if states[key] == "__ARRAY__" else json.dumps({"state": states[key]}))
         sys.exit(0)
     sys.stderr.write("GraphQL: Could not resolve to a PullRequest with the number (HTTP 404)\\n")
     sys.exit(1)
+if a[:2] == ["pr", "list"]:
+    print("[]")
+    sys.exit(0)
 sys.stderr.write("fake gh: unsupported: " + " ".join(a) + "\\n")
 sys.exit(2)
 """
@@ -84,9 +91,8 @@ def main() -> int:
                "AGENT_FABRIC_SECRET_STORE": store, "CLAUDE_CODE_SESSION_ID": "sess-A", "CLAUDE_BRIDGE_URL": "http://127.0.0.1:9",
                "CLAUDE_BRIDGE_AUTH_TOKEN": "tok", "AGENT_FABRIC_HOSTS_REGISTRY": os.path.join(tmp, "none.json")}
         env["AGENT_FABRIC_OPERATOR"] = write_operator_projects(os.path.join(tmp, "operator"), {"fixture-proj": ["git@example.org:o/fixture-proj.git"]})
-        repo = os.path.join(tmp, "alpha")
-        os.makedirs(repo)
-        subprocess.run(["git", "init", "-q", repo], check=True, env=git_env())
+        repo = jobs_world.seeded(os.path.join(tmp, "alpha"), os.path.join(tmp, "origins"))
+        env.update(jobs_world.identity_env(), GH_REPO=jobs_world.GH_REPO)
 
         def put(name: str, doc) -> None:
             with open(os.path.join(fake, name), "w") as fh:
@@ -97,6 +103,10 @@ def main() -> int:
             return open(p).read().splitlines() if os.path.exists(p) else []
 
         def run(*argv: str) -> subprocess.CompletedProcess:
+            if argv[:1] in (("next",), ("switch",)):
+                jobs_world.touch_memory(home, repo)
+            if argv[:1] == ("done",):
+                jobs_world.landed(state, subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip(), argv[1])
             return subprocess.run([JOBS, *argv], cwd=repo, env=env, capture_output=True, text=True, timeout=120)
 
         def jobs(*extra: str) -> list[dict]:
@@ -266,7 +276,7 @@ def main() -> int:
         run("add", "a queued high job", "--priority", "high")
         r = run("next")
         check("`next` takes it ahead of a queued high job, and says why",
-              r.returncode == 0 and r.stdout.splitlines()[0].startswith("j6") and "blocker cleared: pr:o/r#7" in r.stdout.splitlines()[0], r.stdout)
+              r.returncode == 0 and r.stdout.splitlines()[0].startswith("j6") and "blocker cleared: pr:o/r#7" in r.stdout.splitlines()[0], r.stdout + r.stderr)
         check("…and it is active, its blockers dropped", job("j6")["state"] == "active" and "blockers" not in job("j6"))
         run("block", "j6", "--on", "pr:o/r#7")
         r = run("start", "j7")

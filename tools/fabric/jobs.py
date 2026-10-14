@@ -7,6 +7,7 @@ behind bin/fabric-jobs.
     fabric-jobs list [--all] [--json] [--stored] [--cached]
     fabric-jobs prio <id> <blocking|high|normal|low>
     fabric-jobs start <id>
+    fabric-jobs pause <id> "<why>"
     fabric-jobs block <id> "<on what>"
     fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
     fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n>
@@ -14,7 +15,8 @@ behind bin/fabric-jobs.
     fabric-jobs done <id>
     fabric-jobs drop <id> "<why>"
     fabric-jobs show <id> [--json]
-    fabric-jobs next [<id>] [--json]
+    fabric-jobs switch [<id>] [--json] [--type feat|fix|docs|chore|test|refactor] [--needs-merged]
+    fabric-jobs next [<id>] ...                                  alias of switch
     fabric-jobs pool-list [--role R] [--json]
     fabric-jobs pool-claim <pool id> [--topic T] [--working-copy W]
 
@@ -90,23 +92,39 @@ again, and a job already on the list by its pool id is not added twice.
 With nothing queued, `next` offers the pool's first job and says so; it
 claims nothing.
 
-`next` is the restart rule (ADR-022 rule 12). It never passes an active
-job, which is never preempted, and takes the job named, or the queued job
-of highest priority, the oldest first (the list's order is the order jobs
-were added); a blocked job keeps its place and is taken only by name. It
-asks whether this session has already worked a job. Every job
-starts in a fresh session (the owner, 2026-10-11): a fresh launch reads the
-fabric anew, which a running session never does, and a warm prompt cache is
-no reason to continue. A session that has worked a job gets a fresh session
-for the next, however alike the two are, and `next` prints the one command
-that starts it (`fabric-fresh --job <id>`); the agent confirms by running
-it. A session that has worked none (just launched, so already fresh)
-takes the job in place. "Worked" is read from the list: a transition whose old
-or new state is `active` (a start, a block, a delivery, a finish or a drop of the
-active job) writes the harness session id (CLAUDE_CODE_SESSION_ID), when the
-environment has one, into the job's log entry, and a session is one that appears in any entry, so a session
-launched with its job already active is known once it finishes it. With no session id in the
-environment (an unlaunched shell) any job that has left `active` counts, so `next` says fresh.
+`pause <id> "<why>"` sets the active job aside (rule 2: blocked is a wait the agent does not control, paused is its own
+choice). It records the branch checked out where it runs, unless that is the default branch, and `switch` asks that this
+branch is pushed. A paused job is offered before queued jobs of the same priority, never ahead of a higher one, and is
+taken back by `switch <id>` or when it is first in the order.
+
+`switch` (alias `next`) is the transition between jobs (rule 10, amended 2026-10-14), three steps, a refusal naming every
+check that failed and changing nothing:
+  1. The job this session worked last is settled with its evidence, by the state it is left in. done: a pull request merged or
+     a commit on origin's default branch; delivered: a pull request open; blocked: a checkable blocker not yet cleared, or
+     "owner: <the decision awaited>" as text; paused: its branch pushed; dropped: a reason. Evidence is read from the job's
+     artifacts (owner/repo#N, #N, a pull request URL, a commit sha, or reply:<MESSAGE-ID>, which counts for a job whose
+     artifact is a REPLY, when the journal holds it as sent). Whatever the outcome: no uncommitted change in the job's working
+     copy, its worktree or this directory's checkout; every inbound message addressed to this login with REPLY-EXPECTED: yes
+     has a REPLY of this login in the journal; and a file in the working copy's memory directory changed since the job last
+     became active. A check that cannot be told is a failure, said as such, never a pass.
+  2. The next job starts in a fresh session after a worked one (rule 3, unchanged): `fabric-fresh --job <id>` is printed.
+  3. Its branch is chosen before any work: the job's own branch when it has begun one that no pull request merged; else this
+     login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
+     commits), with the default branch merged into it first (locally, not pushed); else, with --needs-merged, the job is blocked
+     on that pull request and not started; else a new branch <host>/<login>/<type>/<job id and title words> off the freshly
+     fetched default branch. Each is checked out in a worktree beside the job's working copy, which stays where it is; the
+     job keeps `branch` and `worktree`, and the opening prompt of its fresh session names them. Two open pull requests of this
+     login, no working copy, or an origin that cannot be asked are refused.
+Each switch appends one line to the old and one to the new job's log: the outcome and its evidence, and the branch.
+`switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
+cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued offers the pool's.
+A session that has worked no job has nothing to settle and takes the job in place; "worked" is read from the list: a
+transition whose old or new state is `active` (a start, a block, a delivery, a finish or a drop of the active job) writes
+the harness session id (CLAUDE_CODE_SESSION_ID), when the environment has one, into the job's log entry, and a session is one
+that appears in any entry, so a session launched with its job already active is known once it finishes it.
+With no session id in the environment (an unlaunched shell) the job that last left `active` counts, so `switch` says fresh.
+Every job starts in a fresh session (the owner, 2026-10-11): a fresh launch reads the fabric anew, which a running session
+never does, and a warm prompt cache is no reason to continue. The agent runs the command it prints, never the owner.
 """
 from __future__ import annotations
 
@@ -134,7 +152,8 @@ from fabric_jobs.records import find, active, transition, own_project, working_c
 from fabric_jobs.queue import QUEUE, QUEUE_TIMEOUT_S, Unreachable, ask_queue, stream_waits  # noqa: E402, F401
 from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, claimed_job, pool_job, printable, pool_line  # noqa: E402, F401
 from fabric_jobs.render import line, show, summary  # noqa: E402, F401
-from fabric_jobs.verbs import decide, add, pool_list, pool_claim, list_jobs, show_job, next_job, change  # noqa: E402, F401
+from fabric_jobs.branching import TYPES  # noqa: E402, F401
+from fabric_jobs.verbs import decide, add, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -176,9 +195,16 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--json", action="store_true")
     s.add_argument("--line", action="store_true", help="one line, for an opening prompt")
     s.add_argument("--field", help="one field's value, for the launcher")
-    n = sub.add_parser("next", help="start the next job and say whether it needs a fresh session")
-    n.add_argument("id", nargs="?")
-    n.add_argument("--json", action="store_true")
+    pa = sub.add_parser("pause", help="set the active job aside, to be taken back by name")
+    pa.add_argument("id")
+    pa.add_argument("why")
+    for name, helptext in (("switch", "settle the job being left with its evidence, start the next and choose its branch"),
+                           ("next", "alias of switch")):
+        n = sub.add_parser(name, help=helptext)
+        n.add_argument("id", nargs="?")
+        n.add_argument("--json", action="store_true")
+        n.add_argument("--type", choices=TYPES, default="feat", help="the kind of a new branch's name (default feat)")
+        n.add_argument("--needs-merged", action="store_true", help="the job needs this agent's open pull request merged first: if it cannot take more commits, block on it")
     pl = sub.add_parser("pool-list", help="the open jobs of a role's pool (default: the bound role)")
     pl.add_argument("--role")
     pl.add_argument("--json", action="store_true")
@@ -188,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--working-copy")
     args = ap.parse_args(argv)
 
-    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "next": next_job}.get(args.cmd, change)
+    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job}.get(args.cmd, change)
     try:
         return verb(args)
     except Refused as exc:

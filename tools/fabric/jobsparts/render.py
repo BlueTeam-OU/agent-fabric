@@ -50,6 +50,7 @@ def show(job: dict, cache: dict | None = None) -> str:
         ("blockers", "; ".join(f"{b['spec']} {b['state']}" + (f" ({b['detail']})" if b["state"] != "unknown" and b.get("detail") else "")
                                + (f", checked {b['checked_at']}" if b.get("checked_at") else ", not checked")
                                for b in bl.states_of(job, cache)) if cache is not None and bl.specs_of(job) else None),
+        ("branch", job.get("branch")), ("worktree", job.get("worktree")),
         ("artifacts", ", ".join(job.get("artifacts") or []) or None),
         ("reason", job.get("reason")), ("created", job.get("created")), ("updated", job.get("updated")),
     ]
@@ -64,5 +65,6 @@ def summary(job: dict) -> str:
             f"topic {job['topic']}" if job.get("topic") else "",
             " ".join(x for x in (f"from a {src.get('kind')}", src.get("message_id"), f"by {src['from']}") if x)
             if src.get("from") else "",
-            f"artifacts {', '.join(job['artifacts'])}" if job.get("artifacts") else ""]
+            f"artifacts {', '.join(job['artifacts'])}" if job.get("artifacts") else "",
+            f"work on branch {job['branch']}" + (f" in {job['worktree']}" if job.get("worktree") else "") if job.get("branch") else ""]
     return f"{job['id']}, {job['title'][:200]} ({'; '.join(b for b in bits if b) or 'no project'})"
