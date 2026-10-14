@@ -371,8 +371,10 @@ def added_range() -> None:
         shas[name] = g("rev-parse", "HEAD")
         if name == "base":
             g("branch", "dflt")             # the default tip, held by a local branch only: no remote-tracking ref has it
-    saved = os.getcwd()
+    saved, saved_env = os.getcwd(), dict(os.environ)
     os.chdir(d)
+    os.environ.clear()                    # the hook's git reads GIT_DIR and friends from the process: this test's own, none
+    os.environ.update(env())
     try:
         got = githooks_prepush._added("main", ZERO, "dflt", shas["since"])
         check("a new branch: only what is above base and since is judged", got == [shas["feat2"], shas["feat1"]]
@@ -381,6 +383,8 @@ def added_range() -> None:
               githooks_prepush._added("main", shas["feat1"], "dflt", shas["since"]) == [shas["feat2"]])
     finally:
         os.chdir(saved)
+        os.environ.clear()
+        os.environ.update(saved_env)
 
 
 def shipped_patterns() -> None:

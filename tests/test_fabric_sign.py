@@ -105,7 +105,7 @@ def commit(fmt: str, name: str, *extra: str, e: dict | None = None) -> subproces
 
 
 def signature_of(rev: str = "HEAD") -> bytes:
-    return notes.commit_signature(subprocess.run(["git", "-C", REPO, "cat-file", "commit", rev], capture_output=True, timeout=30).stdout)
+    return notes.commit_signature(subprocess.run(["git", "-C", REPO, "cat-file", "commit", rev], env=env(), capture_output=True, timeout=30).stdout)
 
 
 def head() -> str:
@@ -117,7 +117,7 @@ def spooled() -> list[str]:
 
 
 def note_blob(rev: str = "HEAD") -> bytes | None:
-    p = subprocess.run(["git", "-C", REPO, "notes", f"--ref={notes.REF}", "show", rev], capture_output=True, timeout=30)
+    p = subprocess.run(["git", "-C", REPO, "notes", f"--ref={notes.REF}", "show", rev], env=env(), capture_output=True, timeout=30)
     return p.stdout if p.returncode == 0 else None
 
 
@@ -243,7 +243,7 @@ def run() -> None:
     first = proof.Spool(SPOOL).get(proof.key_of(signature_of()))
     subprocess.run([SIGN, "note"], cwd=REPO, env=env(), capture_output=True, timeout=60)
     other = proof.MAGIC + b"\x01\x08" + b"\x11" * 32 + b"\x00old"
-    blob = subprocess.run(["git", "-C", REPO, "hash-object", "-w", "--stdin"], input=first + b"\n\n" + other, capture_output=True, timeout=30).stdout.decode().strip()
+    blob = subprocess.run(["git", "-C", REPO, "hash-object", "-w", "--stdin"], input=first + b"\n\n" + other, env=env(), capture_output=True, timeout=30).stdout.decode().strip()
     git("notes", f"--ref={notes.REF}", "add", "-f", "-C", blob, "HEAD")
     check("(premise) the note now starts with the right proof", (note_blob() or b"").startswith(first) and note_blob() != first)
     n = subprocess.run([SIGN, "note"], cwd=REPO, env=env(), capture_output=True, text=True, timeout=60)
