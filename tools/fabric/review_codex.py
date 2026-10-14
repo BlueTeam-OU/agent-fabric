@@ -863,6 +863,7 @@ def post(repo: str, pr: str, body: str) -> int:
 # --- the ledger --------------------------------------------------------------
 
 PURPOSE = "second-engine-review"
+USAGE_UNVERIFIED = ":usage-unverified"
 
 
 def run_status(e: BaseException) -> tuple[str, str]:
@@ -891,7 +892,14 @@ def ledger_row(observed: Observed, *, brief: str, pr: str, head: str,
     usage = {f: sum(r.usage[f] for r in observed.runs if r.usage[f] is not None) if any(r.usage[f] is not None for r in observed.runs)
              else None for f in USAGE_FIELDS}
     total, cached, written = usage["input_tokens"], usage["cached_input_tokens"], usage["cache_write_input_tokens"]
+    # UNVERIFIED against a live backend (no ChatGPT sign-in on the login that wrote this; the stand-in endpoint's
+    # streams carry the field names, not the semantics): the Responses API counts cached tokens inside
+    # input_tokens, and cache_write_input_tokens is assumed inside it too. A row carrying a usage figure says so in
+    # its status_source (USAGE_UNVERIFIED) until one real turn.completed has been read and pinned in the test.
     fresh = None if total is None else total - (cached or 0) - (written or 0)
+    source = observed.status[1] if observed.status else "codex:error"
+    if any(v is not None for v in usage.values()):
+        source += USAGE_UNVERIFIED
     return {
         "schema_version": ledger.SCHEMA_VERSION, "engine": ENGINE, "attribution": attribution,
         "purpose": fields.get("purpose", PURPOSE), "description": None,
@@ -901,7 +909,7 @@ def ledger_row(observed: Observed, *, brief: str, pr: str, head: str,
         "session_id": next((r.thread_id for r in observed.runs if r.thread_id), None),
         "agent_id": None, "agent_type": None, "tool_use_id": None,
         "status": (observed.status or ("failed", "codex:error"))[0],
-        "status_source": (observed.status or ("failed", "codex:error"))[1], "completed_at": now,
+        "status_source": source, "completed_at": now,
         "wall_time": round(observed.seconds, 3), "turns": None,
         "input": fresh if fresh is not None and fresh >= 0 else None, "cache_write": written, "cache_read": cached,
         "output": usage["output_tokens"], "reasoning": usage["reasoning_output_tokens"], "first_turn_context": None,

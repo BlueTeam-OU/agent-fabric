@@ -1057,7 +1057,10 @@ def main() -> int:
         check("…holding every v1 key and no other", set(row) == V1, sorted(set(row) ^ V1))
         check("…engine codex, completed, the model and provider that ran",
               (row.get("schema_version"), row.get("engine"), row.get("status"), row.get("status_source"), row.get("model"),
-               row.get("provider")) == (1, "codex", "completed", "codex:answer", "gpt-test", "openai"), row)
+               row.get("provider")) == (1, "codex", "completed", "codex:answer:usage-unverified", "gpt-test", "openai"),
+              row)
+        check("…a row carrying a usage figure says in its status_source that the figure's semantics are unverified; one without does not "
+              "(the allowance case below)", row.get("status_source", "").endswith(review_codex.USAGE_UNVERIFIED))
         check("…the tokens: input is what is left after the cached and the cache-write tokens; reasoning inside output",
               (row.get("input"), row.get("cache_read"), row.get("cache_write"), row.get("output"), row.get("reasoning"))
               == (300, 600, 100, 50, 30), row)
@@ -1122,12 +1125,13 @@ def main() -> int:
         check("over the allowance: one row, allowance-exhausted, apart from every other failure",
               rc == 3 and len(rows) == 1 and (rows[0]["status"], rows[0]["status_source"]) == ("allowance-exhausted", "codex:usage-limit")
               and rows[0]["output"] is None, (rc, rows))
-        for m, why in (("turnfailed", "an ordinary failed turn"), ("nohost", "a run that read nothing")):
+        for m, why, source in (("turnfailed", "an ordinary failed turn", "codex:failed-review"),
+                               ("nohost", "a run that read nothing", "codex:failed-review:usage-unverified")):
             fresh_ledger(); set_pr(); mode(m)
             r = run("7", req)
             rows = ledger_rows()
             check(f"{why}: exit 1, one row, failed", r.returncode == 1 and len(rows) == 1
-                  and (rows[0]["status"], rows[0]["status_source"]) == ("failed", "codex:failed-review"), (r.returncode, rows))
+                  and (rows[0]["status"], rows[0]["status_source"]) == ("failed", source), (r.returncode, rows))
         fresh_ledger(); set_pr(); mode("sleep")
         r = run("7", req, "--timeout", "0.05")
         rows = ledger_rows()
