@@ -250,10 +250,10 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
     except Signalled as s:
         return 128 + int(s.args[0])
     finally:
-        # Cleanup must not be interrupted by a second signal.
+        # Cleanup must not be interrupted by a second signal. Every suite's tree was ended by invoke() as the signal
+        # passed through it; the watcher is the only other child, and is killed below.
         for sig in previous:
             signal.signal(sig, signal.SIG_IGN)
-        end_tree(os.getpid())
         shutil.rmtree(scratch, ignore_errors=True)
         if watcher is not None:
             watcher.kill()
