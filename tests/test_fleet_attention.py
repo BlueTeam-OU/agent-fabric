@@ -85,8 +85,8 @@ class Levels(unittest.TestCase):
             d = attention(f.fetch(["attention"]), "a")["data"]
             self.assertEqual(d, {"level": "none", "reason": None, "since": None, "blocked": 0, "pending": 0, "paused": 0, **UNKNOWN_S3}, state)
 
-    def test_the_counts_are_blocked_and_queued_jobs_only(self):
-        jobs = [job("j1", "blocked", "x"), job("j2", "blocked", "y"), job("j3", "queued"), job("j4", "active"), job("j5", "delivered")]
+    def test_the_counts_are_blocked_and_queued_jobs_apart_from_paused(self):
+        jobs = [job("j1", "blocked", "x"), job("j2", "blocked", "y"), job("j3", "queued"), job("j4", "active"), job("j5", "delivered"), job("j6", "paused")]
         d = attention(self.fleet(states_rows(), jobs_rows(a=jobs)).fetch(["attention"]), "a")["data"]
         self.assertEqual((d["blocked"], d["pending"]), (2, 1))
 
