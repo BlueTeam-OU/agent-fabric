@@ -80,6 +80,11 @@ def shape_problems(doc: object) -> list[str]:
         return ["not an object"]
     out = [f"unknown key {k!r}" for k in sorted(doc) if k not in ("$schema", "description", "default", "repositories")]
     out += _entry_problems("default", doc.get("default"), partial=False)
+    default = doc.get("default")
+    if isinstance(default, dict) and default.get("since") is not None:
+        # A sha is one repository's cut-over; as the default it would apply to
+        # every repository no entry names, whose history it is not on.
+        out.append("default: since must be null (a cut-over commit belongs to one repository)")
     repos = doc.get("repositories", {})
     if not isinstance(repos, dict):
         return out + ["repositories is not an object"]

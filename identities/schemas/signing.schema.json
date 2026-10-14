@@ -12,7 +12,10 @@
     "default": {
       "description": "The fleet default: a repository no entry names gets it, and bootstrap leaves its working copies as they are.",
       "allOf": [{"$ref": "#/$defs/entry"}],
-      "required": ["format", "since"]
+      "required": ["format", "since"],
+      "properties": {
+        "since": {"description": "Always null: a cut-over commit belongs to one repository, so only an entry under repositories carries one.", "type": "null"}
+      }
     },
     "repositories": {
       "description": "owner/name, as one of the project's projects/registry.json remotes names it.",

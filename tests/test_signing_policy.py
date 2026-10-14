@@ -79,6 +79,7 @@ def main() -> None:
     for label, bad in (("not JSON", "{oops"), ("a format no forge takes", {**good, "default": {"format": "x509", "since": None}}),
                        ("a since that is not a full sha", {**good, "repositories": {"acme/widget": {"since": "abc123"}}}),
                        ("an unknown key", {**good, "forges": {}}),
+                       ("a default since that is a sha", {**good, "default": {"format": "ssh", "since": SHA}}),
                        ("a default without since", {"default": {"format": "ssh"}, "repositories": {}})):
         write(bad)
         try:
@@ -95,6 +96,8 @@ def main() -> None:
     check("one project named twice (its old and new names)", any("both name project moved" in x for x in f), f)
     f = findings({**good, "repositories": {"acme/widget": {"since": "HEAD"}}})
     check("a since that is not a sha", any("since" in x for x in f), f)
+    f = findings({**good, "default": {"format": "ssh", "since": SHA}})
+    check("a default since that is a sha", any("default" in x and "since" in x for x in f), f)
     f = findings("{oops")
     check("not JSON", any("not valid JSON" in x for x in f), f)
     os.remove(POLICY)
