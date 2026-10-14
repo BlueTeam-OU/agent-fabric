@@ -59,6 +59,8 @@ GROUPING = ("allgreen", "headgreen")
 UPDATE_TYPES = ("patch", "minor", "major")
 # GitHub's repository fields for the merge methods: the merge commit's is the odd one out.
 REPO_FIELD = {"merge": "allow_merge_commit", "squash": "allow_squash_merge", "rebase": "allow_rebase_merge"}
+# Every repository field the policy decides (repository_fields), in the order fabric-repo-policy reports them.
+REPOSITORY_FIELDS = ("allow_auto_merge", *REPO_FIELD.values(), "delete_branch_on_merge")
 # The integration id of an App by its slug, for a ruleset's required check; one not here is asked of GitHub
 # (apps/<slug>) by repo_policy.resolve_apps. github-actions is 15368 everywhere.
 APP_IDS = {"github-actions": 15368}
@@ -451,6 +453,16 @@ def ruleset_name(policy: dict) -> str:
     return policy["github"]["ruleset"]
 
 
+def repository_fields(policy: dict) -> dict:
+    """The repository fields the policy decides (REPOSITORY_FIELDS): auto-merge by the mode, delete-branch-on-merge,
+    and only the policy's merge method allowed. The one source for them: render() asks them of GitHub, and
+    fabric-repo-settings writes them, which once stated its own and allowed all three methods (REQUEST 01a139bb)."""
+    p = validate(policy)
+    return {"allow_auto_merge": p["mode"] in ("auto", "queue"),
+            **{field: m == p["method"] for m, field in REPO_FIELD.items()},
+            "delete_branch_on_merge": p["delete_branch_on_merge"]}
+
+
 def render(policy: dict, apps: Mapping[str, int] | None = None) -> dict:
     """What the policy asks of GitHub: {"repository": the repository fields, "ruleset": the ruleset body or None}.
     `apps` maps an App slug to its integration id (APP_IDS by default; repo_policy asks GitHub for the rest). The
@@ -458,8 +470,7 @@ def render(policy: dict, apps: Mapping[str, int] | None = None) -> dict:
     no ruleset."""
     p = validate(policy)
     ids = {**APP_IDS, **(apps or {})}
-    repository = {"allow_auto_merge": p["mode"] in ("auto", "queue"), "delete_branch_on_merge": p["delete_branch_on_merge"],
-                  **{field: m == p["method"] for m, field in REPO_FIELD.items()}}
+    repository = repository_fields(p)
     if p["mode"] == "direct":
         return {"repository": repository, "ruleset": None}
     rules: list[dict] = []

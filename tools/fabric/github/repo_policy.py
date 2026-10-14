@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 from github import arm_policy  # noqa: E402
 
-REPOSITORY_FIELDS = ("allow_auto_merge", "allow_merge_commit", "allow_squash_merge", "allow_rebase_merge", "delete_branch_on_merge")
+REPOSITORY_FIELDS = arm_policy.REPOSITORY_FIELDS
 # What differs without changing how a pull request is held to its checks and merged: reported by plan and verify,
 # never a reason for arm to refuse (the repository's other merge methods being allowed does not let anything
 # through that the ruleset's pull_request rule and required checks hold).
