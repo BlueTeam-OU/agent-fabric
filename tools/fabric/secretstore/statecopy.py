@@ -59,7 +59,10 @@ from .lock import write_lock
 from .core import git
 
 MAX_BYTES = 64 << 20
-STATE_FILES = ("jobs.json", "role-history.jsonl", "gzcoord-sent.jsonl")
+# reflect-cursor.json (fabric-reflect, ADR-058) goes with the journal it is a
+# position in: restored alone it would re-read the whole history, and the
+# cursor itself refuses a journal that does not hold its episode.
+STATE_FILES = ("jobs.json", "role-history.jsonl", "gzcoord-sent.jsonl", "reflect-cursor.json")
 STATE_TREES = ("reviews",)
 EPISODIC = "episodic.db"
 # The harness's own folder under ~/.claude/projects/<p>/, not the operator's
