@@ -18,6 +18,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(ROOT, "runtime", "claude-code", "hooks", "memory-write-check.py")
 
 
+ANCHORS = "  anchors: [tools/fabric/harvest_memory.py::parse_memory]\n"
+ANCHORED = "  roles_class: solution\n" + ANCHORS
+
+
 def memory(dirpath: str, name: str, description: str, meta: str, body: str) -> str:
     path = os.path.join(dirpath, f"{name}.md")
     with open(path, "w", encoding="utf-8") as fh:
@@ -44,14 +48,14 @@ def main() -> int:
         os.makedirs(mem)
         cases = [
             ("private: no roles_class", memory(mem, "p", "a note", "", "body"), None),
-            ("clean: the drain takes it", memory(mem, "g", "a fact", "  roles_class: solution\n", "body"), None),
+            ("clean: the drain takes it", memory(mem, "g", "a fact", ANCHORED, "body"), None),
             ("an unknown class, and the whole harvest stops", memory(mem, "b", "x", "  roles_class: notaclass\n", "body"),
              ("is not a claim class", "whole harvest")),
             ("a hand-authored class", memory(mem, "h", "x", "  roles_class: charter\n", "body"), "hand-authored"),
             ("shared_with naming no role", memory(mem, "s", "x", "  roles_class: solution\n  shared_with: Web Dev!\n", "body"),
              "not role slugs"),
             ("over the slice budget", memory(mem, "big", "big", "  roles_class: threads\n", "word " * 2000), "slice budget"),
-            ("a workflow memory has the larger budget", memory(mem, "wf", "wf", "  roles_class: workflow\n", "word " * 2000), None),
+            ("a workflow memory has the larger budget", memory(mem, "wf", "wf", "  roles_class: workflow\n" + ANCHORS, "word " * 2000), None),
             ("a description in another script without description_en",
              memory(mem, "ru", "факт по-русски", "  roles_class: domain\n", "Это факт на русском языке без перевода."),
              "no description_en"),
@@ -91,6 +95,28 @@ def main() -> int:
                 good = False                     # never the credential itself
             print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good else f": {out!r}"))
             fails += not good
+        # ADR-050 rule 1: advice for a solution or workflow memory with no anchors, read as parse_memory reads them.
+        anchor_cases = [
+            ("a solution memory with no anchors", "  roles_class: solution\n", "no anchors"),
+            ("a workflow memory with no anchors", "  roles_class: workflow\n", "no anchors"),
+            ("a solution memory with anchors", ANCHORED, None),
+            ("anchors at the top level of the frontmatter count", "  roles_class: solution\n", None),
+            ("an anchor list that is no inline list", "  roles_class: solution\n  anchors: a/b.py\n", "no inline list"),
+            ("an anchor that leaves the tree is no anchor", "  roles_class: solution\n  anchors: [/etc/passwd::x]\n", "no anchors"),
+            ("a domain memory needs none", "  roles_class: domain\n", None),
+            ("a threads memory needs none", "  roles_class: threads\n", None),
+        ]
+        for label, meta, expect in anchor_cases:
+            path = memory(mem, "an", "a fact", meta, "body")
+            if label.startswith("anchors at the top level"):
+                with open(path, encoding="utf-8") as fh:
+                    text = fh.read()
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text.replace("metadata:\n", "anchors: [tools/fabric/anchors.py::problem]\nmetadata:\n", 1))
+            rc, out = run(path)
+            good = rc == 0 and ((not out) if expect is None else expect in out)
+            print(f"  {'ok  ' if good else 'FAIL'} anchors: {label}" + ("" if good else f": {out!r}"))
+            fails += not good
         with open(os.path.join(mem, "MEMORY.md"), "w", encoding="utf-8") as fh:
             fh.write("- [x](x.md)\n")
         for label, path, raw in (("MEMORY.md is the index, not a memory", os.path.join(mem, "MEMORY.md"), None),
@@ -114,7 +140,7 @@ def main() -> int:
             with open(os.path.join(ROOT, f), encoding="utf-8") as src, \
                  open(os.path.join(broken, f), "w", encoding="utf-8") as dst:
                 dst.write(src.read())
-        rc, out = run(memory(mem, "late", "x", "  roles_class: solution\n", "body"),
+        rc, out = run(memory(mem, "late", "x", ANCHORED, "body"),
                       env={**os.environ, "AGENT_FABRIC_ROOT": broken})
         good = rc == 0 and not out
         print(f"  {'ok  ' if good else 'FAIL'} a fabric the harvester cannot load: silent, exit 0"

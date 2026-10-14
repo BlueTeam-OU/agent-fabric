@@ -13,7 +13,8 @@ fact is fresh, instead of the coordinator finding it at the drain, weeks
 later (agent-fabric ADR-013).
 
 Beyond the drain's verdict it advises, never refusing (ADR-050): a description
-shaped like an event (rule 7).
+shaped like an event (rule 7), a `solution` or `workflow` memory without
+anchors (rule 1).
 
 Silent for anything else: another path, MEMORY.md, a memory without a
 `roles_class` (private by choice), and a memory the drain would take.
@@ -70,6 +71,10 @@ def problems(path: str) -> list[str]:
     if EVENT_RE.match(parsed["description"]):
         found.append("the description reads as an event (FIXED, MERGED, CLOSED, DONE, a #number, a PR number or a "
                      "dated line): git and the PR hold events, so write the lesson it taught (rubric test 6)")
+    if parsed["roles_class"] in hm.ANCHOR_CLASSES and not parsed["anchors"]:
+        found.append(f"a {parsed['roles_class']} memory with no anchors: add `anchors: [<path>::<symbol or literal>]` "
+                     "to its metadata so the next check can tell when the tree outgrows it (ADR-050 rule 1)"
+                     + "".join(f"; {w}" for w in parsed["anchor_problems"]))
     return found
 
 
