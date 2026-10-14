@@ -1075,8 +1075,11 @@ def main() -> int:
         check("…the ledger file is private", os.stat(ledger_file).st_mode & 0o777 == 0o600, oct(os.stat(ledger_file).st_mode))
 
         # The row builder on its own: two runs (a capacity retry) sum; a brief with the dispatch header gives the header's.
+        streams: list[str] = []
+
         def stream(*turns: dict) -> str:
-            with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
+            with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, dir=scratch) as fh:
+                streams.append(fh.name)
                 fh.write('{"type":"thread.started","thread_id":"th-1"}\n'
                          + "".join(json.dumps({"type": "turn.completed", "usage": u}) + "\n" for u in turns))
             return fh.name
@@ -1101,6 +1104,8 @@ def main() -> int:
         sparse = review_codex.ledger_row(obs, brief=hdr.replace("a" * 40, "zz"), pr="7", head="b" * 40, model="m", level=None, now="n")
         check("…a header field in the wrong shape is unknown, never filled from the review's own head (a row's head_sha is "
               "what a reproduction is checked against)", sparse["head_sha"] is None and sparse["effort"] is None, sparse)
+        for name in streams:
+            os.unlink(name)
         fresh_ledger(); set_pr(); mode("capacity ok")
         inproc("7", req)
         rows = ledger_rows()
