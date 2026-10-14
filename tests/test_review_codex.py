@@ -204,7 +204,11 @@ if a[:1] == ["api"]:
             f.write(path + "\\n")
         if os.path.exists(os.path.join(S, "read-fails")):
             print("gh: HTTP 502: Bad Gateway", file=sys.stderr); sys.exit(1)
-        print(json.dumps([state("reviews.json", [])] if path.split("?")[0].endswith("/reviews") else [[]])); sys.exit(0)
+        if path.split("?")[0].endswith("/reviews"):
+            print(json.dumps([state("reviews.json", [])]))
+        else:
+            print(json.dumps({"user": {"login": "fleet-account"}}))   # the PR; every session is its author's account
+        sys.exit(0)
     src = a[a.index("--input") + 1]
     raw = sys.stdin.read() if src == "-" else open(src).read()
     payload = json.loads(raw)
@@ -215,7 +219,8 @@ if a[:1] == ["api"]:
     if os.path.exists(os.path.join(S, "post-fails")):
         print("gh: HTTP 502: Bad Gateway", file=sys.stderr); sys.exit(1)
     reviews = state("reviews.json", [])
-    reviews.append({"commit_id": payload.get("commit_id"), "body": payload.get("body")})
+    reviews.append({"commit_id": payload.get("commit_id"), "body": payload.get("body"), "user": {"login": "fleet-account"},
+                    "author_association": "OWNER"})
     json.dump(reviews, open(os.path.join(S, "reviews.json"), "w"))
     print("https://github.com/fixture-org/fixture/pull/7#pullrequestreview-1" if "--jq" in a
           else json.dumps({"html_url": "https://github.com/fixture-org/fixture/pull/7#pullrequestreview-1"}))
@@ -735,6 +740,10 @@ def main() -> int:
               rc == 3 and sleeps == [] and runs_made() == 1 and posts() == 0, (rc, sleeps, runs_made(), posts(), err))
         check("…it says the allowance, ours, with the reset time the message gave",
               "over the allowance" in err and "Oct 14th, 2026 3:12 PM" in err and "not retried" in err, err)
+        check("…the outcome is one stderr line: posted", "unavailable statement on PR #7: posted" in err, err)
+        mode("allowance")
+        rc, out, err, sleeps = inproc("7", req)
+        check("…and the second run says one already stands", "unavailable statement on PR #7: an unavailable statement for this head stands" in err, err)
         set_pr(); mode("allowance-notime")
         rc, out, err, sleeps = inproc("7", req)
         check("…a message without a time says there is none, and invents none",
@@ -778,8 +787,12 @@ def main() -> int:
         print("an unavailable model leaves one marked statement per head, for the arm (the owner's policy: Codex never blocks)")
 
         def seed_reviews(*reviews: dict) -> None:
+            """By default the PR author's account, which is what every session posts as; a case that wants another
+            names a "user"."""
             with open(os.path.join(state, "reviews.json"), "w") as f:
-                json.dump(list(reviews), f)
+                json.dump([{"user": {"login": "fleet-account"}, "author_association": "OWNER", **r} for r in reviews], f)
+
+        stranger = {"user": {"login": "stranger"}, "author_association": "NONE"}
 
         def touch(n: str) -> None:
             open(os.path.join(state, n), "w").close()
@@ -831,6 +844,12 @@ def main() -> int:
                 ("the positive control: a claude review of the head stands", {"commit_id": head, "body": review_codex.REVIEW_MARKER + "\nbody"}, 1),
                 ("a statement whose marker names another head, on a review of this one",
                  {"commit_id": head, "body": review_codex.format_marker("d" * 40, "allowance", "2026-10-13T10:00:00Z") + "\nx\n"}, 1),
+                ("the author's statement for this head stands",
+                 {"commit_id": head, "body": review_codex.format_marker(head, "allowance", "2026-10-13T10:00:00Z") + "\nx\n"}, 0),
+                ("a stranger's statement for this head (it does not count for the arm, so it must not stop ours)",
+                 {**stranger, "commit_id": head, "body": review_codex.format_marker(head, "allowance", "2026-10-13T10:00:00Z") + "\nx\n"}, 1),
+                ("a stranger's copy of a Codex review of this head",
+                 {**stranger, "commit_id": head, "body": review_codex.REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 1),
                 ("a Codex review of another head stands", {"commit_id": "d" * 40, "body": review_codex.REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 1),
                 ("a body that only quotes the codex model line, below the header", {"commit_id": head, "body": review_codex.REVIEW_MARKER + "\nx\ny\n<!-- model: codex -->"}, 1)):
             set_pr(); mode("allowance"); seed_reviews(seed)
@@ -917,6 +936,28 @@ def main() -> int:
 
         # A signal after the post's child started cannot claim "nothing posted" (review of #220, F4): main() itself,
         # with review() standing in for a run that was signalled once posting began.
+        print("a signal while posting the unavailable statement: it may have been posted; while reading: nothing was")
+
+        def signalled_in_gh(on_post: bool):
+            real = review_codex.gh.api
+
+            def fake(path, **kw):
+                if on_post == (kw.get("method") == "POST"):
+                    raise review_codex._Signalled(15)
+                return real(path, **kw)
+            return fake
+        real_api = review_codex.gh.api
+        try:
+            for on_post, want, refuse in ((True, "may have been posted", "nothing posted"), (False, "nothing posted", "may have")):
+                set_pr(); mode("allowance")
+                review_codex.gh.api = signalled_in_gh(on_post)
+                review_codex._posting = False        # a process starts with it off; in-process runs keep what the last left
+                rc, out, err, sleeps = inproc("7", req)
+                check(f"a signal in the {'POST' if on_post else 'read'}: exit 143, the words follow",
+                      rc == 143 and want in err and refuse not in err, (rc, err))
+        finally:
+            review_codex.gh.api = real_api
+
         print("a signal while posting: it says the review may have been posted")
 
         def signalled_after(posting):

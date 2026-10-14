@@ -144,7 +144,9 @@ import review_brief  # noqa: E402
 import review_gateway  # noqa: E402
 import routing  # noqa: E402
 from github.review_status.config import REVIEW_MARKER  # noqa: E402 — the reader's own constant, so "a review" means one thing
-from github.review_status.verdicts import engine_of, unavailable_of  # noqa: E402
+from github.review_status.base import Die  # noqa: E402
+from github.review_status.config import read_config  # noqa: E402
+from github.review_status.verdicts import classify, engine_of, unavailable_of  # noqa: E402
 from lint_rules.schema import validate_json  # noqa: E402 — the fleet's no-dependency validator (ADR-040)
 
 # The engine's own files, beside this one: the schema is the contract this
@@ -730,23 +732,34 @@ def unavailable_comment(e: "ModelUnavailable", head: str, at: str) -> str:
             f"Codex could not review `{head[:12]}`: {why}; the claude review alone arms, per the owner's policy.\n")
 
 
-def announce_unavailable(repo: str, pr: str, head: str, e: "ModelUnavailable") -> None:
+def announce_unavailable(repo: str, pr: str, head: str, e: "ModelUnavailable") -> str:
     """Post the unavailable statement once for this head, as a COMMENT review pinned to it: the carrier the arm reads
-    (devex-tooling, 2026-10-13), which GitHub ties to the commit and which only the PR's author or a listed poster can
-    make count. Not REVIEW_MARKER's first line, so it is never taken for coverage. Raises gh.GhError when the PR
-    cannot be read or the post is not confirmed; the caller turns that into a warning, because the exit status
-    stays the model's."""
+    (devex-tooling, 2026-10-13), which GitHub ties to the commit. Not REVIEW_MARKER's first line, so it is never
+    taken for coverage. Returns "posted" or what already stands. What stands is judged as the arm judges it
+    (verdicts.classify: only the PR's author or a listed poster is the engine's statement or a blind review), so a
+    stranger's copy of the marker cannot stop the real one and leave the arm waiting on Codex. Raises gh.GhError
+    when the PR cannot be read or the post is not confirmed; the caller turns that into a warning, because the exit
+    status stays the model's."""
+    global _posting
     slug = gh.this_repo(repo)
-    for r in gh.api(f"repos/{slug}/pulls/{pr}/reviews?per_page=100", paginate=True):
-        if r.get("commit_id") != head:
-            continue
-        if (r.get("body") or "").startswith(REVIEW_MARKER) and engine_of(r) == ENGINE:
-            return
+    author = (gh.api(f"repos/{slug}/pulls/{pr}") or {}).get("user", {}).get("login")
+    reviews = [r for r in gh.api(f"repos/{slug}/pulls/{pr}/reviews?per_page=100", paginate=True)
+               if r.get("commit_id") == head]
+    try:
+        counted = classify(reviews, author, read_config(os.environ))
+    except Die as err:
+        raise gh.GhError("the arm's review configuration", str(err)) from None
+    if any(engine_of(r) == ENGINE for r in counted.blind):
+        return "a Codex review of this head stands"
+    for r in counted.unavailable:
         m = unavailable_of(r)
         if m and m["engine"] == ENGINE and m["head"] == head:
-            return
+            return "an unavailable statement for this head stands"
+    # A signal from here on may have reached GitHub; before it, nothing was written.
+    _posting = True
     gh.api(f"repos/{slug}/pulls/{pr}/reviews", method="POST",
            body={"body": unavailable_comment(e, head, _utc_now()), "event": "COMMENT", "commit_id": head})
+    return "posted"
 
 
 def render_review(model: str, head: str, rng: str, findings: list[dict], effort_level: str | None = None) -> str:
@@ -846,10 +859,9 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
                 if no_post:
                     sys.stdout.write(unavailable_comment(e, head, _utc_now()))
                 else:
-                    global _posting
-                    _posting = True   # a signal during the POST cannot say "nothing posted"
                     try:
-                        announce_unavailable(repo, pr, head, e)
+                        print(f"fabric-review: unavailable statement on PR #{pr}: "
+                              f"{announce_unavailable(repo, pr, head, e)}", file=sys.stderr)
                     except (gh.GhError, OSError, ValueError, TypeError, AttributeError) as err:
                         # The exit status stays the model's; an unreadable PR is not a licence to guess either way.
                         print(f"fabric-review: could not post or check the unavailable statement on PR #{pr}: {err}",
@@ -940,7 +952,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except _Signalled as e:
         print(f"fabric-review: stopped by signal {e.args[0]}; the scratch is removed, "
-              + ("the review may have been posted: look at the PR" if _posting else "nothing posted"), file=sys.stderr)
+              + ("what was being posted (the review, or the unavailable statement) may have been posted: look at the PR" if _posting else "nothing posted"), file=sys.stderr)
         return 128 + int(e.args[0])
     except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as e:
         print(f"fabric-review: {e}; nothing posted", file=sys.stderr)
