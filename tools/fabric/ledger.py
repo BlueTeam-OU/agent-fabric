@@ -21,6 +21,7 @@ import json
 import os
 import pwd
 import re
+import time
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -67,7 +68,16 @@ def append(file: str, row: Mapping[str, Any]) -> None:
     os.makedirs(os.path.dirname(file), mode=0o700, exist_ok=True)
     fd = os.open(file, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        # Bounded: a stalled holder (the hook) must not hang a review that has already posted.
+        deadline = time.monotonic() + LOCK_WAIT_S
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"{file} is locked by another writer") from None
+                time.sleep(0.05)
         data = line.encode("ascii")
         while data:   # a short write under the lock is finished before another writer starts
             data = data[os.write(fd, data):]
@@ -75,9 +85,14 @@ def append(file: str, row: Mapping[str, Any]) -> None:
         os.close(fd)
 
 
+# Past a double's exact integers a count is not a measurement, and equivalent() would overflow on it.
+MAX_COUNT = 2 ** 53
+LOCK_WAIT_S = 5
+
+
 def count(v: Any) -> int | None:
-    """A token count as a row holds it: a non-negative int, else unknown."""
-    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+    """A token count as a row holds it: a non-negative int below MAX_COUNT, else unknown."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < MAX_COUNT else None
 
 
 def rows(file: str) -> tuple[list[dict], int]:
@@ -102,7 +117,7 @@ def rows(file: str) -> tuple[list[dict], int]:
             continue
         try:
             row = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):   # a line nested past the parser's stack is a bad line
             skipped += 1
             continue
         if not isinstance(row, dict) or row.get("schema_version") != SCHEMA_VERSION:

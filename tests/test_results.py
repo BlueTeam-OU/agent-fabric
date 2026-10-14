@@ -252,19 +252,30 @@ else:
           rc["by_purpose"] == {"review/claude": {"median": 500, "total": 5550}, "second-engine-review/codex": {"median": 0, "total": 100}}, rc)
     check("…the same PR number in another repository is not this one's",
           results.review_cost([("p/q", 7)], into)["by_purpose"] == {"review/claude": {"median": 1, "total": 1}})
-    check("…no ledger rows for any: with_rows 0", results.review_cost([("o/r", 10)], into) == {"verified": 1, "with_rows": 0, "by_purpose": {}})
-    # spend(): the fan-out's lines carry by_pr beside the models, and a login that did not answer ok adds none.
-    def line(account, status, by_pr=None):
-        return json.dumps({"account": account, "tokens": {"status": status, "models": {"m": {"path": "claude", "equiv": 5}}, "by_pr": by_pr}}) + "\n"
+    check("…no ledger rows for any: with_rows 0",
+          results.review_cost([("o/r", 10)], into) == {"verified": 1, "with_rows": 0, "unknown_rows": 0, "by_purpose": {}})
+    unk: dict = {}
+    results.add_unknown(unk, {"o/r": {"7": 2, "10": 1, "x": True, "y": -1}, "bad": 3})
+    results.add_unknown(unk, {"o/r": {"10": 1}})
+    rc = results.review_cost([("o/r", 7), ("o/r", 10)], into, unk)
+    check("a PR whose only rows are of unknown cost has no cost (not 0), and the unknown rows are counted apart",
+          (rc["with_rows"], rc["unknown_rows"], rc["by_purpose"]["review/claude"]["total"]) == (1, 4, 500), rc)
+    # spend(): the fan-out's lines carry by_pr beside the models; a login without transcripts can still hold ledger rows.
+    def line(account, status, by_pr=None, unknown=None):
+        return json.dumps({"account": account, "tokens": {"status": status, "models": {"m": {"path": "claude", "equiv": 5}},
+                                                          "by_pr": by_pr, "unknown_by_pr": unknown}}) + "\n"
     real_run = results.subprocess.run
     results.subprocess.run = lambda *a, **k: type("R", (), {"stdout": line("a", "ok", {"o/r": {"7": {"review": {"claude": 4}}}})
-                                                          + line("b", "ok", {"o/r": {"7": {"review": {"claude": 6}}}}) + "not json\n"})()
+                                                          + line("b", "ok", {"o/r": {"7": {"review": {"claude": 6}}}}, {"o/r": {"7": 1}})
+                                                          + line("c", "no-records", {"o/r": {"7": {"review": {"claude": 1}}}}, {"o/r": {"7": 2}})
+                                                          + "not json\n"})()
     try:
         sp = results.spend(7)
     finally:
         results.subprocess.run = real_run
-    check("spend: by_pr summed over logins, beside the per-path spend",
-          sp is not None and sp["by_pr"] == {"o/r": {"7": {"review": {"claude": 10}}}} and sp["by_account"] == {"a": {"claude": 5}, "b": {"claude": 5}}, sp)
+    check("spend: by_pr and unknown_by_pr summed over logins, one with no transcripts included (its rows are its own), beside the per-path spend",
+          sp is not None and sp["by_pr"] == {"o/r": {"7": {"review": {"claude": 11}}}} and sp["unknown_by_pr"] == {"o/r": {"7": 3}}
+          and sp["by_account"] == {"a": {"claude": 5}, "b": {"claude": 5}}, sp)
     # main(): the text and the JSON.
     def mainrun(whole, args):
         saved = (results.main_commits, results.merged_prs, results.spend)
@@ -287,7 +298,11 @@ else:
           and "review/claude: median 2.00M, total 2.00M" in text, text[-500:])
     text = mainrun({"by_account": {"a": {"claude": 5}}, "by_pr": {}}, ["--days", "100", "--window", "1"])
     check("main: no matching row says 'no ledger rows', not a cost of 0",
-          "review cost, BlueTeam-OU/agent-fabric: no ledger rows for its 2 verified results" in text and "median" not in text, text[-400:])
+          "review cost, BlueTeam-OU/agent-fabric: no ledger rows with a cost for its 2 verified results" in text and "median" not in text, text[-400:])
+    text = mainrun({"by_account": {"a": {"claude": 5}}, "by_pr": {}, "unknown_by_pr": {"BlueTeam-OU/agent-fabric": {"7": 1}}},
+                   ["--days", "100", "--window", "1"])
+    check("main: rows of unknown cost are said, not turned into a median of 0",
+          "1 ledger rows of unknown cost" in text and "median" not in text, text[-400:])
     text = mainrun(None, ["--days", "100", "--window", "1", "--no-tokens"])
     check("main --no-tokens: the review cost is said not read", "review cost: not read" in text, text[-300:])
     js = json.loads(mainrun(whole, ["--days", "100", "--window", "1", "--json"]))

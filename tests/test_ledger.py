@@ -86,6 +86,26 @@ def main() -> int:
               [r["n"] for r in got] == [3, 2, 4, 5, 6, 7], got)
         check("not JSON, not an object, another schema_version: skipped and counted, a blank line is neither", skipped == 3, skipped)
         check("an absent file is no rows, none skipped", ledger.rows(os.path.join(tmp, "none")) == ([], 0))
+        nested = os.path.join(tmp, "nested.jsonl")
+        with open(nested, "w") as f:
+            f.write("[" * 200000 + "\n" + line(n=1))
+        check("a line nested past the parser's stack is one skipped line, not an exception",
+              ledger.rows(nested)[1] == 1 and [r["n"] for r in ledger.rows(nested)[0]] == [1])
+        import fcntl
+        held = os.open(busy, os.O_WRONLY)
+        fcntl.flock(held, fcntl.LOCK_EX)
+        ledger.LOCK_WAIT_S = 0.2
+        try:
+            ledger.append(busy, {"x": 1})
+            waited = False
+        except TimeoutError:
+            waited = True
+        finally:
+            os.close(held)
+            ledger.LOCK_WAIT_S = 5
+        check("a lock held by another writer: a bounded wait, then an OSError the caller survives", waited and issubclass(TimeoutError, OSError))
+        ledger.append(busy, {"x": 2})
+        check("…and once released the next append goes through", json.loads(open(busy).read().splitlines()[-1]) == {"x": 2})
         try:
             ledger.rows(os.path.join(tmp, "dir.jsonl"))
             raised = False
@@ -99,6 +119,8 @@ def main() -> int:
 
     print("count: a token count is a non-negative int")
     check("ints", ledger.count(0) == 0 and ledger.count(7) == 7)
+    check("…below 2**53: a count past a double's exact integers is not a measurement",
+          ledger.count(2 ** 53 - 1) == 2 ** 53 - 1 and ledger.count(2 ** 53) is None and ledger.count(10 ** 400) is None)
     check("not a bool, a float, a string, a negative or None", all(ledger.count(v) is None for v in (True, 1.0, "1", -1, None)))
 
     print("dispatch_header: the first fenced block, fields only in their shape")

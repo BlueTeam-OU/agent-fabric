@@ -643,9 +643,9 @@ def read_events(path: str) -> CodexRun:
             if kind == "thread.started" and isinstance(ev.get("thread_id"), str):
                 run.thread_id = ev["thread_id"][:200]
             if kind == "turn.completed" and isinstance(ev.get("usage"), dict):
-                for f in USAGE_FIELDS:
-                    if (n := ledger.count(ev["usage"].get(f))) is not None:
-                        run.usage[f] = (run.usage[f] or 0) + n
+                for field in USAGE_FIELDS:
+                    if (n := ledger.count(ev["usage"].get(field))) is not None:
+                        run.usage[field] = (run.usage[field] or 0) + n
             if kind == "turn.failed":
                 err = ev.get("error")
                 run.failed = str(err.get("message") if isinstance(err, dict) else err or "the turn failed")

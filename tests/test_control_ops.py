@@ -723,30 +723,47 @@ class Tokens(Base):
               + row(engine="codex", purpose="second-engine-review", session_id="t", agent_id=None, cache_write=None, cache_read=600, input=300, output=50)   # 300+60+250 = 610
               + row(agent_id="a3", repository=None, pr=None)                        # counted, in no PR
               + row(agent_id="a3b", repository=None, pr=7)                          # a PR number alone names no PR
-              + row(agent_id="a4", completed_at=iso(now - 30 * DAY))                # outside the window
-              + row(agent_id="a5", completed_at=None, started_at=None)              # undated
+              + row(agent_id="a4", completed_at=iso(now - 30 * DAY))                # outside the window: in by_pr (a PR's own), not by_purpose
+              + row(agent_id="a5", completed_at=None, started_at=None, repository=None)   # undated
+              + row(engine="codex", purpose="second-engine-review", session_id="t2", agent_id=None, input=None, output=None)   # a run that reported no usage: unknown, not 0
+              + row(agent_id="a9", input=10 ** 400)                                 # past a double: not a count, and no overflow
+              + row(agent_id="a10", purpose="x\x1b[2Jevil")                         # a purpose that is not a name
+              + "[" * 200000 + "\n"                                                 # nested past the parser's stack
               + row(agent_id="a6", output="many")                                   # a count that is not a number: skipped
               + row(agent_id="a7", schema_version=2)                                # another schema: skipped
               + "not json\n")
         t = ops.tokens(self.home(), now=now, state=state)
-        self.assertEqual(t["ledger"], {"status": "ok", "rows": 5, "skipped": 3, "undated": 1})
-        self.assertEqual(t["by_purpose"]["review"]["claude"], {"rows": 3, "input": 30, "cache_write": 300, "cache_read": 3000, "output": 60, "equiv": 1005})
+        self.assertEqual(t["ledger"], {"status": "ok", "rows": 6, "unknown": 1, "skipped": 6, "undated": 1})
+        self.assertEqual(t["by_purpose"]["review"]["claude"], {"rows": 3, "unknown": 0, "input": 30, "cache_write": 300, "cache_read": 3000, "output": 60, "equiv": 1005})
         self.assertEqual(t["by_purpose"]["re-review"]["claude"]["equiv"], 335)
         self.assertEqual(t["by_purpose"]["second-engine-review"]["codex"],
-                         {"rows": 1, "input": 300, "cache_write": 0, "cache_read": 600, "output": 50, "equiv": 610}, "a null count is 0 here, not a guess")
-        self.assertEqual(t["by_pr"], {"o/r": {"7": {"review": {"claude": 335},
-                                                  "re-review": {"claude": 335}, "second-engine-review": {"codex": 610}}}},
-                         "only rows that name both a repository and a PR")
+                         {"rows": 2, "unknown": 1, "input": 300, "cache_write": 0, "cache_read": 600, "output": 50, "equiv": 610},
+                         "a null cache count is 0; a run that reported no input or output is counted unknown and added to no figure")
+        self.assertEqual(t["by_pr"], {"o/r": {"7": {"review": {"claude": 670}, "re-review": {"claude": 335}, "second-engine-review": {"codex": 610}}}},
+                         "rows that name a repository and a PR, in or out of the window; a PR number alone names none; unknown costs not in it")
+        self.assertEqual(t["unknown_by_pr"], {"o/r": {"7": 1}})
         self.assertEqual(ops.tokens(self.home(), now=now)["status"], "no-records")
         self.assertNotIn("by_purpose", ops.tokens(self.home(), now=now), "no state directory named: the ledger is not read")
-        self.assertEqual(ops.tokens(self.home(), now=now, state=self.scratch("ctl-nostate-"))["ledger"], {"status": "ok", "rows": 0, "skipped": 0, "undated": 0},
+        self.assertEqual(ops.tokens(self.home(), now=now, state=self.scratch("ctl-nostate-"))["ledger"], {"status": "ok", "rows": 0, "unknown": 0, "skipped": 0, "undated": 0},
                          "an absent ledger is no rows, not a failure")
         bad = self.scratch("ctl-unreadable-")
         os.makedirs(os.path.join(bad, "ledger.jsonl"))
         u = ops.tokens(self.home(), now=now, state=bad)
         self.assertEqual((u["ledger"]["status"], "by_purpose" in u), ("unreadable", False), "a ledger that cannot be read is not 'no rows'")
+        # Whatever a ledger holds, the transcript answer stands: a failure in the ledger half is that half's status.
+        h = self.home()
+        proj = os.path.join(h, ".claude", "projects", "-p")
+        write(os.path.join(proj, "s.jsonl"), json.dumps({"type": "assistant", "timestamp": iso(now - DAY), "requestId": "r",
+              "message": {"id": "m", "model": "claude-opus-5", "usage": {"input_tokens": 3, "output_tokens": 1}}}) + "\n")
+        real = usage_mod.ledger_tokens
+        usage_mod.ledger_tokens = lambda *a, **k: (_ for _ in ()).throw(OverflowError("int too large to convert to float"))
+        try:
+            kept = ops.tokens(h, now=now, state=state)
+        finally:
+            usage_mod.ledger_tokens = real
+        self.assertEqual((kept["status"], list(kept["models"]), kept["ledger"]), ("ok", ["claude-opus-5"], {"status": "unreadable", "error": "OverflowError"}))
         c = ops.collect("tokens", {"home": self.home(), "who": WHO, "state": state})
-        self.assertEqual(c["tokens"]["ledger"]["rows"], 5, "the section reads the state directory the context names")
+        self.assertEqual(c["tokens"]["ledger"]["rows"], 6, "the section reads the state directory the context names")
 
 
 class Collect(Base):
