@@ -89,10 +89,10 @@ def main() -> int:
     print("the latest run of each check (FleetDeck #31: a cancelled run beside its re-run)")
 
     def run(name: str, rid: int, conclusion: str | None, workflow: int | None = 380837037,
-            app: str = "github-actions", status: str = "COMPLETED") -> dict:
+            app: str = "github-actions", status: str = "COMPLETED", event: str = "pull_request") -> dict:
         return {"name": name, "status": status, "conclusion": conclusion, "databaseId": rid,
                 "checkSuite": {"app": {"slug": app},
-                               "workflowRun": {"workflow": {"databaseId": workflow}} if workflow else None}}
+                               "workflowRun": {"event": event, "workflow": {"databaseId": workflow}} if workflow else None}}
     # #31's head as GitHub answered it on 2026-10-14: the reopen cancelled CI
     # run 38522927016 and its re-run passed every check.
     fleetdeck_31 = [
@@ -122,6 +122,15 @@ def main() -> int:
           pr_gate.checks_of([{"name": "check", "status": "COMPLETED", "conclusion": "FAILURE", "databaseId": 10},
                              {"name": "check", "status": "COMPLETED", "conclusion": "SUCCESS", "databaseId": 11,
                               "checkSuite": None}]) == "red:check")
+    check("one workflow's push and pull_request runs are two checks: one red is red",
+          pr_gate.checks_of([run("build", 10, "FAILURE", event="push"), run("build", 11, "SUCCESS")]) == "red:build")
+    check("Actions runs whose workflow run cannot be read are kept, never collapsed into one another",
+          pr_gate.checks_of([run("build", 10, "FAILURE", workflow=None), run("build", 11, "SUCCESS", workflow=None)])
+          == "red:build")
+    malformed = run("build", 10, "FAILURE")
+    malformed["checkSuite"]["workflowRun"]["workflow"]["databaseId"] = [1]
+    check("a workflow id that is not a number is kept, not a traceback",
+          pr_gate.checks_of([malformed, run("build", 11, "SUCCESS")]) == "red:build")
     check("the reds are named in the rollup's order",
           pr_gate.checks_of([run("b", 10, "FAILURE"), run("a", 11, "FAILURE"), run("b", 9, "SUCCESS")]) == "red:b,a")
 
