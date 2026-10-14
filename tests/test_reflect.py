@@ -77,8 +77,9 @@ def main() -> int:
         r = run("--max", "100")
         out = r.stdout
         check("a pass reads, exit 0, banner first", r.returncode == 0 and out.startswith("# your own messages, history not current truth"), r.stderr + out[:200])
-        check("every readable message once, a failed send left out",
-              sorted(ids(out)) == sorted(["q-1", "a-1", "f-1", "n-1", "n-2", "s-1", "long-1", "r-1"]), ids(out))
+        check("every message once, a failed send tagged",
+              sorted(ids(out)) == sorted(["q-1", "a-1", "f-1", "n-1", "n-2", "lost-1", "s-1", "long-1", "r-1"])
+              and "lost-1 [failed]" in out, ids(out))
         check("direction, peer and date shown",
               "2026-10-01T09:00:00Z ← develop-qzapp/peer INFO q-1" in out and "→ develop-qzapp/peer INFO a-1" in out, out[:600])
         check("an IN-REPLY-TO chain is one thread, in order",
@@ -95,7 +96,7 @@ def main() -> int:
         d = json.loads(j.stdout)
         flat = [m for t in d["threads"] for m in t]
         check("--json: same messages, withheld, never cut, with through/left",
-              TOKEN not in j.stdout and len(flat) == 8 and d["left"] == 0 and isinstance(d["through"], int)
+              TOKEN not in j.stdout and len(flat) == 9 and d["left"] == 0 and isinstance(d["through"], int)
               and any(len(m["content"]) > 2000 for m in flat), j.stdout[:300])
         check("--json is a pass too: the cursor did not move", run("status").stdout.startswith("cursor: row 0"))
 
@@ -109,20 +110,28 @@ def main() -> int:
 
         # The bound, and the cursor that only `done` moves.
         r1 = run("--max", "3")
-        check("the bound: 3 shown, 5 left for the next pass", len(ids(r1.stdout)) == 3 and "5 more message(s) wait for the next pass" in r1.stdout, r1.stdout[-300:])
+        check("the bound: 3 shown, 6 left for the next pass", len(ids(r1.stdout)) == 3 and "6 more message(s) wait for the next pass" in r1.stdout, r1.stdout[-300:])
         again = run("--max", "3")
         check("an unfinished pass is read again, identically", ids(again.stdout) == ids(r1.stdout) and again.stdout == r1.stdout)
         st = run("status")
-        check("status: no pass closed, 8 wait", "no pass closed yet" in st.stdout and "8 message(s) wait" in st.stdout, st.stdout)
+        check("status: no pass closed, 9 wait", "no pass closed yet" in st.stdout and "9 message(s) wait" in st.stdout, st.stdout)
         through = json.loads(run("--max", "3", "--json").stdout)["through"]
-        d1 = run("done", "--through", str(through))
+        h1 = re.search(r"run `fabric-reflect done --through (\d+)`", r1.stdout)
+        check("the printed hint closes exactly the pass shown, whatever --max the done has (review of #256)",
+              h1 is not None and int(h1.group(1)) == through, r1.stdout[-300:])
+        d1 = run("done", *h1.group(0)[len("run `fabric-reflect done"):-1].split())
         check("done closes the pass", d1.returncode == 0 and f"through row {through}" in d1.stdout, d1.stdout + d1.stderr)
         with open(os.path.join(env["AGENT_FABRIC_STATE_DIR"], "agents", subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip(), "reflect-cursor.json")) as f:
             cur = json.load(f)
         check("the cursor records the row, the owner, no message id", cur["row"] == through and cur["agent_id"] == AGENT
               and "message_id" not in cur and "q-1" not in json.dumps(cur), cur)
+        # The hint of a pass that fits names its row; a placeholder would be pasted as is (review of #256).
+        fit = run("--max", "100").stdout
+        check("the hint of a pass that fits names its row, no placeholder",
+              re.search(r"`fabric-reflect done --through \d+` closes", fit) is not None and "{through}" not in fit, fit[-300:])
         r2 = run("--max", "3")
-        check("the next pass starts after it", not set(ids(r2.stdout)) & set(ids(r1.stdout)) and "2 more message(s)" in r2.stdout, r2.stdout[-300:])
+        check("the next pass starts after it", not set(ids(r2.stdout)) & set(ids(r1.stdout)) and "3 more message(s)" in r2.stdout, r2.stdout[-300:])
+        # The hint a pass prints closes exactly that pass (review of #256, finding 2).
         check("done never moves the cursor back", "nothing to close" in run("done", "--through", "1").stdout)
         check("done with no --through closes the first --max", "closed through" in run("done", "--max", "100").stdout
               and "nothing waits since the last pass" in run().stdout)
@@ -151,6 +160,10 @@ def main() -> int:
             json.dump({"agent_id": "01a0f7ea-15b0-7ed9-a176-6eb006592db1", "row": 1, "episode": "x"}, f)
         r = run()
         check("a cursor written for another agent id is refused", r.returncode == 1 and "belongs to agent" in r.stderr, r.stderr)
+        with open(cpath, "w") as f:
+            json.dump({"agent_id": AGENT, "row": 2, "episode": "not-the-episode-at-row-2"}, f)
+        r = run()
+        check("a cursor whose episode is not at its row is refused (restored journal)", r.returncode == 1 and "does not match" in r.stderr, r.stderr)
         os.unlink(cpath)
 
         other = os.path.join(tmp, "other-store")
