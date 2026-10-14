@@ -28,7 +28,8 @@ never touches secrets (there are none) or collaborators.
 #     permissions, the topics, the rule types on main.
 #   - apply: the repository, the topics, Actions, workflow permissions,
 #     then the ruleset (PUT to the one named in the file, else POST), each
-#     the same request the bash made; one line on stdout at the end.
+#     the same request the bash made but the repository's merge fields;
+#     one line on stdout at the end.
 #   - a refused call stops the run, exit 1, the call and GitHub's reason on
 #     stderr; what was applied before it stays, and a rerun is safe.
 # Changed, and said in j31's delivery: -h/--help prints this usage (the
@@ -36,7 +37,11 @@ never touches secrets (there are none) or collaborators.
 # the first write, so a missing or broken one changes nothing; the
 # rulesets are listed across every page (the bash read the first thirty,
 # and a ruleset past them would have been created twice), and the
-# organisation's are not among them (review of j31).
+# organisation's are not among them (review of j31). And REQUEST
+# 01a139bb: auto-merge, the merge methods and delete-branch-on-merge are
+# the repository's arming policy's, read (its client's settings file, a
+# GET) before the first write; a policy that cannot be read or is invalid
+# stops the run there, exit 1.
 from __future__ import annotations
 
 import json
