@@ -154,7 +154,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "presence": lambda c: presence(**(c.get("presence_opts") or {})),
     "script": lambda c: script(c.get("home"), source=source_locale(c.get("who"), root=c.get("root"))),
     "recall": lambda c: recall(c.get("home")),
-    "tokens": lambda c: tokens(c.get("home"), **({"days": c["days"]} if c.get("days") else {})),
+    "tokens": lambda c: tokens(c.get("home"), state=c.get("state") or util.state_dir(), **({"days": c["days"]} if c.get("days") else {})),
     "memory": lambda c: memory(c.get("home"), all=True, **({"run": c["run_bounded"]} if c.get("run_bounded") else {})),
     "host": _host,
     # One scan per daemon however many ask at once (the daemon's disk keeper).
