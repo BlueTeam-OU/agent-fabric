@@ -607,7 +607,13 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {"pool-claim": pool_claim(request, me=me, holder=pool_holder(control_config()), file=pool_file(),
                                          **_only(ctx, "pool_opts", "role_of", "now"))}
     elif op == "tools-install":
-        data = {"tools-install": tools_mod.tools_install(request, home=home, root=root, **(ctx.get("install_opts") or {}))}
+        verdict = tools_mod.tools_install(request, home=home, root=root, **(ctx.get("install_opts") or {}))
+        data = {"tools-install": verdict}
+        # An installed tool is present now; the report would say 'missing' until the hourly run. In the
+        # background: the proofs take up to 15 s each and the reply must not wait on them. `refresh_again`,
+        # because a run already in flight began before the install and its answer is stale on arrival.
+        if verdict.get("status") == "installed" and ctx.get("tools_refresh"):
+            threading.Thread(target=ctx["tools_refresh"], name="tools report after install", daemon=True).start()
     elif op == "gateway-install":
         data = {"gateway-install": gateway_mod.gateway_install(request, home=home, root=root, **(ctx.get("gateway_install_opts") or {}))}
     elif op == "local-prune":
@@ -668,16 +674,16 @@ class Ticker:
 
 
 def start_tools_report(keeper: tools_mod.ToolsKeeper | None = None, every_ms: float = tools_mod.TOOLS_INTERVAL_MS,
-                       binding_file: str | None = None, watch_every_ms: float = tools_mod.BINDING_POLL_MS,
+                       first_s: float = 0.0, binding_file: str | None = None, watch_every_ms: float = tools_mod.BINDING_POLL_MS,
                        stat: Callable[[str], float] = lambda f: os.stat(f).st_mtime * 1000) -> tools_mod.ToolsKeeper:
-    """At start, then every `every_ms`, and when the binding file changes
+    """After `first_s` (the account's stagger), then every `every_ms`, and when the binding file changes
     (tools.mjs startToolsReport). `fabric-tools --all` keeps the tools of
     the account's bound role only, and a rebind (fabric-role bind, then a
     relaunch) does not restart the daemon: the next session would start on
     the previous role's report for up to an hour. The binding file's mtime
     is the signal; an unreadable one is no change."""
     keeper = keeper or tools_mod.ToolsKeeper()
-    Ticker("tools report", keeper.refresh, every_ms / 1000).start()
+    Ticker("tools report", keeper.refresh, every_ms / 1000, first_s=first_s).start()
     if binding_file:
         def mtime() -> float | None:
             try:
@@ -803,9 +809,10 @@ def main(argv: list[str] | None = None) -> int:
                     _stderr(f"agentd: account {a.get('slug')}: {a.get('status')}{' (' + js.string(a['error']) + ')' if js.truthy(a.get('error', js.UNDEFINED)) else ''}")
         Ticker("accounts keeper", keep, ACCOUNTS_KEEPALIVE_MS / 1000, first_s=30).start()
         # The tools report (tools.py): at start, so a reboot or a new registry
-        # is answered at once, every hour, and when the role binding changes.
+        # is answered within the stagger window (tools.first_run_delay_s), every hour, and when the role binding changes.
         # The proofs run in the background and never delay a reply.
-        start_tools_report(binding_file=who.get("binding"))
+        ctx["tools_refresh"] = start_tools_report(first_s=tools_mod.first_run_delay_s(me["address"]),
+                                                  binding_file=who.get("binding")).refresh_again
         # Only the resident daemon samples: a --once run would add a lone
         # sample with no minute behind it.
         pressure_sampler = pressure.sampler()

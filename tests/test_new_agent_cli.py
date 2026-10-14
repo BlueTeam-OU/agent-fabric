@@ -235,7 +235,9 @@ def main() -> int:
         shutil.copytree(f"{HERE}/platform", f"{fab}/runtime/provisioning/platform", symlinks=True)
         shutil.copy(f"{ROOT}/runtime/claude-code/harness.json", f"{fab}/runtime/claude-code/")
         # hostexec and the worker are shims for their modules (ADR-040 §5 rule 5).
-        for f in ("new_agent.py", "roots.py", "hostexec.py", "hostworker.py"):
+        # launch_record.py (j125) records the first launch's provider with the launcher's own writer
+        # (launch_provider_record.py) in the account's state directory (fabric_writes).
+        for f in ("new_agent.py", "roots.py", "hostexec.py", "hostworker.py", "fabric_writes.py", "launch_provider_record.py"):
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fab}/tools/fabric/")
         shutil.copytree(f"{ROOT}/tools/fabric/provisioning", f"{fab}/tools/fabric/provisioning", ignore=shutil.ignore_patterns("__pycache__"))
         put(f"{sandbox}/home/.local/bin/claude", "#!/bin/sh\necho fake\n", 0o755)
@@ -405,6 +407,10 @@ def main() -> int:
         put(f"{src}/tools/fabric/relay_catchup.py", "#!/usr/bin/env python3\nimport sys\n"
             f'open("{seq}/account-calls", "a").write("relay_catchup " + " ".join(sys.argv[1:]) + "\\n")\n')
         put(f"{src}/runtime/openrouter/launch", '#!/usr/bin/env bash\necho "launch: resolved profile x"\n', 0o755)
+        # The account's clone holds the real recorder: step 6b runs it from there, as the account (j125).
+        for f in ("provisioning/launch_record.py", "fabric_writes.py", "launch_provider_record.py"):
+            os.makedirs(os.path.dirname(f"{src}/tools/fabric/{f}"), exist_ok=True)
+            shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{src}/tools/fabric/{f}")
         sh("git", "-C", src, "init", "-q", "-b", "main")
         sh("git", "-C", src, "add", "-A")
         sh("git", "-C", src, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q",

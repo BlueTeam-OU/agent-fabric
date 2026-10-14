@@ -50,7 +50,8 @@ def main() -> int:
         st, why = tc.prove("sleep 5")
     finally:
         tc.PROOF_TIMEOUT_S = saved
-    check("a proof that hangs: failed after the timeout", st == "failed" and "no answer" in why, (st, why))
+    check("a proof that hangs: its own state, timeout, said as a rerun (j177)",
+          st == "timeout" and "not answered in 1 s, rerun" in why, (st, why))
 
     # bound_role: identity's refusals (SystemExit for a login another host
     # holds) are no role, never the end of the check.

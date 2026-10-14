@@ -188,13 +188,56 @@ def _is_install_marker(d: Any) -> bool:
     return isinstance(d, dict) and "installed_sha256" in d and "pid" not in d
 
 
-def _drop_legacy_marker(state: str) -> None:
+def _record_pid(d: Any) -> int | None:
+    pid = d.get("pid") if isinstance(d, dict) else None
+    return pid if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 else None
+
+
+def _restore_if_running(aside: str, path: str, alive: Callable[[int], bool]) -> None:
+    """Put a launcher's record back by link, which refuses rather than overwrite
+    a newer one. Only a record whose gateway is still running goes back: the
+    session may have ended while the record was aside, its end found nothing to
+    remove, and restoring it would show a dead session for ever."""
+    pid = _record_pid(util.read_json(aside))
+    if pid is None or not alive(pid):
+        return
+    try:
+        os.link(aside, path)
+    except FileExistsError:
+        pass                      # a newer record landed: it wins
+
+
+def _sweep_judges(state: str, alive: Callable[[int], bool]) -> None:
+    """A judge file outlives the process that made it when that one died between
+    its rename and its unlink. Its record is not lost with it: a running
+    session's goes back (if no newer one is in place), anything else is removed."""
+    prefix, suffix = f".{LEGACY_MARKER}.", ".judge"
+    try:
+        names = os.listdir(state)
+    except OSError:
+        return
+    for name in names:
+        owner = name[len(prefix):-len(suffix)] if name.startswith(prefix) and name.endswith(suffix) else ""
+        if not owner.isdigit() or int(owner) == os.getpid() or alive(int(owner)):
+            continue              # not a judge file, ours, or another judge still at work
+        aside = os.path.join(state, name)
+        try:
+            _restore_if_running(aside, os.path.join(state, LEGACY_MARKER), alive)
+            os.unlink(aside)
+        except OSError:
+            pass
+
+
+def _drop_legacy_marker(state: str, alive: Callable[[int], bool] | None = None) -> None:
     """A marker left at the old name would make check 7 see a running session.
     The launcher's record lives there too (it has a pid), so the file is judged
     where it is and a record is never moved: a running session stays visible
     and its end can still remove it. Only a marker is renamed aside and judged
     again; if a launch replaced it in between, the record goes back by link,
-    which refuses rather than overwrite a newer record."""
+    which refuses rather than overwrite a newer record, and only while its
+    gateway runs."""
+    alive = alive or pid_alive
+    _sweep_judges(state, alive)
     path = os.path.join(state, LEGACY_MARKER)
     if not _is_install_marker(util.read_json(path)):
         return
@@ -205,10 +248,7 @@ def _drop_legacy_marker(state: str) -> None:
         return
     try:
         if not _is_install_marker(util.read_json(aside)):
-            try:
-                os.link(aside, path)
-            except FileExistsError:
-                pass                      # a newer record landed: it wins
+            _restore_if_running(aside, path, alive)
     finally:
         try:
             os.unlink(aside)
