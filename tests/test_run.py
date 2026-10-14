@@ -317,6 +317,92 @@ def main() -> int:
                   len(before) == 2 and after == before and rc == 128 + int(sig), (before, after, rc))
             check(f"{name} during the python section: what the two running suites had printed still reaches stdout, and no count of failures",
                   len(shown) == 2 and "FAILED_SUITES" not in out, (shown, out[-300:]))
+        # The cases above signal run.py's pid alone, and their suites die on the first TERM: so they cannot tell a runner that
+        # takes only TERM from one that takes INT and HUP, nor one that never KILLs a suite that ignores TERM (round 3 of
+        # #265, F2). Here the whole process group is signalled, as a terminal's ^C or a closing terminal does; and a suite
+        # that ignores TERM must be ended after the grace, its line kept.
+        sys.path.insert(0, TESTS)
+        import run_python_suites
+        for sig, name in ((signal.SIGINT, "INT"), (signal.SIGHUP, "HUP")):
+            base = fresh(files=suites)
+            started = os.path.join(sandbox, f"started-group-{name}")
+            os.makedirs(started)
+            p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, start_new_session=True,
+                                 env=env(base, STARTED=started))
+            for _ in range(100):
+                if len(os.listdir(started)) >= 2:
+                    break
+                time.sleep(0.1)
+            time.sleep(0.5)
+            os.killpg(p.pid, sig)
+            try:
+                out, _ = p.communicate(timeout=30)
+                rc = p.returncode
+            except subprocess.TimeoutExpired:
+                os.killpg(p.pid, signal.SIGKILL)
+                out, rc = p.communicate()[0], None
+            shown = sorted(set(re.findall(r"MARK\d", out)))
+            check(f"a group {name} during the python section: the exit is {128 + int(sig)} and both running suites' lines reach stdout",
+                  rc == 128 + int(sig) and len(shown) == 2, (rc, shown, out[-300:]))
+        # A group INT also reaches run.py, which asks the runner to stop by TERM: that alone ends the run and hides a runner
+        # that takes no INT of its own. So INT goes to the runner and its suites only, as a terminal would send it to a
+        # foreground group run.py is not in.
+        base = fresh(files=suites)
+        started = os.path.join(sandbox, "started-runner-INT")
+        os.makedirs(started)
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
+        for _ in range(100):
+            if len(os.listdir(started)) >= 2:
+                break
+            time.sleep(0.1)
+        time.sleep(0.5)
+
+        def children(pid: int) -> list[int]:
+            r = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True)
+            return [int(x) for x in r.stdout.split()]
+        runner = next((c for c in children(p.pid) if "run_python_suites" in open(f"/proc/{c}/cmdline").read()), 0)
+        for pid in [runner, *children(runner)] if runner else []:
+            os.kill(pid, signal.SIGINT)
+        try:
+            out, _ = p.communicate(timeout=40)
+        except subprocess.TimeoutExpired:
+            # Not killpg: run.py shares this test's group. The runner and its suites are ended by pid.
+            for pid in [runner, *children(runner)] if runner else []:
+                with contextlib.suppress(OSError):
+                    os.kill(pid, signal.SIGKILL)
+            p.kill()
+            out = p.communicate()[0]
+        shown = sorted(set(re.findall(r"MARK\d", out)))
+        check("INT to the runner and its suites alone: no queued suite starts and both running suites' lines reach stdout",
+              runner != 0 and len(shown) == 2 and len(os.listdir(started)) == 2, (runner, shown, sorted(os.listdir(started)), out[-300:]))
+        deaf = {"tests/test_deaf.py": suite("import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                                            "print('MARK-DEAF', flush=True)\nopen(os.environ['STARTED'], 'w').close()\ntime.sleep(60)\n")}
+        base = fresh(files=deaf)
+        started = os.path.join(sandbox, "started-deaf")
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
+        for _ in range(100):
+            if os.path.exists(started):
+                break
+            time.sleep(0.1)
+        time.sleep(0.3)
+        began = time.monotonic()
+        p.send_signal(signal.SIGTERM)
+        try:
+            out, _ = p.communicate(timeout=30)
+            rc = p.returncode
+        except subprocess.TimeoutExpired:
+            p.kill()
+            out, rc = p.communicate()[0], None
+        took = time.monotonic() - began
+        bound = run_python_suites.STOP_GRACE_S + 2
+        check(f"a suite that ignores TERM: the run ends within the grace plus two seconds ({bound:g} s), exit 143, its line kept",
+              rc == 143 and took < bound and "MARK-DEAF" in out, (rc, round(took, 1), out[-300:]))
+        time.sleep(0.3)
+        check("…and no process of that suite is left", not runs_left(base)
+              and subprocess.run(["pgrep", "-f", os.path.join(base, "tests", "test_deaf.py")], capture_output=True).returncode == 1)
         base = fresh(scripts={"good.sh": "#!/usr/bin/env bash\necho fine\n"})
         grandchild = os.path.join(sandbox, "gc-KILL")
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "static"], cwd=base, stdout=subprocess.DEVNULL,
