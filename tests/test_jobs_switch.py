@@ -520,7 +520,6 @@ def main() -> int:
         check("switch --needs-merged on a job already blocked adds the pull request and keeps what it waits on", rc == 0 and w.job(j1)["state"] == "blocked"
               and w.job(j1)["blockers"] == ["pr:o/r#5", f"request:{RID}", f"pr:{jobs_world.GH_REPO}#40"] and w.job(j1).get("waits_on") == RID, out + err + repr(w.job(j1)))
         counted.clear()
-        check("…and its log entry does not read as a transition", True)
 
         w = World()
         j1 = w.working("left")
@@ -664,6 +663,21 @@ def main() -> int:
         json.dump(doc, open(doc_path, "w"))
         rc, out, err = w.switch()
         check("a job with no working copy is refused, said", rc == 1 and "no working copy" in err, err)
+
+        w = World()
+        j1 = w.add("bad row")
+        w.switch()
+        w.sw("drop", j1, "done")
+        w.add("n")
+        w.journal(("in", request(RID, "no")))       # makes the journal exist
+        import sqlite3
+        path = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "where"], env=os.environ, capture_output=True, text=True).stdout.strip()
+        conn = sqlite3.connect(path)
+        conn.execute("UPDATE episodes SET metadata_json='not json', recorded_at='2099-01-01T00:00:00Z' WHERE message_id=?", (RID,))
+        conn.commit()
+        conn.close()
+        rc, out, err = w.switch()
+        check("a journal row whose metadata cannot be read is owed, never let through", rc == 1 and RID in err and "could not be read" in err, err)
 
         print("blocked_on owner's decision, a dangling link in memory, a repeated pull request")
         w = World()

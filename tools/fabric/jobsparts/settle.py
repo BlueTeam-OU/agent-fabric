@@ -94,6 +94,8 @@ def owed_replies(since: float | None) -> list[dict] | str:
         try:
             meta = json.loads(meta_json)
         except ValueError:
+            # Cannot be told whether it asks for a reply or is addressed here: owed, never let through.
+            owed.append({"id": mid, "type": kind, "from": sender, "subject": "(its record could not be read)"})
             continue
         if not isinstance(meta, dict) or str(meta.get("REPLY-EXPECTED", "")).strip().lower() != "yes":
             continue
