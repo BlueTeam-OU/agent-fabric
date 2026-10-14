@@ -322,7 +322,14 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
     # which the default branch does not contain (agent-fabric ADR-020).
     if pr and "pr" not in nxt:
         nxt["pr"] = pr
-    nxt["card_base"] = req.get("card_base") or _commit(repo_dir, req["range"].split("..", 1)[0])
+    # A symbolic first base (main, origin/main) resolves to where it is when
+    # `next` runs, not where round 1 rendered its card, so round 2 could read
+    # another card than round 1: refused unless the request pins card_base.
+    first_base = req["range"].split("..", 1)[0]
+    if not req.get("card_base") and not re.fullmatch(r"[0-9a-f]{7,40}", first_base):
+        raise Refused(f"the range's base {first_base!r} is not a commit id, so the first round's card cannot be "
+                      "recovered: set card_base in the request to the commit round 1 used (git rev-parse)")
+    nxt["card_base"] = req.get("card_base") or _commit(repo_dir, first_base)
     if (rid := review_brief.default_review_id(nxt)):
         nxt["review_id"] = rid
     nxt["review_round"] = (review_brief._count(req.get("review_round")) or 1) + 1

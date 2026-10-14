@@ -270,9 +270,20 @@ def main() -> int:
         with open(creq, "w") as f:
             f.write(f"mode: review\nrepository: {crepo}\nrange: main..{f1[:12]}\nobjective: >-\n  It exists.\n")
         cgit("commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "f2")
+        # The default branch moves BEFORE the first `next`: a symbolic base
+        # would resolve to the moved tip, not to the card round 1 read.
+        cgit("checkout", "-q", "main")
+        cgit("commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "main moves early")
+        cgit("checkout", "-q", "feature")
+        r = run("next", creq, "--report", report2, cwd=crepo)
+        check("a symbolic first base with no card_base is refused, naming card_base; nothing written",
+              r.returncode == 1 and "card_base" in r.stderr
+              and not os.path.exists(os.path.join(tmp, "scratch", "CARD-rr2.json")), (r.returncode, r.stderr))
+        with open(creq, "a") as f:
+            f.write(f"card_base: {c0}\n")
         r = run("next", creq, "--report", report2, cwd=crepo)
         c2 = json.load(open(os.path.join(tmp, "scratch", "CARD-rr2.json"))) if r.returncode == 0 else {}
-        check("a symbolic first base is recorded as a commit id in the first derived request (review round 1 of #259: F7)",
+        check("a symbolic first base, pinned by card_base, is carried as that commit id in the first derived request (review round 1 of #259: F7)",
               c2.get("card_base") == c0, (r.stderr, c2.get("card_base"), c0))
         cgit("checkout", "-q", "main")
         cgit("commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "main moves")
