@@ -23,7 +23,8 @@ CONTRACT of `state_copy(state_dir, claude_dir)`
           lock, after the store is brought up to its remote, as
           state/<agent id>.tar.gpg and state/<agent id>.meta (the tar's sha256
           and the recovery recipient), ONE signed commit, pushed. The parent's
-          backup() uploads state/*.tar.gpg of every store it holds to Proton
+          backup() uploads state/<agent id>.tar.gpg of every store it holds, and
+          nothing else from state/, to Proton
           Drive as new revisions, names them in the manifest and checks them in
           --verify. A content and recipient that match the meta make no commit
           (a daily timer must not grow every store's history by a blob a day
@@ -168,7 +169,11 @@ def collect(state_dir: str, claude_dir: str) -> tuple[dict[str, bytes], list[str
         files[f"state/{EPISODIC}"] = db
     projects = os.path.join(claude_dir, "projects")
     try:
-        names = sorted(os.listdir(projects))
+        if not stat.S_ISDIR(os.lstat(projects).st_mode):
+            skipped.append(projects)
+            names = []
+        else:
+            names = sorted(os.listdir(projects))
     except FileNotFoundError:
         names = []
     for p in names:

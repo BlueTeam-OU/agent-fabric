@@ -1381,11 +1381,19 @@ else:
             os.symlink(outside, os.path.join(rc_, "plans"))
             os.symlink(outside, os.path.join(rc_, "projects", "evil", "memory"))
             os.makedirs(os.path.join(rc_, "projects", "p2"))
-            os.symlink(os.path.join(rc_, "projects", "evil"), os.path.join(rc_, "projects", "linked"))
+            put_file(os.path.join(outside, "memory", "LEAK.md"), "NEVER\n")
+            os.symlink(outside, os.path.join(rc_, "projects", "linked"))   # its memory/ is a real directory
             put_file(os.path.join(rc_, "projects", "p2", "memory", "ok.md"), "fine\n")   # the control
             seen, skipped_r = statecopy.collect(rt, rc_)
             check("a link at the root of a tree, or at the journal, is skipped and named, never followed",
-                  sorted(seen) == ["claude/projects/p2/memory/ok.md"] and len(skipped_r) == 5, repr((sorted(seen), skipped_r)))
+                  sorted(seen) == ["claude/projects/p2/memory/ok.md"] and len(skipped_r) == 5
+                  and os.path.join(rc_, "projects", "linked") in skipped_r, repr((sorted(seen), skipped_r)))
+            lp = os.path.join(tmp, "linked-projects")
+            os.makedirs(lp)
+            os.symlink(os.path.join(rc_, "projects"), os.path.join(lp, "projects"))
+            seen, skipped_p = statecopy.collect(rt, lp)
+            check("a link at ~/.claude/projects itself is skipped and named",
+                  not any(k.startswith("claude/projects") for k in seen) and os.path.join(lp, "projects") in skipped_p, repr(skipped_p))
             import socket
             sk = socket.socket(socket.AF_UNIX)
             sk.bind(os.path.join(rt, "sock-in-state"))
@@ -1428,9 +1436,11 @@ else:
             oc = os.path.join(tmp, "own-copy")
             put_file(os.path.join(oc, "state", "a.tar.gpg"), "x")
             os.symlink(os.path.join(oc, "state", "a.tar.gpg"), os.path.join(oc, "state", "l.tar.gpg"))
+            os.symlink(os.path.join(oc, "state"), os.path.join(oc, "linked-folder"))
             check("a store's copy is its regular file by name: a link, or a name that is not there, is not carried",
                   _own_copy(oc, "state", "a.tar.gpg") == os.path.join(oc, "state", "a.tar.gpg")
-                  and _own_copy(oc, "state", "l.tar.gpg") is None and _own_copy(oc, "state", "b.tar.gpg") is None)
+                  and _own_copy(oc, "state", "l.tar.gpg") is None and _own_copy(oc, "state", "b.tar.gpg") is None
+                  and _own_copy(oc, "linked-folder", "a.tar.gpg") is None)
             with open(os.path.join(sf, f"{KID}.tar.gpg"), "ab") as fh:
                 fh.write(b"replaced")
             p = run(penv, "backup", "--verify")

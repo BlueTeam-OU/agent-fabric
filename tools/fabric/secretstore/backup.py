@@ -182,9 +182,12 @@ def _stores() -> dict[str, str]:
 
 
 def _own_copy(store: str, sub: str, name: str) -> str | None:
-    """<store>/<sub>/<name> when it is a regular file (never a link), else None."""
+    """<store>/<sub>/<name> when it is a regular file in a real folder (never a link), else None."""
     path = os.path.join(store, sub, name)
     try:
+        # The folder too: a link there would carry a file of this host.
+        if not stat.S_ISDIR(os.lstat(os.path.join(store, sub)).st_mode):
+            return None
         return path if stat.S_ISREG(os.lstat(path).st_mode) else None
     except FileNotFoundError:
         return None
