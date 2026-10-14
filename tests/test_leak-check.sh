@@ -32,8 +32,8 @@ echo "the directory"
 [[ "$(env -u TMPDIR TMP=/t bash -c '. "'"$HERE"'/leak-check.sh"; leak_dir')" == /t ]] && ok "then TMP" || bad "TMP"
 [[ "$(env -u TMPDIR -u TMP -u TEMP bash -c '. "'"$HERE"'/leak-check.sh"; leak_dir')" == /tmp ]] && ok "then /tmp" || bad "/tmp"
 
-echo "run.sh uses it, on a directory of its own"
-grep -q 'run.py' "$HERE/run.sh" && grep -q 'def leak_report' "$HERE/run.py" && ok "run.sh forwards to run.py, which reports with its leak_report" || bad "run.sh wiring"
+echo "the run, through run.sh, on a directory of its own"
+grep -Eq '^AGENT_FABRIC_RUNNER=tests/run.sh exec python3 .*tests/run\.py" "\$@"$' "$HERE/run.sh" && grep -q 'def leak_report' "$HERE/run.py" && ok "run.sh forwards to run.py, which reports with its leak_report" || bad "run.sh wiring"
 grep -q 'env\["TMPDIR"\] = scratch' "$HERE/run.py" && ok "the run exports its own TMPDIR, so a concurrent writer is never a leak" || bad "TMPDIR export"
 
 echo "a run killed by a signal ENDS, and its directory goes with it"
@@ -56,7 +56,7 @@ for _ in $(seq 100); do made_dir && break; sleep 0.1; done
 made_dir && ok "the run made its directory under XDG_RUNTIME_DIR" || bad "run directory" "$(ls -A "$RUNTMP")"
 kill -TERM -- "-$RUNPID" 2>/dev/null || kill -TERM "$RUNPID"
 ended=0
-# run.sh's cleanup TERMs its suites, KILLs what is left after 5 s and waits
+# run.py's cleanup TERMs its suites, KILLs what is left after 5 s and waits
 # about 10 s in all (a zombie answers kill -0 to the end), so the run may
 # take that long on a loaded runner: 15 s is the bound.
 for _ in $(seq 150); do kill -0 "$RUNPID" 2>/dev/null || { ended=1; break; }; sleep 0.1; done
@@ -67,7 +67,7 @@ wait "$RUNPID" 2>/dev/null; rc=$?
 grep -q "suite(s) FAILED" "$SANDBOX/run.out" && bad "the interrupted run was reported as suite failures" "$(cat "$SANDBOX/run.out")" || ok "the interrupted run reports no suite failures"
 
 echo "a run killed by a group KILL leaves no directory and no process"
-# KILL runs no trap: the directories go by the watcher run.sh starts.
+# KILL runs no trap: the directories go by the watcher run.py starts.
 RUNTMP2="$SANDBOX/runtmp2"; mkdir -p "$RUNTMP2"
 XDG_RUNTIME_DIR="$RUNTMP2" PATH="$FAKEBIN:$PATH" setsid bash "$HERE/run.sh" static > "$SANDBOX/run2.out" 2>&1 &
 KPID=$!
