@@ -56,7 +56,7 @@ def main() -> int:
         ("no evidence_mode: refused", "```agent-fabric-dispatch v1\n{\"engine\": \"claude\"}\n```", True),
         ("not JSON: refused", "```agent-fabric-dispatch v1\nevidence_mode: pinned\n```", True),
         ("never closed: refused", pinned.rsplit("\n", 1)[0], True),
-        ("another fence's info string: not a header", "```agent-fabric-dispatch v2\n{}\n```", False),
+        ("another version's fence: refused, the name outside a header it reads", "```agent-fabric-dispatch v2\n{}\n```", True),
         ("CRLF line ends, working-tree: refused", tree.replace("\n", "\r\n") + "\r\nF1", True),
         ("CRLF line ends, pinned: posts", pinned.replace("\n", "\r\n") + "\r\nF1", False),
         ("evidence_mode given twice: refused",
@@ -69,6 +69,17 @@ def main() -> int:
         ("a spaced tilde fence with a tab, working-tree: refused",
          "~~~ \tagent-fabric-dispatch v1\n" + tree.split("\n", 1)[1].rsplit("\n", 1)[0] + "\n~~~", True),
         ("a spaced fence, pinned: posts", pinned.replace("```agent", "```  agent", 1) + "\nF1", False),
+
+        # A header DISPATCH_FENCE does not see is not read, so the name anywhere else refuses (review of #259, risk 1).
+        ("a working-tree header in a blockquote: refused", "F1 (P2) …\n\n" + "\n".join("> " + l for l in tree.split("\n")), True),
+        ("a pinned header in a blockquote: refused, unread", "\n".join("> " + l for l in pinned.split("\n")) + "\nF1", True),
+        ("a working-tree header in a list item: refused",
+         "- F1 (P2) quotes:\n  - " + tree.replace("\n", "\n    "), True),
+        ("a pinned header, then a list item opening a working-tree one: refused",
+         f"{pinned}\n- " + tree.replace("\n", "\n  "), True),
+        ("the name in prose: refused", f"{pinned}\nF1 (P3) the agent-fabric-dispatch header is long", True),
+        ("the version in inline code: refused", "F1 (P3) `agent-fabric-dispatch v1` is long", True),
+        ("a pinned header's own body naming nothing: posts", f"{pinned}\nF1 (P3) the dispatch header is long", False),
     ):
         why = post_review.evidence_refusal(body)
         check(label, bool(why) is refused and (not refused or "agent-fabric-dispatch v1" in why))
@@ -77,6 +88,14 @@ def main() -> int:
     quoted = post_review.evidence_refusal(f"{pinned}\nF1 quotes the fixture:\n\n````markdown\n{tree}\n````\n")
     check("a pinned report quoting a working-tree header: refused, saying a quote counts and where it is",
           "one it quotes too" in quoted and f"line {len(pinned.splitlines()) + 4}" in quoted)
+
+    blockquoted = post_review.evidence_refusal("F1 (P2) …\n\n" + "\n".join("> " + l for l in tree.split("\n")))
+    check(f"a stray name's refusal names its line and says what to do (got {blockquoted!r})",
+          blockquoted.startswith("line 3 names agent-fabric-dispatch outside") and "blockquote" in blockquoted
+          and "Take the line out" in blockquoted)
+    later = post_review.evidence_refusal(f"{pinned}\nF1\n> {pinned.splitlines()[0]}")
+    check("a stray after a recognised header is counted from the report's first line",
+          later.startswith(f"line {len(pinned.splitlines()) + 2} names"))
 
     print("the posted report carries no dispatch header (review of #259, risk 1)")
     named = header(range="a..b", job_id="j9")

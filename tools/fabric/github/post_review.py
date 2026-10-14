@@ -80,9 +80,11 @@ Only a pinned review covers a head (agent-fabric ADR-020 §5 rule 10).
 A report that carries the brief's agent-fabric-dispatch v1 header is
 posted only when every such header says "evidence_mode": "pinned"; a
 working-tree one, or a header it cannot read, is refused before the PR
-is read. A report with no header posts as before; a pinned one posts
-with every header taken out, since a header names the dispatching
-session.
+is read. A header is read only as a fenced block of its own; any other
+line naming agent-fabric-dispatch (in a blockquote, a list item, prose,
+or another version) is refused, naming the line. A report with no
+header posts as before; a pinned one posts with every header taken out,
+since a header names the dispatching session.
 
 Exit codes:
   0  posted
@@ -103,6 +105,10 @@ FILE_LIST_CAP = 3000
 # spaces stand between a fence and its info string, and a model reformatting the header may write them: a spaced
 # header unmatched would post a working-tree report as one with no header (review of #259, F5; ledger.FENCE agrees).
 DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*" + re.escape(review_brief.DISPATCH_VERSION) + r"[ \t]*$")
+# The header's name without its version: a line naming it outside a header DISPATCH_FENCE recognises is a header
+# this tool cannot read (quoted in a blockquote or a list item, or another version), so it refuses rather than post
+# it unchecked (review of #259, risk 1).
+DISPATCH_NAME = review_brief.DISPATCH_VERSION.split()[0]
 
 
 class Refused(Exception):
@@ -171,6 +177,7 @@ def evidence_refusal(body: str) -> str:
     # splitlines, not split("\n"): a report with CRLF line ends keeps its \r on every line otherwise, and the
     # opening fence would not match where the closing one does.
     lines = body.splitlines()
+    read: set[int] = set()
     for i, close in _dispatch_headers(lines):
         where = f"the {review_brief.DISPATCH_VERSION} header at line {i + 1}"
         if close is None:
@@ -187,6 +194,12 @@ def evidence_refusal(body: str) -> str:
             return (f"{where} {said}, and only a pinned review covers a head (agent-fabric ADR-020 §5 rule 10). "
                     "Every header in a report counts, one it quotes too: a working-tree review stays out of the PR "
                     "(review the pushed range pinned and post that); a quoted header is taken out of the report")
+        read.update(range(i, close + 1))
+    stray = next((n for n, line in enumerate(lines) if n not in read and DISPATCH_NAME in line), None)
+    if stray is not None:
+        return (f"line {stray + 1} names {DISPATCH_NAME} outside a {review_brief.DISPATCH_VERSION} header this tool "
+                "reads, a fenced block of its own: a header in a blockquote or a list item, or of another version, "
+                "may say working-tree unchecked. Take the line out, or reword it without the name")
     return ""
 
 
