@@ -288,8 +288,8 @@ def main() -> int:
         # More suites than slots: the runner starts the next one the moment a slot frees, and a stop frees them all. The
         # runner prints a suite's output when the suite ends, so a stop that kills it instead of asking loses what the
         # running suites said (round 2 of #265).
-        suites = {f"tests/test_q{i}.py": suite("open(os.path.join(os.environ['STARTED'], 'q%d' % " + str(i) + "), 'w').close()\n"
-                                              "print('MARK%d' % " + str(i) + ", flush=True)\n"
+        suites = {f"tests/test_q{i}.py": suite("print('MARK%d' % " + str(i) + ", flush=True)\n"
+                                              "open(os.path.join(os.environ['STARTED'], 'q%d' % " + str(i) + "), 'w').close()\n"
                                               "import time; time.sleep(30)\n") for i in range(8)}
         for sig, name in ((signal.SIGTERM, "TERM"), (signal.SIGINT, "INT"), (signal.SIGHUP, "HUP")):
             base = fresh(files=suites)
@@ -511,9 +511,12 @@ def main() -> int:
         check("…a file with no MemAvailable line likewise", rps.memory_bound(meminfo) is None)
         base = fresh(files={"tests/test_ok.py": suite("print('fine')\n")})
         r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1000000")
-        bound = rps.memory_bound()
+        # MemAvailable moves between the test's read and the runner's, so the exact count is not asserted (it is, against a
+        # fixed file, by the cases above): the line must say the request was lowered to a positive number below it.
+        said = re.search(r"1000000 jobs would not fit the memory available .*: running (\d+)", r.stderr)
         check("a job count beyond what the memory allows is lowered, said on stderr, and the run goes on",
-              r.returncode == 0 and (bound is None or f"running {bound}" in r.stderr and "would not fit" in r.stderr), (r.returncode, r.stderr, bound))
+              r.returncode == 0 and (rps.memory_bound() is None or (said is not None and 1 <= int(said.group(1)) < 1000000)),
+              (r.returncode, r.stderr))
 
         print("the helpers")
         import run as runner
