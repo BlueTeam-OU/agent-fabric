@@ -503,7 +503,7 @@
       "status": "Proposed",
       "date": "2026-10-13",
       "pillar": "P1",
-      "amendments": 1
+      "amendments": 2
     },
     {
       "number": "056",
@@ -520,6 +520,15 @@
       "title": "Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker",
       "status": "Accepted",
       "date": "2026-10-13",
+      "pillar": "P1",
+      "amendments": 0
+    },
+    {
+      "number": "058",
+      "file": "ADR-058-reflection-pass-over-the-journal.md",
+      "title": "A reflection pass turns an agent's own messages into memory candidates",
+      "status": "Accepted",
+      "date": "2026-10-14",
       "pillar": "P1",
       "amendments": 0
     }

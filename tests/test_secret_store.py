@@ -1277,6 +1277,7 @@ else:
                     fh.write(text)
             put_file(os.path.join(sdir, "jobs.json"), '{"jobs": []}')
             put_file(os.path.join(sdir, "role-history.jsonl"), "{}\n")
+            put_file(os.path.join(sdir, "reflect-cursor.json"), '{"row": 3}\n')
             put_file(os.path.join(sdir, "reviews", "r1", "note.md"), "review\n")
             put_file(os.path.join(claude, "projects", "p1", "memory", "m.md"), "memory\n")
             put_file(os.path.join(claude, "plans", "plan.md"), "plan\n")
@@ -1301,7 +1302,7 @@ else:
             got = sorted(os.path.relpath(os.path.join(dp, f), dest) for dp, _, fs in os.walk(dest) for f in fs)
             check("state restore: exactly the file set, no settings, secrets, transcripts or other state",
                   q.returncode == 0 and got == sorted([
-                      "state/jobs.json", "state/role-history.jsonl", "state/reviews/r1/note.md", "state/episodic.db",
+                      "state/jobs.json", "state/role-history.jsonl", "state/reflect-cursor.json", "state/reviews/r1/note.md", "state/episodic.db",
                       "claude/projects/p1/memory/m.md", "claude/plans/plan.md"]), q.stdout + q.stderr + repr(got))
             try:
                 kept = sqlite3.connect(os.path.join(dest, "state", "episodic.db")).execute("SELECT v FROM t").fetchall()

@@ -116,15 +116,16 @@ fleet reports (ADR-029), so it carries that view.
    two seats and three review models.
 8. A second review engine is additional, never blocking (A 2026-10-13):
    `policies/arming.json` requires the claude review (`reviews`,
-   `boundary_reviews`) and lists codex under `additional_reviews` once
-   the marker is posted (#245); until then `additional_reviews` is empty
-   and codex is optional, since listing it earlier would refuse every
-   arm. The arm accepts, for an additional engine, its review of the head (whose
+   `boundary_reviews`) and lists codex under `additional_reviews`, the
+   marker tool having landed (#245); codex is optional, never blocking.
+   The arm accepts, for an additional engine, its review of the head (whose
    open P1 or P2 still blocks) or its unavailable marker for that exact
    head, posted by `fabric-review --engine codex` when the engine cannot
    run (over the allowance, or at capacity after rule 2's waits) as a
    review object from an account whose reviews count; with neither, the
-   arm refuses. Never paid API spend in its place: the engine rides the
+   engine is absent: the arm proceeds on the required reviews and says
+   "codex: absent" in its summary and posted basis, and the gate reads it
+   the same way. Never paid API spend in its place: the engine rides the
    subscription only.
 
 ## 6. Consequences
@@ -178,3 +179,4 @@ The body above reads current; each change's full note is in [history/ADR-055-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-13 | Codex is an additional review: unavailable, the claude review alone arms | §5 rule 8: arming.json reviews claude, additional_reviews codex; review or unavailable marker per head; no API spend |
+| 2026-10-14 | An absent additional review does not stop an arm | §5 rule 8: neither review nor marker on the head is "absent"; the arm proceeds and says so; the gate reads the same |

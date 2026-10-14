@@ -59,6 +59,8 @@ GROUPING = ("allgreen", "headgreen")
 UPDATE_TYPES = ("patch", "minor", "major")
 # GitHub's repository fields for the merge methods: the merge commit's is the odd one out.
 REPO_FIELD = {"merge": "allow_merge_commit", "squash": "allow_squash_merge", "rebase": "allow_rebase_merge"}
+# Every repository field the policy decides (repository_fields), in the order fabric-repo-policy reports them.
+REPOSITORY_FIELDS = ("allow_auto_merge", *REPO_FIELD.values(), "delete_branch_on_merge")
 # The integration id of an App by its slug, for a ruleset's required check; one not here is asked of GitHub
 # (apps/<slug>) by repo_policy.resolve_apps. github-actions is 15368 everywhere.
 APP_IDS = {"github-actions": 15368}
@@ -67,9 +69,9 @@ QUEUE_DEFAULTS = {"grouping": "allgreen", "build": 5, "merge_max": 5, "merge_min
 RULESET_PARAMETERS = {"build": "max_entries_to_build", "merge_max": "max_entries_to_merge", "merge_min": "min_entries_to_merge",
                       "wait_minutes": "min_entries_to_merge_wait_minutes", "check_timeout_minutes": "check_response_timeout_minutes"}
 
-# The fleet default, as policies/arming.json has it: what a tree without that file gets. additional_reviews is empty
-# until the tool that posts codex's unavailable marker lands (agent-fabric ADR-055 rule 8): listing codex earlier
-# would refuse every arm.
+# The fleet default, as policies/arming.json has it: what a tree without that file gets. codex is additional (agent-fabric
+# ADR-055 rule 8): its review counts when present, and with neither a review nor an unavailable marker on the head it
+# is absent and the arm proceeds on the required reviews (#264 F1).
 DEFAULT: dict[str, Any] = {
     "mode": "auto",
     "method": "merge",
@@ -81,7 +83,7 @@ DEFAULT: dict[str, Any] = {
     "commits": {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}},
     "reviews": ["claude"],
     "boundary_reviews": ["claude"],
-    "additional_reviews": [],
+    "additional_reviews": ["codex"],
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
 }
@@ -400,7 +402,8 @@ def required_engines(policy: dict, boundary: bool) -> list[str]:
 
 def additional_engines(policy: dict, boundary: bool) -> list[str]:
     """The engines this pull request asks for beyond the required ones, in ENGINES order: each is satisfied by its
-    review of the head or, when it could not run, by its unavailable marker for that head (engines_unavailable).
+    review of the head or, when it could not run, by its unavailable marker for that head (engines_unavailable); with
+    neither it is absent and never blocks the arm (arm.check_engines).
     One that required_engines names for this change is required there, not additional, whichever list names it too."""
     required = required_engines(policy, boundary)
     return [e for e in ENGINES if e in policy["additional_reviews"] and e not in required]
@@ -428,19 +431,31 @@ HEAD_REVIEWED = "head reviewed"
 
 def review_summary(have: set[str], required: list[str], head: str, boundary_only: list[str] = (), unread: str = "",
                    additional: list[str] = (), unavailable: dict[str, str] | None = None) -> str:
-    """"claude ✓ codex ✗ (head 6bc0ad18)", one mark per required engine, opened by "head reviewed: " when all are
-    there. `boundary_only` engines (a policy's boundary_reviews beyond its reviews, for a reader that does not judge
-    the boundary) are marked and not required. `additional` engines are marked "✓", "unavailable (<reason>)" when
-    `unavailable` has their marker for this head, or "✗", and the line opens "head reviewed" only when none is "✗".
+    """"claude ✓ codex absent (head 6bc0ad18)", one mark per engine, opened by "head reviewed: " when every required
+    engine has reviewed. `boundary_only` engines (a policy's boundary_reviews beyond its reviews, for a reader that
+    does not judge the boundary) are marked and not required. `additional` engines are marked "✓", "unavailable
+    (<reason>)" when `unavailable` has their marker for this head, or "absent" with neither. When `boundary_only`
+    names one too, arm requires its review of a boundary and no marker stands in: "✗ (boundary only)" replaces
+    "absent", or follows "unavailable (<reason>)". They never block, so the line opens "head reviewed" when every
+    required engine is "✓" (#264 F1: the gate must not show blocked what arm arms).
     `unread` is why the policy could not be read, when every engine was required for that reason: said on the line,
     or a missing engine reads as the repository's own requirement."""
     unavailable = unavailable or {}
     marks = [f"{e} {'✓' if e in have else '✗'}" for e in required]
     extra = [e for e in additional if e not in required]
-    marks += [f"{e} {'✓' if e in have else f'unavailable ({unavailable[e]})' if e in unavailable else '✗'}" for e in extra]
+
+    def additional_mark(e: str) -> str:
+        if e in have:
+            return "✓"
+        said = f"unavailable ({unavailable[e]})" if e in unavailable else None
+        # A boundary's engine is not stood in for by its marker (arm requires its review there): the line says so.
+        if e in boundary_only:
+            return f"{said} ✗ (boundary only)" if said else "✗ (boundary only)"
+        return said or "absent"
+    marks += [f"{e} {additional_mark(e)}" for e in extra]
     marks += [f"{e} {'✓' if e in have else '✗'} (boundary only)" for e in boundary_only if e not in required and e not in extra]
     line = f"{' '.join(marks)} (head {head[:8]}{f'; policy unread, every engine required: {unread}' if unread else ''})"
-    met = all(e in have for e in required) and all(e in have or e in unavailable for e in extra)
+    met = all(e in have for e in required)
     return f"{HEAD_REVIEWED}: {line}" if met else line
 
 
@@ -452,6 +467,16 @@ def ruleset_name(policy: dict) -> str:
     return policy["github"]["ruleset"]
 
 
+def repository_fields(policy: dict) -> dict:
+    """The repository fields the policy decides (REPOSITORY_FIELDS): auto-merge by the mode, delete-branch-on-merge,
+    and only the policy's merge method allowed. The one source for them: render() asks them of GitHub, and
+    fabric-repo-settings writes them, which once stated its own and allowed all three methods (REQUEST 01a139bb)."""
+    p = validate(policy)
+    return {"allow_auto_merge": p["mode"] in ("auto", "queue"),
+            **{field: m == p["method"] for m, field in REPO_FIELD.items()},
+            "delete_branch_on_merge": p["delete_branch_on_merge"]}
+
+
 def render(policy: dict, apps: Mapping[str, int] | None = None) -> dict:
     """What the policy asks of GitHub: {"repository": the repository fields, "ruleset": the ruleset body or None}.
     `apps` maps an App slug to its integration id (APP_IDS by default; repo_policy asks GitHub for the rest). The
@@ -459,8 +484,7 @@ def render(policy: dict, apps: Mapping[str, int] | None = None) -> dict:
     no ruleset."""
     p = validate(policy)
     ids = {**APP_IDS, **(apps or {})}
-    repository = {"allow_auto_merge": p["mode"] in ("auto", "queue"), "delete_branch_on_merge": p["delete_branch_on_merge"],
-                  **{field: m == p["method"] for m, field in REPO_FIELD.items()}}
+    repository = repository_fields(p)
     if p["mode"] == "direct":
         return {"repository": repository, "ruleset": None}
     rules: list[dict] = []

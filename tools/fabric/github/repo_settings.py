@@ -9,7 +9,11 @@ code scanning and secret scanning are set on GitHub by hand.
   fabric-repo-settings [owner/repo]     # default: BlueTeam-OU/agent-fabric
   fabric-repo-settings --show [owner/repo]
 
-Idempotent: every call sets the documented value. The ruleset on main
+Idempotent: every call sets the documented value. Which merge methods
+the repository allows, auto-merge and delete-branch-on-merge are the
+repository's arming policy's (arm_policy.repository_fields, read before
+the first write), the fields fabric-repo-policy compares, so the two
+cannot disagree. The ruleset on main
 is tools/fabric/github-ruleset-main.json, created or updated by name;
 its one required check is ci.yml's ci-ok job, which stands for every
 other job, so a job renamed in .github/workflows/ci.yml needs no change
@@ -24,7 +28,8 @@ never touches secrets (there are none) or collaborators.
 #     permissions, the topics, the rule types on main.
 #   - apply: the repository, the topics, Actions, workflow permissions,
 #     then the ruleset (PUT to the one named in the file, else POST), each
-#     the same request the bash made; one line on stdout at the end.
+#     the same request the bash made but the repository's merge fields;
+#     one line on stdout at the end.
 #   - a refused call stops the run, exit 1, the call and GitHub's reason on
 #     stderr; what was applied before it stays, and a rerun is safe.
 # Changed, and said in j31's delivery: -h/--help prints this usage (the
@@ -32,7 +37,11 @@ never touches secrets (there are none) or collaborators.
 # the first write, so a missing or broken one changes nothing; the
 # rulesets are listed across every page (the bash read the first thirty,
 # and a ruleset past them would have been created twice), and the
-# organisation's are not among them (review of j31).
+# organisation's are not among them (review of j31). And REQUEST
+# 01a139bb: auto-merge, the merge methods and delete-branch-on-merge are
+# the repository's arming policy's, read (its client's settings file, a
+# GET) before the first write; a policy that cannot be read or is invalid
+# stops the run there, exit 1.
 from __future__ import annotations
 
 import json
@@ -42,6 +51,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+from github import arm_policy  # noqa: E402
 
 DEFAULT_REPO = "BlueTeam-OU/agent-fabric"
 RULESET = os.path.join(os.path.dirname(HERE), "github-ruleset-main.json")
@@ -51,8 +61,7 @@ REPOSITORY = {
                    "model routing, messaging.",
     "default_branch": "main",
     "has_issues": True, "has_projects": True, "has_wiki": True, "has_discussions": False,
-    "allow_merge_commit": True, "allow_squash_merge": True, "allow_rebase_merge": True,
-    "allow_auto_merge": True, "delete_branch_on_merge": False, "allow_update_branch": False,
+    "allow_update_branch": False,
     "merge_commit_title": "MERGE_MESSAGE", "merge_commit_message": "PR_TITLE",
     "squash_merge_commit_title": "COMMIT_OR_PR_TITLE", "squash_merge_commit_message": "COMMIT_MESSAGES",
     "web_commit_signoff_required": False,
@@ -74,7 +83,7 @@ def _line(value) -> str:
 
 def show(repo: str) -> None:
     r = gh.api(f"repos/{repo}") or {}
-    print(_line({k: r.get(k) for k in ("visibility", *REPOSITORY)}))
+    print(_line({k: r.get(k) for k in ("visibility", *REPOSITORY, *arm_policy.REPOSITORY_FIELDS)}))
     a = gh.api(f"repos/{repo}/actions/permissions") or {}
     print(_line({"actions_enabled": a.get("enabled"), "allowed_actions": a.get("allowed_actions")}))
     w = gh.api(f"repos/{repo}/actions/permissions/workflow") or {}
@@ -95,9 +104,20 @@ def ruleset() -> dict:
     return doc
 
 
+def repository(repo: str) -> dict:
+    """The repository's settings: REPOSITORY, and over it the fields its arming policy decides, read before
+    anything is written."""
+    try:
+        decided = arm_policy.repository_fields(arm_policy.load(repo))
+    except (arm_policy.PolicyError, arm_policy.PolicyUnavailable) as e:
+        raise gh.GhError("the arming policy", str(e)) from None
+    return {**REPOSITORY, **decided}
+
+
 def apply(repo: str) -> None:
     rules = ruleset()
-    gh.api(f"repos/{repo}", method="PATCH", body=REPOSITORY)
+    settings = repository(repo)
+    gh.api(f"repos/{repo}", method="PATCH", body=settings)
     gh.api(f"repos/{repo}/topics", method="PUT", body={"names": TOPICS})
     gh.api(f"repos/{repo}/actions/permissions", method="PUT", body=ACTIONS)
     gh.api(f"repos/{repo}/actions/permissions/workflow", method="PUT", body=WORKFLOW)

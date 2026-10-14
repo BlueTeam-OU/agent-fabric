@@ -61,6 +61,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | a model at capacity or over allowance; retries; review divert; availability report | ADR-055 |
 | an agent's name, surname, avatar; the "AI" prefix; personas | ADR-056 |
 | signing commits; an agent's own key; ssh or gpg signing; fabric-sign; timestamps; Verified on GitHub | ADR-057 |
+| lessons in messages; reflection pass; fabric-reflect; turning the journal into memory | ADR-058 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -323,7 +324,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — a drain-bound memory is judged when written, by a
   user-scope hook (rule 14).
 - A 2026-10-10 — the role's holder judges truth: ADR-050 (rules 11, 12, 14,
-  15), built (the report half of its rule 11 is not).
+  15), built (rule 11's report half too, #252).
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
   watermark, bundle, hygiene, redacted, tier.
@@ -344,7 +345,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   class; ambiguous refuses the run, unresolved is reported every drain;
   the correction keeps its own heading (§5 rules 7–8).
 - A 2026-10-10 — a retitle replaces only the section it names; a body-less
-  `merge_target` retires a section (rules 4, 7, ADR-050); built (the report of retitles is not).
+  `merge_target` retires a section (rules 4, 7, ADR-050); built (the report's `retitles` list too, #252).
 - Keywords: collision, SUPERSEDING, supersede, keep-both, drop,
   --collision-decisions, same-agent, retitle, merge_target, correction,
   observed, idempotent, budget part.
@@ -1198,7 +1199,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Each provider's strategy (retry waits, seats, allowance action, ordered
   models) is data in one syntax, `routing/policies/availability.json`,
   linted; OpenAI is the less tolerant (§5 rule 7).
-- A 2026-10-13 — codex additional: an unavailable marker on the head lets claude alone arm; the fleet lists codex under additional_reviews once the marker is posted (#245), until then it is empty and codex optional (§5 rule 8).
+- A 2026-10-13 — codex additional: an unavailable marker on the head lets claude alone arm; the fleet lists codex under additional_reviews, the marker tool having landed (#245), and codex is optional (§5 rule 8).
+- A 2026-10-14 — an additional engine with neither a review nor a marker on the head is
+  absent: the arm proceeds on the required reviews and says so, and the gate reads the same.
 
 ### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Accepted)
 
@@ -1227,3 +1230,16 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One checker: admitted format, lineage-certified key, role held, proof
   present — hooks, CI, suite (§5 rule 5). Keys on GitHub as signing keys;
   one shared author stays (§5 rules 6-7).
+
+### ADR-058 — A reflection pass turns an agent's own messages into memory candidates (Accepted)
+
+- Weekly, before the drain, each agent works a reflection job over its
+  own GZCoord journal since its last pass (§5 rules 1-2).
+- `fabric-reflect` prints only that login's messages, credentials
+  withheld, bounded per pass; never transcripts (§5 rule 2).
+- The agent judges each lesson by the rubric and writes only what
+  passes, `origin: reflection` with its MESSAGE-IDs (§5 rule 3).
+- The cursor moves when the pass finishes; the drain alone promotes,
+  and counts reflection memories (§5 rules 4-5).
+- Keywords: reflection, journal, episodic.db, fabric-reflect, lessons,
+  messages, memory candidates, drain.

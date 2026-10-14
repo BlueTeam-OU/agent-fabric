@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# bin/fabric-reflect — what this agent sent and received since its last
+# reflection pass, and the cursor of that pass (agent-fabric ADR-058). The
+# path is the contract (~/.local/bin/fabric-reflect links here); the work is
+# tools/fabric/reflect.py. Bash builtins only: the command is reached through
+# a symlink, which python resolves.
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-reflect: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" -I -c '
+import os, runpy, sys
+here = os.path.dirname(os.path.realpath(sys.argv[1]))
+module = os.path.join(here, "..", "tools", "fabric", "reflect.py")
+sys.argv[:2] = [module]
+runpy.run_path(module, run_name="__main__")
+' "${BASH_SOURCE[0]}" "$@"

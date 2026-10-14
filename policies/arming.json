@@ -1,5 +1,5 @@
 {
-  "description": "The fleet's default arming policy. Each organisation's agent-fabric-settings repository (projects/registry.json settings_repos) holds repos/<repo>.json, which overrides this per repository: objects merge recursively, scalars replace. The shape is identities/schemas/arming.schema.json. Below the minimum of work commits a PR is armed only on the owner's word; the 8 and 16 are the minimum and the size above which the gate advises splitting; boundary_min is the security boundary's own minimum, which no repository lowers. reviews lists the engines (claude, codex) whose review of the current head a PR needs, boundary_reviews the engines a security-boundary change needs as well (agent-fabric ADR-053 rule 6); a list replaces. additional_reviews lists engines that review when they can and never block: codex, whose review or unavailable marker for the head the arm accepts (the owner, 2026-10-13: \"codex is more, not a blocking\"). It is empty for now and codex is optional: no tool posts codex's unavailable marker until #245 lands, and #245 waits for the change that sets this, so listing codex here earlier would stop every arm; codex becomes additional in the change after #245.",
+  "description": "The fleet's default arming policy. Each organisation's agent-fabric-settings repository (projects/registry.json settings_repos) holds repos/<repo>.json, which overrides this per repository: objects merge recursively, scalars replace. The shape is identities/schemas/arming.schema.json. Below the minimum of work commits a PR is armed only on the owner's word; the 8 and 16 are the minimum and the size above which the gate advises splitting; boundary_min is the security boundary's own minimum, which no repository lowers. reviews lists the engines (claude, codex) whose review of the current head a PR needs, boundary_reviews the engines a security-boundary change needs as well (agent-fabric ADR-053 rule 6); a list replaces. additional_reviews lists engines that review when they can and never block: codex, whose review or unavailable marker for the head the arm accepts (the owner, 2026-10-13: \"codex is more, not a blocking\"). The fleet lists codex here: the tool that posts its unavailable marker has landed (#245), so a codex that cannot run no longer stops an arm; one that left neither a review nor a marker for the head is absent, and the arm proceeds on the required reviews and says so (agent-fabric ADR-055 rule 8).",
   "mode": "auto",
   "method": "merge",
   "required_checks": [],
@@ -24,7 +24,9 @@
   "boundary_reviews": [
     "claude"
   ],
-  "additional_reviews": [],
+  "additional_reviews": [
+    "codex"
+  ],
   "bots": {},
   "github": {
     "ruleset": "fabric arming policy"

@@ -4,12 +4,14 @@ that records every request (method, path, JSON body) and answers it.
 
 What the settings script promises, and the bash had no test for: every
 call sets the documented value; the ruleset is updated by name when it
-exists (on any page) and created when it does not; a refused call stops
-the run; a ruleset file it cannot read writes nothing; --show prints
+exists (on any page) and created when it does not; the merge fields
+are the arming policy's; a refused call stops the run; a ruleset file or
+a policy it cannot read writes nothing; --show prints
 five compact lines and writes nothing. Plain script: prints ok/FAIL,
 exit 1 on any failure."""
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -92,6 +94,8 @@ def main() -> int:
         check("…the documented values: merge settings, the topic list whole, read-only workflows",
               body.get("repos/o/r", {}).get("allow_auto_merge") is True
               and body["repos/o/r"].get("delete_branch_on_merge") is False
+              and [body["repos/o/r"].get(f) for f in ("allow_merge_commit", "allow_squash_merge", "allow_rebase_merge")]
+              == [True, False, False]
               and body["repos/o/r"].get("merge_commit_title") == "MERGE_MESSAGE"
               and body.get("repos/o/r/topics", {}).get("names", [None])[0] == "agent-memory"
               and len(body["repos/o/r/topics"]["names"]) == 8
@@ -105,11 +109,23 @@ def main() -> int:
         check("…and one line on stdout", out == "github-repo-settings: applied to o/r "
               "(docs/adr/ADR-019-work-arrives-as-pull-requests.md)\n", out)
 
-        rc, out, err, calls = settings(GH_RULESET_PAGES=json.dumps([[{"id": 3, "name": "other"}]]))
+        # The default repository is a registered project's: its policy is its client's settings repository's file.
+        policy = "repos/BlueTeam-OU/agent-fabric-settings/contents/repos/agent-fabric.json"
+        squash = {policy: {"type": "file", "encoding": "base64",
+                           "content": base64.b64encode(json.dumps({"method": "squash"}).encode()).decode()}}
+        rc, out, err, calls = settings(GH_RULESET_PAGES=json.dumps([[{"id": 3, "name": "other"}]]), GH_ANSWERS=json.dumps(squash))
         last = calls[-1] if calls else {}
         check("no ruleset of that name: created; no repository named: the default one",
               rc == 0 and last.get("method") == "POST" and last.get("path") == "repos/BlueTeam-OU/agent-fabric/rulesets"
               and last.get("body") == ruleset, f"rc={rc}\n{err}{json.dumps(calls)[-400:]}")
+        patched = next((c["body"] for c in calls if c["method"] == "PATCH"), {})
+        check("…its merge fields from its own policy file",
+              [patched.get(f) for f in ("allow_merge_commit", "allow_squash_merge", "allow_rebase_merge")] == [False, True, False],
+              json.dumps(patched))
+
+        rc, out, err, calls = settings(GH_FAIL=f"GET {policy}")
+        check("a policy it cannot read: exit 1, said, nothing written",
+              rc == 1 and "the arming policy" in err and [c["method"] for c in calls] == ["GET"], f"rc={rc}\n{err}{calls}")
 
         rc, out, err, calls = settings("o/r", GH_FAIL="PUT repos/o/r/topics")
         check("a refused call stops the run: exit 1, the call and GitHub's reason, nothing after it",
@@ -121,8 +137,8 @@ def main() -> int:
         os.makedirs(os.path.join(copy, "github"))
         os.makedirs(os.path.join(t, "copy", "bin"))
         shutil.copy2(TOOL, os.path.join(t, "copy", "bin", "fabric-repo-settings"))
-        for rel in ("gh.py", os.path.join("github", "repo_settings.py"),
-                    os.path.join("github", "__init__.py")):
+        for rel in ("gh.py", "roots.py", "workingcopy.py", os.path.join("github", "repo_settings.py"),
+                    os.path.join("github", "arm_policy.py"), os.path.join("github", "__init__.py")):
             shutil.copy2(os.path.join(ROOT, "tools", "fabric", rel), os.path.join(copy, rel))
         with open(os.path.join(copy, "github-ruleset-main.json"), "w", encoding="utf-8") as fh:
             fh.write("{")

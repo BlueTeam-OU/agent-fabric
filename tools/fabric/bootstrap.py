@@ -47,6 +47,10 @@ Writes, idempotently, and only machine-local files:
                                      in this account's user manager when one is running; its
                                      ExecStart runs the pinned Python on
                                      tools/fabric/control/agentd.py (agentd_unit.py)
+  <units>/agent-fabric-state-backup.{service,timer}
+                                     the login's daily working-state backup (runtime/control/;
+                                     j179): the timer enabled and started in this account's
+                                     user manager when one is running
   <units>/gzcoord-relay.service      ONLY on the account whose workspace hosts the relay
                                      ($PROJECTS/.gzcoord/venv exists): the relay as a unit
   ~/.cache/agent-fabric/langid/venv/ the language detector (pycld2) for the control agent's
@@ -238,6 +242,7 @@ MARKER = b"agent-fabric"
 HOOKS_REL = "policies/githooks"
 UNIT = "agent-fabric-agentd"
 RELAY_UNIT = "gzcoord-relay"
+BACKUP_UNIT = "agent-fabric-state-backup"
 RELAY_STATUS = "http://127.0.0.1:8765/status"
 JOURNAL_IMPORT_TIMEOUT = 20
 # The marker of ADR-042's migration on this account, under its state.
@@ -516,6 +521,7 @@ class Bootstrap:
         trusted = self.working_copy_hooks()
         self.trust(trusted)
         self.control_agent()
+        self.state_backup()
         self.relay()
         self.langid()
         self.retire_doppler()
@@ -996,6 +1002,31 @@ class Bootstrap:
             else:
                 run_quiet(["systemctl", "--user", "restart", UNIT])
         say(f"  *  {UNIT}: {answer(['systemctl', '--user', 'is-active', UNIT])} (systemctl --user status {UNIT})")
+
+    def state_backup(self) -> None:
+        # 6a. The daily state backup: a oneshot service and the timer that runs it
+        #     (runtime/control/), installed as the control agent's unit is. Only
+        #     the timer is enabled; the service is the timer's to start. With no
+        #     user manager (a host without systemd, a bare `sudo -u`, a scratch
+        #     HOME) the units are installed and the absence said, never a failure:
+        #     the next login with a manager enables them on the next bootstrap.
+        #     Idempotent: `enable --now` on an enabled, running timer changes
+        #     nothing, and the timer is restarted only when a unit file changed,
+        #     so a new schedule takes effect.
+        before = self.changed
+        for suffix in ("service", "timer"):
+            self.put_file(os.path.join(self.units, f"{BACKUP_UNIT}.{suffix}"), f"runtime/control/{BACKUP_UNIT}.{suffix}")
+        if self.dry_run:
+            return
+        if not self.user_manager():
+            say(f"  !  {BACKUP_UNIT}.timer: installed, not enabled — no user manager at "
+                f"{os.environ['XDG_RUNTIME_DIR']}/bus (systemd absent, or no login session; the next bootstrap with one enables it)")
+            return
+        run_quiet(["systemctl", "--user", "enable", "--now", f"{BACKUP_UNIT}.timer"])
+        if self.changed > before:
+            run_quiet(["systemctl", "--user", "restart", f"{BACKUP_UNIT}.timer"])
+        say(f"  *  {BACKUP_UNIT}.timer: {answer(['systemctl', '--user', 'is-active', f'{BACKUP_UNIT}.timer'])} "
+            f"(systemctl --user list-timers {BACKUP_UNIT}.timer)")
 
     def agentd_unit(self) -> bytes:
         """The control agent's unit: runtime/control/agent-fabric-agentd.service

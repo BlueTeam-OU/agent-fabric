@@ -1,7 +1,7 @@
 """tools/fabric/github/trial_worktree.py — the scratch worktree of a
 trial-merge run: made under the scratch directory, the branches merged into
 it, and everything it left removed however the run ended (a killed run's
-leftovers swept by the next one). Split out of trial_merge.py, unchanged;
+leftovers swept by the next one). Split out of trial_merge.py (8d26c88a);
 its contract is that module's header."""
 from __future__ import annotations
 
@@ -41,6 +41,9 @@ NO_HOOKS = ("-c", "core.hooksPath=/dev/null")
 # A few tries, each clearing only its own half-made entry, then git's own
 # last line if it still fails.
 ADD_PAUSES = (0.2, 0.5, 1, 2)
+
+# How many times cleanup scans for the check's processes (see there).
+SWEEP_PASSES = 20
 
 
 def pid_alive(pid_file: str) -> bool:
@@ -157,8 +160,25 @@ def cleanup(top: str, wt: str, cpid: int | None) -> None:
         signal.signal(sig, signal.SIG_IGN)
     if cpid is not None:
         terminate(cpid, group=True)
-    for pid in worktree_procs(wt, cpid):
-        terminate(pid)
+    # Unlike killpg, a /proc scan is not atomic against fork: a member
+    # signalled just after it forked leaves a child the listing missed
+    # (sh's `cd / && sleep &` subshell forking its sleep, under load). So
+    # scan again until a pass finds no member not yet signalled; a process
+    # with a fatal signal pending cannot complete a fork, so this ends. The
+    # bound is for a member that catches TERM and keeps forking.
+    # A /proc that cannot be listed (EMFILE) ends the scan, never the
+    # removals below.
+    signalled: set[int] = set()
+    try:
+        for _ in range(SWEEP_PASSES):
+            fresh = [pid for pid in worktree_procs(wt, cpid) if pid not in signalled]
+            if not fresh:
+                break
+            for pid in fresh:
+                terminate(pid)
+            signalled.update(fresh)
+    except OSError:
+        pass
     # Each step on its own: a git that times out (git.py's bound) must not
     # keep the scratch tree and the pid file from going (review of #71).
     for step in (lambda: git.run(top, *NO_HOOKS, "worktree", "remove", "--force", wt, check=False),

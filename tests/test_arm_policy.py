@@ -23,7 +23,7 @@ from unittest import mock
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
-from github import arm, arm_policy, pr_gate, repo_policy  # noqa: E402
+from github import arm, arm_policy, pr_gate, repo_policy, repo_settings  # noqa: E402
 from lint_rules import schema as lint_schema  # noqa: E402
 
 RULESET = os.path.join(HERE, "tools", "fabric", "github-ruleset-main.json")
@@ -381,14 +381,12 @@ class Load(Scratch):
 class Reviews(Scratch):
     """The `reviews` rule (agent-fabric ADR-053 rule 6): which engines a PR needs. arm.py's refusals are test_arm_cli's."""
 
-    def test_the_default_requires_claude_and_asks_no_additional_review_until_the_marker_tool_lands(self):
-        # No tool posts codex's unavailable marker before #245, so listing codex as additional would stop every arm.
+    def test_the_default_requires_claude_and_asks_codex_as_an_additional_review(self):
+        # The owner, 2026-10-13: codex is more, never a block; on a boundary change too.
         d = arm_policy.default()
-        self.assertEqual((d["reviews"], d["boundary_reviews"], d["additional_reviews"]), (["claude"], ["claude"], []))
+        self.assertEqual((d["reviews"], d["boundary_reviews"], d["additional_reviews"]), (["claude"], ["claude"], ["codex"]))
         self.assertEqual((arm_policy.required_engines(d, False), arm_policy.required_engines(d, True)), (["claude"], ["claude"]))
-        self.assertEqual((arm_policy.additional_engines(d, False), arm_policy.additional_engines(d, True)), ([], []))
-        p = arm_policy.validate({"additional_reviews": ["codex"]})
-        self.assertEqual((arm_policy.additional_engines(p, False), arm_policy.additional_engines(p, True)), (["codex"], ["codex"]))
+        self.assertEqual((arm_policy.additional_engines(d, False), arm_policy.additional_engines(d, True)), (["codex"], ["codex"]))
 
     def test_a_list_replaces_the_fleets_and_never_merges(self):
         self.assertEqual(arm_policy.validate({"reviews": ["codex"]})["reviews"], ["codex"])
@@ -424,8 +422,8 @@ class Reviews(Scratch):
 
 
 class ReviewLine(unittest.TestCase):
-    """The line arm, gate and counts print: an additional engine is ✓, unavailable (<reason>) or ✗, and only ✗ keeps
-    "head reviewed" off it. The marker stands in only for the exact head it names, on a review of that head."""
+    """The line arm, gate and counts print: an additional engine is ✓, unavailable (<reason>) or absent, and none of
+    them keeps "head reviewed" off it (#264 F1). The marker stands in only for the exact head it names, on a review of that head."""
     HEAD = "abcdef12" + "3" * 32
 
     def gone(self, head=None, commit=None, engine="codex", reason="allowance"):
@@ -439,7 +437,15 @@ class ReviewLine(unittest.TestCase):
     def test_the_three_states(self):
         self.assertEqual(self.line({"claude", "codex"}), "head reviewed: claude ✓ codex ✓ (head abcdef12)")
         self.assertEqual(self.line({"claude"}, [self.gone()]), "head reviewed: claude ✓ codex unavailable (allowance) (head abcdef12)")
-        self.assertEqual(self.line({"claude"}), "claude ✓ codex ✗ (head abcdef12)")
+        self.assertEqual(self.line({"claude"}), "head reviewed: claude ✓ codex absent (head abcdef12)")
+
+    def test_an_absent_additional_engine_a_boundary_also_requires_reads_boundary_only(self):
+        # The gate passes it as both (pr_gate.engines_required, engines_additional): arm requires it of a boundary.
+        line = arm_policy.review_summary({"claude"}, ["claude"], self.HEAD, ["codex"], additional=["codex"])
+        self.assertEqual(line, "head reviewed: claude ✓ codex ✗ (boundary only) (head abcdef12)")
+        line = arm_policy.review_summary({"claude"}, ["claude"], self.HEAD, ["codex"], additional=["codex"],
+                                         unavailable={"codex": "allowance"})
+        self.assertEqual(line, "head reviewed: claude ✓ codex unavailable (allowance) ✗ (boundary only) (head abcdef12)")
 
     def test_an_unavailable_additional_engine_never_stands_in_for_a_required_one(self):
         self.assertEqual(self.line(set(), [self.gone()]), "claude ✗ codex unavailable (allowance) (head abcdef12)")
@@ -450,7 +456,7 @@ class ReviewLine(unittest.TestCase):
     def test_a_marker_for_another_head_or_on_a_review_of_another_commit_counts_for_nothing(self):
         other = "0123abcd" + "4" * 32
         for mark in (self.gone(head=other), self.gone(commit=other), self.gone(head=self.HEAD[:39] + "9"), {"engine": "codex"}, "x"):
-            self.assertEqual(self.line({"claude"}, [mark]), "claude ✓ codex ✗ (head abcdef12)", mark)
+            self.assertEqual(self.line({"claude"}, [mark]), "head reviewed: claude ✓ codex absent (head abcdef12)", mark)
 
     def test_a_review_of_the_head_is_the_mark_whatever_marker_is_there_too(self):
         self.assertEqual(self.line({"claude", "codex"}, [self.gone()]), "head reviewed: claude ✓ codex ✓ (head abcdef12)")
@@ -495,6 +501,39 @@ class Threshold(unittest.TestCase):
         self.assertEqual(p["commits"]["classes"]["tooling"], {"paths": "^tools/", "min": 1})
         self.assertEqual(p["commits"]["classes"]["ddl"], {"paths": "^db/", "min": 1})
         self.assertNotIn("ddl", self.P["commits"]["classes"], "the policy given is not changed")
+
+
+class RepoSettings(unittest.TestCase):
+    """fabric-repo-settings writes the merge fields fabric-repo-policy compares, from the one function both read: they
+    once disagreed, squash and rebase allowed by one and refused by the other, and every arm warned twice (REQUEST
+    01a139bb)."""
+
+    def test_the_settings_state_none_of_the_fields_the_policy_decides(self):
+        self.assertEqual(set(repo_settings.REPOSITORY) & set(arm_policy.REPOSITORY_FIELDS), set())
+        self.assertEqual(set(repo_policy.REPOSITORY_FIELDS), set(arm_policy.REPOSITORY_FIELDS))
+
+    def test_what_the_settings_write_is_what_the_policy_check_wants(self):
+        for doc in (FABRIC_POLICY, {"method": "squash", "mode": "owner-only", "delete_branch_on_merge": True}, {}):
+            policy = arm_policy.validate(doc)
+            with mock.patch.object(arm_policy, "load", return_value=policy) as load:
+                written = repo_settings.repository("O/R")
+            load.assert_called_once_with("O/R")
+            desired = arm_policy.render(policy)
+            self.assertEqual({f: written[f] for f in arm_policy.REPOSITORY_FIELDS}, desired["repository"], doc)
+            found = repo_policy.differences(desired, {"repository": written, "ruleset": desired["ruleset"]}, "n")
+            self.assertEqual([x for x in found if x.startswith("repository ")], [], doc)
+        self.assertEqual([written[f] for f in ("allow_merge_commit", "allow_squash_merge", "allow_rebase_merge")], [True, False, False],
+                         "the fleet default: merge commits only")
+
+    def test_a_policy_that_cannot_be_read_writes_nothing(self):
+        for error in (arm_policy.PolicyUnavailable("o/settings cannot be read (HTTP 403)"), arm_policy.PolicyError("bad")):
+            api = mock.Mock()
+            with mock.patch.object(arm_policy, "load", side_effect=error), mock.patch.object(gh, "api", api):
+                with self.assertRaises(gh.GhError) as e:
+                    repo_settings.apply("O/R")
+            self.assertIn("the arming policy", str(e.exception))
+            self.assertIn(str(error), str(e.exception))
+            api.assert_not_called()
 
 
 class Render(unittest.TestCase):
@@ -696,7 +735,7 @@ class PrGateRun(unittest.TestCase):
         self.assertEqual(pr_gate.review_of_head(reader({"blind": blind, "unavailable": gone}), 7, self.HEAD, ["claude"], additional=["codex"]),
                          "head reviewed: claude ✓ codex unavailable (allowance) (head abcdef12)")
         self.assertEqual(pr_gate.review_of_head(reader({"blind": blind}), 7, self.HEAD, ["claude"], additional=["codex"]),
-                         "claude ✓ codex ✗ (head abcdef12)")
+                         "head reviewed: claude ✓ codex absent (head abcdef12)")
         self.assertEqual(pr_gate.review_of_head(reader({"blind": blind, "unavailable": {"rows": "x"}}), 7, self.HEAD, ["claude"]), "?")
         for not_an_object in (None, [], "x"):
             self.assertEqual(pr_gate.review_of_head(reader(not_an_object), 7, self.HEAD, ["claude"], additional=["codex"]), "?", not_an_object)
@@ -755,7 +794,8 @@ class ArmRun(unittest.TestCase):
             return commits if "/commits" in path else [{"filename": f} for f in files]
 
         def gh_run(args, **kw):
-            ran.append(list(args))
+            # A comment's body goes on stdin: kept as the call's last item, so the basis can be read.
+            ran.append([*args, kw["input"]] if args[:2] == ["pr", "comment"] else list(args))
             return json.dumps(pr)
 
         def check(repo, pol, api=None):
@@ -789,11 +829,14 @@ class ArmRun(unittest.TestCase):
         self.ran = ran
         return rc, out.getvalue()
 
-    def test_under_a_policy_asking_codex_the_claude_review_with_no_codex_review_or_marker_is_refused_naming_codex(self):
-        rc, out = self.run_arm(dict(arm_policy.default(), additional_reviews=["codex"]), 9)
-        self.assertIn("asks the codex engine's review of the current head", str(rc), out)
-        self.assertIn("engines required: claude; additional: codex", str(rc))
-        self.assertFalse([c for c in self.ran if c[:2] == ["pr", "merge"]], self.ran)
+    def test_under_the_fleet_default_the_claude_review_with_no_codex_review_or_marker_arms_with_codex_absent(self):
+        rc, out = self.run_arm(arm_policy.default(), 9)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("codex: absent, no review or marker on abcdef12: arming on the required review(s) alone", out)
+        self.assertTrue([c for c in self.ran if c[:2] == ["pr", "merge"]], self.ran)
+        basis = [c for c in self.ran if c[:2] == ["pr", "comment"]]
+        self.assertTrue(basis and "codex: absent, no review or marker on abcdef12: armed on the claude review alone." in basis[0][-1],
+                        self.ran)
 
     def test_the_minimum_is_the_policys(self):
         p = claude_only({"commits": {"min": 3, "advice_over": 5}})
