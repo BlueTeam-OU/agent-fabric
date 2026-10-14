@@ -455,7 +455,8 @@ def clip(lines: list[str], n: int) -> list[str]:
 def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: float, stamp: str, rows: int = 0, columns: int = 0) -> list[Line]:
     """The three blocks. rows > 0 is the pane's height: the screen is cut to rows - 1 lines, because the newline that ends
     the last one would scroll a full pane and push the title off the top. The title and the identity stay; the jobs and
-    the pull requests share what is left, the jobs first, the pull requests keeping a third of it at least one line. columns > 1 cuts a job or
+    the pull requests share what is left, the jobs first, the pull requests keeping a third of it at least one line;
+    on a pane too short for both, the jobs alone (see the comment below). columns > 1 cuts a job or
     pull-request line, the block headers and the title to the width, since a wrapped line takes two rows of the pane (the identity's own
     lines are cut by Deck.identity, which knows where its text starts)."""
     pr_lines = prs.split("\n")
@@ -468,14 +469,21 @@ def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: 
         jobs_head, prs_head = (fit(h, columns - 1) for h in (jobs_head, prs_head))
     show_jobs = show_prs = True
     if rows > 0:
-        room = max(0, rows - 1 - (len(identity) + 5))
-        # clip keeps a line for each non-empty block (the count of what it hides), which two blocks need two spare rows
-        # for; with fewer, the pull requests go whole, header included, and with none the jobs too: a header with nothing
-        # under it reads as an empty block.
-        show_jobs, show_prs = room >= 1, room >= 2
-        pr_n = min(len(pr_lines), max(1, room // 3))
-        job_n = min(len(jobs), max(0, room - pr_n))
-        pr_n = min(len(pr_lines), max(1, room - job_n))
+        # A block costs its blank line and header and needs a line of its own (clip makes it the count of what it hides),
+        # so both blocks need 6 spare rows. With fewer, the jobs are shown alone (the pull requests alone when there are
+        # none) in what the title and identity leave, and with under 3 neither: a header with nothing under it reads as
+        # an empty block.
+        spare = rows - 1 - (len(identity) + 1)
+        both = spare >= 6
+        show_jobs = both or (spare >= 3 and bool(jobs))
+        show_prs = both or (spare >= 3 and not jobs)
+        if both:
+            room = spare - 4
+            pr_n = min(len(pr_lines), max(1, room // 3))
+            job_n = min(len(jobs), max(1, room - pr_n))
+            pr_n = min(len(pr_lines), max(1, room - job_n))
+        else:
+            job_n = pr_n = spare - 2
         jobs, pr_lines = clip(jobs, job_n), clip(pr_lines, pr_n)
     lines: list[Line] = [title, *identity]
     if show_jobs:

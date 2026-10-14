@@ -205,12 +205,15 @@ def main() -> int:
     two = watch.screen(["i"] * 6, "n", [f"j{i}" for i in range(5)], "pr1\npr2\npr3", 0.0, "00:00:00", rows=14)
     check("two rows left: the jobs and the pull requests each say how many they hide",
           "… 5 more" in two and any(l.startswith("… ") for l in two[two.index(next(l for l in two if "pull requests" in l)):]), two)
-    one = watch.screen(["i"] * 6, "n", [f"j{i}" for i in range(5)], "pr1\npr2", 0.0, "00:00:00", rows=13)
-    check("one row left: the jobs say how many they hide, not nothing", "… 5 more" in one, one)
-    check("one row left: the jobs end with their count and the pull requests are gone whole, header too",
-          one[-1] == "… 5 more" and not any("pull requests" in l for l in one), one)
-    none = watch.screen(["i"] * 6, "n", ["j1", "j2"], "pr1", 0.0, "00:00:00", rows=12)
-    check("no row left: title and identity only, no header with nothing under it", len(none) == 7 and not any("──" in l for l in none[1:]), none)
+    five = [f"j{i}" for i in range(5)]
+    for r, shown in ((13, ["j0", "j1", "… 3 more"]), (12, ["j0", "… 4 more"]), (11, ["… 5 more"])):
+        got = watch.screen(["i"] * 6, "n", five, "pr1\npr2", 0.0, "00:00:00", rows=r)
+        check(f"{r} rows, fewer than 6 spare: the jobs alone, in all the room, no empty header",
+              got[-len(shown):] == shown and not any("pull requests" in l for l in got) and len(got) <= r - 1, got)
+    none = watch.screen(["i"] * 6, "n", five, "pr1", 0.0, "00:00:00", rows=9)
+    check("under 3 spare rows: title and identity only, no header with nothing under it", len(none) == 7 and not any("──" in l for l in none[1:]), none)
+    nojobs = watch.screen(["i"] * 6, "n", [], "pr1\npr2\npr3", 0.0, "00:00:00", rows=13)
+    check("no jobs, 5 spare: the pull requests alone", nojobs[-3:] == ["pr1", "pr2", "pr3"] and not any(l == "── jobs ──" for l in nojobs), nojobs)
     sizes = iter([(80, 40), (80, 40), (80, 18)])
     seen = []
     saved_screen = watch.screen
