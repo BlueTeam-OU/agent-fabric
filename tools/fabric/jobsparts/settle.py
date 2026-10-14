@@ -65,7 +65,7 @@ def branches_of(job: dict) -> list[str]:
 def _branch_tips(job: dict, problems: list[str]) -> tuple[str | None, list[tuple[str, str]]]:
     """(the default branch, [(branch, tip)]) for the branch artifacts that are branches on origin now (asked of the remote, so a
     branch deleted there is none although its tracking ref lingers); (None, []) when there are none or git could not tell
-    (said in `problems`). The default branch itself, origin/HEAD and a branch with no commit of its own are no contributor
+    (said in `problems`). A branch at the default branch's own tip (the default branch, origin/HEAD, a branch with no commit of its own) is no contributor
     branch: a job's note that it was "merged into origin/main" is no evidence of its work."""
     wc = job.get("working_copy")
     names = branches_of(job)
@@ -77,8 +77,6 @@ def _branch_tips(job: dict, problems: list[str]) -> tuple[str | None, list[tuple
         base = vcs.text(wc, "rev-parse", "--verify", f"refs/remotes/origin/{default}^{{commit}}")
         tips = []
         for name in names:
-            if name in (default, "HEAD"):
-                continue
             r = vcs.run(wc, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{name}^{{commit}}", check=False)
             if r.returncode not in (0, 1):
                 problems.append(f"could not tell whether {name} is a branch on origin (git rev-parse: exit {r.returncode})")
