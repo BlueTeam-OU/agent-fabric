@@ -63,6 +63,12 @@ def main() -> int:
          '```agent-fabric-dispatch v1\n{"evidence_mode": "working-tree", "evidence_mode": "pinned"}\n```', True),
         ("a pinned header whose JSON quotes a fence: posts",
          "````agent-fabric-dispatch v1\n{\"evidence_mode\": \"pinned\", \"note\": \"```\"}\n````", False),
+   
+        # CommonMark allows spaces between the fence and its info string (review of #259, F5).
+        ("a spaced fence, working-tree: refused", tree.replace("```agent", "``` agent", 1) + "\nF1", True),
+        ("a spaced tilde fence with a tab, working-tree: refused",
+         "~~~ \tagent-fabric-dispatch v1\n" + tree.split("\n", 1)[1].rsplit("\n", 1)[0] + "\n~~~", True),
+        ("a spaced fence, pinned: posts", pinned.replace("```agent", "```  agent", 1) + "\nF1", False),
     ):
         why = post_review.evidence_refusal(body)
         check(label, bool(why) is refused and (not refused or "agent-fabric-dispatch v1" in why))
@@ -71,6 +77,24 @@ def main() -> int:
     quoted = post_review.evidence_refusal(f"{pinned}\nF1 quotes the fixture:\n\n````markdown\n{tree}\n````\n")
     check("a pinned report quoting a working-tree header: refused, saying a quote counts and where it is",
           "one it quotes too" in quoted and f"line {len(pinned.splitlines()) + 4}" in quoted)
+
+    print("the posted report carries no dispatch header (review of #259, risk 1)")
+    named = header(range="a..b", job_id="j9")
+    check("the fixture header names a job", '"job_id": "j9"' in named)
+    strip = post_review.without_dispatch_headers
+    for label, body, want in (
+        ("no header: the report byte for byte", "F1 (P2) …\r\n\n", "F1 (P2) …\r\n\n"),
+        ("a pinned header on top: only the findings", f"{named}\n\nF1 (P2) …", "F1 (P2) …"),
+        ("a spaced fence: taken out too", named.replace("```agent", "``` agent", 1) + "\nF1", "F1"),
+        ("CRLF line ends: taken out", (named + "\nF1").replace("\n", "\r\n"), "F1"),
+        ("two headers, one quoted: both out, the prose kept",
+         f"{named}\nF1 quotes it:\n\n````markdown\n{named}\n````\nF2", "F1 quotes it:\n\n````markdown\n````\nF2"),
+        ("a longer fence holding a fence-like line: the whole header out",
+         "````agent-fabric-dispatch v1\n{\"evidence_mode\": \"pinned\", \"note\": \"```\"}\n````\nF1", "F1"),
+        ("another version's block: kept", "```agent-fabric-dispatch v2\n{}\n```", "```agent-fabric-dispatch v2\n{}\n```"),
+    ):
+        got = strip(body)
+        check(f"{label} (got {got!r})", got == want and review_brief.DISPATCH_VERSION not in got)
 
     print("locale_only fails closed")
     real_run = gh.run
