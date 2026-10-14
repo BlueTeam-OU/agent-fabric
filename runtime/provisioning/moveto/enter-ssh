@@ -51,6 +51,26 @@ for f in "$conf" "$enter"; do
         echo "enter-ssh: $f is not owned by root and closed to group and others; nothing run" >&2; exit 1
     fi
 done
+# The pane's client, for the deck (j83): sshd's SSH_CLIENT is "<client ip>
+# <client port> <server port>", and the client port is what the deck can read
+# from its own ssh process, so the account's state names it, keyed by this
+# process's pid: the exec below keeps the pid, so the harness the pane ends up
+# running has it among its ancestors, and a reader finds the record by walking
+# up from the session's `claude`. A convenience, never a gate: a record that
+# cannot be written must not stop the pane, so every failure here is silent.
+# A record of a pane that is gone (a dead pid) is pruned by the next entry.
+record_client() {
+    local dir file pid f
+    [[ "${SSH_CLIENT-}" =~ ^[0-9a-fA-F.:]+\ [0-9]+\ [0-9]+$ ]] || return 0
+    dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-fabric/agents/$(id -un)/ssh-clients"
+    mkdir -p -m 700 "$dir" || return 0
+    for f in "$dir"/*; do
+        pid="${f##*/}"
+        [[ "$pid" =~ ^[0-9]+$ ]] && ! kill -0 "$pid" 2>/dev/null && rm -f -- "$f"
+    done
+    printf '%s\n' "$SSH_CLIENT" > "$dir/.$$.tmp" && mv -f -- "$dir/.$$.tmp" "$dir/$$"
+}
+record_client 2>/dev/null || true
 # enter's arguments are moveto's: the workspace and the pane's title.
 # shellcheck disable=SC2016  # $0 and $@ are the inner shell's, by design
 exec bash -lc 'exec "$0" "$@"' "$enter" "$HOME/projects" "$(id -un)" "${mode[@]}"

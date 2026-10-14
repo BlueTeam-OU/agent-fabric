@@ -37,12 +37,21 @@ REFUSED = {
 }
 
 
-def run(tmp: str, request: str | None) -> subprocess.CompletedProcess[str]:
+def run(tmp: str, request: str | None, client: str | None = None) -> subprocess.CompletedProcess[str]:
+    return run_pid(tmp, request, client)[0]
+
+
+def run_pid(tmp: str, request: str | None, client: str | None = None) -> tuple[subprocess.CompletedProcess[str], int]:
+    """The run and its pid: the script execs, so the pid it keys its client record by is the child's."""
     env = {"PATH": "/usr/bin:/bin", "HOME": os.path.join(tmp, "home"), "LANG": "C"}
     if request is not None:
         env["SSH_ORIGINAL_COMMAND"] = request
-    return subprocess.run([os.path.join(tmp, "bin", "enter-ssh")], env=env, capture_output=True, text=True,
-                          stdin=subprocess.DEVNULL, timeout=30)
+    if client is not None:
+        env["SSH_CLIENT"] = client
+    with subprocess.Popen([os.path.join(tmp, "bin", "enter-ssh")], env=env, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL) as p:
+        out, err = p.communicate(timeout=30)
+        return subprocess.CompletedProcess(p.args, p.returncode, out, err), p.pid
 
 
 def write_conf(tmp: str, text: str | None) -> None:
@@ -134,6 +143,40 @@ def main() -> int:
         r = run(tmp, "--watch")
         check("owned by the test user, not root: refused, as for the real script",
               r.returncode == 1 and "not owned by root" in r.stderr and r.stdout == "", f"rc={r.returncode} {r.stderr!r}")
+    with tempfile.TemporaryDirectory() as tmp:
+        setup(tmp)
+        me = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
+        clients = os.path.join(tmp, "home", ".local", "state", "agent-fabric", "agents", me, "ssh-clients")
+        # A dead pid must exceed pid_max (2**22 on a long-running host).
+        dead = os.path.join(clients, str(2 ** 22 + 1))
+        os.makedirs(clients, mode=0o700)
+        for name in (os.path.basename(dead), "notes"):
+            with open(os.path.join(clients, name), "w", encoding="utf-8") as fh:
+                fh.write("old\n")
+        r, pid = run_pid(tmp, "--watch", "192.0.2.7 51234 22")
+        rec = os.path.join(clients, str(pid))
+        check("SSH_CLIENT is recorded under the pane's pid, and the pane still enters",
+              r.returncode == 0 and r.stderr == "" and os.path.isfile(rec) and open(rec, encoding="utf-8").read() == "192.0.2.7 51234 22\n",
+              f"rc={r.returncode} {r.stderr!r} {sorted(os.listdir(clients))}")
+        check("a dead pane's record is pruned, a file that is no pid's is not",
+              not os.path.exists(dead) and os.path.exists(os.path.join(clients, "notes")), str(sorted(os.listdir(clients))))
+        before = sorted(os.listdir(clients))
+        for label, value in (("unset", None), ("empty", ""), ("a command", "1.2.3.4 5 6;id"), ("two fields", "1.2.3.4 5")):
+            r, pid = run_pid(tmp, "--watch", value)
+            check(f"SSH_CLIENT {label}: nothing recorded, the pane enters",
+                  r.returncode == 0 and sorted(os.listdir(clients)) == before, f"rc={r.returncode} {sorted(os.listdir(clients))}")
+        # The record is a convenience: a state dir that cannot be made must not stop the pane.
+        shutil.rmtree(os.path.join(tmp, "home", ".local"))
+        with open(os.path.join(tmp, "home", ".local"), "w", encoding="utf-8") as fh:
+            fh.write("a file where the state dir would be\n")
+        r, pid = run_pid(tmp, "--watch", "192.0.2.7 51234 22")
+        check("a state dir that cannot be made: the pane enters, silently", r.returncode == 0 and r.stderr == "", f"rc={r.returncode} {r.stderr!r}")
+        os.remove(os.path.join(tmp, "home", ".local"))
+        os.umask(0o022)  # the dir's mode is the script's, not the runner's umask
+        r, pid = run_pid(tmp, "--watch", "192.0.2.7 51234 22")
+        check("the record dir the script makes is private",
+              os.path.isfile(os.path.join(clients, str(pid))) and os.stat(clients).st_mode & 0o777 == 0o700,
+              oct(os.stat(clients).st_mode) if os.path.isdir(clients) else "no dir")
     print(f"\n{'all passed' if not fails else f'{fails} failed'}")
     return 1 if fails else 0
 
