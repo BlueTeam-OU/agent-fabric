@@ -187,8 +187,8 @@ def main() -> int:
         check("6 commits through a real clone: 3 work (two own, one merged in), 2 fix, 1 merge; the row ends in its verdict",
               rc == 0 and has(r"^#42  develop-qzapp/me \(me\)  commits=6 \(3 work, 2 fix, 1 merge\)", out)
               and "MERGEABLE — ask the owner (3 work commits < 8), then arm" in out, f"rc={rc}\n{out}")
-        check("the review is each required engine's (claude alone by the fleet default), on the row's head",
-              has(r"  review=head reviewed: claude ✓ \(head [0-9a-f]{8}\)  threads=0", out), out)
+        check("the review is each engine's the fleet default asks (claude required, codex additional), on the row's head",
+              has(r"  review=head reviewed: claude ✓ codex ✓ \(head [0-9a-f]{8}\)  threads=0", out), out)
         fixline = next((ln for ln in out.split("\n") if "counted as fix:" in ln), "")
         check("the subjects counted as fix are printed (and only those), so the split can be checked",
               '"fix: the review\'s F1 and F2"' in fixline and '"docs(adr): the backfilled row' in fixline

@@ -602,8 +602,8 @@ def main() -> int:
 
         print("arm: the policy's reviews — each required engine has reviewed the current head (ADR-053 rule 6)")
         d = arm_policy.default()
-        check("the built-in default requires claude and asks no additional review (codex waits for #245's marker tool)",
-              (d["reviews"], d["boundary_reviews"], d["additional_reviews"]) == (["claude"], ["claude"], []), str(d))
+        check("the built-in default requires claude and asks codex as an additional review (#245's marker tool has landed)",
+              (d["reviews"], d["boundary_reviews"], d["additional_reviews"]) == (["claude"], ["claude"], ["codex"]), str(d))
         both = dict(claude_only, reviews=["claude", "codex"], boundary_reviews=["claude", "codex"])
         # Gate 4 asks a review only of a boundary or a direct repository; a plain PR's review is gate 4b's, whatever
         # engines the policy names (#235, Codex finding 1: ["claude"] alone once skipped it and armed with none).
