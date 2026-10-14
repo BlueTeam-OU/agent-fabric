@@ -137,6 +137,16 @@ def main() -> int:
         check("a class with no pin keeps the repo file's model line", read(os.path.join(root, "runtime", "claude-code", "agents", "code-low.md")).splitlines()[1:3] == [ln for ln in low.splitlines() if ln != "effort: high"][1:3], low[:200])
         check("exit 0 and the count line", r.returncode == 0 and r.stdout.splitlines()[-1] == "agent files (anthropic): 5 written, 0 already current.", r.stdout + r.stderr)
 
+        # omitClaudeMd lives in the committed source, which the installer copies
+        # with only the model and effort lines rewritten; a pin and an effort
+        # must not take the field with them.
+        root2, home2, cfg2 = fixture()
+        put(root2, "tools/fabric/efforts.txt", "".join(f"{k} high ok\n" for k in CLASSES))
+        run(root2, home2, cfg2)
+        head = read(os.path.join(cfg2, "agents", "code-review.md")).split("\n---\n", 1)[0]
+        check("the installed code-review agent file carries omitClaudeMd: true in its frontmatter",
+              "\nomitClaudeMd: true" in head, head[-300:])
+
         # An agents directory that cannot be written: one line and exit 1, as
         # install(1) said it under the bash, never a traceback (review of #86).
         root2, home2, cfg2 = fixture()

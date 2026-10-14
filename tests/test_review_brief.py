@@ -23,7 +23,8 @@ SIZE_CAP = 13_000   # 12_288 until 2026-09-19: the owner's code-as-memory policy
 
 # The headings a rendered brief carries; the constitution names each.
 BRIEF_HEADINGS = ["Mode", "Repository", "Range", "Objective", "Requirements", "Invariants",
-                  "Compatibility", "Threat model", "Scope", "Out of scope", "Lenses", "Previous findings"]
+                  "Compatibility", "Threat model", "Scope", "Out of scope", "Project review card", "Lenses", "Previous findings",
+                  "Re-review diff", "Locators"]
 # The report sections the constitution requires, in order.
 REPORT_SECTIONS = ["Findings on the change", "Pre-existing problems", "Risks (unproven)", "Brief notes"]
 
@@ -109,7 +110,7 @@ def test_render_carries_every_heading_once_and_the_named_lenses(tmp: str) -> Non
     repo = os.path.join(tmp, "repo"); os.makedirs(os.path.join(repo, ".git"))
     out = rb.render(base_request(repo))
     for h in BRIEF_HEADINGS:
-        if h == "Previous findings":
+        if h in ("Previous findings", "Re-review diff", "Locators"):
             assert f"## {h}" not in out, "a review carries no previous findings"
         else:
             assert out.count(f"\n## {h}\n") == 1, f"heading {h} not exactly once:\n{out}"
@@ -120,6 +121,27 @@ def test_render_carries_every_heading_once_and_the_named_lenses(tmp: str) -> Non
     assert "model:" not in out, "a brief carries no routing configuration"
     assert out == rb.render(base_request(repo)), "not byte-stable"
     assert "## Brief notes" not in out, "no flagged rationale when there is none"
+
+
+def test_the_project_review_card(tmp: str) -> None:
+    repo = os.path.join(tmp, "carded"); os.makedirs(os.path.join(repo, ".git"))
+    out = rb.render(base_request(repo))
+    assert "\n## Project review card\n(none)\n## Lenses\n" in out, "no card: the heading says (none)"
+    card = os.path.join(repo, ".agent-fabric", "review-card.md")
+    os.makedirs(os.path.dirname(card))
+    with open(card, "w", encoding="utf-8") as f:
+        f.write("# Review card\n- run tests/run.sh python\n")
+    out = rb.render(base_request(repo))
+    assert "\n## Project review card\n# Review card\n- run tests/run.sh python\n## Lenses\n" in out, out
+    assert out.count("## Project review card") == 1
+    with open(card, "wb") as f:
+        f.write(b"x" * rb.CARD_CAP)
+    assert "x" * rb.CARD_CAP in rb.render(base_request(repo)), "a card at the cap renders whole"
+    with open(card, "wb") as f:
+        f.write(b"x" * (rb.CARD_CAP + 1))
+    problems = refusals(base_request(repo))
+    assert any(card in p and str(rb.CARD_CAP + 1) in p and "cap" in p for p in problems), problems
+    assert rb.validate(base_request(repo)) == problems, "check refuses it too, not only render"
 
 
 def test_every_refusal_names_its_field(tmp: str) -> None:
@@ -299,7 +321,7 @@ def test_the_readme_example_renders_as_documented(tmp: str) -> None:
 def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_new_rules_are_stated_once,
-             test_render_carries_every_heading_once_and_the_named_lenses, test_every_refusal_names_its_field,
+             test_render_carries_every_heading_once_and_the_named_lenses, test_the_project_review_card, test_every_refusal_names_its_field,
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
              test_the_readme_example_renders_as_documented]
