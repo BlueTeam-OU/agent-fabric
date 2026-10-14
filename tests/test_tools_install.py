@@ -20,6 +20,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import types
 import urllib.error
 import urllib.request
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
@@ -562,29 +563,56 @@ def main() -> int:
         tools_install.sweep_trees(tooldir)
         check("the dead run's go, the live one's stays", sorted(os.listdir(tooldir)) == [f".0.162.1.{os.getpid()}.tmp"], os.listdir(tooldir))
 
-        print("the size bound — a member past it is refused before it is placed; one under it, larger than its archive, installs")
-        single = {k: v for k, v in pin.items() if k not in tools_install.TREE_FIELDS}
-        single["member"] = f"{root}/bin/codex"
-        saved_bound = tools_install.MAX_ASSET_BYTES
+        if decl:   # without it the check at "agent-fabric declares codex" has already failed; the cases below index decl[0]
+            print("the size bound — a member past it is refused before it is placed; one under it, larger than its archive, installs")
+            single = {k: v for k, v in pin.items() if k not in tools_install.TREE_FIELDS}
+            single["member"] = f"{root}/bin/codex"
+            saved_bound = tools_install.MAX_ASSET_BYTES
+            tools_install.MAX_ASSET_BYTES = 4096
+            try:
+                for size, want in ((5000, "failed"), (3000, "installed")):
+                    body = b'#!/bin/sh\necho "codex-cli 0.162.1"\n' + b"#" * size
+                    arc = tgz({single["member"]: body})
+                    bound_reg = {"projects": {"agent-fabric": {"tools": [{**decl[0][1], "proof": "codex --version",
+                                                                          "install": {**single, "sha256": sha(arc)}}]}}}
+                    home = account("agent-fabric")
+                    r = tools_install.install("codex", reg=bound_reg, home=home, fetch=serving(arc))
+                    check(f"a {size}-byte member under a 4096-byte bound is {'refused, and nothing is placed' if want == 'failed' else 'installed'}",
+                          r["status"] == want and (listing(home) == ["codex"] if want == "installed" else listing(home) == [] and "is over" in str(r)),
+                          (r, listing(home)))
+                arc = tgz({**{f"{root}/{m}": b"#" * 1500 for m in members}, f"{root}/bin/codex": fake})
+                home = account("agent-fabric")
+                r = tools_install.install("codex", reg=codex_reg(arc), home=home, fetch=serving(arc))
+                check("a tree whose members together pass the bound is refused, nothing left",
+                      r["status"] == "failed" and "over" in r["reason"] and tree_entries(home) == [] and listing(home) == [], (r, tree_entries(home)))
+            finally:
+                tools_install.MAX_ASSET_BYTES = saved_bound
+
+        print("fetch_https — the read cap: one byte past the bound is read and refused, never the whole stream")
+        class Endless:
+            """A response with no end that remembers how much was asked of it."""
+            asked: list = []
+            def __enter__(self): return self
+            def __exit__(self, *exc): return False
+            def read(self, n=None):
+                assert n is not None and n >= 0, "an unbounded read of a response"
+                Endless.asked.append(n)
+                return b"#" * n
+        real_opener, real_bound = tools_install.urllib.request.build_opener, tools_install.MAX_ASSET_BYTES
         tools_install.MAX_ASSET_BYTES = 4096
         try:
-            for size, want in ((5000, "failed"), (3000, "installed")):
-                body = b'#!/bin/sh\necho "codex-cli 0.162.1"\n' + b"#" * size
-                arc = tgz({single["member"]: body})
-                bound_reg = {"projects": {"agent-fabric": {"tools": [{**decl[0][1], "proof": "codex --version",
-                                                                      "install": {**single, "sha256": sha(arc)}}]}}}
-                home = account("agent-fabric")
-                r = tools_install.install("codex", reg=bound_reg, home=home, fetch=serving(arc))
-                check(f"a {size}-byte member under a 4096-byte bound is {want}, and a refusal places nothing",
-                      r["status"] == want and (listing(home) == ["codex"] if want == "installed" else listing(home) == [] and "is over" in str(r)),
-                      (r, listing(home)))
-            arc = tgz({**{f"{root}/{m}": b"#" * 1500 for m in members}, f"{root}/bin/codex": fake})
-            home = account("agent-fabric")
-            r = tools_install.install("codex", reg=codex_reg(arc), home=home, fetch=serving(arc))
-            check("a tree whose members together pass the bound is refused, nothing left",
-                  r["status"] == "failed" and "over" in r["reason"] and tree_entries(home) == [] and listing(home) == [], (r, tree_entries(home)))
+            tools_install.urllib.request.build_opener = lambda *handlers: types.SimpleNamespace(open=lambda req, timeout=None: Endless())
+            try:
+                tools_install.fetch_https("https://example.invalid/asset")
+                refused = None
+            except ValueError as e:
+                refused = str(e)
+            check("an endless body is refused after reading one byte past the bound",
+                  refused == "the asset is over 4096 bytes" and Endless.asked == [4097], (refused, Endless.asked))
+            Endless.read = lambda self, n=None: b"#" * min(n, 4096)   # the control: a body exactly at the bound is returned whole
+            check("a body of exactly the bound is returned whole", len(tools_install.fetch_https("https://example.invalid/asset")) == 4096)
         finally:
-            tools_install.MAX_ASSET_BYTES = saved_bound
+            tools_install.urllib.request.build_opener, tools_install.MAX_ASSET_BYTES = real_opener, real_bound
 
         print("fabric-tools --install — the command")
         os.environ["PATH"] = saved_path
