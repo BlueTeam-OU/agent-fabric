@@ -106,9 +106,9 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
         decisions.pop(d["key"], None)
         decisions[d["key"]] = d
     merged["collision_decisions"] = list(decisions.values())
-    # Re-running a bundle repeats its retitles; the section is gone by then, so an entry is kept as the earlier run wrote it.
-    merged["retitles"] = [*(previous.get("retitles") or []),
-                          *(r for r in current["retitles"] if r not in (previous.get("retitles") or []))]
+    # A later run of the stamp finds the old section gone and lists nothing, so the earlier run's entries are carried;
+    # a retitle that really runs twice (the section restored by hand) is two retirements and is listed twice.
+    merged["retitles"] = [*(previous.get("retitles") or []), *current["retitles"]]
     sources = dict(previous.get("telemetry_sources") or {})
     sources.update(current["telemetry_sources"])
     merged["telemetry_sources"] = sources
