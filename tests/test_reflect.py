@@ -116,7 +116,7 @@ def main() -> int:
         st = run("status")
         check("status: no pass closed, 9 wait", "no pass closed yet" in st.stdout and "9 message(s) wait" in st.stdout, st.stdout)
         through = json.loads(run("--max", "3", "--json").stdout)["through"]
-        h1 = re.search(r"run `fabric-reflect done --through (\d+)`", r1.stdout)
+        h1 = re.search(r"run `fabric-reflect done --through (\d+)(?: --max \d+)?`", r1.stdout)
         check("the printed hint closes exactly the pass shown, whatever --max the done has (review of #256)",
               h1 is not None and int(h1.group(1)) == through, r1.stdout[-300:])
         d1 = run("done", *h1.group(0)[len("run `fabric-reflect done"):-1].split())
@@ -128,7 +128,7 @@ def main() -> int:
         # The hint of a pass that fits names its row; a placeholder would be pasted as is (review of #256).
         fit = run("--max", "100").stdout
         check("the hint of a pass that fits names its row, no placeholder",
-              re.search(r"`fabric-reflect done --through \d+` closes", fit) is not None and "{through}" not in fit, fit[-300:])
+              re.search(r"`fabric-reflect done --through \d+ --max 100` closes", fit) is not None and "{through}" not in fit, fit[-300:])
         r2 = run("--max", "3")
         check("the next pass starts after it", not set(ids(r2.stdout)) & set(ids(r1.stdout)) and "3 more message(s)" in r2.stdout, r2.stdout[-300:])
         # The hint a pass prints closes exactly that pass (review of #256, finding 2).
@@ -150,6 +150,20 @@ def main() -> int:
         ep.inbound(conn, [{"content": msg("late-1", "later", subject="late"), "seq": 9, "ts": "2026-10-02T09:00:00Z"}], project="agent-fabric")
         conn.close()
         check("a later message is the next pass", ids(run().stdout) == ["late-1"])
+
+        # A pass over the default --max: the hint, run as printed, must close it (the done checks
+        # against the default --max when the hint leaves it out).
+        conn = ep.connect()
+        ep.inbound(conn, [{"content": msg(f"big-{i}", "bulk", subject="bulk"), "seq": 100 + i, "ts": "2026-10-03T09:00:00Z"}
+                          for i in range(249)], project="agent-fabric")
+        conn.close()
+        big = run("--max", "250").stdout
+        hint = re.search(r"`fabric-reflect done([^`]*)`", big)
+        check("a pass over the default --max shows 250", len(ids(big)) == 250, big[-200:])
+        bd = run("done", *hint.group(1).split()) if hint else None
+        check("its printed hint, run as printed, closes it (a non-default --max is in the hint)",
+              bd is not None and bd.returncode == 0 and "pass closed through row" in bd.stdout and "--max 250" in hint.group(1),
+              (hint.group(0) if hint else big[-200:]) + (bd.stderr if bd else ""))
 
         # Refusals.
         check("done --through a row that does not exist", run("done", "--through", "9999").returncode == 1)
