@@ -111,6 +111,22 @@ def main() -> int:
         rc, out, err = run(path, "set", SERVER, LOCALE)
         check("a JSON file that is not an object is not replaced by `set`", rc == 3 and open(path).read() == "[1, 2]" and "not an object" in err, err)
 
+        print("a key that is present and not an object")
+        for key, op, args in (("mcpServers", "set", [SERVER, LOCALE]), ("permissions", "deny-websearch", [])):
+            for bad in ("[]", '"x"', "null", "1"):
+                doc = '{"theme": "dark", "%s": %s}' % (key, bad)
+                path = config(doc)
+                rc, out, err = run(path, op, *args)
+                check(f"{op} over {key} = {bad}: exit 3, one line naming the key, the file untouched",
+                      rc == 3 and out == "" and err.count("\n") == 1 and key in err and path in err
+                      and open(path).read() == doc and not os.path.exists(path + ".agent-fabric.tmp"), f"{rc} {out!r} {err!r}")
+        for key, op in (("mcpServers", "remove"), ("permissions", "allow-websearch")):
+            doc = '{"%s": []}' % key
+            path = config(doc)
+            rc, out, err = run(path, op)
+            check(f"{op} over {key} a list: nothing of the fabric's there, exit 0, the file untouched",
+                  (rc, out, err) == (0, "", "") and open(path).read() == doc, f"{rc} {out!r} {err!r}")
+
         print("a file that cannot be read")
         unreadable = config("{}")
         os.chmod(unreadable, 0)

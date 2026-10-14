@@ -24,8 +24,9 @@ installer's shape (+ = -) and exits 0. Both files are Claude Code's own:
 every other key is kept as read.
 
 A file that cannot be used is the login's to fix, and is left alone: one
-line on stderr naming the path and why (not JSON, not an object, or
-unreadable: mode 000, a directory), then exit 0 for `remove` and
+line on stderr naming the path and why (not JSON, not an object, unreadable:
+mode 000, a directory, or, for `set` and `deny-websearch`, a mcpServers or
+permissions that is present and not an object), then exit 0 for `remove` and
 `allow-websearch` (nothing of the fabric's can be in force in a file the
 harness cannot read either) and UNUSABLE (3) for `set` and `deny-websearch`
 (theirs is not written). 3 is the status fabric-memory/install.py uses for
@@ -103,6 +104,13 @@ def main(argv: list[str]) -> int:
         print(f"  !  {path}: {why}; left alone, "
               + ("nothing of the fabric's to remove" if undo else "nothing written"), file=sys.stderr)
         return 0 if undo else UNUSABLE
+    # `set` and `deny-websearch` write the key back as an object; over a login's own string, list or null that would
+    # drop whatever they put there (fabric-memory/install.py refuses the same). `remove` and `allow-websearch` have
+    # nothing of the fabric's to take out of it and carry on.
+    for writes, key in (("set", "mcpServers"), ("deny-websearch", "permissions")):
+        if op == writes and key in data and not isinstance(data[key], dict):
+            print(f"  !  {path}: {key} is not an object; left alone, nothing written", file=sys.stderr)
+            return UNUSABLE
     servers = data.get("mcpServers") if isinstance(data.get("mcpServers"), dict) else {}
     current = servers.get(NAME)
     if op == "set":
