@@ -297,6 +297,23 @@ def main() -> int:
         check("an unusable .claude.json (exit 3): said on both streams, the run goes on to its summary, exit 0",
               r.returncode == 0 and "unusable (top level" in r.stdout and "unusable (top level" in r.stderr
               and r.stdout.splitlines()[-1].startswith("agent files ("), f"{r.returncode} {r.stdout} {r.stderr}")
+        # The real installer on an unreadable ~/.claude.json (a directory; mode 000 when not root): bootstrap says it
+        # and carries on, never a traceback (review round 1 of #253).
+        for label in ("a directory", "mode 000"):
+            if label == "mode 000" and os.geteuid() == 0:
+                continue
+            root, home, cfg = fixture()
+            shutil.copy(os.path.join(HERE, "runtime", "mcp", "fabric-memory", "install.py"), os.path.join(root, "runtime", "mcp", "fabric-memory", "install.py"))
+            cj = os.path.join(cfg, ".claude.json")
+            if label == "a directory":
+                os.mkdir(cj)
+            else:
+                put(cfg, ".claude.json", "{}")
+                os.chmod(cj, 0)
+            r = run(root, home, cfg)
+            check(f"the real fabric-memory installer on {label} as .claude.json: said on both streams, exit 0, the summary reached",
+                  r.returncode == 0 and "Traceback" not in r.stderr and "unreadable" in r.stdout and "unreadable" in r.stderr
+                  and r.stdout.splitlines()[-1].startswith("agent files ("), f"{r.returncode} {r.stdout} {r.stderr}")
         root, home, cfg = fixture()
         put(root, "runtime/mcp/fabric-memory/fail", "1")
         put(root, "runtime/mcp/fabric-memory/err.txt", "Traceback (most recent call last):\nPermissionError: [Errno 13] denied\n")
@@ -338,6 +355,15 @@ def main() -> int:
         r = run(root, home, cfg)
         check("install.py exiting 7 makes the installer exit 7 with no count line, class files already written",
               r.returncode == 7 and "agent files (" not in r.stdout and os.path.isfile(os.path.join(cfg, "agents", "code-low.md")), f"{r.returncode} {r.stdout}")
+
+        # install.py's exit 3 (UNUSABLE) is "websearch-locale not configured": said, and the run goes on.
+        root, home, cfg = fixture()
+        put(root, "runtime/mcp/websearch-locale/fail", "3")
+        put(root, "runtime/mcp/websearch-locale/err.txt", "  !  c.json: unreadable (Permission denied); left alone, nothing written\n")
+        r = run(root, home, cfg)
+        check("install.py exiting 3: said on both streams, the run goes on to its summary, exit 0",
+              r.returncode == 0 and "unreadable (Permission denied)" in r.stdout and "unreadable (Permission denied)" in r.stderr
+              and r.stdout.splitlines()[-1].startswith("agent files ("), f"{r.returncode} {r.stdout} {r.stderr}")
 
         # The backup: a file carrying the marker is never backed up, one without is, once.
         root, home, cfg = fixture()

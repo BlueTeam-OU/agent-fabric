@@ -10,7 +10,8 @@ path. Every other key and server of the file is kept as read; the file is replac
 (0600 when it is created). An entry of that name whose command is not ours is the login's own and is left as it is.
 Prints one line in the installer's shape (+ = !) and exits 0.
 
-A file that is not JSON, whose top level is not an object, or whose mcpServers is present and not an object, is the login's to fix: one line on stderr, nothing
+A file that is not JSON, whose top level is not an object, whose mcpServers is present and not an object, or that cannot be
+read (mode 000, a directory), is the login's to fix: one line on stderr, nothing
 written, exit 3 (UNUSABLE: distinct from Python's 1, which any uncaught
 fault such as an unwritable directory exits with, so a caller can tell the login's file from a fault). Unlike the websearch-locale installer there is no `remove`: the server is for every login.
 """
@@ -82,8 +83,11 @@ def main(argv: list[str]) -> int:
     path = argv[0]
     try:
         data = load(path)
-    except (ValueError, UnicodeDecodeError) as e:
-        print(f"  !  {path}: unusable ({e or type(e).__name__}); left alone, nothing written", file=sys.stderr)
+    except (OSError, ValueError, UnicodeDecodeError) as e:
+        # OSError: mode 000, a directory. An unreadable file is the login's to fix like a malformed one, and must
+        # not end bootstrap in a traceback (install_agent_files.memory_search reads 3 as "not configured").
+        why = f"unreadable ({e.strerror or type(e).__name__})" if isinstance(e, OSError) else f"unusable ({e or type(e).__name__})"
+        print(f"  !  {path}: {why}; left alone, nothing written", file=sys.stderr)
         return UNUSABLE
     servers = data.get("mcpServers") if isinstance(data.get("mcpServers"), dict) else {}
     current = servers.get(NAME)

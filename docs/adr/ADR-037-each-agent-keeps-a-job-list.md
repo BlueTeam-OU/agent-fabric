@@ -85,8 +85,15 @@ Why these choices:
 1. An agent's jobs live in `agents/<login>/jobs.json`, written only by
    `runtime/identity.py` (`read_jobs`, `update_jobs`, under `agent_lock`).
    A list naming another agent, or written on another host, is refused.
-2. A job's state is one of `queued`, `active`, `blocked`, `delivered`,
-   `done` and `dropped`, and at most one job per login is `active`.
+2. A job's state is one of `queued`, `active`, `paused`, `blocked`,
+   `delivered`, `done` and `dropped`, and at most one job per login is
+   `active`. `blocked` is a wait the agent does not control: another
+   agent's request, a pull request, a peer's job or a named owner's
+   decision. `paused` is the agent's own choice to set the job aside for
+   other work; a paused job is taken back by name, and the transition
+   (rule 10) offers it before queued jobs of the same priority
+   (A 2026-10-14) (decided, not yet built; until it is, a paused job is
+   `blocked` with a 'paused: <why>' reason, as the agent-jobs skill says).
 3. A job carries its project, its working copy and, when the agent sets
    one, a topic. `fabric-jobs next` asks whether this session has already worked a job
    (a job entered or left `active` in it, by the harness session id the
@@ -148,10 +155,32 @@ Why these choices:
    claimant: the claim lands it on the claimant's own list. `next`, with
    nothing queued, offers the pool's job of highest priority, oldest
    first, and says so (A 2026-10-08).
-10. When a job is done, delivered, blocked or dropped, the agent runs
-    `fabric-jobs next` before anything else, and it ends a session idle
-    only when nothing is left it can take, on its own list or in its
-    role's pool (A 2026-10-08).
+10. An agent moves from one job to the next only through `fabric-jobs
+    switch [<next-id>]`, before anything else once a job stops being
+    worked, and it ends a session idle only when nothing is left it can
+    take, on its own list or in its role's pool (A 2026-10-08). The
+    switch runs three steps in order and refuses, naming what to fix,
+    when one fails (A 2026-10-14):
+    1. **The old job is settled with its evidence.** `done`: its pull
+       request is merged or its commit is on the default branch.
+       `delivered`: its pull request is open. `blocked`: a request, a
+       pull request, a peer's job or an owner's decision named as the
+       blocker. `paused`: its branch is pushed. `dropped`: a reason.
+       Whatever the outcome, the working copy has nothing uncommitted,
+       every `REPLY-EXPECTED: yes` addressed to the agent is answered,
+       and the agent's memory has been written during the job.
+    2. **The next job starts in a fresh session**, as rule 3 says.
+    3. **The branch is chosen before any work.** The job goes on the
+       agent's open pull request in that repository when the branch is
+       still addable, brought up to date with the default branch first;
+       when it is not, and the job needs something not yet merged, it
+       is blocked on that pull request; otherwise it starts on a new
+       branch off a freshly fetched default branch, named from the job.
+       No job starts on a branch behind the default branch.
+    Each switch appends one line to both jobs' logs: the outcome and
+    the evidence checked, and the branch chosen. Until the switch is
+    built, `fabric-jobs next` stands and the agent makes these checks
+    by hand.
 11. A `REQUEST` addressed `TO` a login is a job on that login's list,
     queued without anyone remembering to put it there (decided, not yet
     built; until it is, the receiver adds it): the receiver's
@@ -208,3 +237,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-09 | A job may be a plan's step | §5 rule 11: a job may be a step of a coordinator's plan, linked in the plan; no job field (ADR-047) |
 | 2026-10-11 | Every job starts in a fresh session | §5 rule 3: `next` gives a fresh session whenever this session has worked a job; in place only for one that has worked none |
 | 2026-10-12 | Checkable blockers | §5 rule 8: `block --on` takes `pr:`, `request:` and `job:` blockers, re-checked at most every ten minutes; a cleared job is listed first and taken first by `next` |
+| 2026-10-14 | Paused, and the transition between jobs | §5 rule 2 adds `paused` (the agent's choice) beside `blocked` (a wait it does not control); rule 10: `fabric-jobs switch` settles the old job with its evidence, starts the next fresh (rule 3 unchanged) and chooses its branch, refusing on a failed check |

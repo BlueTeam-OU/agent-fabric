@@ -47,6 +47,7 @@ fabric-jobs add "<artifact>" --priority high                      # blocking | h
 |---|---|
 | You start on it | `fabric-jobs start <id>` (one job is active at a time) |
 | It waits on something | `fabric-jobs block <id> "<the smallest dependency>"` |
+| You set it aside by choice | push its branch, then `fabric-jobs block <id> "paused: <why>"` (a `paused` state comes with `fabric-jobs switch`, ADR-037 rule 2) |
 | It waits on another agent's request being done | `fabric-jobs block <id> --on-request <MESSAGE-ID>` |
 | Its artifact exists | `fabric-jobs deliver <id> <pr-or-commit>...` |
 | The artifact landed and nothing is owed | `fabric-jobs done <id>` |
@@ -67,6 +68,15 @@ waits. If the state stream cannot be read, the list says so and falls
 back to the stored priorities; `--stored` skips the stream.
 
 ## 3. What comes next: the restart rule
+
+Before you leave a job, check what `fabric-jobs switch` will check
+(ADR-037 rule 10; until it is built, by hand): the state you give it has
+its evidence (done: merged; delivered: its PR open; blocked: what you
+wait on, named; paused: the branch pushed), nothing is left
+uncommitted, every `REPLY-EXPECTED: yes` to you is answered, and what
+you learnt is in your memory. The next job's branch: your open PR's, if
+it is still addable, brought up to date first; else a new branch off a
+freshly fetched default branch. Never start on a branch behind it.
 
 When the active job is done, delivered, blocked or dropped, run `next` before
 anything else. Do not end the session, wait, or ask what to do while a

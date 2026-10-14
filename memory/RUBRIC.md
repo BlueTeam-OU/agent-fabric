@@ -11,7 +11,7 @@ was actually learned. Density then drifts drain by drain until the role
 base is long instead of dense, and nobody can see it happening.
 
 The fix is structural: **the unit of distillation is the claim, never the
-run.** Every candidate faces the same five tests below whether it arrives
+run.** Every candidate faces the same six tests below whether it arrives
 among three thousand observations or among eighty. A big drain produces
 more candidates, not a lower bar. A small drain usually produces few, and
 often produces none.
@@ -20,9 +20,9 @@ Changing this file changes the standard for every future drain, uniformly.
 That is the point of it being committed and versioned: the bar is
 governable, and moving it is a reviewed decision rather than a drift.
 
-## The five tests
+## The six tests
 
-A claim is admitted only if it passes all five.
+A claim is admitted only if it passes all six.
 
 1. **Durable.** It will still be true after the next refactor of the code
    it describes. A fact about a specific line, a transient bug, or a state
@@ -50,6 +50,21 @@ A claim is admitted only if it passes all five.
    solution, intersection, rationale, workflow or threads. A claim that
    fits none is dropped, not shoehorned into the nearest. A claim that
    seems to fit several is usually two claims that should be split.
+
+6. **A lesson, not a record.** It says what to do or expect next time, not
+   what happened once. A fix, a merge, a closed issue, a dated outcome is an
+   event, and the tree, git, the PR or the job list already record it; what
+   the event taught is the claim. "PR 250 merged the test batch" is a
+   record; "a test that reads the committed policy must say so, or a local
+   edit passes it" is a lesson.
+
+**The promote verdict.** A claim that passes all six is still weighed for a
+stronger home (ADR-015). A lesson that can be a test, a lint rule or a hook
+is made one, and its section is deleted: an executable form enforces what a
+slice only asks a reader to remember. A `workflow` lesson that stays
+replaces its one-off values (a PR number, a branch, a date, a login) with
+parameters, so the next session can follow it without the case that taught
+it.
 
 ## Class boundaries
 

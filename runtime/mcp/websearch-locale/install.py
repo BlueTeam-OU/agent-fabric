@@ -23,12 +23,19 @@ the fabric did, in permissions.deny's sibling marker
 installer's shape (+ = -) and exits 0. Both files are Claude Code's own:
 every other key is kept as read.
 
-A file that is not JSON is the login's to fix, and is left alone: one
-line on stderr, then exit 0 for `remove` and `allow-websearch` (nothing
-of the fabric's can be in force in a file the harness cannot read
-either) and 1 for `set` and `deny-websearch` (theirs is not written).
-It once raised here, and bootstrap ended in a traceback before the user
-settings' own writer could refuse the file.
+A file that cannot be used is the login's to fix, and is left alone: one
+line on stderr naming the path and why (not JSON, not an object, unreadable:
+mode 000, a directory, or, for `set` and `deny-websearch`, a mcpServers or
+permissions that is present and not an object), then exit 0 for `remove` and
+`allow-websearch` (nothing of the fabric's can be in force in a file the
+harness cannot read either) and UNUSABLE (3) for `set` and `deny-websearch`
+(theirs is not written). 3 is the status fabric-memory/install.py uses for
+the same thing (unreadable included), and never 1, which an uncaught fault such as an unwritable
+directory exits with: bootstrap (install_agent_files.locale_search and memory_search) reads 3
+as "not configured" for that installer's server, says the line and goes on, and any
+other non-zero status fails the step. It once raised here, and bootstrap
+ended in a traceback before the user settings' own writer could refuse
+the file.
 """
 from __future__ import annotations
 
@@ -41,6 +48,7 @@ NAME = "websearch-locale"
 # its deletion so a login configured before the port is still recognised and
 # switched, not mistaken for one the login wrote itself.
 MARKERS = ("bin/fabric-websearch-locale", "runtime/mcp/websearch-locale/server.mjs")
+UNUSABLE = 3   # the file is the login's to fix; nothing written. Never 1, which an uncaught fault exits with.
 DENY = "WebSearch"
 # The record that the fabric wrote the deny: a second entry the harness
 # reads as a rule that matches nothing, beside the real one.
@@ -53,7 +61,10 @@ def load(path: str) -> dict:
             data = json.load(fh)
     except FileNotFoundError:
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        # Treating it as empty would let `set` replace a login's whole file with one server.
+        raise ValueError("top level is not an object")
+    return data
 
 
 def save(path: str, data: dict) -> None:
@@ -82,11 +93,24 @@ def main(argv: list[str]) -> int:
     path, op = argv[0], argv[1]
     try:
         data = load(path)
-    except (ValueError, UnicodeDecodeError) as e:
+    except (OSError, ValueError, UnicodeDecodeError) as e:
         undo = op in ("remove", "allow-websearch")
-        print(f"  !  {path}: not JSON ({type(e).__name__}); left alone, "
+        if isinstance(e, OSError):
+            why = f"unreadable ({e.strerror or type(e).__name__})"
+        elif isinstance(e, json.JSONDecodeError) or isinstance(e, UnicodeDecodeError):
+            why = f"not JSON ({type(e).__name__})"
+        else:
+            why = str(e)
+        print(f"  !  {path}: {why}; left alone, "
               + ("nothing of the fabric's to remove" if undo else "nothing written"), file=sys.stderr)
-        return 0 if undo else 1
+        return 0 if undo else UNUSABLE
+    # `set` and `deny-websearch` write the key back as an object; over a login's own string, list or null that would
+    # drop whatever they put there (fabric-memory/install.py refuses the same). `remove` and `allow-websearch` have
+    # nothing of the fabric's to take out of it and carry on.
+    for writes, key in (("set", "mcpServers"), ("deny-websearch", "permissions")):
+        if op == writes and key in data and not isinstance(data[key], dict):
+            print(f"  !  {path}: {key} is not an object; left alone, nothing written", file=sys.stderr)
+            return UNUSABLE
     servers = data.get("mcpServers") if isinstance(data.get("mcpServers"), dict) else {}
     current = servers.get(NAME)
     if op == "set":

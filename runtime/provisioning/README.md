@@ -80,9 +80,16 @@ the account as a bundle (`store child-bundle | store take-bundle`: its
 SSH key is in that store, so it cannot pull it yet) and its first sync,
 as the account, without a pull (`sync --no-pull`); every
 `--project` cloned as the account over SSH from the remote the registry
-names; `bootstrap.sh`; `bin/fabric-role bind <role>`; the toolchain each
+names; the provider of its first launch recorded (6b,
+`provisioning/launch_record.py`: a `routing/profiles.json` layer's
+`launch_provider` when one names it, else `anthropic` with a Claude
+account, `openrouter` with `--no-claude-account`; a record already there is
+kept); `bootstrap.sh`; `bin/fabric-role bind <role>`; the toolchain each
 project's lockfile declares (pnpm under `~/.local`, `pnpm install`,
-`npm ci`, a venv); then verification (`fabric-secrets status`, `gh`, SSH
+`npm ci`, a venv); on a host whose registry entry pins an `sshd`, the
+account joined to the operator's ssh (9b, `provisioning/ssh_add_login.py`:
+`AllowUsers` and its root-owned keys file, from the staging
+`ssh-operator.sh` made, no reboot; ADR-048); then verification (`fabric-secrets status`, `gh`, SSH
 to every origin, the git identity, `launch --print` on both providers)
 and the short list of what only a person at a terminal can do: the GPG
 secret key (a passphrase prompt; on a terminal new-agent does it itself
