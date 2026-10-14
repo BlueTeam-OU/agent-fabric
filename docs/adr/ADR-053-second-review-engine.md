@@ -90,9 +90,11 @@ repository whose policy names `reviews`.
    reason is said. A posted review names the engine and model on its
    first line and is posted with `fabric-pr post-review <PR> --model
    codex`.
-5. **Findings are judged the same way.** A Codex finding is judged by the
-   review class before it is answered (ADR-020), and answered like any
-   other: fixed, or declined with the reason.
+5. **Findings are judged the same way, once per head.** A Codex finding
+   is judged by the review class before it is answered (ADR-020), and
+   answered like any other: fixed, or declined with the reason. Judging
+   is one dispatch per head covering every open finding of both
+   engines, each answered by number; never one dispatch per finding.
 6. **A review is required; the policy names who reviews.** A pull
    request is armed only when every required review engine its arming
    policy names has reviewed the current head with no open P1 or P2. Which
@@ -171,3 +173,4 @@ The body above reads current; each change's full note is in [history/ADR-053-ame
 | 2026-10-13 | every login runs the Codex review on a synced access token; both engines by default | §5 rule 6 changed, rule 8 added |
 | 2026-10-13 | the record requires a review, policy names the engines; the fleet requires both | §5 rule 6 |
 | 2026-10-13 | An additional engine counts by its review or its unavailable marker | §5 rule 6: additional_reviews; the fleet's codex is additional (ADR-055 rule 8) |
+| 2026-10-14 | Findings are judged once per head | §5 rule 5: one judging dispatch per head for every open finding of both engines |

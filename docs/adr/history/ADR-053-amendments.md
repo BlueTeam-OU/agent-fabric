@@ -61,3 +61,16 @@ workspace ran out of its Codex allowance and every arm stopped (ADR-055
 rule 8, the owner: "codex is 'more' not a blocking"). The amendment of the
 same day that made both engines the fleet default is history: the policy
 now requires claude and lists codex as additional.
+
+### Amendment 2026-10-14 — Findings are judged once per head
+
+§5 rule 5 said a finding is judged by the review class before it is
+answered, and did not say how many dispatches that takes. architect-cto-01
+measured 27 judge dispatches: median 214k tokens each, and in 17 of the
+19 judged the verdict confirmed what the thread already said. The rule
+now says what to dispatch: one judging dispatch per head, whose brief
+carries every open finding of both engines and which answers each by
+number. Nothing about who judges, what counts as coverage, or the
+arming policy changes. Basis: the review-economics plan the owner
+approved on 2026-10-14 (package P5), requested by architect-cto-01;
+`policies/subagent-dispatch/SKILL.md` says the same.
