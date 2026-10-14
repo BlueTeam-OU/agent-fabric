@@ -61,6 +61,10 @@ MAX_BYTES = 64 << 20
 STATE_FILES = ("jobs.json", "role-history.jsonl", "gzcoord-sent.jsonl")
 STATE_TREES = ("reviews",)
 EPISODIC = "episodic.db"
+# The harness's own folder under ~/.claude/projects/<p>/, not the operator's
+# memory/ corpus: a name held apart so tests/test_roots_seam.py's scan for
+# instance paths joined outside roots.py does not take it for one.
+HARNESS_MEMORY = "memory"
 ROOTS = ("state", "claude")
 
 
@@ -152,7 +156,7 @@ def collect(state_dir: str, claude_dir: str) -> tuple[dict[str, bytes], list[str
     except FileNotFoundError:
         names = []
     for p in names:
-        _walk(os.path.join(projects, p, "memory"), f"claude/projects/{p}/memory", files, skipped)
+        _walk(os.path.join(projects, p, HARNESS_MEMORY), f"claude/projects/{p}/{HARNESS_MEMORY}", files, skipped)
     _walk(os.path.join(claude_dir, "plans"), "claude/plans", files, skipped)
     if sum(len(b) for b in files.values()) > MAX_BYTES:
         big = max(files, key=lambda n: len(files[n]))
