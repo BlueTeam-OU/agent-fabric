@@ -13,6 +13,7 @@ import http.server
 import io
 import json
 import os
+import shutil
 import time
 import stat
 import subprocess
@@ -421,6 +422,56 @@ class Install(Case):
             gw.write_marker(self.state, {"version": VERSION, "installed_sha256": "cd"})
         self.assertEqual(json.load(open(path))["pid"], 999, "the newer record is never overwritten")
         self.assertEqual(sorted(os.listdir(self.state)), ["gateway-install.json", "gateway.json"], "nothing left aside")
+
+    def _race_to_a_record(self, record: dict) -> str:
+        """The migration's rename lands, then the file under judgement turns out to be a launcher's record."""
+        os.makedirs(self.state)
+        path = os.path.join(self.state, "gateway.json")
+        with open(path, "w") as fh:
+            json.dump({"version": VERSION, "installed_sha256": "ab"}, fh)
+        real_rename = os.rename
+
+        def rename_then_record(a, b):
+            real_rename(a, b)
+            with open(b, "w") as fh:
+                json.dump(record, fh)
+        with unittest.mock.patch.object(gw.os, "rename", side_effect=rename_then_record):
+            gw._drop_legacy_marker(self.state, alive=lambda pid: pid == 7)
+        return path
+
+    def test_j114_a_record_set_aside_is_restored_only_while_its_gateway_runs(self):
+        path = self._race_to_a_record({"pid": 7})
+        self.assertEqual(json.load(open(path))["pid"], 7, "positive control: a running session's record goes back")
+        shutil.rmtree(self.state)
+        path = self._race_to_a_record({"pid": 8})
+        self.assertFalse(os.path.exists(path), "a session that ended meanwhile is not shown as running")
+        self.assertEqual(os.listdir(self.state), [], "nothing left aside")
+
+    def test_j114_a_judge_file_a_dead_process_left_is_swept_its_running_record_restored_not_over_a_newer_one(self):
+        os.makedirs(self.state)
+        path = os.path.join(self.state, "gateway.json")
+
+        def judge(owner: str, doc: dict) -> str:
+            f = os.path.join(self.state, f".gateway.json.{owner}.judge")
+            with open(f, "w") as fh:
+                json.dump(doc, fh)
+            return f
+        running, ended = judge("100", {"pid": 7}), judge("101", {"pid": 8})
+        live_owner, foreign = judge("102", {"pid": 8}), os.path.join(self.state, ".gateway.json.notapid.judge")
+        open(foreign, "w").close()
+        gw._drop_legacy_marker(self.state, alive=lambda pid: pid in (7, 102))
+        self.assertEqual(json.load(open(path))["pid"], 7, "the running session's record came back")
+        self.assertFalse(os.path.exists(running) or os.path.exists(ended), "dead owners' judge files are gone")
+        self.assertTrue(os.path.exists(live_owner), "another judge still at work is left alone")
+        self.assertTrue(os.path.exists(foreign), "a name that is no pid's is not ours to remove")
+        os.unlink(live_owner)
+        os.unlink(foreign)
+        newer = judge("103", {"pid": 7})
+        with open(path, "w") as fh:
+            json.dump({"pid": 999}, fh)
+        gw._drop_legacy_marker(self.state, alive=lambda pid: pid in (7, 999))
+        self.assertEqual(json.load(open(path))["pid"], 999, "a newer record wins")
+        self.assertFalse(os.path.exists(newer))
 
     def test_a_marker_that_cannot_be_written_leaves_no_temporary_file(self):
         os.makedirs(self.state)
