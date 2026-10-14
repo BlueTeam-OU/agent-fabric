@@ -23,12 +23,11 @@ Row v1 (schema_version 1). Every row holds every key, null where unknown:
 
 Attribution is structural. The brief's first fenced block is an
 `agent-fabric-dispatch v1` JSON object, read from the subagent's first
-user message. Its producer is to be fabric-review brief, in
-fabric-coordinator's review-economics change (an amendment to ADR-020
-proposed 2026-10-14, REQUEST 01a139bb); until it lands, only a brief
-written by hand carries one. Its fields are copied, each
+user message. Its producer is fabric-review brief
+(review_brief.dispatch_header, ADR-020 §5 rule 10). Its fields are copied, each
 only when it has its shape (an identifier, an integer, a sha, owner/name,
-an ISO time with its zone, evidence pinned | working-tree), and attribution is
+an ISO time with its zone, evidence_mode pinned | working-tree, written to
+the row's evidence), and attribution is
 "dispatch". A first block
 that is not one: purpose "other-subagent", attribution "inferred", the
 description (the dispatcher's label, from the sibling .meta.json) kept —
@@ -113,6 +112,11 @@ HEADER_INFO = "agent-fabric-dispatch v1"
 FENCE = re.compile(r"^(`{3,}|~{3,})[ \t]*([^\n`]*?)[ \t]*$", re.MULTILINE)
 SHA = re.compile(r"^[0-9a-f]{7,64}$")
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+# A header's repository: owner/name, or as fabric-review writes it (workingcopy.canonical_remote: the host, a
+# non-default port, then the path), of which the row keeps owner/name. The row's repository is lowercase however
+# it was found: canonical_remote lowercases the path on the forges the fleet uses, and a dispatch row and an
+# inferred row of one repository must group as one.
+HEADER_REPO = re.compile(r"^(?:[A-Za-z0-9.-]+(?::[0-9]+)?/)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)$")
 REMOTE = re.compile(r"[:/]([^/:@]+/[^/@]+?)(?:\.git)?/?$")
 # A URL's userinfo (https://user:token@host/...) is a credential: dropped
 # before matching, and a match holding an @ is never written either.
@@ -124,7 +128,8 @@ INTERRUPTED = "[Request interrupted"
 DONE_REASONS = ("end_turn", "stop_sequence")
 # A header string is an identifier, never prose. Matched with fullmatch:
 # `$` also matches before a final newline.
-IDENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+# A '#' too: fabric-review's default review_id is <repository>#<PR>.
+IDENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:#-]{0,199}$")
 EVIDENCE = ("pinned", "working-tree")
 OTHER = "other-subagent"
 
@@ -208,8 +213,9 @@ def header(brief: str) -> tuple[str, dict]:
         v = doc.get(k)
         if isinstance(v, str) and IDENT.fullmatch(v):
             out[k] = v
-    if doc.get("evidence") in EVIDENCE:
-        out["evidence"] = doc["evidence"]
+    # The producer's name for it is evidence_mode; the row's, frozen in v1, is evidence.
+    if doc.get("evidence_mode") in EVIDENCE:
+        out["evidence"] = doc["evidence_mode"]
     v = doc.get("started_at")
     if isinstance(v, str) and len(v) <= 40 and zoned(v):
         out["started_at"] = v
@@ -221,9 +227,9 @@ def header(brief: str) -> tuple[str, dict]:
         v = doc.get(k)
         if isinstance(v, str) and SHA.fullmatch(v):
             out[k] = v
-    v = doc.get("repository")
-    if isinstance(v, str) and REPO.fullmatch(v):
-        out["repository"] = v
+    m = HEADER_REPO.fullmatch(v) if isinstance(v := doc.get("repository"), str) else None
+    if m:
+        out["repository"] = m.group(1).lower()
     return "dispatch", out
 
 
@@ -362,7 +368,7 @@ def git(cwd: str, *args: str) -> str | None:
 
 
 def repository(cwd: str | None) -> tuple[str | None, str | None]:
-    """(owner/name from origin, else the toplevel's basename; HEAD)."""
+    """(owner/name from origin, else the toplevel's basename, lowercase as HEADER_REPO says; HEAD)."""
     if not cwd or not os.path.isdir(cwd):
         return None, None
     top = git(cwd, "rev-parse", "--show-toplevel")
@@ -370,7 +376,7 @@ def repository(cwd: str | None) -> tuple[str | None, str | None]:
         return None, None
     url = git(cwd, "remote", "get-url", "origin")
     m = REMOTE.search(USERINFO.sub("", url)) if url else None
-    return (m.group(1) if m else os.path.basename(top)), git(cwd, "rev-parse", "HEAD")
+    return (m.group(1) if m else os.path.basename(top)).lower(), git(cwd, "rev-parse", "HEAD")
 
 
 def row(payload: dict) -> dict | None:

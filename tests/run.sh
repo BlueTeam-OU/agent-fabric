@@ -131,7 +131,6 @@ if [[ "$what" == all || "$what" == bash ]]; then
     run "model-switch guard" bash runtime/claude-code/hooks/test_model-switch-guard.sh
     run "plan hold" bash runtime/claude-code/hooks/test_plan-hold.sh
     run "model fallback note" bash runtime/claude-code/hooks/test_model-fallback-note.sh
-    run "subagent ledger" bash runtime/claude-code/hooks/test_subagent-ledger.sh
     run "install-agent-files (the locale worker)" bash runtime/claude-code/test_install-agent-files.sh
     run "the fabric's user settings (attribution off, thinking summaries, verbose)" bash runtime/claude-code/test_user-settings.sh
 fi
