@@ -109,7 +109,7 @@ Codex is an additional review, never a blocking one (the owner, 2026-10-13):
 when the model is unavailable the claude review alone arms, and the arm needs
 a fact on the PR to read. So an unavailable model (exit 3, either kind) posts,
 once per head, a COMMENT review of that commit whose first line is UNAVAILABLE_MARKER's
-(format_marker; parse_marker reads it back, for the arm to import) and one
+(format_marker; verdicts.unavailable_of, the arm's reader, is the one parser) and one
 human line. It is not posted when a Codex review of that head already stands
 on the PR or an unavailable statement for it does, and never on any other
 failure: a crash is no statement about availability. When the PR cannot be
@@ -144,7 +144,7 @@ import review_brief  # noqa: E402
 import review_gateway  # noqa: E402
 import routing  # noqa: E402
 from github.review_status.config import REVIEW_MARKER  # noqa: E402 — the reader's own constant, so "a review" means one thing
-from github.review_status.verdicts import engine_of  # noqa: E402
+from github.review_status.verdicts import engine_of, unavailable_of  # noqa: E402
 from lint_rules.schema import validate_json  # noqa: E402 — the fleet's no-dependency validator (ADR-040)
 
 # The engine's own files, beside this one: the schema is the contract this
@@ -183,9 +183,6 @@ CAPACITY, ALLOWANCE = "capacity", "allowance"
 # The fact the arm reads (the owner's policy of 2026-10-13: Codex never blocks). One line, fixed fields, no free text:
 # the backend's words stay in the human line below it.
 UNAVAILABLE_MARKER = "<!-- agent-fabric-engine-unavailable v1 engine={engine} head={head} reason={reason} at={at} -->"
-UNAVAILABLE_RE = re.compile(
-    r"<!-- agent-fabric-engine-unavailable v1 engine=(?P<engine>[a-z]+) head=(?P<head>[0-9a-f]{40}) "
-    r"reason=(?P<reason>allowance|capacity) at=(?P<at>\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) -->")
 # The waits before the first, second and third retry of a run whose model was at capacity, then stop (the owner,
 # 2026-10-13). Time is an input: tests replace both of these.
 CAPACITY_RETRY_DELAYS_S = (10, 20, 60)
@@ -710,16 +707,11 @@ def _one_line(s: str) -> str:
 
 
 def format_marker(head: str, reason: str, at: str, engine: str = ENGINE) -> str:
+    """The writer is stricter than the reader (verdicts.unavailable_of, the one parser, the arm's): a marker this
+    engine emits always has a full head and one of its two reasons."""
+    if not re.fullmatch(r"[0-9a-f]{40}", head) or reason not in (CAPACITY, ALLOWANCE):
+        raise ValueError(f"not an unavailable marker's head or reason: {head!r}, {reason!r}")
     return UNAVAILABLE_MARKER.format(engine=engine, head=head, reason=reason, at=at)
-
-
-def parse_marker(text: str) -> dict[str, str] | None:
-    """The fields of an unavailable comment, or None. Only the body's FIRST line counts, and all of it: a marker
-    quoted further down (a reply, a review quoting code) states nothing, and a line with anything else on it is
-    not ours."""
-    first = (text or "").split("\n", 1)[0].strip()
-    m = UNAVAILABLE_RE.fullmatch(first)
-    return m.groupdict() if m else None
 
 
 def _utc_now() -> str:
@@ -750,7 +742,7 @@ def announce_unavailable(repo: str, pr: str, head: str, e: "ModelUnavailable") -
             continue
         if (r.get("body") or "").startswith(REVIEW_MARKER) and engine_of(r) == ENGINE:
             return
-        m = parse_marker(r.get("body") or "")
+        m = unavailable_of(r)
         if m and m["engine"] == ENGINE and m["head"] == head:
             return
     gh.api(f"repos/{slug}/pulls/{pr}/reviews", method="POST",

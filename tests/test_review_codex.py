@@ -31,6 +31,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REVIEW = os.path.join(ROOT, "bin", "fabric-review")
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import review_codex  # noqa: E402
+from github.review_status.verdicts import unavailable_of  # noqa: E402 — the one parser, the arm's
+
+
+def parsed(text):
+    return unavailable_of({"body": text})
 
 # The fake codex sees only the environment the engine gives it, so its
 # behaviour and its records go through files at paths written into it.
@@ -781,7 +786,7 @@ def main() -> int:
 
         def statement() -> tuple[dict | None, str]:
             body = payload_body()
-            return review_codex.parse_marker(body), body
+            return parsed(body), body
 
         set_pr(); mode("allowance")
         rc, out, err, sleeps = inproc("7", req)
@@ -841,7 +846,7 @@ def main() -> int:
                   rc == 1 and not post_lines(), (rc, post_lines(), err))
         set_pr(); mode("allowance")
         rc, out, err, sleeps = inproc("7", req, "--no-post")
-        m = review_codex.parse_marker(out)
+        m = parsed(out)
         check("--no-post: exit 3, the statement printed on stdout, nothing read from or posted to the PR",
               rc == 3 and m is not None and m["head"] == head and not post_lines()
               and not os.path.exists(os.path.join(state, "reads")), (rc, out, post_lines()))
@@ -862,14 +867,22 @@ def main() -> int:
         good_line = review_codex.format_marker(head, "capacity", "2026-10-13T19:52:10Z")
         check("the line is the spelled contract", good_line == f"<!-- agent-fabric-engine-unavailable v1 engine=codex head={head} "
               "reason=capacity at=2026-10-13T19:52:10Z -->", good_line)
-        check("it parses back to its fields", review_codex.parse_marker(good_line + "\nCodex could not review.\n")
+        check("it parses back to its fields", parsed(good_line + "\nCodex could not review.\n")
               == {"engine": "codex", "head": head, "reason": "capacity", "at": "2026-10-13T19:52:10Z"})
         for label, text in (("a marker below the first line", "hello\n" + good_line), ("text after the marker", good_line + " x"),
-                            ("a short sha", good_line.replace(head, head[:12])), ("an unknown reason", good_line.replace("capacity", "crash")),
-                            ("a version 2", good_line.replace(" v1 ", " v2 ")), ("a date that is not UTC ISO", good_line.replace("19:52:10Z", "19:52:10+02:00")),
+                            ("a short sha", good_line.replace(head, head[:12])),
+                            ("a version 2", good_line.replace(" v1 ", " v2 ")),
                             ("a non-hex head", good_line.replace(head[:1], "g", 1)),
                             ("empty", ""), ("None", None)):
-            check(f"not a marker: {label}", review_codex.parse_marker(text) is None, text)
+            check(f"not a marker: {label}", parsed(text) is None, text)
+        for label, args in (("a short head", (head[:12], "capacity", "2026-10-13T19:52:10Z")),
+                            ("a reason this engine never emits", (head, "crash", "2026-10-13T19:52:10Z"))):
+            try:
+                review_codex.format_marker(*args)
+                refused = False
+            except ValueError:
+                refused = True
+            check(f"the writer refuses {label}", refused, args)
 
         print("the time budget: Codex and what it started are ended, the scratch removed")
         set_pr(); mode("sleep")
