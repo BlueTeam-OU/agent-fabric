@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The python suites of tests/run.sh, up to AGENT_FABRIC_TEST_JOBS at a time.
+"""The python suites of tests/run.py (and run.sh, its forwarder), up to AGENT_FABRIC_TEST_JOBS at a time.
 
 Default: the cores; 1 is the old serial run. Each suite is independent: it
 makes its own scratch under the run's TMPDIR (exported by run.sh), binds
@@ -11,7 +11,7 @@ whole when it ends, under the "== <suite>" header the serial run printed, so
 the log reads the same but in completion order. Exit status: 1 if any suite
 failed, 2 for a bad AGENT_FABRIC_TEST_JOBS. The last line of stdout is
 `FAILED_SUITES=<n>`, n the number of suites that exited non-zero (0 when none),
-so run.sh can say how many failed and not only that one did; it is not printed
+so run.py can say how many failed and not only that one did; it is not printed
 for the exit 2, where nothing ran, nor when the runner itself fails or is killed
 (a suite that cannot be started raises out of its worker; a signal ends the
 process): a missing line is "unknown, at least one", never 0.
@@ -111,9 +111,10 @@ def run_suite(path: str, timeout_s: float) -> tuple[int, bytes]:
         # The pipe closes once everything holding it is dead; one that escaped the walk (a daemon) must not hang the run.
         try:
             out, _ = proc.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            return 124, (f"\n{path}: still running after its {timeout_s:g} s budget; ended, and its output is lost "
-                         "(a process it started still holds the pipe)\n").encode()
+        except subprocess.TimeoutExpired as hung:
+            # What was read before the hang is in hand, and is the part that explains it.
+            return 124, (hung.output or b"") + (f"\n{path}: still running after its {timeout_s:g} s budget; ended, and a process "
+                                                 "it started still holds its pipe, so the rest of its output is lost\n").encode()
         note = f"\n{path}: still running after its {timeout_s:g} s budget; ended\n".encode()
         return 124, out + note
 
@@ -124,7 +125,7 @@ def main() -> int:
     os.chdir(os.path.dirname(HERE))
     slots = os.environ.get("AGENT_FABRIC_TEST_JOBS") or str(os.cpu_count() or 1)
     if not (slots.isdigit() and int(slots) >= 1):
-        print(f"tests/run.sh: AGENT_FABRIC_TEST_JOBS='{slots}' is not a positive number", file=sys.stderr)
+        print(f"tests/run_python_suites.py: AGENT_FABRIC_TEST_JOBS='{slots}' is not a positive number", file=sys.stderr)
         return 2
     budget = os.environ.get("AGENT_FABRIC_TEST_SUITE_TIMEOUT_S") or str(SUITE_TIMEOUT_S)
     try:

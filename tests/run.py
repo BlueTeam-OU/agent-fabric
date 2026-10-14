@@ -157,12 +157,18 @@ def end_tree(root: int, sleep=time.sleep, term_grace: float = TERM_GRACE_S, kill
     (A child started between the last walk and the root's kill is not reached; stopping the root first would close that
     window, and no test can reach a window that narrow.)"""
     started = time.monotonic()
+    termed: set[int] = set()
     while True:
         below = [p for p in descendants(root) if alive(p)]
         if not below:
             break
         elapsed = time.monotonic() - started
         for pid in below:
+            # TERM once per process: a handler that cleans up outside the scratch directory must not be interrupted by
+            # the next pass's TERM; KILL goes to everything alive once the grace is over.
+            if elapsed < term_grace and pid in termed:
+                continue
+            termed.add(pid)
             try:
                 os.kill(pid, signal.SIGTERM if elapsed < term_grace else signal.SIGKILL)
             except OSError:

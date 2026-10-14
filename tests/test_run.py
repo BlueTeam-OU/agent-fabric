@@ -343,7 +343,7 @@ def main() -> int:
             except OSError:
                 pass
         check("a process that escaped the suite's tree and holds its pipe cannot hang the runner past its budget",
-              r.returncode == 1 and time.monotonic() - t0 < 40 and "FAILED_SUITES=1" in r.stdout and "its output is lost" in r.stdout,
+              r.returncode == 1 and time.monotonic() - t0 < 40 and "FAILED_SUITES=1" in r.stdout and "rest of its output is lost" in r.stdout and "== tests/test_daemon.py" in r.stdout,
               (r.returncode, time.monotonic() - t0, r.stdout, r.stderr))
         for bad in ("0", "-5", "soon", "nan", "inf"):
             r = run(base, "python", AGENT_FABRIC_TEST_SUITE_TIMEOUT_S=bad)
