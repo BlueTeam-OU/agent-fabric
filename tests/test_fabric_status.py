@@ -182,9 +182,9 @@ def main() -> int:
                     return self.doc
 
             jobs = [{"id": "j1", "state": "queued"}, {"id": "j2", "state": "active", "title": "x" * 80, "working_copy": "/w"},
-                    {"id": "j3", "state": "blocked"}, {"id": "j4", "state": "delivered"}, {"id": "j5", "state": "done"}, "junk"]
+                    {"id": "j3", "state": "blocked"}, {"id": "j8", "state": "paused"}, {"id": "j4", "state": "delivered"}, {"id": "j5", "state": "done"}, "junk"]
             s = status.jobs_summary(Fake({"jobs": jobs}), "a")
-            check("counts by state, done and junk left out", (s["queued"], s["blocked"], s["delivered"]) == (1, 1, 1))
+            check("counts by state, done and junk left out", (s["queued"], s["blocked"], s["delivered"], s["paused"]) == (1, 1, 1, 1))
             check("the active job, its working copy, its title whole", s["active"] == {"id": "j2", "title": "x" * 80, "working_copy": "/w"})
             check("none active", status.jobs_summary(Fake({"jobs": []}), "a")["active"] is None)
             check("a refusal (SystemExit) is said, not raised", status.jobs_summary(Fake(exc=SystemExit("identity: bad")), "a") == {"error": "identity: bad"})
@@ -194,7 +194,7 @@ def main() -> int:
             report = {
                 "agent": "a", "host": "h", "placement": None, "role": None, "project": None, "working_copy": None, "session": None,
                 "binding_updated": None, "launched_role": None, "launch_prompt_digest": None, "drift": None,
-                "session_effort": None, "undrained_memories": None, "jobs": {"active": None, "queued": 0, "blocked": 0, "delivered": 0},
+                "session_effort": None, "undrained_memories": None, "jobs": {"active": None, "queued": 0, "paused": 0, "blocked": 0, "delivered": 0},
                 "api": {"provider": "anthropic", "path": "vanilla claude", "base_url_host": None, "session_model": "m", "launch_profile": None,
                         "pins": "none (harness defaults)", "credentials": "none visible in the environment", "claude_sign_in": "own /login (none recorded)"},
                 "capabilities": {"code-low": "haiku"}, "routing_check": "clean", "host_tools": {"moveto": {"installed": False}}, "control_plane": "/r",
@@ -203,7 +203,7 @@ def main() -> int:
             check("the minimal report, line for line", lines == [
                 "agent        a@h", "role         (none — fabric-role bind <role>, from a login shell)",
                 "project      (none)    working copy  (none)", "session      (unknown)    binding updated -",
-                "jobs         none active; 0 queued, 0 blocked, 0 delivered  (fabric-jobs list)", "", "api          vanilla claude", "session model m",
+                "jobs         none active; 0 queued, 0 paused, 0 blocked, 0 delivered  (fabric-jobs list)", "", "api          vanilla claude", "session model m",
                 "pins         none (harness defaults)", "credentials  none visible in the environment", "claude sign-in own /login (none recorded)", "",
                 "capabilities on anthropic (fabric-model list for every choice, per provider, with its source):",
                 "  code-low     haiku", "routing      clean", "control plane /r"])
@@ -228,8 +228,8 @@ def main() -> int:
             check("moveto drift carries its detail", "moveto       drift: behind" in text)
             report["jobs"] = {"error": "boom"}
             check("an unreadable job list is said", "jobs         unreadable: boom" in "\n".join(status.render(report, "")))
-            report["jobs"] = {"active": {"id": "j9", "title": "t" * 70, "working_copy": None}, "queued": 1, "blocked": 2, "delivered": 3}
-            check("the active title is cut at 60", f"active j9 ({'t' * 60}); 1 queued, 2 blocked, 3 delivered" in "\n".join(status.render(report, "")))
+            report["jobs"] = {"active": {"id": "j9", "title": "t" * 70, "working_copy": None}, "queued": 1, "paused": 4, "blocked": 2, "delivered": 3}
+            check("the active title is cut at 60", f"active j9 ({'t' * 60}); 1 queued, 4 paused, 2 blocked, 3 delivered" in "\n".join(status.render(report, "")))
         finally:
             os.environ.clear()
             os.environ.update(saved)

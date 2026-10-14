@@ -254,7 +254,7 @@ def main() -> int:
         out = status(cwd=sandbox)
         jobs_line = "\n".join(line for line in out.split("\n") if line.startswith("jobs"))
         check("an empty list: none active, zero counts",
-              has(r"^jobs         none active; 0 queued, 0 blocked, 0 delivered", out), jobs_line)
+              has(r"^jobs         none active; 0 queued, 0 paused, 0 blocked, 0 delivered", out), jobs_line)
         jobs_env = {**base, "AGENT_FABRIC_ROOT": ROOT}
         for args in (["add", "first"], ["add", "second"], ["start", "j2"]):
             subprocess.run([os.path.join(ROOT, "bin", "fabric-jobs"), *args], cwd=wc, env=jobs_env,
@@ -262,7 +262,7 @@ def main() -> int:
         out = status(cwd=sandbox)
         jobs_line = "\n".join(line for line in out.split("\n") if line.startswith("jobs"))
         check("the active job and the counts",
-              has(r"^jobs         active j2 \(second\); 1 queued, 0 blocked, 0 delivered", out), jobs_line)
+              has(r"^jobs         active j2 \(second\); 1 queued, 0 paused, 0 blocked, 0 delivered", out), jobs_line)
         j = json_of(status("--json", cwd=sandbox)).get("jobs", {})
         check("…and in --json", isinstance(j, dict) and (j.get("active") or {}).get("id") == "j2"
               and j.get("queued") == 1, str(j))

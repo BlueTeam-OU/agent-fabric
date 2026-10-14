@@ -270,7 +270,7 @@ def jobs_summary(identity, agent):
     # The job list (ADR-037): open jobs by state, and the active one.
     try:
         _jobs = [j for j in identity.read_jobs(agent)["jobs"]
-                 if isinstance(j, dict) and j.get("state") in ("queued", "active", "blocked", "delivered")]
+                 if isinstance(j, dict) and j.get("state") in ("queued", "active", "paused", "blocked", "delivered")]
     except SystemExit as exc:
         _jobs = str(exc.code)
     except OSError as exc:
@@ -279,7 +279,7 @@ def jobs_summary(identity, agent):
         return {"error": _jobs}
     _active = next((j for j in _jobs if j["state"] == "active"), None)
     return {"active": {"id": _active.get("id"), "title": _active.get("title") or "", "working_copy": _active.get("working_copy")} if _active else None,
-            **{st: sum(1 for j in _jobs if j["state"] == st) for st in ("queued", "blocked", "delivered")}}
+            **{st: sum(1 for j in _jobs if j["state"] == st) for st in ("queued", "paused", "blocked", "delivered")}}
 
 
 # A session's Bash no longer holds the harness's credentials (the
@@ -646,7 +646,7 @@ def render(report, base):
     else:
         _a = jobs["active"]
         p("jobs         " + (f"active {_a['id']} ({_a['title'][:60]})" if _a else "none active") + "; "
-          + ", ".join(f"{jobs[st]} {st}" for st in ("queued", "blocked", "delivered")) + "  (fabric-jobs list)")
+          + ", ".join(f"{jobs[st]} {st}" for st in ("queued", "paused", "blocked", "delivered")) + "  (fabric-jobs list)")
     p("")
     p(f"api          {path}")
     p(f"session model {report['api']['session_model']}")
