@@ -119,8 +119,9 @@ Each switch appends one line to the old and one to the new job's log: the outcom
 `switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
 cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued offers the pool's.
 A session that has worked no job has nothing to settle and takes the job in place; "worked" is read from the list: a
-transition into or out of `active` writes the harness session id (CLAUDE_CODE_SESSION_ID) into the job's log entry, and a
-session is one that appears in any entry, so a session launched with its job already active is known once it finishes it.
+transition whose old or new state is `active` (a start, a block, a delivery, a finish or a drop of the active job) writes
+the harness session id (CLAUDE_CODE_SESSION_ID), when the environment has one, into the job's log entry, and a session is one
+that appears in any entry, so a session launched with its job already active is known once it finishes it.
 With no session id in the environment (an unlaunched shell) the job that last left `active` counts, so `switch` says fresh.
 Every job starts in a fresh session (the owner, 2026-10-11): a fresh launch reads the fabric anew, which a running session
 never does, and a warm prompt cache is no reason to continue. The agent runs the command it prints, never the owner.

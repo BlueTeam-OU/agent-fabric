@@ -12,6 +12,8 @@ THE CONTRACT (frozen from the bash, ADR-040 §5 rule 3)
                                its children's stores)
   fabric-secrets selftest …    tools/fabric/secret_selftest.py (an own secret
                                set, used, removed)
+  fabric-secrets state …       tools/fabric/secret_state.py (this login's working state backed
+                               up to its own store; its parent's backup carries it to Proton)
   fabric-secrets <anything>    tools/fabric/secrets_sync.py with ALL the
                                arguments, the first included: `sync`, `status`,
                                no argument, an unknown word, an empty one. The
@@ -29,7 +31,8 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MODULES = {"store": "secret_store.py", "provision": "store_provision.py", "selftest": "secret_selftest.py"}
+MODULES = {"store": "secret_store.py", "provision": "store_provision.py", "selftest": "secret_selftest.py",
+           "state": "secret_state.py"}
 DEFAULT = "secrets_sync.py"
 
 

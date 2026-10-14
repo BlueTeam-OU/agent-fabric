@@ -27,10 +27,11 @@ def session_id() -> str | None:
 
 def session_worked(doc: dict, session: str | None) -> str | None:
     """The first job with a log entry written in `session`, or None. A
-    transition into or out of `active` records its session, so a session
-    launched with a job already active (fabric-fresh --job) is found when it
-    finishes that job; a drop or block of a job that was never active is no
-    work done and records none. Without
+    transition whose old or new state is `active` (entering it, leaving it,
+    or a start of the job already active) records its session when the
+    harness exports one, so a session launched with a job already active
+    (fabric-fresh --job) is found when it finishes that job; a drop or block
+    of a job that was never active is no work done and records none. Without
     a session id (an unlaunched shell) nothing can be told apart, so any job
     that has left `active` counts: such a session always says "fresh", even
     when just launched, which is the safe error."""

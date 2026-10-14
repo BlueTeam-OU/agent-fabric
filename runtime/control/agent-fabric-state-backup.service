@@ -1,0 +1,19 @@
+# runtime/control/agent-fabric-state-backup.service — the login's working
+# state into its own store (fabric-secrets state backup; j179), run by
+# agent-fabric-state-backup.timer. A systemd USER unit, as the agentd one:
+# run as the login. NOT yet installed by anything: bootstrap.py (the
+# coordinator's) copies the agentd unit to ~/.config/systemd/user/ and would
+# do the same for these two and enable the timer.
+# Oneshot: a refusal (one line on stderr, exit 1) is the journal's, and the
+# next day's run tries again; nothing here retries.
+[Unit]
+Description=agent-fabric: back up this login's working state to its own store
+
+[Service]
+Type=oneshot
+Environment=AGENT_FABRIC_ROOT=%h/projects/agent-fabric
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h/projects/agent-fabric
+ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/fabric_secrets.py state backup
+TimeoutStartSec=15min
+NoNewPrivileges=yes
