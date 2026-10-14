@@ -125,15 +125,18 @@ def main() -> int:
 
     print("dispatch_header: the first fenced block, fields only in their shape")
     full = {"dispatch_id": "d-1", "parent_session_id": "s:1", "job_id": "j112", "project": "agent-fabric", "review_id": "pr7",
-            "purpose": "review", "repository": "o/r", "pr": 7, "review_round": 2, "evidence": "pinned",
+            "purpose": "review", "repository": "o/r", "pr": 7, "review_round": 2, "evidence_mode": "pinned",
             "base_sha": "abcdef1", "head_sha": "a" * 40, "started_at": "2026-10-14T10:00:00Z", "engine": "codex"}
     kind, f = ledger.dispatch_header(header(json.dumps(full)))
     check("a whole header: attribution dispatch, every field copied, the header's engine not",
-          kind == "dispatch" and f == {k: v for k, v in full.items() if k != "engine"}, f)
+          kind == "dispatch" and f == {("evidence" if k == "evidence_mode" else k): v for k, v in full.items() if k != "engine"}, f)
     kind, f = ledger.dispatch_header(header(json.dumps({"pr": True, "review_round": -1, "head_sha": "xyz", "repository": "no-slash",
-                                                        "evidence": "other", "started_at": "2026-10-14T10:00:00", "job_id": "a b",
+                                                        "evidence_mode": "other", "started_at": "2026-10-14T10:00:00", "job_id": "a b",
                                                         "base_sha": "ABCDEF1", "dispatch_id": ["x"]})))
     check("every field in the wrong shape is dropped (bool, negative, non-hex, no owner, a time without a zone, prose)", (kind, f) == ("dispatch", {}), f)
+    check("the row's evidence comes from the header's evidence_mode and from no other key (the header never writes `evidence`)",
+          ledger.dispatch_header(header('{"evidence_mode": "working-tree"}'))[1] == {"evidence": "working-tree"}
+          and ledger.dispatch_header(header('{"evidence": "pinned"}'))[1] == {}, 0)
     check("a tilde fence of any length", ledger.dispatch_header(header('{"pr": 3}', "~~~~"))[1] == {"pr": 3})
     check("a header whose body is not an object is invalid-header", ledger.dispatch_header(header("[1]"))[0] == "invalid-header"
           and ledger.dispatch_header(header("{oops"))[0] == "invalid-header")
