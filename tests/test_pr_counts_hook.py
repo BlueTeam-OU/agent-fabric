@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import resource
 import subprocess
 import sys
 import time
@@ -20,6 +21,13 @@ def run(payload) -> tuple[int, dict | None]:
     r = subprocess.run([sys.executable, HOOK], input=json.dumps(payload) if not isinstance(payload, str) else payload,
                        capture_output=True, text=True, timeout=30)
     return r.returncode, (json.loads(r.stdout) if r.stdout.strip() else None)
+
+
+def children_cpu() -> float:
+    """CPU seconds the finished child processes have used: a linear scan costs the same on a loaded host, where wall
+    time (1.2 s for 1 s of work at load 20, j190) says nothing of the algorithm."""
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return usage.ru_utime + usage.ru_stime
 
 
 def main() -> int:
@@ -89,15 +97,15 @@ def main() -> int:
     rc, out = reply("```a``` #5 merged\n#6 merged")
     check("a one-line ```code``` span is not a fence: the next line is read", out and "#6" in out["reason"], out)
     distinct = "merge " + " ".join(f"#{i}" for i in range(1, 30000))
-    t0 = time.monotonic()
+    t0 = children_cpu()
     reply(distinct)
-    check("30,000 distinct PR numbers on a status line are read in under a second", time.monotonic() - t0 < 1,
-          time.monotonic() - t0)
+    check("30,000 distinct PR numbers on a status line are read in under a second of CPU", children_cpu() - t0 < 1,
+          children_cpu() - t0)
     dense = "merge " + "#1 " * 66000
-    t0 = time.monotonic()
+    t0 = children_cpu()
     reply(dense)
-    check("a reply dense with #N (66,000 of them) is read in under a second", time.monotonic() - t0 < 1,
-          time.monotonic() - t0)
+    check("a reply dense with #N (66,000 of them) is read in under a second of CPU", children_cpu() - t0 < 1,
+          children_cpu() - t0)
     big = ("word " * 50 + "#1 " * 20 + "\n") * 2000
     t0 = time.monotonic()
     rc, out = reply(big + "#9 is armed.")
