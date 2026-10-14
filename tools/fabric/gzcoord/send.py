@@ -483,7 +483,10 @@ def main(argv: list[str]) -> int:
             return 2
     missing = empty_body(msg)
     if missing:
-        print(t("send.empty-body", {"type": msg["type"], "sections": " or ".join(missing)}), file=sys.stderr)
+        # Two keys, not one with a joined list: the word between two section
+        # names is the reader's language, which a hard-coded " or " is not.
+        key = "send.empty-info" if len(missing) > 1 else "send.empty-body"
+        print(t(key, {"type": msg["type"], "sections": missing[0]}), file=sys.stderr)
         return 2
     # This session's model fell back after a safeguard flagged a request
     # (model-fallback-note.sh leaves the marker): the flagged text is
