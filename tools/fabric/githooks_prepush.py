@@ -175,6 +175,14 @@ def _scope(local: str, remote: str) -> list[str]:
     return [local, "--not", "--remotes"] if ZERO.match(remote) else [f"{remote}..{local}"]
 
 
+def _added(local: str, remote: str, base: str, since: str) -> list[str]:
+    """The commits a push adds that rule 5 judges, as CI has them: ^base so a branch rebased onto, or merged with,
+    the default branch is not judged for the default branch's commits. The exclusions come BEFORE _scope's output:
+    a new branch's scope holds a `--not`, after which a bare `^x` reads as positive again and would add base's and
+    since's own history to the range."""
+    return _git("rev-list", f"^{base}", f"^{since}", *_scope(local, remote)).split()
+
+
 def _attach_proofs(lines: list[str]) -> None:
     """Each pushed commit's waiting proof becomes its note. A commit whose
     proof cannot be found is not refused here: the checker judges proofs; old
@@ -280,9 +288,7 @@ def _rule5(remote_name: str, lines: list[str]) -> None:
             if len(fields) != 4 or ZERO.match(fields[1]):
                 continue
             _, local, _, remote = fields
-            # ^base as CI has it: a branch rebased onto, or merged with, the
-            # default branch must not be judged for the default branch's commits.
-            judged += [s for s in _git("rev-list", *_scope(local, remote), f"^{base}", f"^{since}").split() if s not in judged]
+            judged += [s for s in _added(local, remote, base, since) if s not in judged]
     except ban_unsigned_commits.git.GitError as e:
         raise Refused(f"{slug} is cut over and the pushed range cannot be read: {e}") from None
     judge = None
