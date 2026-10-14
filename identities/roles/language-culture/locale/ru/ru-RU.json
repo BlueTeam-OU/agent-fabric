@@ -43,6 +43,8 @@
   "start.relay-started-pid": "gzcoord inbox: релей запущен (pid {pid})",
   "start.no-token": "gzcoord inbox: нет CLAUDE_BRIDGE_AUTH_TOKEN ни в окружении, ни в {token_file}, ни в .claude/settings.local.json, ни в каталоге релея — пропущено",
   "send.cannot-read": "send: не удаётся прочитать {file}: {detail}",
+  "send.empty-body": "send: не отправлено — в сообщении {type} только тема: заполните раздел {sections}",
+  "send.empty-info": "send: не отправлено — в сообщении INFO только тема: заполните раздел CONTEXT или NOTES",
   "send.not-configured": "send: {reason} — не отправлено",
   "send.error-not-sent": "send: {detail} — не отправлено",
   "send.usage": "вызов: gzcoord-send <file>|- [--dry-run] [--force]",

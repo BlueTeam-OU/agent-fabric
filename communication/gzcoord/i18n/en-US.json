@@ -43,6 +43,8 @@
   "start.relay-started-pid": "gzcoord inbox: relay started (pid {pid})",
   "start.no-token": "gzcoord inbox: no CLAUDE_BRIDGE_AUTH_TOKEN in the environment, {token_file}, .claude/settings.local.json or the relay runtime dir — skipping",
   "send.cannot-read": "send: cannot read {file}: {detail}",
+  "send.empty-body": "send: not sent — the subject alone is not a message: fill {sections} in this {type}",
+  "send.empty-info": "send: not sent — the subject alone is not a message: fill CONTEXT or NOTES in this INFO",
   "send.not-configured": "send: {reason} — not sent",
   "send.error-not-sent": "send: {detail} — not sent",
   "send.usage": "usage: gzcoord-send <file>|- [--dry-run] [--force]",

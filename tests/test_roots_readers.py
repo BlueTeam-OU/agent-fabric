@@ -188,7 +188,19 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
     import shutil
     import subprocess
     base = {k: v for k, v in os.environ.items() if k not in ("AGENT_FABRIC_ROOT", "AGENT_FABRIC_OPERATOR")}
-    with tempfile.TemporaryDirectory() as tmp:
+    def among_neighbours(box: str) -> str:
+        """The path of a tree to clone into `box`, named as this checkout is and with this checkout's neighbours linked beside it. The
+        staleness pass judges a path a slice cites in another project's working copy (an origin's `../<working_copy>`, or a
+        `../NAME/...` citation) only when that checkout is beside the tree, and leaves it unchecked, silent, when not; a login with
+        sibling checkouts counted more warnings for this checkout than for a copy in a lone directory (j157). Linked, not copied: the
+        temporary directory's removal unlinks them and never reaches the originals."""
+        name, beside = os.path.basename(ROOT), os.path.dirname(ROOT)
+        for entry in os.listdir(beside):
+            if entry != name:
+                os.symlink(os.path.join(beside, entry), os.path.join(box, entry))
+        return os.path.join(box, name)
+    with tempfile.TemporaryDirectory() as box, tempfile.TemporaryDirectory() as probe_box:
+        tmp = among_neighbours(box)
         # A whole checkout, not a few directories: the staleness pass (ADR-050 rule 2) judges the paths and anchors a
         # slice cites in the tree the corpus lies in, and an operator tree is that — a clone, with its history.
         git_env = {**{k: v for k, v in base.items() if not k.startswith("GIT_")}, "GIT_CONFIG_GLOBAL": os.devnull}
@@ -222,7 +234,7 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
             return done
         # Positive control for the equality below, which also holds when lint ignores the operator: a second operator tree
         # with a slice that exists only there, citing a path no tree holds, is one more staleness warning when lint reads it.
-        probed_tree = tmp + "-probe"
+        probed_tree = among_neighbours(probe_box)     # its own directory: a neighbour called <checkout>-probe cannot be in the way
         shutil.copytree(tmp, probed_tree, symlinks=True)
         try:
             probe = os.path.join(probed_tree, "memory", "domains", "python-dev", "domain", "dead-pid-fixture-must-exceed-pid-max.md")
