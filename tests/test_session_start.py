@@ -48,7 +48,7 @@ def listener() -> tuple[socket.socket, list]:
             with conn:
                 conn.settimeout(2)
                 try:
-                    hits.append(conn.recv(200))
+                    hits.append(conn.recv(200).split(b"\r\n")[0])   # the request line alone: the headers carry the bearer token
                 except OSError:
                     hits.append(b"")
     threading.Thread(target=accept, daemon=True).start()
