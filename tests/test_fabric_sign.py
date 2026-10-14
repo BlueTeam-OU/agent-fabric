@@ -35,6 +35,8 @@ SPOOL = f"{T}/spool"
 OTS_LOG = f"{T}/ots.log"
 REPO = f"{T}/repo"
 FAKE_OTS = f"{T}/ots"
+SCRATCH = f"{T}/tmp"
+os.makedirs(SCRATCH)
 fails = 0
 
 with open(FAKE_OTS, "w", encoding="utf-8") as f:
@@ -70,7 +72,9 @@ def env(**extra: str) -> dict[str, str]:
             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
             "AGENT_FABRIC_PYTHON": sys.executable, "FABRIC_SIGN_OTS": FAKE_OTS, "FABRIC_SIGN_SPOOL": SPOOL,
-            "PYTHONDONTWRITEBYTECODE": "1", **extra}
+            # Its own, removed with T: git 2.47 (Debian stable) leaves a .git_signing_key_tmp* in $TMPDIR for every
+            # literal-key SSH signature, which the runner's leak check reports (2c8cda7d, test_signing_rule5).
+            "TMPDIR": SCRATCH, "PYTHONDONTWRITEBYTECODE": "1", **extra}
 
 
 def git(*args: str, e: dict | None = None, stdin: str | None = None) -> subprocess.CompletedProcess:
