@@ -522,6 +522,15 @@
       "date": "2026-10-13",
       "pillar": "P1",
       "amendments": 0
+    },
+    {
+      "number": "058",
+      "file": "ADR-058-reflection-pass-over-the-journal.md",
+      "title": "A reflection pass turns an agent's own messages into memory candidates",
+      "status": "Accepted",
+      "date": "2026-10-14",
+      "pillar": "P1",
+      "amendments": 0
     }
   ]
 }
