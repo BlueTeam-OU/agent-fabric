@@ -7,6 +7,8 @@ bash test tests/test_leak-check.sh (its run.sh cases, run against a forwarder). 
 failure."""
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import shutil
 import signal
@@ -319,7 +321,9 @@ def main() -> int:
         before = runner.leak_snapshot(d)
         check("leak_report: nothing added is silent and false", runner.leak_report(d, before) is False)
         open(os.path.join(d, "added"), "w").close()
-        check("leak_report: an added entry is true", runner.leak_report(d, before) is True)
+        with contextlib.redirect_stdout(io.StringIO()) as shown:     # the report is for a person; here it is the thing checked
+            reported = runner.leak_report(d, before)
+        check("leak_report: an added entry is true, and named", reported is True and "   added" in shown.getvalue(), shown.getvalue())
         check("short_dir: the runtime directory when it is a writable directory, else /tmp",
               runner.short_dir({"XDG_RUNTIME_DIR": d}) == d and runner.short_dir({"XDG_RUNTIME_DIR": os.path.join(d, "added")}) == "/tmp"
               and runner.short_dir({}) == "/tmp")
