@@ -404,14 +404,15 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
         problems += refused
         if info and (refusal := card(repo, info["card_base"])[1]):
             problems.append(refusal)
-    if mode == "re-review":
+    if mode == "re-review" or "previous_findings" in req:
         pf = req.get("previous_findings")
-        if not isinstance(pf, str) or not pf:
-            problems.append("previous_findings: required on a re-review (the previous report, a file)")
+        if mode not in ("re-review", "finding-adjudication"):
+            problems.append("previous_findings: only on a re-review (mode: re-review) or a finding-adjudication")
+        elif not isinstance(pf, str) or not pf:
+            problems.append("previous_findings: required on a re-review (the previous report, a file)" if mode == "re-review"
+                            else "previous_findings: names the findings to judge, a file")
         elif not os.path.isfile(pf):
             problems.append(f"previous_findings: {pf} does not exist")
-    elif "previous_findings" in req:
-        problems.append("previous_findings: only on a re-review (mode: re-review)")
     if mode != "re-review" and not (req.get("objective") if isinstance(req.get("objective"), str) else "").strip():
         problems.append("objective: required on a review (not a re-review) — one line, what must be true of the system")
     known = lenses(lenses_dir)
@@ -545,16 +546,19 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
         out += [f"## {heading}", _items(req.get(key))]
     text, _ = card(req["repository"], info["card_base"] if info else None)
     out += ["## Project review card", text if text else "(none)"]
-    if mode == "re-review":
+    if mode == "re-review" or (mode == "finding-adjudication" and req.get("previous_findings")):
         # Fenced: the previous report carries headings at the brief's own
         # level, and verbatim inside a fence is still verbatim. The fence
         # is longer than any backtick run in the report (every conforming
         # report quotes hunks in ``` blocks), so it closes where we close it.
         report = open(req["previous_findings"], encoding="utf-8").read().rstrip()
         fence = "`" * max(3, max((len(m) for m in re.findall(r"`+", report)), default=0) + 1)
-        out += ["## Previous findings", "Start from the range above and these findings, answering each by number.",
-                fence + "markdown", report, fence]
-        if delta:
+        if mode == "re-review":
+            out += ["## Previous findings", "Start from the range above and these findings, answering each by number."]
+        else:
+            out += ["## Findings to judge", "These are the findings to judge, from the range above: answer each by number."]
+        out += [fence + "markdown", report, fence]
+        if delta and mode == "re-review":
             if delta.get("diff") is not None:
                 out += ["## Re-review diff", "The exact diff of the range above."] + _fence(delta["diff"], "diff")
             else:

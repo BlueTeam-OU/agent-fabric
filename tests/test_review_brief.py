@@ -481,6 +481,22 @@ def test_the_readme_example_renders_as_documented(tmp: str) -> None:
     assert body(out).startswith(body(expected).split("## Lenses")[0]), "the README's rendered example differs from the renderer's output"
 
 
+def test_a_finding_adjudication_carries_the_findings_it_judges(tmp: str) -> None:
+    repo = mkrepo(tmp, "adjudicated")
+    prev = os.path.join(tmp, "adjudicated-findings.md")
+    open(prev, "w").write("## Findings on the change\n1. P2 likely: a.txt:1 ...\n```\n+hunk\n```\n")
+    req = {**base_request(repo), "mode": "finding-adjudication", "previous_findings": prev}
+    assert refusals(req) == [], refusals(req)
+    out = rb.render(req)
+    assert "## Findings to judge\nThese are the findings to judge" in out and "## Previous findings" not in out, out
+    assert "````markdown\n## Findings on the change\n1. P2 likely" in out, "fenced, longer than the report's own fence"
+    assert "## Re-review diff" not in out, "no re-review delta on an adjudication"
+    assert "### general" in out, "an adjudication carries general as a review does"
+    assert refusals({**req, "previous_findings": "/nope"}) and any("does not exist" in p for p in refusals({**req, "previous_findings": "/nope"}))
+    assert refusals({**base_request(repo), "mode": "finding-adjudication"}) == [], "the findings are optional on an adjudication"
+    assert any("previous_findings: only on a re-review" in p for p in refusals({**req, "mode": "review"})), "still refused on a review"
+
+
 def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
@@ -488,6 +504,7 @@ def main() -> int:
              test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode,
              test_every_refusal_names_its_field,
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
+             test_a_finding_adjudication_carries_the_findings_it_judges,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
              test_the_readme_example_renders_as_documented]
     failures = 0
