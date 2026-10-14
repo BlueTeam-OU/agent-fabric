@@ -413,7 +413,103 @@ def main() -> int:
         j2 = w.add("second")
         os.makedirs(f"{w.repo}-{j2}-second")
         rc, out, err = w.switch()
-        check("a worktree path that is taken is refused, nothing started", rc == 1 and "exists" in err and w.job(j2)["state"] == "queued", err)
+        check("a worktree path that is taken gets a new name beside it, never a refusal with no way out",
+              rc == 0 and w.job(j2)["branch"].endswith(f"{j2}-second-2") and w.job(j2)["worktree"] == f"{w.repo}-{j2}-second-2", out + err)
+        check("…and the taken directory is left alone", os.listdir(f"{w.repo}-{j2}-second") == [])
+
+        w = World()
+        j1 = w.working("a branch of the generated name already exists")
+        w.sw("drop", j1, "x")
+        j2 = w.add("second")
+        subprocess.run(["git", "-C", w.repo, "branch", f"{host}/{login}/feat/{j2}-second"], check=True, env=git_env())
+        rc, out, err = w.switch()
+        check("a branch of the generated name that exists (a landed one, a leftover) is not reused or refused: a suffix",
+              rc == 0 and w.job(j2)["branch"] == f"{host}/{login}/feat/{j2}-second-2", out + err)
+
+        print("review findings: a switch that races, a swept worktree, odd artifacts, pause elsewhere, blockers kept")
+        mine = f"{host}/{login}/feat/earlier"
+        w = World()
+        j1 = w.working("first")
+        w.sw("drop", j1, "x")
+        j2 = w.add("second")
+        real_choose = sys.modules["fabric_jobs"].verbs.choose
+
+        def racing(job, **kw):
+            made = real_choose(job, **kw)
+            w.sw("add", "a high one that appeared meanwhile", "--working-copy", w.repo, "--priority", "high")
+            return made
+        sys.modules["fabric_jobs"].verbs.choose = racing
+        try:
+            rc, out, err = w.switch()
+        finally:
+            sys.modules["fabric_jobs"].verbs.choose = real_choose
+        check("a list that changed while the branch was prepared refuses, and the branch and worktree made for it are taken back",
+              rc == 1 and "list changed" in err and w.job(j2)["state"] == "queued" and not os.path.exists(f"{w.repo}-{j2}-second")
+              and subprocess.run(["git", "-C", w.repo, "branch", "--list", f"{host}/{login}/feat/{j2}-second"], capture_output=True, text=True).stdout.strip() == "", err)
+        rc, out, err = w.switch()
+        check("…and the next switch works (the positive control)", rc == 0 and out.startswith("j3"), out + err)
+
+        w = World()
+        j1 = w.working("first")
+        w.sw("drop", j1, "x")
+        j2 = w.add("second")
+        rc, out, err = w.switch()
+        wt = w.job(j2)["worktree"]
+        w.sw("drop", j2, "done")
+        subprocess.run(["git", "-C", w.repo, "worktree", "remove", "--force", wt], check=True, env=git_env())
+        w.add("third")
+        rc, out, err = w.switch()
+        check("a worktree that was swept after its job is not 'could not tell': nothing uncommitted there", rc == 0, err)
+
+        w = World()
+        j1 = w.working("merged, with a word that looks like a sha")
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"})
+        w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2", "answered request 01a1396c and deadbeef1")
+        w.sw("done", j1)
+        settles(w, j1, "a word that names no commit here is not evidence and not an unanswered check", None)
+
+        w = World()
+        j1 = w.add("on its own branch")
+        rc, out, err = w.switch()
+        branch, wt = w.job(j1)["branch"], w.job(j1)["worktree"]
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", "elsewhere"], check=True, env=git_env())
+        w.sw("pause", j1, "later")
+        check("pause run in another checkout keeps the branch and worktree switch recorded", w.job(j1)["branch"] == branch and w.job(j1)["worktree"] == wt, repr(w.job(j1)))
+        w.sw("start", j1)
+        w.sw("pause", j1, "again, from its own checkout", cwd=wt)
+        check("…and run in its own checkout it records what is checked out there", w.job(j1)["branch"] == branch and w.job(j1)["worktree"] == wt)
+
+        w = World()
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+        gh_says(open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        counted[40] = f"{jobs_world.GH_REPO}#40 is armed"
+        j1 = w.working("blocked twice over")
+        gh_says({"o/r#5": "OPEN"}, open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        w.sw("block", j1, "--on-request", RID, "--on", "pr:o/r#5")
+        j2 = w.add("another")
+        rc, out, err = w.switch(j1, "--needs-merged")
+        check("switch --needs-merged on a job already blocked adds the pull request and keeps what it waits on", rc == 0 and w.job(j1)["state"] == "blocked"
+              and w.job(j1)["blockers"] == ["pr:o/r#5", f"request:{RID}", f"pr:{jobs_world.GH_REPO}#40"] and w.job(j1).get("waits_on") == RID, out + err + repr(w.job(j1)))
+        counted.clear()
+        check("…and its log entry does not read as a transition", all("state" in e or e.get("kind") == "switch" for e in w.job(j1)["log"]))
+
+        print("a message owed is scoped to the job (the owner, 2026-10-14)")
+        w = World()
+        j1 = w.add("scoped")
+        w.journal(("in", request(RID)))
+        time.sleep(1.1)
+        w.switch()
+        w.sw("drop", j1, "done")
+        w.add("n")
+        w.journal(("in", request(RID2).replace("REQUEST", "QUESTION", 1)))
+        rc, out, err = w.switch()
+        check("a message that arrived before the job started does not hold the switch; one that arrived during it, a QUESTION, does",
+              rc == 1 and RID2 in err and RID not in err, err)
+        w.journal(("out", answer("01a12bae-0000-7000-8000-000000000009", RID2)))
+        rc, out, err = w.switch()
+        check("…answered, it switches (the positive control)", rc == 0, err)
 
         w = World()
         j1 = w.working("first")

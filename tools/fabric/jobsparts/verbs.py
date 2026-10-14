@@ -2,9 +2,11 @@
 A part of tools/fabric/jobs.py, whose docstring is the contract."""
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import sys
+import time
 from fabric_jobs import vcs
 from fabric_jobs.settle import settle
 from fabric_jobs.branching import choose
@@ -140,6 +142,31 @@ def last_worked(doc: dict, session: str | None) -> dict | None:
     return max(stamped, key=lambda p: p[0])[1] if stamped else None
 
 
+def discard(choice) -> None:
+    """Take back a branch and worktree `choose` made for a switch that then refused: they are empty, and the job does not record them."""
+    if choice.kind != "new" or not choice.worktree or not choice.branch:
+        return
+    try:
+        top = vcs.text(choice.worktree, "rev-parse", "--git-common-dir")
+        main = os.path.dirname(os.path.realpath(os.path.join(choice.worktree, top))) if top else None
+        if main:
+            vcs.run(main, "worktree", "remove", "--force", choice.worktree, check=False)
+            vcs.run(main, "branch", "-D", choice.branch, check=False)
+    except vcs.VcsError:
+        pass
+
+
+def session_start(doc: dict, session: str | None) -> float | None:
+    """When this session first touched the list: its earliest log entry; None without a session id or an entry."""
+    if not session:
+        return None
+    stamps = [e["at"] for j in doc["jobs"] for e in j.get("log", []) if e.get("session") == session and isinstance(e.get("at"), str)]
+    try:
+        return calendar.timegm(time.strptime(min(stamps), "%Y-%m-%dT%H:%M:%SZ")) if stamps else None
+    except ValueError:
+        return None
+
+
 def switch_job(args) -> int:
     """switch (and its alias next): settle the job being left with its evidence, start the next, choose its branch."""
     # Read before the lock: the stream is a relay call, and the list's
@@ -181,9 +208,12 @@ def switch_job(args) -> int:
     old = last_worked(listed, session)
     settled = None
     if old:
-        here = vcs.toplevel(os.getcwd())
+        try:
+            here = vcs.toplevel(os.getcwd())
+        except vcs.VcsError as e:
+            raise Refused(f"could not tell which checkout this is ({e})") from None
         places = list(dict.fromkeys(p for p in (old.get("working_copy"), old.get("worktree"), here) if p))
-        evidence, problems = settle(old, places)
+        evidence, problems = settle(old, places, session_start(listed, session))
         if problems:
             raise Refused(f"cannot leave {old['id']} ({old['state']}) yet; fix:\n" + "\n".join(f"  - {p}" for p in problems))
         settled = f"{old['state']}: " + "; ".join(evidence)
@@ -203,15 +233,22 @@ def switch_job(args) -> int:
         mark = f"switch from {old['id']} ({settled}); {where}" if old else f"switch; {where}"
         if choice.kind == "blocked":
             on = f"pr:{choice.repo}#{choice.pr}"
-            transition(doc, job, "blocked", blocked_on=on, note=mark)
-            job["blockers"] = [on]
+            was_blocked = job["state"] == "blocked"
+            before = (job.get("blocked_on"), list(job.get("blockers") or []))
+            # A job already blocked keeps its blockers and waits_on: the pull request is added, never substituted.
+            transition(doc, job, "blocked", blocked_on=f"{before[0]}; {on}" if was_blocked and before[0] else on, note=mark)
+            job["blockers"] = list(dict.fromkeys(before[1] + [on])) if was_blocked else [on]
         else:
             transition(doc, job, "active", note=mark, branch=choice.branch, worktree=choice.worktree)
         if old:
             find(doc, old["id"]).setdefault("log", []).append(
-                {"at": identity.now_iso(), "state": old["state"], "note": f"switch to {job['id']}: {settled}; {where}"})
+                {"at": identity.now_iso(), "kind": "switch", "note": f"switch to {job['id']}: {settled}; {where}"})   # no `state`: fleet.log_times reads the state of an entry as a transition
         verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, job=dict(job))
-    mutate(commit)
+    try:
+        mutate(commit)
+    except Refused:
+        discard(choice)
+        raise
     verdict, job = verdict_for["verdict"], verdict_for["job"]
     if args.json:
         print(json.dumps({**verdict, "branch": choice.branch, "worktree": choice.worktree, "branch_kind": choice.kind, "settled": settled},
@@ -273,7 +310,9 @@ def change(args) -> int:
             if not why:
                 raise Refused("pause needs a reason: fabric-jobs pause <id> \"<why>\"")
             # The branch the paused work is on, read from where this command runs: switch asks that it is pushed.
-            transition(doc, job, "paused", reason=why, note=why, **paused_branch)
+            # The branch `switch` recorded stays unless this runs in its checkout: another directory's branch is not the job's.
+            keep = bool(job.get("branch")) and paused_branch.get("worktree") != job.get("worktree")
+            transition(doc, job, "paused", reason=why, note=why, **({} if keep else paused_branch))
         elif args.cmd == "block":
             mid = args.on_request.strip().lower() if args.on_request is not None else None
             if mid is not None and not MESSAGE_ID.fullmatch(mid):

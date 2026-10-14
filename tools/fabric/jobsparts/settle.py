@@ -68,9 +68,11 @@ def replied(message_id: str) -> bool | str:
         return f"journal: {e}"[:160]
 
 
-def owed_replies() -> list[dict] | str:
-    """The inbound messages addressed to this login that ask for a REPLY (REPLY-EXPECTED: yes) and have none from it,
-    oldest first: [{"id", "type", "from", "subject"}]; a string saying why the journal could not be read."""
+def owed_replies(since: float | None) -> list[dict] | str:
+    """The REQUESTs and QUESTIONs addressed to this login with REPLY-EXPECTED: yes, received at or after `since` (epoch seconds;
+    None: all), that have no REPLY from it, oldest first: [{"id", "type", "from", "subject"}]; a string saying why the
+    journal could not be read. Scoped to the job (the owner's reading, 2026-10-14): an old message of another subject does not
+    hold every switch hostage."""
     me = f"{identity.current_host()}/{identity.current_agent()}"
     try:
         conn = _journal()
@@ -79,17 +81,21 @@ def owed_replies() -> list[dict] | str:
         try:
             answered = {str(r[0]).lower() for r in conn.execute(
                 "SELECT in_reply_to FROM episodes WHERE direction='outbound' AND type='REPLY' AND in_reply_to IS NOT NULL")}
-            rows = conn.execute("SELECT message_id, type, sender, metadata_json FROM episodes WHERE direction='inbound' "
-                                "AND message_id IS NOT NULL ORDER BY happened_at, rowid").fetchall()
+            rows = conn.execute("SELECT message_id, type, sender, metadata_json, happened_at FROM episodes WHERE direction='inbound' "
+                                "AND type IN ('REQUEST', 'QUESTION') AND message_id IS NOT NULL ORDER BY happened_at, rowid").fetchall()
         finally:
             conn.close()
     except Exception as e:  # noqa: BLE001
         return f"journal: {e}"[:160]
     owed = []
-    for mid, kind, sender, meta_json in rows:
+    for mid, kind, sender, meta_json, happened in rows:
         try:
             meta = json.loads(meta_json)
-        except ValueError:
+            at = calendar.timegm(time.strptime(str(happened), "%Y-%m-%dT%H:%M:%SZ"))
+        except (ValueError, OverflowError):
+            owed.append({"id": mid, "type": kind, "from": sender, "subject": "(its record could not be read)"})
+            continue
+        if since is not None and at < since:
             continue
         if not isinstance(meta, dict) or str(meta.get("REPLY-EXPECTED", "")).strip().lower() != "yes":
             continue
@@ -123,11 +129,11 @@ def memory_changed(job: dict, candidates: list[str]) -> str | None:
         return f"{job['id']} has no readable start time, so memory changes cannot be dated"
     newest = 0.0
     for d in dirs:
-        for name in os.listdir(d):
-            try:
+        try:
+            for name in os.listdir(d):
                 newest = max(newest, os.stat(os.path.join(d, name)).st_mtime)
-            except OSError:
-                continue
+        except OSError as e:
+            return f"the memory directory {d} could not be read ({e.strerror or e})"
     if newest <= since:
         return (f"your memory directory has not changed during {job['id']}: write what it taught you "
                 "(one fact per file, with a roles_class) before leaving it")
@@ -141,8 +147,8 @@ def _landed(job: dict, found: dict, problems: list[str]) -> list[str]:
     for repo, number in found["prs"]:
         try:
             state = str(vcs.gh.pr_view(int(number), ["state"], repo=repo).get("state") or "")
-        except vcs.gh.GhError as e:
-            problems.append(f"could not tell whether {repo}#{number} is merged ({e.reason})")
+        except (vcs.gh.GhError, ValueError) as e:
+            problems.append(f"could not tell whether {repo}#{number} is merged ({getattr(e, 'reason', e)})")
             continue
         (landed if state == "MERGED" else opened if state == "OPEN" else []).append(f"{repo}#{number} {state.lower()}")
     if found["shas"] and wc:
@@ -150,7 +156,7 @@ def _landed(job: dict, found: dict, problems: list[str]) -> list[str]:
             default = vcs.default_branch(wc)
             vcs.fetch(wc)
             for sha in found["shas"]:
-                if vcs.question(wc, "cat-file", "-e", f"{sha}^{{commit}}") and vcs.question(wc, "merge-base", "--is-ancestor", sha, f"origin/{default}"):
+                if vcs.question(wc, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}") and vcs.question(wc, "merge-base", "--is-ancestor", sha, f"origin/{default}"):
                     landed.append(f"{sha[:12]} on origin/{default}")
         except vcs.VcsError as e:
             problems.append(f"could not tell whether a commit is on the default branch ({e})")
@@ -178,8 +184,8 @@ def _delivered(job: dict, found: dict, problems: list[str]) -> list[str]:
     for repo, number in found["prs"]:
         try:
             state = str(vcs.gh.pr_view(int(number), ["state"], repo=repo).get("state") or "")
-        except vcs.gh.GhError as e:
-            problems.append(f"could not tell whether {repo}#{number} is open ({e.reason})")
+        except (vcs.gh.GhError, ValueError) as e:
+            problems.append(f"could not tell whether {repo}#{number} is open ({getattr(e, 'reason', e)})")
             continue
         (opened if state == "OPEN" else merged if state == "MERGED" else []).append(f"{repo}#{number}")
     replies = _replies(found, problems)
@@ -226,11 +232,14 @@ def _blocker(job: dict, problems: list[str]) -> list[str]:
     return []
 
 
-def settle(job: dict, places: list[str]) -> tuple[list[str], list[str]]:
+def settle(job: dict, places: list[str], session_start: float | None = None) -> tuple[list[str], list[str]]:
     """(the evidence found, the problems) for leaving `job` in the state it is in. `places` are the working copies whose
     state and memory count: the job's own and the one this command runs in."""
     problems: list[str] = []
     state = job["state"]
+    # From the job's start, or this session's, whichever is earlier: a message that arrived while it worked is owed.
+    starts = [t for t in (started_at(job), session_start) if t is not None]
+    duty_since = min(starts) if starts else None
     repo = None
     if job.get("working_copy"):
         try:
@@ -258,6 +267,8 @@ def settle(job: dict, places: list[str]) -> tuple[list[str], list[str]]:
         evidence = []
         problems.append(f"{job['id']} is {state}: settle it first (done, delivered, blocked, paused or dropped)")
     for place in places:
+        if not os.path.isdir(place):
+            continue        # a worktree swept after its job landed has nothing uncommitted; a directory that exists and cannot be read is still unknown
         try:
             lines = vcs.dirty(place)
         except vcs.VcsError as e:
@@ -265,7 +276,7 @@ def settle(job: dict, places: list[str]) -> tuple[list[str], list[str]]:
             continue
         if lines:
             problems.append(f"{place} has uncommitted changes ({lines[0].strip()[:60]}{', …' if len(lines) > 1 else ''}): commit them")
-    owed = owed_replies()
+    owed = owed_replies(duty_since)
     if isinstance(owed, str):
         problems.append(f"could not tell whether every reply you owe was sent ({owed})")
     else:

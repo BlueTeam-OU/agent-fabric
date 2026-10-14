@@ -68,8 +68,10 @@ def bring_up_to_date(wc: str, branch: str, default: str) -> str:
     if not vcs.question(path, "merge-base", "--is-ancestor", f"origin/{default}", "HEAD"):
         r = vcs.run(path, "merge", "--no-edit", f"origin/{default}", check=False, timeout=120)
         if r.returncode != 0:
-            vcs.run(path, "merge", "--abort", check=False)
-            raise Refused(f"origin/{default} does not merge into {branch} cleanly in {path} (merge undone): merge it by hand, then switch again")
+            undone = vcs.run(path, "merge", "--abort", check=False).returncode == 0
+            raise Refused(f"origin/{default} does not merge into {branch} cleanly in {path} "
+                          f"({'merge undone' if undone else 'the merge could NOT be undone: run git merge --abort there'}): "
+                          "merge it by hand, then switch again")
     return path
 
 
@@ -125,15 +127,19 @@ def choose(job: dict, *, kind: str, needs_merged: bool) -> Choice:
                 return Choice("open-pr", head, bring_up_to_date(wc, head, default), number, repo, f"your open pull request #{number}")
             if needs_merged:
                 return Choice("blocked", None, None, number, repo, f"{why}; the job needs it merged")
-        name = branch_name(job, kind)
-        if vcs.local_branch_exists(wc, name) or vcs.remote_tip(wc, name):
-            raise Refused(f"branch {name} already exists: it was started for this job; check it out, or pick another job")
+        # A branch of the generated name may exist: this job's earlier one that a pull request landed, or one a refused
+        # switch left. A new name is made beside it, never a refusal the agent has no command to clear.
+        base = branch_name(job, kind)
+        name = next((n for n in [base] + [f"{base}-{i}" for i in range(2, 10)]
+                     if not (vcs.local_branch_exists(wc, n) or vcs.remote_tip(wc, n) or os.path.exists(_worktree_path(wc, n)))), None)
+        if name is None:
+            raise Refused(f"branches {base} to {base}-9 or their worktrees exist: remove the ones that are finished")
         path = _worktree_path(wc, name)
-        if os.path.exists(path):
-            raise Refused(f"{path} exists: move it away so the job's worktree can be made there")
         vcs.run(wc, "worktree", "add", "--no-track", "-b", name, path, f"origin/{default}")
         return Choice("new", name, path, note=f"a new branch off origin/{default}")
     except vcs.VcsError as e:
         raise Refused(f"the branch for {job['id']} could not be chosen: {e}") from None
     except vcs.gh.GhError as e:
         raise Refused(f"the branch for {job['id']} could not be chosen: {e.reason}") from None
+    except ValueError as e:        # gh printed something that is not JSON
+        raise Refused(f"the branch for {job['id']} could not be chosen: gh's answer was not readable ({e})") from None
