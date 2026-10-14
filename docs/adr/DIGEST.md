@@ -892,9 +892,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — commands by bare name; shims retire (§5 rule 7).
 - A 2026-10-09 — Wave 8: control plane to Python; no new Node (§5 rule 8).
 - A 2026-10-09 — valid on 3.13+ (§5 rule 1).
-- A 2026-10-11 — Wave 9: the rest of the bash to Python in ten batches;
-  projects port a script when changed (§5 rules 1, 2, 9, §7).
+- A 2026-10-11 — Wave 9: the rest of the bash to Python in ten
+  batches; projects port when changed (§5 rules 1, 2, 9, §7).
 - A 2026-10-13 — the interim line limit is 160 (§7).
+- A 2026-10-14 — Wave 8 done (§5 rule 8, §7).
 - Keywords: Python, bash, port, allowlist, lint, shim, wave, gh, git,
   160 lines, bare command, Node, forwarder.
 

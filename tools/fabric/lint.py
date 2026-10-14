@@ -472,6 +472,12 @@ def contributor_findings(root: str) -> list[str]:
             findings.append(f"{where}: not in identities/roles/catalog.json")
         for f in contributor_rule_findings(whole[role]["paths"], whole[role]["excluding"]):
             findings.append(f"{where}: {f}, which defines what a role is or enforces the fence (ADR-018 §5 rule 8)")
+        # A path the tree no longer has still reads, in the entry and the remit
+        # that quotes it, as a lane the role holds (runtime/github/ and
+        # communication/gzcoord/scripts/ outlived their deletion by days).
+        for r in whole[role]["paths"]:
+            if not os.path.exists(os.path.join(root, r)):
+                findings.append(f"{where}: path {r!r} is not in the tree; drop it or say where its files went")
     return findings
 
 
