@@ -57,14 +57,16 @@ def branches_of(job: dict) -> list[str]:
         bare = PR_URL.sub(" ", PR_FULL.sub(" ", MESSAGE_ID.sub(" ", str(art))))
         for word in bare.split():
             m = BRANCH.fullmatch(word.strip(".,;:()[]'\""))
-            if m and "://" not in word:
+            if m:
                 names.append(m.group(0)[len("origin/"):] if m.group(0).startswith("origin/") else m.group(0))
     return list(dict.fromkeys(names))
 
 
 def _branch_tips(job: dict, problems: list[str]) -> tuple[str | None, list[tuple[str, str]]]:
-    """(the default branch, [(branch, tip)]) for the branch artifacts that are branches on origin, read after a fetch; (None, [])
-    when there are none or git could not tell (said in `problems`)."""
+    """(the default branch, [(branch, tip)]) for the branch artifacts that are branches on origin now (asked of the remote, so a
+    branch deleted there is none although its tracking ref lingers); (None, []) when there are none or git could not tell
+    (said in `problems`). The default branch itself, origin/HEAD and a branch with no commit of its own are no contributor
+    branch: a job's note that it was "merged into origin/main" is no evidence of its work."""
     wc = job.get("working_copy")
     names = branches_of(job)
     if not names or not wc:
@@ -72,13 +74,16 @@ def _branch_tips(job: dict, problems: list[str]) -> tuple[str | None, list[tuple
     try:
         vcs.fetch(wc)
         default = vcs.default_branch(wc)
+        base = vcs.text(wc, "rev-parse", "--verify", f"refs/remotes/origin/{default}^{{commit}}")
         tips = []
         for name in names:
+            if name in (default, "HEAD"):
+                continue
             r = vcs.run(wc, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{name}^{{commit}}", check=False)
-            if r.returncode == 0 and r.stdout.strip():
-                tips.append((name, r.stdout.strip()))
-            elif r.returncode not in (0, 1):
+            if r.returncode not in (0, 1):
                 problems.append(f"could not tell whether {name} is a branch on origin (git rev-parse: exit {r.returncode})")
+            elif r.returncode == 0 and r.stdout.strip() != base and vcs.remote_tip(wc, name) == r.stdout.strip():
+                tips.append((name, r.stdout.strip()))
         return default, tips
     except vcs.VcsError as e:
         problems.append(f"could not tell whether a branch artifact is on origin ({e})")
@@ -219,14 +224,19 @@ def _landed(job: dict, found: dict, problems: list[str]) -> list[str]:
         except vcs.VcsError as e:
             problems.append(f"could not tell whether a commit is on the default branch ({e})")
     default, tips = _branch_tips(job, problems)
+    unfolded = []
     for name, tip in tips:
         try:
             if vcs.question(wc, "merge-base", "--is-ancestor", tip, f"refs/remotes/origin/{default}"):
                 landed.append(f"branch {name} on origin/{default}")
             else:
-                problems.append(f"branch {name} is not on origin/{default}: it is delivered, not done (or fold it first)")
+                unfolded.append(name)
         except vcs.VcsError as e:
             problems.append(f"could not tell whether branch {name} is on the default branch ({e})")
+    # A squash- or rebase-merged pull request leaves its branch un-folded: other landed evidence settles the job, and
+    # only a branch with nothing beside it is refused.
+    if unfolded and not landed:
+        problems.append(f"branch {', '.join(unfolded)} is not on origin/{default}: it is delivered, not done (or fold it first)")
     landed += _replies(found, problems)
     if opened:
         problems.append(f"{', '.join(opened)} is still open: the job is delivered, not done (fabric-jobs deliver)")
@@ -256,8 +266,17 @@ def _delivered(job: dict, found: dict, problems: list[str]) -> list[str]:
             continue
         (opened if state == "OPEN" else merged if state == "MERGED" else []).append(f"{repo}#{number}")
     replies = _replies(found, problems)
-    _, tips = _branch_tips(job, problems)
-    replies += [f"branch {name} on origin" for name, _ in tips]
+    default, tips = _branch_tips(job, problems)
+    for name, tip in tips:
+        try:
+            folded = vcs.question(job["working_copy"], "merge-base", "--is-ancestor", tip, f"refs/remotes/origin/{default}")
+        except vcs.VcsError as e:
+            problems.append(f"could not tell whether branch {name} is on the default branch ({e})")
+            continue
+        if folded and not opened:
+            problems.append(f"branch {name} is on origin/{default}: the job is done, not delivered (fabric-jobs done)")
+        else:
+            replies.append(f"branch {name} on origin")
     if merged and not opened:
         problems.append(f"{', '.join(merged)} is merged: the job is done, not delivered (fabric-jobs done)")
     return [f"{p} open" for p in opened] + replies
