@@ -373,6 +373,7 @@ CONTRIBUTOR_NEVER = (
     # Loaded by lint by path: a contributor who made one answer clean would
     # weaken lint without touching it (review of #106).
     "tools/fabric/layout.py", "tools/fabric/workingcopy.py", "tools/fabric/adr.py", "tests/run.sh", "tests/static.sh",
+    "tests/run.py", "tests/static.py", "tests/run_python_suites.py",
     "tools/fabric/secretstore/lineage.py", "tests/test_lineage_fence.py",
     "tests/test_contributors.py", "tests/test_agent_fabric_dir_authority.py", "tests/test_charter_authority.py",
     "tests/leak-check.sh", "runtime/identity.py", "runtime/claude-code/",
