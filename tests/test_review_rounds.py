@@ -251,6 +251,44 @@ def main() -> int:
               and "line 1199 zzzz" not in r.stdout, (r.stderr, tail[:600]))
         nxt_big = [x for x in os.listdir(os.path.join(tmp, "scratch")) if x.startswith("DREQ-rr")]
         check("…and each run wrote its own numbered request", sorted(nxt_big) == ["DREQ-rr2.json", "DREQ-rr3.json"], nxt_big)
+
+        print("card_base")
+        crepo = os.path.join(tmp, "work", "cardrepo")
+        os.makedirs(crepo)
+
+        def cgit(*a: str) -> str:
+            return subprocess.run(["git", "-C", crepo, *a], env=env, check=True, capture_output=True,
+                                  text=True, timeout=30).stdout.strip()
+
+        cgit("init", "-q", "-b", "main")
+        cgit("commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "c0")
+        c0 = cgit("rev-parse", "HEAD")
+        cgit("checkout", "-q", "-b", "feature")
+        cgit("commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "f1")
+        f1 = cgit("rev-parse", "HEAD")
+        creq = os.path.join(tmp, "scratch", "CARD.yaml")
+        with open(creq, "w") as f:
+            f.write(f"mode: review\nrepository: {crepo}\nrange: main..{f1[:12]}\nobjective: >-\n  It exists.\n")
+        cgit("commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "f2")
+        r = run("next", creq, "--report", report2, cwd=crepo)
+        c2 = json.load(open(os.path.join(tmp, "scratch", "CARD-rr2.json"))) if r.returncode == 0 else {}
+        check("a symbolic first base is recorded as a commit id in the first derived request (review round 1 of #259: F7)",
+              c2.get("card_base") == c0, (r.stderr, c2.get("card_base"), c0))
+        cgit("checkout", "-q", "main")
+        cgit("commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "main moves")
+        cgit("checkout", "-q", "feature")
+        cgit("commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "f3")
+        r = run("next", os.path.join(tmp, "scratch", "CARD-rr2.json"), "--report", report2, cwd=crepo)
+        c3 = json.load(open(os.path.join(tmp, "scratch", "CARD-rr3.json"))) if r.returncode == 0 else {}
+        check("…and a later round keeps it after the default branch has moved on", c3.get("card_base") == c0, (r.stderr, c3))
+        old = os.path.join(tmp, "scratch", "OLDCHAIN-rr2.json")
+        with open(old, "w") as f:
+            json.dump({k: v for k, v in c3.items() if k != "card_base"}, f)
+        cgit("commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "f4")
+        r = run("next", old, "--report", report2, cwd=crepo)
+        check("a chain begun without card_base, whose base the default branch lacks, is refused naming card_base",
+              r.returncode == 1 and "card_base" in r.stderr and "not an ancestor" in r.stderr
+              and not os.path.exists(os.path.join(tmp, "scratch", "OLDCHAIN-rr3.json")), r.stderr)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")

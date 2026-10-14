@@ -327,7 +327,8 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
         return None, [f"range: the default branch of {repo} cannot be found, so base {base!r} cannot be checked against it"]
     if _git(repo, "merge-base", "--is-ancestor", card_base, ref).returncode != 0:
         return None, [f"range: base {base!r} ({card_base[:12]}) is not an ancestor of {ref}; the project review card is read from "
-                      f"the base, and only a commit the default branch contains may govern a review"]
+                      f"the base, and only a commit the default branch contains may govern a review"
+                      + ("" if wanted else "; name card_base (a full commit id the default branch contains, the first round's base) in the request")]
     return {"base_sha": base_sha, "head_sha": head_sha, "card_base": card_base}, []
 
 
