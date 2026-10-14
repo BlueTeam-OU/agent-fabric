@@ -116,10 +116,9 @@ fleet reports (ADR-029), so it carries that view.
    two seats and three review models.
 8. A second review engine is additional, never blocking (A 2026-10-13):
    `policies/arming.json` requires the claude review (`reviews`,
-   `boundary_reviews`) and lists codex under `additional_reviews` once
-   the marker is posted (#245); until then `additional_reviews` is empty
-   and codex is optional, since listing it earlier would refuse every
-   arm. The arm accepts, for an additional engine, its review of the head (whose
+   `boundary_reviews`) and lists codex under `additional_reviews`, the
+   marker tool having landed (#245); codex is optional, never blocking.
+   The arm accepts, for an additional engine, its review of the head (whose
    open P1 or P2 still blocks) or its unavailable marker for that exact
    head, posted by `fabric-review --engine codex` when the engine cannot
    run (over the allowance, or at capacity after rule 2's waits) as a

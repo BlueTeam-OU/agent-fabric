@@ -381,12 +381,12 @@ class Load(Scratch):
 class Reviews(Scratch):
     """The `reviews` rule (agent-fabric ADR-053 rule 6): which engines a PR needs. arm.py's refusals are test_arm_cli's."""
 
-    def test_the_default_requires_claude_and_asks_no_additional_review_until_the_marker_tool_lands(self):
-        # No tool posts codex's unavailable marker before #245, so listing codex as additional would stop every arm.
+    def test_the_default_requires_claude_and_asks_codex_as_an_additional_review(self):
+        # #245's marker tool has landed: a codex that cannot run leaves its unavailable marker, so listing it never stops an arm.
         d = arm_policy.default()
-        self.assertEqual((d["reviews"], d["boundary_reviews"], d["additional_reviews"]), (["claude"], ["claude"], []))
+        self.assertEqual((d["reviews"], d["boundary_reviews"], d["additional_reviews"]), (["claude"], ["claude"], ["codex"]))
         self.assertEqual((arm_policy.required_engines(d, False), arm_policy.required_engines(d, True)), (["claude"], ["claude"]))
-        self.assertEqual((arm_policy.additional_engines(d, False), arm_policy.additional_engines(d, True)), ([], []))
+        self.assertEqual((arm_policy.additional_engines(d, False), arm_policy.additional_engines(d, True)), (["codex"], ["codex"]))
         p = arm_policy.validate({"additional_reviews": ["codex"]})
         self.assertEqual((arm_policy.additional_engines(p, False), arm_policy.additional_engines(p, True)), (["codex"], ["codex"]))
 

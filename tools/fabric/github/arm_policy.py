@@ -67,9 +67,8 @@ QUEUE_DEFAULTS = {"grouping": "allgreen", "build": 5, "merge_max": 5, "merge_min
 RULESET_PARAMETERS = {"build": "max_entries_to_build", "merge_max": "max_entries_to_merge", "merge_min": "min_entries_to_merge",
                       "wait_minutes": "min_entries_to_merge_wait_minutes", "check_timeout_minutes": "check_response_timeout_minutes"}
 
-# The fleet default, as policies/arming.json has it: what a tree without that file gets. additional_reviews is empty
-# until the tool that posts codex's unavailable marker lands (agent-fabric ADR-055 rule 8): listing codex earlier
-# would refuse every arm.
+# The fleet default, as policies/arming.json has it: what a tree without that file gets. codex is additional (agent-fabric
+# ADR-055 rule 8): the tool that posts its unavailable marker has landed, so listing it no longer refuses an arm.
 DEFAULT: dict[str, Any] = {
     "mode": "auto",
     "method": "merge",
@@ -81,7 +80,7 @@ DEFAULT: dict[str, Any] = {
     "commits": {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}},
     "reviews": ["claude"],
     "boundary_reviews": ["claude"],
-    "additional_reviews": [],
+    "additional_reviews": ["codex"],
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
 }

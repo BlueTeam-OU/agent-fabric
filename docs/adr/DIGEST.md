@@ -1198,7 +1198,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Each provider's strategy (retry waits, seats, allowance action, ordered
   models) is data in one syntax, `routing/policies/availability.json`,
   linted; OpenAI is the less tolerant (§5 rule 7).
-- A 2026-10-13 — codex additional: an unavailable marker on the head lets claude alone arm; the fleet lists codex under additional_reviews once the marker is posted (#245), until then it is empty and codex optional (§5 rule 8).
+- A 2026-10-13 — codex additional: an unavailable marker on the head lets claude alone arm; the fleet lists codex under additional_reviews, the marker tool having landed (#245), and codex is optional (§5 rule 8).
 
 ### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Accepted)
 
