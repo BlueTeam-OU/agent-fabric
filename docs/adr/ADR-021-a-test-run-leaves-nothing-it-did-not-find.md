@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md (the rule every session reads); tests/run.sh, tests/run.py, tests/test_leak-check.sh, tests/scratch.mjs, tests/static.sh; the temporary directories of tools/fabric/assemble.py and tools/fabric/harvest_memory.py
+**Scope:** identities/prompt/team.md (the rule every session reads); tests/run.sh, tests/run.py, tests/test_leak-check.sh, tests/static.sh; the temporary directories of tools/fabric/assemble.py and tools/fabric/harvest_memory.py
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -62,11 +62,7 @@ branch that caused it, where it is cheapest to fix.
    (a signal exits, and the exit removes), and before that fails the run
    naming every entry left in it (`tests/run.py`'s leak report;
    `tests/test_run.py` plants one to prove it fires).
-3. A node suite makes its temporary directories through
-   `scratch()` from `tests/scratch.mjs`, which removes them at process
-   exit and on SIGINT, SIGTERM and SIGHUP; `tests/static.sh` refuses an
-   inline `mkdtempSync` in a `*.test.mjs`. A Python tool or suite
-   registers the removal of its temporary directory where it makes it
+3. A Python tool or suite registers the removal of its temporary directory where it makes it
    (`atexit`, or a `TemporaryDirectory`).
 4. A leftover a run names is fixed at the rule level in the suite that
    made it — a helper or an exit hook — not by a one-off removal.
@@ -103,7 +99,7 @@ check (agent-fabric #26).
 - `identities/prompt/team.md` ("A test run leaves behind nothing it did
   not find").
 - `tests/run.sh`, `tests/run.py`, `tests/test_leak-check.sh`, `tests/test_run.py`,
-  `tests/scratch.mjs`, `tests/static.sh`.
+  `tests/static.sh`.
 - `.agent-fabric/memory/fabric-coordinator/threads/suite-scratch-leak.md`
   (the measurement of 2026-09-20).
 - `docs/live-checks/2026-09-19-develop-qzapp-crash.md`; ADR-010 (the host
