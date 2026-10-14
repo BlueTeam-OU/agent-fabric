@@ -1,0 +1,14 @@
+# runtime/control/agent-fabric-state-backup.timer — once a day, for
+# agent-fabric-state-backup.service. Persistent: a login whose host was off
+# at the hour runs it at the next start. The delay spreads the fleet's
+# logins over the hour, so they do not push to GitHub at once.
+[Unit]
+Description=agent-fabric: daily working-state backup
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
