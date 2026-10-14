@@ -355,6 +355,31 @@ def _read_input(file: str) -> str:
         return fh.read()
 
 
+# The section a type is ABOUT: the skeleton gzcoord-compose writes has it as
+# an empty heading, and three messages went out as that skeleton with only a
+# subject (relay seqs 189107, 189645, 192076). INFO has no such section; it
+# needs one of the two below. A type absent here (REVIEW, X-…) names no
+# section its owner has frozen, so nothing is demanded of it.
+BODY_SECTION = {"REQUEST": "REQUEST", "REPLY": "REPLY", "OBSERVATION": "OBSERVATION",
+                "QUESTION": "QUESTION", "DECISION": "DECISION", "HANDOFF": "CONTEXT"}
+INFO_SECTIONS = ("CONTEXT", "NOTES")
+
+
+def empty_body(msg: dict) -> list[str] | None:
+    """The sections a message must fill and has not: one name, or for an INFO
+    the two of which one is enough; None when its body says something. A
+    section holding only whitespace is empty, and an absent one is too."""
+    sections = msg["sections"]
+
+    def filled(name: str) -> bool:
+        return gzmsg.js_trim(sections.get(name, "")) != ""
+
+    if msg["type"] == "INFO":
+        return None if any(filled(n) for n in INFO_SECTIONS) else list(INFO_SECTIONS)
+    own = BODY_SECTION.get(msg["type"])
+    return [own] if own and not filled(own) else None
+
+
 def main(argv: list[str]) -> int:
     # The login first, before anything is printed: every line here is then
     # the reader's, the usage line included — the call inbox made for its
@@ -456,6 +481,10 @@ def main(argv: list[str]) -> int:
         if c:
             print(t("send.id-refused", {"detail": c}), file=sys.stderr)
             return 2
+    missing = empty_body(msg)
+    if missing:
+        print(t("send.empty-body", {"type": msg["type"], "sections": " or ".join(missing)}), file=sys.stderr)
+        return 2
     # This session's model fell back after a safeguard flagged a request
     # (model-fallback-note.sh leaves the marker): the flagged text is
     # contagious, so the reminder is repeated at the moment of sending. A

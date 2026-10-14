@@ -2336,7 +2336,9 @@ class PresenceRelay:
 
 
 def addressed(field: str) -> str:
-    return VALID.replace("BROADCAST: true", field).replace("[GZCOORD/1] INFO", "[GZCOORD/1] OBSERVATION")
+    # An OBSERVATION says nothing without its own section, which send refuses.
+    return (VALID.replace("BROADCAST: true", field).replace("[GZCOORD/1] INFO", "[GZCOORD/1] OBSERVATION")
+            .replace("NOTES:\nhello", "OBSERVATION:\nhello"))
 
 
 FAILED_READ = {"status": "failed", "error": "pgrep: spawn pgrep ENOENT"}
@@ -2521,6 +2523,60 @@ def _():
         r = send_with(relay.url, VALID, ["--dry-run"])
         eq(r.code, 0)
         eq(len(relay.posts), 0)
+    finally:
+        relay.close()
+
+
+def with_body(msg_type: str, sections: str) -> str:
+    """VALID retyped, its body replaced: the skeleton compose writes is the
+    header, a subject and the type's sections as empty headings."""
+    head = VALID.split("\n\nNOTES:")[0].replace("[GZCOORD/1] INFO", f"[GZCOORD/1] {msg_type}")
+    return head + "\n\n" + sections
+
+
+@case("send refuses a message whose own section is empty, naming it, and posts nothing; --dry-run says the same")
+def _():
+    relay = Relay()
+    try:
+        for typ, section in (("REQUEST", "REQUEST"), ("REPLY", "REPLY"), ("OBSERVATION", "OBSERVATION"),
+                             ("QUESTION", "QUESTION"), ("DECISION", "DECISION"), ("HANDOFF", "CONTEXT")):
+            # The same message with its section filled is the positive control:
+            # the refusal is about the body, not the fixture.
+            filled = send_with(relay.url, with_body(typ, f"{section}:\nsomething\n\nREFERENCES:\n"), ["--dry-run"])
+            eq(filled.code, 0, f"{typ} filled: {filled.err}")
+            for body in (f"{section}:\n\nREFERENCES:\n", f"{section}:\n   \n\t\n", "REFERENCES:\n- path: x\n"):
+                for extra in ([], ["--dry-run"]):
+                    r = send_with(relay.url, with_body(typ, body), extra)
+                    eq(r.code, 2, f"{typ} {body!r} {extra}: {r.err}")
+                    has(rf"the subject alone is not a message.*{section}", r.err)
+        eq(len(relay.posts), 0)
+    finally:
+        relay.close()
+
+
+@case("send refuses an INFO with CONTEXT and NOTES both empty; one of them filled sends")
+def _():
+    relay = Relay()
+    try:
+        for body in ("CONTEXT:\n\nNOTES:\n\nREFERENCES:\n", "REFERENCES:\n- path: x\n"):
+            r = send_with(relay.url, with_body("INFO", body))
+            eq(r.code, 2, r.err)
+            has(r"the subject alone is not a message.*CONTEXT or NOTES", r.err)
+        eq(len(relay.posts), 0)
+        for body in ("CONTEXT:\nc\n\nNOTES:\n", "CONTEXT:\n\nNOTES:\nn\n"):
+            r = send_with(relay.url, with_body("INFO", body))
+            eq(r.code, 0, r.err)
+        eq(len(relay.posts), 2)
+    finally:
+        relay.close()
+
+
+@case("send does not demand a section of a type whose body its owner has not frozen")
+def _():
+    relay = Relay()
+    try:
+        r = send_with(relay.url, with_body("REVIEW", "REFERENCES:\n- path: x\n"), ["--dry-run"])
+        eq(r.code, 0, r.err)
     finally:
         relay.close()
 
