@@ -292,6 +292,12 @@ def main() -> int:
         p = run("settings-put", "--from", good)
         check("a persona is written", p.returncode == 0 and "5 file" not in p.stdout and "4 file(s) committed" in p.stdout,
               p.stdout + p.stderr)
+        import re as _re
+        said = _re.search(r"committed as ([0-9a-f]{7,40}), pushed", p.stdout)
+        remote_main = subprocess.run(["git", "--git-dir", remote, "rev-parse", "main"], capture_output=True, text=True).stdout.strip()
+        check("…the output names the commit it made, which is the store's HEAD and what the remote holds",
+              bool(said) and g("rev-parse", "HEAD").startswith(said.group(1)) and remote_main.startswith(said.group(1)),
+              p.stdout)
         check("…as ONE commit, signed by the agent, its message naming the writer",
               count() == start + 1 and g("log", "-1", "--format=%G?").strip() == "G"
               and g("log", "-1", "--format=%s").strip().endswith(": settings"), g("log", "-1", "--format=%G?|%s"))

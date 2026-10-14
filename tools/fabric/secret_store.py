@@ -407,7 +407,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{args.name}: {'set' if r['changed'] else 'unchanged'}")
         elif args.cmd == "settings-put":
             r = settings_put(args.src)
-            print(f"settings: {len(r['files'])} file(s) {'committed' if r['changed'] else 'unchanged'}")
+            made = f"committed as {r['commit']}, pushed" if r["changed"] else "unchanged"
+            print(f"settings: {len(r['files'])} file(s) {made}")
         elif args.cmd == "rm":
             _own_or_managed(args.name, args.managed, "removed")
             if args.expect_last is not None and not re.fullmatch(r"[0-9a-f]{40}", args.expect_last):

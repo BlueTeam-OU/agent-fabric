@@ -34,7 +34,8 @@ Contract of `settings_put(src)`:
           changed is no commit, and an earlier failed push is caught up.
           A failure after the first file is written puts the store back
           as it was: tracked files reset, files this run created removed.
-  result  {"files": [settings/-relative paths], "changed": bool}.
+  result  {"files": [settings/-relative paths], "changed": bool, "commit": the short id of the commit
+          made, pushed by the time this returns; None when nothing changed}.
 
 Every component of the source path is opened without following a link (the
 ancestors by O_PATH, so a directory that only grants search is passed
@@ -444,8 +445,10 @@ def _put(files: dict[str, bytes], state: dict) -> dict:
             if isinstance(e, OSError):
                 raise StoreError(f"{e.filename or 'settings'}: {e.strerror or e}; nothing written") from None
             raise
+        commit = None
         if changed:
+            commit = git(store, "rev-parse", "--short", "HEAD").stdout.decode().strip()
             entries._after_commit(store)
         else:
             entries._push_if_ahead(store)
-        return {"files": sorted(files), "changed": changed}
+        return {"files": sorted(files), "changed": changed, "commit": commit}
