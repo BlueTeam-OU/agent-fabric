@@ -140,3 +140,23 @@ shape replaces it, moves from 150 to 160 lines
 allowlist's description). The sshd drop-in's new settings and their
 reason put `ssh-operator.sh` past 150. The owner's word, in the
 coordinator's session: "go to 160 lines".
+
+### Amendment 2026-10-14 — Wave 8 is done: no fabric command runs Node
+
+The coordinator's job for Wave 8 (j44) still read "blocked on the
+Node control plane's deletion" a day after it had happened; the owner
+asked what blocked it, and the record was the stale part. What landed:
+the Node control plane was deleted in #170 (4 work, 4 fix) after every
+account's `fabric` op named `python`; the locale search server moved to
+`tools/fabric/websearch_locale.py` in #174 (10 work, 4 fix), which
+removed the Node server and its tests; #181 (4 work, 4 fix) deleted the
+last Node tests of GZCoord and, in 2c9e8122, `tests/scratch.mjs`, the
+last `.mjs` file. Read back on 2026-10-14: every account answers
+`fabric-ctl all fabric` from 5a042a71, a head with no Node agent in it,
+and this account's unit runs `tools/fabric/control/agentd.py` on
+fabric-python. Rule 8 keeps its prohibition and loses its list of what
+was not yet ported; it now says why CI still installs Node: a few tests
+hold a Python helper to Node's own answers (`tests/test_control_js.py`).
+§7's Wave 8 bullets stay as the record of how the cutover was run, with
+a closing bullet; §8 states Waves 0 to 8 done and Wave 9 in progress, as
+batch 1 (#200) and later batches have landed.
