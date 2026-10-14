@@ -143,7 +143,6 @@ import gh  # noqa: E402
 import review_brief  # noqa: E402
 import review_gateway  # noqa: E402
 import routing  # noqa: E402
-from github.review_status.config import REVIEW_MARKER  # noqa: E402 — the reader's own constant, so "a review" means one thing
 from github.review_status.base import Die  # noqa: E402
 from github.review_status.config import read_config  # noqa: E402
 from github.review_status.verdicts import classify, engine_of, unavailable_of  # noqa: E402
@@ -734,7 +733,7 @@ def unavailable_comment(e: "ModelUnavailable", head: str, at: str) -> str:
 
 def announce_unavailable(repo: str, pr: str, head: str, e: "ModelUnavailable") -> str:
     """Post the unavailable statement once for this head, as a COMMENT review pinned to it: the carrier the arm reads
-    (devex-tooling, 2026-10-13), which GitHub ties to the commit. Not REVIEW_MARKER's first line, so it is never
+    (devex-tooling, 2026-10-13), which GitHub ties to the commit. Not the review marker's first line, so it is never
     taken for coverage. Returns "posted" or what already stands. What stands is judged as the arm judges it
     (verdicts.classify: only the PR's author or a listed poster is the engine's statement or a blind review), so a
     stranger's copy of the marker cannot stop the real one and leave the arm waiting on Codex. Raises gh.GhError

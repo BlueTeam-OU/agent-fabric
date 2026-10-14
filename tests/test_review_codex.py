@@ -31,6 +31,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REVIEW = os.path.join(ROOT, "bin", "fabric-review")
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import review_codex  # noqa: E402
+from github.review_status.config import REVIEW_MARKER  # noqa: E402
 from github.review_status.verdicts import unavailable_of  # noqa: E402 — the one parser, the arm's
 
 
@@ -817,7 +818,7 @@ def main() -> int:
               human == f"Codex could not review `{head[:12]}`: over the ChatGPT allowance (Oct 14th, 2026 3:12 PM); "
               "the claude review alone arms, per the owner's policy.", human)
         check("…it is not the review marker, so it is never taken for coverage",
-              not body.startswith(review_codex.REVIEW_MARKER) and review_codex.REVIEW_MARKER not in body, body)
+              not body.startswith(REVIEW_MARKER) and REVIEW_MARKER not in body, body)
         mode("allowance")
         rc, out, err, sleeps = inproc("7", req)
         check("a second run on the same head posts none (the one stands)", rc == 3 and unavailables() == 1, post_lines())
@@ -840,8 +841,8 @@ def main() -> int:
         inproc("7", req)
         check("a statement for another head does not suppress this head's", unavailables() == 1, post_lines())
         for label, seed, expect in (
-                ("a Codex review of the head stands", {"commit_id": head, "body": review_codex.REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 0),
-                ("the positive control: a claude review of the head stands", {"commit_id": head, "body": review_codex.REVIEW_MARKER + "\nbody"}, 1),
+                ("a Codex review of the head stands", {"commit_id": head, "body": REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 0),
+                ("the positive control: a claude review of the head stands", {"commit_id": head, "body": REVIEW_MARKER + "\nbody"}, 1),
                 ("a statement whose marker names another head, on a review of this one",
                  {"commit_id": head, "body": review_codex.format_marker("d" * 40, "allowance", "2026-10-13T10:00:00Z") + "\nx\n"}, 1),
                 ("the author's statement for this head stands",
@@ -849,9 +850,9 @@ def main() -> int:
                 ("a stranger's statement for this head (it does not count for the arm, so it must not stop ours)",
                  {**stranger, "commit_id": head, "body": review_codex.format_marker(head, "allowance", "2026-10-13T10:00:00Z") + "\nx\n"}, 1),
                 ("a stranger's copy of a Codex review of this head",
-                 {**stranger, "commit_id": head, "body": review_codex.REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 1),
-                ("a Codex review of another head stands", {"commit_id": "d" * 40, "body": review_codex.REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 1),
-                ("a body that only quotes the codex model line, below the header", {"commit_id": head, "body": review_codex.REVIEW_MARKER + "\nx\ny\n<!-- model: codex -->"}, 1)):
+                 {**stranger, "commit_id": head, "body": REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 1),
+                ("a Codex review of another head stands", {"commit_id": "d" * 40, "body": REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 1),
+                ("a body that only quotes the codex model line, below the header", {"commit_id": head, "body": REVIEW_MARKER + "\nx\ny\n<!-- model: codex -->"}, 1)):
             set_pr(); mode("allowance"); seed_reviews(seed)
             rc, out, err, sleeps = inproc("7", req)
             check(f"{label}: {'none posted' if not expect else 'the statement is posted'}", rc == 3 and unavailables() == expect,
