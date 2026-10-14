@@ -70,7 +70,8 @@ RULESET_PARAMETERS = {"build": "max_entries_to_build", "merge_max": "max_entries
                       "wait_minutes": "min_entries_to_merge_wait_minutes", "check_timeout_minutes": "check_response_timeout_minutes"}
 
 # The fleet default, as policies/arming.json has it: what a tree without that file gets. codex is additional (agent-fabric
-# ADR-055 rule 8): the tool that posts its unavailable marker has landed, so listing it no longer refuses an arm.
+# ADR-055 rule 8): its review counts when present, and with neither a review nor an unavailable marker on the head it
+# is absent and the arm proceeds on the required reviews (#264 F1).
 DEFAULT: dict[str, Any] = {
     "mode": "auto",
     "method": "merge",

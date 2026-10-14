@@ -656,7 +656,7 @@ def main() -> int:
         rc, out = run("7", "--basis", "b")
         check("…while the review class's own review of the head, beside a codex one, still arms", rc == 0 and "ARMED #7" in out, out)
 
-        print("arm: an additional engine (additional_reviews) — its review, or its unavailable marker for the head")
+        print("arm: an additional engine (additional_reviews) — its review, its unavailable marker, or absent: never blocking")
         extra = dict(claude_only, reviews=["claude"], boundary_reviews=["claude"], additional_reviews=["codex"])
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
         rc, out = run("7", "--basis", "b", policy=extra)
@@ -671,15 +671,20 @@ def main() -> int:
                   " abcdef01 (allowance): armed on the claude review alone." in calls(), out + calls())
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
         rc, out = run("7", "--basis", "b", policy=extra)
-        check("codex ✗: refused, saying how to run it and what its marker does", rc == 1 and "review=claude ✓ codex ✗ (head abcdef01)" in out
-              and "run fabric-review --engine codex; if it cannot run, its marker lets the arm proceed" in out and "pr merge" not in calls(), out)
+        absent = ("pr comment 7 --body Arming basis: b — 9 work commits, head abcdef01. codex: absent, no review or marker on"
+                  " abcdef01: armed on the claude review alone.")
+        check("codex with neither review nor marker: absent, armed on claude alone, said in the output and in the basis",
+              rc == 0 and "ARMED #7" in out and "review=claude ✓ codex ✗ (head abcdef01)" in out
+              and "codex: absent, no review or marker on abcdef01" in out and absent in calls()
+              and calls().count(f"pr merge 7 --merge --auto --match-head-commit {HEAD}") == 1, out + calls())
         other = "0123456789abcdef0123456789abcdef01234567"
         for mark, what in ((f"{other}@01234567:allowance", "a marker for another head"),
                            (f"{other}@abcdef01:allowance", "…one naming another head on a review of this one"),
                            (f"{HEAD}@01234567:allowance", "…one naming this head on a review of another commit")):
             reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("unavailable", mark)
             rc, out = run("7", "--basis", "b", policy=extra)
-            check(f"{what} does not count: refused", rc == 1 and "codex ✗" in out and "pr merge" not in calls(), out)
+            check(f"{what} is no marker of this head: codex absent, armed", rc == 0 and "codex ✗" in out
+                  and "could not run" not in out and absent in calls(), out + calls())
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", ""); put("unavailable", f"{HEAD}@abcdef01:allowance")
         rc, out = run("7", "--basis", "b", policy=extra)
         check("the required engine is still required: codex unavailable, no claude review, refused naming claude",
@@ -986,17 +991,18 @@ def main() -> int:
               rc == 2 and "cannot read the repository" in out and "pr merge" not in calls(), out)
 
         # The process reads the fleet policy file itself (no repository file in the settings repository), which
-        # requires claude and asks codex as an additional review: the PRs it arms are reviewed by both, or carry
-        # codex's unavailable marker for the head.
+        # requires claude and asks codex as an additional review: the PRs it arms carry the claude review, and codex's
+        # review, its unavailable marker for the head, or a basis saying it is absent.
         def both_reviewed() -> None:
             put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
 
         print("arm (CLI): the fleet policy file, read by the process")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
         rc, out, err = cli("7", "--basis", "b", split=True)
-        check("only the claude review of the head: exit 1, refused naming codex, nothing armed",
-              rc == 1 and "asks the codex engine's review" in err and "engines required: claude; additional: codex" in err
-              and "pr merge" not in calls(), err)
+        check("only the claude review of the head: codex absent, armed on claude alone, the basis says so",
+              rc == 0 and "codex: absent, no review or marker on abcdef01" in out and err == ""
+              and calls().count(f"pr merge 7 --merge --auto --match-head-commit {HEAD}") == 1
+              and "codex: absent, no review or marker on abcdef01: armed on the claude review alone." in calls(), out + err + calls())
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("unavailable", f"{HEAD}@abcdef01:allowance")
         rc, out = cli("7", "--basis", "b", "--dry-run")
         check("…with codex's unavailable marker for the head: the claude review alone arms (dry run)",

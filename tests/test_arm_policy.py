@@ -786,7 +786,8 @@ class ArmRun(unittest.TestCase):
             return commits if "/commits" in path else [{"filename": f} for f in files]
 
         def gh_run(args, **kw):
-            ran.append(list(args))
+            # A comment's body goes on stdin: kept as the call's last item, so the basis can be read.
+            ran.append([*args, kw["input"]] if args[:2] == ["pr", "comment"] else list(args))
             return json.dumps(pr)
 
         def check(repo, pol, api=None):
@@ -820,11 +821,14 @@ class ArmRun(unittest.TestCase):
         self.ran = ran
         return rc, out.getvalue()
 
-    def test_under_the_fleet_default_the_claude_review_with_no_codex_review_or_marker_is_refused_naming_codex(self):
+    def test_under_the_fleet_default_the_claude_review_with_no_codex_review_or_marker_arms_with_codex_absent(self):
         rc, out = self.run_arm(arm_policy.default(), 9)
-        self.assertIn("asks the codex engine's review of the current head", str(rc), out)
-        self.assertIn("engines required: claude; additional: codex", str(rc))
-        self.assertFalse([c for c in self.ran if c[:2] == ["pr", "merge"]], self.ran)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("codex: absent, no review or marker on abcdef12: arming on the required review(s) alone", out)
+        self.assertTrue([c for c in self.ran if c[:2] == ["pr", "merge"]], self.ran)
+        basis = [c for c in self.ran if c[:2] == ["pr", "comment"]]
+        self.assertTrue(basis and "codex: absent, no review or marker on abcdef12: armed on the claude review alone." in basis[0][-1],
+                        self.ran)
 
     def test_the_minimum_is_the_policys(self):
         p = claude_only({"commits": {"min": 3, "advice_over": 5}})
