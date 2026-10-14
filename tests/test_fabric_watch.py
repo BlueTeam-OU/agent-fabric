@@ -207,8 +207,10 @@ def main() -> int:
           "… 5 more" in two and any(l.startswith("… ") for l in two[two.index(next(l for l in two if "pull requests" in l)):]), two)
     one = watch.screen(["i"] * 6, "n", [f"j{i}" for i in range(5)], "pr1\npr2", 0.0, "00:00:00", rows=13)
     check("one row left: the jobs say how many they hide, not nothing", "… 5 more" in one, one)
+    check("one row left: the jobs end with their count and the pull requests are gone whole, header too",
+          one[-1] == "… 5 more" and not any("pull requests" in l for l in one), one)
     none = watch.screen(["i"] * 6, "n", ["j1", "j2"], "pr1", 0.0, "00:00:00", rows=12)
-    check("no row left: still no more than rows - 1 lines", len(none) <= 11, none)
+    check("no row left: title and identity only, no header with nothing under it", len(none) == 7 and not any("──" in l for l in none[1:]), none)
     sizes = iter([(80, 40), (80, 40), (80, 18)])
     seen = []
     saved_screen = watch.screen

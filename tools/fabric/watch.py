@@ -455,8 +455,8 @@ def clip(lines: list[str], n: int) -> list[str]:
 def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: float, stamp: str, rows: int = 0, columns: int = 0) -> list[Line]:
     """The three blocks. rows > 0 is the pane's height: the screen is cut to rows - 1 lines, because the newline that ends
     the last one would scroll a full pane and push the title off the top. The title and the identity stay; the jobs and
-    the pull requests share what is left, the jobs first, the pull requests keeping a third of it at least one line. columns > 0 cuts a job or
-    pull-request line, and the title, to the width, since a wrapped line takes two rows of the pane (the identity's own
+    the pull requests share what is left, the jobs first, the pull requests keeping a third of it at least one line. columns > 1 cuts a job or
+    pull-request line, the block headers and the title to the width, since a wrapped line takes two rows of the pane (the identity's own
     lines are cut by Deck.identity, which knows where its text starts)."""
     pr_lines = prs.split("\n")
     title = f"── {name} ({stamp}; q leaves) ──"
@@ -466,19 +466,22 @@ def screen(identity: list[Line], name: str, jobs: list[str], prs: str, prs_age: 
         pr_lines = [fit(l, columns - 1) for l in pr_lines]
         title = fit(title, columns - 1)
         jobs_head, prs_head = (fit(h, columns - 1) for h in (jobs_head, prs_head))
+    show_jobs = show_prs = True
     if rows > 0:
         room = max(0, rows - 1 - (len(identity) + 5))
-        # clip keeps a line for each non-empty block (the count of what it hides), so the cut at the end takes a block's
-        # last line only below two spare rows, where no layout holds both and the tail of the screen goes.
+        # clip keeps a line for each non-empty block (the count of what it hides), which two blocks need two spare rows
+        # for; with fewer, the pull requests go whole, header included, and with none the jobs too: a header with nothing
+        # under it reads as an empty block.
+        show_jobs, show_prs = room >= 1, room >= 2
         pr_n = min(len(pr_lines), max(1, room // 3))
         job_n = min(len(jobs), max(0, room - pr_n))
         pr_n = min(len(pr_lines), max(1, room - job_n))
         jobs, pr_lines = clip(jobs, job_n), clip(pr_lines, pr_n)
-    lines: list[Line] = [
-        title, *identity, "",
-        jobs_head, *jobs, "",
-        prs_head, *pr_lines,
-    ]
+    lines: list[Line] = [title, *identity]
+    if show_jobs:
+        lines += ["", jobs_head, *jobs]
+    if show_prs:
+        lines += ["", prs_head, *pr_lines]
     return lines[:rows - 1] if rows > 0 else lines
 
 
