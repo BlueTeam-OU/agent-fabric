@@ -6,10 +6,11 @@ launch took the launcher's default instead of the account's).
 
     launch_record.py <provider>      run AS the account: write its launch-provider.json
 
-The record is the one tools/fabric/launcher/session.py record_launch_provider
-writes after a launch, in the same shape and place (its readers are
-install_agent_files.last_launch_provider and fabric-resume); the account's own first launch
-replaces it, and an existing record is never overwritten.
+The record is written by tools/fabric/launch_provider_record.py, the one writer of
+that file, which the launcher's record_launch_provider (launcher/session.py) uses
+too, so the launcher and provisioning cannot drift; its readers are install_agent_files.last_launch_provider
+and fabric-resume. The account's own first launch replaces it, and an existing
+record is never overwritten.
 
 choose() is the worker's decision, from what provisioning already holds and
 nothing it has to invent: routing/profiles.json's launch_provider for the
@@ -20,7 +21,6 @@ openrouter. A human has no session and no record.
 """
 from __future__ import annotations
 
-import datetime
 import json
 import os
 import sys
@@ -64,44 +64,22 @@ def choose(profile: str | None, account: str, no_account: bool) -> str | None:
     return None
 
 
-def write(state_dir: str, provider: str) -> bool:
-    """False when a record is already there: the account's own launch wrote it,
-    and a re-run of new-agent must not put a guess over a fact."""
-    path = os.path.join(state_dir, RECORD)
-    os.makedirs(state_dir, exist_ok=True)
-    tmp = f"{path}.tmp-{os.getpid()}"
-    try:
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"provider": provider, "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
-            fh.write("\n")
-        try:
-            os.link(tmp, path)       # refuses rather than replace
-        except FileExistsError:
-            return False
-        return True
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-
-
 def main(argv: list[str]) -> int:
     if len(argv) != 1 or argv[0] not in PROVIDERS:
         print(f"launch_record: usage: launch_record.py {'|'.join(PROVIDERS)}", file=sys.stderr)
         return 2
     # Here, not at the top: the module is imported by the worker, whose fixture fabric (tests/test_new_agent_cli.py)
-    # holds no fabric_writes, and only this entry, run in the account's own checkout, needs it.
+    # need not hold the launcher or its modules, and only this entry, run in the account's own checkout, writes.
     sys.path.insert(0, os.path.dirname(HERE))
     import fabric_writes
-    try:
-        kept = not write(fabric_writes.state_dir(), argv[0])
-    except OSError as exc:
-        print(f"launch_record: {exc.filename or ''}: {exc.strerror}", file=sys.stderr)
-        return 1
-    if kept:
+    import launch_provider_record
+    state = fabric_writes.state_dir()
+    if launch_provider_record.write(state, argv[0], keep_existing=True, say=lambda m: print(m, file=sys.stderr)):
+        return 0
+    if os.path.exists(os.path.join(state, RECORD)):
         print("launch_record: the account already has a launch record; kept", file=sys.stderr)
-    return 0
+        return 0
+    return 1      # record_launch_provider said why
 
 
 if __name__ == "__main__":

@@ -11,7 +11,11 @@ import subprocess
 import sys
 import time
 import traceback
-from fabric_launcher.base import INSTALL_TIMEOUT_S, RESTART_WAIT_S, OPENING, RESUMED, WAIT_TAIL, die, say, helper, stripped, env_with
+from fabric_launcher.base import _load, HERE, INSTALL_TIMEOUT_S, RESTART_WAIT_S, OPENING, RESUMED, WAIT_TAIL, die, say, helper, stripped, env_with
+
+
+# By path, as base.py loads its siblings: a fixture fabric on sys.path cannot answer for it.
+_record = _load("fabric_launch_provider_record", os.path.join(HERE, "launch_provider_record.py"))
 
 
 def require_files(*paths: str) -> None:
@@ -120,23 +124,9 @@ def print_report(d: dict, routing, *, label: str, agent: str, role: str, provide
 
 
 def record_launch_provider(state_dir: str, provider: str, transport: str = "") -> None:
-    """The provider the agent files were last installed for, so a run with
-    no provider of its own (bootstrap from the control agent, an upgrade,
-    fabric-model apply) installs for this one rather than for anthropic
-    (install_agent_files.py reads it). Atomic; a failure is said, not fatal:
-    the files themselves are installed."""
-    path = os.path.join(state_dir, "launch-provider.json")
-    try:
-        os.makedirs(state_dir, exist_ok=True)
-        tmp = f"{path}.tmp-{os.getpid()}"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            # `transport` only when it is not direct: install_agent_files reads "provider" alone.
-            json.dump({"provider": provider, **({"transport": transport} if transport else {}),
-                       "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
-            fh.write("\n")
-        os.replace(tmp, path)
-    except OSError as exc:
-        say(f"launch: could not record the provider in {path}: {exc}")
+    """The provider the agent files were last installed for (the writer, and
+    why, are tools/fabric/launch_provider_record.py)."""
+    _record.write(state_dir, provider, transport, say=say)
 
 
 def install_agent_files(fabric_root: str, provider: str, state_dir: str | None = None, transport: str = "") -> None:

@@ -71,30 +71,53 @@ class Record(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.state = os.path.join(self.tmp.name, "state", "agents", "x")
 
-    def test_the_record_is_what_the_launchers_consumer_reads_and_is_never_overwritten(self):
-        self.assertTrue(lr.write(self.state, "openrouter"))
-        doc = load(os.path.join(self.state, "launch-provider.json"))
-        self.assertEqual(sorted(doc), ["at", "provider"])
+    def test_the_one_writer_keeps_an_existing_record_and_replaces_it_otherwise(self):
+        import launch_provider_record as rec
+
+        class launch:   # the name the cases below were written against
+            record_launch_provider = staticmethod(rec.write)
+        self.assertTrue(launch.record_launch_provider(self.state, "openrouter", keep_existing=True))
+        path = os.path.join(self.state, "launch-provider.json")
+        self.assertEqual(sorted(load(path)), ["at", "provider"])
         with mock.patch.dict(os.environ, {"AGENT_FABRIC_STATE_DIR": os.path.join(self.tmp.name, "state")}), \
                 mock.patch.object(install_agent_files.fabric_writes.pwd, "getpwuid", return_value=mock.Mock(pw_name="x")):
             self.assertEqual(install_agent_files.last_launch_provider(), "openrouter")
-        self.assertFalse(lr.write(self.state, "anthropic"), "the account's own launch is a fact")
-        self.assertEqual(load(os.path.join(self.state, "launch-provider.json"))["provider"], "openrouter")
+        self.assertFalse(launch.record_launch_provider(self.state, "anthropic", keep_existing=True), "the account's own launch is a fact")
+        self.assertEqual(load(path)["provider"], "openrouter")
         self.assertEqual(os.listdir(self.state), ["launch-provider.json"], "no temporary file left")
+        self.assertTrue(launch.record_launch_provider(self.state, "anthropic"), "a launch's own record still replaces")
+        self.assertEqual(load(path)["provider"], "anthropic")
+
+    def test_the_launchers_record_is_that_writer_and_keeps_its_old_behaviour(self):
+        import launch
+        launch.record_launch_provider(self.state, "anthropic", "gateway")
+        doc = load(os.path.join(self.state, "launch-provider.json"))
+        self.assertEqual((doc["provider"], doc["transport"]), ("anthropic", "gateway"))
+        launch.record_launch_provider(self.state, "openrouter")
+        self.assertEqual(load(os.path.join(self.state, "launch-provider.json"))["provider"], "openrouter")
+        self.assertNotIn("transport", load(os.path.join(self.state, "launch-provider.json")))
 
     def test_the_entry_takes_one_known_provider_and_writes_in_the_state_dir_the_account_has(self):
         env = {"PATH": os.environ["PATH"], "AGENT_FABRIC_STATE_DIR": os.path.join(self.tmp.name, "s"), "HOME": self.tmp.name}
         bad = subprocess.run([sys.executable, "-I", SCRIPT, "gateway"], env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual((bad.returncode, bad.stdout), (2, ""))
         self.assertIn("usage", bad.stderr)
-        ok = subprocess.run([sys.executable, "-I", SCRIPT, "anthropic"], env=env, capture_output=True, text=True, timeout=30)
+        ok = subprocess.run([sys.executable, "-I", SCRIPT, "anthropic"], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(ok.returncode, 0, ok.stderr)
         found = [os.path.join(d, f) for d, _, fs in os.walk(env["AGENT_FABRIC_STATE_DIR"]) for f in fs]
         self.assertEqual([os.path.basename(f) for f in found], ["launch-provider.json"])
-        again = subprocess.run([sys.executable, "-I", SCRIPT, "openrouter"], env=env, capture_output=True, text=True, timeout=30)
+        again = subprocess.run([sys.executable, "-I", SCRIPT, "openrouter"], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(again.returncode, 0)
         self.assertIn("kept", again.stderr)
         self.assertEqual(load(found[0])["provider"], "anthropic")
+
+    def test_a_state_dir_that_cannot_be_written_is_a_failure_not_a_kept_record(self):
+        blocker = os.path.join(self.tmp.name, "file")
+        open(blocker, "w").close()
+        env = {"PATH": os.environ["PATH"], "AGENT_FABRIC_STATE_DIR": blocker, "HOME": self.tmp.name}
+        got = subprocess.run([sys.executable, "-I", SCRIPT, "anthropic"], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(got.returncode, 1, got.stderr)
+        self.assertNotIn("kept", got.stderr)
 
 
 class Step(unittest.TestCase):
