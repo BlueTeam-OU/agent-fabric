@@ -134,8 +134,11 @@ builder of each.
    `memory-drain-reads.json` (a slice's provenance names the role, never
    the login, as it travels into every repository), if it
    still holds the section's role; else the role's running holder; else its
-   lowest-numbered holder. Until the assembler records it, the key is the
-   role's running holder, else its lowest-numbered holder. A `shared/`
+   lowest-numbered holder. The assembler records the writer per section
+   (`section_writers` in the drain report, one agent per section, the last
+   to write it), and the flag run routes by it as above; a section with no
+   recorded writer, or whose writer no longer holds the role, goes to the
+   running holder, else the lowest-numbered one. A `shared/`
    section is routed by its section's role as recorded in *Observed*; if
    that names several roles, by the first. The drain sends one REQUEST per
    agent listing its flags, each with the slice, the heading, the anchor
@@ -153,7 +156,7 @@ builder of each.
    assembler's same-claim rule (`writer.py`; `tests/test_assemble.py`
    `test_the_same_claim_again_is_never_a_collision_whatever_its_date`). The
    drain never edits a flagged section itself.
-5. **The reader's judgement** (decided, not yet built; until it is, the
+5. **The reader's judgement** (decided, not yet built; until it is,
    no mark exists: ADR-049's server and harvest that carry them are not
    built; once they are, the marks are listed in the drain report and
    nobody is routed them). A
@@ -186,14 +189,17 @@ builder of each.
    `claims.schema.json` admits a retire claim whose body is empty,
    `parse_memory` produces it, and `writer.py` removes the section where it
    now replaces it with an empty heading.
-8. **Review horizons, listed, never expired** (decided, not yet built;
-   until it is, no horizon is listed). The drain report lists each
+8. **Review horizons, listed, never expired** (built in the drain
+   report). The drain report lists each
    `solution` section older than 30 days and each `workflow` section older
    than 90 days whose *Observed* date no confirmation has re-dated, and
    each section no `memory_read` returned in the last 8 weeks. The horizon
    counts reads, not finds: the ids a read returned, which ADR-049 rule 7
-   decides the harvest bundle carries; until ADR-049 is built there is
-   nothing to count and the list is empty. The drain keeps the per-section
+   decides the harvest bundle carries. ADR-049's server and the
+   bundle's read ids exist, so the drain counts them now (`ids_read`,
+   `memory_horizons.record_reads`); the unread list stays empty for a
+   section until the drain has watched it for 8 weeks, since before that
+   the answer is unknown, not "unread". The drain keeps the per-section
    last-read date in its own state file, `memory-drain-reads.json`, in the
    drain's agent state directory (`agents/<login>/`, beside
    `memory-calls.jsonl`), and writes it on every drain. Nothing is
@@ -237,7 +243,7 @@ builder of each.
 
 - **python-dev-03** builds rules 1 to 5 as memory plan step s8: the
   anchors (the schema, `parse_memory`, `claim_block`), the checker's five
-  verdicts, the flag routing and the section's last-writer provenance, the
+  verdicts, the flag routing and the section's last-writer provenance (the assembler's `section_writers`), the
   marks routing, and the retire path with the `claims.schema.json` body
   change for a retire claim.
 - **fabric-coordinator** builds the text and small hook changes as
@@ -250,7 +256,7 @@ builder of each.
   other rule. python-dev-03 also builds the assembler's retitle change
   (rule 11, ADR-014 rule 4(a); the report's list covers it until then) and
   the lint warning of rule 2, with s8. Rules 5 and 8 need ADR-049's server
-  and harvest (plan s4) first.
+  and harvest first.
 - fabric-coordinator's drain gains work (routing, the report's lists) and
   loses the work it could not do well: judging a section it cannot see
   the code of.
