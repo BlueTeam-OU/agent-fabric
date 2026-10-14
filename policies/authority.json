@@ -16,13 +16,11 @@
         "tools/",
         "tests/",
         "bin/",
-        "runtime/github/",
         "runtime/openrouter/",
         "runtime/provisioning/",
         "runtime/control/",
         "runtime/hostexec/",
         "projects/gzapp/integration/gh/",
-        "communication/gzcoord/scripts/",
         "communication/gzcoord/tests/",
         "policies/bash-allowlist.json"
       ],
@@ -68,11 +66,9 @@
     {
       "role": "devex-tooling",
       "paths": [
-        "runtime/github/",
         "tools/fabric/github/",
         "projects/gzapp/integration/gh/",
         "projects/interweave/integration/gh/",
-        "communication/gzcoord/scripts/",
         "communication/gzcoord/tests/",
         "tests/test_arm_cli.py",
         "tests/test_arm_policy.py",

@@ -146,11 +146,9 @@ serve as the parity oracle for each port, unchanged.
    - the suite runners, which run the interpreter CI's matrix sets, to
      prove 3.13 and newer (A 2026-10-09); ported in Wave 9, their `.sh`
      paths stay forwarders to that interpreter (A 2026-10-11);
-   - the Node scripts that run fabric Python — GZCoord's `gzmsg.mjs`
-     (whoami) and `send.mjs` (job intake), and the control agent's
-     `jobs.mjs`, `ops.mjs` and `upgrade.mjs` — which keep it until they
-     are repointed; `send.mjs`'s journal already runs the pin
-     (ADR-041) (A 2026-10-01).
+   - the Node scripts that ran fabric Python (GZCoord's `gzmsg.mjs` and
+     `send.mjs`, the control agent's `jobs.mjs`, `ops.mjs` and
+     `upgrade.mjs`) are gone with the Node (A 2026-10-14).
 5. The script's existing bash test runs against the shim, as the parity
    oracle, in the port's pull request, its assertions unchanged. Four
    things in it may follow the port: its mock of `gh` may learn the
@@ -186,11 +184,13 @@ serve as the parity oracle for each port, unchanged.
    ported.
 8. No new fabric code is written in Node. Wave 7's carve-out kept
    existing Node code as it was; it never admitted new modules into it,
-   and none is admitted now. Node not yet ported (the control plane until
-   Wave 8's cutover, the locale search server, the shims that hand over
-   to Python, the Node test suites and their helpers) takes fixes and
-   test cases where it is; new behaviour of the control plane is written
-   in the Python package (A 2026-10-09).
+   and none is admitted now (A 2026-10-09). No fabric command runs
+   Node any more: the control plane, the locale search server, the shims
+   and the Node test suites are gone. For fabric code Node stays only as
+   an oracle a test calls to hold a Python helper to what Node answers
+   (`tests/test_control_js.py`, `tests/test_control_sessions.py`), which
+   is why CI still installs it; hosts keep Node for the managed projects
+   (A 2026-10-14).
 9. A managed project takes rule 1 as its own through its remit, and
    this record only advises it (A 2026-10-11): the project's code is its
    own (ADR-011). A bash script a project changes is ported in that
@@ -250,10 +250,9 @@ it a reason to move.
   the replies and the files. The fleet changes one account at a time, so
   a Python `fabric-ctl` must be answered by a Node control agent and the
   other way round.
-- **Which agent answers is visible.** The `fabric` op's reply names its
-  implementation (`node` or `python`), added to the Node agent before
-  the freeze: the one new behaviour Wave 8 gives the Node, because
-  nothing else on a frozen wire can tell the two apart.
+- **Which agent answers is visible.** Planned as a field of the `fabric`
+  op's reply; never built. The unit file told the two apart instead
+  (the closing bullet below).
 - **Ed25519 through the host's `openssl`** (`pkeyutl -rawin`): the
   primitive agrees with Node's byte for byte
   (docs/live-checks/2026-10-09-ed25519-through-openssl.md); the payload
@@ -280,6 +279,14 @@ it a reason to move.
   behaviour is written in the package from now on (rule 8) and enabled
   on the wire only once the Node code is deleted; until then it is
   outside the parity suite.
+- **Done (A 2026-10-14).** The Node control plane was deleted in #170,
+  and the last Node tests and `tests/scratch.mjs` in #181; the locale
+  search server moved to `tools/fabric/websearch_locale.py` in #174. The
+  tree holds no `.mjs` file. Which agent an account ran was read from
+  its unit, not from the wire: the `runtime/control/agentd.json`
+  selector until #170, now `tools/fabric/agentd_unit.py`'s
+  `implementation_of` (the unit's ExecStart). New wire behaviour is no
+  longer held back.
 
 Wave 9 ports the rest of the fabric's bash (A 2026-10-11). Waves 0 to 8
 moved the scripts that had logic of their own and left, by size and by
@@ -328,10 +335,10 @@ line rule is what lint enforces: 160 lines (A 2026-10-13).
 
 ## 8. Decision Status
 
-Accepted and in force. Waves 0 to 7 are done (the bash allowlist is
-empty, GZCoord's command-line tools run Python behind their `.mjs`
-shims); Wave 8, the control plane, is in progress; Wave 9, the rest of
-the bash, is decided and not started.
+Accepted and in force. Waves 0 to 8 are done: the bash allowlist is
+empty, and no fabric command runs Node (the control plane, the locale
+search server and the GZCoord tools are Python). Wave 9,
+the rest of the bash, is in progress in ten batches.
 
 ## References
 
@@ -357,3 +364,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-09 | Valid on 3.13 and newer; CI's Python legs halved | §2 and §5 rule 1: the floor is 3.13, the pin and the oldest supported system python3; CI runs the Python suites on 3.13 and 3.14 |
 | 2026-10-11 | Wave 9: the rest of the bash moves to Python | §2, §5 rules 1, 2, 4, 5, 7 and 9, §7: Python bar the pre-Python list and the forwarder; the 150-line rule goes; 37 files in ten batches; managed projects advised |
 | 2026-10-13 | the interim line limit is 160 | §7 |
+| 2026-10-14 | Wave 8 is done: no fabric command runs Node | §5 rule 8, §7, §8: the Node control plane, locale search server, shims and Node suites are gone (#170, #174, #181); Node stays only as a test oracle; new wire behaviour is no longer held back |

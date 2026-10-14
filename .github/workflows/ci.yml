@@ -105,7 +105,7 @@ jobs:
       - name: the fleet's pinned Python, as a host installs it
         run: sudo /usr/bin/python3 tools/fabric/python_pin.py install && /usr/bin/python3 tools/fabric/python_pin.py check
       # Node in every leg, as the suites' environment has it: the two suites
-      # that run the Node control plane as an oracle (tests/test_control_js.py,
+      # that call node as an oracle (tests/test_control_js.py,
       # tests/test_control_sessions.py) are Python suites and run in
       # platform-smoke now. The bash section does not need it, nor the
       # jsonschema and paperkey steps below (also for Python suites): kept
