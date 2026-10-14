@@ -64,6 +64,8 @@ import identity  # noqa: E402
 import review_brief  # noqa: E402
 
 ROUND_RE = re.compile(r"^round-(\d+)\.md$")
+# The opening of a dispatch header block, as post-review reads it (tools/fabric/github/post_review.py).
+DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})" + re.escape(review_brief.DISPATCH_VERSION) + r"[ \t]*$")
 # The embedded diff of a re-review: past this the brief carries the diffstat
 # and a note instead, so the brief never costs more than the reviewer would
 # pay reading the range (agent-fabric ADR-020).
@@ -117,7 +119,32 @@ def save(pr: str, rnd: str, report: str, repo: str) -> str:
         os.chmod(os.path.join(base, level), 0o700)
     path = os.path.join(d, f"round-{rnd}.md")
     identity.atomic_write(path, report, 0o600)
+    # The round records its evidence mode (agent-fabric ADR-020 rule 10) beside the report, read from the
+    # report's first dispatch header: what a later reader of the round needs to know is whether it covered a
+    # committed head. No header, or one that cannot be read, is recorded as such, never guessed.
+    identity.atomic_write(os.path.join(d, f"round-{rnd}.json"),
+                          json.dumps({"evidence_mode": report_evidence_mode(report)}) + "\n", 0o600)
     return path
+
+
+def report_evidence_mode(report: str) -> str | None:
+    """The evidence_mode of the report's first agent-fabric-dispatch header, "unreadable" when that header is
+    not a JSON object, None when the report carries none."""
+    lines = report.splitlines()
+    for i, line in enumerate(lines):
+        m = DISPATCH_FENCE.match(line)
+        if not m:
+            continue
+        close = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(1)), None)
+        try:
+            header = json.loads("\n".join(lines[i + 1:close])) if close is not None else None
+        except ValueError:
+            header = None
+        if not isinstance(header, dict):
+            return "unreadable"
+        mode = header.get("evidence_mode")
+        return mode if isinstance(mode, str) else "unreadable"
+    return None
 
 
 def newest_round(repo: str, pr: str) -> str:

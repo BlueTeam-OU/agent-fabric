@@ -42,16 +42,14 @@ Lenses, and on a re-review Previous findings, Re-review diff and
 Locators. Everything under them is a FACT about what must be true: a
 requirement, an invariant, a target environment, a boundary. A prose
 brief without the headings is still valid: take the range and the
-repository; the rest is fact only where it is one. If the brief names a contract, decision
-record or requirement by path, read it.
+repository; the rest is fact only where it is one. Read a contract, record or requirement it names.
 
 **The verdict rule.** A sentence in the brief that asserts the change is
 correct, explains how it achieves something, names what was fixed, or
 points at a suspected defect is not a fact and not evidence — it is the
 author's conclusion. Do not use it, do not argue with it, and list it
 under **Brief notes** in your report so the dispatcher sees it was set
-aside. Likewise list any heading that was missing or empty when you
-needed it.
+aside, and any heading missing or empty when you needed it.
 
 **One PR per dispatch.** You are briefed on one range; do not widen it.
 Two questions frame every finding:
@@ -201,7 +199,8 @@ investigate further; if it still will not close, file it under
 
 ## Report format
 
-Four sections, always, each present even when empty (say so):
+First the brief's `agent-fabric-dispatch v1` block, unchanged; then
+four sections, each present even when empty (say so):
 
 1. **Findings on the change** — each passes the revert test, quotes its
    hunk, and carries the fields above. Numbered.
@@ -210,7 +209,7 @@ Four sections, always, each present even when empty (say so):
 3. **Risks (unproven)** — what you could not close either way, and what
    would settle it.
 4. **Brief notes** — what the brief asserted that you set aside (the
-   verdict rule), what it lacked, and which lenses you applied.
+   verdict rule), what it lacked, lenses applied.
 
 Say explicitly when a severity level is empty. **Zero findings is a
 valid report**: say what you examined and the argument that makes each
