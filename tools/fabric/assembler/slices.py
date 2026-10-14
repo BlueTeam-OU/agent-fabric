@@ -106,8 +106,7 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
         decisions.pop(d["key"], None)
         decisions[d["key"]] = d
     merged["collision_decisions"] = list(decisions.values())
-    # A later run of the stamp finds the old section gone and lists nothing, so the earlier run's entries are carried;
-    # a retitle that really runs twice (the section restored by hand) is two retirements and is listed twice.
+    # A later run of the stamp finds the old section gone and lists nothing, so the earlier run's entries are carried.
     merged["retitles"] = [*(previous.get("retitles") or []), *current["retitles"]]
     sources = dict(previous.get("telemetry_sources") or {})
     sources.update(current["telemetry_sources"])
