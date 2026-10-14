@@ -148,34 +148,47 @@ def locale_only(repo: str, pr: str) -> bool:
     return all(isinstance(p, str) and LOCALE_FILE.fullmatch(p) for p in paths)
 
 
+def _unique_keys(pairs: list) -> dict:
+    """A JSON object whose keys are each given once: with two evidence_mode keys, which one counts is the parser's
+    choice, and the header has not said which evidence it is."""
+    keys = [k for k, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("a key given twice")
+    return dict(pairs)
+
+
 def evidence_refusal(body: str) -> str:
     """Why a report may not be posted as the review of a head, or "" when it may. agent-fabric ADR-020 §5 rule 10:
-    only a pinned review covers a head, so every dispatch header in the report must say evidence_mode "pinned". A
-    report with none posts as before (its cost is attributed inferred). A header that cannot be read refuses: it
-    claims a dispatch whose evidence it then does not show."""
-    lines = body.split("\n")
+    only a pinned review covers a head, so every dispatch header in the report must say evidence_mode "pinned" —
+    every one, a header the report quotes included, because nothing tells the report's own header from a quote,
+    and a report wrongly refused is posted again without the quote while one wrongly posted claims coverage it does
+    not give. A report with none posts as before (its cost is attributed inferred). A header that cannot be read
+    refuses: it claims a dispatch whose evidence it then does not show."""
+    # splitlines, not split("\n"): a report with CRLF line ends keeps its \r on every line otherwise, and the
+    # opening fence would not match where the closing one does.
+    lines = body.splitlines()
     i = 0
     while i < len(lines):
         m = DISPATCH_FENCE.match(lines[i])
         if not m:
             i += 1
             continue
+        where = f"the {review_brief.DISPATCH_VERSION} header at line {i + 1}"
         close = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(1)), None)
         if close is None:
-            return f"its {review_brief.DISPATCH_VERSION} header (line {i + 1}) is never closed"
+            return f"{where} is never closed"
         try:
-            header = json.loads("\n".join(lines[i + 1:close]))
+            header = json.loads("\n".join(lines[i + 1:close]), object_pairs_hook=_unique_keys)
         except ValueError:
             header = None
-        mode = header.get("evidence_mode") if isinstance(header, dict) else None
         if not isinstance(header, dict):
-            return f"its {review_brief.DISPATCH_VERSION} header (line {i + 1}) is not a JSON object"
+            return f"{where} is not a JSON object with each key once"
+        mode = header.get("evidence_mode")
         if mode != "pinned":
             said = f"says evidence_mode {mode!r}" if mode is not None else "names no evidence_mode"
-            return (f"its {review_brief.DISPATCH_VERSION} header (line {i + 1}) {said}: only a pinned review, which "
-                    "read the range's commits through git, covers a head (agent-fabric ADR-020 §5 rule 10). A "
-                    "working-tree review read the live clone; keep its report out of the PR, or review the pushed "
-                    "range pinned and post that")
+            return (f"{where} {said}, and only a pinned review covers a head (agent-fabric ADR-020 §5 rule 10). "
+                    "Every header in a report counts, one it quotes too: a working-tree review stays out of the PR "
+                    "(review the pushed range pinned and post that); a quoted header is taken out of the report")
         i = close + 1
     return ""
 

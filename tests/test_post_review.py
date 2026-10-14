@@ -57,6 +57,10 @@ def main() -> int:
         ("not JSON: refused", "```agent-fabric-dispatch v1\nevidence_mode: pinned\n```", True),
         ("never closed: refused", pinned.rsplit("\n", 1)[0], True),
         ("another fence's info string: not a header", "```agent-fabric-dispatch v2\n{}\n```", False),
+        ("CRLF line ends, working-tree: refused", tree.replace("\n", "\r\n") + "\r\nF1", True),
+        ("CRLF line ends, pinned: posts", pinned.replace("\n", "\r\n") + "\r\nF1", False),
+        ("evidence_mode given twice: refused",
+         '```agent-fabric-dispatch v1\n{"evidence_mode": "working-tree", "evidence_mode": "pinned"}\n```', True),
         ("a pinned header whose JSON quotes a fence: posts",
          "````agent-fabric-dispatch v1\n{\"evidence_mode\": \"pinned\", \"note\": \"```\"}\n````", False),
     ):
@@ -64,6 +68,9 @@ def main() -> int:
         check(label, bool(why) is refused and (not refused or "agent-fabric-dispatch v1" in why))
     check("a working-tree refusal says what it read and the rule",
           all(w in post_review.evidence_refusal(tree) for w in ("'working-tree'", "ADR-020 §5 rule 10", "line 1")))
+    quoted = post_review.evidence_refusal(f"{pinned}\nF1 quotes the fixture:\n\n````markdown\n{tree}\n````\n")
+    check("a pinned report quoting a working-tree header: refused, saying a quote counts and where it is",
+          "one it quotes too" in quoted and f"line {len(pinned.splitlines()) + 4}" in quoted)
 
     print("locale_only fails closed")
     real_run = gh.run
