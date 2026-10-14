@@ -235,8 +235,7 @@ def main() -> int:
         check("…text that only looks like a locator (a path the old head lacks) is not listed",
               "localhost" not in out.split("## Locators")[-1] and "ghost.py" not in out.split("## Locators")[-1], out[-900:])
         check("…each hunk's enclosing symbol is listed where git names one",
-              "def alpha" in out.split("enclosing symbol")[-1] or "def beta" in out.split("enclosing symbol")[-1]
-              or "(none)" in out.split("enclosing symbol")[-1], out[-400:])
+              "- a.py:24: def beta():" in out.split("enclosing symbol")[-1], out[-400:])
         nxt_d = json.load(open(os.path.join(tmp, "scratch", "DREQ-rr2.json")))
         check("…none of it is written into the derived request", "Locators" not in json.dumps(nxt_d) and "diff" not in nxt_d, nxt_d)
 
