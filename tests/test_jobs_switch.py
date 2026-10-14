@@ -194,9 +194,9 @@ def main() -> int:
         subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", "side/work"], check=True, env=git_env())
         subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "work"], check=True, env=git_env())
         subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", "side/work"], check=True, env=git_env())
+        queued_first = w.add("queued, older than the paused job")
         old = w.working("work set aside")
         w.sw("pause", old, "urgent one first")
-        queued_first = w.add("queued before it was paused")
         high = w.add("a high one", "--priority", "high")
         os.chdir(tmp)
         rc, out, err = w.switch(cwd=w.repo)
@@ -359,6 +359,27 @@ def main() -> int:
         print("the branch, chosen before any work (rule 10 step 3)")
         counted: dict = {}
         branching = sys.modules["fabric_jobs"].branching
+        real_addable = branching._addable
+
+        def addable_with(row: dict) -> str | None:
+            """The real _addable, over the arming count's row for the pull request."""
+            class Counts:
+                @staticmethod
+                def count_rows(refs):
+                    return [row]
+            saved = branching._load
+            branching._load = lambda name, path: Counts
+            try:
+                return real_addable("o/r", 7)
+            finally:
+                branching._load = saved
+        base = {"ok": True, "state": "open", "armed": "unarmed", "work": 15}
+        check("a pull request with 15 work commits, unarmed, takes more", addable_with(base) is None)
+        check("…16 work commits are landed, not added to", "16 work commits" in (addable_with({**base, "work": 16}) or ""))
+        check("…armed or queued is not added to", "is armed" in (addable_with({**base, "armed": "armed"}) or "") and "is queued" in (addable_with({**base, "armed": "queued"}) or ""))
+        check("…a row that could not be read, or a closed one, is unknown, never addable",
+              "could not be read" in (addable_with({"ok": False, "line": "x cannot be read: y"}) or "") and "could not be read" in (addable_with({**base, "state": "merged"}) or "")
+              and "could not be read" in (addable_with({**base, "work": None}) or ""))
         branching._addable = lambda repo, number: counted.get(number)
 
         def other_clone(w: World) -> str:
