@@ -35,8 +35,10 @@ SCHEMA_VERSION = 1
 HEADER_INFO = "agent-fabric-dispatch v1"
 FENCE = re.compile(r"^(`{3,}|~{3,})[ \t]*([^\n`]*?)[ \t]*$", re.MULTILINE)
 SHA = re.compile(r"[0-9a-f]{7,64}")
-REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-IDENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}")
+# The same shapes as runtime/claude-code/hooks/subagent-ledger.py (a test holds the two together): the brief's header writes
+# "repository": "github.com/owner/name" and "review_id": "agent-fabric#257", and a row of either engine keeps the owner/name, lowercased.
+REPO = re.compile(r"(?:[A-Za-z0-9.-]+(?::[0-9]+)?/)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")
+IDENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:#-]{0,199}")
 HEADER_IDENT = ("dispatch_id", "parent_session_id", "job_id", "project", "review_id", "purpose")
 HEADER_INT = ("pr", "review_round")
 HEADER_SHA = ("base_sha", "head_sha")
@@ -172,6 +174,7 @@ def dispatch_header(brief: str) -> tuple[str, dict]:
     for k in HEADER_SHA:
         if isinstance(doc.get(k), str) and SHA.fullmatch(doc[k]):
             out[k] = doc[k]
-    if isinstance(doc.get("repository"), str) and REPO.fullmatch(doc["repository"]):
-        out["repository"] = doc["repository"]
+    m = REPO.fullmatch(doc["repository"]) if isinstance(doc.get("repository"), str) else None
+    if m:
+        out["repository"] = m.group(1).lower()
     return "dispatch", out

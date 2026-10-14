@@ -245,6 +245,14 @@ else:
           into == {"o/r": {"7": {"review": {"claude": 500}, "second-engine-review": {"codex": 100}}, "8": {"review": {"claude": 50}},
                            "11": {"review": {"claude": 5000}}},
                    "p/q": {"7": {"review": {"claude": 1}}}}, into)
+    mixed: dict = {}
+    results.add_ledger(mixed, {"blueteam-ou/agent-fabric": {"7": {"review": {"claude": 5}}}})
+    results.add_ledger(mixed, {"BlueTeam-OU/Agent-Fabric": {"7": {"review": {"claude": 6}}}})
+    results.add_unknown(mixed_unknown := {}, {"blueteam-ou/agent-fabric": {"7": 2}})
+    check("a repository's owner is compared without case: the ledger's rows are lowercase, the registry's name is not",
+          mixed == {"blueteam-ou/agent-fabric": {"7": {"review": {"claude": 11}}}}
+          and results.review_cost([("BlueTeam-OU/agent-fabric", 7)], mixed, mixed_unknown)
+          == {"verified": 1, "with_rows": 1, "unknown_rows": 2, "by_purpose": {"review/claude": {"median": 11, "total": 11}}}, mixed)
     rc = results.review_cost([("o/r", 7), ("o/r", 8), ("o/r", 10), ("o/r", 11)], into)
     check("review_cost: results with rows counted, a result without rows left out of the medians (10 has none)",
           (rc["verified"], rc["with_rows"]) == (4, 3), rc)

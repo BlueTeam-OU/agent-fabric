@@ -386,10 +386,13 @@ def _git(repo: str, *args: str) -> str:
     return r.stdout.strip()
 
 
-def load_request(path: str, allow_rationale: bool) -> tuple[dict, str]:
-    """The request and its rendered brief, unchanged (rule 1)."""
+def load_request(path: str, allow_rationale: bool, pr: str | None = None) -> tuple[dict, str]:
+    """The request and its rendered brief, unchanged (rule 1) but for the PR number: a request that names none is told the one
+    this review is for, so the dispatch header carries it and the cost reaches that PR (a request's own number wins)."""
     with open(path, encoding="utf-8") as f:
         req = review_brief.parse_request(f.read())
+    if pr is not None:
+        req.setdefault("pr", pr)
     brief = review_brief.render(req, allow_rationale=allow_rationale, engine="codex", purpose="second-engine-review")
     if not req.get("range"):
         raise Refused("the Codex engine reviews a pushed head: the request needs a range, not a diff file")
@@ -957,7 +960,7 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     route = Route() if not explicit_model or (gateway and not explicit_effort) else None
     model, binary = codex_settings(environ, model_flag, route)
     level = effort(environ, effort_flag, route.effort(model) if gateway and route else None)
-    req, brief = load_request(request, allow_rationale)
+    req, brief = load_request(request, allow_rationale, pr)
     repo = req["repository"]
     head = range_head(req)
     if pr_head(repo, pr) != head:

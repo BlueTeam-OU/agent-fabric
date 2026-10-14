@@ -28,8 +28,8 @@ project too; per-repository cost waits on that attribution.
 The **review cost** of a verified result (review economics P1) is read from the
 dispatch ledger (tools/fabric/ledger.py), through the same fan-out: each login's
 tokens answer carries `by_pr`, the input-token equivalents of the ledger rows that
-name a repository and a pull request, by purpose (review, re-review, judge,
-second-engine-review…) and engine. A verified result is costed from the rows whose
+name a repository and a pull request, by purpose (primary-review, re-review,
+finding-adjudication, second-engine-review…) and engine. A verified result is costed from the rows whose
 repository and PR number are its own — none by title, branch or guess — and a
 repository says "no ledger rows" when none of its verified results has one. A PR's
 rows are all its own, however old (its reviews precede its merge, and the span of the
@@ -167,6 +167,7 @@ def add_ledger(into: dict, by_pr) -> None:
     if not isinstance(by_pr, dict):
         return
     for repo, prs in by_pr.items():
+        repo = str(repo).lower()      # the ledger stores a repository lowercased; the registry and --repo spell the owner as GitHub does
         for pr, purposes in (prs.items() if isinstance(prs, dict) else ()):
             for purpose, engines in (purposes.items() if isinstance(purposes, dict) else ()):
                 for engine, eq in (engines.items() if isinstance(engines, dict) else ()):
@@ -180,6 +181,7 @@ def add_unknown(into: dict, unknown_by_pr) -> None:
     if not isinstance(unknown_by_pr, dict):
         return
     for repo, prs in unknown_by_pr.items():
+        repo = str(repo).lower()
         for pr, n in (prs.items() if isinstance(prs, dict) else ()):
             if isinstance(n, int) and not isinstance(n, bool) and n >= 0:
                 into.setdefault(repo, {})[str(pr)] = into.get(repo, {}).get(str(pr), 0) + n
@@ -188,11 +190,14 @@ def add_unknown(into: dict, unknown_by_pr) -> None:
 def review_cost(verified: list[tuple[str, int]], by_pr: dict, unknown: dict | None = None) -> dict:
     """One repository's verified results [(repo, number)] against the ledger's `by_pr`: how many have rows, and
     per "purpose/engine" the median and the total of input-token equivalents over those that do."""
-    costs = [by_pr.get(repo, {}).get(str(n)) for repo, n in verified]
+    # The ledger stores a repository lowercased, the registry and --repo spell the owner as GitHub does: compared without case.
+    by_pr = {str(k).lower(): v for k, v in by_pr.items()}
+    unknown = {str(k).lower(): v for k, v in (unknown or {}).items()}
+    costs = [by_pr.get(repo.lower(), {}).get(str(n)) for repo, n in verified]
     costs = [c for c in costs if c]
     keys = sorted({(p, e) for c in costs for p, engines in c.items() for e in engines})
     per = {k: [c.get(k[0], {}).get(k[1], 0) for c in costs] for k in keys}
-    unknown_rows = sum((unknown or {}).get(repo, {}).get(str(n), 0) for repo, n in verified)
+    unknown_rows = sum(unknown.get(repo.lower(), {}).get(str(n), 0) for repo, n in verified)
     return {"verified": len(verified), "with_rows": len(costs), "unknown_rows": unknown_rows,
             "by_purpose": {f"{p}/{e}": {"median": int(statistics.median(v)), "total": sum(v)} for (p, e), v in per.items()}}
 
