@@ -2449,6 +2449,7 @@ def test_a_retitled_memory_replaces_its_own_old_section(tmp: str) -> None:
     ])})
     with_agents(drain, {"a1": "dev-01", "a2": "dev-01", "a3": "dev-01", "a4": "dev-01", "b1": "dev-02", "b2": "dev-02"})
     assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert json.loads(read(report_path(out)))["retitles"] == [], "no retitle, an empty list"
     retitle = {"class": "domain", "topic": "tracker", "title": "Issue 851 is merged",
                "body": "Merged on 2026-09-24.", "evidence": ["a3"], "observed_at": "2026-09-24"}
     set_claims(claims_dir, "alpha", [retitle])
@@ -2459,6 +2460,14 @@ def test_a_retitled_memory_replaces_its_own_old_section(tmp: str) -> None:
     report = json.loads(read(report_path(out)))
     assert any(d.get("rule") == "same-agent" and d["decision"] == "supersede"
                and d["key"].endswith("tracker#Issue 851 is merged") for d in report["collision_decisions"]), report["collision_decisions"]
+    # ADR-050 rule 11: the report names the retitle, so nobody reads stderr for it.
+    assert report["retitles"] == [{"key": "alpha/domain:tracker#Issue 851 is merged", "old_heading": "Issue 851 is open",
+                                   "new_heading": "Issue 851 is merged", "agent": "dev-01", "project": report["project"],
+                                   "slice": report["retitles"][0]["slice"], "decided_by": "same-agent"}], report["retitles"]
+    assert report["retitles"][0]["slice"].endswith("tracker.md"), report["retitles"]
+    # The same drain again finds nothing to retire; its report is the same stamp's merge and keeps what the first said.
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert json.loads(read(report_path(out)))["retitles"] == report["retitles"]
     text = read(tracker)
     assert "## Issue 851 is merged" in text and "Issue 851 is open" not in text and "Waiting" not in text, text
     assert "description: Issue 851 is merged" in text, text
