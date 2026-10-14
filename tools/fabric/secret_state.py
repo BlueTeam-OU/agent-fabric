@@ -44,9 +44,10 @@ def main(argv: list[str] | None = None) -> int:
             res = state_copy(identity.agent_state_dir(), os.path.join(os.path.expanduser("~"), ".claude"))
             for path in res["skipped"]:
                 print(f"fabric-secrets state: skipped {path} (not a regular file)", file=sys.stderr)
-            # The name only: the folder is the secrets store's, and CodeQL's
-            # clear-text-logging rule takes any path from it for a secret.
-            print(f"state/{os.path.basename(res['path'])}: {'written' if res['changed'] else 'unchanged'}, {res['files']} file(s)")
+            # No path and no count: both derive from the secrets store's folder
+            # and the files read, and CodeQL's clear-text-logging rule takes
+            # anything derived from them for a secret. The copy is state/<agent id>.tar.gpg.
+            print("state backup: " + ("written" if res["changed"] else "unchanged"))
         else:
             res = state_restore(args.dest, args.source)
             print(f"{res['dest']}: {res['files']} file(s) restored")
