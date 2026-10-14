@@ -206,14 +206,15 @@ tree; the words after it say what happens until it is.
     `merge_target` correction, the author retires the correction memory
     too, until the harvest drops applied corrections itself. The drain
     report lists every applied correction (`applied_corrections`).
-11. **A retitle replaces only the section it names** (partly built: the
-    assembler's half is built; the report half is python-dev-01's request).
+11. **A retitle replaces only the section it names** (built: the
+    assembler's half and the report's, #252).
     The same-agent retitle (ADR-014 rule 4(a)) replaces a section
     only when the claim names it by `merge_target` or shares its cue; a
     claim that shares nothing with the topic's sections is a new topic.
     The assembler does this (`slices.shares_cue`, `collisions.py`). The
-    drain report lists every same-agent retitle it applies (not yet built;
-    until it is, a retitle is only printed as `SUPERSEDED, same agent`).
+    drain report lists every same-agent retitle it applies, in its
+    `retitles` list (`assembler/report.py`), beside the line printed as
+    `SUPERSEDED, same agent`.
 12. **Hygiene patterns.** `policies/hygiene.json` has patterns for
     private-network addresses and for `/home/<login>/` paths, applied in
     every project as ADR-013 rule 10 applies the existing ones.
@@ -236,8 +237,8 @@ tree; the words after it say what happens until it is.
   carries the marks, the horizons and the applied corrections; the retire
   path is the schema's empty body, `parse_memory` and `writer.py`. The
   rubric has test 6 and the promote verdict, and the hook
-  (`memory-write-check.py`) warns on rules 1, 7 and 9. Not built: the
-  report half of rule 11, python-dev-01's request.
+  (`memory-write-check.py`) warns on rules 1, 7 and 9. The report of
+  rule 11 is built too: its `retitles` list (#252).
 - fabric-coordinator's drain gains work (routing, the report's lists) and
   loses the work it could not do well: judging a section it cannot see
   the code of.

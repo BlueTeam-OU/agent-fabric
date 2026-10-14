@@ -329,7 +329,10 @@ question** (the owner, 2026-09-26, after 34 such pairs asked and all 34
 superseded): a retitle, or a new text under a heading of that agent's
 own topic, supersedes — the old sections are retired and the new one
 takes their place — and it is printed (`SUPERSEDED, same agent`) and
-recorded in `collision_decisions` with `"rule": "same-agent"`. An
+recorded in `collision_decisions` with `"rule": "same-agent"` and, for
+each section it retires, listed in the drain report's `retitles`
+(`key`, `old_heading`, `new_heading`, `agent`, `project`, `slice`,
+`decided_by`). An
 owner's decision in `--collision-decisions` still wins. Two agents'
 texts under one heading, and two claims of one drain under one heading
 with different texts — whether or not the corpus holds that heading

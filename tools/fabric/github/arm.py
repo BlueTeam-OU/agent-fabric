@@ -205,16 +205,18 @@ What it refuses, in order, and why:
      one posted with --model codex,
      and no unresolved review thread (an open P1 or P2 of either engine). The
      refusal opens with the line fabric-pr gate and fabric-pr counts print too,
-     "review=claude ✓ codex ✗ (head 6bc0ad18)" ("head reviewed: " opens it only
-     when every one is there), and names the engine still missing.
+     "review=claude ✗ codex ✓ (head 6bc0ad18)" ("head reviewed: " opens it only
+     when every required engine is there; an additional one with neither its
+     review nor its marker reads "codex absent"), and names the engine missing.
      `boundary_reviews` adds engines for a
      security-boundary change not waived; agent-fabric ADR-053 rule 6.
      An engine in `additional_reviews` is asked too, never required: its
      review of the head, or its unavailable marker for that exact head
      (posted when it cannot run: "codex unavailable (allowance)" on the
      line), lets the arm proceed, and the basis says it armed without it;
-     with neither it is refused like a required one. Its open P1 or P2
-     still blocks. The marker counts only as the first line of a review
+     with neither it is absent, and the arm proceeds on the required
+     reviews ("codex: absent, no review or marker on <head>" in the output
+     and the basis). Its open P1 or P2 still blocks. The marker counts only as the first line of a review
      object on the head, from the account a blind review counts from.
   5. the count rule (fabric-pr gate's classifier; the 8 and the 16 here are
      the default numbers of the repository's arming policy, tools/fabric/
@@ -518,10 +520,11 @@ def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, rol
 
 
 def check_engines(num: str, head: str, engines: list[str], refuse, additional: list[str] = ()) -> str:
-    """Refuse until every engine in `engines` has a review of `head`, every one in `additional` has its review or its
-    unavailable marker for `head`, and no review thread is open (an open P1 or P2 of either engine is an unresolved
-    thread, as in the review-class gate). The refusal names the engine missing. Returns what the basis records of an
-    additional engine that could not run, or ""."""
+    """Refuse until every engine in `engines` has a review of `head` and no review thread is open (an open P1 or P2 of
+    either engine is an unresolved thread, as in the review-class gate). The refusal names the engine missing. An
+    engine in `additional` never blocks (agent-fabric ADR-055 rule 8): one with neither a review of `head` nor its
+    unavailable marker for it is absent — a failed run, a timeout, never run — and the arm proceeds on `engines` (#264
+    F1). Returns what the basis records of an additional engine that could not run or is absent, or ""."""
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"), [num, "-q", "--json"])
     if rc == 2:
         raise Unanswered(f"pr-review-status could not answer for #{num} (exit 2)")
@@ -545,13 +548,7 @@ def check_engines(num: str, head: str, engines: list[str], refuse, additional: l
             raise refuse(f"review={summary}: this repository's arming policy requires a review by the {engine} engine of"
                          f" the current head {head}, and there is none (a review of an older head does not count): run"
                          f" {how} on it, then arm (engines required: {', '.join(engines)})")
-    missing = [e for e in additional if e not in have and e not in out_of]
-    if missing:
-        engine = missing[0]
-        raise refuse(f"review={summary}: this repository's arming policy asks the {engine} engine's review of the current"
-                     f" head {head} as an additional review, and there is neither its review nor its unavailable marker"
-                     f" for that head: run fabric-review --engine {engine}; if it cannot run, its marker lets the arm"
-                     f" proceed (engines required: {', '.join(engines)}; additional: {', '.join(additional)})")
+    absent = [e for e in additional if e not in have and e not in out_of]
     unresolved = rs.get("unresolved_threads")
     if not isinstance(unresolved, int) or isinstance(unresolved, bool):
         raise Unanswered(f"pr-review-status reported no unresolved_threads count for #{num} (null: the lookup"
@@ -562,8 +559,12 @@ def check_engines(num: str, head: str, engines: list[str], refuse, additional: l
     say(f"review={summary}, and no unresolved thread")
     for engine, why in out_of.items():
         say(f"the {engine} engine could not run on {head[:8]} ({why}): arming on the required review(s) alone")
-    return " ".join(f"The {e} engine could not run on head {head[:8]} ({why}): armed on the {', '.join(engines)}"
-                    f" review alone." for e, why in out_of.items())
+    for engine in absent:
+        say(f"{engine}: absent, no review or marker on {head[:8]}: arming on the required review(s) alone")
+    return " ".join([*(f"The {e} engine could not run on head {head[:8]} ({why}): armed on the {', '.join(engines)}"
+                       f" review alone." for e, why in out_of.items()),
+                     *(f"{e}: absent, no review or marker on {head[:8]}: armed on the {', '.join(engines)} review alone."
+                       for e in absent)])
 
 
 def arm(argv: list[str]) -> int:
@@ -777,8 +778,8 @@ def arm(argv: list[str]) -> int:
     # engine's review of the current head, and no open thread from either — ["claude"]
     # alone included: gate 4 asks a review only of a boundary or a direct repository, so skipping this for a Claude-only
     # policy armed a plain PR with no review at all (#235, Codex finding 1).
-    # An additional engine (additional_reviews) is asked too, and when it could not run on this head its unavailable
-    # marker stands in for its review; the basis says so.
+    # An additional engine (additional_reviews) never blocks: its review counts (an open P1 or P2 of it is a thread),
+    # its unavailable marker or its absence lets the arm proceed on the required ones, and the basis says which.
     engines = arm_policy.required_engines(policy, is_boundary and not waiver)
     engines_out = check_engines(num, head, engines, refuse, arm_policy.additional_engines(policy, is_boundary and not waiver))
 

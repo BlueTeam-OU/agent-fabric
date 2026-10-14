@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -18,12 +19,24 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 from github import trial_merge as tm  # noqa: E402
+from github import trial_worktree as tw  # noqa: E402
 
 
 def sh(cwd: str, *args: str) -> str:
     env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
     return subprocess.run(["git", "-C", cwd, "-c", "user.name=t", "-c", "user.email=t@e.invalid",
                            "-c", "commit.gpgsign=false", *args], capture_output=True, text=True, check=True, env=env).stdout
+
+
+def cleanup_here(cleanup, *args) -> None:
+    """cleanup, run in this process, ignores INT, TERM and HUP for good, as
+    a run that is ending may; the suite must stay one a timeout can end."""
+    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    try:
+        cleanup(*args)
+    finally:
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)
 
 
 def main() -> int:
@@ -258,7 +271,7 @@ def main() -> int:
             wt2 = os.path.join(scratch, "wt2")
             tm.add_worktree(repo, wt2, sh(repo, "rev-parse", "main").strip())
             result, failed, _c, _t, _e = tm.merge_all(wt2, [c1, c2], ["c1", "c2"])
-            tm.cleanup(repo, wt2, None)
+            cleanup_here(tm.cleanup, repo, wt2, None)
         finally:
             sh(repo, "config", "--unset", "core.hooksPath")
         check("the second ref conflicts, and the merge is aborted", (result, failed) == ("conflicts", "c2"))
@@ -277,6 +290,41 @@ def main() -> int:
         finally:
             sleeper.kill()
             sleeper.wait()
+
+        print("cleanup scans again until a pass finds no one new: a scan is not atomic against fork")
+        # Scripted /proc listings: 102 is forked by 101 after the first
+        # listing, so only a second pass sees it (j128: a lease-run check's
+        # sleep outlived the run under a full tests/run.sh).
+        listings = [[101], [101, 102], [101, 102]]
+        scans, ended = [], []
+        real_procs, real_terminate = tw.worktree_procs, tw.terminate
+        tw.worktree_procs = lambda wt, cpid: scans.append(cpid) or list(listings[min(len(scans), len(listings)) - 1])
+        tw.terminate = lambda pid, group=False: ended.append((pid, group))
+        try:
+            cleanup_here(tw.cleanup, repo, os.path.join(scratch, "no-such-wt"), 100)
+            check("the group, then each member once, the late child included",
+                  ended == [(100, True), (101, False), (102, False)])
+            check("…and it stops at the first pass with no one new", len(scans) == 3)
+            listings[:] = [list(range(1000, 1000 + n)) for n in range(1, tw.SWEEP_PASSES + 5)]
+            scans.clear()
+            cleanup_here(tw.cleanup, repo, os.path.join(scratch, "no-such-wt"), 100)
+            check(f"…and a check that keeps forking is scanned {tw.SWEEP_PASSES} times, no more",
+                  len(scans) == tw.SWEEP_PASSES)
+
+            def unlistable(wt, cpid):
+                raise OSError(24, "Too many open files")
+            tw.worktree_procs = unlistable
+            wt3 = os.path.join(scratch, "wt3")
+            os.makedirs(wt3)
+            for leftover in (wt3 + ".pid", wt3 + ".out"):
+                with open(leftover, "w") as f:
+                    f.write("x\n")
+            cleanup_here(tw.cleanup, repo, wt3, 100)
+            check("…and a /proc it cannot list still leaves no worktree, pid or output file",
+                  not any(os.path.exists(p) for p in (wt3, wt3 + ".pid", wt3 + ".out")))
+            check("…and the suite is not left deaf to TERM", signal.getsignal(signal.SIGTERM) is not signal.SIG_IGN)
+        finally:
+            tw.worktree_procs, tw.terminate = real_procs, real_terminate
 
         print("the free-space arithmetic and its refusals")
         old = os.environ.get("AGENT_FABRIC_TRIAL_MIN_FREE_KB")

@@ -60,6 +60,9 @@ def main() -> int:
     check("one engine missing: BLOCKED, the per-engine line said",
           why(review="claude ✓ codex ✗ (head abcdef01)")
           == "BLOCKED: not every required engine has reviewed the head (claude ✓ codex ✗ (head abcdef01))")
+    absent = arm_policy.review_summary({"claude"}, ["claude"], "abcdef01" * 5, additional=["codex"])
+    check("an additional engine with neither review nor marker: absent, never a block (#264 F1)",
+          why(review=absent).startswith("MERGEABLE — ask the owner") and "codex absent" in absent)
     check("a reader that could not answer: BLOCKED, ?",
           why(review="?") == "BLOCKED: not every required engine has reviewed the head (?)")
     check("a failed check: named, BLOCKED", why(checks="red:backend / shard") == "BLOCKED: red checks: backend / shard")

@@ -46,8 +46,8 @@ fabric-jobs add "<artifact>" --priority high                      # blocking | h
 | When | Run |
 |---|---|
 | You start on it | `fabric-jobs start <id>` (one job is active at a time) |
-| It waits on something | `fabric-jobs block <id> "<the smallest dependency>"` |
-| You set it aside by choice | push its branch, then `fabric-jobs block <id> "paused: <why>"` (a `paused` state comes with `fabric-jobs switch`, ADR-037 rule 2) |
+| It waits on something you do not control | `fabric-jobs block <id> --on pr:<owner/repo>#<n>` (or `request:`, `job:`), or `"owner: <the decision awaited>"` |
+| You set it aside by choice | push its branch, then `fabric-jobs pause <id> "<why>"` |
 | It waits on another agent's request being done | `fabric-jobs block <id> --on-request <MESSAGE-ID>` |
 | Its artifact exists | `fabric-jobs deliver <id> <pr-or-commit>...` |
 | The artifact landed and nothing is owed | `fabric-jobs done <id>` |
@@ -69,26 +69,28 @@ back to the stored priorities; `--stored` skips the stream.
 
 ## 3. What comes next: the restart rule
 
-Before you leave a job, check what `fabric-jobs switch` will check
-(ADR-037 rule 10; until it is built, by hand): the state you give it has
-its evidence (done: merged; delivered: its PR open; blocked: what you
-wait on, named; paused: the branch pushed), nothing is left
-uncommitted, every `REPLY-EXPECTED: yes` to you is answered, and what
-you learnt is in your memory. The next job's branch: your open PR's, if
-it is still addable, brought up to date first; else a new branch off a
-freshly fetched default branch. Never start on a branch behind it.
+You move between jobs with `fabric-jobs switch [<id>]` (`next` is its
+alias; ADR-037 rule 10). It refuses, saying what to fix, unless the job
+you leave is settled with its evidence (done: merged; delivered: its PR
+open; blocked: a named blocker; paused: its branch pushed; dropped: a
+reason; a reply-only job: `reply:<MESSAGE-ID>` as its artifact), nothing
+is uncommitted, and every `REPLY-EXPECTED: yes` received since the job
+started is answered. It then names the next job's branch: your open
+PR's when still addable, else a new one off a freshly fetched default
+branch (`--needs-merged` when the job needs your open PR merged first).
+Write what you learnt into your memory before you switch.
 
-When the active job is done, delivered, blocked or dropped, run `next` before
+When the active job is done, delivered, paused, blocked or dropped, run `switch` before
 anything else. Do not end the session, wait, or ask what to do while a
 job is queued: take it. A session ends idle only when nothing is left
 to take, on your list or in your role's pool.
 
 ```sh
-fabric-jobs next            # the queued job of highest priority, the oldest first
-fabric-jobs next <id>       # a named queued or blocked job
+fabric-jobs switch          # the queued job of highest priority, the oldest first (paused ones first at equal priority)
+fabric-jobs switch <id>     # a named queued, paused or blocked job
 ```
 
-`next` never preempts an active job: finish, block or deliver it
+`switch` never preempts an active job: finish, pause, block or deliver it
 first. A blocked job keeps its place and is taken only by name. A
 blocking job reaches you the next time you ask, never in the middle of
 another.
@@ -103,7 +105,7 @@ job if you can:
 ```sh
 fabric-jobs pool-list                  # your bound role's unclaimed jobs, highest priority first
 fabric-jobs pool-claim <pool-id>       # it lands on your list, queued; one claimant per job
-fabric-jobs next
+fabric-jobs switch
 ```
 
 A claim is checked against the role your own control agent reports, and

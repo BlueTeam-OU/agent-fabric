@@ -295,21 +295,25 @@ def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = N
     active = next((j for j in jobs if j.get("state") == "active"), None)
     queued = sum(1 for j in jobs if j.get("state") == "queued")
     blocked = sum(1 for j in jobs if j.get("state") == "blocked")
-    if not active and not queued and not blocked:
+    # Paused is the agent's own choice to set a job aside (ADR-037 rule 2): listed apart from blocked,
+    # which is a wait it does not control, so the start says what is set aside as well as what waits.
+    paused = sum(1 for j in jobs if j.get("state") == "paused")
+    if not active and not queued and not blocked and not paused:
         return []
-    waiting = ", ".join(f"{n} {what}" for n, what in ((queued, "queued"), (blocked, "blocked")) if n) or "nothing waiting"
+    waiting = ", ".join(f"{n} {what}" for n, what in ((queued, "queued"), (paused, "paused"), (blocked, "blocked"))
+                        if n) or "nothing waiting"
     if cleared:
         # Bounded: this line is read at every start, however many jobs cleared.
         more = f", +{len(cleared) - 3} more" if len(cleared) > 3 else ""
         waiting += f"; blocker cleared: {', '.join(cleared[:3])}{more}"
     if not active:
-        return [f"agent-fabric: jobs — none active; {waiting}. `fabric-jobs next` starts the next one "
+        return [f"agent-fabric: jobs — none active; {waiting}. `fabric-jobs switch` starts the next one "
                 f"and says whether it needs a fresh session."]
     line = f"agent-fabric: jobs — active {active['id']}: {active.get('title', '')[:120]}; {waiting} (`fabric-jobs list`)."
     wc = active.get("working_copy")
     if wc and working_copy != wc:
         line += (f" Your active job is in {wc}, and this session is in {working_copy or 'no working copy'}: "
-                 f"continue it there (`fabric-fresh --job {active['id']}`), or block or deliver it before other work.")
+                 f"continue it there (`fabric-fresh --job {active['id']}`), or pause, block or deliver it before other work.")
     return [line]
 
 
