@@ -89,6 +89,7 @@ import os
 import stat
 import subprocess
 import sys
+import unicodedata
 from typing import Any, Callable
 
 from . import bypass, gzmsg, i18n, inbox, intake, paths
@@ -372,7 +373,15 @@ def empty_body(msg: dict) -> list[str] | None:
     sections = msg["sections"]
 
     def filled(name: str) -> bool:
-        return gzmsg.js_trim(sections.get(name, "")) != ""
+        # What validate() lets through as a body and a reader sees as blank:
+        # format characters (a zero-width space, U+180E, which JS trim does
+        # not strip) and a heading the sender's indentation made part of the
+        # section above (validate only warns of it).
+        for line in sections.get(name, "").split("\n"):
+            line = "".join(c for c in line if unicodedata.category(c) != "Cf" and c != "\u180e")
+            if gzmsg.js_trim(line) != "" and not gzmsg._SWALLOWED.fullmatch(line):
+                return True
+        return False
 
     if msg["type"] == "INFO":
         return None if any(filled(n) for n in INFO_SECTIONS) else list(INFO_SECTIONS)

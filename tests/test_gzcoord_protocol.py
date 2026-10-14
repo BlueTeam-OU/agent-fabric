@@ -2542,9 +2542,13 @@ def _():
                              ("QUESTION", "QUESTION"), ("DECISION", "DECISION"), ("HANDOFF", "CONTEXT")):
             # The same message with its section filled is the positive control:
             # the refusal is about the body, not the fixture.
-            filled = send_with(relay.url, with_body(typ, f"{section}:\nsomething\n\nREFERENCES:\n"), ["--dry-run"])
-            eq(filled.code, 0, f"{typ} filled: {filled.err}")
-            for body in (f"{section}:\n\nREFERENCES:\n", f"{section}:\n   \n\t\n", "REFERENCES:\n- path: x\n"):
+            for text in (f"{section}:\nsomething\n\nREFERENCES:\n", f"{section}:\n\u200bsomething\n"):
+                filled = send_with(relay.url, with_body(typ, text), ["--dry-run"])
+                eq(filled.code, 0, f"{typ} filled: {filled.err}")
+            # The last four validate() lets through: a heading indented into the
+            # section above it (a warning only), and characters no reader sees.
+            for body in (f"{section}:\n\nREFERENCES:\n", f"{section}:\n   \n\t\n", "REFERENCES:\n- path: x\n",
+                         f"{section}:\n\n  REFERENCES:\n", f"{section}:\n\u200b\n", f"{section}:\n\u180e \u2060\ufeff\n"):
                 for extra in ([], ["--dry-run"]):
                     r = send_with(relay.url, with_body(typ, body), extra)
                     eq(r.code, 2, f"{typ} {body!r} {extra}: {r.err}")
@@ -2558,7 +2562,7 @@ def _():
 def _():
     relay = Relay()
     try:
-        for body in ("CONTEXT:\n\nNOTES:\n\nREFERENCES:\n", "REFERENCES:\n- path: x\n"):
+        for body in ("CONTEXT:\n\nNOTES:\n\nREFERENCES:\n", "REFERENCES:\n- path: x\n", "CONTEXT:\n\u200b\n\nNOTES:\n\n  REFERENCES:\n"):
             r = send_with(relay.url, with_body("INFO", body))
             eq(r.code, 2, r.err)
             has(r"the subject alone is not a message.*CONTEXT or NOTES", r.err)
