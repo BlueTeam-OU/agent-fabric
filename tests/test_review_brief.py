@@ -513,6 +513,12 @@ def test_a_diff_file_reads_the_card_at_the_default_branch_tip(tmp: str) -> None:
     g(repo, "update-ref", "refs/remotes/origin/main", g(repo, "rev-parse", "main"))
     commit(repo, "tree only", {})
     assert "default branch rules" in rb.render(req)
+    # an over-cap card at the default tip is refused by validate, not dropped by render
+    g(repo, "checkout", "-q", "-f", "main")
+    commit(repo, "an over-cap card", {".agent-fabric/review-card.md": "x" * (rb.CARD_CAP + 1)})
+    g(repo, "update-ref", "refs/remotes/origin/main", "main")
+    problems = refusals(req)
+    assert any(str(rb.CARD_CAP + 1) in p and "cap" in p for p in problems), problems
 
 
 def main() -> int:

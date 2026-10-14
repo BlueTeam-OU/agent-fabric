@@ -77,6 +77,7 @@
         {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "the .mjs tests of GZCoord and the locale search server", "where": "host"},
         {"name": "gpg", "proof": "gpg --version", "version": "2.x", "why": "each account's own secrets store (ADR-038)", "where": "host"},
         {"name": "shellcheck", "proof": "shellcheck --version", "why": "tests/static.sh's check of every tracked shell script", "where": "host", "optional": true},
+        {"name": "ruff", "proof": "ruff --version", "version": "0.16.7", "why": "tests/static.py's lint on the rule set in ruff.toml (CI pins ruff==0.16.7); without it the static step says it was not run here", "where": "account", "optional": true},
         {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
          "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
                      "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}},

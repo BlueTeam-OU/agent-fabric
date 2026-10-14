@@ -67,7 +67,12 @@ def main() -> int:
         # this file's subject (test_fabric_fresh_cli covers the refusal).
         no_remote = os.path.join(t, "fabric")
         os.makedirs(no_remote)
-        env.update(AGENT_FABRIC_ROOT=no_remote,
+        # Its own repository, so `git rev-parse` there never walks up into
+        # one above TMPDIR; still no origin, so the verdict stays "skip".
+        subprocess.run(["git", "init", "-q", no_remote], check=True, timeout=30)
+        # Every git walk in this file stops at t: a TMPDIR inside another
+        # working copy would otherwise answer for `plain` (review of #265).
+        env.update(GIT_CEILING_DIRECTORIES=t, AGENT_FABRIC_ROOT=no_remote,
                    AGENT_FABRIC_LAUNCH_PROFILE="p", AGENT_FABRIC_LAUNCH_OPENING="1", AGENT_FABRIC_STATE_DIR=state,
                    AGENT_FABRIC_FRESH_KILL=os.path.join(bin_, "record-kill"),
                    AGENT_FABRIC_FRESH_COMM="no-such-proc")

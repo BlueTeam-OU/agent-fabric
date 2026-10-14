@@ -412,6 +412,11 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
         problems += refused
         if info and (refusal := card(repo, info["card_base"])[1]):
             problems.append(refusal)
+    elif isinstance(diff, str) and diff and not rng and isinstance(repo, str) and repo \
+            and (refusal := card(repo, _default_tip(repo))[1]):
+        # render reads a diff file's card at the default tip and drops the
+        # refusal, so an over-cap card would silently render as none.
+        problems.append(refusal)
     if mode == "re-review" or "previous_findings" in req:
         pf = req.get("previous_findings")
         if mode not in ("re-review", "finding-adjudication"):

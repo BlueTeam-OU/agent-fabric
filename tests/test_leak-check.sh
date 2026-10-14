@@ -32,9 +32,9 @@ echo "the directory"
 [[ "$(env -u TMPDIR TMP=/t bash -c '. "'"$HERE"'/leak-check.sh"; leak_dir')" == /t ]] && ok "then TMP" || bad "TMP"
 [[ "$(env -u TMPDIR -u TMP -u TEMP bash -c '. "'"$HERE"'/leak-check.sh"; leak_dir')" == /tmp ]] && ok "then /tmp" || bad "/tmp"
 
-echo "run.sh uses it, on a directory of its own"
-grep -q 'leak-check.sh' "$HERE/run.sh" && grep -q 'leak_report' "$HERE/run.sh" && ok "run.sh sources the check and reports with it" || bad "run.sh wiring"
-grep -q 'export TMPDIR="\$SCRATCH_DIR"' "$HERE/run.sh" && ok "the run exports its own TMPDIR, so a concurrent writer is never a leak" || bad "TMPDIR export"
+echo "the run, through run.sh, on a directory of its own"
+grep -Eq '^AGENT_FABRIC_RUNNER=tests/run.sh exec python3 .*tests/run\.py" "\$@"$' "$HERE/run.sh" && grep -q 'def leak_report' "$HERE/run.py" && ok "run.sh forwards to run.py, which reports with its leak_report" || bad "run.sh wiring"
+grep -q 'env\["TMPDIR"\] = scratch' "$HERE/run.py" && ok "the run exports its own TMPDIR, so a concurrent writer is never a leak" || bad "TMPDIR export"
 
 echo "a run killed by a signal ENDS, and its directory goes with it"
 # Behaviour, not text: a trap that removed the directory and let the
@@ -56,7 +56,7 @@ for _ in $(seq 100); do made_dir && break; sleep 0.1; done
 made_dir && ok "the run made its directory under XDG_RUNTIME_DIR" || bad "run directory" "$(ls -A "$RUNTMP")"
 kill -TERM -- "-$RUNPID" 2>/dev/null || kill -TERM "$RUNPID"
 ended=0
-# run.sh's cleanup TERMs its suites, KILLs what is left after 5 s and waits
+# run.py's cleanup TERMs its suites, KILLs what is left after 5 s and waits
 # about 10 s in all (a zombie answers kill -0 to the end), so the run may
 # take that long on a loaded runner: 15 s is the bound.
 for _ in $(seq 150); do kill -0 "$RUNPID" 2>/dev/null || { ended=1; break; }; sleep 0.1; done
@@ -67,7 +67,7 @@ wait "$RUNPID" 2>/dev/null; rc=$?
 grep -q "suite(s) FAILED" "$SANDBOX/run.out" && bad "the interrupted run was reported as suite failures" "$(cat "$SANDBOX/run.out")" || ok "the interrupted run reports no suite failures"
 
 echo "a run killed by a group KILL leaves no directory and no process"
-# KILL runs no trap: the directories go by the watcher run.sh starts.
+# KILL runs no trap: the directories go by the watcher run.py starts.
 RUNTMP2="$SANDBOX/runtmp2"; mkdir -p "$RUNTMP2"
 XDG_RUNTIME_DIR="$RUNTMP2" PATH="$FAKEBIN:$PATH" setsid bash "$HERE/run.sh" static > "$SANDBOX/run2.out" 2>&1 &
 KPID=$!
@@ -83,13 +83,15 @@ alive_in_group() { ps -e -o pgid=,stat=,pid=,args= | awk -v g="$1" '$1 == g && $
 if [[ -n "$(alive_in_group "$KPID")" ]]; then bad "processes left in the killed group" "$(alive_in_group "$KPID")"; pkill -KILL -g "$KPID"; else ok "and no process of the group survives"; fi
 
 echo "a group KILL during cleanup's wait, with a suite that ignores TERM, leaves no directory"
-# Cleanup must not TERM the watcher: the python group (a background job)
-# ignores TERM, so cleanup is still waiting when the KILL comes, and only
+# Cleanup must not TERM the watcher: the suite (a shellcheck that ignores
+# TERM, the static section's tool; the forwarder execs python3 into the run,
+# so a stand-in python3 would BE the run and prove nothing) outlives the
+# first signal, so cleanup is still waiting when the KILL comes, and only
 # the watcher can remove the directory.
 STUBBORN="$SANDBOX/stubborn"; mkdir -p "$STUBBORN"
-printf '#!/usr/bin/env bash\ntrap "" TERM\ntouch "%s/started"\nsleep 30\n' "$STUBBORN" > "$STUBBORN/python3"; chmod +x "$STUBBORN/python3"
+printf '#!/usr/bin/env bash\ntrap "" TERM\ntouch "%s/started"\nsleep 30\n' "$STUBBORN" > "$STUBBORN/shellcheck"; chmod +x "$STUBBORN/shellcheck"
 RUNTMP3="$SANDBOX/runtmp3"; mkdir -p "$RUNTMP3"
-XDG_RUNTIME_DIR="$RUNTMP3" PATH="$STUBBORN:$PATH" setsid bash "$HERE/run.sh" python > "$SANDBOX/run3.out" 2>&1 &
+XDG_RUNTIME_DIR="$RUNTMP3" PATH="$STUBBORN:$PATH" setsid bash "$HERE/run.sh" static > "$SANDBOX/run3.out" 2>&1 &
 SPID=$!
 for _ in $(seq 300); do [[ -e "$STUBBORN/started" ]] && break; sleep 0.1; done
 [[ -e "$STUBBORN/started" ]] || bad "the suite that ignores TERM never started" "$(cat "$SANDBOX/run3.out")"

@@ -138,7 +138,9 @@ the card is therefore reviewed under the base's card, with the card's own
 diff in the reviewed range as evidence. A re-review's range starts at
 the previous head, which the default branch does not contain, so
 `review_rounds.py next` writes the first round's base into the request
-as `card_base`, and the card is read there.
+as `card_base`, and the card is read there. A first base that is not a
+commit id (`origin/main`) is refused unless the request pins `card_base`
+(round 1's dispatch header names it as `base_sha`).
 
 **The dispatch header.** The brief's first block is a fenced
 `agent-fabric-dispatch v1` JSON object: `dispatch_id` (minted at render),
