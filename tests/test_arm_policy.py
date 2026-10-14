@@ -445,7 +445,7 @@ class ReviewLine(unittest.TestCase):
         self.assertEqual(line, "head reviewed: claude ✓ codex ✗ (boundary only) (head abcdef12)")
         line = arm_policy.review_summary({"claude"}, ["claude"], self.HEAD, ["codex"], additional=["codex"],
                                          unavailable={"codex": "allowance"})
-        self.assertEqual(line, "head reviewed: claude ✓ codex unavailable (allowance) (head abcdef12)")
+        self.assertEqual(line, "head reviewed: claude ✓ codex unavailable (allowance) ✗ (boundary only) (head abcdef12)")
 
     def test_an_unavailable_additional_engine_never_stands_in_for_a_required_one(self):
         self.assertEqual(self.line(set(), [self.gone()]), "claude ✗ codex unavailable (allowance) (head abcdef12)")
