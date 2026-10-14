@@ -31,6 +31,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REVIEW = os.path.join(ROOT, "bin", "fabric-review")
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import review_codex  # noqa: E402
+from github.review_status.config import REVIEW_MARKER  # noqa: E402
+from github.review_status.verdicts import unavailable_of  # noqa: E402 — the one parser, the arm's
+
+
+def parsed(text):
+    return unavailable_of({"body": text})
 
 # The fake codex sees only the environment the engine gives it, so its
 # behaviour and its records go through files at paths written into it.
@@ -178,21 +184,49 @@ elif mode == "noevents":
         f.write('{"findings": []}')
 '''
 
-GH_MOCK = r"""#!/usr/bin/env bash
-S="$GH_STATE"
-case "$1" in
-  repo) echo "fixture-org/fixture"; exit 0 ;;
-  pr)   cat "$S/pr.json"; exit 0 ;;
-  api)
-    for a in "$@"; do
-      [ "$prev" = "--input" ] && cp "$a" "$S/payload.json"
-      prev="$a"
-    done
-    echo "POST $2" >> "$S/calls"
-    echo "https://github.com/fixture-org/fixture/pull/7#pullrequestreview-1"
-    exit 0 ;;
-esac
-echo "mock gh: unhandled $1" >&2; exit 1
+GH_MOCK = r"""#!%(python)s
+import json, os, sys
+S = os.environ["GH_STATE"]
+a = sys.argv[1:]
+def state(n, default):
+    try:
+        return json.load(open(os.path.join(S, n)))
+    except OSError:
+        return default
+if a[:1] == ["repo"]:
+    print("fixture-org/fixture"); sys.exit(0)
+if a[:1] == ["pr"]:
+    sys.stdout.write(open(os.path.join(S, "pr.json")).read()); sys.exit(0)
+if a[:1] == ["api"]:
+    path = a[1]
+    method = a[a.index("--method") + 1] if "--method" in a else "POST" if "--input" in a else "GET"  # gh's own default
+    if method == "GET":
+        with open(os.path.join(S, "reads"), "a") as f:
+            f.write(path + "\\n")
+        if os.path.exists(os.path.join(S, "read-fails")):
+            print("gh: HTTP 502: Bad Gateway", file=sys.stderr); sys.exit(1)
+        if path.split("?")[0].endswith("/reviews"):
+            print(json.dumps([state("reviews.json", [])]))
+        else:
+            print(json.dumps({"user": {"login": "fleet-account"}}))   # the PR; every session is its author's account
+        sys.exit(0)
+    src = a[a.index("--input") + 1]
+    raw = sys.stdin.read() if src == "-" else open(src).read()
+    payload = json.loads(raw)
+    json.dump(payload, open(os.path.join(S, "payload.json"), "w"))
+    kind = "unavailable" if payload.get("body", "").startswith("<!-- agent-fabric-engine-unavailable") else "review"
+    with open(os.path.join(S, "calls"), "a") as f:
+        f.write(f"POST {path} {kind}\n")
+    if os.path.exists(os.path.join(S, "post-fails")):
+        print("gh: HTTP 502: Bad Gateway", file=sys.stderr); sys.exit(1)
+    reviews = state("reviews.json", [])
+    reviews.append({"commit_id": payload.get("commit_id"), "body": payload.get("body"), "user": {"login": "fleet-account"},
+                    "author_association": "OWNER"})
+    json.dump(reviews, open(os.path.join(S, "reviews.json"), "w"))
+    print("https://github.com/fixture-org/fixture/pull/7#pullrequestreview-1" if "--jq" in a
+          else json.dumps({"html_url": "https://github.com/fixture-org/fixture/pull/7#pullrequestreview-1"}))
+    sys.exit(0)
+print("mock gh: unhandled " + " ".join(a), file=sys.stderr); sys.exit(1)
 """
 
 
@@ -297,7 +331,7 @@ def main() -> int:
         with open(os.path.join(fakebin, "codex"), "w") as f:
             f.write(FAKE_CODEX % {"python": sys.executable, "state": state})
         with open(os.path.join(fakebin, "gh"), "w") as f:
-            f.write(GH_MOCK)
+            f.write(GH_MOCK % {"python": sys.executable})
         for n in ("codex", "gh"):
             os.chmod(os.path.join(fakebin, n), 0o755)
 
@@ -333,7 +367,8 @@ def main() -> int:
         def set_pr(oid: str = head) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
                 json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid}, f)
-            for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode"):
+            for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode",
+                      "reviews.json", "read-fails", "post-fails", "reads"):
                 if os.path.exists(os.path.join(state, n)):
                     os.remove(os.path.join(state, n))
 
@@ -385,8 +420,21 @@ def main() -> int:
             except (OSError, ValueError):
                 return ""
 
+        def post_lines() -> list[str]:
+            try:
+                with open(os.path.join(state, "calls")) as f:
+                    return f.read().splitlines()
+            except OSError:
+                return []
+
+        def posts() -> int:
+            return sum(1 for ln in post_lines() if not ln.endswith(" unavailable"))
+
+        def unavailables() -> int:
+            return sum(1 for ln in post_lines() if ln.endswith(" unavailable"))
+
         def posted() -> bool:
-            return os.path.exists(os.path.join(state, "calls"))
+            return posts() > 0
 
         print("success: Codex runs once, read-only, on the extract, and the review is posted")
         set_pr(); mode("ok")
@@ -670,13 +718,6 @@ def main() -> int:
             except OSError:
                 return 0
 
-        def posts() -> int:
-            try:
-                with open(os.path.join(state, "calls")) as f:
-                    return len(f.read().splitlines())
-            except OSError:
-                return 0
-
         set_pr(); mode("capacity ok")
         rc, out, err, sleeps = inproc("7", req)
         check("capacity once, then success: exit 0, one wait of 10 s, two runs, posted once",
@@ -692,7 +733,7 @@ def main() -> int:
               rc == 3 and sleeps == [10, 20, 60] and runs_made() == 4 and posts() == 0, (rc, sleeps, runs_made(), posts(), err))
         check("…it says the model is unavailable, at capacity, the provider's, and what Codex said",
               "model is unavailable: at capacity" in err and "transient" in err and "after 4 run(s)" in err
-              and "Selected model is at capacity" in err and "nothing posted" in err, err)
+              and "Selected model is at capacity" in err and "no review posted" in err, err)
         check("…the scratch is removed", scratch_empty(), os.listdir(scratch))
         set_pr(); mode("allowance")
         rc, out, err, sleeps = inproc("7", req)
@@ -700,6 +741,10 @@ def main() -> int:
               rc == 3 and sleeps == [] and runs_made() == 1 and posts() == 0, (rc, sleeps, runs_made(), posts(), err))
         check("…it says the allowance, ours, with the reset time the message gave",
               "over the allowance" in err and "Oct 14th, 2026 3:12 PM" in err and "not retried" in err, err)
+        check("…the outcome is one stderr line: posted", "unavailable statement on PR #7: posted" in err, err)
+        mode("allowance")
+        rc, out, err, sleeps = inproc("7", req)
+        check("…and the second run says one already stands", "unavailable statement on PR #7: an unavailable statement for this head stands" in err, err)
         set_pr(); mode("allowance-notime")
         rc, out, err, sleeps = inproc("7", req)
         check("…a message without a time says there is none, and invents none",
@@ -740,6 +785,125 @@ def main() -> int:
                            ("a disk", "no space left: the volume is at capacity"), ("nothing", "")):
             check(f"not read as unavailable: {label}", review_codex.unavailable(msg) is None)
 
+        print("an unavailable model leaves one marked statement per head, for the arm (the owner's policy: Codex never blocks)")
+
+        def seed_reviews(*reviews: dict) -> None:
+            """By default the PR author's account, which is what every session posts as; a case that wants another
+            names a "user"."""
+            with open(os.path.join(state, "reviews.json"), "w") as f:
+                json.dump([{"user": {"login": "fleet-account"}, "author_association": "OWNER", **r} for r in reviews], f)
+
+        stranger = {"user": {"login": "stranger"}, "author_association": "NONE"}
+
+        def touch(n: str) -> None:
+            open(os.path.join(state, n), "w").close()
+
+        def statement() -> tuple[dict | None, str]:
+            body = payload_body()
+            return parsed(body), body
+
+        set_pr(); mode("allowance")
+        rc, out, err, sleeps = inproc("7", req)
+        m, body = statement()
+        check("over the allowance: exit 3 as before, exactly one statement and no review", rc == 3 and unavailables() == 1
+              and posts() == 0, (rc, post_lines(), err))
+        check("…a COMMENT review pinned to the head, to the PR's reviews endpoint", post_lines() == ["POST repos/fixture-org/fixture/pulls/7/reviews unavailable"]
+              and json.load(open(os.path.join(state, "payload.json"))).get("event") == "COMMENT"
+              and json.load(open(os.path.join(state, "payload.json"))).get("commit_id") == head, post_lines())
+        check("…its first line parses back: engine, the full head, the reason",
+              m is not None and (m["engine"], m["head"], m["reason"]) == ("codex", head, "allowance"), body)
+        check("…the time is UTC ISO", m is not None and time.strptime(m["at"], "%Y-%m-%dT%H:%M:%SZ"), body)
+        human = body.split("\n")[1] if body.count("\n") >= 1 else ""
+        check("…one human line: the short sha, the allowance and its reset time, the policy",
+              human == f"Codex could not review `{head[:12]}`: over the ChatGPT allowance (Oct 14th, 2026 3:12 PM); "
+              "the claude review alone arms, per the owner's policy.", human)
+        check("…it is not the review marker, so it is never taken for coverage",
+              not body.startswith(REVIEW_MARKER) and REVIEW_MARKER not in body, body)
+        mode("allowance")
+        rc, out, err, sleeps = inproc("7", req)
+        check("a second run on the same head posts none (the one stands)", rc == 3 and unavailables() == 1, post_lines())
+        set_pr(); mode("allowance-notime")
+        rc, out, err, sleeps = inproc("7", req)
+        m, body = statement()
+        check("an allowance message without a time says there is none and invents none",
+              unavailables() == 1 and "the backend gave no reset time" in body and "2026" not in body.split("\n")[1], body)
+        set_pr(); mode("capacity")
+        rc, out, err, sleeps = inproc("7", req)
+        m, body = statement()
+        check("at capacity after the retries: exit 3, one statement, reason capacity",
+              rc == 3 and unavailables() == 1 and m is not None and m["reason"] == "capacity"
+              and "stayed at capacity after 4 run(s)" in body, (rc, post_lines(), body))
+        mode("capacity")
+        inproc("7", req)
+        check("…and again on the same head: none", unavailables() == 1, post_lines())
+        set_pr(); mode("allowance")
+        seed_reviews({"commit_id": "d" * 40, "body": review_codex.format_marker("d" * 40, "allowance", "2026-10-13T10:00:00Z") + "\nx\n"})
+        inproc("7", req)
+        check("a statement for another head does not suppress this head's", unavailables() == 1, post_lines())
+        for label, seed, expect in (
+                ("a Codex review of the head stands", {"commit_id": head, "body": REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 0),
+                ("the positive control: a claude review of the head stands", {"commit_id": head, "body": REVIEW_MARKER + "\nbody"}, 1),
+                ("a statement whose marker names another head, on a review of this one",
+                 {"commit_id": head, "body": review_codex.format_marker("d" * 40, "allowance", "2026-10-13T10:00:00Z") + "\nx\n"}, 1),
+                ("the author's statement for this head stands",
+                 {"commit_id": head, "body": review_codex.format_marker(head, "allowance", "2026-10-13T10:00:00Z") + "\nx\n"}, 0),
+                ("a stranger's statement for this head (it does not count for the arm, so it must not stop ours)",
+                 {**stranger, "commit_id": head, "body": review_codex.format_marker(head, "allowance", "2026-10-13T10:00:00Z") + "\nx\n"}, 1),
+                ("a stranger's copy of a Codex review of this head",
+                 {**stranger, "commit_id": head, "body": REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 1),
+                ("a Codex review of another head stands", {"commit_id": "d" * 40, "body": REVIEW_MARKER + "\n<!-- model: codex -->\nbody"}, 1),
+                ("a body that only quotes the codex model line, below the header", {"commit_id": head, "body": REVIEW_MARKER + "\nx\ny\n<!-- model: codex -->"}, 1)):
+            set_pr(); mode("allowance"); seed_reviews(seed)
+            rc, out, err, sleeps = inproc("7", req)
+            check(f"{label}: {'none posted' if not expect else 'the statement is posted'}", rc == 3 and unavailables() == expect,
+                  post_lines())
+        for m_, why in (("turnfailed", "an ordinary failed turn"), ("capacity-lookalike", "'at capacity' in another sentence"),
+                        ("capacity-item", "the capacity text in an error item of a turn that went on"),
+                        ("exit1", "a non-zero exit"), ("sleep", "a time budget spent")):
+            set_pr(); mode(m_)
+            rc, out, err, sleeps = inproc("7", req, *(["--timeout", "0.05"] if m_ == "sleep" else []))
+            check(f"{why}: a failed review, exit 1, no statement (a crash says nothing of availability)",
+                  rc == 1 and not post_lines(), (rc, post_lines(), err))
+        set_pr(); mode("allowance")
+        rc, out, err, sleeps = inproc("7", req, "--no-post")
+        m = parsed(out)
+        check("--no-post: exit 3, the statement printed on stdout, nothing read from or posted to the PR",
+              rc == 3 and m is not None and m["head"] == head and not post_lines()
+              and not os.path.exists(os.path.join(state, "reads")), (rc, out, post_lines()))
+        set_pr(); mode("allowance"); touch("read-fails")
+        rc, out, err, sleeps = inproc("7", req)
+        check("the PR cannot be read: exit 3 still, nothing posted (unknown stays unknown), a warning says so",
+              rc == 3 and not post_lines() and "could not post or check the unavailable statement" in err and "502" in err, (rc, err))
+        set_pr(); mode("allowance"); touch("post-fails")
+        rc, out, err, sleeps = inproc("7", req)
+        check("the post is rejected: exit 3 still, a warning, no claim of success",
+              rc == 3 and "could not post or check the unavailable statement" in err, (rc, err))
+        set_pr(); mode("allowance")
+        r = run("7", req)
+        check("through the installed entry point: exit 3 and one statement", r.returncode == 3 and unavailables() == 1
+              and r.stdout == "", (r.returncode, r.stderr, post_lines()))
+
+        print("the marker: formatted and parsed back, strictly")
+        good_line = review_codex.format_marker(head, "capacity", "2026-10-13T19:52:10Z")
+        check("the line is the spelled contract", good_line == f"<!-- agent-fabric-engine-unavailable v1 engine=codex head={head} "
+              "reason=capacity at=2026-10-13T19:52:10Z -->", good_line)
+        check("it parses back to its fields", parsed(good_line + "\nCodex could not review.\n")
+              == {"engine": "codex", "head": head, "reason": "capacity", "at": "2026-10-13T19:52:10Z"})
+        for label, text in (("a marker below the first line", "hello\n" + good_line), ("text after the marker", good_line + " x"),
+                            ("a short sha", good_line.replace(head, head[:12])),
+                            ("a version 2", good_line.replace(" v1 ", " v2 ")),
+                            ("a non-hex head", good_line.replace(head[:1], "g", 1)),
+                            ("empty", ""), ("None", None)):
+            check(f"not a marker: {label}", parsed(text) is None, text)
+        for label, args in (("a short head", (head[:12], "capacity", "2026-10-13T19:52:10Z")),
+                            ("a reason this engine never emits", (head, "crash", "2026-10-13T19:52:10Z"))):
+            try:
+                review_codex.format_marker(*args)
+                refused = False
+            except ValueError:
+                refused = True
+            check(f"the writer refuses {label}", refused, args)
+
         print("the time budget: Codex and what it started are ended, the scratch removed")
         set_pr(); mode("sleep")
         t0 = time.monotonic()
@@ -773,6 +937,28 @@ def main() -> int:
 
         # A signal after the post's child started cannot claim "nothing posted" (review of #220, F4): main() itself,
         # with review() standing in for a run that was signalled once posting began.
+        print("a signal while posting the unavailable statement: it may have been posted; while reading: nothing was")
+
+        def signalled_in_gh(on_post: bool):
+            real = review_codex.gh.api
+
+            def fake(path, **kw):
+                if on_post == (kw.get("method") == "POST"):
+                    raise review_codex._Signalled(15)
+                return real(path, **kw)
+            return fake
+        real_api = review_codex.gh.api
+        try:
+            for on_post, want, refuse in ((True, "may have been posted", "nothing posted"), (False, "nothing posted", "may have")):
+                set_pr(); mode("allowance")
+                review_codex.gh.api = signalled_in_gh(on_post)
+                review_codex._posting = False        # a process starts with it off; in-process runs keep what the last left
+                rc, out, err, sleeps = inproc("7", req)
+                check(f"a signal in the {'POST' if on_post else 'read'}: exit 143, the words follow",
+                      rc == 143 and want in err and refuse not in err, (rc, err))
+        finally:
+            review_codex.gh.api = real_api
+
         print("a signal while posting: it says the review may have been posted")
 
         def signalled_after(posting):
