@@ -17,6 +17,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
+import ledger  # noqa: E402 — util puts tools/fabric on sys.path
 from . import util
 from gzcoord import gzmsg, jsvalues as js  # noqa: E402 — util puts tools/fabric on sys.path
 from gzcoord.inbox_parts.tokens import synced_var  # noqa: E402
@@ -447,7 +448,67 @@ def _num0(v: Any) -> float | int:
     return util.whole(n) if n == n and n not in (float("inf"), float("-inf")) else 0
 
 
-def tokens(home: str | None = None, days: float = TOKENS_DAYS, now: float | None = None) -> dict:
+def ledger_tokens(file: str, since: float, now: float) -> dict:
+    """The dispatch ledger's rows (tools/fabric/ledger.py, row v1) in the window,
+    in the same input-token equivalents as the models above:
+
+    by_purpose  {purpose: {engine: {rows, input, cache_write, cache_read, output, equiv}}} — the row's
+                purpose (the dispatch header's, else other-subagent) by the engine that ran
+    by_pr       {owner/name: {"<pr>": {purpose: {engine: equiv}}}} — the rows that name a repository and a
+                pull request, for a reader that costs one PR (results.py)
+    ledger      {status, rows, skipped, undated}: "ok" or "unreadable" (no by_purpose or by_pr then); rows counted; lines that were not a v1 row or held a count that
+                is not a number; rows with no usable completed_at/started_at, left out of the window
+
+    A count a row leaves null (a Codex row has no cache write) is 0 here; a row whose count is something
+    else is skipped, never read as 0. A row is in the window by its completed_at, else its started_at."""
+    try:
+        rows, skipped = ledger.rows(file)
+    except OSError as e:
+        return {"ledger": {"status": "unreadable", "error": errno.errorcode.get(e.errno or 0) or "OSError"}}
+    by_purpose: dict[str, dict[str, dict[str, int]]] = {}
+    by_pr: dict[str, dict[str, dict[str, dict[str, int]]]] = {}
+    counted = undated = 0
+    for row in rows:
+        purpose, engine = row.get("purpose"), row.get("engine")
+        counts = {k: row.get(k) for k in ("input", "cache_write", "cache_read", "output")}
+        if not isinstance(purpose, str) or not isinstance(engine, str) \
+                or any(v is not None and ledger.count(v) is None for v in counts.values()):
+            skipped += 1
+            continue
+        at = row.get("completed_at") if isinstance(row.get("completed_at"), str) else row.get("started_at")
+        ts = util.date_parse_ms(at) if isinstance(at, str) else None
+        if ts is None:
+            undated += 1
+            continue
+        if not since <= ts <= now:
+            continue
+        c = {k: v or 0 for k, v in counts.items()}
+        eq = equivalent(c)
+        t = by_purpose.setdefault(purpose, {}).setdefault(engine, {"rows": 0, **{k: 0 for k in c}, "equiv": 0})
+        t["rows"] += 1
+        for k, v in c.items():
+            t[k] += v
+        t["equiv"] += eq
+        repo, pr = row.get("repository"), ledger.count(row.get("pr"))
+        if isinstance(repo, str) and pr is not None:
+            cell = by_pr.setdefault(repo, {}).setdefault(str(pr), {}).setdefault(purpose, {})
+            cell[engine] = cell.get(engine, 0) + eq
+        counted += 1
+    return {"by_purpose": by_purpose, "by_pr": by_pr, "ledger": {"status": "ok", "rows": counted, "skipped": skipped, "undated": undated}}
+
+
+def tokens(home: str | None = None, days: float = TOKENS_DAYS, now: float | None = None, state: str | None = None) -> dict:
+    """The models' tokens from the session transcripts and, with `state` (the login's state directory), the
+    dispatch ledger's beside them (ledger_tokens). Without `state` the ledger is not read: a caller that names
+    no state directory is not handed whatever the account running it has."""
+    result = _transcript_tokens(home, days, now)
+    if state is not None:
+        now = time.time() * 1000 if now is None else now
+        result.update(ledger_tokens(os.path.join(state, ledger.FILE), now - days * 86400000, now))
+    return result
+
+
+def _transcript_tokens(home: str | None, days: float, now: float | None) -> dict:
     home = os.path.expanduser("~") if home is None else home
     now = time.time() * 1000 if now is None else now
     since = now - days * 86400000

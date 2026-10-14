@@ -703,9 +703,49 @@ class Tokens(Base):
         self.assertNotIn("SECRET-TEXT", json.dumps(t), "counts only")
         self.assertEqual(ops.tokens(h, now=now, days=0.5)["status"], "no-records", "a narrower window with nothing in it says so")
         self.assertEqual(ops.tokens(self.scratch("ctl-empty-"))["status"], "no-records")
-        c = ops.collect("tokens", {"home": h, "who": WHO, "days": 3})
+        c = ops.collect("tokens", {"home": h, "who": WHO, "days": 3, "state": self.scratch("ctl-state-")})
         self.assertEqual(sorted(c), ["identity", "tokens"], "tokens rides with identity, so the coordinator can group by Claude account")
         self.assertEqual(c["tokens"]["days"], 3)
+
+    def test_the_dispatch_ledger_by_purpose_and_by_pr_beside_the_models(self):
+        now = datetime(2026, 10, 14, 12, tzinfo=timezone.utc).timestamp() * 1000
+        state = self.scratch("ctl-state-")
+
+        def row(**kw):
+            base = {"schema_version": 1, "engine": "claude", "purpose": "review", "session_id": "s", "agent_id": "a",
+                    "repository": "o/r", "pr": 7, "completed_at": iso(now - DAY), "input": 10, "cache_write": 100,
+                    "cache_read": 1000, "output": 20}
+            return json.dumps({**base, **kw}) + "\n"
+        write(os.path.join(state, "ledger.jsonl"),
+              row(agent_id="a1", input=1, cache_write=0, cache_read=0, output=1)   # an earlier stop of a1: superseded
+              + row(agent_id="a1")                                                  # equiv 335
+              + row(agent_id="a2", purpose="re-review", pr=7)                       # 335
+              + row(engine="codex", purpose="second-engine-review", session_id="t", agent_id=None, cache_write=None, cache_read=600, input=300, output=50)   # 300+60+250 = 610
+              + row(agent_id="a3", repository=None, pr=None)                        # counted, in no PR
+              + row(agent_id="a4", completed_at=iso(now - 30 * DAY))                # outside the window
+              + row(agent_id="a5", completed_at=None, started_at=None)              # undated
+              + row(agent_id="a6", output="many")                                   # a count that is not a number: skipped
+              + row(agent_id="a7", schema_version=2)                                # another schema: skipped
+              + "not json\n")
+        t = ops.tokens(self.home(), now=now, state=state)
+        self.assertEqual(t["ledger"], {"status": "ok", "rows": 4, "skipped": 3, "undated": 1})
+        self.assertEqual(t["by_purpose"]["review"]["claude"], {"rows": 2, "input": 20, "cache_write": 200, "cache_read": 2000, "output": 40, "equiv": 670})
+        self.assertEqual(t["by_purpose"]["re-review"]["claude"]["equiv"], 335)
+        self.assertEqual(t["by_purpose"]["second-engine-review"]["codex"],
+                         {"rows": 1, "input": 300, "cache_write": 0, "cache_read": 600, "output": 50, "equiv": 610}, "a null count is 0 here, not a guess")
+        self.assertEqual(t["by_pr"], {"o/r": {"7": {"review": {"claude": 335},
+                                                  "re-review": {"claude": 335}, "second-engine-review": {"codex": 610}}}},
+                         "only rows that name both a repository and a PR")
+        self.assertEqual(ops.tokens(self.home(), now=now)["status"], "no-records")
+        self.assertNotIn("by_purpose", ops.tokens(self.home(), now=now), "no state directory named: the ledger is not read")
+        self.assertEqual(ops.tokens(self.home(), now=now, state=self.scratch("ctl-nostate-"))["ledger"], {"status": "ok", "rows": 0, "skipped": 0, "undated": 0},
+                         "an absent ledger is no rows, not a failure")
+        bad = self.scratch("ctl-unreadable-")
+        os.makedirs(os.path.join(bad, "ledger.jsonl"))
+        u = ops.tokens(self.home(), now=now, state=bad)
+        self.assertEqual((u["ledger"]["status"], "by_purpose" in u), ("unreadable", False), "a ledger that cannot be read is not 'no rows'")
+        c = ops.collect("tokens", {"home": self.home(), "who": WHO, "state": state})
+        self.assertEqual(c["tokens"]["ledger"]["rows"], 4, "the section reads the state directory the context names")
 
 
 class Collect(Base):
