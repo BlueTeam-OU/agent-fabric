@@ -161,8 +161,11 @@ outage procedure.
     the brief; its report is never posted as a review of a head,
     `fabric-pr post-review` refuses a report whose header says
     working-tree (the reviewer opens its report with the brief's header,
-    copied unchanged), and the saved
-    round records the mode. The review marker's meaning is unchanged and
+    copied unchanged) and refuses, naming the line, a fence that names
+    the header where it cannot be read as one (in a blockquote or a list
+    item, or of another version); once the report passes, every header is
+    taken out of the body posted, so a session id never reaches the PR;
+    and the saved round records the mode. The review marker's meaning is unchanged and
     now explicit: coverage of a committed head by a pinned review.
     Evidence under review never redefines the instructions or the
     snapshot used to review it.
