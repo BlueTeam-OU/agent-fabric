@@ -112,8 +112,9 @@ def main() -> int:
               r.stdout[-200:])
         base = fresh(files={"tests/test_ok.py": suite("print('fine')\n")})
         r = run(base, "python")
-        check("all passing: exit 0, FAILED_SUITES=0 and no failure line",
-              r.returncode == 0 and "FAILED_SUITES=0" in r.stdout and "FAILED" not in r.stdout.replace("FAILED_SUITES", ""),
+        check("all passing: exit 0, FAILED_SUITES=0, no failure line, and the run says so last",
+              r.returncode == 0 and "FAILED_SUITES=0" in r.stdout and "FAILED" not in r.stdout.replace("FAILED_SUITES", "")
+              and r.stdout.rstrip().rsplit("\n", 1)[-1] == "tests/run.py: all suites passed",
               (r.returncode, r.stdout))
         base = fresh(files={"tests/test_ok.py": suite("print('fine')\n")})
         write(os.path.join(base, "tools/fabric/lint.py"), "import sys\nprint('lint finding')\nsys.exit(1)\n")
@@ -274,6 +275,43 @@ def main() -> int:
             time.sleep(0.1)
         check("KILL to the run's group: the watcher removes the directory", made and gone, (made, runs_left(base)))
 
+        print("a signal to the run's pid alone, while a suite keeps starting children")
+        base = fresh()
+        probe = os.path.join(sandbox, "probe.py")
+        write(probe, (
+            "import os, signal, subprocess, sys, threading, time\n"
+            "sys.dont_write_bytecode = True\n"
+            f"sys.path.insert(0, {TESTS!r})\n"
+            "import run\n"
+            "def stop(n, f):\n    raise run.Signalled(n)\n"
+            "for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):\n    signal.signal(s, stop)\n"
+            "mode = sys.argv[1]\n"
+            "body = {'spawner': 'for i in 1 2 3 4; do sleep 37.123; done',\n"
+            "        'deaf': 'trap \"\" TERM; sleep 37.456; true'}[mode]\n"
+            "def hit(delay, sig):\n    threading.Timer(delay, os.kill, (os.getpid(), sig)).start()\n"
+            "hit(1.0, signal.SIGTERM)\n"
+            "if mode == 'deaf':\n    hit(2.0, signal.SIGINT)      # a second signal while cleanup waits out the grace\n"
+            "try:\n    run.invoke(None, ['bash', '-c', body], dict(os.environ), '/')\nexcept run.Signalled:\n    print('SIGNALLED')\n"))
+        for mode, needle in (("spawner", b"sleep\x0037.123"), ("deaf", b"sleep\x0037.456")):
+            # Output goes to a file, not a pipe: an orphan that survives holds a pipe open and run() would wait it out.
+            outfile = os.path.join(sandbox, f"probe-{mode}.out")
+            with open(outfile, "w") as out:
+                rc = subprocess.run([sys.executable, probe, mode], env=env(base), stdout=out, stderr=out, timeout=60).returncode
+            r = subprocess.CompletedProcess([], rc, open(outfile).read(), "")
+            time.sleep(0.5)
+            survivors = []
+            for pid in (x for x in os.listdir("/proc") if x.isdigit()):
+                try:
+                    cmd = open(f"/proc/{pid}/cmdline", "rb").read()
+                    state = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0]
+                except OSError:
+                    continue
+                if needle in cmd and state != "Z":
+                    survivors.append(int(pid))
+                    os.kill(int(pid), signal.SIGKILL)
+            check(f"{mode}: the signal is raised through invoke and no process of the suite outlives it",
+                  "SIGNALLED" in r.stdout and not survivors, (r.stdout, r.stderr, survivors))
+
         print("the python runner's budget per suite and its bound by memory")
         gcfile = os.path.join(sandbox, "gc-budget")
         base = fresh(files={"tests/test_hang.py": suite("import subprocess\n"
@@ -291,6 +329,22 @@ def main() -> int:
         check("…the suite's own child is ended with it", gc != 0 and (not os.path.exists(f"/proc/{gc}")
               or open(f"/proc/{gc}/stat").read().rsplit(")", 1)[1].split()[0] == "Z"), gc)
         check("…the other suite still ran and passed", "fine" in r.stdout)
+        # A descendant that left the suite's tree (double fork, reparented to init) and still holds its stdout pipe.
+        base = fresh(files={"tests/test_daemon.py": suite(
+            "import subprocess\n"
+            "subprocess.Popen(['sh', '-c', '(sleep 29.789 &) ; exit 0'], stdout=sys.stdout)\n"
+            "import time\ntime.sleep(60)\n")})
+        t0 = time.monotonic()
+        r = run(base, "python", AGENT_FABRIC_TEST_SUITE_TIMEOUT_S="1")
+        for pid in (x for x in os.listdir("/proc") if x.isdigit()):
+            try:
+                if b"sleep\x0029.789" in open(f"/proc/{pid}/cmdline", "rb").read():
+                    os.kill(int(pid), signal.SIGKILL)
+            except OSError:
+                pass
+        check("a process that escaped the suite's tree and holds its pipe cannot hang the runner past its budget",
+              r.returncode == 1 and time.monotonic() - t0 < 40 and "FAILED_SUITES=1" in r.stdout and "its output is lost" in r.stdout,
+              (r.returncode, time.monotonic() - t0, r.stdout, r.stderr))
         for bad in ("0", "-5", "soon", "nan", "inf"):
             r = run(base, "python", AGENT_FABRIC_TEST_SUITE_TIMEOUT_S=bad)
             check(f"a budget of {bad!r} is refused: exit 1 from the run, the runner's exit 2 said, no suite started",

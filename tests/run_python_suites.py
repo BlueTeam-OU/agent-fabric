@@ -21,10 +21,9 @@ the memory available now allows (SUITE_MEM_MIB each, an assumption not a measure
 AGENT_FABRIC_TEST_SUITE_TIMEOUT_S (default SUITE_TIMEOUT_S) is ended with its processes, printed with what it had written
 and a line naming the budget, and counted as failed. A bad budget is the same exit 2 as a bad job count.
 
-run.sh starts this in the background (`&`, then `wait`), so a trap fires at
-once; bash starts an async command with INT and QUIT ignored, and every suite
-would inherit that (test_fabric_lease_cli asserts its command is not deaf to
-them). set -m would restore them but puts each job in a group of its own,
+A caller that starts this in the background (`&`, then `wait`, as run.sh did so that a trap fires at once) hands it INT and QUIT
+ignored, because bash starts an async command that way, and every suite would inherit that (test_fabric_lease_cli asserts its
+command is not deaf to them). set -m would restore them but puts each job in a group of its own,
 which run.sh's group-wide signals and its cleanup rely on not happening; so
 the dispositions are reset here, before the first suite starts.
 """
@@ -109,8 +108,12 @@ def run_suite(path: str, timeout_s: float) -> tuple[int, bytes]:
                 os.kill(pid, signal.SIGKILL)
             except OSError:
                 pass
-        # The pipe closes once everything holding it is dead.
-        out, _ = proc.communicate()
+        # The pipe closes once everything holding it is dead; one that escaped the walk (a daemon) must not hang the run.
+        try:
+            out, _ = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            return 124, (f"\n{path}: still running after its {timeout_s:g} s budget; ended, and its output is lost "
+                         "(a process it started still holds the pipe)\n").encode()
         note = f"\n{path}: still running after its {timeout_s:g} s budget; ended\n".encode()
         return 124, out + note
 
@@ -129,11 +132,11 @@ def main() -> int:
     except ValueError:
         timeout_s = -1.0
     if not 0 < timeout_s < float("inf"):
-        print(f"tests/run.sh: AGENT_FABRIC_TEST_SUITE_TIMEOUT_S='{budget}' is not a positive number of seconds", file=sys.stderr)
+        print(f"tests/run_python_suites.py: AGENT_FABRIC_TEST_SUITE_TIMEOUT_S='{budget}' is not a positive number of seconds", file=sys.stderr)
         return 2
     fits = memory_bound()
     if fits is not None and int(slots) > fits:
-        print(f"tests/run.sh: {slots} jobs would not fit the memory available ({SUITE_MEM_MIB} MiB each assumed): running {fits}",
+        print(f"tests/run_python_suites.py: {slots} jobs would not fit the memory available ({SUITE_MEM_MIB} MiB each assumed): running {fits}",
               file=sys.stderr)
         slots = str(fits)
     printing = threading.Lock()

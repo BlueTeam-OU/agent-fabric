@@ -7,7 +7,9 @@ A missing tool is SAID, never silently a pass: CI installs shellcheck and ruff; 
 knows that check did not run here. The last line says so too — a reader of it took a skipped ruff for a clean one and
 delivered two unused imports to CI.
 
-  stdout/stderr  the findings, one `  ✗ <what>` line each, and the tools' own output
+  stdout/stderr  the findings, one `  ✗ <what>` line each, and the tools' own output. Two details of static.sh are not kept,
+                 on purpose: the blank line its .pathname check printed on a clean tree, and Python's compile error on
+                 stderr before `✗ py_compile <file>` (here the error follows it, on stdout).
   exit           0 every check passed or was said not to run; 1 a check failed
 """
 from __future__ import annotations

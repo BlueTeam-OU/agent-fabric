@@ -10,7 +10,8 @@ Contract, frozen from run.sh:
   argv     one optional section; any other is an invocation error: stderr says so, exit 2. CI runs one section a leg, and
            a misspelt one ran nothing and said "all suites passed" (review of #68).
   stdout   `== <label>` before each suite's own output, the python suites' runner under its own headers, the leak report,
-           and last `tests/run.py: <n> suite(s) FAILED` when any failed.
+           and last `tests/run.py: <n> suite(s) FAILED` when any failed, else `tests/run.py: all suites passed` (run.sh's
+           two lines under the new name).
   exit     0 every suite passed; 1 some failed (the count is on the last line, and `FAILED_SUITES=<n>` is the python
            runner's); 2 an invocation error; 128+signal when stopped by INT/TERM/HUP (130, 143, 129).
 
@@ -149,20 +150,30 @@ def alive(pid: int) -> bool:
 
 
 def end_tree(root: int, sleep=time.sleep, term_grace: float = TERM_GRACE_S, kill_wait: float = KILL_WAIT_S) -> None:
-    """Ends everything below `root` (not `root`): TERM, KILL after the grace, and a wait until they are gone, or a suite
-    still writing would recreate the directory, or fail in it."""
-    pids = descendants(root)
-    for sig, wait in ((signal.SIGTERM, term_grace), (signal.SIGKILL, kill_wait - term_grace)):
-        for pid in pids:
+    """Ends `root` and everything below it, or a suite still writing would recreate the scratch directory or fail in it.
+    The tree is walked again and again, not once: a root left running starts its next child the moment one dies (a test
+    script's next step, the python runner's next queued suite), and that child is in no earlier snapshot. TERM until the
+    grace is over, KILL after, until nothing alive is left below the root or the wait is over; the root is killed last.
+    (A child started between the last walk and the root's kill is not reached; stopping the root first would close that
+    window, and no test can reach a window that narrow.)"""
+    started = time.monotonic()
+    while True:
+        below = [p for p in descendants(root) if alive(p)]
+        if not below:
+            break
+        elapsed = time.monotonic() - started
+        for pid in below:
             try:
-                os.kill(pid, sig)
+                os.kill(pid, signal.SIGTERM if elapsed < term_grace else signal.SIGKILL)
             except OSError:
                 pass
-        deadline = time.monotonic() + wait
-        while any(alive(p) for p in pids) and time.monotonic() < deadline:
-            sleep(0.1)
-        if not any(alive(p) for p in pids):
-            return
+        if elapsed > kill_wait:
+            break
+        sleep(0.1)
+    try:
+        os.kill(root, signal.SIGKILL)
+    except OSError:
+        pass
 
 
 def invoke(label: str | None, argv: list[str], env: dict[str, str], cwd: str) -> int:
@@ -181,8 +192,10 @@ def invoke(label: str | None, argv: list[str], env: dict[str, str], cwd: str) ->
         return proc.wait()
     except BaseException:
         # subprocess.run would kill only its child, orphaning the child's own: the tree is ended while it is still a tree.
+        # A second signal must not cut that short (a runner's cancel sends INT, then TERM).
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)
         end_tree(proc.pid)
-        proc.kill()
         proc.wait()
         raise
 
@@ -246,6 +259,7 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         if failed:
             print(f"tests/run.py: {failed} suite(s) FAILED")
             return 1
+        print("tests/run.py: all suites passed")
         return 0
     except Signalled as s:
         return 128 + int(s.args[0])
