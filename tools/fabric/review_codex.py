@@ -117,6 +117,20 @@ read to check that, nothing is posted and a warning says so (unknown stays
 unknown); two runs racing on one head can both post, and the arm reads the
 first. With --no-post the comment is printed to stdout instead, unchecked.
 
+THE LEDGER. A run that started Codex appends one row (v1, tools/fabric/ledger.py) to
+<state>/agents/<login>/ledger.jsonl, the file the SubagentStop hook appends the Claude rows to, whatever
+became of the run and before the scratch is gone: token counts from the events' turn.completed usage (a
+review costs what a failed or refused one costs too), summed over the capacity retries, and the wall time
+of the runs, waits excluded. Counts are the account's meter, not a bill: Codex's input_tokens is taken to
+include the cached and the cache-write tokens (the Responses API's usage), so input is the remainder;
+that is the API's documented shape, not measured against the live backend. turns and first_turn_context are
+unknown (null): the events report a turn's total, not its API calls. The status says what became of the
+run: completed, failed, timeout, cancelled (a signal), or allowance-exhausted, the over-allowance model
+apart from every other failure (the owner's refinement, 2026-10-14); a model at capacity after its retries
+is `failed`, status_source codex:capacity. A refusal before Codex started writes no row. The row never
+holds the brief, the answer or any message text. A ledger that cannot be written warns on stderr and
+changes neither the review nor the exit status: a measurement never stands in a review's way.
+
 exit 0 posted (or printed); 1 refused or a failed review, nothing posted;
 2 usage; 3 the model is unavailable (at capacity after the retries, or over
 the allowance), no review posted, the unavailable review above.
@@ -140,6 +154,7 @@ from urllib.parse import urlsplit
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gh  # noqa: E402
+import ledger  # noqa: E402
 import review_brief  # noqa: E402
 import review_gateway  # noqa: E402
 import routing  # noqa: E402
@@ -216,6 +231,10 @@ class Refused(Exception):
 
 class FailedReview(Exception):
     """Codex ran and the review failed; nothing is posted."""
+
+
+class RunTimeout(FailedReview):
+    """Codex did not answer within the run's budget (the ledger's status `timeout`)."""
 
 
 class ModelUnavailable(FailedReview):
@@ -367,11 +386,14 @@ def _git(repo: str, *args: str) -> str:
     return r.stdout.strip()
 
 
-def load_request(path: str, allow_rationale: bool) -> tuple[dict, str]:
-    """The request and its rendered brief, unchanged (rule 1)."""
+def load_request(path: str, allow_rationale: bool, pr: str | None = None) -> tuple[dict, str]:
+    """The request and its rendered brief, unchanged (rule 1) but for the PR number: a request that names none is told the one
+    this review is for, so the dispatch header carries it and the cost reaches that PR (a request's own number wins)."""
     with open(path, encoding="utf-8") as f:
         req = review_brief.parse_request(f.read())
-    brief = review_brief.render(req, allow_rationale=allow_rationale)
+    if pr is not None:
+        req.setdefault("pr", pr)
+    brief = review_brief.render(req, allow_rationale=allow_rationale, engine="codex", purpose="second-engine-review")
     if not req.get("range"):
         raise Refused("the Codex engine reviews a pushed head: the request needs a range, not a diff file")
     return req, brief
@@ -508,8 +530,37 @@ def prove_sandbox(binary: str, workdir: str, env: dict[str, str]) -> None:
         raise FailedReview("the sandbox let a write through; no review is run in a writable tree")
 
 
+class Observed:
+    """What the ledger row is made of: each run's events, in order, with the wall time it took."""
+
+    def __init__(self) -> None:
+        self.runs: list[CodexRun] = []
+        self.started_at: str | None = None   # the first run's start, UTC
+        self.seconds = 0.0
+        self.status: tuple[str, str] | None = None   # (status, status_source) of the run's end
+        self.facts: dict = {}                          # ledger_row's keyword arguments that the review knows
+
+
+    def add(self, run: CodexRun, started_at: str, seconds: float) -> None:
+        self.runs.append(run)
+        self.started_at = self.started_at or started_at
+        self.seconds += seconds
+
+
 def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str, str], prompt: str,
-              timeout_s: float, effort_level: str | None = None) -> str:
+              timeout_s: float, effort_level: str | None = None, observed: Observed | None = None) -> str:
+    """The run, and its events handed to `observed` on every way out, the
+    failed ones included: what a failed review cost is what the ledger is for."""
+    started_at, t0 = _utc_now(), time.monotonic()
+    try:
+        return _run_codex(binary, model, workdir, scratch, env, prompt, timeout_s, effort_level)
+    finally:
+        if observed is not None:
+            observed.add(read_events(os.path.join(scratch, "codex-events.jsonl")), started_at, time.monotonic() - t0)
+
+
+def _run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str, str], prompt: str,
+               timeout_s: float, effort_level: str | None) -> str:
     """Codex's last message, or FailedReview: also when its event stream
     shows it read nothing (read_events). Its process group is ended on every
     way out, so nothing it started outlives the scratch."""
@@ -527,7 +578,7 @@ def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str
             try:
                 p.communicate(prompt.encode("utf-8"), timeout=timeout_s)
             except subprocess.TimeoutExpired:
-                raise FailedReview(f"codex did not answer within {timeout_s / 60:g} minutes") from None
+                raise RunTimeout(f"codex did not answer within {timeout_s / 60:g} minutes") from None
         finally:
             if p.poll() is None or _group_alive(p.pid):
                 _end_group(p)
@@ -551,6 +602,9 @@ def run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[str
     return raw.decode("utf-8", "replace")
 
 
+USAGE_FIELDS = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens")
+
+
 class CodexRun:
     """What `codex exec --json` said it did: its error items, its commands, its last agent message."""
 
@@ -561,6 +615,9 @@ class CodexRun:
         self.last_message: str | None = None
         self.failed: str | None = None   # turn.failed's message
         self.events = 0
+        self.thread_id: str | None = None
+        # The sum over turn.completed events of each usage field; a field no turn reported stays None.
+        self.usage: dict[str, int | None] = dict.fromkeys(USAGE_FIELDS)
 
 
 def read_events(path: str) -> CodexRun:
@@ -586,6 +643,12 @@ def read_events(path: str) -> CodexRun:
                 continue
             run.events += 1
             kind, item = ev.get("type"), ev.get("item")
+            if kind == "thread.started" and isinstance(ev.get("thread_id"), str):
+                run.thread_id = ev["thread_id"][:200]
+            if kind == "turn.completed" and isinstance(ev.get("usage"), dict):
+                for field in USAGE_FIELDS:
+                    if (n := ledger.count(ev["usage"].get(field))) is not None:
+                        run.usage[field] = (run.usage[field] or 0) + n
             if kind == "turn.failed":
                 err = ev.get("error")
                 run.failed = str(err.get("message") if isinstance(err, dict) else err or "the turn failed")
@@ -800,11 +863,92 @@ def post(repo: str, pr: str, body: str) -> int:
     return r.returncode
 
 
+# --- the ledger --------------------------------------------------------------
+
+PURPOSE = "second-engine-review"
+USAGE_UNVERIFIED = ":usage-unverified"
+
+
+def run_status(e: BaseException) -> tuple[str, str]:
+    """The ledger's (status, status_source) for the run an exception ended."""
+    if isinstance(e, ModelUnavailable):
+        return ("allowance-exhausted", "codex:usage-limit") if e.kind == ALLOWANCE else ("failed", "codex:capacity")
+    if isinstance(e, RunTimeout):
+        return "timeout", "codex:timeout"
+    if isinstance(e, _Signalled):
+        return "cancelled", "codex:signal"
+    if isinstance(e, FailedReview):
+        return "failed", "codex:failed-review"
+    return "failed", "codex:error"
+
+
+def ledger_row(observed: Observed, *, brief: str, pr: str, head: str,
+               model: str, level: str | None, now: str) -> dict:
+    """Row v1 of a Codex review run (tools/fabric/ledger.py; the module docstring has the token semantics).
+    A brief with the dispatch header gives the header's fields alone; one without gives the two facts this review
+    holds (the PR it was told, the head it read), as a row with attribution "inferred". The repository stays
+    unknown then: the request names a working copy's path, and owner/name is the header's to derive (a PR is
+    never read out of free text, a repository out of a path)."""
+    attribution, fields = ledger.dispatch_header(brief)
+    if attribution == "inferred":
+        fields = {"pr": int(pr), "head_sha": head}
+    usage = {f: sum(r.usage[f] for r in observed.runs if r.usage[f] is not None) if any(r.usage[f] is not None for r in observed.runs)
+             else None for f in USAGE_FIELDS}
+    total, cached, written = usage["input_tokens"], usage["cached_input_tokens"], usage["cache_write_input_tokens"]
+    # UNVERIFIED against a live backend (no ChatGPT sign-in on the login that wrote this; the stand-in endpoint's
+    # streams carry the field names, not the semantics): the Responses API counts cached tokens inside
+    # input_tokens, and cache_write_input_tokens is assumed inside it too. A row carrying a usage figure says so in
+    # its status_source (USAGE_UNVERIFIED) until one real turn.completed has been read and pinned in the test.
+    fresh = None if total is None else total - (cached or 0) - (written or 0)
+    source = observed.status[1] if observed.status else "codex:error"
+    if any(v is not None for v in usage.values()):
+        source += USAGE_UNVERIFIED
+    return {
+        "schema_version": ledger.SCHEMA_VERSION, "engine": ENGINE, "attribution": attribution,
+        "purpose": fields.get("purpose", PURPOSE), "description": None,
+        **{k: fields.get(k) for k in (*ledger.HEADER_IDENT[:4], "repository", "pr", "review_id", "review_round",
+                                      "evidence", "base_sha", "head_sha")},
+        "started_at": fields.get("started_at") or observed.started_at,
+        "session_id": next((r.thread_id for r in observed.runs if r.thread_id), None),
+        "agent_id": None, "agent_type": None, "tool_use_id": None,
+        "status": (observed.status or ("failed", "codex:error"))[0],
+        "status_source": source, "completed_at": now,
+        "wall_time": round(observed.seconds, 3), "turns": None,
+        "input": fresh if fresh is not None and fresh >= 0 else None, "cache_write": written, "cache_read": cached,
+        "output": usage["output_tokens"], "reasoning": usage["reasoning_output_tokens"], "first_turn_context": None,
+        "model": model, "provider": PROVIDER, "effort": level,
+    }
+
+
+def write_ledger(environ: dict[str, str], observed: Observed) -> None:
+    """Never raises: a measurement does not stand in a review's way, and says when it could not be made."""
+    try:
+        ledger.append(ledger.path(environ), ledger_row(observed, now=_utc_now(), **observed.facts))
+    except (OSError, ValueError, TypeError, KeyError) as err:
+        print(f"fabric-review: the ledger row could not be written ({err}); the review is unaffected", file=sys.stderr)
+
+
 # --- the run -----------------------------------------------------------------
 
-def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float, allow_rationale: bool,
-           no_post: bool, environ: dict[str, str], gateway: str | None = None, signin_home: str | None = None,
-           effort_flag: str | None = None) -> int:
+def review(pr: str, request: str, **kw) -> int:
+    """_review, then the ledger row of the Codex runs it made, on every way out (an answer, a failure, a
+    timeout, a signal); the runs' events were handed over by run_codex before its scratch was removed."""
+    observed = Observed()
+    try:
+        return _review(pr, request, observed=observed, **kw)
+    except BaseException as e:
+        observed.status = observed.status or run_status(e)
+        raise
+    finally:
+        # No run, no row: a refusal before Codex started cost nothing and is no dispatch (the hook writes
+        # none for a subagent that made no API call either).
+        if observed.runs:
+            write_ledger(kw["environ"], observed)
+
+
+def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float, allow_rationale: bool,
+            no_post: bool, environ: dict[str, str], observed: Observed, gateway: str | None = None,
+            signin_home: str | None = None, effort_flag: str | None = None) -> int:
     """With `gateway` None the gateway is the environment's (ENV_BASE_URL, ENV_KEY); with "chatgpt",
     review_gateway.py starts one of its own for this review and stops it before anything is posted."""
     if gateway is None:
@@ -816,13 +960,14 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
     route = Route() if not explicit_model or (gateway and not explicit_effort) else None
     model, binary = codex_settings(environ, model_flag, route)
     level = effort(environ, effort_flag, route.effort(model) if gateway and route else None)
-    req, brief = load_request(request, allow_rationale)
+    req, brief = load_request(request, allow_rationale, pr)
     repo = req["repository"]
     head = range_head(req)
     if pr_head(repo, pr) != head:
         raise Refused(f"the request's head {head[:12]} is not PR #{pr}'s head: a review is posted against the PR's "
                       "head, so it must be the one read (update the request's range)")
     root = scratch_root(repo, environ)
+    observed.facts = {"brief": brief, "pr": pr, "head": head, "model": model, "level": level}
 
     def attempt() -> list[dict]:
         # Everything a run needs is made here and gone when it ends, so a retry is as fresh as the first run.
@@ -841,7 +986,7 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
                 env = child_env(environ, scratch, codex_home(scratch, base_url, account_id(env_run)), key)
                 prompt = brief.rstrip("\n") + "\n" + ANSWER_SHAPE
                 prove_sandbox(binary, workdir, env)
-                return parse_answer(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level))
+                return parse_answer(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level, observed))
             finally:
                 shutil.rmtree(scratch, ignore_errors=True)
 
@@ -867,6 +1012,7 @@ def review(pr: str, request: str, *, model_flag: str | None, timeout_min: float,
                               file=sys.stderr)
                 raise
             _sleep(CAPACITY_RETRY_DELAYS_S[runs - 1])
+    observed.status = ("completed", "codex:answer")   # the run's; what happens to its answer after is not
     if not no_post and pr_head(repo, pr) != head:
         raise Refused(f"PR #{pr} moved while Codex read {head[:12]}; nothing posted — run it on the new head")
     body = render_review(model, head, req["range"], findings, level)

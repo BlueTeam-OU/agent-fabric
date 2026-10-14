@@ -466,9 +466,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   rule 8).
 - A 2026-10-05 — the reviewer inherits no secret: every command its fence
   lets through runs with a clean environment (§5 rule 4).
+- A 2026-10-14 — the project review card governs from the base, never
+  the head, and the reviewer's agent file omits the project's instruction
+  files (§5 rule 9); a review names its evidence mode, only `pinned`
+  (`git show <head>:<path>`) counts as coverage of a head, and
+  `working-tree` is labelled and never posted as a review of a head
+  (§5 rule 10).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
-  review-grade, substitute.
+  review-grade, substitute, review card, evidence mode, pinned,
+  working-tree.
 
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 
@@ -1154,6 +1161,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — every login reviews on a synced access token; both engines by default (§5 rules 6, 8).
 - A 2026-10-13 — the record requires a review; the arming policy names the engines (now both) (§5 rule 6).
 - A 2026-10-13 — codex additional: its review or unavailable marker per head (§5 rule 6, ADR-055 rule 8).
+- A 2026-10-14 — findings are judged once per head: one judging dispatch for every open finding of both engines (§5 rule 5).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 

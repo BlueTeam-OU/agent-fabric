@@ -233,6 +233,88 @@ else:
     check("an Answers: line in the prose answers nothing: work", (r["work"], r["fix"]) == (1, 0), r)
     check("folds_of: no repository, head or merge commit, no lookup",
           results.folds_of("", HEAD, "m" * 40) is None and results.folds_of("o/r", "", "m" * 40) is None and results.folds_of("o/r", HEAD) is None)
+    # The review cost: the ledger's rows (through the tokens fan-out's `by_pr`) of the verified results whose
+    # repository and PR number are their own.
+    into: dict = {}
+    results.add_ledger(into, {"o/r": {"7": {"review": {"claude": 300}, "second-engine-review": {"codex": 100}}, "8": {"review": {"claude": 50}}}})
+    results.add_ledger(into, {"o/r": {"7": {"review": {"claude": 200}}}, "p/q": {"7": {"review": {"claude": 1}}}})
+    results.add_ledger(into, {"o/r": {"9": {"review": {"claude": "many", "codex": True, "x": -1}}}, "bad": 5})
+    results.add_ledger(into, {"o/r": {"11": {"review": {"claude": 5000}}}})
+    results.add_ledger(into, None)
+    check("add_ledger sums logins' answers; a number that is not a count is left out whole",
+          into == {"o/r": {"7": {"review": {"claude": 500}, "second-engine-review": {"codex": 100}}, "8": {"review": {"claude": 50}},
+                           "11": {"review": {"claude": 5000}}},
+                   "p/q": {"7": {"review": {"claude": 1}}}}, into)
+    mixed: dict = {}
+    results.add_ledger(mixed, {"blueteam-ou/agent-fabric": {"7": {"review": {"claude": 5}}}})
+    results.add_ledger(mixed, {"BlueTeam-OU/Agent-Fabric": {"7": {"review": {"claude": 6}}}})
+    results.add_unknown(mixed_unknown := {}, {"blueteam-ou/agent-fabric": {"7": 2}})
+    check("a repository's owner is compared without case: the ledger's rows are lowercase, the registry's name is not",
+          mixed == {"blueteam-ou/agent-fabric": {"7": {"review": {"claude": 11}}}}
+          and results.review_cost([("BlueTeam-OU/agent-fabric", 7)], mixed, mixed_unknown)
+          == {"verified": 1, "with_rows": 1, "unknown_rows": 2, "by_purpose": {"review/claude": {"median": 11, "total": 11}}}, mixed)
+    rc = results.review_cost([("o/r", 7), ("o/r", 8), ("o/r", 10), ("o/r", 11)], into)
+    check("review_cost: results with rows counted, a result without rows left out of the medians (10 has none)",
+          (rc["verified"], rc["with_rows"]) == (4, 3), rc)
+    check("…median and total per purpose/engine; a purpose a result with rows lacks counts 0 for it",
+          rc["by_purpose"] == {"review/claude": {"median": 500, "total": 5550}, "second-engine-review/codex": {"median": 0, "total": 100}}, rc)
+    check("…the same PR number in another repository is not this one's",
+          results.review_cost([("p/q", 7)], into)["by_purpose"] == {"review/claude": {"median": 1, "total": 1}})
+    check("…no ledger rows for any: with_rows 0",
+          results.review_cost([("o/r", 10)], into) == {"verified": 1, "with_rows": 0, "unknown_rows": 0, "by_purpose": {}})
+    unk: dict = {}
+    results.add_unknown(unk, {"o/r": {"7": 2, "10": 1, "x": True, "y": -1}, "bad": 3})
+    results.add_unknown(unk, {"o/r": {"10": 1}})
+    rc = results.review_cost([("o/r", 7), ("o/r", 10)], into, unk)
+    check("a PR whose only rows are of unknown cost has no cost (not 0), and the unknown rows are counted apart",
+          (rc["with_rows"], rc["unknown_rows"], rc["by_purpose"]["review/claude"]["total"]) == (1, 4, 500), rc)
+    # spend(): the fan-out's lines carry by_pr beside the models; a login without transcripts can still hold ledger rows.
+    def line(account, status, by_pr=None, unknown=None):
+        return json.dumps({"account": account, "tokens": {"status": status, "models": {"m": {"path": "claude", "equiv": 5}},
+                                                          "by_pr": by_pr, "unknown_by_pr": unknown}}) + "\n"
+    real_run = results.subprocess.run
+    results.subprocess.run = lambda *a, **k: type("R", (), {"stdout": line("a", "ok", {"o/r": {"7": {"review": {"claude": 4}}}})
+                                                          + line("b", "ok", {"o/r": {"7": {"review": {"claude": 6}}}}, {"o/r": {"7": 1}})
+                                                          + line("c", "no-records", {"o/r": {"7": {"review": {"claude": 1}}}}, {"o/r": {"7": 2}})
+                                                          + "not json\n"})()
+    try:
+        sp = results.spend(7)
+    finally:
+        results.subprocess.run = real_run
+    check("spend: by_pr and unknown_by_pr summed over logins, one with no transcripts included (its rows are its own), beside the per-path spend",
+          sp is not None and sp["by_pr"] == {"o/r": {"7": {"review": {"claude": 11}}}} and sp["unknown_by_pr"] == {"o/r": {"7": 3}}
+          and sp["by_account"] == {"a": {"claude": 5}, "b": {"claude": 5}}, sp)
+    # main(): the text and the JSON.
+    def mainrun(whole, args):
+        saved = (results.main_commits, results.merged_prs, results.spend)
+        results.main_commits = lambda repo, since: []
+        results.merged_prs = lambda repo, since: [
+            pr(number=7, mergedAt="2026-09-01T10:00:00Z"), pr(number=8, mergedAt="2026-09-02T10:00:00Z")]
+        results.spend = lambda days: whole
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                results.main(args)
+            return out.getvalue()
+        finally:
+            results.main_commits, results.merged_prs, results.spend = saved
+    # (judge() is the real one: two reviewed, green PRs merged long before now are verified.)
+    whole = {"by_account": {"a": {"claude": 5}}, "by_pr": {"BlueTeam-OU/agent-fabric": {"7": {"review": {"claude": 2_000_000}}}}}
+    text = mainrun(whole, ["--days", "100", "--window", "1"])
+    check("main: the cost line names the repository, how many verified results have rows, median and total",
+          "review cost, BlueTeam-OU/agent-fabric: 1 of 2 verified results have ledger rows" in text
+          and "review/claude: median 2.00M, total 2.00M" in text, text[-500:])
+    text = mainrun({"by_account": {"a": {"claude": 5}}, "by_pr": {}}, ["--days", "100", "--window", "1"])
+    check("main: no matching row says 'no ledger rows', not a cost of 0",
+          "review cost, BlueTeam-OU/agent-fabric: no ledger rows with a cost for its 2 verified results" in text and "median" not in text, text[-400:])
+    text = mainrun({"by_account": {"a": {"claude": 5}}, "by_pr": {}, "unknown_by_pr": {"BlueTeam-OU/agent-fabric": {"7": 1}}},
+                   ["--days", "100", "--window", "1"])
+    check("main: rows of unknown cost are said, not turned into a median of 0",
+          "1 ledger rows of unknown cost" in text and "median" not in text, text[-400:])
+    text = mainrun(None, ["--days", "100", "--window", "1", "--no-tokens"])
+    check("main --no-tokens: the review cost is said not read", "review cost: not read" in text, text[-300:])
+    js = json.loads(mainrun(whole, ["--days", "100", "--window", "1", "--json"]))
+    check("main --json: review_cost per repository", js["summary"]["review_cost"]["BlueTeam-OU/agent-fabric"]["with_rows"] == 1, js["summary"])
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

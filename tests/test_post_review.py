@@ -13,6 +13,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 import results  # noqa: E402
+import review_brief  # noqa: E402
 from github import post_review, pr_reply, pr_review_status  # noqa: E402
 
 LOC = "identities/roles/language-culture/locale/ge/team.md"
@@ -33,6 +34,100 @@ def main() -> int:
     print("the lane predicate agrees with pr-reply's")
     for b in ("h/l/feat/x", "h/l/Fix/x", "h/l/x", "dependabot/pub/a/b", "/l/feat/x", "snyk-bot/a/b/c"):
         check(f"'{b}'", post_review.branch_names_a_session(b) == pr_reply.branch_names_a_session(b))
+
+    print("a report's dispatch header: only pinned posts (agent-fabric ADR-020 §5 rule 10)")
+
+    def header(**req) -> str:
+        """The header as review_brief renders it into a brief, for a request of these fields."""
+        return "\n".join(review_brief.dispatch_header({"mode": "review", "repository": "/nowhere", **req}, None,
+                                                       "claude", None, "d-1", "2026-10-14T00:00:00Z"))
+
+    pinned, tree = header(range="a..b"), header(diff="/x.diff")
+    check("the producer's two modes are what is told apart",
+          '"evidence_mode": "pinned"' in pinned and '"evidence_mode": "working-tree"' in tree)
+    for label, body, refused in (
+        ("no header: posts", "F1 (P2) …", False),
+        ("a pinned header: posts", f"{pinned}\nF1 (P2) …", False),
+        ("a working-tree header: refused", f"{tree}\nF1 (P2) …", True),
+        ("working-tree below the findings: refused", f"F1 (P2) …\n\n{tree}\n", True),
+        ("a pinned and a working-tree header: refused", f"{pinned}\n{tree}", True),
+        ("indented, tilde-fenced: refused", "  ~~~agent-fabric-dispatch v1\n" + tree.split("\n", 1)[1].rsplit("\n", 1)[0] + "\n  ~~~", True),
+        ("evidence_mode explicitly working-tree on a ranged request: refused", header(range="a..b", evidence="working-tree"), True),
+        ("no evidence_mode: refused", "```agent-fabric-dispatch v1\n{\"engine\": \"claude\"}\n```", True),
+        ("not JSON: refused", "```agent-fabric-dispatch v1\nevidence_mode: pinned\n```", True),
+        ("never closed: refused", pinned.rsplit("\n", 1)[0], True),
+        ("another version's fence: refused, the name outside a header it reads", "```agent-fabric-dispatch v2\n{}\n```", True),
+        ("CRLF line ends, working-tree: refused", tree.replace("\n", "\r\n") + "\r\nF1", True),
+        ("CRLF line ends, pinned: posts", pinned.replace("\n", "\r\n") + "\r\nF1", False),
+        ("evidence_mode given twice: refused",
+         '```agent-fabric-dispatch v1\n{"evidence_mode": "working-tree", "evidence_mode": "pinned"}\n```', True),
+        ("a pinned header whose JSON quotes a fence: posts",
+         "````agent-fabric-dispatch v1\n{\"evidence_mode\": \"pinned\", \"note\": \"```\"}\n````", False),
+
+        # CommonMark allows spaces between the fence and its info string (review of #259, F5).
+        ("a spaced fence, working-tree: refused", tree.replace("```agent", "``` agent", 1) + "\nF1", True),
+        ("a spaced tilde fence with a tab, working-tree: refused",
+         "~~~ \tagent-fabric-dispatch v1\n" + tree.split("\n", 1)[1].rsplit("\n", 1)[0] + "\n~~~", True),
+        ("a spaced fence, pinned: posts", pinned.replace("```agent", "```  agent", 1) + "\nF1", False),
+
+        # A header DISPATCH_FENCE does not see is not read, so the name anywhere else refuses (review of #259, risk 1).
+        ("a working-tree header in a blockquote: refused", "F1 (P2) …\n\n" + "\n".join("> " + l for l in tree.split("\n")), True),
+        ("a pinned header in a blockquote: refused, unread", "\n".join("> " + l for l in pinned.split("\n")) + "\nF1", True),
+        ("a working-tree header in a list item: refused",
+         "- F1 (P2) quotes:\n  - " + tree.replace("\n", "\n    "), True),
+        ("a pinned header, then a list item opening a working-tree one: refused",
+         f"{pinned}\n- " + tree.replace("\n", "\n  "), True),
+        ("a header nested in a list item's blockquote: refused",
+         "1. F1 quotes:\n   > " + tree.replace("\n", "\n   > "), True),
+        ("a spaced fence in a blockquote: refused", "\n".join("> " + l for l in tree.replace("```agent", "``` agent", 1).split("\n")), True),
+        # Only a fence opens a header: prose and a quoted hunk naming it carry none, and post (supplier review, F1).
+        ("the name in prose: posts", f"{pinned}\nF1 (P3) the agent-fabric-dispatch header is long", False),
+        ("the version in inline code: posts", "F1 (P3) `agent-fabric-dispatch v1` is long", False),
+        ("a quoted diff adding and removing a header's fence: posts, + and - opening no list item",
+         "F1 (P2) quotes the hunk:\n```diff\n+```agent-fabric-dispatch v1\n+{}\n+```\n-```agent-fabric-dispatch v1\n```", False),
+        ("a list item whose marker has a tab: refused", "-\t" + tree.replace("\n", "\n  "), True),
+        ("a quoted hunk naming it: posts",
+         "F1 (P2)\n```\n+DISPATCH_VERSION = \"agent-fabric-dispatch v1\"\n```", False),
+    ):
+        why = post_review.evidence_refusal(body)
+        check(label, bool(why) is refused and (not refused or "agent-fabric-dispatch v1" in why))
+    check("a working-tree refusal says what it read and the rule",
+          all(w in post_review.evidence_refusal(tree) for w in ("'working-tree'", "ADR-020 §5 rule 10", "line 1")))
+    quoted = post_review.evidence_refusal(f"{pinned}\nF1 quotes the fixture:\n\n````markdown\n{tree}\n````\n")
+    check("a pinned report quoting a working-tree header: refused, saying a quote counts and where it is",
+          "one it quotes too" in quoted and f"line {len(pinned.splitlines()) + 4}" in quoted)
+
+    blockquoted = post_review.evidence_refusal("F1 (P2) …\n\n" + "\n".join("> " + l for l in tree.split("\n")))
+    check(f"a stray name's refusal names its line and says what to do (got {blockquoted!r})",
+          blockquoted.startswith("line 3 opens an agent-fabric-dispatch fence") and "blockquote" in blockquoted
+          and "Take the block out" in blockquoted)
+    later = post_review.evidence_refusal(f"{pinned}\nF1\n> {pinned.splitlines()[0]}")
+    check("a stray after a recognised header is counted from the report's first line",
+          later.startswith(f"line {len(pinned.splitlines()) + 2} opens"))
+    check("a line is counted by \\n, not by every break splitlines knows",
+          post_review.evidence_refusal(f"F1 a\u2028b\x0cc\nF2\n> {tree.splitlines()[0]}").startswith("line 3 ")
+          and "header at line 2 " in post_review.evidence_refusal(f"F1 a\u2028b\n{tree}"))
+
+    print("the posted report carries no dispatch header (review of #259, risk 1)")
+    named = header(range="a..b", job_id="j9")
+    check("the fixture header names a job", '"job_id": "j9"' in named)
+    strip = post_review.without_dispatch_headers
+    for label, body, want in (
+        ("no header: the report byte for byte", "F1 (P2) …\r\n\n", "F1 (P2) …\r\n\n"),
+        ("a pinned header on top: only the findings", f"{named}\n\nF1 (P2) …", "F1 (P2) …"),
+        ("a spaced fence: taken out too", named.replace("```agent", "``` agent", 1) + "\nF1", "F1"),
+        ("CRLF line ends: taken out", (named + "\nF1").replace("\n", "\r\n"), "F1"),
+        ("CRLF line ends: the rest keeps them", (named + "\nF1\nF2\n").replace("\n", "\r\n"), "F1\r\nF2"),
+        ("line breaks splitlines knows besides \\n: kept as they are",
+         f"{named}\nF1 a\u2028b\x0cc\x1dd\u0085e", "F1 a\u2028b\x0cc\x1dd\u0085e"),
+        ("two headers, one quoted: both out, the prose kept",
+         f"{named}\nF1 quotes it:\n\n````markdown\n{named}\n````\nF2", "F1 quotes it:\n\n````markdown\n````\nF2"),
+        ("a longer fence holding a fence-like line: the whole header out",
+         "````agent-fabric-dispatch v1\n{\"evidence_mode\": \"pinned\", \"note\": \"```\"}\n````\nF1", "F1"),
+        ("another version's block: kept", "```agent-fabric-dispatch v2\n{}\n```", "```agent-fabric-dispatch v2\n{}\n```"),
+    ):
+        got = strip(body)
+        check(f"{label} (got {got!r})", got == want and review_brief.DISPATCH_VERSION not in got)
 
     print("locale_only fails closed")
     real_run = gh.run

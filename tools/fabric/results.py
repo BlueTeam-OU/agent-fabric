@@ -25,6 +25,20 @@ record names no repository, so the spend is the whole fleet's: it is divided
 by verified results only with --all, when the results cover every registered
 project too; per-repository cost waits on that attribution.
 
+The **review cost** of a verified result (review economics P1) is read from the
+dispatch ledger (tools/fabric/ledger.py), through the same fan-out: each login's
+tokens answer carries `by_pr`, the input-token equivalents of the ledger rows that
+name a repository and a pull request, by purpose (primary-review, re-review,
+finding-adjudication, second-engine-review…) and engine. A verified result is costed from the rows whose
+repository and PR number are its own — none by title, branch or guess — and a
+repository says "no ledger rows" when none of its verified results has one. A PR's
+rows are all its own, however old (its reviews precede its merge, and the span of the
+spend would cut them); the ledger only exists from the day its hook was installed, so an
+older PR has no rows: "no ledger rows", not a cost of 0. A row whose run reported no
+usage (a Codex run that timed out) has an unknown cost: it is counted and said, and added
+to no figure. Medians and totals are over the verified results that have rows; a purpose
+a result with rows lacks counts 0 for it.
+
 Every number is a trend to read, never a target and never a comparison
 between agents (ADR-026 §5 rule 4, ADR-036 §5 rule 4).
 """
@@ -35,6 +49,7 @@ import datetime as dt
 import json
 import os
 import re
+import statistics
 import subprocess
 import sys
 
@@ -146,6 +161,47 @@ def registered_repos() -> list[str]:
     return sorted(set(out))
 
 
+def add_ledger(into: dict, by_pr) -> None:
+    """Sum one login's `by_pr` ({owner/name: {"<pr>": {purpose: {engine: equiv}}}}) into `into`. A shape or a
+    number that is not the ledger's is left out whole, not repaired: a cost that cannot be read is absent."""
+    if not isinstance(by_pr, dict):
+        return
+    for repo, prs in by_pr.items():
+        repo = str(repo).lower()      # the ledger stores a repository lowercased; the registry and --repo spell the owner as GitHub does
+        for pr, purposes in (prs.items() if isinstance(prs, dict) else ()):
+            for purpose, engines in (purposes.items() if isinstance(purposes, dict) else ()):
+                for engine, eq in (engines.items() if isinstance(engines, dict) else ()):
+                    if isinstance(eq, int) and not isinstance(eq, bool) and eq >= 0:
+                        cell = into.setdefault(repo, {}).setdefault(str(pr), {}).setdefault(purpose, {})
+                        cell[engine] = cell.get(engine, 0) + eq
+
+
+def add_unknown(into: dict, unknown_by_pr) -> None:
+    """Sum one login's `unknown_by_pr` ({owner/name: {"<pr>": n}}): rows of that PR whose cost the run did not report."""
+    if not isinstance(unknown_by_pr, dict):
+        return
+    for repo, prs in unknown_by_pr.items():
+        repo = str(repo).lower()
+        for pr, n in (prs.items() if isinstance(prs, dict) else ()):
+            if isinstance(n, int) and not isinstance(n, bool) and n >= 0:
+                into.setdefault(repo, {})[str(pr)] = into.get(repo, {}).get(str(pr), 0) + n
+
+
+def review_cost(verified: list[tuple[str, int]], by_pr: dict, unknown: dict | None = None) -> dict:
+    """One repository's verified results [(repo, number)] against the ledger's `by_pr`: how many have rows, and
+    per "purpose/engine" the median and the total of input-token equivalents over those that do."""
+    # The ledger stores a repository lowercased, the registry and --repo spell the owner as GitHub does: compared without case.
+    by_pr = {str(k).lower(): v for k, v in by_pr.items()}
+    unknown = {str(k).lower(): v for k, v in (unknown or {}).items()}
+    costs = [by_pr.get(repo.lower(), {}).get(str(n)) for repo, n in verified]
+    costs = [c for c in costs if c]
+    keys = sorted({(p, e) for c in costs for p, engines in c.items() for e in engines})
+    per = {k: [c.get(k[0], {}).get(k[1], 0) for c in costs] for k in keys}
+    unknown_rows = sum(unknown.get(repo.lower(), {}).get(str(n), 0) for repo, n in verified)
+    return {"verified": len(verified), "with_rows": len(costs), "unknown_rows": unknown_rows,
+            "by_purpose": {f"{p}/{e}": {"median": int(statistics.median(v)), "total": sum(v)} for (p, e), v in per.items()}}
+
+
 def spend(days: int) -> dict | None:
     """Input-token equivalents per path over the period, from every login's
     own records; None when the control plane cannot be asked."""
@@ -155,18 +211,22 @@ def spend(days: int) -> dict | None:
     except (OSError, subprocess.TimeoutExpired):
         return None
     by_account = {}
+    by_pr: dict = {}
+    unknown: dict = {}
     for line in out.splitlines():
         try:
             rec = json.loads(line)
         except ValueError:
             continue
         t = rec.get("tokens") or {}
+        add_ledger(by_pr, t.get("by_pr"))   # before the status gate: a login with no transcripts can hold ledger rows
+        add_unknown(unknown, t.get("unknown_by_pr"))
         if t.get("status") != "ok":
             continue
         acct = by_account.setdefault(rec.get("account") or f"?{len(by_account)}", {})
         for m in (t.get("models") or {}).values():
             acct[m.get("path", "?")] = acct.get(m.get("path", "?"), 0) + int(m.get("equiv") or 0)
-    return {"by_account": by_account} if by_account else None
+    return {"by_account": by_account, "by_pr": by_pr, "unknown_by_pr": unknown} if by_account else None
 
 
 def period_cost(whole: dict | None, recent: dict | None) -> dict | None:
@@ -244,6 +304,10 @@ def main(argv: list[str] | None = None) -> int:
     whole, recent = (None, None) if a.no_tokens else (spend(a.days + a.window), spend(a.window))
     cost = period_cost(whole, recent)
     summary = summarize(rows, since=since, end=end, window=a.window, repos=repos, cost=cost, every_repo=a.all)
+    summary["review_cost"] = (None if not whole else
+                              {repo: review_cost([(r["repo"], r["number"]) for r in rows
+                                                  if r["in_period"] and r["repo"] == repo and r["status"] == "verified"],
+                                                 whole.get("by_pr") or {}, whole.get("unknown_by_pr")) for repo in repos})
     # Both reads answered, for different logins: said as that, not as "not
     # read" (review of #70).
     if whole and recent and not cost:
@@ -261,6 +325,16 @@ def main(argv: list[str] | None = None) -> int:
     print(f"after the period, still inside their windows, not counted: {pending}")
     print(f"supervision events on the verified results: {sup} ({summary['supervision_per_result']} per result); "
           f"not yet read: {', '.join(summary['unread_inputs'])}")
+    for repo, rc in (summary["review_cost"] or {}).items():
+        lost = f"; {rc['unknown_rows']} ledger rows of unknown cost (the run reported no usage), counted in none" if rc["unknown_rows"] else ""
+        if not rc["with_rows"]:
+            print(f"review cost, {repo}: no ledger rows with a cost for its {rc['verified']} verified results{lost}")
+            continue
+        per = ", ".join(f"{k}: median {v['median'] / 1e6:.2f}M, total {v['total'] / 1e6:.2f}M" for k, v in rc["by_purpose"].items())
+        print(f"review cost, {repo}: {rc['with_rows']} of {rc['verified']} verified results have ledger rows; "
+              f"input-token equivalents over those: {per}{lost}")
+    if summary["review_cost"] is None:
+        print("review cost: not read (--no-tokens, or the control plane did not answer)")
     if cost:
         paths = ", ".join(f"{p}: {v / 1e6:.1f}M" for p, v in sorted(cost["by_path"].items()))
         per = ", ".join(f"{p}: {v / 1e6:.1f}M" for p, v in sorted(summary.get("spend_per_result", {}).items()))

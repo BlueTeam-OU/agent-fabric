@@ -43,25 +43,50 @@ claims nothing was required.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
+import subprocess
 import sys
+import uuid
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runtime"))
 
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 LENSES_DIR = os.path.join(FABRIC_ROOT, "runtime", "claude-code", "review", "lenses")
 BRIEF_VERSION = "agent-fabric review brief v1"
 
-MODES = ("review", "re-review")
-SCALAR_KEYS = ("mode", "repository", "range", "diff", "objective", "previous_findings")
+MODES = ("review", "re-review", "finding-adjudication")
+# What the dispatch header calls each mode; second-engine-review is written
+# by review_codex.py itself, which passes it to render().
+PURPOSES = {"review": "primary-review", "re-review": "re-review", "finding-adjudication": "finding-adjudication"}
+EVIDENCE_MODES = ("pinned", "working-tree")
+SCALAR_KEYS = ("mode", "repository", "range", "diff", "objective", "previous_findings",
+               "job_id", "review_id", "evidence", "card_base")
+# A PR number and a review round: a request in YAML gives a string, in JSON a number.
+COUNT_KEYS = ("pr", "review_round")
+DISPATCH_VERSION = "agent-fabric-dispatch v1"
 LIST_KEYS = ("requirements", "invariants", "compatibility", "threat_model", "scope", "out_of_scope", "lenses")
-KNOWN_KEYS = SCALAR_KEYS + LIST_KEYS
+KNOWN_KEYS = SCALAR_KEYS + COUNT_KEYS + LIST_KEYS
 # The free text the rationale lint reads: everything a dispatcher writes in words.
 FREE_TEXT_KEYS = ("objective", "requirements", "invariants", "compatibility", "threat_model", "scope", "out_of_scope")
 RANGE_RE = re.compile(r"^[A-Za-z0-9_./~^-]+\.\.[A-Za-z0-9_./~^-]+$")
 LENS_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+COUNT_RE = re.compile(r"^[1-9][0-9]*$")
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 MANY_LENSES = 3
+# The project's own text a reviewer gets (agent-fabric ADR-020): the reviewer
+# runs without the project's instruction files (omitClaudeMd), so this card
+# is all of it, and it is re-sent every turn: a cap, refused over, not truncated.
+# It is read from the request's BASE commit, never the working tree or the
+# head: a change under review must not write its own rules of review. The
+# head's copy is evidence, and the card's own diff is in the reviewed range.
+CARD_PATH = ".agent-fabric/review-card.md"
+CARD_CAP = 2048
 
 # Verdict-shaped phrasing: the author's conclusion about the change, not
 # a fact about what must be true. Kept short and each one actionable —
@@ -240,6 +265,102 @@ def lenses(lenses_dir: str | None = None) -> dict[str, dict]:
     return out
 
 
+def _git(repo: str, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", repo, *args], capture_output=True, timeout=60)
+
+
+def _commit_of(repo: str, rev: str) -> str | None:
+    """The commit `rev` names now, as review_rounds.py resolves a head."""
+    r = _git(repo, "rev-parse", "--verify", "-q", f"{rev}^{{commit}}")
+    return r.stdout.decode().strip() if r.returncode == 0 else None
+
+
+def default_ref(repo: str) -> str | None:
+    """The ref the default branch is read from: the registry's default_branch
+    for the repository's project, else origin's HEAD, else main; the
+    remote-tracking ref where there is one (a local copy of it may be stale)."""
+    names: list[str] = []
+    try:
+        import workingcopy
+        entry = (workingcopy.load_registry().get("projects") or {}).get(workingcopy.resolve(repo).get("project") or "")
+        if isinstance(entry, dict) and isinstance(entry.get("default_branch"), str):
+            names.append(entry["default_branch"])
+    except Exception:  # an unreadable registry falls through to what git says
+        pass
+    head = _git(repo, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD")
+    if head.returncode == 0 and head.stdout.decode().strip().startswith("origin/"):
+        names.append(head.stdout.decode().strip()[len("origin/"):])
+    names.append("main")
+    for name in names:
+        for ref in (f"origin/{name}", name):
+            if _commit_of(repo, ref):
+                return ref
+    return None
+
+
+def _default_tip(repo: object) -> str | None:
+    """The default branch's tip, where a diff file (a working tree with no
+    base commit) reads the card: the same governed source as a ranged review's."""
+    ref = default_ref(repo) if isinstance(repo, str) and repo else None
+    return _commit_of(repo, ref) if ref else None
+
+
+def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
+    """({base_sha, head_sha, card_base}, refusals) for a ranged request: both
+    ends resolved now, and the card's base (the request's `card_base`, which
+    review_rounds carries across a re-review, else the range's base) refused
+    unless it is an ancestor of the default branch. None for a diff file."""
+    rng, repo = req.get("range"), req.get("repository")
+    if not (isinstance(rng, str) and RANGE_RE.fullmatch(rng) and isinstance(repo, str)):
+        return None, []
+    base, head = rng.split("..", 1)
+    base_sha, head_sha = _commit_of(repo, base), _commit_of(repo, head)
+    problems = [f"range: {end!r} is not a commit in {repo}" for end, sha in ((base, base_sha), (head, head_sha)) if not sha]
+    if problems:
+        return None, problems
+    wanted = req.get("card_base")
+    card_base = _commit_of(repo, wanted) if isinstance(wanted, str) and wanted else base_sha
+    if not card_base:
+        return None, [f"card_base: {wanted!r} is not a commit in {repo}"]
+    ref = default_ref(repo)
+    if ref is None:
+        return None, [f"range: the default branch of {repo} cannot be found, so base {base!r} cannot be checked against it"]
+    if _git(repo, "merge-base", "--is-ancestor", card_base, ref).returncode != 0:
+        return None, [f"range: base {base!r} ({card_base[:12]}) is not an ancestor of {ref}; the project review card is read from "
+                      f"the base, and only a commit the default branch contains may govern a review"
+                      + ("" if wanted else "; name card_base (a full commit id the default branch contains, the first round's base) in the request")]
+    return {"base_sha": base_sha, "head_sha": head_sha, "card_base": card_base}, []
+
+
+def card(repo: object, base_sha: str | None) -> tuple[str | None, str | None]:
+    """(card text, refusal) for .agent-fabric/review-card.md as it is at
+    `base_sha`. No base (a diff file) or no card there: (None, None). Over
+    CARD_CAP bytes: a refusal naming the file and its size, never a cut
+    card: a truncated rule would read as a whole one."""
+    if not isinstance(repo, str) or not repo or not base_sha:
+        return None, None
+    spec = f"{base_sha}:{CARD_PATH}"
+    if _git(repo, "cat-file", "-e", spec).returncode != 0:
+        return None, None
+    r = _git(repo, "show", spec)
+    if r.returncode != 0:
+        return None, f"{spec}: the project review card cannot be read ({r.stderr.decode(errors='replace').strip()})"
+    if len(r.stdout) > CARD_CAP:
+        return None, f"{spec}: the project review card is {len(r.stdout)} bytes, over the {CARD_CAP}-byte cap; shorten it"
+    return r.stdout.decode("utf-8", errors="replace").strip(), None
+
+
+def evidence_mode(req: dict) -> str:
+    """pinned: the reviewer reads the range's commits through git. working-tree:
+    it reads the files on disk. A range review defaults to pinned; a diff file
+    names no commits, so it is working-tree."""
+    return req.get("evidence") or ("pinned" if req.get("range") else "working-tree")
+
+
+def _count(v: object) -> int | None:
+    return int(v) if isinstance(v, (int, str)) and not isinstance(v, bool) and COUNT_RE.fullmatch(str(v)) else None
+
+
 # --- validation --------------------------------------------------------------
 
 def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
@@ -252,6 +373,15 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
     for key in SCALAR_KEYS:
         if key in req and not isinstance(req[key], str):
             problems.append(f"{key}: must be one value, not a list")
+    for key in COUNT_KEYS:
+        if key in req and _count(req[key]) is None:
+            problems.append(f"{key}: {req[key]!r} is not a positive number")
+    if isinstance(req.get("job_id"), str) and not JOB_ID_RE.fullmatch(req["job_id"]):
+        problems.append(f"job_id: {req['job_id']!r} is not a job id")
+    if isinstance(req.get("review_id"), str) and (not req["review_id"].strip() or "\n" in req["review_id"]):
+        problems.append("review_id: must be one non-empty line")
+    if isinstance(req.get("card_base"), str) and not SHA_RE.fullmatch(req["card_base"]):
+        problems.append(f"card_base: {req['card_base']!r} is not a full commit id")
     for key in LIST_KEYS:
         if key in req and not isinstance(req[key], list):
             problems.append(f"{key}: must be a list (- item lines, or [a, b])")
@@ -260,6 +390,8 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
     mode = req.get("mode")
     if mode not in MODES:
         problems.append(f"mode: {mode!r}; must be one of {', '.join(MODES)}")
+    if "evidence" in req and req["evidence"] not in EVIDENCE_MODES:
+        problems.append(f"evidence: {req['evidence']!r}; must be one of {', '.join(EVIDENCE_MODES)}")
     repo = req.get("repository")
     if not isinstance(repo, str) or not repo:
         problems.append("repository: required (the live clone's path)")
@@ -272,16 +404,25 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
         problems.append(f"range: {rng!r} is not base..head")
     if isinstance(diff, str) and diff and not os.path.isfile(diff):
         problems.append(f"diff: {diff} does not exist")
-    if mode == "re-review":
+    if diff and req.get("evidence") == "pinned":
+        problems.append("evidence: pinned needs a range; a diff file names no commits to read")
+    if isinstance(rng, str) and RANGE_RE.fullmatch(rng) and isinstance(repo, str) and repo \
+            and (os.path.isdir(os.path.join(repo, ".git")) or os.path.isfile(os.path.join(repo, ".git"))):
+        info, refused = resolve_range(req)
+        problems += refused
+        if info and (refusal := card(repo, info["card_base"])[1]):
+            problems.append(refusal)
+    if mode == "re-review" or "previous_findings" in req:
         pf = req.get("previous_findings")
-        if not isinstance(pf, str) or not pf:
-            problems.append("previous_findings: required on a re-review (the previous report, a file)")
+        if mode not in ("re-review", "finding-adjudication"):
+            problems.append("previous_findings: only on a re-review (mode: re-review) or a finding-adjudication")
+        elif not isinstance(pf, str) or not pf:
+            problems.append("previous_findings: required on a re-review (the previous report, a file)" if mode == "re-review"
+                            else "previous_findings: names the findings to judge, a file")
         elif not os.path.isfile(pf):
             problems.append(f"previous_findings: {pf} does not exist")
-    elif "previous_findings" in req:
-        problems.append("previous_findings: only on a re-review (mode: re-review)")
-    if mode == "review" and not (req.get("objective") if isinstance(req.get("objective"), str) else "").strip():
-        problems.append("objective: required on a review — one line, what must be true of the system")
+    if mode != "re-review" and not (req.get("objective") if isinstance(req.get("objective"), str) else "").strip():
+        problems.append("objective: required on a review (not a re-review) — one line, what must be true of the system")
     known = lenses(lenses_dir)
     for name in req.get("lenses") or []:
         if not isinstance(name, str) or not LENS_NAME_RE.fullmatch(name or ""):
@@ -312,9 +453,84 @@ def _items(values: list[str] | None) -> str:
     return "\n".join(f"- {v}" for v in values) if values else "(none stated)"
 
 
-def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = False) -> str:
+def _fence(text: str, info: str = "") -> list[str]:
+    """`text` verbatim inside a fence longer than any backtick run in it."""
+    fence = "`" * max(3, max((len(m) for m in re.findall(r"`+", text)), default=0) + 1)
+    return [fence + info, text, fence]
+
+
+def _active_job() -> str | None:
+    """fabric-jobs' active job id for this login, if there is one."""
+    try:
+        import identity
+        job = next((j for j in identity.read_jobs()["jobs"] if j.get("state") == "active"), None)
+        return job["id"] if job else None
+    except (Exception, SystemExit):  # no list, or not this host's: no job to name
+        return None
+
+
+def default_review_id(req: dict) -> str | None:
+    """A review's id, shared by its rounds: the request's own, else the
+    repository's name and the PR, which every round of one PR has."""
+    if req.get("review_id"):
+        return req["review_id"]
+    pr = _count(req.get("pr"))
+    repo = req.get("repository")
+    return f"{os.path.basename(os.path.normpath(repo))}#{pr}" if pr and isinstance(repo, str) and repo else None
+
+
+def dispatch_header(req: dict, info: dict | None, engine: str, purpose: str | None,
+                    dispatch_id: str | None, started_at: str | None) -> list[str]:
+    """The brief's first block: who this dispatch is, for whatever attributes
+    its cost (devex-tooling's hook reads it from the transcript's first user
+    message). Machine facts only; no field is the dispatcher's opinion."""
+    repo = req["repository"]
+    remote = None
+    try:
+        import workingcopy
+        r = workingcopy.resolve(repo)
+        project, remote = r.get("project"), r.get("remote")
+        remote = workingcopy.canonical_remote(remote) if remote else None
+    except Exception:  # an unregistered clone has no project; the header says null
+        project = None
+    mode = req["mode"]
+    rnd = _count(req.get("review_round"))
+    header = {
+        "dispatch_id": dispatch_id or str(uuid.uuid4()),
+        "parent_session_id": os.environ.get("CLAUDE_CODE_SESSION_ID") or None,
+        "job_id": req.get("job_id") or _active_job(),
+        "project": project,
+        "repository": remote or repo,
+        "pr": _count(req.get("pr")),
+        "review_id": default_review_id(req),
+        "review_round": rnd if rnd else (1 if mode != "re-review" else None),
+        "purpose": purpose or PURPOSES[mode],
+        "engine": engine,
+        "evidence_mode": evidence_mode(req),
+        "base_sha": info["base_sha"] if info else None,
+        "head_sha": info["head_sha"] if info else None,
+        "started_at": started_at or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    return _fence(json.dumps(header, indent=2), DISPATCH_VERSION)
+
+
+EVIDENCE_LINE = {
+    "pinned": "Evidence: pinned. Read the range's commits through git (git show <sha>:path, git diff, git log); the files on disk may be a different state.",
+    "working-tree": "Evidence: working-tree. Read the files on disk; they are the state under review.",
+}
+
+
+def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = False,
+           delta: dict | None = None, engine: str = "claude", purpose: str | None = None,
+           dispatch_id: str | None = None, started_at: str | None = None) -> str:
     """The brief, or a RequestError naming every problem. Byte-stable for
-    the same request and lens files."""
+    the same request and lens files. `delta` is what review_rounds derives
+    for a re-review and keeps out of the saved request: {"diff": the range's
+    diff text, or None with "note" and "stat" when it was too large,
+    "locators": lines, "symbols": lines}; the brief's format lives here and
+    nowhere else. The first block is the dispatch header; its dispatch_id and
+    started_at are minted here, so two renders differ in exactly those (and
+    tests pass them in)."""
     problems = validate(req, lenses_dir)
     rationale = rationale_findings(req)
     if rationale and not allow_rationale:
@@ -327,22 +543,41 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     # A review always carries general; a re-review verifies the new hunks
     # against the previous findings and carries only a lens it names.
     names = list(dict.fromkeys(([] if mode == "re-review" else ["general"]) + list(req.get("lenses") or [])))
-    out = [f"# Review brief ({BRIEF_VERSION})", "## Mode", mode,
-           "## Repository", f"{req['repository']} (the live clone; read-only for you)",
+    info, _ = resolve_range(req)
+    out = dispatch_header(req, info, engine, purpose, dispatch_id, started_at)
+    out += [f"# Review brief ({BRIEF_VERSION})", "## Mode", mode,
+            "## Repository", f"{req['repository']} (the live clone; read-only for you)", EVIDENCE_LINE[evidence_mode(req)],
            "## Range", req["range"] if req.get("range") else f"diff file: {req['diff']} (the range is not yet pushed; the tree is the same clone)"]
     out += ["## Objective", (req.get("objective") or "").strip() or "(none stated)"]
     for key, heading in (("requirements", "Requirements"), ("invariants", "Invariants"), ("compatibility", "Compatibility"),
                          ("threat_model", "Threat model"), ("scope", "Scope"), ("out_of_scope", "Out of scope")):
         out += [f"## {heading}", _items(req.get(key))]
-    if mode == "re-review":
+    text, _ = card(req["repository"], info["card_base"] if info else _default_tip(req["repository"]))
+    out += ["## Project review card", text if text else "(none)"]
+    if mode == "re-review" or (mode == "finding-adjudication" and req.get("previous_findings")):
         # Fenced: the previous report carries headings at the brief's own
         # level, and verbatim inside a fence is still verbatim. The fence
         # is longer than any backtick run in the report (every conforming
         # report quotes hunks in ``` blocks), so it closes where we close it.
         report = open(req["previous_findings"], encoding="utf-8").read().rstrip()
         fence = "`" * max(3, max((len(m) for m in re.findall(r"`+", report)), default=0) + 1)
-        out += ["## Previous findings", "Verify only the hunks of the range above against these, answering each by number.",
-                fence + "markdown", report, fence]
+        if mode == "re-review":
+            out += ["## Previous findings", "Start from the range above and these findings, answering each by number."]
+        else:
+            out += ["## Findings to judge", "These are the findings to judge, from the range above: answer each by number."]
+        out += [fence + "markdown", report, fence]
+        if delta and mode == "re-review":
+            if delta.get("diff") is not None:
+                out += ["## Re-review diff", "The exact diff of the range above."] + _fence(delta["diff"], "diff")
+            else:
+                out += ["## Re-review diff", delta.get("note", "The diff was too large to embed."),
+                        "The diffstat of the range above:"] + _fence(delta.get("stat", ""))
+            out += ["## Locators",
+                    "Answer each previous finding from these and the diff above; widen only to establish the fix's semantics or to detect a regression, and say what you widened to and why.",
+                    "Each previous finding's file:line at the old head, and the same region at the new head:"]
+            out += list(delta.get("locators") or []) or ["(no previous finding names a file:line)"]
+            out += ["Each changed hunk's enclosing symbol, where the diff names one:"]
+            out += list(delta.get("symbols") or []) or ["(none)"]
     out.append("## Lenses")
     if not names:
         out.append("(none named; the constitution's method applies)")

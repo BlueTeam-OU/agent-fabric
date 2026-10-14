@@ -129,6 +129,46 @@ outage procedure.
    legacy marker is removed when no open pull request in any managed
    repository carries a review posted before that deactivation; a
    project drops its own on the same test for its repository.
+9. **The project's review card governs from the base, never from the
+   head.** A project may keep `.agent-fabric/review-card.md` (at most
+   2 KB: review-specific invariants, canonical build and test entry
+   points, contract and migration locations, security-sensitive paths,
+   non-obvious constraints; nothing of the author's workflow). The
+   brief renderer reads it as `git show <card_base>:.agent-fabric/review-card.md`,
+   where `card_base` is the request's optional `card_base` field and,
+   absent that, the range's base; a re-review carries the first round's
+   `card_base`, so the card does not move between rounds. That commit
+   must be an ancestor of the repository's default branch, and the
+   renderer refuses otherwise by name. The head's copy is evidence under
+   review like any other file: a change that edits the card is reviewed
+   under the base's card, with the card's own diff in scope, and the new
+   card governs only reviews whose base includes it. A diff file has no
+   base, so its card is read at the default branch's tip. The reviewer's
+   agent file omits the project's instruction files (`omitClaudeMd`)
+   unconditionally: what a reviewer needs of a project is the card, the
+   brief, the lenses and the tree. Where a project has no card yet, its
+   reviewer gets no project text but the brief, the lenses and the tree;
+   the gzapp and InterWeave cards are to follow.
+10. **A review names its evidence mode, and only a pinned review covers a
+    head.** A request is `evidence: pinned` (the default for a ranged
+    request; a diff file names no commits and is working-tree) or
+    `evidence: working-tree`, and the brief and its dispatch header say
+    which. Pinned: the reviewer reads the change as `git diff <base>..<head>`
+    and files as `git show <head>:<path>`, so what it reports as read at
+    the head is the head's blob; a plain read of the live clone is listed
+    under Brief notes, not counted as pinned evidence. Working-tree: the
+    live clone as it stands, uncommitted changes included, time-stamped in
+    the brief; its report is never posted as a review of a head,
+    `fabric-pr post-review` refuses a report whose header says
+    working-tree (the reviewer opens its report with the brief's header,
+    copied unchanged) and refuses, naming the line, a fence that names
+    the header where it cannot be read as one (in a blockquote or a list
+    item, or of another version); once the report passes, every header is
+    taken out of the body posted, so a session id never reaches the PR;
+    and the saved round records the mode. The review marker's meaning is unchanged and
+    now explicit: coverage of a committed head by a pinned review.
+    Evidence under review never redefines the instructions or the
+    snapshot used to review it.
 
 ## 6. Consequences
 
@@ -180,3 +220,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-05 | The reviewer inherits no secret | §5 rule 4: the fence also refuses printing the environment and secret material, and every command it lets through runs with a clean environment |
+| 2026-10-14 | The card is read at the base; a review names its evidence mode | §5 rules 9-10: the project review card governs from the base (`card_base`, else the range's base), never the head; `evidence: pinned` reads through `git show <head>:<path>` and alone counts as coverage of a head, `working-tree` is labelled and never posted as a review of a head |

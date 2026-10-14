@@ -106,7 +106,9 @@ def answer(text, file=True, commands=1):
         with open(out, "w") as f:
             f.write(text)
     item("agent_message", text=text)
-    ev({"type": "turn.completed", "usage": {"input_tokens": 20, "cached_input_tokens": 0, "output_tokens": 10}})
+    usage_file = os.path.join(S, "usage.json")   # a case that means other counts writes them here
+    ev({"type": "turn.completed", "usage": json.load(open(usage_file)) if os.path.exists(usage_file)
+        else {"input_tokens": 20, "cached_input_tokens": 0, "output_tokens": 10}})
 OK = json.dumps({"findings": [
     {"level": "P3", "file": "app.py", "line": 2, "scenario": "a\nmulti-line scenario", "expected": "e3", "fix": "f3"},
     {"level": "P1", "file": "app.py", "line": 1, "scenario": "s1", "expected": "e1", "fix": "f1"}]})
@@ -457,8 +459,15 @@ def main() -> int:
         check("the extract holds the head's files and not the uncommitted one",
               rec["cwd_files"] == ["app.py"], rec["cwd_files"])
         brief = subprocess.run([REVIEW, "brief", req], env=env0, capture_output=True, text=True, timeout=60).stdout
+        # The dispatch header differs per render (its id, its time) and per engine
+        # (codex, second-engine-review); everything after it is the brief unchanged.
+        def after_header(text: str) -> str:
+            return text.split("\n```\n", 1)[1] if text.startswith("```agent-fabric-dispatch v1\n") else text
+        sent_header = rec["prompt"].split("\n```\n", 1)[0]
+        check("the prompt opens with a dispatch header naming the second engine",
+              '"engine": "codex"' in sent_header and '"purpose": "second-engine-review"' in sent_header, sent_header)
         check("the prompt is the rendered brief, unchanged, then the answer shape",
-              bool(brief) and rec["prompt"] == brief.rstrip("\n") + "\n" + review_codex.ANSWER_SHAPE, rec["prompt"][-400:])
+              bool(brief) and after_header(rec["prompt"]) == after_header(brief).rstrip("\n") + "\n" + review_codex.ANSWER_SHAPE, rec["prompt"][-400:])
         cenv = rec["env"]
         leaked = sorted(k for k in cenv if k.startswith(("ANTHROPIC_", "CLAUDE", "OPENAI_"))
                         or k in ("FABRIC_SESSION_SECRET", "GH_STATE", "AGENT_FABRIC_CODEX_BASE_URL"))
@@ -889,10 +898,11 @@ def main() -> int:
               "reason=capacity at=2026-10-13T19:52:10Z -->", good_line)
         check("it parses back to its fields", parsed(good_line + "\nCodex could not review.\n")
               == {"engine": "codex", "head": head, "reason": "capacity", "at": "2026-10-13T19:52:10Z"})
+        # The head field alone: replacing head[:1] anywhere hit "codex" (c, d, e) when the head began with one.
         for label, text in (("a marker below the first line", "hello\n" + good_line), ("text after the marker", good_line + " x"),
                             ("a short sha", good_line.replace(head, head[:12])),
                             ("a version 2", good_line.replace(" v1 ", " v2 ")),
-                            ("a non-hex head", good_line.replace(head[:1], "g", 1)),
+                            ("a non-hex head", good_line.replace(f"head={head}", f"head=g{head[1:]}")),
                             ("empty", ""), ("None", None)):
             check(f"not a marker: {label}", parsed(text) is None, text)
         for label, args in (("a short head", (head[:12], "capacity", "2026-10-13T19:52:10Z")),
@@ -1021,6 +1031,164 @@ def main() -> int:
         check("an admitted model in the local layer is what runs", r.returncode == 0
               and "`gpt-6.1-sol`" in r.stdout.split("\n")[0], r.stderr)
         os.remove(local_layer)
+
+        print("the ledger: one row v1 per review that started Codex, on every way out (review economics P1)")
+        ledger_file = os.path.join(fabric_state, "agents", pwd.getpwuid(os.geteuid()).pw_name, "ledger.jsonl")
+        usage_json = os.path.join(state, "usage.json")
+
+        def ledger_rows() -> list[dict]:
+            try:
+                with open(ledger_file) as f:
+                    return [json.loads(ln) for ln in f.read().splitlines()]
+            except OSError:
+                return []
+
+        def fresh_ledger() -> None:
+            for f in (ledger_file, usage_json):
+                if os.path.exists(f):
+                    os.unlink(f)
+
+        V1 = {"schema_version", "engine", "attribution", "purpose", "description", "dispatch_id", "parent_session_id",
+              "job_id", "project", "repository", "pr", "review_id", "review_round", "evidence", "base_sha", "head_sha",
+              "started_at", "session_id", "agent_id", "agent_type", "tool_use_id", "status", "status_source",
+              "completed_at", "wall_time", "turns", "input", "cache_write", "cache_read", "output", "reasoning",
+              "first_turn_context", "model", "provider", "effort"}
+        fresh_ledger(); set_pr(); mode("ok")
+        with open(usage_json, "w") as f:
+            json.dump({"input_tokens": 1000, "cached_input_tokens": 600, "cache_write_input_tokens": 100,
+                       "output_tokens": 50, "reasoning_output_tokens": 30}, f)
+        r = run("7", req)
+        rows = ledger_rows()
+        row = rows[0] if len(rows) == 1 else {}
+        check("a review: exit 0 and exactly one row", r.returncode == 0 and len(rows) == 1, (r.stderr, rows))
+        check("…holding every v1 key and no other", set(row) == V1, sorted(set(row) ^ V1))
+        check("…engine codex, completed, the model and provider that ran",
+              (row.get("schema_version"), row.get("engine"), row.get("status"), row.get("status_source"), row.get("model"),
+               row.get("provider")) == (1, "codex", "completed", "codex:answer:usage-unverified", "gpt-test", "openai"),
+              row)
+        check("…a row carrying a usage figure says in its status_source that the figure's semantics are unverified; one without does not "
+              "(the allowance case below)", row.get("status_source", "").endswith(review_codex.USAGE_UNVERIFIED))
+        check("…the tokens: input is what is left after the cached and the cache-write tokens; reasoning inside output",
+              (row.get("input"), row.get("cache_read"), row.get("cache_write"), row.get("output"), row.get("reasoning"))
+              == (300, 600, 100, 50, 30), row)
+        check("…what the events do not give is unknown, not 0 or a guess: turns, first_turn_context, agent ids",
+              all(row.get(k) is None for k in ("turns", "first_turn_context", "agent_id", "agent_type", "tool_use_id",
+                                               "repository", "description")), row)
+        check("…the brief carries the dispatch header: attribution dispatch, its purpose, evidence and shas copied, and the PR "
+              "this review was told (the request named none), so the cost reaches that PR",
+              (row.get("attribution"), row.get("purpose"), row.get("evidence"), row.get("pr"), row.get("review_id"),
+               row.get("dispatch_id") is not None, row.get("base_sha") is not None, len(str(row.get("head_sha"))))
+              == ("dispatch", "second-engine-review", "pinned", 7, "fixture#7", True, True, 40), row)
+        check("…the thread id is the session, the times are UTC and the wall time a number",
+              row.get("session_id") == "01a13195-6c03-7e02-94f7-7a304e1e64d6"
+              and str(row.get("started_at", "")).endswith("Z") and str(row.get("completed_at", "")).endswith("Z")
+              and isinstance(row.get("wall_time"), float) and row["wall_time"] >= 0, row)
+        check("…no brief or answer text in it", "app.py" not in json.dumps(row) and "scenario" not in json.dumps(row), row)
+        check("…the ledger file is private", os.stat(ledger_file).st_mode & 0o777 == 0o600, oct(os.stat(ledger_file).st_mode))
+
+        # The row builder on its own: two runs (a capacity retry) sum; a brief with the dispatch header gives the header's.
+        streams: list[str] = []
+
+        def stream(*turns: dict) -> str:
+            with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, dir=scratch) as fh:
+                streams.append(fh.name)
+                fh.write('{"type":"thread.started","thread_id":"th-1"}\n'
+                         + "".join(json.dumps({"type": "turn.completed", "usage": u}) + "\n" for u in turns))
+            return fh.name
+        r1 = review_codex.read_events(stream({"input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 5},
+                                             {"input_tokens": 10, "output_tokens": "x", "bogus": 1}))
+        check("read_events: usage summed over the turns, a field no turn reported stays unknown, a non-count is left out",
+              r1.usage == {"input_tokens": 110, "cached_input_tokens": 40, "cache_write_input_tokens": None,
+                           "output_tokens": 5, "reasoning_output_tokens": None} and r1.thread_id == "th-1", r1.usage)
+        obs = review_codex.Observed()
+        obs.add(r1, "2026-10-14T10:00:00Z", 1.5)
+        obs.add(review_codex.read_events(stream({"input_tokens": 7, "output_tokens": 3})), "2026-10-14T10:01:00Z", 2.0)
+        obs.status = ("completed", "codex:answer")
+        hdr = ('```agent-fabric-dispatch v1\n{"dispatch_id": "d-9", "purpose": "re-review", "repository": "o/r", "pr": 7, '
+               '"review_round": 2, "head_sha": "' + "a" * 40 + '", "engine": "claude", "job_id": "j9"}\n```\n# brief\n')
+        two = review_codex.ledger_row(obs, brief=hdr, pr="7", head="b" * 40, model="m", level="high", now="2026-10-14T10:02:00Z")
+        check("two runs: tokens summed (input 117 less 40 cached = 77), wall time summed, started_at the first run's",
+              (two["input"], two["cache_read"], two["output"], two["wall_time"], two["started_at"])
+              == (77, 40, 8, 3.5, "2026-10-14T10:00:00Z"), two)
+        check("a brief with the header: attribution dispatch, the header's purpose and fields (not this review's head), engine codex",
+              (two["attribution"], two["purpose"], two["dispatch_id"], two["repository"], two["review_round"], two["job_id"],
+               two["head_sha"], two["engine"], two["effort"]) == ("dispatch", "re-review", "d-9", "o/r", 2, "j9", "a" * 40, "codex", "high"), two)
+        named = os.path.join(tmp, "req", "NAMED.yaml")
+        with open(named, "w") as f:
+            f.write(open(req).read() + "pr: 9\n")
+        def header_pr(brief: str) -> object:
+            return json.loads(brief.split("\n", 1)[1].split("\n```\n", 1)[0])["pr"]
+        told, mine = review_codex.load_request(req, False, "7"), review_codex.load_request(named, False, "7")
+        check("load_request: a request that names no PR is told this review's; one that names its own keeps it",
+              (told[0]["pr"], header_pr(told[1]), mine[0]["pr"], header_pr(mine[1]), header_pr(review_codex.load_request(req, False)[1]))
+              == ("7", 7, "9", 9, None), (told[0]["pr"], header_pr(told[1]), mine[0]["pr"], header_pr(mine[1])))
+        bare = review_codex.ledger_row(obs, brief="# brief\n", pr="7", head="b" * 40, model="m", level=None, now="n")
+        check("a brief without the header: attribution inferred, the PR and head this review holds, the repository unknown",
+              (bare["attribution"], bare["pr"], bare["head_sha"], bare["repository"], bare["evidence"])
+              == ("inferred", 7, "b" * 40, None, None), bare)
+        sparse = review_codex.ledger_row(obs, brief=hdr.replace("a" * 40, "zz"), pr="7", head="b" * 40, model="m", level=None, now="n")
+        check("…a header field in the wrong shape is unknown, never filled from the review's own head (a row's head_sha is "
+              "what a reproduction is checked against)", sparse["head_sha"] is None and sparse["effort"] is None, sparse)
+        for name in streams:
+            os.unlink(name)
+        fresh_ledger(); set_pr(); mode("capacity ok")
+        inproc("7", req)
+        rows = ledger_rows()
+        check("capacity once, then success: one row for the review, completed",
+              len(rows) == 1 and rows[0]["status"] == "completed", rows)
+        fresh_ledger(); set_pr(); mode("capacity")
+        rc, out, err, sleeps = inproc("7", req)
+        rows = ledger_rows()
+        check("at capacity on every run: one row, failed, source codex:capacity — not the allowance's status",
+              rc == 3 and len(rows) == 1 and (rows[0]["status"], rows[0]["status_source"]) == ("failed", "codex:capacity"), (rc, rows))
+        fresh_ledger(); set_pr(); mode("allowance")
+        rc, out, err, sleeps = inproc("7", req)
+        rows = ledger_rows()
+        check("over the allowance: one row, allowance-exhausted, apart from every other failure",
+              rc == 3 and len(rows) == 1 and (rows[0]["status"], rows[0]["status_source"]) == ("allowance-exhausted", "codex:usage-limit")
+              and rows[0]["output"] is None, (rc, rows))
+        for m, why, source in (("turnfailed", "an ordinary failed turn", "codex:failed-review"),
+                               ("nohost", "a run that read nothing", "codex:failed-review:usage-unverified")):
+            fresh_ledger(); set_pr(); mode(m)
+            r = run("7", req)
+            rows = ledger_rows()
+            check(f"{why}: exit 1, one row, failed", r.returncode == 1 and len(rows) == 1
+                  and (rows[0]["status"], rows[0]["status_source"]) == ("failed", source), (r.returncode, rows))
+        fresh_ledger(); set_pr(); mode("sleep")
+        r = run("7", req, "--timeout", "0.05")
+        rows = ledger_rows()
+        check("the time budget: one row, timeout, a wall time near the budget not the sleep",
+              r.returncode == 1 and len(rows) == 1 and rows[0]["status"] == "timeout" and rows[0]["status_source"] == "codex:timeout"
+              and 0 < rows[0]["wall_time"] < 30, (r.returncode, rows))
+        fresh_ledger(); set_pr(); mode("sleep")
+        p = subprocess.Popen([REVIEW, "--engine", "codex", "7", req], env=env0, cwd=repo,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        for _ in range(200):
+            if os.path.exists(os.path.join(state, "grandchild")):
+                break
+            time.sleep(0.05)
+        p.send_signal(signal.SIGTERM)
+        p.communicate(timeout=30)
+        rows = ledger_rows()
+        check("SIGTERM mid-run: one row, cancelled", p.returncode == 143 and len(rows) == 1
+              and (rows[0]["status"], rows[0]["status_source"]) == ("cancelled", "codex:signal"), (p.returncode, rows))
+        fresh_ledger(); set_pr(); mode("ok")
+        r = run("7", req, env={**env0, "AGENT_FABRIC_CODEX_KEY": ""})
+        check("a refusal before Codex started writes no row (positive control above: the same file takes rows)",
+              r.returncode == 1 and not codex_ran() and ledger_rows() == [], (r.stderr, ledger_rows()))
+        fresh_ledger(); set_pr(); mode("ok")
+        with open(os.path.join(state, "sandbox-mode"), "w") as f:
+            f.write("fail")
+        r = run("7", req)
+        check("a sandbox that cannot start (the facts known, Codex never run): no row either",
+              r.returncode == 1 and not codex_ran() and ledger_rows() == [], (r.stderr, ledger_rows()))
+        fresh_ledger(); set_pr(); mode("ok")
+        os.makedirs(ledger_file)   # a ledger that cannot be written: the path is a directory
+        r = run("7", req)
+        check("a ledger that cannot be written warns and changes neither the review nor its exit",
+              r.returncode == 0 and posted() and "ledger row could not be written" in r.stderr, (r.returncode, r.stderr))
+        os.rmdir(ledger_file)
+        fresh_ledger()
 
         print("refusals: nothing runs, nothing is posted")
         for label, change, why in (
