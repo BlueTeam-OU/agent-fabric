@@ -64,11 +64,26 @@ def test_body_is_under_the_cap_and_carries_every_section() -> None:
 def test_the_incident_rules_are_still_there() -> None:
     """Each of these was bought by an incident; a rewrite may not lose one."""
     _, body = read_agent()
-    for rule in ("revert test", "Quote the hunk", "in full", "One PR per dispatch", "re-review", "verify ONLY",
-                 "fifty thousand tokens", "git log", "Change nothing", "--no-restore", "Never `pub\nget`",
+    for rule in ("revert test", "Quote the hunk", "in full", "One PR per dispatch", "re-review",
+                 "git log", "Change nothing", "--no-restore", "Never `pub\nget`",
                  "single-line mutation", "P1", "P2", "P3", "Do not pad", "six weeks from now",
                  "Feature flags that are not rollbacks", "Silent-drop", "CHECK clauses"):
         assert rule in body, f"rule lost in the rewrite: {rule!r}"
+
+
+def test_the_re_review_rule_is_measured_by_turns() -> None:
+    """The incident behind the old pair ("verify ONLY the new hunks", "fifty
+    thousand tokens per comment-only commit"): a re-review that re-read
+    unchanged code manufactured a fresh round of findings. The rule now bounds
+    that by what a reviewer may widen to, not by a ban on reading, and it still
+    forbids the fresh round."""
+    _, body = read_agent()
+    rule = " ".join(body[body.index("**On a re-review**"):body.index("## Git: read history")].split())
+    for needle in ("Start from B..C and the previous", "Widen only to establish the fix's", "detect a regression",
+                   "say what you widened to and why", "Reading outside B..C is not a defect",
+                   "needs B..C to make it reachable or break it", "comment-only commit", "fresh round of findings on untouched code"):
+        assert needle in rule, f"the re-review rule lost {needle!r}"
+    assert "verify ONLY" not in rule
 
 
 def test_the_new_rules_are_stated_once() -> None:
@@ -320,7 +335,7 @@ def test_the_readme_example_renders_as_documented(tmp: str) -> None:
 
 def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
-             test_the_incident_rules_are_still_there, test_the_new_rules_are_stated_once,
+             test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
              test_render_carries_every_heading_once_and_the_named_lenses, test_the_project_review_card, test_every_refusal_names_its_field,
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
