@@ -319,6 +319,22 @@ def main() -> int:
         check("shows the marker", "agent-fabric-review v1" in out, out)
         check("no request was sent", not posted(), calls())
 
+        print("post-review: a working-tree report is never posted as the review of a head (ADR-020 §5 rule 10)")
+        # The header as a brief carries it (review_brief.dispatch_header), at the top of the report.
+        def dispatch(mode: str) -> str:
+            return ("```agent-fabric-dispatch v1\n" + json.dumps({"dispatch_id": "d-1", "engine": "claude",
+                                                                   "evidence_mode": mode}, indent=2) + "\n```\n")
+        set_pr(f"{me}/feat/thing")
+        rc, out = invoke(dispatch("working-tree") + "F1 (P2) …", "552")
+        check("refused, exit 2, nothing sent", rc == 2 and not posted(), f"rc={rc}\n{out}{calls()}")
+        check("…saying working-tree and the rule", "'working-tree'" in out and "ADR-020" in out, out)
+        rc, out = invoke(dispatch("working-tree") + "F1 (P2) …", "552", "--dry-run")
+        check("--dry-run refuses it too", rc == 2 and "would post" not in out, f"rc={rc}\n{out}")
+        set_pr(f"{me}/feat/thing")
+        rc, out = invoke(dispatch("pinned") + "F1 (P2) …", "552")
+        check("a pinned report posts, the report whole", rc == 0 and posted()
+              and dispatch("pinned") + "F1 (P2) …" in body_of(), f"rc={rc}\n{out}{calls()}")
+
         print("post-review: invocation errors are refused, not guessed at")
         set_pr(f"{me}/feat/thing")
         for label, body, args in (("an empty body is refused", "", ("552",)),

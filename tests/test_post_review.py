@@ -13,6 +13,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 import results  # noqa: E402
+import review_brief  # noqa: E402
 from github import post_review, pr_reply, pr_review_status  # noqa: E402
 
 LOC = "identities/roles/language-culture/locale/ge/team.md"
@@ -33,6 +34,36 @@ def main() -> int:
     print("the lane predicate agrees with pr-reply's")
     for b in ("h/l/feat/x", "h/l/Fix/x", "h/l/x", "dependabot/pub/a/b", "/l/feat/x", "snyk-bot/a/b/c"):
         check(f"'{b}'", post_review.branch_names_a_session(b) == pr_reply.branch_names_a_session(b))
+
+    print("a report's dispatch header: only pinned posts (agent-fabric ADR-020 §5 rule 10)")
+
+    def header(**req) -> str:
+        """The header as review_brief renders it into a brief, for a request of these fields."""
+        return "\n".join(review_brief.dispatch_header({"mode": "review", "repository": "/nowhere", **req}, None,
+                                                       "claude", None, "d-1", "2026-10-14T00:00:00Z"))
+
+    pinned, tree = header(range="a..b"), header(diff="/x.diff")
+    check("the producer's two modes are what is told apart",
+          '"evidence_mode": "pinned"' in pinned and '"evidence_mode": "working-tree"' in tree)
+    for label, body, refused in (
+        ("no header: posts", "F1 (P2) …", False),
+        ("a pinned header: posts", f"{pinned}\nF1 (P2) …", False),
+        ("a working-tree header: refused", f"{tree}\nF1 (P2) …", True),
+        ("working-tree below the findings: refused", f"F1 (P2) …\n\n{tree}\n", True),
+        ("a pinned and a working-tree header: refused", f"{pinned}\n{tree}", True),
+        ("indented, tilde-fenced: refused", "  ~~~agent-fabric-dispatch v1\n" + tree.split("\n", 1)[1].rsplit("\n", 1)[0] + "\n  ~~~", True),
+        ("evidence_mode explicitly working-tree on a ranged request: refused", header(range="a..b", evidence="working-tree"), True),
+        ("no evidence_mode: refused", "```agent-fabric-dispatch v1\n{\"engine\": \"claude\"}\n```", True),
+        ("not JSON: refused", "```agent-fabric-dispatch v1\nevidence_mode: pinned\n```", True),
+        ("never closed: refused", pinned.rsplit("\n", 1)[0], True),
+        ("another fence's info string: not a header", "```agent-fabric-dispatch v2\n{}\n```", False),
+        ("a pinned header whose JSON quotes a fence: posts",
+         "````agent-fabric-dispatch v1\n{\"evidence_mode\": \"pinned\", \"note\": \"```\"}\n````", False),
+    ):
+        why = post_review.evidence_refusal(body)
+        check(label, bool(why) is refused and (not refused or "agent-fabric-dispatch v1" in why))
+    check("a working-tree refusal says what it read and the rule",
+          all(w in post_review.evidence_refusal(tree) for w in ("'working-tree'", "ADR-020 §5 rule 10", "line 1")))
 
     print("locale_only fails closed")
     real_run = gh.run
