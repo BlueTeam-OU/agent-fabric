@@ -171,6 +171,10 @@ is a checkpoint a new holder verifies from, its branch refuses a
 force-push, and a holder refuses a head older than the last it verified.
 A holder is added before the one it replaces is removed, so someone can
 always re-encrypt; when no one can, the owner does, with the recovery key.
+A commit that does not verify cannot be removed (no force-push), so a
+holder repairs the store with a checkpoint restoring the last commit
+that verifies, which verifiers read in place of what it supersedes — the
+one exception to ADR-042 rule 3 for a company store, stated in rule 10.
 
 Rejected: an agent as a recipient of its client's store (every agent would
 read every client credential it was never granted, and a grant would be a

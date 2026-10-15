@@ -202,13 +202,15 @@ sharing a machine.
       holder leaves no heir (rule 4), and the company's credentials
       outlive every holder. A holder is added in one merge and removed
       in a later one, each followed by a re-encryption of every company
-      store to the list on `origin/main`; the one after an addition is
-      the added holder's own, so a removal merges only once a remaining
-      holder has signed a checkpoint. Until a store is re-encrypted it is
-      refused for every use but reading its recipients, cloning it, the
-      re-encryption and the owner's recovery: when no remaining holder
-      can re-encrypt (a lost key, rule 4), the owner does, with the
-      recovery key, in a terminal;
+      store to the list on `origin/main`, run by a holder that is still a
+      recipient: after an addition, an existing holder's re-encryption
+      and then the added holder's own, so a removal merges only once a
+      remaining holder has signed a checkpoint. Until a store is
+      re-encrypted it is refused for every use but reading its
+      recipients, cloning it, re-encrypting, repairing and recovering
+      it: when no remaining holder can re-encrypt or repair (a lost key,
+      rule 4), the owner recovers it with the recovery key, in a
+      terminal;
     - its commits are signed and verified as ADR-042 says of an agent's,
       with the holders as its only writers, because every agent's
       `GH_TOKEN` can push to it. Each commit is judged against the
@@ -219,6 +221,13 @@ sharing a machine.
       than its parent's. Its default branch refuses a
       force-push and a deletion, and a holder refuses a head that does
       not descend from the last head it verified;
+    - a commit that does not verify stays, since nothing may force-push;
+      ADR-042 rule 3's refusal holds until a holder repairs the store: a
+      checkpoint on top of the head whose tree is that of the last
+      commit that verifies before it, naming every commit after that one
+      as superseded, its recorded fabric commit judged against that
+      commit's. A verifier reads such a checkpoint and never the
+      commits it supersedes; this is the one exception to rule 3 here;
     - no other agent decrypts it. What an agent needs is put into the
       agent's own store, write-only, by the agent's parent (ADR-042
       rule 2's only writer besides the agent; a holder that is not the
