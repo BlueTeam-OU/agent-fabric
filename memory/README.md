@@ -201,8 +201,22 @@ bin/fabric-ctl all memory --out ~/drain --json         # the same, with every na
 tools/fabric/assemble.py --bundle ~/drain/<login>/<wc>.tar --project <project> --working-copy ~/projects/<wc> --stamp $(date +%F)
 ```
 
+**The reflection pass comes first** (ADR-058). Each week, ahead of the
+drain, the coordinator puts one reflection job on every agent's list;
+each agent works it like any job, reading its own GZCoord journal with
+`fabric-reflect` and writing what passes the rubric as memories marked
+`origin: reflection`. A login whose last pass is still open is skipped,
+not stacked. The drain harvests what the passes wrote with everything
+else.
+
+```sh
+bin/fabric-reflect-jobs --dry-run    # who would get a pass, who still has one open
+bin/fabric-reflect-jobs              # added <job> | skipped (open <job>) | failed: <reason>, per login
+```
+
 The run is also the dry run: each row carries the harvest report —
-the claim count, how many memories need rendering, how many were
+the claim count, how many of those came from a reflection pass
+(`counts.reflection`), how many memories need rendering, how many were
 skipped — beside the bundle's status, and `--json` carries the names,
 so the `needs_rendering` list for the holder comes from the same run
 that fetched the bundles. The op always harvests every memory (`--all`);
