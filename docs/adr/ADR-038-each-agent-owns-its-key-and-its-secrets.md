@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, by the merge of agent-fabric #63 (e00f750)
 **Decision Makers:** the owner (the move off Doppler, a repository per agent, a key per agent, paper recovery, the parent's role, no assumed co-location); drafted by fabric-coordinator
-**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `BlueTeam-OU/fabric-agent-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env`, `env.sh` and their consumers; what a session's shell holds; filling a child's store (`fabric-secrets provision`); the migration from Doppler (ADR-012), complete; the Claude-account templates (ADR-031); provisioning (`runtime/provisioning/new-agent.sh`)
+**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `BlueTeam-OU/fabric-agent-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env`, `env.sh` and their consumers; what a session's shell holds; filling a child's store (`fabric-secrets provision`); the migration from Doppler (ADR-012), complete; the Claude-account templates (ADR-031); each company's store, the `secrets_store` of a client in `projects/clients.json` (ADR-045), and what reaches an agent from it; provisioning (`runtime/provisioning/new-agent.sh`)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -60,6 +60,16 @@ apart.
 `fabric-secrets sync` reads it and writes the same
 `~/.config/agent-fabric/secrets.env` as before. So every consumer is
 unchanged, and only the source moves.
+
+**What belongs to a company is kept by that company** (A 2026-10-15).
+A credential that is no one agent's — a Claude account's template, a key
+that mints other keys, the value every agent shares, a client's own
+service token — is held in the store of the company it belongs to: the
+operator, or a client, each named with its store in `projects/clients.json`
+(ADR-045). The same pass layout, read by the fabric-coordinator holders
+and the owner's recovery key. An agent never reads a company's store: what
+it needs from one is put into its own, as a shared value is today, and a
+client's credential is applied for that client's working copies only.
 
 ## 3. Alternatives Considered
 
@@ -123,7 +133,8 @@ sharing a machine.
    put`); its parent fills a new agent's store that way (`fabric-secrets
    provision`: identity, an allowlist of shared names, a key of its own on
    each API) (A 2026-09-30). Only the agent decrypts. No store is
-   encrypted to another agent's key.
+   encrypted to another agent's key; a company's store (rule 10) is no
+   agent's store (A 2026-10-15).
 4. A key names no host. A login moved with its home keeps its key. A
    login rebuilt without its home is re-keyed: its new key is certified
    by its parent, and the old key is revoked.
@@ -179,6 +190,38 @@ sharing a machine.
    not keep them from a session that reads the file: the store's key has
    no passphrase, and anything running as the login can decrypt the
    store. Holding secrets in another account is §7.
+10. A company's credentials are kept in the company's store
+    (A 2026-10-15), the `secrets_store` of its client in
+    `projects/clients.json`; the contract its tooling meets is
+    `docs/split/company-stores.md`:
+    - its recipients, in its `.gpg-id`, are the agent keys of the logins
+      `policies/authority.json` names as fabric-coordinator holders, and
+      the owner's recovery key. The recovery key is a recipient here and
+      on no agent's store, because a company's store has no agent to be
+      recovered through: a retired holder leaves no heir (rule 4), and the
+      company's credentials outlive every holder. A holder change
+      re-encrypts every company store before the change merges, and a
+      store whose recipients differ from that list is refused, never
+      read;
+    - its commits are signed and verified as ADR-042 says of an agent's,
+      with the holders as its only writers, because every agent's
+      `GH_TOKEN` can push to it;
+    - no other agent decrypts it. Its parent puts what an agent needs
+      into the agent's own store, write-only, as `provision share` does
+      (rule 3): the operator's names fleet-wide, as today; a client's
+      names under that client's namespace (`client/<client>/<NAME>`),
+      and only into the logins the store's own grants list names;
+    - sync applies a client's names to that client's file
+      (`clients/<client>.env`, 0600), never to `secrets.env`, and a
+      command receives them only in a working copy that resolves to
+      that client (ADR-045 rule 5). Like rule 9, this keeps a client's
+      credential out of another client's work by accident, never from
+      a session of the login that sets out to read it;
+    - a name lives in one company's store, which is its source; an
+      agent's copy is applied, never edited, and a rotation is set in
+      the company's store, then put with `--replace`, then synced;
+    - a company's store is backed up with the agents' (§6) and its
+      entry names are as visible as theirs.
 
 ## 6. Consequences
 
@@ -230,6 +273,13 @@ sharing a machine.
 Accepted and in force. Every account reads its own store; a new account
 is keyed by `store-enroll.sh` and filled by `fabric-secrets provision`.
 
+Rule 10 is decided, not built: the company stores
+(`BlueTeam-OU/agent-fabric-secrets`, `gzapi-org/agent-fabric-secrets`)
+exist, private and empty; the tooling is `docs/split/company-stores.md`'s
+contract, and which names move into which store is the owner's review of
+`docs/split/company-store-names.md`. Until both land, the coordinator's
+own store is the source of every shared name and template, as before.
+
 ## References
 
 - ADR-012 — credentials; the Doppler layout this replaced.
@@ -253,3 +303,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-10-07 | The fabric removes only its own Doppler leftover | §6: the upgrade removes only secrets-source; the Doppler CLI and its config stay for a project's use |
 | 2026-10-13 | one repository per agent holds its secrets and its settings, in BlueTeam-OU | §2 |
 | 2026-10-13 | Commits are signed by each agent's own key, as ADR-057 says | §6 Commits: the agent's signing subkey, OpenPGP or SSH; §7: per-agent signing leaves Future Evolution |
+| 2026-10-15 | What belongs to a company is kept in that company's store | Scope, §2, §5 rules 3 and 10, §8: a store per client, read by the fabric-coordinator holders and the recovery key; its names reach an agent by put, a client's for that client's working copies only |

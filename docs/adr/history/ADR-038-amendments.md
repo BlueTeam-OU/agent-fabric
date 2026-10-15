@@ -141,3 +141,36 @@ lineage and the role. The subkey's SSH form is registered as a GitHub
 signing key for all 26 agents
 (docs/live-checks/2026-10-13-agent-signing-keys-as-ssh.md). The owner's
 word, in the coordinator's session: "accepted proceed amending".
+
+### Amendment 2026-10-15 — What belongs to a company is kept in that company's store
+
+ADR-045 gave each client a `secrets_store` in `projects/clients.json`, and
+two were created private and empty on 2026-10-09; nothing said who reads
+them, how an agent gets what is in them, or how this record's rule 3 ("no
+store is encrypted to another agent's key") holds beside them. Meanwhile
+the coordinator's own store carries what is no agent's: the Claude-account
+templates and their assignments, the keys that mint other keys, the
+values every agent shares. A coordinator rebuilt without its home would
+take the company's credentials with its key (rule 4).
+
+Rule 10 answers it. A company's store is read by the fabric-coordinator
+holders (the role, not the account: a holder change re-encrypts it, as the
+charter says authority attaches to the role) and by the owner's recovery
+key, which is a recipient there and on no agent's store, because a
+company's store has no one agent to be recovered through. Nothing else
+changes for an agent: it reads only its own store, and what it needs from
+a company's is put into it as `provision share` puts a shared value
+today. A client's names are namespaced and applied to that client's
+working copies only — ADR-045 rule 6, with rule 9's honest limit: it
+stops an accident, not the login.
+
+Rejected: an agent as a recipient of its client's store (every agent would
+read every client credential it was never granted, and a grant would be a
+re-encryption); a company store per role (a role is not a company, and
+which client a credential belongs to is what rule 6 needs); and keeping
+company credentials in the coordinator's store under a prefix (the case
+above: they die with its key).
+
+Drafted by fabric-coordinator for the owner's review in the pull request
+that carries it, with the tooling contract (`docs/split/company-stores.md`)
+and the names proposed to move (`docs/split/company-store-names.md`).
