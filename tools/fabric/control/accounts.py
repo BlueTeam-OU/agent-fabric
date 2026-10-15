@@ -294,6 +294,11 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: dic
             return 1
         if no_restart and r.returncode == 0:
             _say_old_sessions(reached, account, root, env, spawn)
+        elif no_restart:
+            # Not asked: a sync that failed leaves no proof of which token a session is compared with, so an answer
+            # could call an old session clear. Said, never skipped silently (review of #268, F3).
+            _say(f"fabric-accounts: not checked which sessions are still on the old account: the sync did not reach "
+                 f"every login; once it has, `fabric-ctl {' '.join(reached)} status` shows them")
         return 1 if bad or r.returncode != 0 else 0
     if cmd == "codex-token":
         from control import codex_token

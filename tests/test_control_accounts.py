@@ -243,8 +243,9 @@ class Assign(Base):
         self.assertEqual(code, 1, "a fabric-ctl that never answers is a failure, said")
         self.assertIn("fabric-accounts: Command failed", err)
 
-    def assign_no_restart(self, logins, sessions, ctl_rc=0, raw=None, argv_extra=()):
-        """assign --no-restart with a fabric-ctl whose `session` answer is `sessions` (a row per login)."""
+    def assign_no_restart(self, logins, sessions, ctl_rc=0, raw=None, argv_extra=(), sync_rc=0):
+        """assign --no-restart with a fabric-ctl whose `session` answer is `sessions` (a row per login), and whose
+        secrets-sync exits `sync_rc`."""
         d = FakeStore()
         calls: list = []
 
@@ -254,7 +255,7 @@ class Assign(Base):
                 assert kw.get("timeout") and kw.get("capture_output") is True, kw
                 out = raw if raw is not None else "\n".join(json.dumps(r, separators=(",", ":")) for r in sessions)   # fabric-ctl --json: a line per row
                 return subprocess.CompletedProcess(cmd, ctl_rc, out.encode(), b"")
-            return subprocess.CompletedProcess(cmd, 0)
+            return subprocess.CompletedProcess(cmd, sync_rc)
         code, out, err = self.go(["assign", *logins, "claude-b", "--no-restart", *argv_extra], d, spawn)
         return code, out, err, calls
 
@@ -286,6 +287,15 @@ class Assign(Base):
             self.assertEqual(code, 0, kw)
             self.assertIn("could not tell which sessions are still on the old account", err)
             self.assertNotIn("still on the old account until", out)
+
+    def test_a_sync_that_did_not_reach_every_login_says_the_check_was_not_run(self):
+        # Review of #268, F3: the question was skipped silently. It stays unasked (test_without_no_restart_or_with_
+        # no_sync_nobody_is_asked says why) but is said, with where to look once the sync has reached them.
+        code, out, err, calls = self.assign_no_restart(["flutter-dev-01", "web-dev-01"], [], sync_rc=1)
+        self.assertEqual(code, 1, "a sync that failed still fails the move")
+        self.assertNotIn("session", [c[-1] for c in calls])
+        self.assertIn("not checked which sessions are still on the old account", err)
+        self.assertIn("fabric-ctl flutter-dev-01 web-dev-01 status", err)
 
     def test_the_count_is_the_agents_not_the_number_of_start_times_it_could_read(self):
         rows = [{"account": "flutter-dev-01", "status": "ok", "session": {"on_old_sign_in": 3}},
