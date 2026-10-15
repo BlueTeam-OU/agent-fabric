@@ -228,7 +228,11 @@ def main() -> int:
                        ("a file named self_kill beside a brace list", "python3 tests/test_self_kill_guard.py {a,b}")):
         check(f"no kill command, no ask: {label}", g.unevaluated(cmd) is None, g.unevaluated(cmd))
     for label, cmd in (("pkill with a brace list", "pkill -f x{a,b}"), ("killall with a brace range", "killall p{1..3}"),
-                       ("kill in a here-document bash reads", "bash <<'EOF'\nkill 12{3,4}\nEOF")):
+                       ("kill in a here-document bash reads", "bash <<'EOF'\nkill 12{3,4}\nEOF"),
+                       # Review of #268, F1: an empty expansion glued to the name, which bash runs as kill.
+                       ("an empty quoted expansion glued to kill", '"$x"kill $\'\\x31\\x32\\x33\\x34\''),
+                       ("an empty braced expansion glued to kill", "${x}kill $'\\x31\\x32\\x33\\x34'"),
+                       ("a glued kill with a brace list", '"$x"kill 12{3,}4')):
         check(f"a kill tool with a brace expansion still asks: {label}", g.unevaluated(cmd) is not None, cmd)
     check("…but kill -0 of a pid outside the tree is a signal, not a group: kill -0 999999999",
           g.decision("kill -0 999999999", CLAUDE, shell=False) is None)

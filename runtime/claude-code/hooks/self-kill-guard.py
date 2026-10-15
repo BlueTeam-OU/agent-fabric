@@ -123,7 +123,9 @@ def unevaluated(command: str) -> str | None:
     `os.kill`, a `self_kill` file name or a Python dict's braces no longer
     ask (two sessions stopped on it, 2026-10-15)."""
     command = drop_heredoc_bodies(command)
-    if not KILL_TOOL_WORD.search(unquoted(command)):
+    # The raw text as well as the unquoted one, as kills() reads: unquoted() turns "$x"kill and ${x}kill into
+    # $xkill, whose x hides the word, and bash runs either as kill when x is empty (review of #268, F1).
+    if not (KILL_TOOL_WORD.search(command) or KILL_TOOL_WORD.search(unquoted(command))):
         return None
     for mark, what in (("$'", "ANSI-C quoting $'…'"), ('$"', 'locale quoting $"…"'),
                        ("\\\n", "a backslash-newline")):
