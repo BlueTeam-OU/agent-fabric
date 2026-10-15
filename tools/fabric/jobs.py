@@ -106,8 +106,9 @@ check that failed and changing nothing:
      artifacts (owner/repo#N, #N, a pull request URL, a commit sha, or reply:<MESSAGE-ID>, which counts for a job whose
      artifact is a REPLY, when the journal holds it as sent). Whatever the outcome: no uncommitted change in the job's working
      copy, its worktree or this directory's checkout; every inbound message addressed to this login with REPLY-EXPECTED: yes
-     has a REPLY of this login in the journal; and a file in the working copy's memory directory changed since the job last
-     became active. A check that cannot be told is a failure, said as such, never a pass.
+     has a REPLY of this login in the journal; and a file changed since the job last became active in the memory directory of
+     the working copy, of its repository's main checkout, or of an ancestor of either below the home (any memory directory
+     of the login for a job with topic reflection). A check that cannot be told is a failure, said as such, never a pass.
      `deliver <id> <artifact>` on a done job appends evidence and leaves it closed (a dropped job takes none).
   2. The next job starts in a fresh session after a worked one (rule 3, unchanged): `fabric-fresh --job <id>` is printed.
   3. Its branch is chosen before any work: the job's own branch when it has begun one that no pull request merged; else this

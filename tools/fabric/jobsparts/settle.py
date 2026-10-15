@@ -173,30 +173,35 @@ def started_at(job: dict) -> float | None:
 def main_worktree(working_copy: str) -> str | None:
     """The checkout that holds the repository's .git, when `working_copy` is a linked worktree of one: Claude Code keys
     a session launched in a worktree by the directory it was launched in, which is often the main checkout. None when
-    git cannot say or the repository is bare; the candidates then stay the working copy's own."""
-    if not os.path.isdir(working_copy):
+    the directory is no repository or the repository is bare. Raises VcsError when git does not answer for a repository:
+    the caller says so rather than let the missing candidate read as an unwritten memory."""
+    if vcs.toplevel(working_copy) is None:
         return None
-    try:
-        common = vcs.text(working_copy, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    except vcs.VcsError:
-        return None
+    common = vcs.text(working_copy, "rev-parse", "--path-format=absolute", "--git-common-dir")
     return os.path.dirname(common) if os.path.basename(common) == ".git" else None
 
 
-def memory_candidates(candidates: list[str]) -> list[str]:
+def memory_candidates(candidates: list[str], notes: list[str] | None = None) -> list[str]:
     """Each working copy, the main checkout of its repository, and the ancestors of both below the login's home,
     deduplicated, nearest first. The workspace CLAUDE.md invites launching in ~/projects, above the checkout; the home's
     own key is a different session's, and a directory outside the home has no ancestors to claim (the filesystem root's
-    key would belong to everyone). A sibling checkout is never a candidate."""
+    key would belong to everyone). A sibling checkout is never a candidate. A git failure is appended to `notes`."""
     home = os.path.realpath(os.path.expanduser("~"))
     found: dict[str, None] = {}
     for c in candidates:
         if not c:
             continue
-        for d in (os.path.abspath(c), main_worktree(c)):
+        try:
+            main = main_worktree(c)
+        except vcs.VcsError as e:
+            main = None
+            if notes is not None:
+                notes.append(f"git could not name the main checkout of {c} ({e})")
+        for d in (os.path.abspath(c), main):
             if d is None:
                 continue
-            found[d] = None
+            if os.path.realpath(d) != home:        # the home's own key is another session's, even when the home is itself a repository
+                found[d] = None
             if not os.path.realpath(d).startswith(home + os.sep):
                 continue
             while True:
@@ -207,11 +212,11 @@ def memory_candidates(candidates: list[str]) -> list[str]:
     return list(found)
 
 
-def memory_dirs(job: dict, candidates: list[str]) -> tuple[list[str], list[str]]:
+def memory_dirs(job: dict, candidates: list[str], notes: list[str] | None = None) -> tuple[list[str], list[str]]:
     """(the memory directories that exist, every place looked for). A reflection job's lesson belongs where it applies,
     which is any project's memory of this login, not the checkout the job happened to run in."""
     layout = _load("fabric_layout", os.path.join(FABRIC_ROOT, "tools", "fabric", "layout.py"))
-    tried = list(dict.fromkeys(layout.default_memory_dir(c) for c in memory_candidates(candidates)))
+    tried = list(dict.fromkeys(layout.default_memory_dir(c) for c in memory_candidates(candidates, notes)))
     dirs = [d for d in tried if os.path.isdir(d)]
     if job.get("topic") == "reflection":
         every = os.path.expanduser("~/.claude/projects/*/memory")
@@ -222,10 +227,11 @@ def memory_dirs(job: dict, candidates: list[str]) -> tuple[list[str], list[str]]
 
 def memory_changed(job: dict, candidates: list[str]) -> str | None:
     """None when a memory file changed since the job started; otherwise the problem."""
-    dirs, tried = memory_dirs(job, candidates)
+    notes: list[str] = []
+    dirs, tried = memory_dirs(job, candidates, notes)
     if not dirs:
         return ("no memory directory was found for this job's working copy (looked in " + ", ".join(tried)
-                + "); write what the job taught you as a memory")
+                + ")" + "".join(f"; {n}" for n in notes) + "; write what the job taught you as a memory")
     since = started_at(job)
     if since is None:
         return f"{job['id']} has no readable start time, so memory changes cannot be dated"
@@ -244,7 +250,7 @@ def memory_changed(job: dict, candidates: list[str]) -> str | None:
                 return f"{os.path.join(d, name)} could not be read ({e.strerror or e})"
     if newest <= since:
         return (f"your memory directory has not changed during {job['id']}: write what it taught you "
-                "(one fact per file, with a roles_class) before leaving it")
+                "(one fact per file, with a roles_class) before leaving it" + "".join(f"; {n}" for n in notes))
     return None
 
 

@@ -511,6 +511,20 @@ def main() -> int:
         w.memory_of = w.repo
         rc, out, err = w.switch(cwd=wt)
         check("a session launched in the main checkout settles a job in its linked worktree", rc == 0, err)
+        settle_mod = sys.modules["fabric_jobs.settle"]
+        real_text = settle_mod.vcs.text
+        def failing(repo, *a, **k):
+            if "--git-common-dir" in a:
+                raise settle_mod.vcs.VcsError("git rev-parse: exit 128: boom")
+            return real_text(repo, *a, **k)
+        settle_mod.vcs.text = failing
+        try:
+            why = settle_mod.memory_changed({"id": "jX", "created": "2000-01-01T00:00:00Z", "log": []}, [wt])
+        finally:
+            settle_mod.vcs.text = real_text
+        check("a git failure naming the main checkout is said in the refusal, not read as an unwritten memory",
+              why is not None and "git could not name the main checkout" in why and "boom" in why, why)
+
         w = World(under=workspace)
         w.memory_of = workspace
         j1 = w.add("reflect on it", "--topic", "reflection")
