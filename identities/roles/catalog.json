@@ -2,7 +2,6 @@
   "version": 1,
   "description": "The reusable roles agent-fabric knows: id (the slug that goes on the wire and names identities/roles/<id>/), title, a starting group, and whether the role is still a candidate. Path and keyword rules that say WHERE a role applies inside a managed repository are not here — they belong to projects/<project-id>/taxonomy.json. `groups` and each role's `group` are a starting layout for Fleet Deck, the operator's console over the fleet: what it seeds when first set up on a host. The operator arranges the deck as they like from then on; nothing re-applies or checks this.",
   "groups": [
-    "Coordinator",
     "C-Level",
     "Rust Developer",
     "Net Developer",
@@ -10,6 +9,9 @@
     "Flutter Developer",
     "TypeScript Developer",
     "Experts",
+    "Marketing",
+    "Legal",
+    "Accountants",
     "Infrastructure"
   ],
   "roles": [
@@ -29,7 +31,7 @@
       "id": "brand-comms",
       "title": "Brand and communications",
       "short_title": "Brand Specialist",
-      "group": "Experts"
+      "group": "Marketing"
     },
     {
       "id": "db-admin",
@@ -59,7 +61,7 @@
       "id": "fabric-coordinator",
       "title": "Control-plane coordinator (agent-fabric, and the GZCoord protocol)",
       "short_title": "Fabric Coordinator",
-      "group": "Coordinator"
+      "group": "C-Level"
     },
     {
       "id": "flutter-dev",
@@ -77,7 +79,7 @@
       "id": "legal-expert",
       "title": "Legal expert, one jurisdiction per holder (the login's suffix)",
       "short_title": "Legal Expert",
-      "group": "Experts"
+      "group": "Legal"
     },
     {
       "id": "p2p-network-dev",

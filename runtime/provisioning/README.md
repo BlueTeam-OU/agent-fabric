@@ -41,7 +41,7 @@ What a project needs beyond that is the project's to say —
 for each `--project`:
 
 ```sh
-runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--no-signing-key] [--dry-run]
+runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--surname <Surname>] [--no-signing-key] [--dry-run]
 runtime/provisioning/new-agent.sh <login> --human [--host <id>] [--dry-run]   # a person's login (ADR-044)
 runtime/provisioning/new-agent.sh <login> <role> --claude-account <slug> --project <id> --project <id>
 runtime/provisioning/new-agent.sh <login> <role> --claude-account <slug> --host <host-id> --project <id>   # on another host
@@ -52,6 +52,16 @@ The Claude account it starts on is a template in the coordinator's store
 (`bin/fabric-accounts templates`), checked before any account is made,
 its token written into the new store before the first sync, and its
 fingerprint compared in step 10 (ADR-031).
+
+`--surname <Surname>` claims the agent's surname (agent-fabric ADR-056
+rule 4): it must be on `identities/personas/surnames.json` and unclaimed in
+`identities/personas/claims.json`, checked before anything is made, the
+dry run too. Once step 5 has given the account its agent id, the claim
+`{surname, first_name: null}` is written into this checkout's
+`claims.json` (5a), uncommitted: fabric-coordinator commits it with
+`identities/keys/`. The agent chooses its sex and then a first name of
+that sex itself (rules 5-6); `fabric-persona` names it "AI <Surname>,
+<role>" until then.
 
 Every step is `must` (a failure stops the run, named; nothing after it
 runs), `probe` (a question) or `best_effort` (one warning) —
@@ -96,8 +106,10 @@ secret key (a passphrase prompt; on a terminal new-agent does it itself
 as its last step, 11 — the coordinator's gpg exports the key its git
 config signs with, the account's imports it on a pipe, pinentry asks the
 passphrase, the ownertrust is set and a test signature as the account
-proves it; without a terminal, or with `--no-signing-key`, the two lines
-are printed), `~/.claude/.credentials.json` for the
+proves it; without a terminal, or with `--no-signing-key`, the closing
+names `runtime/provisioning/new-agent.sh --signing-key-only <login>`, which
+runs step 11 alone for the existing account at a terminal later, and the
+two gpg lines as the fallback), `~/.claude/.credentials.json` for the
 plain-claude path (a credential copy a classifier refuses an agent), and
 the workspace-trust dialog at the first interactive launch. It was
 written on 2026-09-15 after two accounts walked by hand came out short —

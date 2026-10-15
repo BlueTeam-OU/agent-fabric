@@ -47,8 +47,8 @@
 The store is a git repository in the layout pass(1) reads, so QtPass and
 browserpass open it: `.gpg-id` names the key, and each secret is
 `env/<NAME>.gpg`, its value on the first line. It is encrypted to the
-agent's key alone. Anyone holding the committed public key can add an
-entry, and only the agent can read one: the parent writes and never reads.
+agent's key alone. Only the agent and its parent write an entry, and
+only the agent can read one: the parent writes and never reads.
 
 AN AGENT'S OWN ENTRIES. set and rm take any name the fabric does not
 manage (secretstore/reserved.py); a managed one — what sync applies, the

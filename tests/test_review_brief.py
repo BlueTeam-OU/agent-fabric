@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -298,6 +299,137 @@ def test_the_evidence_mode(tmp: str) -> None:
     assert any("pinned needs a range" in p for p in refusals({**nodiff, "diff": diff, "evidence": "pinned"}))
 
 
+def TMPENV(tmp: str) -> dict:
+    """An environment whose TMPDIR is under the test's own temp dir, so a pinned brief's head worktree never lands in the real one."""
+    d = os.path.join(tmp, "tmpdir")
+    os.makedirs(d, exist_ok=True)
+    return {**GIT_ENV, "TMPDIR": d}
+
+
+def test_a_pinned_brief_checks_out_its_head_detached(tmp: str) -> None:
+    repo = mkrepo(tmp, "headrepo")
+    head = g(repo, "rev-parse", "HEAD")
+    env = TMPENV(tmp)
+    want = os.path.join(env["TMPDIR"], "fabric-review", f"headrepo-{head[:12]}")
+    req = os.path.join(tmp, "head.json")
+    json.dump(base_request(repo), open(req, "w"))
+    before = open(os.path.join(repo, ".git", "config")).read()
+
+    def brief(path: str = req) -> subprocess.CompletedProcess:
+        return subprocess.run([BIN, "brief", path], capture_output=True, text=True, env=env)
+
+    r = brief()
+    assert r.returncode == 0, r.stderr
+    assert f"is checked out, detached, at {want}:" in r.stdout and "make no extract or copy of your own" in r.stdout, r.stdout
+    assert g(want, "rev-parse", "HEAD") == head
+    assert subprocess.run(["git", "-C", want, "symbolic-ref", "-q", "HEAD"], capture_output=True, env=GIT_ENV).returncode != 0, "detached"
+    assert open(os.path.join(repo, ".git", "config")).read() == before, "no branch.* config written into the clone"
+    assert oct(os.stat(os.path.dirname(want)).st_mode & 0o777) == "0o700"
+    marker = os.path.join(want, "keep")
+    open(marker, "w").close()
+    r2 = brief()
+    assert r2.returncode == 0 and os.path.exists(marker), "a second render reuses the worktree"
+    assert f"at {want}:" in r2.stdout
+    # render() itself is side-effect free: the plain line when no path is passed
+    assert "Evidence: pinned. Read the range's commits through git" in rb.render(base_request(repo))
+    # a foreign directory at the path is refused, and left alone
+    foreign = os.path.join(env["TMPDIR"], "fabric-review", f"headrepo-{head[:12]}")
+    g(repo, "worktree", "remove", "--force", foreign)
+    os.makedirs(foreign)
+    open(os.path.join(foreign, "mine"), "w").close()
+    r3 = brief()
+    assert r3.returncode == 2 and foreign in r3.stderr and r3.stdout == "", r3
+    assert os.path.exists(os.path.join(foreign, "mine")), "never delete what was not identified"
+    # working-tree and diff-file requests make none
+    shutil.rmtree(foreign)
+    json.dump({**base_request(repo), "evidence": "working-tree"}, open(req, "w"))
+    assert brief().returncode == 0 and not os.path.exists(foreign), "working-tree makes no worktree"
+    diff = os.path.join(tmp, "h.diff"); open(diff, "w").write("")
+    nodiff = {k: v for k, v in base_request(repo).items() if k != "range"}
+    json.dump({**nodiff, "diff": diff}, open(req, "w"))
+    assert brief().returncode == 0 and not os.path.exists(foreign), "a diff file makes no worktree"
+    r = subprocess.run([BIN, "check", req], capture_output=True, text=True, env=env)
+    assert r.returncode == 0 and not os.path.exists(foreign)
+    g(repo, "worktree", "prune")
+
+
+def test_a_refused_pinned_request_leaves_no_worktree(tmp: str) -> None:
+    repo = mkrepo(tmp, "refusedrepo")
+    head = g(repo, "rev-parse", "HEAD")
+    env = TMPENV(tmp)
+    want = os.path.join(env["TMPDIR"], "fabric-review", f"refusedrepo-{head[:12]}")
+    req = os.path.join(tmp, "refused.json")
+    json.dump({**base_request(repo), "objective": "This fixes the PATH bug."}, open(req, "w"))
+    listed = g(repo, "worktree", "list")
+    r = subprocess.run([BIN, "brief", req], capture_output=True, text=True, env=env)
+    assert r.returncode == 2 and "objective" in r.stderr and r.stdout == "", r
+    assert not os.path.exists(want) and g(repo, "worktree", "list") == listed, "a refused request makes no worktree, registered or not"
+    # a failure after the worktree was made removes it; a reused one stays
+    saved, tempfile.tempdir = tempfile.tempdir, env["TMPDIR"]  # in-process: evidence_path reads it
+    try:
+        pinned = {**base_request(repo)}
+        try:
+            with rb.pinned_evidence(pinned) as path:
+                assert path == want and os.path.isdir(want)
+                raise OSError("render failed")
+        except OSError:
+            pass
+        assert not os.path.exists(want) and g(repo, "worktree", "list") == listed, "this call's worktree is removed on failure"
+        path, made = rb.prepare_evidence(pinned)
+        assert made, "made by the first call"
+        try:
+            with rb.pinned_evidence(pinned):
+                raise OSError("render failed")
+        except OSError:
+            pass
+        assert os.path.isdir(want), "a reused worktree is never removed"
+    finally:
+        tempfile.tempdir = saved
+
+
+def test_reusing_and_remaking_a_head_worktree(tmp: str) -> None:
+    repo = mkrepo(tmp, "reusedrepo")
+    head = g(repo, "rev-parse", "HEAD")
+    env = TMPENV(tmp)
+    want = os.path.join(env["TMPDIR"], "fabric-review", f"reusedrepo-{head[:12]}")
+    req = os.path.join(tmp, "reused.json")
+    json.dump(base_request(repo), open(req, "w"))
+
+    def brief() -> subprocess.CompletedProcess:
+        return subprocess.run([BIN, "brief", req], capture_output=True, text=True, env=env)
+
+    assert brief().returncode == 0
+    open(os.path.join(want, "__pycache__"), "w").close()
+    assert brief().returncode == 0, "an untracked file does not refuse a reuse"
+    open(os.path.join(want, "a.txt"), "a").write("edited\n")
+    r = brief()
+    assert r.returncode == 2 and want in r.stderr and "a.txt" in r.stderr and r.stdout == "", r
+    assert "edited" in open(os.path.join(want, "a.txt")).read(), "a dirty worktree is refused, never deleted"
+    g(repo, "worktree", "remove", "--force", want)
+    # the registration outlives a cleaned temp dir: pruned once, then made again
+    assert brief().returncode == 0
+    shutil.rmtree(want)
+    r = brief()
+    assert r.returncode == 0 and os.path.isdir(want), r.stderr
+    g(repo, "worktree", "remove", "--force", want)
+    # a git that hangs is a refusal, not a traceback
+    saved, tempfile.tempdir = tempfile.tempdir, env["TMPDIR"]
+    real = rb._git
+
+    def hang(*a, **k):
+        raise subprocess.TimeoutExpired(["git", "worktree", "add"], 60)
+    rb._git = hang
+    try:
+        try:
+            rb.ensure_head_worktree(repo, head)
+            raise AssertionError("no refusal")
+        except rb.EvidenceRefused as exc:
+            assert "timed out" in str(exc), exc
+    finally:
+        rb._git = real
+        tempfile.tempdir = saved
+
+
 def test_every_refusal_names_its_field(tmp: str) -> None:
     repo = mkrepo(tmp, "repo2")
     ok = base_request(repo)
@@ -391,10 +523,10 @@ lenses: [protocol, security]
     assert doc["lenses"] == ["protocol", "security"], "an inline list keeps its order"
     r = subprocess.run([BIN, "check", req], capture_output=True, text=True)
     assert r.returncode == 0 and r.stdout.startswith("ok: review of main..HEAD"), r.stdout + r.stderr
-    r = subprocess.run([BIN, "brief", req], capture_output=True, text=True)
+    r = subprocess.run([BIN, "brief", req], capture_output=True, text=True, env=TMPENV(tmp))
     assert r.returncode == 0 and "### security" in r.stdout and "### protocol" in r.stdout, r.stderr
     open(req, "a").write("invariant: [x]\n")
-    r = subprocess.run([BIN, "brief", req], capture_output=True, text=True)
+    r = subprocess.run([BIN, "brief", req], capture_output=True, text=True, env=TMPENV(tmp))
     assert r.returncode == 2 and "invariant: not a request field (did you mean invariants?)" in r.stderr, r.stderr
     assert r.stdout == "", "a refused request renders nothing"
     r = subprocess.run([BIN, "lenses"], capture_output=True, text=True)
@@ -525,7 +657,7 @@ def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
              test_render_carries_every_heading_once_and_the_named_lenses, test_the_project_review_card,
-             test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode,
+             test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode, test_a_pinned_brief_checks_out_its_head_detached, test_a_refused_pinned_request_leaves_no_worktree, test_reusing_and_remaking_a_head_worktree,
              test_every_refusal_names_its_field,
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,

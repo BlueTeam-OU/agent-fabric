@@ -31,7 +31,9 @@ def main() -> int:
     tmp = tempfile.mkdtemp(prefix="test_review_rounds.")
     try:
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "GIT_"))}
-        env.update(GIT, AGENT_FABRIC_STATE_DIR=os.path.join(tmp, "state"), HOME=os.path.join(tmp, "home"))
+        env.update(GIT, AGENT_FABRIC_STATE_DIR=os.path.join(tmp, "state"), HOME=os.path.join(tmp, "home"),
+                   TMPDIR=os.path.join(tmp, "tmpdir"))
+        os.makedirs(env["TMPDIR"])
         repo = os.path.join(tmp, "work", "myrepo")
         os.makedirs(repo)
 
@@ -300,6 +302,57 @@ def main() -> int:
         check("a chain begun without card_base, whose base the default branch lacks, is refused naming card_base",
               r.returncode == 1 and "card_base" in r.stderr and "not an ancestor" in r.stderr
               and not os.path.exists(os.path.join(tmp, "scratch", "OLDCHAIN-rr3.json")), r.stderr)
+        print("head worktree")
+        evroot = os.path.join(env["TMPDIR"], "fabric-review")
+        head1 = git("rev-parse", "HEAD")  # the head `next` re-reviews: where the earlier sections left the repository
+        wt = os.path.join(evroot, f"myrepo-{head1[:12]}")
+        cfg = git("config", "--local", "--list")
+        r = run("next", req, "--report", report2)
+        check("next makes the new head's detached worktree and names it", r.returncode == 0 and os.path.isdir(wt)
+              and f"at {wt}:" in r.stdout and git("worktree", "list").count(wt) == 1, (r.stderr, os.listdir(env["TMPDIR"])))
+        check("...which wrote no branch and no config into the clone", git("config", "--local", "--list") == cfg
+              and "detached" in git("worktree", "list", "--porcelain"))
+
+        def hdr(sha: object, mode: str = "pinned") -> str:
+            return "```agent-fabric-dispatch v1\n" + json.dumps({"evidence_mode": mode, "head_sha": sha}) + "\n```\n## Round\n"
+        plain = os.path.join(evroot, f"myrepo-{base[:12]}")
+        os.makedirs(plain)
+        r = run("save", "8", "1", stdin=hdr(base))
+        check("save leaves a directory that is not the expected worktree alone", r.returncode == 0 and os.path.isdir(plain)
+              and "removed" not in r.stderr, r)
+        # the case the guard protects: a registered worktree of the same repo at the path, checked out elsewhere
+        def at(rev: str) -> None:
+            subprocess.run(["git", "-C", wt, "checkout", "-q", "--detach", rev], env=env, check=True, capture_output=True, timeout=30)
+        at(base)
+        r = run("save", "8", "1", stdin=hdr(head1))
+        check("save leaves a registered worktree of the repo that is at another commit, and says why",
+              r.returncode == 0 and os.path.isdir(wt) and wt in git("worktree", "list") and "removed" not in r.stderr
+              and f"left {wt}: not a worktree at {head1[:12]}" in r.stderr, r)
+        at(head1)
+        r = run("save", "8", "1", stdin=hdr(head1, "working-tree"))
+        check("save removes nothing for a report that was not pinned, quietly", r.returncode == 0 and os.path.isdir(wt) and "left" not in r.stderr, r)
+        r = run("save", "8", "1", stdin="## Round\n")
+        check("...nor without a header", r.returncode == 0 and os.path.isdir(wt) and "left" not in r.stderr, r)
+        r = run("save", "8", "1", stdin=hdr("../../etc"))
+        check("...nor for a head_sha that is no commit id", r.returncode == 0 and os.path.isdir(wt), r)
+        r = run("save", "8", "1", stdin=hdr(head1))
+        check("save removes the round's worktree and says so", r.returncode == 0 and not os.path.exists(wt)
+              and f"removed the head worktree {wt}" in r.stderr and wt not in git("worktree", "list"), r)
+        r = run("save", "8", "2", stdin=hdr(head1))
+        check("...and with nothing there it succeeds, naming the path it looked at",
+              r.returncode == 0 and "removed" not in r.stderr and f"left {wt}: nothing there" in r.stderr, r)
+        shutil.rmtree(plain)
+        bad = os.path.join(tmp, "scratch", "BAD.json")
+        with open(bad, "w") as f:
+            json.dump({"mode": "review", "repository": repo, "range": f"{base[:12]}..{head1[:12]}",
+                       "objective": "This fixes the PATH bug.", "requirements": ["It exists."]}, f)
+        head3 = commit("moved on")
+        listed = git("worktree", "list")
+        r = run("next", bad, "--report", report2)
+        check("next refuses a rationale-shaped objective and makes no worktree and no request",
+              r.returncode == 1 and "objective" in r.stderr and not os.path.exists(os.path.join(evroot, f"myrepo-{head3[:12]}"))
+              and git("worktree", "list") == listed and not os.path.exists(os.path.join(tmp, "scratch", "BAD-rr2.json")), (r, listed))
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")

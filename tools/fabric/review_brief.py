@@ -43,12 +43,14 @@ claims nothing was required.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -519,6 +521,110 @@ def dispatch_header(req: dict, info: dict | None, engine: str, purpose: str | No
     return _fence(json.dumps(header, indent=2), DISPATCH_VERSION)
 
 
+class EvidenceRefused(Exception):
+    """The head worktree cannot be made or reused; the message names why."""
+
+
+def evidence_path(repo_name: str, head_sha: str) -> str:
+    """Where a pinned review's head is checked out. ONE function for the brief
+    that makes it and `save` that removes it: save never takes a path from a
+    report's text. tempfile.gettempdir() is the launcher's per-login TMPDIR,
+    not a home's hidden dir, which the review Bash guard refuses as a search path."""
+    return os.path.join(tempfile.gettempdir(), "fabric-review", f"{repo_name}-{head_sha[:12]}")
+
+
+def repo_name_of(repo: str) -> str:
+    return os.path.basename(os.path.normpath(os.path.abspath(repo)))
+
+
+def worktree_head(path: str) -> str | None:
+    """HEAD of the git worktree AT path (not of a repository merely above it), else None."""
+    if not os.path.isdir(path) or os.path.islink(path):
+        return None
+    top = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=30)
+    if top.returncode != 0 or os.path.realpath(top.stdout.strip()) != os.path.realpath(path):
+        return None
+    head = subprocess.run(["git", "-C", path, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=30)
+    return head.stdout.strip() if head.returncode == 0 else None
+
+
+def ensure_head_worktree(repo: str, head_sha: str) -> tuple[str, bool]:
+    """(path, made_by_this_call): a detached worktree of head_sha, made or
+    reused. --detach so no branch and no branch.* config lands in the clone
+    (tests/test_session_start.py snapshots it). Anything else at the path is
+    refused, never deleted."""
+    path = evidence_path(repo_name_of(repo), head_sha)
+    root = os.path.dirname(path)
+    os.makedirs(root, mode=0o700, exist_ok=True)
+    os.chmod(root, 0o700)
+    try:
+        if os.path.lexists(path):
+            if worktree_head(path) != head_sha:
+                raise EvidenceRefused(f"{path} exists and is not a worktree at {head_sha[:12]}; "
+                                      "it is not mine to delete: move it away or remove it, then render again")
+            # A reviewer reads this tree as the head: a tracked edit would be evidence that is not the head.
+            st = _git(path, "status", "--porcelain", "--untracked-files=no")
+            changed = st.stdout.decode(errors="replace").splitlines()
+            if st.returncode != 0 or changed:
+                raise EvidenceRefused(f"{path} is not clean ({changed[0][3:] if changed else st.stderr.decode(errors='replace').strip()}); "
+                                      "it is not mine to delete: restore or remove it, then render again")
+            return path, False
+        r = _git(repo, "worktree", "add", "--detach", path, head_sha)
+        # A cleaned temp dir leaves the clone's registration behind; prune drops only registrations whose path is gone.
+        if r.returncode != 0 and b"missing but already registered" in r.stderr:
+            _git(repo, "worktree", "prune")
+            r = _git(repo, "worktree", "add", "--detach", path, head_sha)
+        if r.returncode != 0:
+            raise EvidenceRefused(f"git worktree add --detach {path} {head_sha[:12]} failed: {r.stderr.decode(errors='replace').strip()}")
+    except subprocess.TimeoutExpired as exc:
+        raise EvidenceRefused(f"{' '.join(map(str, exc.cmd))} timed out after {exc.timeout:g}s; {path} may be half made: check it, then render again")
+    return path, True
+
+
+def prepare_evidence(req: dict) -> tuple[str | None, bool]:
+    """(head worktree, made_by_this_call) for a pinned request with a range;
+    (None, False) for a working-tree or diff-file request, which read what is on disk."""
+    if evidence_mode(req) != "pinned" or not req.get("range"):
+        return None, False
+    info, _ = resolve_range(req)  # an unresolvable range is validate()'s refusal, raised by render
+    return ensure_head_worktree(req["repository"], info["head_sha"]) if info else (None, False)
+
+
+def refusals(req: dict, allow_rationale: bool = False, lenses_dir: str | None = None) -> list[str]:
+    """Every refusal render() raises that needs no evidence: what a caller
+    runs before it makes a worktree, so a request that will not render creates nothing."""
+    problems = validate(req, lenses_dir)
+    if not allow_rationale:
+        problems += [f"{field}: {sentence!r} — {why}; state what must be true instead (or --allow-rationale to render it flagged)"
+                     for field, sentence, why in rationale_findings(req)]
+    return problems
+
+
+@contextlib.contextmanager
+def pinned_evidence(req: dict, allow_rationale: bool = False):
+    """Yields the pinned head's worktree path (None when the request pins none),
+    after `refusals` pass. A failure inside the block removes the worktree this
+    call made, never a reused one: a render that refuses leaves nothing behind."""
+    if (problems := refusals(req, allow_rationale)):
+        raise RequestError(problems)
+    path, made = prepare_evidence(req)
+    try:
+        yield path
+    except BaseException:
+        if made and path:
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                _git(req["repository"], "worktree", "remove", "--force", path)
+        raise
+
+
+def _evidence_line(req: dict, info: dict | None, path: str | None) -> str | None:
+    if not (path and info and evidence_mode(req) == "pinned"):
+        return None
+    return (f"Evidence: pinned. The range's head {info['head_sha'][:12]} is checked out, detached, at {path}: read and run the "
+            "head's files there, naming that path in each command (no cd; git -C <path> for git); it is read-only for you, and you "
+            "make no extract or copy of your own. The clone at the path above may be a different state; git show <sha>:path stays valid.")
+
+
 EVIDENCE_LINE = {
     "pinned": "Evidence: pinned. Read the range's commits through git (git show <sha>:path, git diff, git log); the files on disk may be a different state.",
     "working-tree": "Evidence: working-tree. Read the files on disk; they are the state under review.",
@@ -527,7 +633,8 @@ EVIDENCE_LINE = {
 
 def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = False,
            delta: dict | None = None, engine: str = "claude", purpose: str | None = None,
-           dispatch_id: str | None = None, started_at: str | None = None) -> str:
+           dispatch_id: str | None = None, started_at: str | None = None,
+           evidence_path: str | None = None) -> str:
     """The brief, or a RequestError naming every problem. Byte-stable for
     the same request and lens files. `delta` is what review_rounds derives
     for a re-review and keeps out of the saved request: {"diff": the range's
@@ -535,13 +642,10 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     "locators": lines, "symbols": lines}; the brief's format lives here and
     nowhere else. The first block is the dispatch header; its dispatch_id and
     started_at are minted here, so two renders differ in exactly those (and
-    tests pass them in)."""
-    problems = validate(req, lenses_dir)
+    tests pass them in). `evidence_path` is the pinned head's worktree, made by
+    the caller (prepare_evidence), so that rendering has no side effect."""
     rationale = rationale_findings(req)
-    if rationale and not allow_rationale:
-        for field, sentence, why in rationale:
-            problems.append(f"{field}: {sentence!r} — {why}; state what must be true instead (or --allow-rationale to render it flagged)")
-    if problems:
+    if (problems := refusals(req, allow_rationale, lenses_dir)):
         raise RequestError(problems)
     known = lenses(lenses_dir)
     mode = req["mode"]
@@ -551,7 +655,7 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     info, _ = resolve_range(req)
     out = dispatch_header(req, info, engine, purpose, dispatch_id, started_at)
     out += [f"# Review brief ({BRIEF_VERSION})", "## Mode", mode,
-            "## Repository", f"{req['repository']} (the live clone; read-only for you)", EVIDENCE_LINE[evidence_mode(req)],
+            "## Repository", f"{req['repository']} (the live clone; read-only for you)", _evidence_line(req, info, evidence_path) or EVIDENCE_LINE[evidence_mode(req)],
            "## Range", req["range"] if req.get("range") else f"diff file: {req['diff']} (the range is not yet pushed; the tree is the same clone)"]
     out += ["## Objective", (req.get("objective") or "").strip() or "(none stated)"]
     for key, heading in (("requirements", "Requirements"), ("invariants", "Invariants"), ("compatibility", "Compatibility"),
@@ -632,7 +736,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"ok: {req['mode']} of {req.get('range') or req.get('diff')} in {req['repository']}; lenses {', '.join(names) or 'none'}"
                       + (f"; {len(names)} lenses — more than {MANY_LENSES} dilutes the bias" if len(names) > MANY_LENSES else ""))
                 return 0
-            sys.stdout.write(render(req, allow_rationale=allow))
+            # Made here, not in render(): the brief stays a pure function of the request.
+            with pinned_evidence(req, allow) as evidence:
+                brief = render(req, allow_rationale=allow, evidence_path=evidence)
+            sys.stdout.write(brief)
             names = list(dict.fromkeys(([] if req["mode"] == "re-review" else ["general"]) + list(req.get("lenses") or [])))
             if len(names) > MANY_LENSES:
                 print(f"review_brief: {len(names)} lenses — more than {MANY_LENSES} dilutes the bias", file=sys.stderr)
@@ -642,7 +749,7 @@ def main(argv: list[str] | None = None) -> int:
             for p in exc.problems:
                 print(f"  {p}", file=sys.stderr)
             return 2
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, EvidenceRefused) as exc:
             print(f"review_brief: {exc}", file=sys.stderr); return 2
     print(f"review_brief: unknown command {cmd} (render | check | lenses)", file=sys.stderr)
     return 2

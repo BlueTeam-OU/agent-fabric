@@ -20,9 +20,11 @@ A persona must improve the encounter without ever passing for a person.
 
 ## 2. Decision
 
-Each agent has a persona: a first name it chooses, a surname it claims
-from a curated list of scientists from all over the world, a sex (F or M)
-chosen only so its avatar keeps a consistent appearance, and an avatar in
+Each agent has a persona: a surname claimed from a curated list of
+scientists from all over the world (by provisioning, when the owner chose
+it, else by the agent), a sex (F or M) the agent chooses only so its
+avatar keeps a consistent appearance, then a first name of that sex it
+chooses, and an avatar in
 the fabric's own anime style that it may reject until it accepts one. The
 persona is shown only behind the prefix "AI": "AI Ada Maxwell", or "AI
 Ada · Python Dev" beside the role. It belongs to the agent id, so a login
@@ -83,18 +85,24 @@ its own rather than imposed.
    its person and the reason it passed, each removed name listed with
    its reason. fabric-coordinator curates it and the owner checks it;
    an addition passes the same test.
-4. One agent per surname: an agent claims one, the first claim wins, and
-   the claim is recorded in `identities/personas/claims.json` with the
-   agent's first name (and its pronoun, if it asked for one): the public
-   directory every surface reads a name from (A 2026-10-13). Where a
-   claim and the agent's own profile differ, the claim wins, first name
-   and surname alike.
-5. The agent chooses its first name from the culture its surname comes
-   from (the entry's `from`), a man's or a woman's name whatever the
-   scientist's own sex, so a name and a surname belong together; a
-   language-culture agent claims a surname of its own culture. No
-   persona is the name of a famous real person.
-6. The sex is chosen only for the avatar's appearance. The fabric keeps
+4. One agent per surname: the first claim wins, and the claim is
+   recorded in `identities/personas/claims.json` with the agent's first
+   name (and its pronoun, if it asked for one): the public directory
+   every surface reads a name from (A 2026-10-13). Provisioning claims
+   the surname when `new-agent` is given `--surname` — on the list and
+   unclaimed, checked before anything is made — and otherwise the agent
+   claims one. A claim carries `first_name` null until the agent has
+   chosen it (rule 5); until then people read "AI <Surname>, <role>"
+   (A 2026-10-15). Where a claim and the agent's own profile differ, the
+   claim wins, first name and surname alike.
+5. The agent chooses its sex first (rule 6), then its first name: a
+   name of that sex, from the culture its surname comes from (the
+   entry's `from`), whatever the scientist's own sex, so a name, a sex
+   and a surname belong together (A 2026-10-15); a language-culture
+   agent claims a surname of its own culture. No persona is the name of
+   a famous real person.
+6. The sex is chosen before the first name, and only for the avatar's
+   appearance; it is kept in the profile, never in the claim. The fabric keeps
    no gender; a pronoun is recorded only when the agent asks for one:
    an agent that does not want "he" or "she" may ask to be called "it",
    and that request is kept in its profile.
@@ -156,3 +164,4 @@ The body above reads current; each change's full note is in [history/ADR-056-ame
 |---|---|---|
 | 2026-10-13 | Candidate avatars wait in a shared folder on the host | §5 rule 7: candidates in /usr/local/share/agent-fabric/avatars/<id>/, brand-comms writes, every agent reads |
 | 2026-10-13 | An agent is named with its role as people say it, from a public directory | §5 rule 2: "AI <Name> <Surname>, <role>" with the short title, never the login where people read; rule 4: claims carry the first name |
+| 2026-10-15 | Provisioning claims the surname; the agent chooses its sex, then a first name of that sex | §2; §5 rule 4: new-agent --surname claims it, first_name null until chosen; rule 5: sex first, then a first name of that sex; rule 6: the sex chosen first, kept in the profile |

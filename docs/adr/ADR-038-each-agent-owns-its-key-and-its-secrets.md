@@ -67,9 +67,10 @@ that mints other keys, the value every agent shares, a client's own
 service token — is held in the store of the company it belongs to: the
 operator, or a client, each named with its store in `projects/clients.json`
 (ADR-045). The same pass layout, read by the fabric-coordinator holders
-and the owner's recovery key. An agent never reads a company's store: what
-it needs from one is put into its own, as a shared value is today, and a
-client's credential is applied for that client's working copies only.
+and the owner's recovery key. No agent but a fabric-coordinator holder reads
+a company's store: what any other agent needs from one is put into its own,
+as a shared value is today, and a client's credential is applied for that
+client's working copies only.
 
 ## 3. Alternatives Considered
 
@@ -129,10 +130,11 @@ sharing a machine.
    same way and recorded with no parent. Lint refuses a committed key
    without its parent's certification.
 3. An agent's store is encrypted to that agent's key alone (`.gpg-id`).
-   Any holder of the committed public key may add an entry (`fabric-secrets
-   put`); its parent fills a new agent's store that way (`fabric-secrets
-   provision`: identity, an allowlist of shared names, a key of its own on
-   each API) (A 2026-09-30). Only the agent decrypts. No store is
+   Only the agent and its parent write an entry (ADR-042 rule 2): the parent
+   adds one with `fabric-secrets put` and fills a new agent's store that way
+   (`fabric-secrets provision`: identity, an allowlist of shared names, a key
+   of its own on each API) (A 2026-09-30) (A 2026-10-15). Only the agent
+   decrypts. No store is
    encrypted to another agent's key; a company's store (rule 10) is no
    agent's store (A 2026-10-15).
 4. A key names no host. A login moved with its home keeps its key. A
@@ -346,3 +348,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-10-13 | one repository per agent holds its secrets and its settings, in BlueTeam-OU | §2 |
 | 2026-10-13 | Commits are signed by each agent's own key, as ADR-057 says | §6 Commits: the agent's signing subkey, OpenPGP or SSH; §7: per-agent signing leaves Future Evolution |
 | 2026-10-15 | What belongs to a company is kept in that company's store | Scope, §2, §5 rules 3 and 10, §8: a store per client, read by the fabric-coordinator holders and the recovery key; its names reach an agent by put, a client's for that client's working copies only |
+| 2026-10-15 | Only the agent and its parent write an entry | §5 rule 3: `put` is the parent's, and a store takes in commits only from the agent and its parent, as ADR-042 rule 2 says; holding the public key admits no one |
