@@ -510,6 +510,25 @@ class SecretsSync(unittest.TestCase):
 class SessionsOnOldSignIn(unittest.TestCase):
     """What `assign --no-restart` leaves behind, as `fabric-ctl status` reads it."""
 
+    def test_status_session_section_carries_the_count_through_the_ops_wiring(self):
+        from control import ops
+        f = Fixture(self, before=TPL)
+        envs = {1: env_with(OLD), 2: env_with(TPL)}
+        ctx = {"home": f.home, "uid": 1, "session_opts": {"pids": [1, 2], "env_of": lambda pid: envs[pid](pid)}}
+        run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "")  # noqa: E731
+        self.assertEqual(ops.collect("session", {**ctx, "run": run})["session"]["on_old_sign_in"], 1)
+        self.assertNotIn("on_old_sign_in", ops.collect("session", {"home": f.home, "uid": 1, "run": run})["session"],
+                         "an injected run fakes the process table: the real one is not read")
+        self.assertNotIn("on_old_sign_in", ops.collect("session", {**ctx, "home": Fixture(self, before=None).home, "run": run})["session"],
+                         "no synced token to compare with")
+
+    def test_a_session_that_exits_before_its_environment_is_read_is_not_counted(self):
+        f = Fixture(self, before=TPL)
+
+        def gone(_pid):
+            raise FileNotFoundError(2, "gone")
+        self.assertEqual(S.sessions_on_old_sign_in(f.home, pids=[2 ** 22 + 12345], env_of=gone), 0)
+
     def count(self, f, envs: dict, **more):
         return S.sessions_on_old_sign_in(f.home, pids=list(envs), env_of=lambda pid: envs[pid](pid), **more)
 

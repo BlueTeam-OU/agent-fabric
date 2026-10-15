@@ -141,14 +141,20 @@ def _keys(ctx: Mapping[str, Any]) -> Any:
 
 def _session(ctx: Mapping[str, Any]) -> Any:
     """session, plus how many of its sessions still run on an account the login has since been moved off
-    (`stale_sign_in`, absent where that cannot be told): a status reader sees an `assign --no-restart` not yet
-    taken up. Additive to the frozen reply."""
+    (`on_old_sign_in`, absent where that cannot be told): a status reader sees an `assign --no-restart` not yet
+    taken up. Additive to the frozen reply. A context that injects `run` has faked the process table, and the
+    count reads the real one, so it is left out there unless the context gives its own `session_opts`."""
     from control import secrets
     out = session(ctx.get("uid"), **_run_kw(ctx))
-    if ctx.get("home"):
-        old = secrets.sessions_on_old_sign_in(ctx["home"], **(ctx.get("session_opts") or {}))
-        if old is not None:
-            out["on_old_sign_in"] = old
+    opts = ctx.get("session_opts")
+    if ctx.get("run") and opts is None:
+        return out
+    try:
+        old = secrets.sessions_on_old_sign_in(ctx.get("home"), **{"uid": ctx.get("uid"), **(opts or {})})
+    except Exception:  # noqa: BLE001 — the additive key never costs the frozen ones
+        old = None
+    if old is not None:
+        out["on_old_sign_in"] = old
     return out
 
 

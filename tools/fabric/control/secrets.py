@@ -120,7 +120,7 @@ def _on_token(env: dict | None, tok: str | None) -> bool:
     return bool(t and tok and util.sha12(t) == util.sha12(tok))
 
 
-def sessions_on_old_sign_in(home: str, *, pids: list[int] | None = None, env_of: Callable[[int], bytes | str] | None = None,
+def sessions_on_old_sign_in(home: str | None, *, uid: int | None = None, pids: list[int] | None = None, env_of: Callable[[int], bytes | str] | None = None,
                             pgrep: Callable[..., Any] | None = None) -> int | None:
     """How many plain-claude sessions of this account still run on a sign-in other than the synced one — what
     `fabric-accounts assign --no-restart` leaves behind until each is relaunched. Broker and gateway sessions
@@ -131,7 +131,7 @@ def sessions_on_old_sign_in(home: str, *, pids: list[int] | None = None, env_of:
     if not tok:
         return None
     try:
-        running = pids if pids is not None else upgrade().session_pids(**({"run": pgrep} if pgrep else {}))
+        running = pids if pids is not None else upgrade().session_pids(uid=uid, **({"run": pgrep} if pgrep else {}))
     except (OSError, subprocess.SubprocessError):
         return None
     old = 0
@@ -139,6 +139,8 @@ def sessions_on_old_sign_in(home: str, *, pids: list[int] | None = None, env_of:
         try:
             env = session_env(pid, env_of)
         except OSError:
+            if not _alive(pid):
+                continue   # exited between the listing and the read: not a session on anything
             env = None
         if env and (env["transport"] == "gateway" or (env["provider"] and env["provider"] != "anthropic")):
             continue
