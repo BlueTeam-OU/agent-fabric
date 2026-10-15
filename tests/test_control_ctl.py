@@ -1233,6 +1233,13 @@ class States(unittest.TestCase):
         for bad in ({"last_session": "../../etc/x"}, {"last_session": "abc\u001b]0;t\u0007def"}, {"last_session": 7}, {"last_session": "0f0e0d0c-1111", "resumable": "yes"}):
             self.assertIsNone(ctl.state_record_of(rec(**bad), want), json.dumps(bad))
 
+    def test_states_json_passes_a_sessions_ssh_client_through_unchanged(self):
+        now = ms_of("2026-10-07T12:00:00Z")
+        sess = [{"session": "s", "state": "idle", "since": "t", "ssh_client": {"addr": "192.0.2.7", "port": 51234}}]
+        rec = {"content": json.dumps({"v": 1, "kind": "state", "from": "h/a", "ts": "2026-10-07T11:59:00Z", "sessions": sess})}
+        row = ctl.state_row("h/a", ctl.state_record_of(rec, {"h/a"}), now)
+        self.assertEqual(row["sessions"], sess)
+
     def test_states_follow_prints_each_new_record_for_an_expected_account_and_survives_a_relay_outage(self):
         now = ms_of("2026-10-07T12:00:00Z")
 
