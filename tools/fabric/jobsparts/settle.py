@@ -24,7 +24,7 @@ REPLY = re.compile(rf"\breply:({MESSAGE_ID.pattern})", re.ASCII)
 SHA = re.compile(r"(?<![0-9a-zA-Z])[0-9a-f]{7,40}(?![0-9a-zA-Z])", re.ASCII)
 # What a blocked job's free text must say to count as an owner's decision (rule 10: the one blocker no tool can check).
 OWNER_DECISION = re.compile(r"\s*(?:owner(?:'s)?\s+decision|owner:|the owner(?:'s)?\s+decision)", re.IGNORECASE)
-EVIDENCE_FORMS = "a pull request (owner/repo#N, #N or its URL), a commit sha, a branch on origin or reply:<MESSAGE-ID>"
+EVIDENCE_FORMS = "a pull request (owner/repo#N, #N or its URL), a commit sha, a branch on origin or reply:<MESSAGE-ID> (the reply's id or the id it answers)"
 # A branch artifact is a ref name (or origin/<ref>) holding a slash. The pattern keeps a leading dash out of git's argv; whether a
 # candidate is a branch at all is asked of git, so a path or a repo name that matches is no evidence and no failure.
 BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)+", re.ASCII)
@@ -97,14 +97,16 @@ def _journal():
 
 
 def replied(message_id: str) -> bool | str:
-    """True when this login's journal holds a REPLY of its own to `message_id`; False when not; a string saying why it could not be told."""
+    """True when this login's journal holds a message of its own, of any type but with IN-REPLY-TO (a DECISION answers a REQUEST as a REPLY does), that answers `message_id` or is `message_id` (gzcoord-send prints only the
+    reply's own id, so a holder cannot be asked for the answered one); False when not; a string saying why it could not be told.
+    Both are UUIDv7s and only this login's outbound rows with an IN-REPLY-TO are read, so neither reading can name another message."""
     try:
         conn = _journal()
         if conn is None:
             return False
         try:
-            return conn.execute("SELECT 1 FROM episodes WHERE direction='outbound' AND type='REPLY' AND lower(in_reply_to)=? LIMIT 1",
-                                (message_id,)).fetchone() is not None
+            return conn.execute("SELECT 1 FROM episodes WHERE direction='outbound' AND in_reply_to IS NOT NULL "
+                                "AND (lower(in_reply_to)=? OR lower(message_id)=?) LIMIT 1", (message_id, message_id)).fetchone() is not None
         finally:
             conn.close()
     except Exception as e:  # noqa: BLE001 — an unreadable journal is "could not tell", never a traceback
@@ -113,7 +115,7 @@ def replied(message_id: str) -> bool | str:
 
 def owed_replies(since: float | None) -> list[dict] | str:
     """The REQUESTs and QUESTIONs addressed to this login with REPLY-EXPECTED: yes, received at or after `since` (epoch seconds;
-    None: all), that have no REPLY from it, oldest first: [{"id", "type", "from", "subject"}]; a string saying why the
+    None: all), that have no answer from it (any outbound message whose IN-REPLY-TO names them, whatever its type), oldest first: [{"id", "type", "from", "subject"}]; a string saying why the
     journal could not be read. Scoped to the job (the owner's reading, 2026-10-14): an old message of another subject does not
     hold every switch hostage."""
     me = f"{identity.current_host()}/{identity.current_agent()}"
@@ -123,7 +125,7 @@ def owed_replies(since: float | None) -> list[dict] | str:
             return []
         try:
             answered = {str(r[0]).lower() for r in conn.execute(
-                "SELECT in_reply_to FROM episodes WHERE direction='outbound' AND type='REPLY' AND in_reply_to IS NOT NULL")}
+                "SELECT in_reply_to FROM episodes WHERE direction='outbound' AND in_reply_to IS NOT NULL")}
             rows = conn.execute("SELECT message_id, type, sender, metadata_json, recorded_at FROM episodes WHERE direction='inbound' "
                                 "AND type IN ('REQUEST', 'QUESTION') AND message_id IS NOT NULL ORDER BY recorded_at, rowid").fetchall()
         finally:
@@ -241,6 +243,40 @@ def _landed(job: dict, found: dict, problems: list[str]) -> list[str]:
     return landed
 
 
+def _reflected(job: dict, problems: list[str]) -> list[str]:
+    """A reflection pass lands no PR, sha or branch: its artifact is the fabric-reflect cursor (ADR-058). Evidence when the
+    cursor of this login was closed (`fabric-reflect done`) after the job started. Keyed on the topic, which fabric-reflect-jobs
+    sets, never on the title prefix a person can reword by accident. No cursor, an older one and an unreadable one are
+    problems: a cursor that cannot be read is not a pass."""
+    if job.get("topic") != "reflection":
+        return []
+    fix = "run fabric-reflect done --through <row> first"
+    try:
+        reflect = _load("fabric_reflect", os.path.join(FABRIC_ROOT, "tools", "fabric", "reflect.py"))
+        owner = reflect.episodic.own_agent_id()
+        cur = reflect.read_cursor(owner)
+    except Exception as e:  # noqa: BLE001 — CursorError, JournalError, a missing id: all "could not tell", never a traceback
+        # Not `fix`: fabric-reflect done reads the same cursor and fails the same way; the error already names the working remedy.
+        problems.append(f"the fabric-reflect cursor could not be read: {e}")
+        return []
+    if not cur:
+        problems.append(f"no fabric-reflect pass has been closed: {fix}")
+        return []
+    since = started_at(job)
+    try:
+        done = calendar.timegm(time.strptime(str(cur.get("done_at")), "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, OverflowError):
+        problems.append(f"the fabric-reflect cursor has no readable done_at; {fix}")
+        return []
+    if since is None:
+        problems.append(f"{job['id']} has no readable start time, so the fabric-reflect cursor cannot be dated")
+        return []
+    if done <= since:
+        problems.append(f"the fabric-reflect cursor (row {cur['row']}, {cur['done_at']}) predates {job['id']}: {fix}")
+        return []
+    return [f"fabric-reflect cursor at row {cur['row']}, {cur['done_at']}"]
+
+
 def _replies(found: dict, problems: list[str]) -> list[str]:
     out = []
     for mid in found["replies"]:
@@ -248,7 +284,8 @@ def _replies(found: dict, problems: list[str]) -> list[str]:
         if said is True:
             out.append(f"reply {mid[:8]} sent")
         elif said is False:
-            problems.append(f"reply:{mid} is not in this login's journal as sent")
+            problems.append(f"reply:{mid} names no answer this login sent (a message with IN-REPLY-TO: the id gzcoord-send printed for it, or the id of the message it answers); "
+                            f"if it was recorded by mistake: fabric-jobs retract <id> reply:{mid}")
         else:
             problems.append(f"could not tell whether reply:{mid} was sent ({said})")
     return out
@@ -334,7 +371,7 @@ def settle(job: dict, places: list[str], session_start: float | None = None) -> 
             repo = None
     found = artifacts_of(job, repo)
     if state == "done":
-        evidence = _landed(job, found, problems)
+        evidence = _landed(job, found, problems) + _reflected(job, problems)
         if not evidence and not problems:
             problems.append(f"done needs evidence it landed: deliver {EVIDENCE_FORMS} that is merged or on the default branch")
     elif state == "delivered":
