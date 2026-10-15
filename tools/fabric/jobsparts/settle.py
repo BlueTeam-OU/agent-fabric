@@ -256,7 +256,8 @@ def _reflected(job: dict, problems: list[str]) -> list[str]:
         owner = reflect.episodic.own_agent_id()
         cur = reflect.read_cursor(owner)
     except Exception as e:  # noqa: BLE001 — CursorError, JournalError, a missing id: all "could not tell", never a traceback
-        problems.append(f"the fabric-reflect cursor could not be read ({str(e)[:160]}); {fix}")
+        # Not `fix`: fabric-reflect done reads the same cursor and fails the same way; the error already names the working remedy.
+        problems.append(f"the fabric-reflect cursor could not be read: {e}")
         return []
     if not cur:
         problems.append(f"no fabric-reflect pass has been closed: {fix}")

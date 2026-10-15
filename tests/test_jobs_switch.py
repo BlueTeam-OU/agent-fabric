@@ -128,6 +128,9 @@ def main() -> int:
                 assert self.sw("start", job)[0] == 0
                 return job
 
+            def started(self, job_id: str) -> str:
+                return [e["at"] for e in self.job(job_id)["log"] if e.get("state") == "active"][-1]
+
             def job(self, job_id: str) -> dict:
                 return next(j for j in json.load(open(os.path.join(self.state, "agents", login, "jobs.json")))["jobs"] if j["id"] == job_id)
 
@@ -224,9 +227,10 @@ def main() -> int:
 
         later, earlier = "2999-01-01T00:00:00Z", "2000-01-01T00:00:00Z"
         for label, put, why in (("a cursor closed after the job started", lambda w: cursor(w, later), None),
-                                ("no cursor", lambda w: None, "run fabric-reflect done --through <row> first"),
+                                ("no cursor", lambda w: None, "no fabric-reflect pass has been closed"),
                                 ("a cursor older than the job", lambda w: cursor(w, earlier), "predates"),
-                                ("a cursor of another agent", lambda w: cursor(w, later, "01a0f782-0000-7dee-811f-0a860ed93bf3"), "cursor could not be read"),
+                                ("a cursor of another agent", lambda w: cursor(w, later, "01a0f782-0000-7dee-811f-0a860ed93bf3"), "remove it to read this journal"),
+                                ("a cursor closed in the second the job started", lambda w: cursor(w, w.started(j1)), "predates"),
                                 ("a cursor with no done_at", lambda w: cursor(w, None), "no readable done_at")):
             w = World()
             j1 = w.working("weekly reflection pass", "--topic", "reflection")
@@ -246,7 +250,7 @@ def main() -> int:
             fh.write("{not json")
         w.add("the next job")
         rc, out, err = w.switch()
-        check("reflection: an unreadable cursor is refused, not passed", rc == 1 and "cursor could not be read" in err, out + err)
+        check("reflection: an unreadable cursor is refused, not passed", rc == 1 and "cursor could not be read" in err and "is unreadable" in err, out + err)
         w = World()
         j1 = w.working("weekly reflection pass", "--topic", "other")
         w.sw("done", j1)
