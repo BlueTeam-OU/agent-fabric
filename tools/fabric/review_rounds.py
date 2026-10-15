@@ -3,7 +3,7 @@
 re-review's brief comes from what was saved, never from editing the last
 request by hand (bin/fabric-review save | next).
 
-    review_rounds.py save PR ROUND [--repo NAME]  < report
+    review_rounds.py save PR ROUND [--repo NAME]  < report   (also removes the round's head worktree)
     review_rounds.py next REQUEST (--report FILE | --pr PR [--repo NAME])
                           [--head REV] [--keep-lenses] [--allow-rationale]
 
@@ -57,6 +57,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -128,9 +129,9 @@ def save(pr: str, rnd: str, report: str, repo: str) -> str:
     return path
 
 
-def report_evidence_mode(report: str) -> str | None:
-    """The evidence_mode of the report's first agent-fabric-dispatch header, "unreadable" when that header is
-    not a JSON object, None when the report carries none."""
+def report_header(report: str) -> dict | str | None:
+    """The report's first agent-fabric-dispatch header as a dict, "unreadable" when that header is not a JSON
+    object, None when the report carries none."""
     lines = report.splitlines()
     for i, line in enumerate(lines):
         m = DISPATCH_FENCE.match(line)
@@ -141,11 +142,41 @@ def report_evidence_mode(report: str) -> str | None:
             header = json.loads("\n".join(lines[i + 1:close])) if close is not None else None
         except ValueError:
             header = None
-        if not isinstance(header, dict):
-            return "unreadable"
-        mode = header.get("evidence_mode")
-        return mode if isinstance(mode, str) else "unreadable"
+        return header if isinstance(header, dict) else "unreadable"
     return None
+
+
+def report_evidence_mode(report: str) -> str | None:
+    """The evidence_mode of the report's first dispatch header, "unreadable" when it cannot be read, None when
+    the report carries none."""
+    header = report_header(report)
+    if not isinstance(header, dict):
+        return header
+    mode = header.get("evidence_mode")
+    return mode if isinstance(mode, str) else "unreadable"
+
+
+def remove_head_worktree(report: str, repo: str) -> str | None:
+    """Remove the head worktree the brief made for this report's round; the path it removed, else None.
+    The path is recomputed from repo and the header's head_sha by the function the brief used, never read
+    from the report, and removed only when it is a worktree at exactly that head: a directory I did not
+    make is not mine to delete. A failed removal warns; the report is already saved."""
+    header = report_header(report)
+    sha = header.get("head_sha") if isinstance(header, dict) else None
+    if not (isinstance(header, dict) and header.get("evidence_mode") == "pinned"
+            and isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha)):
+        return None
+    path = review_brief.evidence_path(repo, sha)
+    if os.path.dirname(path) != os.path.join(tempfile.gettempdir(), "fabric-review") or review_brief.worktree_head(path) != sha:
+        return None
+    common = subprocess.run(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                            capture_output=True, text=True, timeout=30)
+    gone = subprocess.run(["git", f"--git-dir={common.stdout.strip()}", "worktree", "remove", "--force", path],
+                          capture_output=True, text=True, timeout=120) if common.returncode == 0 else common
+    if gone.returncode != 0:
+        print(f"fabric-review: warning: could not remove the head worktree {path}: {gone.stderr.strip()}", file=sys.stderr)
+        return None
+    return path
 
 
 def newest_round(repo: str, pr: str) -> str:
@@ -339,7 +370,11 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
         raise Refused("the re-review request does not validate:\n  " + "\n  ".join(problems))
     # Rendered before it is written: a render that refuses leaves no orphan
     # request for the next attempt to number past (review of #89).
-    brief = review_brief.render(nxt, allow_rationale=allow_rationale,
+    try:
+        evidence = review_brief.prepare_evidence(nxt)
+    except review_brief.EvidenceRefused as e:
+        raise Refused(str(e))
+    brief = review_brief.render(nxt, allow_rationale=allow_rationale, evidence_path=evidence,
                                 delta=_delta(repo_dir, old_head, new_head, report))
     path = _next_path(request_path)
     with open(path, "w", encoding="utf-8") as f:
@@ -371,8 +406,12 @@ def main(argv: list[str] | None = None) -> int:
             if len(args) != 2:
                 print("usage: fabric-review save PR ROUND [--repo NAME] < report", file=sys.stderr)
                 return 2
-            path = save(_pr(args[0]), args[1], sys.stdin.read(), _repo_name(repo))
+            report = sys.stdin.read()
+            name = _repo_name(repo)
+            path = save(_pr(args[0]), args[1], report, name)
             print(path)
+            if (gone := remove_head_worktree(report, name)):
+                print(f"fabric-review: removed the head worktree {gone}", file=sys.stderr)
             return 0
         if cmd == "next":
             report, pr, repo, head = (_flag(args, f) for f in ("--report", "--pr", "--repo", "--head"))
