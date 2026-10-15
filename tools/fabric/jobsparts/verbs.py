@@ -297,7 +297,7 @@ def branch_here() -> dict:
 
 
 def change(args) -> int:
-    """prio, start, pause, block, deliver, done, drop: one job changed under the lock."""
+    """prio, start, pause, block, deliver, retract, done, drop: one job changed under the lock."""
     said: dict = {}
     paused_branch = branch_here() if args.cmd == "pause" else {}
 
@@ -341,13 +341,23 @@ def change(args) -> int:
                 job["blockers"] = specs
             said["specs"], said["hint"] = specs, text is not None and not specs and bl.names_a_checkable(text)
         elif args.cmd == "deliver" and job["state"] == "done":
-            # Evidence only: the job stays closed (nothing reopens it), so a missing artifact can be added. Artifacts are never
-            # removed; a wrong one is outweighed by a landed one, as settle reads them.
+            # Evidence only: the job stays closed (nothing reopens it), so a missing artifact can be added. `deliver` never removes one; a
+            # wrong artifact does not hide behind a landed one (settle makes a reply: naming no sent REPLY a problem whatever else
+            # landed), it is taken out with `retract`.
             job["artifacts"] = list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))
             job["updated"] = identity.now_iso()
         elif args.cmd == "deliver":
             arts = list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))
             transition(doc, job, "delivered", artifacts=arts)
+        elif args.cmd == "retract":
+            arts = list(job.get("artifacts") or [])
+            if args.artifact not in arts:
+                raise Refused(f"{job['id']} has no artifact {args.artifact!r}; its artifacts: " + (", ".join(repr(a) for a in arts) or "none"))
+            job["artifacts"] = [a for a in arts if a != args.artifact]
+            now = identity.now_iso()
+            job["updated"] = now
+            # No `state`: fleet.log_times reads the state of an entry as a transition, and settle dates the job's start by its last `active` one.
+            job.setdefault("log", []).append({"at": now, "kind": "retract", "note": f"retracted artifact {args.artifact}"})
         elif args.cmd == "done":
             transition(doc, job, "done")
         elif args.cmd == "drop":

@@ -161,6 +161,51 @@ def main() -> int:
             if label.startswith("runs"):
                 check("…and its output is shown indented", "   hello-from-check" in err.getvalue(), err.getvalue())
 
+    print("finish: a clone that is already there is pointed at its registry remote")
+    ssh = "git@github.com:BlueTeam-OU/agent-fabric.git"
+    https = "https://github.com/BlueTeam-OU/agent-fabric.git"
+
+    def step6(origin: str | None, *argv: str):
+        """Run finish up to the end of step 6 with a present clone whose push URL reads `origin` (None: unreadable)."""
+        seen: list = []
+
+        def fake(cmd, **kw):
+            seen.append(list(cmd))
+            if cmd[:1] == ["getent"]:
+                return subprocess.CompletedProcess(cmd, 2, stdout="", stderr="")
+            if "remote.origin.url" in cmd:
+                if origin is None:
+                    return subprocess.CompletedProcess(cmd, 128, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout=origin + "\n", stderr=None)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        out = io.StringIO()
+        w = make_worker(
+            "--clone", f"agent-fabric={ssh}", *argv)
+        w.a.phase = "finish"
+        with mock.patch.object(subprocess, "run", fake), mock.patch.object(worker, "record_launch_provider", side_effect=Reached), \
+                redirect_stderr(out):
+            try:
+                worker.finish(w)
+            except Reached:
+                pass
+        return seen, out.getvalue()
+
+    sets = lambda seen: [c for c in seen if "set-url" in c]  # noqa: E731
+    seen, said = step6(https)
+    check("an https origin is set to the registry's SSH remote, as the login, and said in one line",
+          len(sets(seen)) == 1 and sets(seen)[0][-4:] == ["remote", "set-url", "origin", ssh] and f"6. agent-fabric: origin set to {ssh}" in said
+          and f"-u {LOGIN}" in " ".join(sets(seen)[0]), f"{sets(seen)} {said}")
+    seen, said = step6(ssh)
+    check("a clone already on its remote is untouched", not sets(seen) and "origin set" not in said, f"{sets(seen)} {said}")
+    seen, said = step6(https, "--dry-run")
+    check("dry run says what it would do and changes nothing", not sets(seen) and f"would: as_login git -C ~/projects/'agent-fabric' remote set-url origin '{ssh}'" in said
+          and "origin set to" not in said,
+          f"{sets(seen)} {said}")
+    seen, said = step6(https, "--project", "other")
+    check("a project the registry gives no remote for is left alone", len(sets(seen)) == 1, f"{sets(seen)} {said}")
+    seen, said = step6(None)
+    check("an origin that cannot be read is left as it is, and said", not sets(seen) and "origin not readable; left as it is" in said, f"{sets(seen)} {said}")
+
     print("dry run: a step of two commands says it once")
     err = io.StringIO()
     with redirect_stderr(err):

@@ -52,6 +52,7 @@ fabric-jobs add "<artifact>" --priority high                      # blocking | h
 | Its artifact exists | `fabric-jobs deliver <id> <pr-or-commit>...` |
 | The artifact landed and nothing is owed | `fabric-jobs done <id>` |
 | It will not be done | `fabric-jobs drop <id> "<why>"` |
+| An artifact was entered by mistake | `fabric-jobs retract <id> <artifact>`, exactly as `show` lists it; any state, done included |
 
 `fabric-jobs list` shows the open jobs. `fabric-jobs show <id>` shows one
 in full.
@@ -73,9 +74,13 @@ You move between jobs with `fabric-jobs switch [<id>]` (`next` is its
 alias; ADR-037 rule 10). It refuses, saying what to fix, unless the job
 you leave is settled with its evidence (done: merged; delivered: its PR
 open; blocked: a named blocker; paused: its branch pushed; dropped: a
-reason; a reply-only job: `reply:<MESSAGE-ID>` as its artifact), nothing
-is uncommitted, and every `REPLY-EXPECTED: yes` received since the job
-started is answered. It then names the next job's branch: your open
+reason; a reply-only job: `reply:<MESSAGE-ID>` as its artifact, the id
+`gzcoord-send` printed for your answer or the id of the message it
+answers; a reflection job: your `fabric-reflect` cursor closed after the
+job started), nothing is uncommitted, and every `REPLY-EXPECTED: yes`
+received since the job started is answered. An answer is any message you
+sent with `IN-REPLY-TO` naming it, a REPLY or a DECISION alike; one
+without `IN-REPLY-TO` answers nothing. It then names the next job's branch: your open
 PR's when still addable, else a new one off a freshly fetched default
 branch (`--needs-merged` when the job needs your open PR merged first).
 Write what you learnt into your memory before you switch.

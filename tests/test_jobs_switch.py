@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -128,6 +129,9 @@ def main() -> int:
                 assert self.sw("start", job)[0] == 0
                 return job
 
+            def started(self, job_id: str) -> str:
+                return [e["at"] for e in self.job(job_id)["log"] if e.get("state") == "active"][-1]
+
             def job(self, job_id: str) -> dict:
                 return next(j for j in json.load(open(os.path.join(self.state, "agents", login, "jobs.json")))["jobs"] if j["id"] == job_id)
 
@@ -143,6 +147,12 @@ def main() -> int:
                                        env=os.environ, input=json.dumps({"content": text, "seq": 1, **({"ts": ts} if ts else {})}) + "\n" if direction == "in" else text,
                                        capture_output=True, text=True, timeout=60)
                     assert r.returncode == 0, r.stderr
+                    if direction in ("out", "out-failed"):
+                        mid = re.search(r"^MESSAGE-ID: (\S+)$", text, re.M).group(1)
+                        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "gzcoord-out-final", mid,
+                                            "--state", "failed" if direction == "out-failed" else "accepted"],
+                                           env=os.environ, capture_output=True, text=True, timeout=60)
+                        assert r.returncode == 0, r.stderr
 
         def request(mid: str, expect: str = "yes") -> str:
             return (f"[GZCOORD/1] REQUEST\nFROM: peer/sender\nROLE: x\nPROJECT: p\nTO: {me}\nREPLY-EXPECTED: {expect}\n"
@@ -213,6 +223,55 @@ def main() -> int:
               rc == 0 and out.startswith(old) and "resumes paused work: urgent one first" in out and w.job(queued_first)["state"] == "queued",
               out + err)
         check("it keeps its own branch", w.job(old)["branch"] == "side/work" and "side/work (the job's own branch" in out, out)
+
+        print("settling the old job: a reflection job is done on the fabric-reflect cursor (ADR-058)")
+        agent_id = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
+
+        def cursor(w: World, done_at: str | None, owner: str = agent_id) -> None:
+            body = {"agent_id": owner, "row": 7, "episode": "e", **({"done_at": done_at} if done_at else {})}
+            with open(os.path.join(w.state, "agents", login, "reflect-cursor.json"), "w", encoding="utf-8") as fh:
+                json.dump(body, fh)
+
+        later, earlier = "2999-01-01T00:00:00Z", "2000-01-01T00:00:00Z"
+        for label, put, why in (("a cursor closed after the job started", lambda w: cursor(w, later), None),
+                                ("no cursor", lambda w: None, "no fabric-reflect pass has been closed"),
+                                ("a cursor older than the job", lambda w: cursor(w, earlier), "predates"),
+                                ("a cursor of another agent", lambda w: cursor(w, later, "01a0f782-0000-7dee-811f-0a860ed93bf3"), "remove it to read this journal"),
+                                ("a cursor closed in the second the job started", lambda w: cursor(w, w.started(j1)), "predates"),
+                                ("a cursor with no done_at", lambda w: cursor(w, None), "no readable done_at")):
+            w = World()
+            j1 = w.working("weekly reflection pass", "--topic", "reflection")
+            w.sw("done", j1)
+            put(w)
+            w.add("the next job")
+            rc, out, err = w.switch()
+            if why is None:
+                check(f"reflection: {label} settles done and names the row",
+                      rc == 0 and "fabric-reflect cursor at row 7, " + later in out, out + err)
+            else:
+                check(f"reflection: {label} is refused", rc == 1 and why in err and w.job(j1)["state"] != "active", err)
+        w = World()
+        j1 = w.working("weekly reflection pass", "--topic", "reflection")
+        w.sw("done", j1)
+        with open(os.path.join(w.state, "agents", login, "reflect-cursor.json"), "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("reflection: an unreadable cursor is refused, not passed", rc == 1 and "cursor could not be read" in err and "is unreadable" in err, out + err)
+        w = World()
+        j1 = w.working("weekly reflection pass", "--topic", "other")
+        w.sw("done", j1)
+        cursor(w, later)
+        settles(w, j1, "a job of another topic gets no evidence from a fresh cursor", "done needs evidence")
+        w = World()
+        j1 = w.working("weekly reflection pass, titled so", "--topic", "reflection")
+        w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2")
+        w.sw("done", j1)
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"})
+        cursor(w, later)
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("reflection: another evidence form counts beside the cursor", rc == 0 and "#2 merged" in out and "fabric-reflect cursor" in out, out + err)
 
         print("settling the old job: done")
         w = World()
@@ -382,10 +441,84 @@ def main() -> int:
         w = World()
         j1 = w.working("delivered by a reply")
         w.sw("deliver", j1, f"reply:{RID}")
-        settles(w, j1, "a reply that is not in the journal is not evidence", f"reply:{RID} is not in this login's journal")
-        w.journal(("out", answer("01a12bae-0000-7000-8000-000000000001", RID)))
+        settles(w, j1, "a reply that is not in the journal is not evidence", f"reply:{RID} names no answer this login sent")
+        OWN = "01a12bae-0000-7000-8000-000000000001"
+        w.journal(("out", answer(OWN, RID)))
         rc, out, err = w.switch()
-        check("sent: a reply-only job is settled (the positive control)", rc == 0 and "delivered: reply 01a12bae sent" in out, out + err)
+        check("sent: a reply-only job is settled by the id it answers (the positive control)", rc == 0 and "delivered: reply 01a12bae sent" in out, out + err)
+        w = World()
+        j1 = w.working("delivered by a reply's own id")
+        w.journal(("out", answer(OWN, RID)))
+        w.sw("deliver", j1, f"reply:{OWN}")
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("the reply's own id, the one gzcoord-send prints, settles", rc == 0 and f"reply {OWN[:8]} sent" in out, out + err)
+        w = World()
+        j1 = w.working("delivered by an inbound reply's id")
+        w.journal(("in", answer(OWN, RID)))
+        w.sw("deliver", j1, f"reply:{OWN}")
+        settles(w, j1, "an inbound REPLY's id is no evidence", f"reply:{OWN} names no answer this login sent")
+        w = World()
+        j1 = w.working("delivered by an outbound request's id")
+        w.journal(("out", request(OWN).replace("FROM: peer/sender", f"FROM: {me}")))
+        w.sw("deliver", j1, f"reply:{OWN}")
+        settles(w, j1, "an outbound message with no IN-REPLY-TO is no evidence", f"reply:{OWN} names no answer this login sent")
+
+        print("retract: a mistaken artifact is removed, exactly as recorded, under the list lock")
+        w = World()
+        j1 = w.working("delivered by a wrong reply")
+        w.sw("deliver", j1, f"reply:{RID}", f"{jobs_world.GH_REPO}#2")
+        w.sw("done", j1)
+        w.add("the next job")
+        gh_says({f"{jobs_world.GH_REPO}#2": "OPEN"})
+        rc, out, err = w.switch()
+        check("a done job with a wrong reply: entry cannot be left", rc == 1 and f"reply:{RID} names no answer" in err, out + err)
+        rc, out, err = w.sw("retract", j1, f"reply:{RID[:-1]}")
+        check("retract of an absent string refuses and lists the artifacts", rc == 1 and f"reply:{RID}" in err and f"{jobs_world.GH_REPO}#2" in err
+              and len(w.job(j1)["artifacts"]) == 2, err)
+        before = {k: v for k, v in w.job(j1).items() if k not in ("artifacts", "log", "updated")}
+        held = jobs.identity.agent_lock(login)      # re-entrant within a process, so the competing retract is a process of its own
+        held.__enter__()
+        proc = subprocess.Popen([sys.executable, os.path.join(ROOT, "tools", "fabric", "jobs.py"), "retract", j1, f"reply:{RID}"],
+                                env=os.environ, cwd=w.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(1)
+        waited = proc.poll() is None and len(w.job(j1)["artifacts"]) == 2
+        held.__exit__(None, None, None)
+        try:
+            pout, perr = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            pout, perr = proc.communicate()
+        check("with the list lock held elsewhere, retract waits for it", waited)
+        check("…and goes on once it is let go", proc.returncode == 0, pout + perr)
+        job = w.job(j1)
+        check("retract removes that artifact only, notes it in the log with no state, and changes no other field",
+              job["artifacts"] == [f"{jobs_world.GH_REPO}#2"] and job["log"][-1].get("kind") == "retract" and "state" not in job["log"][-1]
+              and f"reply:{RID}" in job["log"][-1]["note"] and {k: v for k, v in job.items() if k not in ("artifacts", "log", "updated")} == before, repr(job))
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"})
+        rc, out, err = w.switch()
+        check("then the job is left (the positive control)", rc == 0 and "#2 merged" in out, out + err)
+
+        w = World()
+        j1 = w.working("a delivered job with a mistaken artifact")
+        w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2", "not-a-reference")
+        rc, out, err = w.sw("retract", j1, "not-a-reference")
+        check("retract works in a state other than done and leaves the state alone", rc == 0 and w.job(j1)["state"] == "delivered"
+              and w.job(j1)["artifacts"] == [f"{jobs_world.GH_REPO}#2"], out + err)
+        w = World()
+        j1 = w.working("a reflection job whose start cannot be read", "--topic", "reflection")
+        w.sw("done", j1)
+        cursor(w, later)
+        jobs_path = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jobs_path))
+        for jb in doc["jobs"]:
+            jb["created"] = "unreadable"
+            for e in jb["log"]:
+                e["at"] = "unreadable"
+        json.dump(doc, open(jobs_path, "w"))
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("reflection: a job with no readable start time says the cursor cannot be dated", rc == 1 and "so the fabric-reflect cursor cannot be dated" in err, out + err)
 
         print("settling the old job: blocked, dropped")
         w = World()
@@ -444,6 +577,50 @@ def main() -> int:
         w.journal(("out", answer("01a12bae-0000-7000-8000-000000000002", RID)))
         rc, out, err = w.switch()
         check("answered: switched (the positive control)", rc == 0, err)
+        w = World()
+        j1 = w.working("an owed reply answered by a DECISION")
+        w.sw("drop", j1, "done with it")
+        w.journal(("in", request(RID)))
+        settles(w, j1, "the request is owed before any answer", f"({RID})")
+        w.journal(("out", answer("01a12bae-0000-7000-8000-000000000003", RID).replace("] REPLY", "] DECISION").replace("REPLY:\nok", "DECISION:\nok")))
+        rc, out, err = w.switch()
+        check("a DECISION with IN-REPLY-TO answers the request (the positive control)", rc == 0, err)
+        w = World()
+        j1 = w.working("an owed reply answered by an INFO with no IN-REPLY-TO")
+        w.sw("drop", j1, "done with it")
+        w.journal(("in", request(RID)))
+        w.journal(("out", answer("01a12bae-0000-7000-8000-000000000004", RID).replace("] REPLY", "] INFO").replace("IN-REPLY-TO: " + RID + "\n", "")))
+        settles(w, j1, "an outbound message with no IN-REPLY-TO answers nothing", f"({RID})")
+        for label, kind, state in (("an empty IN-REPLY-TO", "empty", "out"), ("a failed send", "reply", "out-failed"), ("a send still pending", "reply", "out-pending")):
+            w = World()
+            j1 = w.working(f"an owed reply 'answered' by {label}")
+            w.sw("drop", j1, "done with it")
+            w.journal(("in", request(RID)))
+            text = answer("01a12bae-0000-7000-8000-000000000007", RID)
+            if kind == "empty":
+                text = text.replace("] REPLY", "] INFO").replace("IN-REPLY-TO: " + RID, "IN-REPLY-TO: ")
+            w.journal((state, text))
+            settles(w, j1, f"{label} answers nothing", f"({RID})")
+            D2 = "01a12bae-0000-7000-8000-000000000008"
+            w = World()
+            j1 = w.working(f"delivered by the id of {label}")
+            w.journal((state, text.replace("000000000007", "000000000008")))
+            w.sw("deliver", j1, f"reply:{D2}")
+            settles(w, j1, f"reply:<id> of {label} is no evidence", f"reply:{D2} names no answer this login sent")
+        w = World()
+        j1 = w.working("an owed reply 'answered' by an inbound message")
+        w.sw("drop", j1, "done with it")
+        w.journal(("in", request(RID)), ("in", answer("01a12bae-0000-7000-8000-000000000005", RID).replace("] REPLY", "] DECISION")))
+        settles(w, j1, "an inbound message with IN-REPLY-TO answers nothing", f"({RID})")
+        w = World()
+        j1 = w.working("delivered by a DECISION's own id")
+        D = "01a12bae-0000-7000-8000-000000000006"
+        w.journal(("out", answer(D, RID).replace("] REPLY", "] DECISION").replace("REPLY:\nok", "DECISION:\nok")))
+        w.sw("deliver", j1, f"reply:{D}")
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("reply:<id> accepts the id of a DECISION with IN-REPLY-TO", rc == 0 and f"reply {D[:8]} sent" in out, out + err)
+
         w = World()
         j1 = w.working("a message that expects nothing")
         w.sw("drop", j1, "done with it")

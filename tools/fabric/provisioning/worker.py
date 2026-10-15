@@ -403,6 +403,7 @@ def finish(w: Worker) -> int:
     for pid in a.projects:
         if w.sudo_test("-d", os.path.join(w.home, "projects", pid, ".git")):
             w.say(f"6. ~/projects/{pid} present")
+            point_origin_at_registry(w, pid)
         else:
             remote = a.remote.get(pid, "")
             w.must_as_login(["git", "clone", "-q", remote, os.path.join(w.home, "projects", pid)],
@@ -419,6 +420,28 @@ def finish(w: Worker) -> int:
         return 0
     w.say("10. verification")
     return verify(w)
+
+
+def point_origin_at_registry(w: Worker, pid: str) -> None:
+    """A clone that is already there keeps the origin it was made with. Step 4 clones the fabric over https (the
+    account has no key yet), step 6 then skips that clone as present, and the account is left pushing to an https
+    origin it holds no credentials for. Only the origin URL (the key set-url rewrites, so a re-run settles) that is read and differs is rewritten: a lookup that fails
+    is not a different URL, so the clone is left as it is and the line says so."""
+    remote = w.a.remote.get(pid, "")
+    if not remote:
+        return
+    repo = os.path.join(w.home, "projects", pid)
+    got = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.url"], stderr=subprocess.DEVNULL)
+    have = (got.stdout or "").strip("\n") if got.returncode == 0 else ""
+    if not have:
+        w.say(f"6. {pid}: origin not readable; left as it is")
+        return
+    if have == remote:
+        return
+    w.must_as_login(["git", "-C", repo, "remote", "set-url", "origin", remote],
+                    f"git -C ~/projects/'{pid}' remote set-url origin '{remote}'")
+    if not w.a.dry:
+        w.say(f"6. {pid}: origin set to {remote}")
 
 
 def record_launch_provider(w: Worker) -> None:

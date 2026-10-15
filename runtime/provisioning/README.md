@@ -90,7 +90,8 @@ the account as a bundle (`store child-bundle | store take-bundle`: its
 SSH key is in that store, so it cannot pull it yet) and its first sync,
 as the account, without a pull (`sync --no-pull`); every
 `--project` cloned as the account over SSH from the remote the registry
-names; the provider of its first launch recorded (6b,
+names, and a clone already there (step 4's https one) has its origin set to
+that remote; the provider of its first launch recorded (6b,
 `provisioning/launch_record.py`: a `routing/profiles.json` layer's
 `launch_provider` when one names it, else `anthropic` with a Claude
 account, `openrouter` with `--no-claude-account`; a record already there is
