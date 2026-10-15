@@ -179,9 +179,14 @@ def test_hook_gives_the_project_layer_from_the_working_copy(tmp: str) -> None:
     assert "# db-admin — remit in fixture-proj (.agent-fabric/roles/db-admin.md)" in ctx, ctx
     assert "ask `memory_find` before changing" in ctx and "`memory_read`" in ctx and "nothing else now" in ctx, ctx
     assert "INDEX.md" not in ctx, ctx   # ADR-049 rule 8: the tools, not a path
+    client = [n for n, l in enumerate(ctx.splitlines()) if l.startswith("agent-fabric: client fixture-client (")]
+    remit = [n for n, l in enumerate(ctx.splitlines()) if l.startswith("# db-admin — remit in fixture-proj")]
+    assert len(client) == 1 and remit and 0 < client[0] < remit[0], ctx
     parent = os.path.join(tmp, "projects"); os.makedirs(parent)
     ctx = context_of(run_hook({"cwd": parent}, env))
     assert "not in a registered working copy" in ctx and "REMIT-BODY-LINE" not in ctx, ctx
+    # The binding still names fixture-proj; its client is not this directory's.
+    assert "agent-fabric: client" not in ctx, ctx
 
 
 def test_hook_says_when_the_binding_drifted_from_the_launch(tmp: str) -> None:
@@ -773,6 +778,9 @@ def test_hook_names_the_client_of_the_project(tmp: str) -> None:
                                                   os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.py"))
     hook = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(hook)
+    # The hook's FABRIC_ROOT is AGENT_FABRIC_ROOT when set, which a launched
+    # session points at another checkout: this tree's resolver is the one tested.
+    hook.FABRIC_ROOT = ROOT
     registry = {"projects": {"app": {"client": "acme"}, "loose": {}, "stray": {"client": "ghost"}}}
     clients = {"clients": {"acme": {"title": "Acme", "engagement": None, "secrets_store": None, "channel": "acme:chan"}}}
     assert hook.client_line("app", registry, clients) == [
@@ -782,6 +790,10 @@ def test_hook_names_the_client_of_the_project(tmp: str) -> None:
     line = hook.client_line("app", registry, clients)[0]
     assert "secrets store acme/secrets, engagement acme/rules;" in line, line
     assert hook.client_line(None, registry, clients) == [] and hook.client_line("loose", registry, clients) == []
+    clients["clients"]["bare"] = {"settings_repo": "o/s"}
+    registry["projects"]["thin"] = {"client": "bare"}
+    line = hook.client_line("thin", registry, clients)[0]
+    assert "client bare (untitled) \u2014 channel none, secrets store none" in line and "None" not in line, line
     bad = hook.client_line("stray", registry, clients)
     assert len(bad) == 1 and bad[0].startswith("agent-fabric: client unresolved \u2014 ") and "ghost" in bad[0], bad
 

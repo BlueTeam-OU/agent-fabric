@@ -182,8 +182,9 @@ def client_for_project(project: str | None, registry: dict[str, Any], clients: d
 
 def resolve(path: str, registry: dict[str, Any] | None = None) -> dict[str, Any]:
     """{path, id, remote, project, project_source, client, operator} for
-    the working copy containing `path`; `operator` is the root whose
-    registries answered. Outside a repository every field is None."""
+    the working copy containing `path`; `operator` is the operator root
+    this module's defaults read, which a caller passing its own `registry`
+    may not have used. Outside a repository every field is None."""
     top = toplevel(path)
     if not top:
         return {"path": None, "id": None, "remote": None, "project": None, "project_source": None,
