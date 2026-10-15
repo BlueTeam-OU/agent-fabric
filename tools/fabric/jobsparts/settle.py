@@ -241,6 +241,39 @@ def _landed(job: dict, found: dict, problems: list[str]) -> list[str]:
     return landed
 
 
+def _reflected(job: dict, problems: list[str]) -> list[str]:
+    """A reflection pass lands no PR, sha or branch: its artifact is the fabric-reflect cursor (ADR-058). Evidence when the
+    cursor of this login was closed (`fabric-reflect done`) after the job started. Keyed on the topic, which fabric-reflect-jobs
+    sets, never on the title prefix a person can reword by accident. No cursor, an older one and an unreadable one are
+    problems: a cursor that cannot be read is not a pass."""
+    if job.get("topic") != "reflection":
+        return []
+    fix = "run fabric-reflect done --through <row> first"
+    try:
+        reflect = _load("fabric_reflect", os.path.join(FABRIC_ROOT, "tools", "fabric", "reflect.py"))
+        owner = reflect.episodic.own_agent_id()
+        cur = reflect.read_cursor(owner)
+    except Exception as e:  # noqa: BLE001 — CursorError, JournalError, a missing id: all "could not tell", never a traceback
+        problems.append(f"the fabric-reflect cursor could not be read ({str(e)[:160]}); {fix}")
+        return []
+    if not cur:
+        problems.append(f"no fabric-reflect pass has been closed: {fix}")
+        return []
+    since = started_at(job)
+    try:
+        done = calendar.timegm(time.strptime(str(cur.get("done_at")), "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, OverflowError):
+        problems.append(f"the fabric-reflect cursor has no readable done_at; {fix}")
+        return []
+    if since is None:
+        problems.append(f"{job['id']} has no readable start time, so the fabric-reflect cursor cannot be dated")
+        return []
+    if done <= since:
+        problems.append(f"the fabric-reflect cursor (row {cur['row']}, {cur['done_at']}) predates {job['id']}: {fix}")
+        return []
+    return [f"fabric-reflect cursor at row {cur['row']}, {cur['done_at']}"]
+
+
 def _replies(found: dict, problems: list[str]) -> list[str]:
     out = []
     for mid in found["replies"]:
@@ -334,7 +367,7 @@ def settle(job: dict, places: list[str], session_start: float | None = None) -> 
             repo = None
     found = artifacts_of(job, repo)
     if state == "done":
-        evidence = _landed(job, found, problems)
+        evidence = _landed(job, found, problems) + _reflected(job, problems)
         if not evidence and not problems:
             problems.append(f"done needs evidence it landed: deliver {EVIDENCE_FORMS} that is merged or on the default branch")
     elif state == "delivered":

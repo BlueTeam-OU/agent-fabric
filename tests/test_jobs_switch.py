@@ -214,6 +214,54 @@ def main() -> int:
               out + err)
         check("it keeps its own branch", w.job(old)["branch"] == "side/work" and "side/work (the job's own branch" in out, out)
 
+        print("settling the old job: a reflection job is done on the fabric-reflect cursor (ADR-058)")
+        agent_id = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
+
+        def cursor(w: World, done_at: str | None, owner: str = agent_id) -> None:
+            body = {"agent_id": owner, "row": 7, "episode": "e", **({"done_at": done_at} if done_at else {})}
+            with open(os.path.join(w.state, "agents", login, "reflect-cursor.json"), "w", encoding="utf-8") as fh:
+                json.dump(body, fh)
+
+        later, earlier = "2999-01-01T00:00:00Z", "2000-01-01T00:00:00Z"
+        for label, put, why in (("a cursor closed after the job started", lambda w: cursor(w, later), None),
+                                ("no cursor", lambda w: None, "run fabric-reflect done --through <row> first"),
+                                ("a cursor older than the job", lambda w: cursor(w, earlier), "predates"),
+                                ("a cursor of another agent", lambda w: cursor(w, later, "01a0f782-0000-7dee-811f-0a860ed93bf3"), "cursor could not be read"),
+                                ("a cursor with no done_at", lambda w: cursor(w, None), "no readable done_at")):
+            w = World()
+            j1 = w.working("weekly reflection pass", "--topic", "reflection")
+            w.sw("done", j1)
+            put(w)
+            w.add("the next job")
+            rc, out, err = w.switch()
+            if why is None:
+                check(f"reflection: {label} settles done and names the row",
+                      rc == 0 and "fabric-reflect cursor at row 7, " + later in out, out + err)
+            else:
+                check(f"reflection: {label} is refused", rc == 1 and why in err and w.job(j1)["state"] != "active", err)
+        w = World()
+        j1 = w.working("weekly reflection pass", "--topic", "reflection")
+        w.sw("done", j1)
+        with open(os.path.join(w.state, "agents", login, "reflect-cursor.json"), "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("reflection: an unreadable cursor is refused, not passed", rc == 1 and "cursor could not be read" in err, out + err)
+        w = World()
+        j1 = w.working("weekly reflection pass", "--topic", "other")
+        w.sw("done", j1)
+        cursor(w, later)
+        settles(w, j1, "a job of another topic gets no evidence from a fresh cursor", "done needs evidence")
+        w = World()
+        j1 = w.working("weekly reflection pass, titled so", "--topic", "reflection")
+        w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2")
+        w.sw("done", j1)
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"})
+        cursor(w, later)
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("reflection: another evidence form counts beside the cursor", rc == 0 and "#2 merged" in out and "fabric-reflect cursor" in out, out + err)
+
         print("settling the old job: done")
         w = World()
         j1 = w.working("done without evidence")
