@@ -411,6 +411,12 @@ def shipped_patterns() -> None:
         missed = [n for n in pr_names if not rx.search(n)]
         check("secret-shaped names still need a PR", not missed, str(missed))
         check("not_cases lists the direct names", set(direct_names) <= set(d.get("not_cases", [])), str(d.get("not_cases")))
+        # lint.py checks the same, but CI runs lint only on fixtures: this is
+        # what fails when a shipped regex loses a name its cases promise.
+        missed = [c for c in d["cases"] if not rx.search(c)]
+        check("every shipped case needs a PR", not missed, str(missed))
+        wrong = [c for c in d.get("not_cases", []) if rx.search(c)]
+        check("every shipped not_case goes direct", not wrong, str(wrong))
 
 
 try:
