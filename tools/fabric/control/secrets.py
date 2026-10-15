@@ -123,6 +123,59 @@ def _alive(pid: int) -> bool:
         return True   # exists, not ours to signal
 
 
+def _on_token(env: dict | None, tok: str | None) -> bool:
+    """A plain-claude session runs on the synced token when its own environment holds it. One whose environment
+    cannot be read (env is None) is taken as not on it, as a restart has always taken it."""
+    t = env["token"] if env else None
+    return bool(t and tok and util.sha12(t) == util.sha12(tok))
+
+
+def old_sign_in_pids(home: str | None, *, uid: int | None = None, pids: list[int] | None = None,
+                     env_of: Callable[[int], bytes | str] | None = None, pgrep: Callable[..., Any] | None = None,
+                     alive: Callable[[int], bool] = _alive) -> list[int] | None:
+    """The plain-claude sessions of this account still running on a sign-in other than the synced one — what
+    `fabric-accounts assign --no-restart` leaves behind until each is relaunched. Broker and gateway sessions
+    are never listed (see session_env). None where it cannot be told: no synced token to compare with (the
+    launcher refuses a session on none, so a running one is not "old", it is unknowable), or the process table
+    unreadable. An empty list is a measurement, None is not."""
+    tok = synced_var("CLAUDE_CODE_OAUTH_TOKEN", home)
+    if not tok:
+        return None
+    try:
+        running = pids if pids is not None else upgrade().session_pids(uid=uid, **({"run": pgrep} if pgrep else {}))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    old: list[int] = []
+    for pid in running:
+        try:
+            env = session_env(pid, env_of)
+        except OSError:
+            if not alive(pid):
+                continue   # exited between the listing and the read: not a session on anything
+            env = None
+        if env and (env["transport"] == "gateway" or (env["provider"] and env["provider"] != "anthropic")):
+            continue
+        if not _on_token(env, tok):
+            old.append(pid)
+    return old
+
+
+def process_started(pid: int, proc: str = "/proc") -> str | None:
+    """When the process began, UTC to the second (stat field 22 in clock ticks since boot, plus /proc/stat's
+    btime); None where either cannot be read. A pid reused after the listing would name another process's
+    start, which only ever reads as a later one."""
+    try:
+        with open(os.path.join(proc, str(pid), "stat"), encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+        ticks = int(raw[raw.rfind(")") + 2:].split(" ")[19])
+        with open(os.path.join(proc, "stat"), encoding="utf-8", errors="replace") as fh:
+            btime = next(int(ln.split()[1]) for ln in fh if ln.startswith("btime "))
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(btime + ticks // os.sysconf("SC_CLK_TCK"), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (OSError, ValueError, IndexError, StopIteration):
+        return None
+
+
 def secrets_sync(request: Mapping[str, Any], **opts: Any) -> dict:
     """One secrets-sync at a time per daemon."""
     if not _syncing.acquire(blocking=False):
@@ -235,8 +288,7 @@ def secrets_sync_once(
                                      util.sha12(tok) if tok else None,
                                      now().isoformat(timespec="milliseconds").replace("+00:00", "Z"))
         extra["gateway"] = proof["detail"]
-    stale = [p for p in running if p not in broker and p not in gateway
-             and not ((t := token_of(p)) and tok and util.sha12(t) == util.sha12(tok))]
+    stale = [p for p in running if p not in broker and p not in gateway and not _on_token(envs[p], tok)]
     if not stale:
         if len(broker) == len(running):
             return done("running (broker): no Claude account to move")

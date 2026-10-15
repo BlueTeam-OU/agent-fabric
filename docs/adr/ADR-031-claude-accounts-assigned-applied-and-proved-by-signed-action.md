@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the Claude-account templates (entries `CLAUDE_ACCOUNT_<ACCOUNT>` of the coordinator's store, ADR-038) and each login's `CLAUDE_CODE_OAUTH_TOKEN` (projects/registry.json `agent_env`); bin/fabric-accounts and runtime/control/accounts.mjs; the control agent's `secrets-sync` action (runtime/control/secrets.mjs) and `accounts` op (runtime/control/ops.mjs, runtime/control/agentd.mjs); the launcher's sign-in check (runtime/openrouter/launch); bin/fabric-status's sign-in line
+**Scope:** the Claude-account templates (entries `CLAUDE_ACCOUNT_<ACCOUNT>` of the coordinator's store, ADR-038) and each login's `CLAUDE_CODE_OAUTH_TOKEN` (projects/registry.json `agent_env`); bin/fabric-accounts and tools/fabric/control/accounts.py; the control agent's `secrets-sync` action (tools/fabric/control/secrets.py) and `accounts` op (tools/fabric/control/ops/, tools/fabric/control/agentd.py); the launcher's sign-in check (runtime/openrouter/launch); bin/fabric-status's sign-in line
 **Pillar:** P5
 **Evidence:** docs/live-checks/2026-09-24-claude-accounts.md
 
@@ -184,11 +184,11 @@ action is how every account change is made.
 
 ## References
 
-- `bin/fabric-accounts`, `runtime/control/accounts.mjs` (`templates`,
-  `assign`), `runtime/control/secrets.mjs`, `runtime/control/ops.mjs`
-  (`accounts`), `runtime/control/agentd.mjs` (`ACCOUNTS_KEEPALIVE_MS`,
-  `ACCOUNTS_CACHE_MS`), `runtime/control/tests/accounts.test.mjs`,
-  `runtime/control/tests/secrets.test.mjs`.
+- `bin/fabric-accounts`, `tools/fabric/control/accounts.py` (`templates`,
+  `assign`), `tools/fabric/control/secrets.py`, `tools/fabric/control/ops/`
+  (`accounts`), `tools/fabric/control/agentd.py` (`ACCOUNTS_KEEPALIVE_MS`,
+  `ACCOUNTS_CACHE_MS`), `tests/test_control_accounts.py`,
+  `tests/test_control_secrets.py`.
 - `runtime/openrouter/launch` (the sign-in check), `bin/fabric-status`,
   `projects/registry.json` (`CLAUDE_CODE_OAUTH_TOKEN`).
 - ADR-009 (signed actions, the restart marker), ADR-012 (credentials),

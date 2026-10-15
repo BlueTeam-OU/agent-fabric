@@ -139,6 +139,30 @@ def _keys(ctx: Mapping[str, Any]) -> Any:
             codex_signin(ctx.get("home"), **({"runtime_root": ctx["runtime_root"]} if ctx.get("runtime_root") else {}))]
 
 
+def _session(ctx: Mapping[str, Any]) -> Any:
+    """session, plus how many of its sessions still run on an account the login has since been moved off
+    (`on_old_sign_in`, absent where that cannot be told, and `old_sign_in_started`, their start times): a status reader sees an `assign --no-restart` not yet
+    taken up. Additive to the frozen reply. A context that injects `run` has faked the process table, and the
+    count reads the real one, so it is left out there unless the context gives its own `session_opts`."""
+    from control import secrets
+    out = session(ctx.get("uid"), **_run_kw(ctx))
+    opts = ctx.get("session_opts")
+    if ctx.get("run") and opts is None:
+        return out
+    try:
+        opts = dict(opts or {})
+        proc = opts.pop("proc", "/proc")
+        old = secrets.old_sign_in_pids(ctx.get("home"), **{"uid": ctx.get("uid"), **opts})
+        started = sorted(t for t in (secrets.process_started(p, proc) for p in old or []) if t)
+    except Exception:  # noqa: BLE001 — the additive keys never cost the frozen ones
+        old, started = None, []
+    if old is not None:
+        out["on_old_sign_in"] = len(old)
+        if started:
+            out["old_sign_in_started"] = started   # when each began, so a reader can say which predate the move
+    return out
+
+
 def _run_kw(ctx: Mapping[str, Any]) -> dict:
     return {"run": ctx["run"]} if ctx.get("run") else {}
 
@@ -150,7 +174,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "usage": lambda c: c["usage_cached"]() if c.get("usage_cached") else usage(c.get("home"), **({"fetch": c["fetch"]} if c.get("fetch") else {})),
     "keys": _keys,
     "fabric": lambda c: fabric(c.get("root"), **_run_kw(c)),
-    "session": lambda c: session(c.get("uid"), **_run_kw(c)),
+    "session": _session,
     "presence": lambda c: presence(**(c.get("presence_opts") or {})),
     "script": lambda c: script(c.get("home"), source=source_locale(c.get("who"), root=c.get("root"))),
     "recall": lambda c: recall(c.get("home")),

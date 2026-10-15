@@ -19,6 +19,9 @@ pinned Python: `python3 tools/fabric/control/accounts.py`.
                                     replaced and the gateway takes it at its next request, and the
                                     row says whether the gateway's own log confirms it (a
                                     `gateway` object: generation, fingerprint, confirmed)
+                                    With --no-restart it ends by naming each login whose running
+                                    session is still on the old account (with its start time) and
+                                    the same assign, without --no-restart, that relaunches them
   fabric-accounts codex-token <login…|all> [--no-sync] [--force] [--refresh] [--home DIR]
                                     the Codex review's ChatGPT sign-in (ADR-053 rule 8): the coordinator's access
                                     token and account id — never the refresh or id token — into each login's store,
@@ -42,6 +45,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -176,6 +180,47 @@ def _say(msg: str) -> None:
     print(msg, file=sys.stderr)
 
 
+def _say_old_sessions(logins: Sequence[str], account: str, root: str, env: dict[str, str], spawn: Callable[..., Any]) -> None:
+    """After `assign --no-restart`: which of these logins still have a running claude session on the sign-in it
+    started with, each with its start time, and the one command that relaunches them. Asked of each account's own
+    control agent (the `session` op), which compares the session's environment with the synced token: an account
+    that cannot say is named as unknown, never as clear. Nothing but fingerprint-free facts is printed."""
+    cmd = [os.path.join(root, "bin", "fabric-ctl"), "--json", *logins, "session"]
+    try:
+        r = spawn(cmd, env=env, timeout=CTL_TIMEOUT_S, check=False, capture_output=True)
+        # One JSON object per line, a row per login; fabric-ctl exits 1 when any login was silent but still prints
+        # every row, so the rows that answered are read whatever the exit code.
+        rows = [util.loads(ln) for ln in util.decode(r.stdout).splitlines() if ln.strip()]
+    except (OSError, subprocess.TimeoutExpired, ValueError) as e:
+        _say(f"fabric-accounts: could not tell which sessions are still on the old account: {util.node_error(e, cmd)[:120]}")
+        return
+    if not rows:
+        _say(f"fabric-accounts: could not tell which sessions are still on the old account (fabric-ctl session answered nothing, exit {r.returncode})")
+        return
+    old: list[tuple[str, int, list[str]]] = []
+    unknown: list[str] = []
+    answered = {str(row.get("account")) for row in rows if isinstance(row, dict)}
+    unknown.extend(lg for lg in logins if lg not in answered)
+    for row in rows:
+        sec = row.get("session") if isinstance(row, dict) else None
+        n = sec.get("on_old_sign_in") if isinstance(sec, dict) else None
+        login = str(row.get("account")) if isinstance(row, dict) else "?"
+        if not isinstance(n, int) or isinstance(n, bool):
+            unknown.append(login)
+        elif n > 0:
+            started = sec.get("old_sign_in_started")
+            old.append((login, n, [t for t in started if isinstance(t, str)] if isinstance(started, list) else []))
+    if old:
+        def one(login: str, times: list[str]) -> str:
+            return f"{login} (started {', '.join(t.replace('T', ' ')[:16] for t in times)} UTC)" if times else login
+        count = sum(n for _, n, _t in old)   # the agent's count; the times are only those it could read
+        print(f"{count} session{'s' if count != 1 else ''} still on the old account until relaunch: "
+              f"{', '.join(one(lg, t) for lg, _n, t in old)}")
+        print(f"relaunch them: fabric-accounts assign {' '.join(shlex.quote(lg) for lg, _n, _t in old)} {shlex.quote(account)}")
+    if unknown:
+        _say(f"fabric-accounts: could not tell whether a session is still on the old account: {', '.join(unknown)}")
+
+
 def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: dict[str, str] | None = None,
          stdin_tty: bool | None = None, spawn: Callable[..., Any] = subprocess.run,
          read: Callable[..., dict] = accounts, run: Callable[..., Any] = subprocess.run,
@@ -247,6 +292,13 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: dic
         except (OSError, subprocess.TimeoutExpired) as e:
             _say(f"fabric-accounts: {util.node_error(e, cmd_)}")
             return 1
+        if no_restart and r.returncode == 0:
+            _say_old_sessions(reached, account, root, env, spawn)
+        elif no_restart:
+            # Not asked: a sync that failed leaves no proof of which token a session is compared with, so an answer
+            # could call an old session clear. Said, never skipped silently (review of #268, F3).
+            _say(f"fabric-accounts: not checked which sessions are still on the old account: the sync did not reach "
+                 f"every login; once it has, `fabric-ctl {' '.join(reached)} status` shows them")
         return 1 if bad or r.returncode != 0 else 0
     if cmd == "codex-token":
         from control import codex_token

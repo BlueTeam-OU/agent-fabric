@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #51 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the CEO (named the problem, 2026-09-16); implemented by fabric-coordinator
-**Scope:** runtime/claude-code/hooks/model-fallback-note.sh and its wiring (the workspace template, each project's .claude/settings.json); communication/gzcoord/scripts/send.mjs; bin/fabric-status; the gzcoord-send and gzcoord-receive skills
+**Scope:** runtime/claude-code/hooks/model-fallback-note.sh and its wiring (the workspace template, each project's .claude/settings.json); tools/fabric/gzcoord/send.py; bin/fabric-status; the gzcoord-send and gzcoord-receive skills
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -98,7 +98,7 @@ first real fallback.
 - `runtime/claude-code/hooks/model-fallback-note.sh`,
   `runtime/claude-code/hooks/test_model-fallback-note.sh`,
   `runtime/claude-code/workspace/settings.json`.
-- `communication/gzcoord/scripts/send.mjs`; `bin/fabric-status`.
+- `tools/fabric/gzcoord/send.py`; `bin/fabric-status`.
 - `communication/gzcoord/skills/gzcoord-send/SKILL.md`,
   `communication/gzcoord/skills/gzcoord-receive/SKILL.md`.
 - `projects/gzapp/integration/gzcoord/INSTALL.md`.

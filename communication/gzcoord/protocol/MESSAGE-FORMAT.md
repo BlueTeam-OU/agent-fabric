@@ -264,11 +264,11 @@ and the head it saw (SPEC.md §7.5):
 FROM: develop-qzapp/architect-cto-01
 ROLE: architect-cto
 PROJECT: interweave
-REPOSITORY: gzapi-org/InterWeave
+REPOSITORY: BlueTeam-OU/InterWeave
 TO: develop-qzapp/rust-ui-dev-01
 IN-REPLY-TO: 01a0…
 MESSAGE-ID: 01a0…
-WAIVES: gzapi-org/InterWeave#181@3f9c2d1e
+WAIVES: BlueTeam-OU/InterWeave#181@3f9c2d1e
 SUBJECT: #181 may arm: the boundary hit is a renamed test fixture
 
 DECISION:

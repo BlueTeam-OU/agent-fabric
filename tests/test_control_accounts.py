@@ -192,7 +192,7 @@ class FakeStore:
 
 
 def placed(*humans: str):
-    logins = ["flutter-dev-01", "db-admin", "web-dev-01", *humans]
+    logins = ["flutter-dev-01", "db-admin", "web-dev-01", "web-dev-02", *humans]
     return lambda registry: [{"login": lg, "kind": "human" if lg in humans else "agent"} for lg in logins]
 
 
@@ -221,7 +221,8 @@ class Assign(Base):
 
         def spawn(cmd, **kw):
             assert kw.get("timeout"), "a call to a program has a bound"
-            synced[:] = [os.path.basename(cmd[0]), *cmd[1:]]
+            if cmd[-1] != "session":   # the --no-restart follow-up question is its own test
+                synced[:] = [os.path.basename(cmd[0]), *cmd[1:]]
             return subprocess.CompletedProcess(cmd, 0)
         code, out, err = self.go(["assign", "flutter-dev-01", "web-dev-01", "claude-b"], d, spawn)
         self.assertEqual(code, 0, err + out)
@@ -241,6 +242,96 @@ class Assign(Base):
         code, _, err = self.go(["assign", "flutter-dev-01", "claude-b"], d, lambda cmd, **kw: (_ for _ in ()).throw(subprocess.TimeoutExpired(cmd, 1)))
         self.assertEqual(code, 1, "a fabric-ctl that never answers is a failure, said")
         self.assertIn("fabric-accounts: Command failed", err)
+
+    def assign_no_restart(self, logins, sessions, ctl_rc=0, raw=None, argv_extra=(), sync_rc=0):
+        """assign --no-restart with a fabric-ctl whose `session` answer is `sessions` (a row per login), and whose
+        secrets-sync exits `sync_rc`."""
+        d = FakeStore()
+        calls: list = []
+
+        def spawn(cmd, **kw):
+            calls.append([os.path.basename(cmd[0]), *cmd[1:]])
+            if cmd[-1] == "session":
+                assert kw.get("timeout") and kw.get("capture_output") is True, kw
+                out = raw if raw is not None else "\n".join(json.dumps(r, separators=(",", ":")) for r in sessions)   # fabric-ctl --json: a line per row
+                return subprocess.CompletedProcess(cmd, ctl_rc, out.encode(), b"")
+            return subprocess.CompletedProcess(cmd, sync_rc)
+        code, out, err = self.go(["assign", *logins, "claude-b", "--no-restart", *argv_extra], d, spawn)
+        return code, out, err, calls
+
+    def test_no_restart_names_each_login_whose_session_predates_the_move_and_the_command_that_relaunches_it(self):
+        rows = [{"account": "flutter-dev-01", "status": "ok", "session": {"on_old_sign_in": 2, "old_sign_in_started": ["2026-10-13T19:04:11Z", "2026-10-14T08:30:00Z"]}},
+                {"account": "web-dev-01", "status": "ok", "session": {"on_old_sign_in": 1, "old_sign_in_started": ["2026-10-12T07:00:59Z"]}},
+                {"account": "db-admin", "status": "ok", "session": {"on_old_sign_in": 0}},
+                {"account": "web-dev-02", "status": "ok", "session": {"claude_processes": 0}}]
+        code, out, err, calls = self.assign_no_restart(["flutter-dev-01", "web-dev-01", "db-admin", "web-dev-02"], rows)
+        self.assertEqual(code, 0, err)
+        self.assertIn("3 sessions still on the old account until relaunch: flutter-dev-01 (started 2026-10-13 19:04, 2026-10-14 08:30 UTC), "
+                      "web-dev-01 (started 2026-10-12 07:00 UTC)", out)
+        self.assertIn("relaunch them: fabric-accounts assign flutter-dev-01 web-dev-01 claude-b\n", out)
+        self.assertNotRegex(out.split("still on the old account")[1], "db-admin")
+        self.assertIn("could not tell whether a session is still on the old account: web-dev-02", err, "a login that cannot say is unknown, not clear")
+        self.assertEqual(calls[-1][:2], ["fabric-ctl", "--json"])
+        self.assertEqual(calls[-1][-1], "session")
+        self.assertNotIn("sk-ant-oat01", out + err)
+
+    def test_no_restart_with_every_session_on_the_new_account_or_none_running_names_nobody(self):
+        rows = [{"account": "flutter-dev-01", "status": "ok", "session": {"on_old_sign_in": 0}},
+                {"account": "web-dev-01", "status": "ok", "session": {"on_old_sign_in": 0}}]
+        code, out, err, _ = self.assign_no_restart(["flutter-dev-01", "web-dev-01"], rows)
+        self.assertEqual((code, "still on the old account" in out, "relaunch" in out, err), (0, False, False, ""))
+
+    def test_no_restart_that_cannot_ask_says_so_and_does_not_fail_the_move(self):
+        for kw in ({"ctl_rc": 1}, {"raw": "not json"}, {"raw": ""}):
+            code, out, err, _ = self.assign_no_restart(["flutter-dev-01"], [], **kw)
+            self.assertEqual(code, 0, kw)
+            self.assertIn("could not tell which sessions are still on the old account", err)
+            self.assertNotIn("still on the old account until", out)
+
+    def test_a_sync_that_did_not_reach_every_login_says_the_check_was_not_run(self):
+        # Review of #268, F3: the question was skipped silently. It stays unasked (test_without_no_restart_or_with_
+        # no_sync_nobody_is_asked says why) but is said, with where to look once the sync has reached them.
+        code, out, err, calls = self.assign_no_restart(["flutter-dev-01", "web-dev-01"], [], sync_rc=1)
+        self.assertEqual(code, 1, "a sync that failed still fails the move")
+        self.assertNotIn("session", [c[-1] for c in calls])
+        self.assertIn("not checked which sessions are still on the old account", err)
+        self.assertIn("fabric-ctl flutter-dev-01 web-dev-01 status", err)
+
+    def test_the_count_is_the_agents_not_the_number_of_start_times_it_could_read(self):
+        rows = [{"account": "flutter-dev-01", "status": "ok", "session": {"on_old_sign_in": 3}},
+                {"account": "web-dev-01", "status": "ok", "session": {"on_old_sign_in": 2, "old_sign_in_started": ["2026-10-12T07:00:59Z"]}}]
+        _, out, _, _ = self.assign_no_restart(["flutter-dev-01", "web-dev-01"], rows)
+        self.assertIn("5 sessions still on the old account until relaunch: flutter-dev-01, web-dev-01 (started 2026-10-12 07:00 UTC)", out)
+
+    def test_a_silent_login_is_unknown_and_does_not_hide_the_ones_that_answered(self):
+        rows = [{"account": "flutter-dev-01", "status": "ok", "session": {"on_old_sign_in": 1, "old_sign_in_started": ["2026-10-12T07:00:59Z"]}},
+                {"account": "web-dev-01", "status": "no answer", "host": "h"}]
+        code, out, err, _ = self.assign_no_restart(["flutter-dev-01", "web-dev-01", "db-admin"], rows, ctl_rc=1)
+        self.assertEqual(code, 0)
+        self.assertIn("1 session still on the old account until relaunch: flutter-dev-01 (started 2026-10-12 07:00 UTC)", out)
+        self.assertIn("could not tell whether a session is still on the old account: db-admin, web-dev-01", err, "no row at all, and a row with no session")
+
+    def test_the_rows_are_what_fabric_ctl_prints_for_its_real_replies(self):
+        from control import ctl, js
+        reply = {"from": "h/flutter-dev-01", "op": "session", "latency_ms": 3, "data": {"session": {"claude_processes": 1, "planning": False, "on_old_sign_in": 1,
+                                                                                                    "old_sign_in_started": ["2026-10-13T19:04:11Z"]}}}
+        rs = ctl.rows([{"login": "flutter-dev-01", "host": "h", "address": "h/flutter-dev-01"}], [reply])
+        _, out, _, _ = self.assign_no_restart(["flutter-dev-01"], [], raw="\n".join(js.stringify(r) for r in rs))
+        self.assertIn("1 session still on the old account until relaunch: flutter-dev-01 (started 2026-10-13 19:04 UTC)", out)
+
+    def test_without_no_restart_or_with_no_sync_nobody_is_asked(self):
+        d = FakeStore()
+        seen: list = []
+
+        def spawn(cmd, **kw):
+            seen.append(cmd[-1])
+            return subprocess.CompletedProcess(cmd, 0)
+        self.go(["assign", "flutter-dev-01", "claude-b"], d, spawn)
+        self.go(["assign", "flutter-dev-01", "claude-b", "--no-restart", "--no-sync"], d, spawn)
+        self.assertNotIn("session", seen)
+        seen.clear()
+        self.go(["assign", "flutter-dev-01", "claude-b", "--no-restart"], d, lambda cmd, **kw: (seen.append(cmd[-1]), subprocess.CompletedProcess(cmd, 1))[1])
+        self.assertNotIn("session", seen, "a sync that failed proves nothing about which token the sessions are compared with")
 
     def test_a_human_login_is_never_given_a_claude_account_named_or_under_all(self):
         d = FakeStore()

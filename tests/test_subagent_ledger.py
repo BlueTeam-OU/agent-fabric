@@ -16,7 +16,8 @@ header as the brief's first fenced block its fields are copied, a field of
 the wrong type is not, and a header that is not the first block, or not a
 JSON object, is not one; the header review_brief renders is read whole;
 status and status_source for every ending the transcript can show, none
-of the unfinished ones "completed"; provider from the model id, effort
+of the unfinished ones "completed", and a hand-back whose result is written
+while the hook runs waited for, within a bound; provider from the model id, effort
 from the hook input else the transcript; no text of the transcript
 reaches the ledger; a second stop appends a second line; a credential in
 a remote URL never reaches the row; a run that never got an API answer
@@ -35,6 +36,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Callable
 
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
@@ -384,6 +386,78 @@ def main() -> int:
         status_case("after-tool-result", after_result, "cancelled", "transcript:after-tool-result")
         status_case("interrupted", interrupted, "cancelled", "transcript:interrupted")
         status_case("message-incomplete", stop_reason(None), "cancelled", "transcript:message-incomplete")
+
+        print("subagent ledger: a hand-back whose result is not yet written is waited for, within a bound")
+        # The hook fires before the harness writes the hand-back's result (OBSERVATION 01a13c97): the stop is seen
+        # with the tool_use last, and the result line is appended while the hook runs.
+        answered = variant("hbwait", handback(False))
+        with open(answered, encoding="utf-8") as fh:
+            *head, result_line = fh.read().splitlines(keepends=True)
+        pending = os.path.join(subagents, "agent-ahbpending.jsonl")
+
+        def timed_fire(transcript: str, late_line: str | None) -> tuple[str, dict, float]:
+            if os.path.exists(ledger):
+                os.remove(ledger)
+            payload = json.dumps({"hook_event_name": "SubagentStop", "session_id": "sess-1", "cwd": "/",
+                                  "agent_id": "afixture", "agent_transcript_path": transcript})
+            # The stop is whole on stdin before the line is appended: the hook reads the transcript once stdin ends.
+            # A file, not a pipe closed by hand: communicate() then flushes the closed pipe, a ValueError on
+            # debian's Python 3.13 (CI of #268).
+            stop = os.path.join(sandbox, "stop.json")
+            with open(stop, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            start = time.monotonic()
+            with open(stop, encoding="utf-8") as stdin:
+                p = subprocess.Popen([sys.executable, UNDER_TEST], stdin=stdin, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True, env=env)
+            if late_line is not None:
+                time.sleep(0.5)
+                with open(transcript, "a", encoding="utf-8") as fh:
+                    fh.write(late_line)
+            try:
+                out, _ = p.communicate(timeout=20)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                out = p.communicate()[0] + "(killed: no exit in 20 s) "
+            return f"{out}rc={p.returncode}", only_row(), time.monotonic() - start
+
+        with open(pending, "w", encoding="utf-8") as fh:
+            fh.write("".join(head))
+        out, r, _ = timed_fire(pending, result_line)
+        got = f"{r.get('status')} {r.get('status_source')}"
+        check("the result lands 0.5 s into the hook: completed (transcript:handback)",
+              out == "rc=0" and got == "completed transcript:handback", f"{out} {got}")
+        with open(pending, "w", encoding="utf-8") as fh:
+            fh.write("".join(head))
+        out, r, took = timed_fire(pending, None)
+        got = f"{r.get('status')} {r.get('status_source')}"
+        check(f"a result that never lands: cancelled (transcript:tool-use-unanswered) after the bound, in {took:.1f} s",
+              out == "rc=0" and got == "cancelled transcript:tool-use-unanswered" and 2.5 <= took < 6, f"{out} {got}")
+        # The wait and an inferred row's git calls share one budget. This git answers --show-toplevel in 1 s, well
+        # inside its 3 s timeout with 2 s left for the interpreter's start, and hangs on every later call: each own timeout
+        # alone would take 3 + 1 + 3 + 3 s, past the 9.5 s checked here; the shared budget ends the last call at 8 s.
+        # The row is written with the toplevel's name and without what git had no time left to answer. One process,
+        # so a timeout ends all of it.
+        slow = os.path.join(sandbox, "slowbin")
+        os.makedirs(slow, exist_ok=True)
+        fast_path = env["PATH"]
+        with open(os.path.join(slow, "git"), "w", encoding="utf-8") as fh:
+            fh.write(f"#!{sys.executable}\nimport os, sys, time\n"
+                     f"time.sleep(1 if '--show-toplevel' in sys.argv else 30)\n"
+                     f"os.execv({shutil.which('git', path=fast_path)!r}, ['git', *sys.argv[1:]])\n")
+        os.chmod(os.path.join(slow, "git"), 0o755)
+        env["PATH"] = f"{slow}{os.pathsep}{fast_path}"
+        with open(pending, "w", encoding="utf-8") as fh:
+            fh.write("".join(head))
+        out, r, took = timed_fire(pending, None)
+        env["PATH"] = fast_path
+        check(f"unanswered hand-back and a hanging git: the row is written within the budget ({took:.1f} s)",
+              out == "rc=0" and r.get("status_source") == "transcript:tool-use-unanswered"
+              and r.get("repository") == "work" and r.get("head_sha") is None and took < 9.5, f"{out} {r.get('status_source')}")
+        out, r, took = timed_fire(variant("bashwait", unanswered), None)
+        check(f"an unanswered call that is not the hand-back is not waited for ({took:.1f} s)",
+              out == "rc=0" and r.get("status_source") == "transcript:tool-use-unanswered" and took < 2.5,
+              f"{out} {r.get('status_source')}")
 
         def broker(recs, last_api, add):
             for r in recs:

@@ -95,7 +95,7 @@
           "operator_key": {
             "type": "string",
             "pattern": "^ed25519:[A-Za-z0-9+/]{59}=$",
-            "description": "The public half of the operator's control-plane signing key (SPKI DER, base64), written by `fabric-ctl keygen`. Every control daemon answers an ACTION (runtime/control/sign.mjs) only when it is signed with this key; a host without one can order no action. Optional: read ops need no key. The width is exact — an Ed25519 SPKI is always 44 bytes, 59 base64 characters and one `=` — so a truncated or mispadded key fails lint; a same-width value that is not an SPKI is caught by tests/test_hosts_registry.py, which parses the committed key as the daemons do."
+            "description": "The public half of the operator's control-plane signing key (SPKI DER, base64), written by `fabric-ctl keygen`. Every control daemon answers an ACTION (tools/fabric/control/sign.py) only when it is signed with this key; a host without one can order no action. Optional: read ops need no key. The width is exact — an Ed25519 SPKI is always 44 bytes, 59 base64 characters and one `=` — so a truncated or mispadded key fails lint; a same-width value that is not an SPKI is caught by tests/test_operator_data.py, which parses the committed key as the daemons do."
           }
         }
       }

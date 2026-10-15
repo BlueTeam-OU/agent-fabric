@@ -219,6 +219,21 @@ def main() -> int:
               and "does not evaluate" in d[1] and "\n" not in d[1], d)
     check("a brace group with no expansion in it does not ask", g.decision("{ kill 999999999; }", CLAUDE, shell=False)
           is None)
+    # The text a shell runs, not the data it hands on (2026-10-15: two sessions stopped on an edit script): a
+    # here-document no shell reads is data, and kill counts as a command word only, not os.kill or self_kill.
+    for label, cmd in (("os.kill and a dict in a python here-document",
+                        "python3 - <<'EOF'\nimport os\nd = {'a': 1, 'b': 2}\nos.kill(os.getpid(), 15)\nEOF"),
+                       ("a function body beside a here-document that says kill",
+                        "run(){ (timeout 300 python3 t.py); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun"),
+                       ("a file named self_kill beside a brace list", "python3 tests/test_self_kill_guard.py {a,b}")):
+        check(f"no kill command, no ask: {label}", g.unevaluated(cmd) is None, g.unevaluated(cmd))
+    for label, cmd in (("pkill with a brace list", "pkill -f x{a,b}"), ("killall with a brace range", "killall p{1..3}"),
+                       ("kill in a here-document bash reads", "bash <<'EOF'\nkill 12{3,4}\nEOF"),
+                       # Review of #268, F1: an empty expansion glued to the name, which bash runs as kill.
+                       ("an empty quoted expansion glued to kill", '"$x"kill $\'\\x31\\x32\\x33\\x34\''),
+                       ("an empty braced expansion glued to kill", "${x}kill $'\\x31\\x32\\x33\\x34'"),
+                       ("a glued kill with a brace list", '"$x"kill 12{3,}4')):
+        check(f"a kill tool with a brace expansion still asks: {label}", g.unevaluated(cmd) is not None, cmd)
     check("…but kill -0 of a pid outside the tree is a signal, not a group: kill -0 999999999",
           g.decision("kill -0 999999999", CLAUDE, shell=False) is None)
     check("…but a negative first argument is a signal: kill -9 999999999",

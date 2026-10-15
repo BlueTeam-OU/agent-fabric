@@ -72,3 +72,16 @@ waiver, and then found that the coordinator had described it to them
 as a body convention: two descriptions of one message that would have
 refused every real waiver. The text settles it once, where both
 readers look.
+
+### Amendment 2026-10-15 — InterWeave's examples under its organisation
+
+InterWeave moved from gzapi-org to BlueTeam-OU, and MESSAGE-FORMAT's
+worked waiver example still named it under the old organisation, in
+REPOSITORY and in WAIVES (found in #218's review). An example a reader
+copies should name a repository that exists: both lines now say
+BlueTeam-OU/InterWeave. Rule 1 still named the Node reference validator
+and its test, gone since the Wave 7 port while the record's Scope and
+References already named their Python successors (review of #268); it
+names tools/fabric/gzcoord/gzmsg.py and tests/test_gzcoord_protocol.py.
+No field, grammar rule or meaning changes; a reader accepts and rejects
+exactly what it did before.

@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the control agent's `presence` op (runtime/control/ops.mjs, runtime/control/presence.mjs); `fabric-ctl <login|all> presence`; the sender's check in communication/gzcoord/scripts/send.mjs; the inbox's handling of HELLO and GOODBYE (communication/gzcoord/scripts/inbox.mjs) and their retirement in the validator (communication/gzcoord/scripts/gzmsg.mjs); what runtime/openrouter/launch and bin/fabric-role no longer send; communication/gzcoord/skills/gzcoord-send and gzcoord-receive
+**Scope:** the control agent's `presence` op (tools/fabric/control/ops/, tools/fabric/control/presence.py); `fabric-ctl <login|all> presence`; the sender's check in tools/fabric/gzcoord/send.py; the inbox's handling of HELLO and GOODBYE (tools/fabric/gzcoord/inbox.py) and their retirement in the validator (tools/fabric/gzcoord/gzmsg.py); what runtime/openrouter/launch and bin/fabric-role no longer send; communication/gzcoord/skills/gzcoord-send and gzcoord-receive
 **Pillar:** P5
 **Evidence:** docs/live-checks/2026-09-16-goodbye-from-the-launcher.md
 
@@ -134,13 +134,13 @@ carry it.
 
 ## References
 
-- `runtime/control/ops.mjs` (`presence`, `PUBLIC_OPS`),
-  `runtime/control/presence.mjs` (`askPresence`, `checkAddressees`),
-  `runtime/control/ctl.mjs`, `runtime/control/tests/presence.test.mjs`.
-- `communication/gzcoord/scripts/send.mjs`,
-  `communication/gzcoord/scripts/inbox.mjs`,
-  `communication/gzcoord/scripts/gzmsg.mjs` (`RETIRED_TYPES`),
-  `communication/gzcoord/tests/protocol.test.mjs`.
+- `tools/fabric/control/ops/` (`presence`, `PUBLIC_OPS`),
+  `tools/fabric/control/presence.py` (`askPresence`, `checkAddressees`),
+  `tools/fabric/control/ctl.py`, `tests/test_control_presence.py`.
+- `tools/fabric/gzcoord/send.py`,
+  `tools/fabric/gzcoord/inbox.py`,
+  `tools/fabric/gzcoord/gzmsg.py` (`RETIRED_TYPES`),
+  `tests/test_gzcoord_protocol.py`.
 - `communication/gzcoord/protocol/SPEC.md` §5, §8, §18.
 - `runtime/openrouter/launch` (the session as a child), `tools/fabric/role.py`.
 - `communication/gzcoord/skills/gzcoord-send/SKILL.md` §3–4,

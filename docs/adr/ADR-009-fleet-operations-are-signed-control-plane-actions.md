@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #51 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner (the control plane over sudo, 2026-09-24; account operations by signed message, 2026-09-25; distribution in the control plane and fabric commands by name, 2026-09-26); fabric-coordinator
-**Scope:** bin/fabric-ctl and its `upgrade` pieces (runtime/control/agentd.mjs, runtime/control/upgrade.mjs), bin/fabric-accounts, runtime/claude-code/harness.json, the operator's signing key, distribution after a merge, runtime/claude-code/commands.json and the fabric commands' links and allow rules
+**Scope:** bin/fabric-ctl and its `upgrade` pieces (tools/fabric/control/agentd.py, tools/fabric/control/upgrade.py), bin/fabric-accounts, runtime/claude-code/harness.json, the operator's signing key, distribution after a merge, runtime/claude-code/commands.json and the fabric commands' links and allow rules
 **Pillar:** P1
 **Evidence:** docs/live-checks/2026-09-25-first-fleet-upgrade.md, docs/live-checks/2026-09-26-first-upgrade-fabric.md
 
@@ -146,7 +146,7 @@ Accepted and in force: `upgrade claude` since PR #34/#35/#36,
 
 ## References
 
-- `bin/fabric-ctl`, `runtime/control/agentd.mjs`, `runtime/control/upgrade.mjs`,
+- `bin/fabric-ctl`, `tools/fabric/control/agentd.py`, `tools/fabric/control/upgrade.py`,
   `bin/fabric-lease`, `bin/fabric-accounts`, `runtime/claude-code/harness.json`.
 - ADR-029 (the control agent and its fence), ADR-031 (Claude-account moves).
 - `runtime/claude-code/commands.json`, `runtime/claude-code/bootstrap.sh`,

@@ -483,11 +483,13 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A test run removes, however it ends, the containers, volumes and
   scratch it made; nothing goes into the tree
   (§2, §5 rule 1).
-- `tests/run.sh` owns a fresh `TMPDIR` per run and fails naming every
-  entry left in it (§5 rule 2).
-- Node suites use `scratch()` (`tests/scratch.mjs`); `static.sh` refuses
-  inline `mkdtempSync`; a leftover is fixed in the suite that made it
-  (§5 rules 3–4).
+- `tests/run.sh` (forwarding to `tests/run.py`) owns a fresh `TMPDIR`
+  per run and fails naming every entry left in it (§5 rule 2).
+- A Python tool or suite registers the removal of its temporary
+  directory where it makes it; a leftover is fixed in the suite that
+  made it (§5 rules 3–4).
+- A 2026-10-15 — rule 3 is Python only: the node suites and scratch.mjs
+  are gone.
 - A dependency-graph change cleans its build target; large caches go;
   measure first and say what was removed (§5 rule 5).
 - Keywords: test, suite, leak, scratch, TMPDIR, temporary directory,
@@ -728,6 +730,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   SPECIALTIES are optional metadata on any message.
 - A 2026-10-04 — WAIVES, an optional common field (SPEC §7.5): a waiver
   role's word that one pull request, at one head, may arm.
+- A 2026-10-15 — examples and rule 1's validator renamed.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change, WAIVES, waiver.

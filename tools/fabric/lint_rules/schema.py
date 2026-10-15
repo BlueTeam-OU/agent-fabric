@@ -359,6 +359,11 @@ def load_json(path: str, where: str, findings: list[str]) -> Any:
     except ValueError as exc:
         findings.append(f"{where}: not valid JSON ({exc})")
         return None
+    except OSError as exc:
+        # A sibling policy a rule reads (review-grade.json beside availability.json) can be missing: a finding
+        # naming it, never a traceback that stops the whole lint (review of #237).
+        findings.append(f"{where}: cannot be read ({exc.strerror or exc})")
+        return None
 
 
 def availability_findings(root: str, policy: str, siblings: dict[str, str] | None = None) -> list[str]:

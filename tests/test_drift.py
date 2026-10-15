@@ -255,6 +255,12 @@ class CtlStatus(unittest.TestCase):
         r = row_for("a", harness={"status": "ok", "installed": "2.1.286"}, inbox={"status": "none", "reason": "x"})
         self.assertEqual((r["harness"]["installed"], r["inbox"]["status"]), ("2.1.286", "none"))
 
+    def test_sessions_still_on_the_old_account_are_named_and_zero_or_unknown_is_silent(self):
+        self.assertTrue(self.line(session={"claude_processes": 2, "on_old_sign_in": 2}).endswith("  OLD ACCOUNT: 2 sessions (relaunch)"))
+        self.assertTrue(self.line(session={"on_old_sign_in": 1}).endswith("  OLD ACCOUNT: 1 session (relaunch)"))
+        for quiet in ({"on_old_sign_in": 0}, {"claude_processes": 1}, {"on_old_sign_in": True}):
+            self.assertNotIn("OLD ACCOUNT", self.line(session=quiet))
+
     def test_drift_is_named_with_both_versions(self):
         line = self.line(harness={"status": "ok", "installed": "2.1.288", "pinned": "2.1.286", "drift": True})
         self.assertTrue(line.endswith("  claude 2.1.288 DRIFT (pin 2.1.286)"), line)
