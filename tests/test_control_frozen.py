@@ -11,8 +11,9 @@ ctl's argv and every table over answered, forged and partial replies, upgrade's
 argument check and marker bytes, the sessions' state records, the queue's CLI.
 The cases of sign, protocol, presence, pool, jobs and gzcoord are frozen in
 the test_control_* file of each module. A new input has no Node to ask: it is a
-case of its own with an expected value written by hand. The three cases that
-render the tokens table were re-frozen when its `hit` column was added: those
+case of its own with an expected value written by hand. The reflection clause
+of the memory table is cut on the Python side (AFTER_NODE_REFLECTION; case 28's
+body cuts it before hashing). The three cases that render the tokens table were re-frozen when its `hit` column was added: those
 elements hold Python's text, which differs from the Node's by that column only.
 Every element the Node refused (a `threw` entry) stays as the Node left it."""
 from __future__ import annotations
@@ -20,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import pwd
+import re
 import subprocess
 import sys
 import tempfile
@@ -39,6 +41,10 @@ AFTER_NODE_ROW_KEYS = '"gateway":null,"gatewayInstall":null,'
 AFTER_NODE_RESTART_KEY = '"restart":null,'
 # --version goes with gateway-install too now; the Node's words said "with upgrade only".
 AFTER_NODE_VERSION_WORDS = "with upgrade and gateway-install only"
+# ...and the memory table's "<n> from reflection" after the claims (ADR-058 rule 5; case 28's
+# Python body in the fixture cuts it too before hashing, its `node` answer untouched); n is whatever the
+# account sent (a forged reply's value is said as it is), so the clause is cut as a whole.
+AFTER_NODE_REFLECTION = re.compile(r", [^,]*? from reflection(?=, )")
 
 
 def build(root: str) -> dict:
@@ -138,7 +144,7 @@ def run_python(cases: list[dict]) -> list[str]:
         # -I: no '' on sys.path and no PYTHON* variable reaches the side.
         answers = _side([sys.executable, "-I", "-c", _PY, CONTROL_PY], payload, fx["env"], fx["home"]["root"])
         return [a.replace(os.path.join(tmp, "py"), "<root>").replace(AFTER_NODE_ROW_KEYS, "").replace(AFTER_NODE_RESTART_KEY, "").replace(AFTER_NODE_VERSION_WORDS, "with upgrade only")
-                for a in answers]
+                for a in (AFTER_NODE_REFLECTION.sub("", a) for a in answers)]
 
 
 def verdict(case: dict, frozen: str, py: str) -> str | None:

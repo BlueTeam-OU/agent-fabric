@@ -26,6 +26,7 @@
     "fabric-jobs": "bin/fabric-jobs",
     "fabric-history": "bin/fabric-history",
     "fabric-reflect": "bin/fabric-reflect",
+    "fabric-reflect-jobs": "bin/fabric-reflect-jobs",
     "fabric-memory-check": "bin/fabric-memory-check",
     "fabric-memory-mcp": "bin/fabric-memory-mcp",
     "fabric-secret-run": "bin/fabric-secret-run",
