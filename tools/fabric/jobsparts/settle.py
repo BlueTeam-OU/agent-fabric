@@ -175,8 +175,13 @@ def main_worktree(working_copy: str) -> str | None:
     a session launched in a worktree by the directory it was launched in, which is often the main checkout. None when
     the directory is no repository or the repository is bare. Raises VcsError when git does not answer for a repository:
     the caller says so rather than let the missing candidate read as an unwritten memory."""
-    if vcs.toplevel(working_copy) is None:
-        return None
+    # Whether a repository is there is read from the filesystem: git exits 128 alike for "no repository" and for a broken
+    # one, and its message is localised.
+    probe = os.path.abspath(working_copy)
+    while not os.path.lexists(os.path.join(probe, ".git")):
+        if os.path.dirname(probe) == probe:
+            return None
+        probe = os.path.dirname(probe)
     common = vcs.text(working_copy, "rev-parse", "--path-format=absolute", "--git-common-dir")
     return os.path.dirname(common) if os.path.basename(common) == ".git" else None
 
@@ -248,9 +253,11 @@ def memory_changed(job: dict, candidates: list[str]) -> str | None:
                 continue        # gone since the listing, or a dangling link: not a change
             except OSError as e:
                 return f"{os.path.join(d, name)} could not be read ({e.strerror or e})"
+    if newest <= since and notes:
+        return f"could not tell whether {job['id']} wrote a memory: " + "; ".join(notes)
     if newest <= since:
         return (f"your memory directory has not changed during {job['id']}: write what it taught you "
-                "(one fact per file, with a roles_class) before leaving it" + "".join(f"; {n}" for n in notes))
+                "(one fact per file, with a roles_class) before leaving it")
     return None
 
 

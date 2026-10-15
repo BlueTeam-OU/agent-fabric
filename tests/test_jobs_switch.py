@@ -523,7 +523,36 @@ def main() -> int:
         finally:
             settle_mod.vcs.text = real_text
         check("a git failure naming the main checkout is said in the refusal, not read as an unwritten memory",
-              why is not None and "git could not name the main checkout" in why and "boom" in why, why)
+              why is not None and "git could not name the main checkout" in why and "boom" in why and "has not changed" not in why, why)
+        cfg = os.path.join(w.repo, ".git", "config")
+        with open(cfg, "a", encoding="utf-8") as fh:
+            fh.write("[broken\n")
+        try:
+            why = settle_mod.memory_changed({"id": "jX", "created": "2000-01-01T00:00:00Z", "log": []}, [wt])
+        finally:
+            with open(cfg, encoding="utf-8") as fh:
+                text = fh.read()
+            with open(cfg, "w", encoding="utf-8") as fh:
+                fh.write(text.replace("[broken\n", ""))
+        check("a repository git cannot read is a failure said as such, not 'no repository'",
+              why is not None and "could not tell whether jX wrote a memory" in why and "has not changed" not in why, why)
+        lone = World()
+        shutil.rmtree(key(lone.repo))
+        settle_mod.vcs.text = failing
+        try:
+            why = settle_mod.memory_changed({"id": "jX", "created": "2000-01-01T00:00:00Z", "log": []}, [lone.repo])
+        finally:
+            settle_mod.vcs.text = real_text
+        check("…and with no memory directory at all, the refusal still carries the git failure",
+              why is not None and "no memory directory" in why and "boom" in why, why)
+        subprocess.run(["git", "-C", home, "init", "-q"], check=True, env=jobs_world.git_env())
+        os.makedirs(os.path.join(home, "sub"))
+        try:
+            got = settle_mod.memory_candidates([os.path.join(home, "sub")])
+            check("the home is never a candidate, even when it is itself a repository", home not in got and os.path.join(home, "sub") in got, got)
+        finally:
+            shutil.rmtree(os.path.join(home, ".git"))
+            os.rmdir(os.path.join(home, "sub"))
 
         w = World(under=workspace)
         w.memory_of = workspace
