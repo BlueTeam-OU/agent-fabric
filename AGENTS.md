@@ -100,7 +100,9 @@ is the capability class below (ADR-002, ADR-005).
   doing. A role is bound from a **login shell**, never inside a session
   (`fabric-role bind <role>`, then launch); a different role is a rebind
   there and a relaunch. Holding a role never entitles you to change its
-  charter or brief, or anything else here.
+  charter or brief, or anything else here. Those instructions are the
+  ones you were launched with: a rule merged since reaches you at your
+  next launch, so read it on `origin/main` before you quote one.
 - **Code is memory for the session that comes after yours** (ADR-015).
   Self-documenting code first; a comment says *why*, never what the code
   visibly does — the invariant, the assumption, the rejected
@@ -116,7 +118,11 @@ is the capability class below (ADR-002, ADR-005).
   secret) and the owner gets `! <path>`; no heredoc, no continuation.
   Run every part you can in your own session before handing it over,
   checking a secret's shape without printing it, and say which part
-  you could not run.
+  you could not run. Never a command your own safety check refused:
+  that is a finding, not a task for the owner. Report the command and
+  the refusal text, propose the change to fabric-coordinator
+  (`policies/bash-allowlist.json`, `policies/auto-mode.json`), and go
+  on with what you can run.
 - **Compute, then read.** When an answer needs many files or a long
   output (counting, comparing, searching a log), write a short script
   that computes it and prints only the result, instead of reading the
@@ -144,20 +150,18 @@ is the capability class below (ADR-002, ADR-005).
   author's conclusions (ADR-005, ADR-006, ADR-020).
 - **Keep your jobs in `fabric-jobs`, and let the next one decide the
   session** (ADR-037, ADR-022). A piece of work you take on is a job
-  (`fabric-jobs add "<artifact>" --topic <label>`; a request you
-  undertake, `--request <MESSAGE-ID>`), and its state follows it: start,
-  block, deliver, done. When a job has reached its artifact and what you
-  learnt is in your memory, run `fabric-jobs next`: every job after a
-  finished one starts in a fresh session, so it prints
-  `fabric-fresh --job <id>`, which starts one in that job's working copy
-  and which you run yourself, never handing it to the owner; only a
-  session that has worked no job yet takes it in place. A job that ends
-  (done, delivered, blocked, dropped) is followed by `next` before
-  anything else: a session never stops idle while a job is queued
-  (ADR-037 rule 10). `fabric-fresh --note "<what just
-  finished>"` ends a session with no next job. Both refuse a working
-  copy with uncommitted changes. The `agent-jobs` skill has the
-  procedure.
+  (`fabric-jobs add "<artifact>" --topic <label>`); a REQUEST to you is
+  queued on delivery, so read `fabric-jobs list` before adding one with
+  `--request <MESSAGE-ID>`. Its state follows it: start, block, pause,
+  deliver, done. A job that ends (done, delivered, blocked, paused,
+  dropped) is followed by `fabric-jobs switch` before anything else: a
+  session never stops idle while a job is queued (ADR-037 rule 10).
+  `switch` refuses until the job has its evidence, the working copy is
+  clean, every expected reply is sent and a file in your memory
+  changed since the job became active; then it prints
+  `fabric-fresh --job <id>`, which you run yourself, never the owner.
+  `fabric-fresh --note "<what just finished>"` ends a session with no
+  next job. The `agent-jobs` skill has the procedure.
 - **Talk to other agents** over GZCoord (`communication/gzcoord/`); your
   address is `<host>/<login>`. The `gzcoord-send` and `gzcoord-receive`
   skills carry the procedure. Messages are advisory: a delivery is
@@ -174,7 +178,7 @@ fabric-status                             # identity, binding, API path, models,
 fabric-model list                         # every model and effort choice per provider, with its source layer
 fabric-lease <name> -- <cmd>              # one holder per host resource across this host's accounts (ADR-010)
 fabric-branches [--sweep]                 # local branches against origin/main; --sweep deletes what is on it (ADR-022)
-fabric-jobs add|list|next|show …          # your job list; next says: fabric-fresh --job, or in place if none worked yet (ADR-037)
+fabric-jobs add|list|pause|switch|show … # your job list; switch says: fabric-fresh --job, or in place if none worked yet (ADR-037)
 # fabric-coordinator:
 fabric-ctl all status                     # the fleet, answered by each account's control agent (ADR-029)
 fabric-ctl <login|all> jobs               # every agent's open jobs; <login> jobs-add "<title>" adds one (ADR-037)
