@@ -96,16 +96,21 @@ def _journal():
     return episodic.open_readonly(path)
 
 
+# An answer is a message this login sent and the carrier accepted (a failed or still pending one never reached the peer) that names
+# what it answers: an empty IN-REPLY-TO names nothing, and SQLite does not count '' as NULL.
+_ANSWERS = "direction='outbound' AND state='accepted' AND trim(coalesce(in_reply_to, '')) <> ''"
+
+
 def replied(message_id: str) -> bool | str:
-    """True when this login's journal holds a message of its own, of any type but with IN-REPLY-TO (a DECISION answers a REQUEST as a REPLY does), that answers `message_id` or is `message_id` (gzcoord-send prints only the
+    """True when this login's journal holds a message of its own, accepted by the carrier, of any type but with a non-empty IN-REPLY-TO (a DECISION answers a REQUEST as a REPLY does), that answers `message_id` or is `message_id` (gzcoord-send prints only the
     reply's own id, so a holder cannot be asked for the answered one); False when not; a string saying why it could not be told.
-    Both are UUIDv7s and only this login's outbound rows with an IN-REPLY-TO are read, so neither reading can name another message."""
+    Both are UUIDv7s and only this login's accepted outbound rows with an IN-REPLY-TO are read, so neither reading can name another message."""
     try:
         conn = _journal()
         if conn is None:
             return False
         try:
-            return conn.execute("SELECT 1 FROM episodes WHERE direction='outbound' AND in_reply_to IS NOT NULL "
+            return conn.execute(f"SELECT 1 FROM episodes WHERE {_ANSWERS} "
                                 "AND (lower(in_reply_to)=? OR lower(message_id)=?) LIMIT 1", (message_id, message_id)).fetchone() is not None
         finally:
             conn.close()
@@ -115,7 +120,7 @@ def replied(message_id: str) -> bool | str:
 
 def owed_replies(since: float | None) -> list[dict] | str:
     """The REQUESTs and QUESTIONs addressed to this login with REPLY-EXPECTED: yes, received at or after `since` (epoch seconds;
-    None: all), that have no answer from it (any outbound message whose IN-REPLY-TO names them, whatever its type), oldest first: [{"id", "type", "from", "subject"}]; a string saying why the
+    None: all), that have no answer from it (any accepted outbound message whose IN-REPLY-TO names them, whatever its type), oldest first: [{"id", "type", "from", "subject"}]; a string saying why the
     journal could not be read. Scoped to the job (the owner's reading, 2026-10-14): an old message of another subject does not
     hold every switch hostage."""
     me = f"{identity.current_host()}/{identity.current_agent()}"
@@ -125,7 +130,7 @@ def owed_replies(since: float | None) -> list[dict] | str:
             return []
         try:
             answered = {str(r[0]).lower() for r in conn.execute(
-                "SELECT in_reply_to FROM episodes WHERE direction='outbound' AND in_reply_to IS NOT NULL")}
+                f"SELECT in_reply_to FROM episodes WHERE {_ANSWERS}")}
             rows = conn.execute("SELECT message_id, type, sender, metadata_json, recorded_at FROM episodes WHERE direction='inbound' "
                                 "AND type IN ('REQUEST', 'QUESTION') AND message_id IS NOT NULL ORDER BY recorded_at, rowid").fetchall()
         finally:
