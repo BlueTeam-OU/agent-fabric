@@ -67,9 +67,10 @@ that mints other keys, the value every agent shares, a client's own
 service token — is held in the store of the company it belongs to: the
 operator, or a client, each named with its store in `projects/clients.json`
 (ADR-045). The same pass layout, read by the fabric-coordinator holders
-and the owner's recovery key. An agent never reads a company's store: what
-it needs from one is put into its own, as a shared value is today, and a
-client's credential is applied for that client's working copies only.
+and the owner's recovery key. No agent but a fabric-coordinator holder reads
+a company's store: what any other agent needs from one is put into its own,
+as a shared value is today, and a client's credential is applied for that
+client's working copies only.
 
 ## 3. Alternatives Considered
 
