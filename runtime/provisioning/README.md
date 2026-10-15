@@ -106,8 +106,10 @@ secret key (a passphrase prompt; on a terminal new-agent does it itself
 as its last step, 11 — the coordinator's gpg exports the key its git
 config signs with, the account's imports it on a pipe, pinentry asks the
 passphrase, the ownertrust is set and a test signature as the account
-proves it; without a terminal, or with `--no-signing-key`, the two lines
-are printed), `~/.claude/.credentials.json` for the
+proves it; without a terminal, or with `--no-signing-key`, the closing
+names `runtime/provisioning/new-agent.sh --signing-key-only <login>`, which
+runs step 11 alone for the existing account at a terminal later, and the
+two gpg lines as the fallback), `~/.claude/.credentials.json` for the
 plain-claude path (a credential copy a classifier refuses an agent), and
 the workspace-trust dialog at the first interactive launch. It was
 written on 2026-09-15 after two accounts walked by hand came out short —

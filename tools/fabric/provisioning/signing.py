@@ -14,7 +14,7 @@ import tempfile
 from provisioning import config as cfg
 from provisioning.bounded import run_bounded, stop_tree
 from provisioning.new_agent_args import say
-from provisioning.verify import signing_key_lines, signs_with_secret
+from provisioning.verify import SIGNING_KEY_ONLY, signing_key_lines, signs_with_secret
 
 
 # What the account's shell runs for the test signature: its terminal
@@ -59,7 +59,8 @@ def signing_key(login: str, host: str, *, via: str = "") -> int:
     exits 1."""
     def failed(why: str) -> int:
         say(f"11. the signing key: FAILED — {why}")
-        say("    by hand, as this login, in a terminal (the key has a passphrase):")
+        say(f"    once that is fixed, step 11 alone, in a terminal: {SIGNING_KEY_ONLY.format(login=login)}")
+        say("    or by hand, as this login, in a terminal (the key has a passphrase):")
         for line in signing_key_lines(login, via):
             print(f"new-agent: {line}", file=sys.stderr)
         return 1

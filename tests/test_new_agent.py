@@ -176,6 +176,9 @@ def main() -> int:
 
         print("the closing list")
         c = vf.closing("acct", "absent", "no", "demo")
+        check("no GPG key: step 11 alone named first, the raw lines kept after it as the fallback",
+              0 <= c.find("runtime/provisioning/new-agent.sh --signing-key-only acct") < c.find("or by hand:")
+              < c.find("sudo -u acct gpg --batch --import"), c)
         check("no GPG key and no template: both named, with the commands, and the first launch in the first project",
               "GPG secret key: the signing key's is NOT" in c and "sudo -u acct gpg --batch --import" in c and "fabric-accounts assign acct" in c and "bin/fabric-accounts" not in c
               and "moveto acct demo   then" in c and c.startswith("new-agent: done."))
@@ -441,6 +444,28 @@ def main() -> int:
               nargs.parse(["l", "r", "--no-claude-account", "--surname", "Ibn al-Haytham"])["surname"] == "Ibn al-Haytham"
               and nargs.parse(["l", "--surname=Huber", "r", "--no-claude-account"])["surname"] == "Huber")
         check("…and named in the usage and the help", "--surname <Surname>" in nargs.USAGE and "--surname <Surname>" in nargs.HELP)
+        def sko(*argv):
+            try:
+                return 0, nargs.parse_signing_key_only(list(argv))
+            except nargs.Exit as exc:
+                return exc.code, exc.msg
+        check("--signing-key-only <login>, spaced or with =: the login; absent: None",
+              sko("--signing-key-only", "acct") == (0, "acct") and sko("--signing-key-only=acct") == (0, "acct")
+              and sko("acct", "r", "--no-claude-account") == (0, None))
+        check("…without its value: exit 1, one line", sko("--signing-key-only") == (1, "new-agent: --signing-key-only needs a value"))
+        for argv in (("--signing-key-only", "acct", "r"), ("--signing-key-only", "acct", "--dry-run"),
+                     ("--signing-key-only", "acct", "--host", "h"), ("--signing-key-only=a", "--signing-key-only=b")):
+            rc, msg = sko(*argv)
+            check(f"…takes nothing else ({' '.join(argv[2:]) or argv[1]}): exit 2, named", rc == 2 and "takes nothing else" in msg, msg)
+        check("…a flag for its login is no login: the usage", sko("--signing-key-only", "--dry-run")[0] == 2
+              and sko("--signing-key-only=")[0] == 2)
+        check("…named in the usage and the help, the raw lines kept as the fallback",
+              "--signing-key-only <login>" in nargs.USAGE and "new-agent.sh --signing-key-only <login>" in nargs.HELP
+              and "by hand follow it as the fallback" in nargs.HELP)
+        r = shim("--signing-key-only", "acct")
+        check("…with no terminal (a pipe here): refused, exit 1, naming why, nothing asked of a host",
+              r.returncode == 1 and r.stderr.count("\n") == 1 and "needs a person at this terminal" in r.stderr
+              and "pinentry" in r.stderr and "nothing done" in r.stderr, r.stderr)
         check("--no-signing-key is a flag of an agent's run",
               nargs.parse(["l", "r", "--no-claude-account", "--no-signing-key"])["no-signing-key"] is True)
         # A human login (ADR-044): its login and --host, nothing of a session.
@@ -490,7 +515,7 @@ def main() -> int:
 echo "$*" >> {fk}/hx.calls
 [[ $1 == --resolve ]] && exit "$(cat {fk}/resolve.rc 2>/dev/null || echo 0)"
 case "$*" in
-  *host-check*) [[ -e {fk}/check.fails ]] && {{ echo "unreachable" >&2; exit 255; }}; cat {fk}/reports 2>/dev/null || echo "$1"; echo "account: absent" ;;
+  *host-check*) [[ -e {fk}/check.fails ]] && {{ echo "unreachable" >&2; exit 255; }}; cat {fk}/reports 2>/dev/null || echo "$1"; [[ -e {fk}/present ]] && echo "account: present" || echo "account: absent" ;;
   *take-bundle*) cat > {fk}/taken; grep -q BEGIN {fk}/taken ;;
   *sync*) exit "$(cat {fk}/sync.rc 2>/dev/null || echo 0)" ;;
 esac
@@ -686,6 +711,52 @@ esac
             check("…a step 11 that fails: new-agent exits 1, and 0-10 stayed done",
                   rc == 1 and msg is None and "finish new r" in calls and signed == [("new", "here")], f"{rc} {msg}")
 
+            print("the orchestrator, --signing-key-only: step 11 alone")
+
+            def key_only(login, terminal=True, hosts_path=hosts):
+                na.on_terminal = lambda: terminal
+                signed.clear()
+                vias.clear()
+                na.signing_key = lambda login, host, via="": signed.append((login, host)) or vias.append(via) or 0
+                for f in ("hx.calls", "secrets.calls"):
+                    if os.path.exists(f"{fk}/{f}"):
+                        os.remove(f"{fk}/{f}")
+                saved_env = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY")
+                os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = hosts_path
+                err = io.StringIO()
+                try:
+                    with redirect_stderr(err):
+                        rc, msg = na.new_agent(["--signing-key-only", login]), None
+                except nargs.Exit as exc:
+                    rc, msg = exc.code, exc.msg
+                finally:
+                    if saved_env is None:
+                        os.environ.pop("AGENT_FABRIC_HOSTS_REGISTRY", None)
+                    else:
+                        os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = saved_env
+                calls = open(f"{fk}/hx.calls").read() if os.path.exists(f"{fk}/hx.calls") else ""
+                return rc, msg, err.getvalue(), calls
+            rc, msg, err, calls = key_only("new", terminal=False)
+            check("no terminal: refused, naming why, nothing asked", rc == 1 and "needs a person at this terminal" in msg
+                  and calls == "" and signed == [], f"{msg}\n{calls}")
+            rc, msg, err, calls = key_only("new")
+            check("an account the host does not have: refused before the key is exported",
+                  rc == 1 and "new has no account on here" in msg and signed == [], f"{msg}\n{calls}")
+            put(f"{fk}/present", "")
+            try:
+                rc, msg, err, calls = key_only("new")
+                check("an account on this host: step 11 for it, and nothing else (no prepare, store or finish)",
+                      rc == 0 and signed == [("new", "here")] and vias == [""] and calls == "here -- @fabric/runtime/provisioning/"
+                      "new-agent-worker.sh host-check new\n" and secrets_calls() == "", f"{signed}\n{calls}")
+                rc, msg, err, calls = key_only("placed")
+                check("…one placed on another host: there, its host named for the hand-import lines",
+                      rc == 0 and signed == [("placed", "far")] and vias == ["far"], f"{signed} {vias}\n{msg}")
+                rc, msg, err, calls = key_only("person", hosts_path=put(f"{fk}/humans1.json", json.dumps({
+                    "hosts": {"here": {"ssh": None}}, "placement": {"person": "here"}, "kinds": {"person": "human"}})))
+                check("…a human: refused (ADR-044 rule 3)", rc == 1 and "a human holds no signing key" in msg and signed == [], msg)
+            finally:
+                os.remove(f"{fk}/present")
+
             print("the orchestrator, --surname (ADR-056 rule 4, A 2026-10-15)")
             other_id, new_id = "01a00bc1-4824-7ace-a01e-6e46a11f9acc", "01a1f000-0000-7000-8000-000000000001"
             claims_path = f"{fk}/root/identities/personas/claims.json"
@@ -869,6 +940,7 @@ exec env GNUPGHOME="$home" "$@"
             rc, err, calls = step11()
             check("a failed import: exit 1, gpg's last line, and the two lines a person runs",
                   rc == 1 and "11. the signing key: FAILED — the import as new: gpg: import failed (injected)" in err
+                  and "step 11 alone, in a terminal: runtime/provisioning/new-agent.sh --signing-key-only new" in err
                   and "sudo -u new gpg --batch --import" in err and "gpg --import-ownertrust" in err
                   and not held(gB, fpr) and "--import-ownertrust" not in calls, f"rc={rc}\n{err}\n{calls}")
             err = io.StringIO()
