@@ -252,7 +252,7 @@ class Assign(Base):
             calls.append([os.path.basename(cmd[0]), *cmd[1:]])
             if cmd[-1] == "session":
                 assert kw.get("timeout") and kw.get("capture_output") is True, kw
-                out = raw if raw is not None else json.dumps(sessions)
+                out = raw if raw is not None else "\n".join(json.dumps(r, separators=(",", ":")) for r in sessions)   # fabric-ctl --json: a line per row
                 return subprocess.CompletedProcess(cmd, ctl_rc, out.encode(), b"")
             return subprocess.CompletedProcess(cmd, 0)
         code, out, err = self.go(["assign", *logins, "claude-b", "--no-restart", *argv_extra], d, spawn)
@@ -281,11 +281,33 @@ class Assign(Base):
         self.assertEqual((code, "still on the old account" in out, "relaunch" in out, err), (0, False, False, ""))
 
     def test_no_restart_that_cannot_ask_says_so_and_does_not_fail_the_move(self):
-        for kw in ({"ctl_rc": 1}, {"raw": "not json"}, {"raw": "{}"}):
+        for kw in ({"ctl_rc": 1}, {"raw": "not json"}, {"raw": ""}):
             code, out, err, _ = self.assign_no_restart(["flutter-dev-01"], [], **kw)
             self.assertEqual(code, 0, kw)
             self.assertIn("could not tell which sessions are still on the old account", err)
             self.assertNotIn("still on the old account until", out)
+
+    def test_the_count_is_the_agents_not_the_number_of_start_times_it_could_read(self):
+        rows = [{"account": "flutter-dev-01", "status": "ok", "session": {"on_old_sign_in": 3}},
+                {"account": "web-dev-01", "status": "ok", "session": {"on_old_sign_in": 2, "old_sign_in_started": ["2026-10-12T07:00:59Z"]}}]
+        _, out, _, _ = self.assign_no_restart(["flutter-dev-01", "web-dev-01"], rows)
+        self.assertIn("5 sessions still on the old account until relaunch: flutter-dev-01, web-dev-01 (started 2026-10-12 07:00 UTC)", out)
+
+    def test_a_silent_login_is_unknown_and_does_not_hide_the_ones_that_answered(self):
+        rows = [{"account": "flutter-dev-01", "status": "ok", "session": {"on_old_sign_in": 1, "old_sign_in_started": ["2026-10-12T07:00:59Z"]}},
+                {"account": "web-dev-01", "status": "no answer", "host": "h"}]
+        code, out, err, _ = self.assign_no_restart(["flutter-dev-01", "web-dev-01", "db-admin"], rows, ctl_rc=1)
+        self.assertEqual(code, 0)
+        self.assertIn("1 session still on the old account until relaunch: flutter-dev-01 (started 2026-10-12 07:00 UTC)", out)
+        self.assertIn("could not tell whether a session is still on the old account: db-admin, web-dev-01", err, "no row at all, and a row with no session")
+
+    def test_the_rows_are_what_fabric_ctl_prints_for_its_real_replies(self):
+        from control import ctl, js
+        reply = {"from": "h/flutter-dev-01", "op": "session", "latency_ms": 3, "data": {"session": {"claude_processes": 1, "planning": False, "on_old_sign_in": 1,
+                                                                                                    "old_sign_in_started": ["2026-10-13T19:04:11Z"]}}}
+        rs = ctl.rows([{"login": "flutter-dev-01", "host": "h", "address": "h/flutter-dev-01"}], [reply])
+        _, out, _, _ = self.assign_no_restart(["flutter-dev-01"], [], raw="\n".join(js.stringify(r) for r in rs))
+        self.assertIn("1 session still on the old account until relaunch: flutter-dev-01 (started 2026-10-13 19:04 UTC)", out)
 
     def test_without_no_restart_or_with_no_sync_nobody_is_asked(self):
         d = FakeStore()

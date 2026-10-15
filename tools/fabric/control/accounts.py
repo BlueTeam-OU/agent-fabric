@@ -188,15 +188,19 @@ def _say_old_sessions(logins: Sequence[str], account: str, root: str, env: dict[
     cmd = [os.path.join(root, "bin", "fabric-ctl"), "--json", *logins, "session"]
     try:
         r = spawn(cmd, env=env, timeout=CTL_TIMEOUT_S, check=False, capture_output=True)
-        rows = util.loads(util.decode(r.stdout)) if r.returncode == 0 else None
+        # One JSON object per line, a row per login; fabric-ctl exits 1 when any login was silent but still prints
+        # every row, so the rows that answered are read whatever the exit code.
+        rows = [util.loads(ln) for ln in util.decode(r.stdout).splitlines() if ln.strip()]
     except (OSError, subprocess.TimeoutExpired, ValueError) as e:
         _say(f"fabric-accounts: could not tell which sessions are still on the old account: {util.node_error(e, cmd)[:120]}")
         return
-    if not isinstance(rows, list):
-        _say("fabric-accounts: could not tell which sessions are still on the old account (fabric-ctl session gave no table)")
+    if not rows:
+        _say(f"fabric-accounts: could not tell which sessions are still on the old account (fabric-ctl session answered nothing, exit {r.returncode})")
         return
-    old: list[tuple[str, list[str]]] = []
+    old: list[tuple[str, int, list[str]]] = []
     unknown: list[str] = []
+    answered = {str(row.get("account")) for row in rows if isinstance(row, dict)}
+    unknown.extend(lg for lg in logins if lg not in answered)
     for row in rows:
         sec = row.get("session") if isinstance(row, dict) else None
         n = sec.get("on_old_sign_in") if isinstance(sec, dict) else None
@@ -205,14 +209,14 @@ def _say_old_sessions(logins: Sequence[str], account: str, root: str, env: dict[
             unknown.append(login)
         elif n > 0:
             started = sec.get("old_sign_in_started")
-            old.append((login, [t for t in started if isinstance(t, str)] if isinstance(started, list) else []))
+            old.append((login, n, [t for t in started if isinstance(t, str)] if isinstance(started, list) else []))
     if old:
         def one(login: str, times: list[str]) -> str:
             return f"{login} (started {', '.join(t.replace('T', ' ')[:16] for t in times)} UTC)" if times else login
-        count = sum(len(t) or 1 for _, t in old)
+        count = sum(n for _, n, _t in old)   # the agent's count; the times are only those it could read
         print(f"{count} session{'s' if count != 1 else ''} still on the old account until relaunch: "
-              f"{', '.join(one(lg, t) for lg, t in old)}")
-        print(f"relaunch them: fabric-accounts assign {' '.join(shlex.quote(lg) for lg, _ in old)} {shlex.quote(account)}")
+              f"{', '.join(one(lg, t) for lg, _n, t in old)}")
+        print(f"relaunch them: fabric-accounts assign {' '.join(shlex.quote(lg) for lg, _n, _t in old)} {shlex.quote(account)}")
     if unknown:
         _say(f"fabric-accounts: could not tell whether a session is still on the old account: {', '.join(unknown)}")
 

@@ -514,7 +514,9 @@ class SessionsOnOldSignIn(unittest.TestCase):
         from control import ops
         f = Fixture(self, before=TPL)
         envs = {1: env_with(OLD), 2: env_with(TPL)}
-        ctx = {"home": f.home, "uid": 1, "session_opts": {"pids": [1, 2], "env_of": lambda pid: envs[pid](pid)}}
+        empty = tempfile.mkdtemp(prefix="proc-")
+        self.addCleanup(__import__("shutil").rmtree, empty)
+        ctx = {"home": f.home, "uid": 1, "session_opts": {"pids": [1, 2], "env_of": lambda pid: envs[pid](pid), "proc": empty}}
         run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "")  # noqa: E731
         self.assertEqual(ops.collect("session", {**ctx, "run": run})["session"]["on_old_sign_in"], 1)
         self.assertNotIn("on_old_sign_in", ops.collect("session", {"home": f.home, "uid": 1, "run": run})["session"],
@@ -558,10 +560,11 @@ class SessionsOnOldSignIn(unittest.TestCase):
 
         def gone(_pid):
             raise FileNotFoundError(2, "gone")
-        self.assertEqual(S.sessions_on_old_sign_in(f.home, pids=[2 ** 22 + 12345], env_of=gone), 0)
+        self.assertEqual(S.old_sign_in_pids(f.home, pids=[7], env_of=gone, alive=lambda _p: False), [])
 
     def count(self, f, envs: dict, **more):
-        return S.sessions_on_old_sign_in(f.home, pids=list(envs), env_of=lambda pid: envs[pid](pid), **more)
+        found = S.old_sign_in_pids(f.home, pids=list(envs), env_of=lambda pid: envs[pid](pid), **more)
+        return None if found is None else len(found)
 
     def test_counts_the_plain_sessions_not_on_the_synced_token_and_only_those(self):
         f = Fixture(self, before=TPL)
@@ -579,7 +582,7 @@ class SessionsOnOldSignIn(unittest.TestCase):
 
         def gone(_pid):
             raise ProcessLookupError(3, "gone")
-        self.assertEqual(S.sessions_on_old_sign_in(f.home, pids=[1], env_of=gone), 1)
+        self.assertEqual(S.old_sign_in_pids(f.home, pids=[1], env_of=gone, alive=lambda _p: True), [1])
 
     def test_unknown_where_there_is_no_synced_token_or_the_process_table_cannot_be_read(self):
         self.assertIsNone(self.count(Fixture(self, before=None), {1: env_with(OLD)}), "no token to compare with")
@@ -589,7 +592,7 @@ class SessionsOnOldSignIn(unittest.TestCase):
             raise OSError("pgrep")
         saved, S.upgrade = S.upgrade, lambda: type("U", (), {"session_pids": staticmethod(lambda **kw: broken())})()
         try:
-            self.assertIsNone(S.sessions_on_old_sign_in(f.home))
+            self.assertIsNone(S.old_sign_in_pids(f.home))
         finally:
             S.upgrade = saved
 

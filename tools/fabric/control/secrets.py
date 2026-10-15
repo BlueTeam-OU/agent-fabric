@@ -113,6 +113,16 @@ def session_env(pid: int, env_of: Callable[[int], bytes | str] | None = None) ->
     return out
 
 
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True   # exists, not ours to signal
+
+
 def _on_token(env: dict | None, tok: str | None) -> bool:
     """A plain-claude session runs on the synced token when its own environment holds it. One whose environment
     cannot be read (env is None) is taken as not on it, as a restart has always taken it."""
@@ -121,7 +131,8 @@ def _on_token(env: dict | None, tok: str | None) -> bool:
 
 
 def old_sign_in_pids(home: str | None, *, uid: int | None = None, pids: list[int] | None = None,
-                     env_of: Callable[[int], bytes | str] | None = None, pgrep: Callable[..., Any] | None = None) -> list[int] | None:
+                     env_of: Callable[[int], bytes | str] | None = None, pgrep: Callable[..., Any] | None = None,
+                     alive: Callable[[int], bool] = _alive) -> list[int] | None:
     """The plain-claude sessions of this account still running on a sign-in other than the synced one — what
     `fabric-accounts assign --no-restart` leaves behind until each is relaunched. Broker and gateway sessions
     are never listed (see session_env). None where it cannot be told: no synced token to compare with (the
@@ -139,7 +150,7 @@ def old_sign_in_pids(home: str | None, *, uid: int | None = None, pids: list[int
         try:
             env = session_env(pid, env_of)
         except OSError:
-            if not _alive(pid):
+            if not alive(pid):
                 continue   # exited between the listing and the read: not a session on anything
             env = None
         if env and (env["transport"] == "gateway" or (env["provider"] and env["provider"] != "anthropic")):
@@ -147,11 +158,6 @@ def old_sign_in_pids(home: str | None, *, uid: int | None = None, pids: list[int
         if not _on_token(env, tok):
             old.append(pid)
     return old
-
-
-def sessions_on_old_sign_in(home: str | None, **kw: Any) -> int | None:
-    found = old_sign_in_pids(home, **kw)
-    return None if found is None else len(found)
 
 
 def process_started(pid: int, proc: str = "/proc") -> str | None:
@@ -168,16 +174,6 @@ def process_started(pid: int, proc: str = "/proc") -> str | None:
         return datetime.fromtimestamp(btime + ticks // os.sysconf("SC_CLK_TCK"), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     except (OSError, ValueError, IndexError, StopIteration):
         return None
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True   # exists, not ours to signal
 
 
 def secrets_sync(request: Mapping[str, Any], **opts: Any) -> dict:
