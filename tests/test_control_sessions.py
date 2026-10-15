@@ -347,6 +347,12 @@ def main() -> int:
         record(500, "192.0.2.7 51234 22\n")
         fake_proc(proc, 600, 2, ppid=700)      # a parent loop: the walk ends, it does not spin
         fake_proc(proc, 700, 3, ppid=600)
+        fake_proc(proc, 600, 2, ppid=500)
+        fake_proc(proc, 700, 3, ppid=600)
+        record(600, "garbage\n")
+        check("a garbage record on the nearer ancestor ends the walk: the farther valid one is not used", cs.ssh_client(700, state, proc) is None)
+        os.remove(os.path.join(state, "ssh-clients", "600"))
+        fake_proc(proc, 600, 2, ppid=700)
         check("a parent cycle ends the walk with none", cs.ssh_client(700, state, proc) is None)
 
     print(f"\n{'FAILED' if fails else 'all passed'}")

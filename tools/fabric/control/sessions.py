@@ -218,9 +218,9 @@ def ssh_client(pid, state_dir: str, proc: str = "/proc") -> dict | None:
     """{"addr", "port"} of the ssh client whose enter-ssh is `pid` or the nearest of its
     ancestors with a record under <state_dir>/ssh-clients; None when there is none or the
     record does not parse. The pid itself counts: enter-ssh execs on, so a record's pid may be
-    the session's own. A pid reused since its record was written is a known gap, harmless
-    because the walk starts from a live session: only an ancestor of one can match. No
-    start-time check.
+    the session's own. A pid reused since its record was written is a known gap, accepted
+    by the requester (j83): it needs a stale record on a live session's own ancestor, and
+    the next ssh entry prunes dead ones. No start-time check.
     """
     if not _is_integer(pid):
         return None
