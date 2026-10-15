@@ -817,13 +817,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-037 — Each agent keeps a job list (Accepted)
 
 - One list per login, `agents/<login>/jobs.json`, written only through
-  `runtime/identity.py`; states queued, active (one at a time), paused
-  (unbuilt: `blocked`, 'paused: <why>'), blocked, delivered, done, dropped (§5 rules 1–2).
-- `fabric-jobs next`: a session that has worked a job gets
+  `runtime/identity.py`; states queued, active (one at a time), paused, blocked, delivered, done, dropped (§5 rules 1–2).
+- `fabric-jobs switch` (alias `next`): a session that has worked a job gets
   `fabric-fresh --job <id>` for the next, in the job's working copy; one
   that worked none takes it in place (§5 rule 3).
-- Jobs come from the agent and the owner (`fabric-ctl <login> jobs-add`);
-  a GZCoord request becomes one only when its receiver adds it (§5 rules 4–5).
+- Jobs come from the agent, the owner (`fabric-ctl <login> jobs-add`) and
+  a delivered REQUEST (§5 rules 4–5, 11).
 - The owner reads every list: `fabric-ctl <login|all> jobs` (§5 rule 6).
 - A 2026-10-08 — priority (blocking, high, normal, low) orders `next`,
   never preempting; a job others wait on ranks blocking (`waits_on`); a
@@ -834,6 +833,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-11 — every job after a worked one starts fresh (§5 rule 3).
 - A 2026-10-12 — checkable blockers; a cleared job is taken first (§5 rule 8).
 - A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
+- A 2026-10-15 — intake and `paused` read as built.
 - Keywords: job, jobs.json, fabric-jobs, next, switch, paused, fresh
   session, fabric-fresh --job, working copy, intake, priority,
   blocking, pool, claim.
