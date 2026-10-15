@@ -66,6 +66,20 @@ its own timeout). The rule that matters holds either way: a review that
 did not finish is never "completed", so it never reads as a review with
 zero findings.
 
+SubagentStop fires once the subagent has called SubagentHandback, before
+the harness has written that call's result to the transcript: at the
+hook's entry the hand-back's tool_use is the last record, and its
+tool_result lands within half a second while the hook runs (probed
+2026-10-15, foreground and background, every turn already on disk; a live
+review row read as tool-use-unanswered, OBSERVATION 01a13c97). So when the
+last record is a hand-back with no result yet, the hook re-reads the
+transcript until it is answered or HANDBACK_WAIT_S has passed, and judges
+the status from the last read; a hand-back still unanswered then stays
+tool-use-unanswered. Any other ending is read once: nothing else is
+waited for. The wait and the git calls of an inferred row share one
+deadline, BUDGET_S from the first read, so the row is written before
+the harness's timeout kills the hook.
+
 Sums are over distinct API messages: the transcript writes one assistant
 record per content block, each repeating its message's usage, and only
 the last carries the final output count (read back 2026-10-14 on this
@@ -103,11 +117,15 @@ import pwd
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 FILE = "ledger.jsonl"
 SCHEMA_VERSION = 1
 GIT_TIMEOUT_S = 3
+# Inside the 10 s timeout user-settings.py registers the hook with, leaving
+# room for the interpreter's start and the ledger write.
+BUDGET_S = 8.0
 HEADER_INFO = "agent-fabric-dispatch v1"
 FENCE = re.compile(r"^(`{3,}|~{3,})[ \t]*([^\n`]*?)[ \t]*$", re.MULTILINE)
 SHA = re.compile(r"^[0-9a-f]{7,64}$")
@@ -124,6 +142,9 @@ USERINFO = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/]*@")
 USAGE = (("input", "input_tokens"), ("cache_write", "cache_creation_input_tokens"),
          ("cache_read", "cache_read_input_tokens"), ("output", "output_tokens"))
 HANDBACK = "SubagentHandback"
+# The result was seen 0.5 s after the hook's entry.
+HANDBACK_WAIT_S = 3.0
+HANDBACK_POLL_S = 0.1
 INTERRUPTED = "[Request interrupted"
 DONE_REASONS = ("end_turn", "stop_sequence")
 # A header string is an identifier, never prose. Matched with fullmatch:
@@ -318,6 +339,7 @@ def read_transcript(path: str) -> dict:
     first = next(iter(messages.values()), None)
     reasoning = [m["reasoning"] for m in messages.values() if m["reasoning"] is not None]
     st, source = status(last, handback_ids)
+    tail = last.get("message", {}).get("content") if last and last.get("type") == "assistant" else None
     return {
         # The model of most turns: a dispatch rides one class's model, and a
         # mid-run fallback is the exception the majority still names.
@@ -332,6 +354,8 @@ def read_transcript(path: str) -> dict:
         "status": st,
         "status_source": source,
         "conversation": last is not None,
+        "handback_unanswered": source == "transcript:tool-use-unanswered" and isinstance(tail, list) and any(
+            isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == HANDBACK for b in tail),
         "brief": brief or "",
         "cwd": cwd,
     }
@@ -358,38 +382,47 @@ def read_meta(transcript: str) -> dict:
     return doc if isinstance(doc, dict) else {}
 
 
-def git(cwd: str, *args: str) -> str | None:
+def git(cwd: str, deadline: float, *args: str) -> str | None:
+    left = min(GIT_TIMEOUT_S, deadline - time.monotonic())
+    if left <= 0:
+        return None
     try:
         r = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True,
-                           timeout=GIT_TIMEOUT_S, check=False)
+                           timeout=left, check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     return r.stdout.strip() or None if r.returncode == 0 else None
 
 
-def repository(cwd: str | None) -> tuple[str | None, str | None]:
+def repository(cwd: str | None, deadline: float) -> tuple[str | None, str | None]:
     """(owner/name from origin, else the toplevel's basename, lowercase as HEADER_REPO says; HEAD)."""
     if not cwd or not os.path.isdir(cwd):
         return None, None
-    top = git(cwd, "rev-parse", "--show-toplevel")
+    top = git(cwd, deadline, "rev-parse", "--show-toplevel")
     if not top:
         return None, None
-    url = git(cwd, "remote", "get-url", "origin")
+    url = git(cwd, deadline, "remote", "get-url", "origin")
     m = REMOTE.search(USERINFO.sub("", url)) if url else None
-    return (m.group(1) if m else os.path.basename(top)).lower(), git(cwd, "rev-parse", "HEAD")
+    return (m.group(1) if m else os.path.basename(top)).lower(), git(cwd, deadline, "rev-parse", "HEAD")
 
 
 def row(payload: dict) -> dict | None:
     transcript = payload.get("agent_transcript_path")
     if not isinstance(transcript, str) or not os.path.isfile(transcript):
         return None
+    budget = time.monotonic() + BUDGET_S
+    deadline = min(budget, time.monotonic() + HANDBACK_WAIT_S)
     sums = read_transcript(transcript)
+    while sums["handback_unanswered"] and time.monotonic() < deadline:
+        time.sleep(HANDBACK_POLL_S)
+        sums = read_transcript(transcript)
+    sums.pop("handback_unanswered")
     if not sums.pop("conversation"):
         return None                      # nothing ran: no row
     attribution, fields = header(sums.pop("brief"))
     cwd = sums.pop("cwd") or payload.get("cwd")
     if attribution != "dispatch":
-        fields["repository"], fields["head_sha"] = repository(cwd)
+        fields["repository"], fields["head_sha"] = repository(cwd, budget)
     meta = read_meta(transcript)
     session = payload.get("session_id") if isinstance(payload.get("session_id"), str) else None
     entry = {
