@@ -457,6 +457,41 @@ def main() -> int:
         w.sw("deliver", j1, f"reply:{OWN}")
         settles(w, j1, "an outbound message that is no REPLY is no evidence", f"reply:{OWN} names no REPLY this login sent")
 
+        print("retract: a mistaken artifact is removed, exactly as recorded, under the list lock")
+        w = World()
+        j1 = w.working("delivered by a wrong reply")
+        w.sw("deliver", j1, f"reply:{RID}", f"{jobs_world.GH_REPO}#2")
+        w.sw("done", j1)
+        w.add("the next job")
+        gh_says({f"{jobs_world.GH_REPO}#2": "OPEN"})
+        rc, out, err = w.switch()
+        check("a done job with a wrong reply: entry cannot be left", rc == 1 and f"reply:{RID} names no REPLY" in err, out + err)
+        rc, out, err = w.sw("retract", j1, f"reply:{RID[:-1]}")
+        check("retract of an absent string refuses and lists the artifacts", rc == 1 and f"reply:{RID}" in err and f"{jobs_world.GH_REPO}#2" in err
+              and len(w.job(j1)["artifacts"]) == 2, err)
+        before = {k: v for k, v in w.job(j1).items() if k not in ("artifacts", "log", "updated")}
+        held = jobs.identity.agent_lock(login)      # re-entrant within a process, so the competing retract is a process of its own
+        held.__enter__()
+        proc = subprocess.Popen([sys.executable, os.path.join(ROOT, "tools", "fabric", "jobs.py"), "retract", j1, f"reply:{RID}"],
+                                env=os.environ, cwd=w.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(1)
+        waited = proc.poll() is None and len(w.job(j1)["artifacts"]) == 2
+        held.__exit__(None, None, None)
+        try:
+            pout, perr = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            pout, perr = proc.communicate()
+        check("with the list lock held elsewhere, retract waits for it", waited)
+        check("…and goes on once it is let go", proc.returncode == 0, pout + perr)
+        job = w.job(j1)
+        check("retract removes that artifact only, notes it in the log with no state, and changes no other field",
+              job["artifacts"] == [f"{jobs_world.GH_REPO}#2"] and job["log"][-1].get("kind") == "retract" and "state" not in job["log"][-1]
+              and f"reply:{RID}" in job["log"][-1]["note"] and {k: v for k, v in job.items() if k not in ("artifacts", "log", "updated")} == before, repr(job))
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"})
+        rc, out, err = w.switch()
+        check("then the job is left (the positive control)", rc == 0 and "#2 merged" in out, out + err)
+
         print("settling the old job: blocked, dropped")
         w = World()
         j1 = w.working("blocked on words")

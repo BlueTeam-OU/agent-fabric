@@ -12,6 +12,7 @@ behind bin/fabric-jobs.
     fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
     fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n>
     fabric-jobs deliver <id> <artifact>...
+    fabric-jobs retract <id> <artifact>                          remove one artifact, exactly as recorded, in any state; noted in the log
     fabric-jobs done <id>
     fabric-jobs drop <id> "<why>"
     fabric-jobs show <id> [--json]
@@ -110,6 +111,8 @@ check that failed and changing nothing:
      has a REPLY of this login in the journal; and a file in the working copy's memory directory changed since the job last
      became active. A check that cannot be told is a failure, said as such, never a pass.
      `deliver <id> <artifact>` on a done job appends evidence and leaves it closed (a dropped job takes none).
+     `retract <id> <artifact>` removes one recorded artifact whatever the job's state, so a mistaken one cannot hold the job; it refuses,
+     naming the artifacts, when the string is not there, and notes what was removed in the job's log.
   2. The next job starts in a fresh session after a worked one (rule 3, unchanged): `fabric-fresh --job <id>` is printed.
   3. Its branch is chosen before any work: the job's own branch when it has begun one that no pull request merged; else this
      login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
@@ -190,6 +193,9 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("deliver")
     d.add_argument("id")
     d.add_argument("artifacts", nargs="+")
+    rt = sub.add_parser("retract", help="remove one artifact from a job, exactly as recorded")
+    rt.add_argument("id")
+    rt.add_argument("artifact")
     dr = sub.add_parser("drop")
     dr.add_argument("id")
     dr.add_argument("why")
