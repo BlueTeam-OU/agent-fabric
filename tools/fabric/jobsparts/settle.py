@@ -169,16 +169,41 @@ def started_at(job: dict) -> float | None:
         return None
 
 
-def memory_dirs(candidates: list[str]) -> list[str]:
+def memory_candidates(candidates: list[str]) -> list[str]:
+    """Each working copy and its ancestors below the login's home, deduplicated, nearest first. Claude Code keys a
+    session's memory by its launch directory, and the workspace CLAUDE.md invites launching in ~/projects, above the
+    checkout; the home's own key is a different session's, and a working copy outside the home has no such ancestors
+    to claim (the filesystem root's key would belong to everyone). A sibling checkout is never a candidate."""
+    home = os.path.realpath(os.path.expanduser("~"))
+    found: dict[str, None] = {}
+    for c in candidates:
+        if not c:
+            continue
+        d = os.path.abspath(c)
+        found[d] = None
+        if not os.path.realpath(d).startswith(home + os.sep):
+            continue
+        while True:
+            d = os.path.dirname(d)
+            if not os.path.realpath(d).startswith(home + os.sep):
+                break
+            found[d] = None
+    return list(found)
+
+
+def memory_dirs(candidates: list[str]) -> tuple[list[str], list[str]]:
+    """(the memory directories that exist, every one looked for)."""
     layout = _load("fabric_layout", os.path.join(FABRIC_ROOT, "tools", "fabric", "layout.py"))
-    return [d for d in dict.fromkeys(layout.default_memory_dir(c) for c in candidates if c) if os.path.isdir(d)]
+    tried = list(dict.fromkeys(layout.default_memory_dir(c) for c in memory_candidates(candidates)))
+    return [d for d in tried if os.path.isdir(d)], tried
 
 
 def memory_changed(job: dict, candidates: list[str]) -> str | None:
     """None when a memory file changed since the job started; otherwise the problem."""
-    dirs = memory_dirs(candidates)
+    dirs, tried = memory_dirs(candidates)
     if not dirs:
-        return "no memory directory was found for this job's working copy; write what the job taught you as a memory"
+        return ("no memory directory was found for this job's working copy (looked in " + ", ".join(tried)
+                + "); write what the job taught you as a memory")
     since = started_at(job)
     if since is None:
         return f"{job['id']} has no readable start time, so memory changes cannot be dated"

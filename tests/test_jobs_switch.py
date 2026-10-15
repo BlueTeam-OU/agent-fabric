@@ -12,6 +12,7 @@ import io
 import json
 import os
 import sqlite3
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -95,18 +96,19 @@ def main() -> int:
         class World:
             """A fresh state directory and a fresh checkout with its origin."""
 
-            def __init__(self) -> None:
+            def __init__(self, under: str | None = None) -> None:
                 nonlocal n_worlds
                 n_worlds += 1
                 self.n = n_worlds
                 self.state = os.path.join(tmp, f"state{self.n}")
                 os.environ["AGENT_FABRIC_STATE_DIR"] = self.state
-                self.repo = jobs_world.seeded(os.path.join(tmp, f"wc{self.n}"), origins)
+                self.repo = jobs_world.seeded(os.path.join(under or tmp, f"wc{self.n}"), origins)
+                self.memory_of = self.repo      # the launch directory whose memory each switch refreshes
                 self.memory()
                 gh_says()
 
             def memory(self) -> None:
-                jobs_world.touch_memory(home, self.repo)
+                jobs_world.touch_memory(home, self.memory_of)
 
             def sw(self, *argv: str, cwd: str | None = None) -> tuple[int, str, str]:
                 os.chdir(cwd or self.repo)
@@ -459,6 +461,40 @@ def main() -> int:
         check("a memory directory that did not change during the job is refused", rc == 1 and "has not changed during" in err, err)
         rc, out, err = w.switch()
         check("…and written, it switches (the positive control)", rc == 0, err)
+
+        print("memory of a session launched above the working copy")
+        workspace = os.path.join(home, "projects")
+        os.makedirs(workspace)
+        key = lambda d: os.path.join(home, ".claude", "projects", jobs_world.re.sub(r"[^A-Za-z0-9]", "-", d), "memory")
+        w = World(under=workspace)
+        j1 = w.working("launched in ~/projects")
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        os.utime(key(w.repo), (1, 1)); os.utime(os.path.join(key(w.repo), "fact.md"), (1, 1))
+        w.memory_of = workspace
+        rc, out, err = w.switch()
+        check("a session dir above the working copy settles once a file there changes", rc == 0, err)
+        w = World(under=workspace)
+        j1 = w.working("sibling and home keys")
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        for d in (w.repo, workspace):      # the workspace's key still holds the previous case's fresh file
+            os.utime(os.path.join(key(d), "fact.md"), (1, 1))
+        sibling = os.path.join(workspace, "other-checkout")
+        for d in (sibling, home):
+            w.memory_of = d
+            rc, out, err = w.switch()
+            check(f"a memory written for {os.path.relpath(d, tmp)} is not read", rc == 1 and "has not changed during" in err, err)
+        w.memory_of = workspace
+        rc, out, err = w.switch()
+        check("…the ancestor below the home is (the positive control)", rc == 0, err)
+        w = World()
+        j1 = w.working("no memory anywhere")
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        shutil.rmtree(key(w.repo))
+        rc, out, err = w.sw("switch")
+        check("with none existing, the refusal lists the paths tried", rc == 1 and "no memory directory" in err and key(w.repo) in err, err)
 
         w = World()
         j1 = w.working("several things wrong")
