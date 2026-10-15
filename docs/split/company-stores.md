@@ -44,7 +44,7 @@ rows or names, never a value; a value enters only on stdin.
 | `company init <client>` | on an empty store: `.gpg-id` with the expected recipients and an empty `grants.json`, as the root commit and first checkpoint, signed, pushed. A store that has commits is left alone. Every writing command after it (`set`, `rm`, `import`, `grant`, `revoke`, `reencrypt`, `repair`, `recover`, the rename's grant rewrite) first reads back (through the API) that the default branch refuses a force-push and a deletion, and refuses, naming the setting, when it does not. |
 | `company clone <client>` | a holder's first contact with an existing store: clones it and reads it as every reader does (see Signed and verified), recording its last verified head. |
 | `company recipients <client> [--json]` | expected against actual recipients; exit 0 equal, 3 different. |
-| `company reencrypt <client>` | every entry re-encrypted to the expected recipients, one signed commit, a checkpoint; it prints the commit. Run after each holder change merges, by a holder that is still a recipient. An addition: an existing holder runs it, then the added holder `clone`s (starting from that checkpoint) and runs it too. A removal merges only when the store's head is a checkpoint signed by a holder that remains, named in the removal's pull request; a remaining holder runs it again after the merge. |
+| `company reencrypt <client>` | every entry re-encrypted to the expected recipients, one signed commit, a checkpoint; it prints the commit. Run after each holder change merges, by a holder that is still a recipient. An addition: an existing holder runs it, then the added holder `clone`s (starting from that checkpoint) and runs it too. A removal merges only when the store's head is a checkpoint signed by a holder that remains, named in the removal's pull request, and only after the owner has revoked the removed holder's Proton Drive session if it ran `store backup`; a remaining holder runs it again after the merge. |
 | `company repair <client>` | a holder, on a store whose read stopped at a commit that does not verify: pushes on top of the head a checkpoint with the tree of P, the last commit its own read verified (so a newer signed `revoke` or rotation its read reached is kept). Readers start from it and never read what lies between P and it. Refused when the holder's own read has no start. |
 | `company recover <client>` | the owner, in a terminal, when no holder can read the store (no current holder can decrypt it, or no reader has a start): restores the head of a `store backup` bundle the owner picks by its Proton Drive revision and date, checked against the backup's sha256 manifest (`store backup --verify`) — which proves the transfer, not the origin: the bundle is trusted because only the backing-up login and the owner write that folder — so nothing in the store's own history chooses it. Before it writes, it lists every commit between the bundle's head and the store's head (date, signer, names changed, never a value): these are lost, and the owner re-applies any `revoke` or rotation among them. Pushes on top of the head a checkpoint with that tree, re-encrypted with the recovery key (its passphrase asked by gpg) to the expected recipients, signed by a current holder's key the owner names, with the bundle's sha256 in an `Owner-Recovery:` trailer. Refuses inside a model session (`CLAUDECODE` set), as `paper` does (ADR-038 rule 6). |
 | `company set <client> NAME` / `rm <client> NAME` | writes or removes an entry, value on stdin; one signed commit each. |
@@ -76,7 +76,11 @@ the client files too.
 holders as its only writers in place of rule 2's agent and parent: every commit is signed
 by a holder's signing subkey, and a refusal is a security event that `fabric-secrets
 status` says. Writers change over time, so each commit records, in a trailer, the
-agent-fabric commit whose holders it was written under. A checkpoint (`init`,
+agent-fabric commit whose holders it was written under, and the store it belongs to
+(`Company-Store: <owner>/<repo>`, the client's `secrets_store`); both trailers are inside
+the signed commit, and a reader treats a commit naming another store as one that does not
+verify, so a checkpoint carried over from another client's store is neither a start nor
+read. A checkpoint (`init`,
 `reencrypt`, `repair`, `recover`) holds the whole store. Every reader — a first `clone`,
 a later fetch, `put`, `names`, `repair` — first fetches the fabric's `origin/main`, then:
 
@@ -84,7 +88,8 @@ A store's history is linear: a commit with more than one parent never verifies, 
 never a start.
 
 1. **Start.** Over every commit reachable from the head, through all parents (so a merge
-   cannot hide a newer checkpoint), the newest checkpoint signed by a holder on
+   cannot hide a newer checkpoint), the newest — in topological order, never by commit
+   date — checkpoint of this store signed by a holder on
    `origin/main` now, whose signer
    was a holder at the fabric commit it records, which is on `origin/main`; for a reader
    with a last verified head, only one that descends from that head, else that head
@@ -131,7 +136,7 @@ company store's ciphertext is safe against that; what the repository *says* is n
 | A client's credential reaches another client's work | Namespaced names, one file per client, `fabric-secret-run`'s resolution; tested both ways. The login can still read the file: rule 9's limit, said, not hidden. |
 | A value leaks into a log, an argument or the conversation | stdin only, rows without values, a test that greps every output and argv of the suite's runs for the fixtures' values. |
 | A holder change leaves a retired holder able to read | The removal merges after the addition; `recipients` then exits 3 on every company store, which is refused for all but `recipients`, `clone`, `reencrypt`, `repair` and `recover` until a remaining holder re-encrypts it; a live check records the stores re-encrypted. Old ciphertext in history stays readable by the old key: rotation of the values is the owner's call. |
-| The only holder's key is lost, or every checkpoint's signer has retired | `company recover`, the owner's, in a terminal, from a backup bundle the owner identifies by its Proton revision and date (the manifest proves the transfer only): nothing in the store's history chooses what is restored, and what came after the bundle is listed as lost. The backup folder is written by the backing-up login and the owner alone; a retired holder that backed up has its Proton session rotated with its retirement, so a stolen key cannot write a bundle. A holder whose key is replaced (rule 4) re-encrypts with the new key before the old is revoked, or its old checkpoints stop being starts. |
+| The only holder's key is lost, or every checkpoint's signer has retired | `company recover`, the owner's, in a terminal, from a backup bundle the owner identifies by its Proton revision and date (the manifest proves the transfer only): nothing in the store's history chooses what is restored, and what came after the bundle is listed as lost. The backup folder is written by the backing-up login and the owner alone; a removed holder that backed up has its Proton Drive session revoked by the owner before the removal merges (the `reencrypt` row), so its key, stolen later, opens no session that writes a bundle. A holder whose key is replaced (rule 4) re-encrypts with the new key before the old is revoked, or its old checkpoints stop being starts. |
 | A holder change leaves agents whose lineage parent is no longer a holder | `put` refuses every such row (ADR-042 rule 2). The holder that is every agent's parent is not removed until lineage can re-parent its children, a change of ADR-039's of its own. |
 | A non-holder runs a writing command | Refused before any decryption: the running login must be a holder at `origin/main`. |
 | A login renamed (`store rename`) keeps or loses a grant | Grants are rewritten by the rename, in a holder's signed commit, before the old login can be reused; tested. |
@@ -202,6 +207,11 @@ as the company store; the suite passes with `AGENT_FABRIC_OPERATOR` unset and se
     the same P, and the revoke stands.
 30. `recover` lists the commits after the bundle's head by name, never a value, before it
     writes; a revoke among them is listed.
+31. A merge whose side parent is another fixture client's newer checkpoint, pushed to this
+    store: a fresh and an existing reader take the same P, neither starts from the other
+    store's checkpoint, and `repair` keeps this store's tree.
+32. A single-parent commit signed by a current holder but naming another store in
+    `Company-Store:`: refused.
 
 ## Lanes
 
@@ -227,4 +237,5 @@ secrets in another account (ADR-038 §7); changing what an agent's own store hol
 The refusal tests pass in `tests/run.sh`; one live read-back on the operator's store with
 a dummy name — init, the branch setting read back and the fleet `GH_TOKEN` refused when
 it tries to lift it, set, grant, put into one agent, sync, `fabric-secret-run` in and out
-of the client's working copy — is written to `docs/live-checks/`; ADR-038 §8 says built.
+of the client's working copy — is written to `docs/live-checks/`, and the first holder
+removal records there the Proton Drive session it revoked; ADR-038 §8 says built.

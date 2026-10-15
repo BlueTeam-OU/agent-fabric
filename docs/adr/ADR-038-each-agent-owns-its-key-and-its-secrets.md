@@ -205,13 +205,16 @@ sharing a machine.
       store to the list on `origin/main`, run by a holder that is still a
       recipient: after an addition, an existing holder's re-encryption
       and then the added holder's own; a removal merges only when the
-      store's head is a checkpoint signed by a holder that remains. Until
+      store's head is a checkpoint signed by a holder that remains, and
+      after the owner has revoked the removed holder's backup session if
+      it held one. Until
       a store is re-encrypted it is refused for every use but reading its
       recipients, cloning, re-encrypting, repairing and recovering it;
     - its commits are signed and verified as ADR-042 says of an agent's,
       with the holders as its only writers, because every agent's
-      `GH_TOKEN` can push to it. Each commit records the fabric commit
-      whose holders it was written under. A checkpoint (its first
+      `GH_TOKEN` can push to it. Each commit records, inside its
+      signature, the fabric commit whose holders it was written under and
+      the store it belongs to; one naming another store never verifies. A checkpoint (its first
       commit, a re-encryption, a repair, a recovery) holds the whole
       store, and every reader starts from the newest one signed by a
       holder now — never a retired holder's, and for a reader that has
@@ -219,7 +222,7 @@ sharing a machine.
       verified, chosen over all parents — reading nothing before it: the
       company store's own base, in place of ADR-042 rule 4's, since it
       has no enrolment bundle and a current holder's signature anchors
-      it. A commit with two parents never verifies. Each
+      it. A commit with more than one parent never verifies. Each
       commit after the start must be signed by a holder now, who was one
       at the fabric commit it records, no older than its parent's; the
       first that is not stops the read. Its default branch refuses a
