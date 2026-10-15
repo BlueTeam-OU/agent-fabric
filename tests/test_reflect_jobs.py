@@ -148,6 +148,15 @@ class ReflectJobs(unittest.TestCase):
         f = Fleet({"dev-01": [{"id": "j\x1b[2J", "title": "Reflection pass x"}]})
         rc, out = go(f, "dev-01")
         self.assertEqual(out, ["dev-01: skipped (open j\\x1b[2J)"])
+        self.assertEqual(rj.line_of({"login": "a", "result": "failed", "reason": "x\x7fy\x9bz"}), "a: failed: x\\x7fy\\x9bz", "DEL and C1 too")
+
+    def test_no_placed_agent_says_so_on_stderr_and_exits_0(self):
+        import contextlib, io
+        err, out = io.StringIO(), []
+        with contextlib.redirect_stderr(err):
+            rc = rj.main([], run=Fleet(), placed=lambda: [PLACED[3]], now=NOW, out=out.append)
+        self.assertEqual((rc, out), (0, []))
+        self.assertIn("nothing to do", err.getvalue())
 
     def test_an_unknown_option_is_usage(self):
         self.assertEqual(go(Fleet(), "--all")[0], 2)
