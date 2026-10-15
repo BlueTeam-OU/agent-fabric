@@ -202,11 +202,13 @@ sharing a machine.
       holder leaves no heir (rule 4), and the company's credentials
       outlive every holder. A holder is added in one merge and removed
       in a later one, each followed by a re-encryption of every company
-      store to the list on `origin/main`, run by a holder that is still
-      a recipient; until it is, the store is refused for every use but
-      reading its recipients, cloning it and that re-encryption. When no
-      holder can decrypt (a lost key, rule 4), the owner re-encrypts it
-      with the recovery key, in a terminal;
+      store to the list on `origin/main`; the one after an addition is
+      the added holder's own, so a removal merges only once a remaining
+      holder has signed a checkpoint. Until a store is re-encrypted it is
+      refused for every use but reading its recipients, cloning it, the
+      re-encryption and the owner's recovery: when no remaining holder
+      can re-encrypt (a lost key, rule 4), the owner does, with the
+      recovery key, in a terminal;
     - its commits are signed and verified as ADR-042 says of an agent's,
       with the holders as its only writers, because every agent's
       `GH_TOKEN` can push to it. Each commit is judged against the

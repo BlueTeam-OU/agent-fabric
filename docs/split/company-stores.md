@@ -44,8 +44,9 @@ rows or names, never a value; a value enters only on stdin.
 | `company init <client>` | on an empty store: `.gpg-id` with the expected recipients and an empty `grants.json`, as the root commit and first checkpoint, signed, pushed. A store that has commits is left alone. Every writing command after it (`set`, `rm`, `import`, `grant`, `revoke`, `reencrypt`, `recover`, the rename's grant rewrite) first reads back (through the API) that the default branch refuses a force-push and a deletion, and refuses, naming the setting, when it does not. |
 | `company clone <client>` | a holder's first contact with an existing store: clones it and verifies it from the newest checkpoint its own login can anchor (see Signed and verified); refused, naming the commit, on any commit that does not verify. |
 | `company recipients <client> [--json]` | expected against actual recipients; exit 0 equal, 3 different. |
-| `company reencrypt <client>` | every entry re-encrypted to the expected recipients, one signed commit, a checkpoint. Run after each holder change merges, by a holder that is still a recipient: an added holder's merge is re-encrypted by an existing holder; a removal merges only after that, and is re-encrypted by a remaining one. |
-| `company recover <client>` | the owner, in a terminal, when no holder can decrypt: re-encrypts with the recovery key (its passphrase asked by gpg) to the holders on `origin/main`, signed by a holder's key that the owner names. Refuses inside a model session (`CLAUDECODE` set), as `paper` does (ADR-038 rule 6). |
+| `company reencrypt <client>` | every entry re-encrypted to the expected recipients, one signed commit, a checkpoint. Run after each holder change merges, by a holder that is still a recipient. After an addition the added holder runs it (its `clone` starts from an existing holder's checkpoint, and it can decrypt once an existing holder's `reencrypt` has run, so the order is: existing holder `reencrypt`, added holder `clone`, added holder `reencrypt`); a removal merges only after the store's newest checkpoint is signed by a holder that remains, and is re-encrypted by a remaining one. |
+| `company repair <client>` | a holder, on a store refused for a commit that does not verify: pushes on top of it a checkpoint holding the tree of the last head it verified, signed, with `Supersedes: <refused commit>`; the one write such a store takes. Refused when the holder has no verified head of its own. |
+| `company recover <client>` | the owner, in a terminal, when no remaining holder can re-encrypt (none can decrypt, or none can clone): re-encrypts with the recovery key (its passphrase asked by gpg) to the holders on `origin/main`, signed by a holder's key that the owner names. Refuses inside a model session (`CLAUDECODE` set), as `paper` does (ADR-038 rule 6). |
 | `company set <client> NAME` / `rm <client> NAME` | writes or removes an entry, value on stdin; one signed commit each. |
 | `company names <client> [--json]` | the entries, by name, with their grants. |
 | `company grant <client> NAME <login…\|all>` / `revoke …` | edits `grants.json` (`{"NAME": ["login", …] \| "all"}`), one signed commit. |
@@ -101,12 +102,13 @@ company store's ciphertext is safe against that; what the repository *says* is n
 | An agent edits `grants.json` to grant itself a client's name | ADR-042's verification with holders as the writers: an unsigned commit, or one signed by any non-holder key — every agent has a valid signing subkey (ADR-057) — refuses the whole operation, naming the commit. |
 | A forged entry (encrypted by anyone to the right recipients) replaces a real one | The same verification: no entry is read from a store whose new commits are not all a holder's. |
 | An agent pushes the store back to an older holder-signed head (before a `revoke` or a rotation) | The branch refuses a force-push; a holder refuses a head that does not descend from the last it verified. A holder's first `clone` after such a push cannot tell, which is why no entry is written before the branch setting is read back, and why the live check records that the fleet `GH_TOKEN` cannot lift it. |
+| An agent pushes a commit that does not verify, which the branch keeps (no force-push) | Every holder refuses the store, a security event, until a holder pushes a repair checkpoint on top of it: the tree of the last verified head, signed, naming the refused commit in a `Supersedes:` trailer. A repair checkpoint is a start for a fresh clone like any other, and an existing clone verifies past the named commit without reading it. |
 | A retired holder's key, stolen, signs a new commit or a forged checkpoint at the head | Its recorded fabric commit would have to be one where it was a holder, older than the checkpoint that removed it; a commit may not record an older fabric commit than its parent, so it does not verify after the start, and a fresh clone never starts from a checkpoint whose signer is not a holder now. |
 | A merge adds a holder to `authority.json` | The holder becomes a reader of every company store at the next `reencrypt`. The anchor is the same as ADR-042's lineage: `origin/main`, under the charter-authority guard and the owner's review of `policies/` — a tripwire, not a wall, said here. |
 | A holder that is not an agent's parent writes into its store | `company put` refuses that row, naming the parent; ADR-042's verification would refuse the commit on the agent's side anyway, as a security event. |
 | A client's credential reaches another client's work | Namespaced names, one file per client, `fabric-secret-run`'s resolution; tested both ways. The login can still read the file: rule 9's limit, said, not hidden. |
 | A value leaks into a log, an argument or the conversation | stdin only, rows without values, a test that greps every output and argv of the suite's runs for the fixtures' values. |
-| A holder change leaves a retired holder able to read | The removal merges after the addition; `recipients` then exits 3 on every company store, which is refused for all but `recipients`, `clone` and `reencrypt` until a remaining holder runs it; a live check records the stores re-encrypted. Old ciphertext in history stays readable by the old key: rotation of the values is the owner's call. |
+| A holder change leaves a retired holder able to read | The removal merges after the addition; `recipients` then exits 3 on every company store, which is refused for all but `recipients`, `clone`, `reencrypt` and `recover` until a remaining holder runs one; a live check records the stores re-encrypted. Old ciphertext in history stays readable by the old key: rotation of the values is the owner's call. |
 | The only holder's key is lost | `company recover`, the owner's, in a terminal. |
 | A holder change leaves agents whose lineage parent is no longer a holder | `put` refuses every such row (ADR-042 rule 2). The holder that is every agent's parent is not removed until lineage can re-parent its children, a change of ADR-039's of its own. |
 | A non-holder runs a writing command | Refused before any decryption: the running login must be a holder at `origin/main`. |
@@ -152,6 +154,12 @@ as the company store; the suite passes with `AGENT_FABRIC_OPERATOR` unset and se
 19. `set` on a store whose branch setting is not read back: refused, naming it.
 20. Each writing command, with the branch setting lifted after `init`: refused, naming
     it.
+21. A removal merged while the newest checkpoint is the removed holder's: the remaining
+    holder's `clone` refuses, naming the order and `company recover`; with the added
+    holder's own `reencrypt` before the removal, its `clone` succeeds afterwards.
+22. An unsigned commit at the head, then a holder's repair checkpoint superseding it: an
+    existing clone and a fresh one both accept the store, and neither reads the refused
+    commit's entries; a repair checkpoint signed by a non-holder is refused.
 
 ## Lanes
 
