@@ -22,10 +22,10 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from control import sessions as cs  # noqa: E402
 
 
-def fake_proc(d, pid, start, comm="claude"):
+def fake_proc(d, pid, start, comm="claude", ppid=1):
     os.makedirs(os.path.join(d, str(pid)), exist_ok=True)
     # Field 22 is the start time; a comm may hold spaces and parentheses.
-    fields = ["S", "1", *["0"] * 17, str(start), "0", "0"]
+    fields = ["S", str(ppid), *["0"] * 17, str(start), "0", "0"]
     with open(os.path.join(d, str(pid), "stat"), "w") as fh:
         fh.write(f"{pid} ({comm}) {' '.join(fields)}\n")
 
@@ -319,6 +319,41 @@ def main() -> int:
     check("date_parse is Date.parse on ISO strings and near-misses, TimeClip's bounds included (Europe/Rome)", mine == node,
           [x for x in zip(cases, node, mine) if x[1] != x[2]])
     check("a date in Arabic-Indic digits is not a time here", math.isnan(cs.date_parse("\u0662\u0660\u0662\u0666-10-08")))
+
+    print("j83: ssh_client")
+    with tempfile.TemporaryDirectory() as d:
+        proc, state = os.path.join(d, "proc"), os.path.join(d, "state")
+        os.makedirs(os.path.join(state, "ssh-clients"))
+        # 500 (enter-ssh) -> 600 -> 700 (claude); 800 -> 900 has no record anywhere; 1000 -> 1100 has a garbage one.
+        for pid, start, ppid in ((500, 1, 1), (600, 2, 500), (700, 3, 600), (800, 4, 1), (900, 5, 800), (1000, 6, 1), (1100, 7, 1000)):
+            fake_proc(proc, pid, start, ppid=ppid)
+
+        def record(pid, text):
+            with open(os.path.join(state, "ssh-clients", str(pid)), "w") as fh:
+                fh.write(text)
+        record(500, "192.0.2.7 51234 22\n")
+        record(1000, "not a client line\n")
+        sfile = os.path.join(state, "session-state.json")
+        with open(sfile, "w") as fh:
+            json.dump({"sessions": {s: {"state": "idle", "since": "t", "pid": p, "start": st}
+                                    for s, p, st in (("two-below", 700, 3), ("none", 900, 5), ("garbage", 1100, 7))}}, fh)
+        rows = {r["session"]: r for r in cs.read_sessions(sfile, proc=proc)}
+        check("two ancestors below a recorded pid: carries ssh_client", rows["two-below"].get("ssh_client") == {"addr": "192.0.2.7", "port": 51234}, rows["two-below"])
+        check("no record: no ssh_client", "ssh_client" not in rows["none"], rows["none"])
+        check("a garbage record: no ssh_client", "ssh_client" not in rows["garbage"], rows["garbage"])
+        check("the recorded pid itself counts", cs.ssh_client(500, state, proc) == {"addr": "192.0.2.7", "port": 51234})
+        record(500, "2001:db8::1 99999 22\n")
+        check("a port out of range does not parse", cs.ssh_client(700, state, proc) is None)
+        record(500, "192.0.2.7 51234 22\n")
+        fake_proc(proc, 600, 2, ppid=700)      # a parent loop: the walk ends, it does not spin
+        fake_proc(proc, 700, 3, ppid=600)
+        fake_proc(proc, 600, 2, ppid=500)
+        fake_proc(proc, 700, 3, ppid=600)
+        record(600, "garbage\n")
+        check("a garbage record on the nearer ancestor ends the walk: the farther valid one is not used", cs.ssh_client(700, state, proc) is None)
+        os.remove(os.path.join(state, "ssh-clients", "600"))
+        fake_proc(proc, 600, 2, ppid=700)
+        check("a parent cycle ends the walk with none", cs.ssh_client(700, state, proc) is None)
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

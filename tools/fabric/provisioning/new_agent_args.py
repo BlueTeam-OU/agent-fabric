@@ -23,8 +23,14 @@ FINGERPRINT = re.compile(r"[0-9a-f]{12}")
 
 
 USAGE = ("usage: new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] "
-         "[--project <id>]... [--claude VERSION|stable|latest] [--no-signing-key] [--dry-run]\n"
-         "       new-agent.sh <login> --human [--host <id>] [--dry-run]\n")
+         "[--project <id>]... [--claude VERSION|stable|latest] [--surname <Surname>] [--no-signing-key] [--dry-run]\n"
+         "       new-agent.sh <login> --human [--host <id>] [--dry-run]\n"
+         "       new-agent.sh --signing-key-only <login>\n")
+
+
+# A surname as identities/personas/surnames.json spells one: letters, with a space, hyphen or apostrophe inside
+# ("Ibn al-Haytham"). The list itself is the check (provisioning/surname.py); this keeps a flag out of the value.
+SURNAME = re.compile(r"[A-Z][A-Za-z' -]{0,62}[A-Za-z]")
 
 
 NO_ACCOUNT_CHOICE = ("new-agent: name the Claude account it starts on: --claude-account <slug> (fabric-accounts "
@@ -39,17 +45,33 @@ person can do. Run by a fabric-coordinator holder from its own login
 (the account steps go through sudo; the secrets step is the
 coordinator's as the account's parent, ADR-038).
 
-  runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--no-signing-key] [--dry-run]
+  runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--surname <Surname>] [--no-signing-key] [--dry-run]
   runtime/provisioning/new-agent.sh <login> --human [--host <id>] [--dry-run]
+  runtime/provisioning/new-agent.sh --signing-key-only <login>
 
   new-agent.sh <login> <role> --claude-account <slug> --project <id> --project <id>
   new-agent.sh <login> <role> --claude-account <slug> --host <host-id> --project <id>      # on another host
   new-agent.sh <login> <role> --no-claude-account --project <id>   # the broker path only
+  new-agent.sh <login> <role> --claude-account <slug> --surname Huber   # its surname claimed now
   new-agent.sh <login> --human     # a person's login (ADR-044): placed with kinds "human" first
+
+--surname claims the agent's surname (ADR-056 rule 4): on
+identities/personas/surnames.json and unclaimed, checked before anything
+is made, the dry run too; once the account has its agent id, the claim
+{surname, first_name: null} is written into this checkout's
+identities/personas/claims.json, for fabric-coordinator to commit with
+identities/keys/. The agent chooses its first name itself (rule 5).
 
 On a terminal, an agent's last step imports the fleet's signing key
 (gpg's pinentry asks its passphrase); without one, or with
---no-signing-key, the closing prints the two lines a person runs.
+--no-signing-key, the closing names the command that runs that step
+alone, later, at a terminal:
+
+  runtime/provisioning/new-agent.sh --signing-key-only <login>
+
+step 11 and nothing else, for an account that exists, on the host the
+registry places it; refused without a terminal, and for a human. The
+two gpg lines a person runs by hand follow it as the fallback.
 
 The Claude account it starts on is a template in this login's store
 (fabric-accounts templates): checked before any account is made,
@@ -112,13 +134,37 @@ def die(msg: str) -> "NoReturn":  # noqa: F821
     raise Exit(1, f"new-agent: {msg}")
 
 
+def parse_signing_key_only(argv: list[str]) -> str | None:
+    """`--signing-key-only <login>` (or `=<login>`) and nothing else: the login, or None when the flag is absent.
+    Step 11 alone takes no role, host, account or dry run: the account exists, and the registry says where."""
+    at = [i for i, a in enumerate(argv) if a == "--signing-key-only" or a.startswith("--signing-key-only=")]
+    if not at:
+        return None
+    i = at[0]
+    if argv[i] == "--signing-key-only":
+        if i + 1 >= len(argv):
+            raise Exit(1, "new-agent: --signing-key-only needs a value")
+        login, used = argv[i + 1], {i, i + 1}
+    else:
+        login, used = argv[i].split("=", 1)[1], {i}
+    rest = [a for j, a in enumerate(argv) if j not in used]
+    if any(a in ("-h", "--help") for a in rest):
+        raise Exit(0, None)
+    if rest or len(at) > 1:
+        raise Exit(2, "new-agent: --signing-key-only <login> takes nothing else: it runs step 11 alone, for an account "
+                      "that exists")
+    if not login or login.startswith("-"):
+        raise Exit(2, USAGE.rstrip("\n"))
+    return login
+
+
 def parse(argv: list[str]) -> dict:
     o = {"dry": False, "login": "", "role": "", "projects": [], "claude": "", "host": "", "claude-account": None,
-         "no-claude-account": False, "human": False, "no-signing-key": False}
+         "no-claude-account": False, "human": False, "no-signing-key": False, "surname": None}
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--host", "--claude", "--project", "--claude-account"):
+        if a in ("--host", "--claude", "--project", "--claude-account", "--surname"):
             if i + 1 >= len(argv):
                 raise Exit(1, f"new-agent: {a} needs a value")
             v = argv[i + 1]
@@ -127,7 +173,7 @@ def parse(argv: list[str]) -> dict:
                 o["projects"].append(v)
             else:
                 o[a[2:]] = v
-        elif a.startswith(("--host=", "--claude=", "--project=", "--claude-account=")):
+        elif a.startswith(("--host=", "--claude=", "--project=", "--claude-account=", "--surname=")):
             name, v = a[2:].split("=", 1)
             if name == "project":
                 o["projects"].append(v)
@@ -151,9 +197,9 @@ def parse(argv: list[str]) -> dict:
     if o["human"]:
         if o["role"]:
             raise Exit(2, f"new-agent: a human login has no role (ADR-044): new-agent.sh {o['login']} --human")
-        if o["claude-account"] is not None or o["no-claude-account"] or o["claude"] or o["projects"]:
+        if o["claude-account"] is not None or o["no-claude-account"] or o["claude"] or o["projects"] or o["surname"] is not None:
             raise Exit(2, "new-agent: --human takes --host and --dry-run only: a human has no Claude account, no claude "
-                          "and no project clones (ADR-044)")
+                          "no project clones and no persona surname (ADR-044, ADR-056)")
         if not o["login"]:
             raise Exit(2, USAGE.rstrip("\n"))
         return o
@@ -161,6 +207,8 @@ def parse(argv: list[str]) -> dict:
         raise Exit(2, USAGE.rstrip("\n"))
     if o["claude"] and not CLAUDE_TARGET.fullmatch(o["claude"]):
         raise Exit(2, "new-agent: --claude takes stable, latest or a version")
+    if o["surname"] is not None and not SURNAME.fullmatch(o["surname"]):
+        raise Exit(2, f"new-agent: --surname {o['surname']!r} is not a surname (identities/personas/surnames.json)")
     given = o["claude-account"] is not None
     if given == o["no-claude-account"]:
         raise Exit(2, NO_ACCOUNT_CHOICE)

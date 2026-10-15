@@ -442,8 +442,8 @@ def _review_grade(routing: Any, model: str, provider: str, graded: set[str]) -> 
 def personas_findings(surnames_path: str, claims_path: str) -> list[str]:
     """identities/personas/ (agent-fabric ADR-056 §5 rules 3-4): surnames are unique and none is also excluded;
     every entry names its person and where it is from, every exclusion its reason; a claim is keyed by an agent
-    id and is {surname, first_name, pronoun?}: a listed surname claimed once, a non-empty first name, a non-empty
-    pronoun if given. Absent files are not judged."""
+    id and is {surname, first_name, pronoun?}: a listed surname claimed once, a non-empty first name or null (not
+    chosen yet), a non-empty pronoun if given. Absent files are not judged."""
     findings: list[str] = []
     if os.path.exists(surnames_path):
         doc = load_json(surnames_path, "identities/personas/surnames.json", findings) or {}
@@ -483,9 +483,12 @@ def personas_findings(surnames_path: str, claims_path: str) -> list[str]:
                 if surname in held:
                     findings.append(f"{where}: {surname!r} is claimed by {held[surname]} and {aid}")
                 held.setdefault(surname, aid)
-            first = claim.get("first_name")
-            if not (isinstance(first, str) and first.strip()):
-                findings.append(f"{where}: {aid} has no first_name (a non-empty string)")
+            # null is "not chosen yet": provisioning claims the surname (new-agent --surname), the agent chooses its
+            # first name later (ADR-056 rules 4-5, A 2026-10-15). The key is still required, so a claim that merely
+            # forgot it is not read as pending.
+            first = claim.get("first_name", "")
+            if not (first is None or (isinstance(first, str) and first.strip())):
+                findings.append(f"{where}: {aid} has no first_name (a non-empty string, or null until the agent chooses one)")
             if "pronoun" in claim and not (isinstance(claim["pronoun"], str) and claim["pronoun"].strip()):
                 findings.append(f"{where}: {aid} has an empty pronoun (leave it out instead)")
     return findings

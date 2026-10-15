@@ -25,7 +25,7 @@
     "first_name": {
       "type": "string",
       "minLength": 1,
-      "description": "From the culture of the surname's `from` (rule 5)."
+      "description": "Chosen after the sex, a name of that sex, from the culture of the surname's `from` (rules 5-6)."
     },
     "surname": {
       "type": "string",
@@ -33,6 +33,7 @@
       "description": "Exactly as listed in identities/personas/surnames.json and claimed in claims.json."
     },
     "sex": {
+      "description": "Chosen first, before the first name, which agrees with it (rules 5-6); for the avatar's appearance only.",
       "enum": [
         "F",
         "M"
