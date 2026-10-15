@@ -100,7 +100,7 @@ code, contract or screen — and the pieces it needs from other lanes
 (copy for a set of keys, the migration it reads, a check for its
 feature) are supplied as commits onto the caller's branch, never as a
 supplier's own pull request (the owner, 2026-09-18;
-`identities/prompt/team.md`). The exchange is a `REQUEST` and its
+`policies/pull-requests/SKILL.md`). The exchange is a `REQUEST` and its
 `REPLY`; no new type. The recommended sections:
 
 ```text
@@ -178,10 +178,10 @@ of scope, and how the recipient will know it is finished. For a small ask
 that is one sentence; the supply sections above are the long form of the
 same thing. Before assigning, look for the job already in flight — the
 open PRs and the pushed branches with none, where a job waiting for a
-merge sits unseen (`pr-gate.sh --in-flight`, and `--overlap` for what
+merge sits unseen (`fabric-pr gate --in-flight`, and `--overlap` for what
 shares paths with a branch): the fleet's most frequent rework is the
 same work started twice. Before relying on another agent's branch,
-`trial-merge.sh` says whether the two combine.
+`fabric-pr trial-merge` says whether the two combine.
 
 **Receipt is not acceptance.** The recipient's `REPLY` says what it
 undertakes — all of it, part of it ("the gzapp half now; InterWeave after
@@ -203,7 +203,7 @@ that unblocks you, and say what you will do if it does not come ("land
 #46 first, or arm now and accept a short drift" — InterWeave #125).
 Waiting for another agent's whole task to merge is right only when a
 partial landing would be a defect — and then the pieces are one PR
-(`identities/prompt/team.md`).
+(`policies/pull-requests/SKILL.md`).
 
 **Renegotiate where the agreement changes, and only there.** When
 something others built on changes — a promised result, a scope, an
@@ -451,7 +451,7 @@ else; a role address costs a duplicate of the work.
 If an assignment reaches a role anyway — a sender on an older text — the
 first holder to act sends its `REPLY` naming the branch or PR before
 any other step; every other holder, on seeing that `REPLY` or an open PR
-or branch on the path by a sibling (`pr-gate.sh --in-flight --path
+or branch on the path by a sibling (`fabric-pr gate --in-flight --path
 <prefix>`), stands down silently: no
 message, no branch. Two who acted before seeing each other: the later-
 opened PR closes, naming the earlier.

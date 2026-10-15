@@ -733,7 +733,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   SPECIALTIES are optional metadata on any message.
 - A 2026-10-04 — WAIVES, an optional common field (SPEC §7.5): a waiver
   role's word that one pull request, at one head, may arm.
-- A 2026-10-15 — examples and rule 1's validator renamed.
+- A 2026-10-15 — examples, validator renamed.
+- A 2026-10-15 — citations renamed.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change, WAIVES, waiver.
@@ -845,24 +846,25 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - One key per login, a subkey per use; its private half leaves only as
   an encrypted recovery copy (§5 rules 1, 6).
-- A key is an agent's when committed at `identities/keys/<id>.asc` and
-  certified by its parent in `lineage.json` (§5 rule 2).
+- A key is an agent's when committed at `identities/keys/<id>.asc`,
+  certified by its parent (§5 rule 2).
 - Each agent's secrets are pass(1) entries in its private repository
   `fabric-agent-<id>`, encrypted to that key alone: the parent writes
   and never reads (§5 rule 3).
 - No shared host assumed (§5 rules 4–5); `sync` reads the store alone
   (§5 rules 7–8).
 - A 2026-09-29 — recovery copies and backups to Proton Drive.
-- A 2026-09-29 — recovery copies encrypted to the owner's recovery key.
+- A 2026-09-29 — recovery copies encrypted to the recovery key.
 - A 2026-09-29 — named by agent id (ADR-039).
 - A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
 - A 2026-09-30 — no Doppler; `provision` fills a child's store (§5 rules 3, 7–8).
 - A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
-- A 2026-10-06 — no shell holds a secret; env.sh is plain values (§5 rule 9).
+- A 2026-10-06 — no shell holds a secret (§5 rule 9).
 - A 2026-10-07 — the Doppler CLI stays (§6).
-- A 2026-10-13 — one repository per agent, secrets and settings (§2).
-- A 2026-10-13 — each agent signs commits with its own subkey (§6, ADR-057).
+- A 2026-10-13 — one repository per agent (§2).
+- A 2026-10-13 — agents sign commits with own subkeys (§6, ADR-057).
 - A 2026-10-15 — company stores (§5 rule 10).
+- A 2026-10-15 — only agent and parent write (§5 rule 3).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
   Doppler, provision, placement, company store.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)

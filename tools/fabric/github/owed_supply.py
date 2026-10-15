@@ -4,7 +4,7 @@
 List every supply branch nobody has folded yet.
 
 THE STATE THIS NAMES. A change has one owner, and the roles it needs
-supply it (agent-fabric identities/prompt/team.md): a supplier that
+supply it (agent-fabric policies/pull-requests/SKILL.md): a supplier that
 cannot put its commit on the caller's branch pushes a contributor branch
 
     <host>/<supplier-login>/for/<caller-login>/<what>
