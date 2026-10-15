@@ -492,6 +492,27 @@ def main() -> int:
         rc, out, err = w.switch()
         check("then the job is left (the positive control)", rc == 0 and "#2 merged" in out, out + err)
 
+        w = World()
+        j1 = w.working("a delivered job with a mistaken artifact")
+        w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2", "not-a-reference")
+        rc, out, err = w.sw("retract", j1, "not-a-reference")
+        check("retract works in a state other than done and leaves the state alone", rc == 0 and w.job(j1)["state"] == "delivered"
+              and w.job(j1)["artifacts"] == [f"{jobs_world.GH_REPO}#2"], out + err)
+        w = World()
+        j1 = w.working("a reflection job whose start cannot be read", "--topic", "reflection")
+        w.sw("done", j1)
+        cursor(w, later)
+        jobs_path = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jobs_path))
+        for jb in doc["jobs"]:
+            jb["created"] = "unreadable"
+            for e in jb["log"]:
+                e["at"] = "unreadable"
+        json.dump(doc, open(jobs_path, "w"))
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("reflection: a job with no readable start time says so, never a traceback", rc == 1 and "cannot be dated" in err and "Traceback" not in err, out + err)
+
         print("settling the old job: blocked, dropped")
         w = World()
         j1 = w.working("blocked on words")
