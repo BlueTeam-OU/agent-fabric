@@ -114,7 +114,7 @@ report` keeps a round's report under this account's state, and
 `bin/fabric-review next REQUEST --pr <PR>` writes `REQUEST-rr<N>.json`
 from the previous request (mode, the range from its head to `HEAD`, that
 report as `previous_findings`, `general` alone unless `--keep-lenses`)
-and renders it; it refuses when the head has not moved
+and renders it, with the new head's worktree; it refuses when the head has not moved
 (`tools/fabric/review_rounds.py`). The rendered re-review also embeds the
 range's exact diff (up to 64 KB, else its `--stat` and a note) and
 Locators: each previous finding's file:line at the old head and the same
@@ -158,7 +158,18 @@ without the block is attributed `inferred` by the cost hook.
 `pinned` for a range, `working-tree` for a diff file) is named in the
 header and in a line under `## Repository`. `pinned`: the reviewer reads
 the range's commits through git; `working-tree`: it reads the files on
-disk. The reviewer opens its report with the brief's header, copied
+disk. A pinned request with a range also gets a **head worktree**:
+`brief` and `next` run `git worktree add --detach` of the range's head at
+`<TMPDIR>/fabric-review/<repository basename>-<head12>` (the directory
+0700; detached, so no branch or `branch.*` config lands in the clone), reuse
+it when it is already a worktree at that head and refuse any other thing
+at the path, and the Evidence line names the path; the reviewer reads and
+runs there and makes no extract of its own (the earlier practice left
+19-74 MB extracts behind, agent-fabric ADR-020's history). `render()`
+itself makes nothing: the path is passed in. `fabric-review save` removes
+the round's worktree, recomputing the path from the report header's
+`head_sha`, and only when it is a worktree at that head; a working-tree or
+diff-file request makes none, and `check` makes none. The reviewer opens its report with the brief's header, copied
 unchanged, so the mode travels with the report: `fabric-pr post-review`
 refuses a report whose header says `working-tree` (only a pinned review
 covers a head), and `fabric-review save` records each round's mode in

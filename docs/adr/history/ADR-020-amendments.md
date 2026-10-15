@@ -48,3 +48,27 @@ chosen for (reviewing uncommitted work) and labelled so it never passes
 as coverage. Hardening beyond `git show` (a detached worktree, an
 extract as the second engine uses) waits on ledger evidence of how
 often a pinned review's head differs from the clone's HEAD.
+
+### Amendment 2026-10-15 — A pinned review reads a detached worktree of the head
+
+§5 rule 10's pinned mode told the reviewer to read the head through
+`git show <sha>:<path>`, and the note above left hardening (a detached
+worktree) to wait on evidence. The evidence is an architect-cto replay
+(E2): reviewers, told only to use `git show`, made their own
+`git archive` extracts of the head to read and run things; 4 of 6
+such extracts were left behind, at 19-74 MB each, and small ranges cost
+1.67x the turns. The rule now has the dispatcher make the head once:
+`fabric-review brief` and `next` run `git worktree add --detach` of the
+range's head at `<TMPDIR>/fabric-review/<repository basename>-<head12>`
+(detached, so the clone gains no branch and no `branch.*` config; the
+directory 0700; an existing worktree at that head is reused, anything
+else at the path refuses the render, and nothing is deleted that was not
+identified), and the brief's Evidence line names the path. The reviewer
+reads and runs the head's files there and makes no extract or copy of
+its own. `fabric-review save` removes the round's worktree, with the
+path recomputed from the repository name and the report header's
+`head_sha`, never taken from the report's text, and only when it is a
+worktree at that head; a failed removal is a warning, the report being
+saved. `render()` stays side-effect free (the path is passed in), and a
+working-tree or diff-file request makes none. Not changed: the second
+engine's own extract (`review_codex.py`) and the reviewer's Bash fence.

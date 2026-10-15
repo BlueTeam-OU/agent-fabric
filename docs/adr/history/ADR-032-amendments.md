@@ -85,3 +85,13 @@ References already named their Python successors (review of #268); it
 names tools/fabric/gzcoord/gzmsg.py and tests/test_gzcoord_protocol.py.
 No field, grammar rule or meaning changes; a reader accepts and rejects
 exactly what it did before.
+
+### Amendment 2026-10-15 — MESSAGE-FORMAT's citations follow the rules and commands
+
+MESSAGE-FORMAT cited `identities/prompt/team.md` for the supply rule and
+the one-PR rule, which moved to `policies/pull-requests/SKILL.md`, and
+named `pr-gate.sh --in-flight` and `trial-merge.sh`, which are now
+`fabric-pr gate --in-flight` and `fabric-pr trial-merge` (found in #271's
+review). Each citation now names where the rule and the command are. No
+field, grammar rule or meaning changes; a reader accepts and rejects
+exactly what it did before.

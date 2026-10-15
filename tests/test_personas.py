@@ -14,7 +14,7 @@ import unittest
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.dont_write_bytecode = True
-from lint_rules.schema import personas_findings  # noqa: E402
+from lint_rules.schema import personas_findings, validate_json  # noqa: E402
 
 A1 = "01a00bc1-4824-7ace-a01e-6e46a11f9acc"
 A2 = "019bbe31-2fff-7a2f-9849-96bdf286e011"
@@ -69,6 +69,23 @@ class Personas(unittest.TestCase):
     def test_a_claim_needs_its_first_name(self) -> None:
         for bad in ({"surname": "Maxwell"}, {"surname": "Maxwell", "first_name": " "}, {"surname": "Maxwell", "first_name": 3}):
             self.assertTrue(any("no first_name" in f for f in self.judge([entry("Maxwell")], [], {A1: bad})), bad)
+
+    def test_a_first_name_null_is_not_chosen_yet(self) -> None:
+        # Provisioning claims the surname; the agent chooses its first name later (ADR-056 A 2026-10-15).
+        self.assertEqual(self.judge([entry("Maxwell")], [], {A1: {"surname": "Maxwell", "first_name": None}}), [])
+
+    def test_a_first_name_is_never_recorded_before_its_sex(self) -> None:
+        # The sex first, then a first name of that sex (ADR-056 rules 5-6, A 2026-10-15). The sex lives in the agent's
+        # profile, never in claims.json; the profile's schema, which `secret_store settings put` holds a profile to,
+        # takes no first name without a sex beside it.
+        with open(os.path.join(HERE, "identities", "schemas", "persona-profile.schema.json"), encoding="utf-8") as fh:
+            schema = json.load(fh)
+        profile = {"version": 1, "agent_id": A1, "first_name": "Ada", "surname": "Maxwell", "sex": "F",
+                   "avatar": {"file": "settings/avatar.png", "candidate": 1, "sha256": "0" * 64}, "accepted": "2026-10-15"}
+        self.assertEqual(validate_json(schema, profile, "profile.json"), [], "the control: with its sex, it stands")
+        no_sex = {k: v for k, v in profile.items() if k != "sex"}
+        self.assertTrue(any("sex" in f for f in validate_json(schema, no_sex, "profile.json")))
+        self.assertTrue(any("sex" in f for f in validate_json(schema, {**profile, "sex": None}, "profile.json")))
 
     def test_a_pronoun_is_optional_but_not_empty(self) -> None:
         ok = {"surname": "Maxwell", "first_name": "Ada", "pronoun": "it"}

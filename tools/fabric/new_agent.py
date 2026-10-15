@@ -14,8 +14,10 @@ tools it calls (ADR-040 rule 5's fixture departure).
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <login> <role> (--claude-account <slug> | --no-claude-account)
             [--host <id>] [--project <id>]...
-            [--claude VERSION|stable|latest] [--no-signing-key] [--dry-run],
-            or <login> --human [--host <id>] [--dry-run]; each value
+            [--claude VERSION|stable|latest] [--surname <Surname>]
+            [--no-signing-key] [--dry-run],
+            or <login> --human [--host <id>] [--dry-run],
+            or --signing-key-only <login> (step 11 alone); each value
             spaced or with `=`, flags anywhere. -h/--help: HELP on stdout,
             exit 0 (the bash's header, lines 2-52, cut where it cut).
             An unknown flag, a third positional or a missing login/role:
@@ -119,9 +121,10 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
 from provisioning import config as cfg  # noqa: E402
-from provisioning.new_agent_args import HELP, Exit, die, parse, say  # noqa: E402
+from provisioning.new_agent_args import HELP, Exit, die, parse, parse_signing_key_only, say  # noqa: E402
 from provisioning.signing import signing_key  # noqa: E402
 from provisioning.steps import Steps  # noqa: E402
+from provisioning import surname as persona_surname  # noqa: E402
 from provisioning.store_step import HUMAN_SHARED, claude_template, login_kind, secrets_step  # noqa: E402
 
 
@@ -149,11 +152,14 @@ def hosts_registry(path: str) -> dict:
 
 
 def new_agent(argv: list[str]) -> int:
-    o = parse(argv)
-    login, role, host, dry = o["login"], o["role"], o["host"], o["dry"]
+    only = parse_signing_key_only(argv)
     coord = pwd.getpwuid(os.getuid()).pw_name
     if coord == "root":
         die("run this as the fabric-coordinator login, not root: the account's store is filled from yours.")
+    if only is not None:
+        return signing_key_only(only)
+    o = parse(argv)
+    login, role, host, dry = o["login"], o["role"], o["host"], o["dry"]
 
     # ---- what is asked for must exist in the fabric ---------------------
     if not o["human"] and not os.path.isfile(os.path.join(roots.role_dir(role, engine=cfg.ROOT), "charter.md")):
@@ -164,6 +170,15 @@ def new_agent(argv: list[str]) -> int:
         if r is None:
             die(f"project '{pid}' is not in projects/registry.json — register it first.")
         remote[pid] = r
+    # The surname before anything is made, the dry run too (ADR-056 rule 4): a run that would end with a claim
+    # it cannot write must not make an account first.
+    if o["surname"] is not None:
+        try:
+            why = persona_surname.check(login, o["surname"])
+        except persona_surname.Refused as exc:
+            why = f"{exc}; nothing made"
+        if why:
+            die(why)
 
     hosts_path = roots.hosts_registry(engine=cfg.ROOT)
     with tempfile.NamedTemporaryFile(prefix="new-agent-", suffix=".log", delete=False) as fh:
@@ -268,6 +283,7 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
             "would: assign no Claude account (--no-claude-account: the broker path only)")
     else:
         secrets_step(s, login, host, o["projects"], slug, fp, human=human, role=role)
+    claim_surname(login, o["surname"], dry)
 
     # ---- 6-10 on the host ---------------------------------------------------
     clones = [a for pid in o["projects"] for a in ("--clone", f"{pid}={remote[pid]}")]
@@ -293,6 +309,63 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     elif signing_next:
         return signing_key(login, host, via=host if host != local_host else "")
     return 0
+
+
+def claim_surname(login: str, surname: str | None, dry: bool) -> None:
+    """5a. The surname claim, once step 5 has given the account its agent id (ADR-056 rule 4): written into this
+    checkout, never committed here — fabric-coordinator commits it with identities/keys/. The first name stays
+    null until the agent chooses one (rule 5). A must: an agent provisioned without the claim it was promised
+    would take the surname's name with no record of it."""
+    if surname is None:
+        return
+    if dry:
+        say(f"would: 5a. claim {surname} for {login}'s agent id in identities/personas/claims.json (first_name null: "
+            "the agent chooses it), to commit with identities/keys/")
+        return
+    try:
+        aid = persona_surname.write_claim(login, surname)
+    except (persona_surname.Refused, OSError) as exc:
+        die(f"step failed: 5a. the surname claim: {exc}")
+    say(f"5a. {surname} claimed for {login} ({aid}) in identities/personas/claims.json, first_name null until it "
+        "chooses one (ADR-056 rule 5); fabric-coordinator commits it with identities/keys/")
+
+
+def signing_key_only(login: str) -> int:
+    """`--signing-key-only <login>`: step 11 and nothing else, for an account that exists — when new-agent ran
+    without a terminal, with --no-signing-key, or its step 11 failed, only printed lines were left (2026-10-15).
+    Refused without a person at this terminal (pinentry asks the passphrase there) and for a human (ADR-044 rule 3).
+    The host is the registry's placement, else this host, as for the run that made the account."""
+    if not on_terminal():
+        die("--signing-key-only needs a person at this terminal: gpg's pinentry asks the signing key's passphrase "
+            "there, and stdin and stdout are not both a terminal; nothing done")
+    hosts_path = roots.hosts_registry(engine=cfg.ROOT)
+    reg = hosts_registry(hosts_path)
+    if login_kind(reg, login, hosts_path) == "human":
+        die(f"{login} is a human login (runtime/hosts/registry.json kinds): a human holds no signing key for the "
+            "control plane (ADR-044 rule 3); nothing done")
+    local_host = next((h for h, e in (reg.get("hosts") or {}).items() if isinstance(e, dict) and e.get("ssh") is None), "")
+    host = str((reg.get("placement") or {}).get(login, "")) or local_host
+    if not host:
+        die(f"no host for {login}: no placement in runtime/hosts/registry.json and no host of this one's; nothing done")
+    # The account must exist before the key is exported: the export asks the passphrase, and an import into no
+    # account would spend it on a failure.
+    with tempfile.NamedTemporaryFile(prefix="new-agent-", suffix=".log", delete=False) as fh:
+        LOGS.append(fh.name)
+    try:
+        s = Steps(LOGS[-1])
+        rc, check = s.capture([cfg.HX, host, "--", cfg.WORKER, "host-check", login], timeout=120)
+        if rc != 0:
+            s.tail(5)
+            die(f"host {host}: unreachable, or its worker did not run; nothing done")
+        lines = check.split("\n")
+        if lines[0] != host:
+            die(f"host {host} answers as '{lines[0]}'; the registry id is the host's short hostname; nothing done")
+        if "account: present" not in lines:
+            die(f"{login} has no account on {host}: --signing-key-only is for an account new-agent made; nothing done")
+    finally:
+        remove_logs()
+    say(f"11 alone: the signing key into {login}'s keyring on {host}")
+    return signing_key(login, host, via=host if host != local_host else "")
 
 
 def register_signing_key(s: Steps, login: str, dry: bool) -> None:

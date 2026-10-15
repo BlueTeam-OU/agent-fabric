@@ -455,24 +455,27 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - The review class's blind review is the review of every PR: on every
   head, to judge a finding, to re-review a fix range; no automated
-  reviewer is assumed (§2, §5 rule 1).
+  reviewer is assumed (§5 rule 1).
 - Dispatch: `code-review`, `model: fable`, description "review…" or
   "re-review…", no isolation; the guard drops the alias so the agent
-  file's routed model decides, within `review-grade.json` (§5 rules 2–3).
+  file's routed model decides (§5 rules 2–3).
 - The reviewer writes nothing (`review-bash-guard.sh`); its brief is
-  facts from `fabric-review brief`, never conclusions (§5 rules 4–5).
+  facts, never conclusions (§5 rules 4–5).
 - Posted by `fabric-pr post-review` with the marker; counted only when marked
   and posted by the PR's account or a named poster, or unmarked from a
   trusted account (§5 rules 6–7). Legacy markers until the sunset (§5
   rule 8).
-- A 2026-10-05 — the reviewer inherits no secret: every command its fence
-  lets through runs with a clean environment (§5 rule 4).
+- A 2026-10-05 — the reviewer inherits no secret: its commands run with
+  a clean environment (§5 rule 4).
 - A 2026-10-14 — the project review card governs from the base, never
   the head, and the reviewer's agent file omits the project's instruction
   files (§5 rule 9); a review names its evidence mode, only `pinned`
   (`git show <head>:<path>`) counts as coverage of a head, and
-  `working-tree` is labelled and never posted as a review of a head
+  `working-tree` is never posted as a review of a head
   (§5 rule 10).
+- A 2026-10-15 — a pinned review reads a detached head worktree that
+  `brief`/`next` make, the brief names and `save` removes; no extract of
+  its own (§5 rule 10).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
   review-grade, substitute, review card, evidence mode, pinned,
@@ -730,7 +733,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   SPECIALTIES are optional metadata on any message.
 - A 2026-10-04 — WAIVES, an optional common field (SPEC §7.5): a waiver
   role's word that one pull request, at one head, may arm.
-- A 2026-10-15 — examples and rule 1's validator renamed.
+- A 2026-10-15 — examples, validator renamed.
+- A 2026-10-15 — citations renamed.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change, WAIVES, waiver.
@@ -842,24 +846,25 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - One key per login, a subkey per use; its private half leaves only as
   an encrypted recovery copy (§5 rules 1, 6).
-- A key is an agent's when committed at `identities/keys/<id>.asc` and
-  certified by its parent in `lineage.json` (§5 rule 2).
+- A key is an agent's when committed at `identities/keys/<id>.asc`,
+  certified by its parent (§5 rule 2).
 - Each agent's secrets are pass(1) entries in its private repository
   `fabric-agent-<id>`, encrypted to that key alone: the parent writes
   and never reads (§5 rule 3).
 - No shared host assumed (§5 rules 4–5); `sync` reads the store alone
   (§5 rules 7–8).
 - A 2026-09-29 — recovery copies and backups to Proton Drive.
-- A 2026-09-29 — recovery copies encrypted to the owner's recovery key.
+- A 2026-09-29 — recovery copies encrypted to the recovery key.
 - A 2026-09-29 — named by agent id (ADR-039).
 - A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
 - A 2026-09-30 — no Doppler; `provision` fills a child's store (§5 rules 3, 7–8).
 - A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
-- A 2026-10-06 — no shell holds a secret; env.sh is plain values (§5 rule 9).
+- A 2026-10-06 — no shell holds a secret (§5 rule 9).
 - A 2026-10-07 — the Doppler CLI stays (§6).
-- A 2026-10-13 — one repository per agent, secrets and settings (§2).
-- A 2026-10-13 — each agent signs commits with its own subkey (§6, ADR-057).
+- A 2026-10-13 — one repository per agent (§2).
+- A 2026-10-13 — agents sign commits with own subkeys (§6, ADR-057).
 - A 2026-10-15 — company stores (§5 rule 10).
+- A 2026-10-15 — only agent and parent write (§5 rule 3).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
   Doppler, provision, placement, company store.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
@@ -1222,6 +1227,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   rule 7). Identity and authorship unchanged (§5 rule 8).
 - A 2026-10-13 — candidates wait in /usr/local/share/agent-fabric/avatars/<id>/ (§5 rule 7).
 - A 2026-10-13 — named "AI <Name> <Surname>, <role>", never the login where people read; first names in claims.json (§5 rules 2, 4).
+- A 2026-10-15 — provisioning claims the surname (`new-agent --surname`), first_name null until chosen; the agent chooses its sex first, then a first name of that sex (§5 rules 4-6).
 
 ### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Accepted)
 
@@ -1245,5 +1251,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   passes, `origin: reflection` with its MESSAGE-IDs (§5 rule 3).
 - The cursor moves when the pass finishes; the drain alone promotes,
   and counts reflection memories (§5 rules 4-5).
+- A 2026-10-15 — a pass is closed by its cursor: a job with topic
+  `reflection` settles done when the login's fabric-reflect cursor was
+  closed after the job started (§5 rule 4).
 - Keywords: reflection, journal, episodic.db, fabric-reflect, lessons,
   messages, memory candidates, drain.

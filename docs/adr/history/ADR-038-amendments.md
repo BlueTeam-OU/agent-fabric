@@ -187,3 +187,15 @@ above: they die with its key).
 Drafted by fabric-coordinator for the owner's review in the pull request
 that carries it, with the tooling contract (`docs/split/company-stores.md`)
 and the names proposed to move (`docs/split/company-store-names.md`).
+
+### Amendment 2026-10-15 — Only the agent and its parent write an entry
+
+Rule 3 said any holder of the committed public key may add an entry. A
+public key lets anyone encrypt to the store, but ADR-042 rule 2 (decided
+after rule 3 was written) admits commits only from the agent and its
+parent, and the code does the same: `fabric-secrets put` is the parent's
+operation (`secretstore/mirrors.py`), signed with the parent's subkey, and
+every reader refuses a commit signed by any other key
+(`secretstore/trust.py` `writers`). Rule 3 now says what the code and
+ADR-042 already did, and rule 10 relies on it: a company's store takes
+writes only from its writers. No behaviour changes.

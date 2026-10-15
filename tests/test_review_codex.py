@@ -458,7 +458,10 @@ def main() -> int:
               rec["cwd"])
         check("the extract holds the head's files and not the uncommitted one",
               rec["cwd_files"] == ["app.py"], rec["cwd_files"])
-        brief = subprocess.run([REVIEW, "brief", req], env=env0, capture_output=True, text=True, timeout=60).stdout
+        # In process, not through `fabric-review brief`: the CLI also checks the head out and names that worktree,
+        # which the second engine does not (it reads its own extract, so the brief it sends names none).
+        with open(req, encoding="utf-8") as fh:
+            brief = review_codex.review_brief.render(review_codex.review_brief.parse_request(fh.read()))
         # The dispatch header differs per render (its id, its time) and per engine
         # (codex, second-engine-review); everything after it is the brief unchanged.
         def after_header(text: str) -> str:

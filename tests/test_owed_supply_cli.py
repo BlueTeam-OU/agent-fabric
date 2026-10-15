@@ -414,7 +414,7 @@ def main() -> int:
         run("--help")
         check("--help is the module's docstring, citing the fabric's supply rule and the project's arm",
               out["rc"] == 0 and out["stdout"].startswith("fabric-pr owed-supply [--days N] [--json]\n")
-              and "identities/prompt/team.md" in out["stdout"] and "the project's arm" in out["stdout"]
+              and "policies/pull-requests/SKILL.md" in out["stdout"] and "the project's arm" in out["stdout"]
               and "CLAUDE.md" not in out["stdout"] and "tools/gh/arm.sh" not in out["stdout"], out["text"])
         run("--days", "x", "--help")
         has("…and a bad --days before it still refuses", "--days needs a whole number", rc=2)

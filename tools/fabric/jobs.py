@@ -12,6 +12,7 @@ behind bin/fabric-jobs.
     fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
     fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n>
     fabric-jobs deliver <id> <artifact>...
+    fabric-jobs retract <id> <artifact>                          remove one artifact, exactly as recorded, in any state; noted in the log
     fabric-jobs done <id>
     fabric-jobs drop <id> "<why>"
     fabric-jobs show <id> [--json]
@@ -103,13 +104,16 @@ check that failed and changing nothing:
      a commit or a branch (a contributor branch: name or origin/<name>) whose head is on origin's default branch; delivered: a pull
      request open or a branch on origin; blocked: a checkable blocker not yet cleared, or
      "owner: <the decision awaited>" as text; paused: its branch pushed; dropped: a reason. Evidence is read from the job's
-     artifacts (owner/repo#N, #N, a pull request URL, a commit sha, or reply:<MESSAGE-ID>, which counts for a job whose
-     artifact is a REPLY, when the journal holds it as sent). Whatever the outcome: no uncommitted change in the job's working
-     copy, its worktree or this directory's checkout; every inbound message addressed to this login with REPLY-EXPECTED: yes
-     has a REPLY of this login in the journal; and a file changed since the job last became active in the memory directory of
+     artifacts (owner/repo#N, #N, a pull request URL, a commit sha, or reply:<MESSAGE-ID>, the reply's own id or the id it
+     answers, which counts for a job whose artifact is an answer, a message of this login with an IN-REPLY-TO, a REPLY or a DECISION alike, when the journal holds it as sent: accepted by the carrier); a job with topic reflection is also landed by this login's
+     fabric-reflect cursor, closed after the job started (ADR-058 rule 4). Whatever the outcome: no uncommitted change in the job's working
+     copy, its worktree or this directory's checkout; every inbound REQUEST or QUESTION received since the job (or this session) started, addressed to this login with REPLY-EXPECTED: yes
+     or whose record cannot be read, has an answer of this login in the journal (any accepted outbound message whose IN-REPLY-TO names it, a DECISION as well as a REPLY); and a file changed since the job last became active in the memory directory of
      the working copy, of its repository's main checkout, or of an ancestor of either below the home (any memory directory
      of the login for a job with topic reflection). A check that cannot be told is a failure, said as such, never a pass.
      `deliver <id> <artifact>` on a done job appends evidence and leaves it closed (a dropped job takes none).
+     `retract <id> <artifact>` removes one recorded artifact whatever the job's state, so a mistaken one cannot hold the job; it refuses,
+     naming the artifacts, when the string is not there, and notes what was removed in the job's log.
   2. The next job starts in a fresh session after a worked one (rule 3, unchanged): `fabric-fresh --job <id>` is printed.
   3. Its branch is chosen before any work: the job's own branch when it has begun one that no pull request merged; else this
      login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
@@ -190,6 +194,9 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("deliver")
     d.add_argument("id")
     d.add_argument("artifacts", nargs="+")
+    rt = sub.add_parser("retract", help="remove one artifact from a job, exactly as recorded")
+    rt.add_argument("id")
+    rt.add_argument("artifact")
     dr = sub.add_parser("drop")
     dr.add_argument("id")
     dr.add_argument("why")

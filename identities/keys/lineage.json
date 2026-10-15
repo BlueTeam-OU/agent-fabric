@@ -154,5 +154,23 @@
     "fingerprint": "F88C6F8165D469D65854259B0A14EAA22C3ADFAB",
     "login": "rust-ui-dev-02",
     "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a14107-9ab9-761e-971a-3994d937546a": {
+    "born": "2026-10-15T19:26:19.833Z",
+    "fingerprint": "5486A123212E81828603A017313100F04A235893",
+    "login": "legal-expert-ee-eu",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a14174-8c0b-729f-ac13-fa44f6453336": {
+    "born": "2026-10-15T21:25:19.499Z",
+    "fingerprint": "3E9219700A3D2B540DF38B4744732BADAF2ADE80",
+    "login": "legal-expert-ch",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a1417b-3c0f-723d-a7a6-a5a13e19532a": {
+    "born": "2026-10-15T21:32:37.775Z",
+    "fingerprint": "0A95F76A8C613B0EEA707C156BFD6190A9E64BC7",
+    "login": "legal-expert-ge",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
   }
 }

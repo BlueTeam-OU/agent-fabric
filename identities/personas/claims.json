@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Which agent holds which surname of identities/personas/surnames.json (agent-fabric ADR-056 §5 rule 4) and what first name it goes by: one agent per surname, the first claim wins, landed by fabric-coordinator. A claim is {surname, first_name, pronoun?}; people name an agent \"AI <First> <Surname>, <Role title>\" (fabric-persona). Keyed by the agent id, so a login rename changes nothing.",
+  "description": "Which agent holds which surname of identities/personas/surnames.json (agent-fabric ADR-056 §5 rule 4) and what first name it goes by: one agent per surname, the first claim wins, landed by fabric-coordinator. A claim is {surname, first_name, pronoun?}, first_name null while the agent has not chosen one yet (provisioning claimed the surname: new-agent --surname, rule 5 leaves the first name to the agent); people name an agent \"AI <First> <Surname>, <Role title>\" (fabric-persona). Keyed by the agent id, so a login rename changes nothing.",
   "claims": {
     "019bbe31-2fff-7a2f-9849-96bdf286e011": {
       "surname": "Babbage",
@@ -106,6 +106,18 @@
     "01a129e5-3558-7a18-9443-f4b58ead1cf6": {
       "surname": "Purkyne",
       "first_name": "Tereza"
+    },
+    "01a14107-9ab9-761e-971a-3994d937546a": {
+      "surname": "Kelsen",
+      "first_name": "Lena"
+    },
+    "01a14174-8c0b-729f-ac13-fa44f6453336": {
+      "surname": "Huber",
+      "first_name": null
+    },
+    "01a1417b-3c0f-723d-a7a6-a5a13e19532a": {
+      "surname": "Javakhishvili",
+      "first_name": null
     }
   }
 }

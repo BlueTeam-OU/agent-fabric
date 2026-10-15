@@ -137,6 +137,11 @@ def signs_with_secret(listing: str) -> bool:
     return False
 
 
+# Step 11 again, for an account that exists (new-agent skipped it: no terminal, --no-signing-key, or it failed). Run on
+# the coordinator's host, like new-agent itself; the account's host is read from the registry there.
+SIGNING_KEY_ONLY = "runtime/provisioning/new-agent.sh --signing-key-only {login}"
+
+
 def signing_key_lines(login: str, via: str = "") -> list[str]:
     """The two lines a person runs, as the coordinator, to give an account
     the fleet's signing key: the closing's when new-agent does not import
@@ -206,7 +211,9 @@ def closing(login: str, signing: str, creds: str, first: str, *, account: str = 
         gpg = "- GPG secret key: the signing key's is not here yet; new-agent imports it next, on this terminal (11)"
     else:
         gpg = ("- GPG secret key: the signing key's is NOT in this account's keyring — commits will fail to "
-               "sign. As the coordinator, in a terminal (the key has a passphrase):\n"
+               "sign. As the coordinator, in a terminal (the key has a passphrase), step 11 alone:\n"
+               f"       {SIGNING_KEY_ONLY.format(login=login)}\n"
+               "     or by hand:\n"
                + "\n".join(f"       {line}" for line in signing_key_lines(login, via)))
     slug, _, fp = account.partition("=")
     if creds == "applied":
