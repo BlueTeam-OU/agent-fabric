@@ -268,7 +268,7 @@ def case_locale_render_has_a_wider_ceiling() -> None:
     render keeps the ceiling. Kills: one ceiling for both."""
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp, role="language-culture", brief=False)
-        pad = "ქართული ხაზი\n" * 1500      # ~19.5k characters of body
+        pad = "ქართული ხაზი\n" * 1900      # ~24.7k characters of body
         head = "---\nrole: language-culture\nclass: charter\ndescription: \"x\"\ntier: 1\ndistilled_at: 2026-09-17\n---\n\n"
         write(os.path.join(f.root, "identities", "roles", "language-culture", "charter.md"), head + "# c\n\n" + pad)
         r = f.run("--print")

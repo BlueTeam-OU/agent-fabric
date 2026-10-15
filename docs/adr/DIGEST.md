@@ -820,13 +820,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-037 — Each agent keeps a job list (Accepted)
 
 - One list per login, `agents/<login>/jobs.json`, written only through
-  `runtime/identity.py`; states queued, active (one at a time), paused
-  (unbuilt: `blocked`, 'paused: <why>'), blocked, delivered, done, dropped (§5 rules 1–2).
-- `fabric-jobs next`: a session that has worked a job gets
+  `runtime/identity.py`; states queued, active (one at a time), paused, blocked, delivered, done, dropped (§5 rules 1–2).
+- `fabric-jobs switch` (alias `next`): a session that has worked a job gets
   `fabric-fresh --job <id>` for the next, in the job's working copy; one
   that worked none takes it in place (§5 rule 3).
-- Jobs come from the agent and the owner (`fabric-ctl <login> jobs-add`);
-  a GZCoord request becomes one only when its receiver adds it (§5 rules 4–5).
+- Jobs come from the agent, the owner (`fabric-ctl <login> jobs-add`) and
+  a delivered REQUEST (§5 rules 4–5, 11).
 - The owner reads every list: `fabric-ctl <login|all> jobs` (§5 rule 6).
 - A 2026-10-08 — priority (blocking, high, normal, low) orders `next`,
   never preempting; a job others wait on ranks blocking (`waits_on`); a
@@ -837,24 +836,25 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-11 — every job after a worked one starts fresh (§5 rule 3).
 - A 2026-10-12 — checkable blockers; a cleared job is taken first (§5 rule 8).
 - A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
+- A 2026-10-15 — intake and `paused` read as built.
 - Keywords: job, jobs.json, fabric-jobs, next, switch, paused, fresh
   session, fabric-fresh --job, working copy, intake, priority,
   blocking, pool, claim.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
-- One key per login, made in the account, a subkey per use; its private
-  half leaves only as an encrypted recovery copy (§5 rules 1, 6; §6).
+- One key per login, a subkey per use; its private half leaves only as
+  an encrypted recovery copy (§5 rules 1, 6).
 - A key is an agent's when committed at `identities/keys/<id>.asc` and
   certified by its parent in `lineage.json` (§5 rule 2).
 - Each agent's secrets are pass(1) entries in its private repository
   `fabric-agent-<id>`, encrypted to that key alone: the parent writes
   and never reads (§5 rule 3).
-- No step relies on a shared host (§5 rules 4–5). `sync` reads the store
-  alone (§5 rules 7–8).
+- No shared host assumed (§5 rules 4–5); `sync` reads the store alone
+  (§5 rules 7–8).
 - A 2026-09-29 — recovery copies and backups to Proton Drive.
 - A 2026-09-29 — recovery copies encrypted to the owner's recovery key.
-- A 2026-09-29 — keys, lineage and repositories named by agent id (ADR-039).
+- A 2026-09-29 — named by agent id (ADR-039).
 - A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
 - A 2026-09-30 — no Doppler; `provision` fills a child's store (§5 rules 3, 7–8).
 - A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
@@ -862,8 +862,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-07 — the Doppler CLI stays (§6).
 - A 2026-10-13 — one repository per agent, secrets and settings (§2).
 - A 2026-10-13 — each agent signs commits with its own subkey (§6, ADR-057).
+- A 2026-10-15 — company stores (§5 rule 10).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
-  Doppler, provision, placement.
+  Doppler, provision, placement, company store.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing

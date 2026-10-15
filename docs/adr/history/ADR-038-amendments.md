@@ -141,3 +141,49 @@ lineage and the role. The subkey's SSH form is registered as a GitHub
 signing key for all 26 agents
 (docs/live-checks/2026-10-13-agent-signing-keys-as-ssh.md). The owner's
 word, in the coordinator's session: "accepted proceed amending".
+
+### Amendment 2026-10-15 — What belongs to a company is kept in that company's store
+
+ADR-045 gave each client a `secrets_store` in `projects/clients.json`, and
+two were created private and empty on 2026-10-09; nothing said who reads
+them, how an agent gets what is in them, or how this record's rule 3 ("no
+store is encrypted to another agent's key") holds beside them. Meanwhile
+the coordinator's own store carries what is no agent's: the Claude-account
+templates and their assignments, the keys that mint other keys, the
+values every agent shares. A coordinator rebuilt without its home would
+take the company's credentials with its key (rule 4).
+
+Rule 10 answers it. A company's store is read by the fabric-coordinator
+holders (the role, not the account: a holder change re-encrypts it, as the
+charter says authority attaches to the role) and by the owner's recovery
+key, which is in that store's `.gpg-id` and in no agent's, because a
+company's store has no one agent to be recovered through. Nothing else
+changes for an agent: it reads only its own store, and what it needs from
+a company's is put into it by its parent, as `provision share` puts a
+shared value today, so ADR-042's writers stay the agent and its parent.
+Only the fleet's names (`provision share`'s allowlist) stay fleet-wide;
+every other granted name, the operator's own included, is a client's,
+namespaced and applied to that client's working copies only — ADR-045
+rule 6, with rule 9's honest limit: it stops an accident, not the login.
+Because any agent can push to a company store, every reader starts
+from the newest checkpoint a current holder signed and reads only
+current holders' commits after it: a stolen retired key extends
+nothing, and a commit that does not verify — which no one can remove,
+since the branch refuses a force-push — is covered by a holder's repair
+checkpoint, which readers start from. A holder is added before the one
+it replaces is removed, and the removal waits for a remaining holder's
+checkpoint at the head, so someone can always re-encrypt. When no one
+can read the store, the owner restores it from a backup bundle checked
+against its manifest, so nothing a stolen key wrote into its history
+chooses what comes back.
+
+Rejected: an agent as a recipient of its client's store (every agent would
+read every client credential it was never granted, and a grant would be a
+re-encryption); a company store per role (a role is not a company, and
+which client a credential belongs to is what rule 6 needs); and keeping
+company credentials in the coordinator's store under a prefix (the case
+above: they die with its key).
+
+Drafted by fabric-coordinator for the owner's review in the pull request
+that carries it, with the tooling contract (`docs/split/company-stores.md`)
+and the names proposed to move (`docs/split/company-store-names.md`).

@@ -74,6 +74,12 @@
       "group": "Experts"
     },
     {
+      "id": "legal-expert",
+      "title": "Legal expert, one jurisdiction per holder (the login's suffix)",
+      "short_title": "Legal Expert",
+      "group": "Experts"
+    },
+    {
       "id": "p2p-network-dev",
       "title": "Rust peer-to-peer networking developer",
       "short_title": "P2P Network Developer",

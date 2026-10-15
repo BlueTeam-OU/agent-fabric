@@ -45,6 +45,7 @@
     "python-dev-02": "develop-qzapp",
     "python-dev-03": "develop-qzapp",
     "python-dev-04": "develop-qzapp",
-    "rust-services-dev-02": "develop-qzapp"
+    "rust-services-dev-02": "develop-qzapp",
+    "legal-expert-ee-eu": "develop-qzapp"
   }
 }

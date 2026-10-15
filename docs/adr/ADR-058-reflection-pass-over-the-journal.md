@@ -93,9 +93,10 @@ bounded: a week of messages, a capped read, one job.
   that learnt them, through the same judgement as everything else.
 - Each agent spends one job a week on it; a quiet week costs a short
   read.
-- `fabric-reflect` and its cursor are built (#264); the weekly job and
-  the drain report's count are to build (decided, not yet built; until
-  the job is on the lists, no pass runs).
+- `fabric-reflect` and its cursor are built (#264); the weekly job
+  (`fabric-reflect-jobs`, run by the coordinator before a drain) and
+  the drain report's count (`counts.reflection`) are built (#272), and
+  the drain cycle names the step (`memory/README.md`).
 
 ## 7. Future Evolution
 
@@ -105,8 +106,8 @@ more than GZCoord messages.
 
 ## 8. Decision Status
 
-Accepted; `fabric-reflect` and the cursor are built (#264); the weekly
-job and the drain report's count wait on the coordinator.
+Accepted and built: `fabric-reflect` and the cursor (#264), the weekly
+job and the drain report's count (#272).
 
 ## References
 

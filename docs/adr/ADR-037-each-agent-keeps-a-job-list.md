@@ -46,10 +46,10 @@ that job's working copy, with the job in its opening prompt.
 one, through the control plane. A session sees its own list at start,
 and a warning when its active job belongs in another working copy.
 
-**Requests between agents.** A GZCoord request addressed to a login is to be
-queued on its list when it is delivered (rule 11). That intake is decided and
-not yet built; until it is, the receiver adds the request itself, and an
-operator who sends one also adds it with `jobs-add`.
+**Requests between agents.** A GZCoord request addressed to a login is
+queued on its list when it is delivered (rule 11, `tools/fabric/gzcoord/intake.py`),
+and an operator who sends one also adds it through `jobs-add`; the receiver
+reads its list before adding one by hand.
 
 ## 3. Alternatives Considered
 
@@ -236,3 +236,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-11 | Every job starts in a fresh session | §5 rule 3: `next` gives a fresh session whenever this session has worked a job; in place only for one that has worked none |
 | 2026-10-12 | Checkable blockers | §5 rule 8: `block --on` takes `pr:`, `request:` and `job:` blockers, re-checked at most every ten minutes; a cleared job is listed first and taken first by `next` |
 | 2026-10-14 | Paused, and the transition between jobs | §5 rule 2 adds `paused` (the agent's choice) beside `blocked` (a wait it does not control); rule 10: `fabric-jobs switch` settles the old job with its evidence, starts the next fresh (rule 3 unchanged) and chooses its branch, refusing on a failed check |
+| 2026-10-15 | Built, and the text says so | §2's request intake and §5 rule 2's `paused` read as built (intake.py; `fabric-jobs pause` and `switch`); no rule changes |

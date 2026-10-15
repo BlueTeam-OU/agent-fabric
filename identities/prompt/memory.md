@@ -37,10 +37,10 @@ about how the role works here, `rationale` a decision's reasons awaiting
 a record, `threads` an open subject, `intersection` a claim two roles
 share. Without `roles_class` the file is yours alone — skipped and named
 by the drain. Only your own home is read; nothing drains another
-account's memory. Drain after a change to how the role works lands, and
-at least weekly while you are active; a fabric-coordinator holder commits
-what it distils, with your name in the slice's `origin`. **Name people by
-role, never by name** — the CEO, the owner, an agent by its login: a
+account's memory. fabric-coordinator drains at least weekly; after a
+change to how your role works lands, ask it for one. It commits what it
+distils, with your name in the slice's `origin`. **In a memory, name
+people by role and agents by login, never by name** — the CEO, the owner: a
 slice travels into every repository, and the drain substitutes what it
 finds (`policies/hygiene.json`). Never a secret of any shape.
 

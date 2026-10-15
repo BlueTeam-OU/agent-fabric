@@ -82,7 +82,7 @@ Rules that are not style:
   runtime delivers a role address to every holder and each executes the
   job unaware of the others: two PRs on the same hunk. `gzcoord-send` refuses it. When you do not
   know which holder: the one whose pushed branch — PR or not — touches
-  the path (`pr-gate.sh --in-flight --path <prefix>`), else one holding it with a session running now
+  the path (`fabric-pr gate --in-flight --path <prefix>`), else one holding it with a session running now
   (`fabric-ctl all presence`), else the lowest-numbered login — and say which rule chose
   (`MESSAGE-FORMAT.md` §Direct versus role addressing). `TO-ROLE` stays
   for an `INFO`, a `DECISION`, a `QUESTION` to whoever holds the role.

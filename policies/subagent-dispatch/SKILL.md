@@ -21,9 +21,7 @@ review: the review class — the blind review of a PR's head, the
 judgement of a finding before it is answered (step 26 of the canonical
 lifecycle, added after two findings were dismissed by hand in a row and
 both dismissals were wrong), and the re-review of a fix range. It is
-the review the project's review-status tooling (`pr-review-status.sh`,
-the fabric's, reached through the project's `tools/gh/` forwarder)
-counts. Nothing else.
+the review `fabric-pr review-status` counts. Nothing else.
 
 ## The `model` field — the ~40-agent bill
 
@@ -128,8 +126,8 @@ is not one, and the ask arrived at the least useful moment, mid-review-
 loop.
 
 So the carve-out is structural, and it is a CLASS with four conditions,
-enforced by `.claude/agent-dispatch-guard.sh` (the `PreToolUse` hook for
-`Agent`; decision table in `tests/test_agent_dispatch_guard_cli.py`):
+enforced by `runtime/claude-code/hooks/agent-dispatch-guard.sh`, which the
+workspace settings bootstrap writes register (the `PreToolUse` hook for `Agent`; decision table in `tests/test_agent_dispatch_guard_cli.py`):
 
 1. `subagent_type: "code-review"` — a file in the repo
    (`.claude/agents/code-review.md`), reviewable like any other,
