@@ -507,5 +507,95 @@ class SecretsSync(unittest.TestCase):
         self.assertEqual(f.sync({"id": "c"}, sessions=[])["status"], "synced", "released afterwards")
 
 
+class SessionsOnOldSignIn(unittest.TestCase):
+    """What `assign --no-restart` leaves behind, as `fabric-ctl status` reads it."""
+
+    def test_status_session_section_carries_the_count_through_the_ops_wiring(self):
+        from control import ops
+        f = Fixture(self, before=TPL)
+        envs = {1: env_with(OLD), 2: env_with(TPL)}
+        empty = tempfile.mkdtemp(prefix="proc-")
+        self.addCleanup(__import__("shutil").rmtree, empty)
+        ctx = {"home": f.home, "uid": 1, "session_opts": {"pids": [1, 2], "env_of": lambda pid: envs[pid](pid), "proc": empty}}
+        run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "")  # noqa: E731
+        self.assertEqual(ops.collect("session", {**ctx, "run": run})["session"]["on_old_sign_in"], 1)
+        self.assertNotIn("on_old_sign_in", ops.collect("session", {"home": f.home, "uid": 1, "run": run})["session"],
+                         "an injected run fakes the process table: the real one is not read")
+        self.assertNotIn("on_old_sign_in", ops.collect("session", {**ctx, "home": Fixture(self, before=None).home, "run": run})["session"],
+                         "no synced token to compare with")
+
+    def test_process_started_reads_stat_field_22_against_btime_and_is_none_where_unreadable(self):
+        d = tempfile.mkdtemp(prefix="proc-")
+        self.addCleanup(__import__("shutil").rmtree, d)
+        os.makedirs(os.path.join(d, "77"))
+        hz = os.sysconf("SC_CLK_TCK")
+        fields = ["S"] + ["0"] * 18 + [str(hz * 100)] + ["0"] * 5   # state, then fields 4..21 and starttime = 100 s after boot
+        with open(os.path.join(d, "77", "stat"), "w") as fh:
+            fh.write("77 (clau de) " + " ".join(fields))
+        with open(os.path.join(d, "stat"), "w") as fh:
+            fh.write("cpu 1 2 3\nbtime 1760000000\n")
+        self.assertEqual(S.process_started(77, d), "2025-10-09T08:55:00Z")
+        self.assertIsNone(S.process_started(78, d))
+
+    def test_status_session_section_also_carries_when_the_old_sessions_began(self):
+        from control import ops
+        f = Fixture(self, before=TPL)
+        d = tempfile.mkdtemp(prefix="proc-")
+        self.addCleanup(__import__("shutil").rmtree, d)
+        for pid, secs in (("11", 10), ("12", 20)):
+            os.makedirs(os.path.join(d, pid))
+            with open(os.path.join(d, pid, "stat"), "w") as fh:
+                fh.write(f"{pid} (claude) " + " ".join(["S"] + ["0"] * 18 + [str(os.sysconf("SC_CLK_TCK") * secs)] + ["0"] * 5))
+        with open(os.path.join(d, "stat"), "w") as fh:
+            fh.write("btime 1760000000\n")
+        envs = {11: env_with(OLD), 12: env_with(OLD), 13: env_with(TPL)}
+        run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "")  # noqa: E731
+        ctx = {"home": f.home, "uid": 1, "run": run,
+               "session_opts": {"pids": [12, 11, 13], "env_of": lambda pid: envs[pid](pid), "proc": d}}
+        sec = ops.collect("session", ctx)["session"]
+        self.assertEqual((sec["on_old_sign_in"], sec["old_sign_in_started"]), (2, ["2025-10-09T08:53:30Z", "2025-10-09T08:53:40Z"]))
+
+    def test_a_session_that_exits_before_its_environment_is_read_is_not_counted(self):
+        f = Fixture(self, before=TPL)
+
+        def gone(_pid):
+            raise FileNotFoundError(2, "gone")
+        self.assertEqual(S.old_sign_in_pids(f.home, pids=[7], env_of=gone, alive=lambda _p: False), [])
+
+    def count(self, f, envs: dict, **more):
+        found = S.old_sign_in_pids(f.home, pids=list(envs), env_of=lambda pid: envs[pid](pid), **more)
+        return None if found is None else len(found)
+
+    def test_counts_the_plain_sessions_not_on_the_synced_token_and_only_those(self):
+        f = Fixture(self, before=TPL)
+        envs = {1: env_with(OLD), 2: env_with(TPL), 3: env_with(None), 4: env_with(None, provider="openrouter"),
+                5: env_with(None, transport="gateway"), 6: env_with(OLD, provider=None)}
+        self.assertEqual(self.count(f, envs), 3, "old token, no token, unstamped old token; broker and gateway never")
+
+    def test_none_running_is_a_zero_and_all_on_it_is_a_zero(self):
+        f = Fixture(self, before=TPL)
+        self.assertEqual(self.count(f, {}), 0)
+        self.assertEqual(self.count(f, {1: env_with(TPL)}), 0)
+
+    def test_an_unreadable_session_environment_counts_as_not_on_it_as_a_restart_takes_it(self):
+        f = Fixture(self, before=TPL)
+
+        def gone(_pid):
+            raise ProcessLookupError(3, "gone")
+        self.assertEqual(S.old_sign_in_pids(f.home, pids=[1], env_of=gone, alive=lambda _p: True), [1])
+
+    def test_unknown_where_there_is_no_synced_token_or_the_process_table_cannot_be_read(self):
+        self.assertIsNone(self.count(Fixture(self, before=None), {1: env_with(OLD)}), "no token to compare with")
+        f = Fixture(self, before=TPL)
+
+        def broken():
+            raise OSError("pgrep")
+        saved, S.upgrade = S.upgrade, lambda: type("U", (), {"session_pids": staticmethod(lambda **kw: broken())})()
+        try:
+            self.assertIsNone(S.old_sign_in_pids(f.home))
+        finally:
+            S.upgrade = saved
+
+
 if __name__ == "__main__":
     unittest.main()

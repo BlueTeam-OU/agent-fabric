@@ -1556,6 +1556,9 @@ def _drift_cells(r: dict) -> str:
             out += f"  claude {esc(h['installed'])} (no pin)"
         else:
             out += f"  claude {esc(h['installed'])}"
+    n = dig(r.get("session"), "on_old_sign_in")
+    if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+        out += f"  OLD ACCOUNT: {n} session{'s' if n != 1 else ''} (relaunch)"
     i = r.get("inbox")
     if isinstance(i, dict) and i.get("status") != "none":
         if i.get("status") != "ok" or i.get("lagging") is None:
