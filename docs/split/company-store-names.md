@@ -38,6 +38,7 @@ no store and nothing is proposed for it.
 | `OPENAI_API_KEY`, `OPENROUTER_API_KEY` | one per login by design, for per-agent spend |
 | `FABRIC_CONTROL_SIGNING_KEY` | the host operator's own signing key (ADR-029) |
 | `GZAPP_PORT_OFFSET` (11) | a per-login value of gzapp's, not a credential |
+| the Proton Drive CLI session, `ch.proton.drive/drive-sdk-cli/…` (coordinator only) | the backing-up login's own, readable by it alone (ADR-038 §6), so a removed holder's key never held another's; a holder change that removes the backing-up login moves the backup to a remaining one, which signs in into its own store |
 | `recovery/<id>.key`, `state/…`, `settings/…`, `.agent-id`, `.gpg-id` | each agent's own recovery copy (rule 6), state backup and settings (A 2026-10-13) |
 
 ## The owner's call
@@ -47,7 +48,6 @@ no store and nothing is proposed for it.
 | `SERPAPI_API_KEY` (3), `BRAVE_SEARCH_API_KEY` (3) | the language-culture logins' search keys: theirs (stay), the operator's (blueteam), or for gzapi's work (gzapi)? |
 | `GIT_SIGNING_KEY`, `GIT_GPG_PROGRAM` (coordinator and 25) | the shared signing key ADR-057 retires: sync still sets `commit.gpgsign` from it. Retire rather than move, once every account is read back signing with its own key — not checked here |
 | `AGENT_FABRIC_READ_TOKEN` (coordinator only) | nothing in the tree reads it: remove? |
-| the Proton Drive CLI session, `ch.proton.drive/drive-sdk-cli/…` (coordinator only) | the fleet's backup account (§6), no one agent's: blueteam, holder-only, with `store backup` pointing the CLI's pass at the operator's store? It is outside `env/` today, where the CLI writes it |
 | gzapi's own credentials | none is in any store today. gzapp's Doppler service token (project `gzapp-backend`) lives in each account's `~/.doppler`, outside the fabric (ADR-038 §7): does gzapi want it in its store? |
 
 ## After the review
