@@ -353,6 +353,40 @@ def test_a_pinned_brief_checks_out_its_head_detached(tmp: str) -> None:
     g(repo, "worktree", "prune")
 
 
+def test_a_refused_pinned_request_leaves_no_worktree(tmp: str) -> None:
+    repo = mkrepo(tmp, "refusedrepo")
+    head = g(repo, "rev-parse", "HEAD")
+    env = TMPENV(tmp)
+    want = os.path.join(env["TMPDIR"], "fabric-review", f"refusedrepo-{head[:12]}")
+    req = os.path.join(tmp, "refused.json")
+    json.dump({**base_request(repo), "objective": "This fixes the PATH bug."}, open(req, "w"))
+    listed = g(repo, "worktree", "list")
+    r = subprocess.run([BIN, "brief", req], capture_output=True, text=True, env=env)
+    assert r.returncode == 2 and "objective" in r.stderr and r.stdout == "", r
+    assert not os.path.exists(want) and g(repo, "worktree", "list") == listed, "a refused request makes no worktree, registered or not"
+    # a failure after the worktree was made removes it; a reused one stays
+    saved, tempfile.tempdir = tempfile.tempdir, env["TMPDIR"]  # in-process: evidence_path reads it
+    try:
+        pinned = {**base_request(repo)}
+        try:
+            with rb.pinned_evidence(pinned) as path:
+                assert path == want and os.path.isdir(want)
+                raise OSError("render failed")
+        except OSError:
+            pass
+        assert not os.path.exists(want) and g(repo, "worktree", "list") == listed, "this call's worktree is removed on failure"
+        path, made = rb.prepare_evidence(pinned)
+        assert made, "made by the first call"
+        try:
+            with rb.pinned_evidence(pinned):
+                raise OSError("render failed")
+        except OSError:
+            pass
+        assert os.path.isdir(want), "a reused worktree is never removed"
+    finally:
+        tempfile.tempdir = saved
+
+
 def test_every_refusal_names_its_field(tmp: str) -> None:
     repo = mkrepo(tmp, "repo2")
     ok = base_request(repo)
@@ -580,7 +614,7 @@ def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
              test_render_carries_every_heading_once_and_the_named_lenses, test_the_project_review_card,
-             test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode, test_a_pinned_brief_checks_out_its_head_detached,
+             test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode, test_a_pinned_brief_checks_out_its_head_detached, test_a_refused_pinned_request_leaves_no_worktree,
              test_every_refusal_names_its_field,
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,

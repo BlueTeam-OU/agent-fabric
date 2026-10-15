@@ -332,6 +332,16 @@ def main() -> int:
         r = run("save", "8", "2", stdin=hdr(head1))
         check("...and with nothing there it succeeds quietly", r.returncode == 0 and "removed" not in r.stderr, r)
         shutil.rmtree(plain)
+        bad = os.path.join(tmp, "scratch", "BAD.json")
+        with open(bad, "w") as f:
+            json.dump({"mode": "review", "repository": repo, "range": f"{base[:12]}..{head1[:12]}",
+                       "objective": "This fixes the PATH bug.", "requirements": ["It exists."]}, f)
+        head3 = commit("moved on")
+        listed = git("worktree", "list")
+        r = run("next", bad, "--report", report2)
+        check("next refuses a rationale-shaped objective and makes no worktree and no request",
+              r.returncode == 1 and "objective" in r.stderr and not os.path.exists(os.path.join(evroot, f"myrepo-{head3[:12]}"))
+              and git("worktree", "list") == listed and not os.path.exists(os.path.join(tmp, "scratch", "BAD-rr2.json")), (r, listed))
 
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

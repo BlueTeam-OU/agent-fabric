@@ -43,6 +43,7 @@ claims nothing was required.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import os
@@ -547,32 +548,59 @@ def worktree_head(path: str) -> str | None:
     return head.stdout.strip() if head.returncode == 0 else None
 
 
-def ensure_head_worktree(repo: str, head_sha: str) -> str:
-    """A detached worktree of head_sha, made or reused. --detach so no branch
-    and no branch.* config lands in the clone (tests/test_session_start.py
-    snapshots it). Anything else at the path is refused, never deleted."""
+def ensure_head_worktree(repo: str, head_sha: str) -> tuple[str, bool]:
+    """(path, made_by_this_call): a detached worktree of head_sha, made or
+    reused. --detach so no branch and no branch.* config lands in the clone
+    (tests/test_session_start.py snapshots it). Anything else at the path is
+    refused, never deleted."""
     path = evidence_path(repo_name_of(repo), head_sha)
     root = os.path.dirname(path)
     os.makedirs(root, mode=0o700, exist_ok=True)
     os.chmod(root, 0o700)
     if os.path.lexists(path):
         if worktree_head(path) == head_sha:
-            return path
+            return path, False
         raise EvidenceRefused(f"{path} exists and is not a worktree at {head_sha[:12]}; "
                               "it is not mine to delete: move it away or remove it, then render again")
     r = _git(repo, "worktree", "add", "--detach", path, head_sha)
     if r.returncode != 0:
-        raise EvidenceRefused(f"git worktree add --detach {path} {head_sha[:12]} failed: {r.stderr.strip()}")
-    return path
+        raise EvidenceRefused(f"git worktree add --detach {path} {head_sha[:12]} failed: {r.stderr.decode(errors='replace').strip()}")
+    return path, True
 
 
-def prepare_evidence(req: dict) -> str | None:
-    """The head worktree for a pinned request with a range; None for a
-    working-tree or diff-file request, which read what is on disk."""
+def prepare_evidence(req: dict) -> tuple[str | None, bool]:
+    """(head worktree, made_by_this_call) for a pinned request with a range;
+    (None, False) for a working-tree or diff-file request, which read what is on disk."""
     if evidence_mode(req) != "pinned" or not req.get("range"):
-        return None
+        return None, False
     info, _ = resolve_range(req)  # an unresolvable range is validate()'s refusal, raised by render
-    return ensure_head_worktree(req["repository"], info["head_sha"]) if info else None
+    return ensure_head_worktree(req["repository"], info["head_sha"]) if info else (None, False)
+
+
+def refusals(req: dict, allow_rationale: bool = False, lenses_dir: str | None = None) -> list[str]:
+    """Every refusal render() raises that needs no evidence: what a caller
+    runs before it makes a worktree, so a request that will not render creates nothing."""
+    problems = validate(req, lenses_dir)
+    if not allow_rationale:
+        problems += [f"{field}: {sentence!r} — {why}; state what must be true instead (or --allow-rationale to render it flagged)"
+                     for field, sentence, why in rationale_findings(req)]
+    return problems
+
+
+@contextlib.contextmanager
+def pinned_evidence(req: dict, allow_rationale: bool = False):
+    """Yields the pinned head's worktree path (None when the request pins none),
+    after `refusals` pass. A failure inside the block removes the worktree this
+    call made, never a reused one: a render that refuses leaves nothing behind."""
+    if (problems := refusals(req, allow_rationale)):
+        raise RequestError(problems)
+    path, made = prepare_evidence(req)
+    try:
+        yield path
+    except BaseException:
+        if made and path:
+            _git(req["repository"], "worktree", "remove", "--force", path)
+        raise
 
 
 def _evidence_line(req: dict, info: dict | None, path: str | None) -> str | None:
@@ -602,12 +630,8 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     started_at are minted here, so two renders differ in exactly those (and
     tests pass them in). `evidence_path` is the pinned head's worktree, made by
     the caller (prepare_evidence), so that rendering has no side effect."""
-    problems = validate(req, lenses_dir)
     rationale = rationale_findings(req)
-    if rationale and not allow_rationale:
-        for field, sentence, why in rationale:
-            problems.append(f"{field}: {sentence!r} — {why}; state what must be true instead (or --allow-rationale to render it flagged)")
-    if problems:
+    if (problems := refusals(req, allow_rationale, lenses_dir)):
         raise RequestError(problems)
     known = lenses(lenses_dir)
     mode = req["mode"]
@@ -663,13 +687,6 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
 
 # --- CLI ---------------------------------------------------------------------
 
-def _made_after_validate(req: dict) -> str | None:
-    """The request's own refusals come before any worktree is made."""
-    if (problems := validate(req)):
-        raise RequestError(problems)
-    return prepare_evidence(req)
-
-
 def _load(path: str) -> dict:
     text = sys.stdin.read() if path == "-" else open(path, encoding="utf-8").read()
     return parse_request(text)
@@ -706,7 +723,9 @@ def main(argv: list[str] | None = None) -> int:
                       + (f"; {len(names)} lenses — more than {MANY_LENSES} dilutes the bias" if len(names) > MANY_LENSES else ""))
                 return 0
             # Made here, not in render(): the brief stays a pure function of the request.
-            sys.stdout.write(render(req, allow_rationale=allow, evidence_path=_made_after_validate(req)))
+            with pinned_evidence(req, allow) as evidence:
+                brief = render(req, allow_rationale=allow, evidence_path=evidence)
+            sys.stdout.write(brief)
             names = list(dict.fromkeys(([] if req["mode"] == "re-review" else ["general"]) + list(req.get("lenses") or [])))
             if len(names) > MANY_LENSES:
                 print(f"review_brief: {len(names)} lenses — more than {MANY_LENSES} dilutes the bias", file=sys.stderr)

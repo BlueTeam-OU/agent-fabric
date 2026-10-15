@@ -370,12 +370,14 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
         raise Refused("the re-review request does not validate:\n  " + "\n  ".join(problems))
     # Rendered before it is written: a render that refuses leaves no orphan
     # request for the next attempt to number past (review of #89).
+    if (problems := review_brief.refusals(nxt, allow_rationale)):
+        raise review_brief.RequestError(problems)
+    delta = _delta(repo_dir, old_head, new_head, report)  # before the worktree: it can fail too
     try:
-        evidence = review_brief.prepare_evidence(nxt)
+        with review_brief.pinned_evidence(nxt, allow_rationale) as evidence:
+            brief = review_brief.render(nxt, allow_rationale=allow_rationale, evidence_path=evidence, delta=delta)
     except review_brief.EvidenceRefused as e:
         raise Refused(str(e))
-    brief = review_brief.render(nxt, allow_rationale=allow_rationale, evidence_path=evidence,
-                                delta=_delta(repo_dir, old_head, new_head, report))
     path = _next_path(request_path)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(nxt, f, indent=2)
