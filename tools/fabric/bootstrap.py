@@ -32,6 +32,7 @@ Writes, idempotently, and only machine-local files:
   ~/.claude/skills/moli-web/SKILL.md
   ~/.claude/skills/gzcoord-send/SKILL.md, gzcoord-receive/SKILL.md
   ~/.claude/skills/repo-lifecycle/SKILL.md
+  ~/.claude/skills/pull-requests/SKILL.md
   ~/.claude/skills/skill-creator/    the whole vendored tree (TREE_SKILLS), for the
                                      fabric-coordinator and architect-cto roles only
                                      the dispatch policy as a loadable skill, from policies/
@@ -263,6 +264,7 @@ SKILLS = (("subagent-dispatch", "policies/subagent-dispatch/SKILL.md"),
           ("own-secrets", "policies/own-secrets/SKILL.md"),
           ("moli-web", "policies/moli-web/SKILL.md"),
           ("repo-lifecycle", "policies/repo-lifecycle/SKILL.md"),
+          ("pull-requests", "policies/pull-requests/SKILL.md"),
           ("gzcoord-send", "communication/gzcoord/skills/gzcoord-send/SKILL.md"),
           ("gzcoord-receive", "communication/gzcoord/skills/gzcoord-receive/SKILL.md"))
 # Skills that are a directory (SKILL.md beside references/, scripts/ ...) and
