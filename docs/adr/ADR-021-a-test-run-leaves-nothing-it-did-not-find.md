@@ -104,3 +104,11 @@ check (agent-fabric #26).
   (the measurement of 2026-09-20).
 - `docs/live-checks/2026-09-19-develop-qzapp-crash.md`; ADR-010 (the host
   lease), ADR-000 (P3, P7).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-021-amendments.md](history/ADR-021-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-15 | Rule 3 is Python only: the node suites are gone | §5 rule 3 drops scratch.mjs and the mkdtempSync check (no .mjs suite is left); rule 2 names run.py's leak report |

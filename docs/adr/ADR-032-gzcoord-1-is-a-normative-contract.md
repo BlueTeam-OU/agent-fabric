@@ -92,9 +92,8 @@ of the fabric has.
 ## 5. Binding Rules
 
 1. The four files in `communication/gzcoord/protocol/` are GZCOORD/1's
-   normative text; `communication/gzcoord/scripts/gzmsg.mjs` is the
-   reference validator, and `communication/gzcoord/tests/protocol.test.mjs`
-   holds it to the text — every file in `protocol/examples/` and every
+   normative text; `tools/fabric/gzcoord/gzmsg.py` is the reference
+   validator, and `tests/test_gzcoord_protocol.py` holds it to the text — every file in `protocol/examples/` and every
    inline example in MESSAGE-FORMAT.md validates under the deployment's
    role catalogue.
 2. Only fabric-coordinator changes the four files (ADR-018). Any other
@@ -167,4 +166,4 @@ The body above reads current; each change's full note is in [history/ADR-032-ame
 | 2026-09-27 | HELLO and GOODBYE retired | SPEC §5, §8, §10, §11, §14, §18 and the companion texts: the two types are retired, a narrowing under rule 4 with the evidence of rule 6 |
 | 2026-09-28 | The retirement's loose ends | §6: SPEC's header is Normative and names this record; SPEC §1, §4 and §9 and two READMEs no longer describe self-announcement |
 | 2026-10-04 | WAIVES, the boundary waiver | SPEC §7.5 and MESSAGE-FORMAT §Waiving a boundary gate: an optional common field naming the pull request and head a project's waiver role lets arm; rule 3, no grammar change |
-| 2026-10-15 | InterWeave's examples under its organisation | MESSAGE-FORMAT §Waiving a boundary gate: the worked example names BlueTeam-OU/InterWeave, where the repository moved; no field, grammar or meaning changes |
+| 2026-10-15 | InterWeave's examples under its organisation | MESSAGE-FORMAT §Waiving a boundary gate: the worked example names BlueTeam-OU/InterWeave, where the repository moved; §5 rule 1 names the Python reference validator and its test; no field, grammar or meaning changes |
