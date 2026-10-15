@@ -33,6 +33,7 @@ top-level path gets its row in the change that adds it.
 | `memory/README.md`, `RUBRIC.md` | engine | stays (how a corpus works) |
 | `docs/adr/` | mixed | numbers frozen (rule 4): engine records stay; organisation rules move by amendment into operator records that cite them |
 | `docs/live-checks/` | instance | operator |
+| `docs/legal/` | instance | operator: the company's legal opinions |
 | `docs/fleet-deck/`, `docs/split/` | engine | stays |
 | `docs/assets/` | engine | stays |
 | `.agent-fabric/` (this repository's own remits and memory) | instance | operator |

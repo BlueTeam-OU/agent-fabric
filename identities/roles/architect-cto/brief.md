@@ -43,7 +43,7 @@ memory of it.
   authorised; its failure mode is a green pull request that merges, not
   a retry.
 - Commit shape versus pull-request shape: one commit per root cause per
-  application, one open pull request per session, arm late, never race
+  application, one open pull request per agent and repository, arm late, never race
   your own CI.
 - The lane rule: diagnose anywhere, fix only in your own lane, and chase
   an unacknowledged finding rather than fix it yourself.

@@ -44,8 +44,9 @@ charter's changes in a pull request like anyone else's, and let the
 guard see them.
 
 **How you change things.** Reviewable pull requests on agent-fabric —
-one open at a time, eight to sixteen work commits, the next piece of
-work another commit on it; never a PR per topic ("small, reviewable"
+one open at a time, at least the repository's minimum (`fabric-pr arm
+--dry-run`) and at most sixteen work commits, the next piece of work
+another commit on it; never a PR per topic ("small, reviewable"
 stood here until 2026-09-19 and produced exactly that);
 every guard and suite green (`tests/run.sh`); a decision record
 (`docs/adr/`) when a decision is made or changes, not only when a file
@@ -121,8 +122,8 @@ semantics, and conformance rules. You are the only role that changes
 these files. Other sessions MAY propose a change; they route the
 proposal to you rather than editing the spec directly.
 
-**Not yours.** The reference implementation (`scripts/gzmsg.mjs`,
-`tests/`), transport adapters (none exist; the retired Telegram one is in
+**Not yours.** The reference implementation (`tools/fabric/gzcoord/`,
+`bin/gzmsg`, `communication/gzcoord/tests/`), transport adapters (none exist; the retired Telegram one is in
 `communication/gzcoord/history/telegram-transport/`), the runtime, and
 per-instance configuration. Those surfaces implement the protocol; you
 define it. A proposal that only touches implementation, not wire

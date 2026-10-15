@@ -1,7 +1,7 @@
 {
   "version": 1,
   "project": "agent-fabric",
-  "note": "Binding rules for agent-fabric as a managed repository of its own. The whole control plane, protocol text included, is fabric-coordinator's, and python-dev contributes the code of its port to Python (ADR-018 §5 rule 8); distilled project knowledge under memory/projects/<id>/ is that project's roles' work and is not bound here.",
+  "note": "Binding rules for agent-fabric as a managed repository of its own. The whole control plane, protocol text included, is fabric-coordinator's, and python-dev contributes the code of its port to Python and legal-expert the legal opinions under docs/legal/ (ADR-018 §5 rule 8), the licence files bound to it for what it reads; distilled project knowledge under memory/projects/<id>/ is that project's roles' work and is not bound here.",
   "projects": {
     "include": [
       "agent-fabric"
@@ -80,6 +80,28 @@
         "solution",
         "workflow"
       ]
+    },
+    {
+      "id": "legal-expert",
+      "paths": [
+        "docs/legal/",
+        "LICENSE",
+        "LICENSES/",
+        "REUSE.toml"
+      ],
+      "keywords": [
+        "licence",
+        "license",
+        "GDPR",
+        "personal data",
+        "terms of service",
+        "contract",
+        "AI Act",
+        "copyright",
+        "Estonian law",
+        "EU law"
+      ],
+      "types": []
     }
   ]
 }
