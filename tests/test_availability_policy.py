@@ -59,6 +59,27 @@ class AvailabilityPolicy(unittest.TestCase):
     def test_a_valid_policy_is_clean(self) -> None:
         self.assertEqual(self.judge(POLICY), [])
 
+    def test_a_missing_sibling_policy_is_a_finding_not_a_traceback(self) -> None:
+        # Review of #237: load_json caught bad JSON only; an absent review-grade.json raised out of the lint.
+        os.remove(self.siblings["review-grade.json"])
+        found = self.judge(POLICY)
+        self.assertTrue(any("review-grade.json: cannot be read" in f for f in found), found)
+
+    def test_the_lints_spelling_rule_agrees_with_routing(self) -> None:
+        # _review_grade is a copy of routing.review_grade_ok's rule that can judge a test's set; on the committed
+        # set the two must answer alike, native ids and openrouter ids, admitted and not.
+        import routing as routing_mod
+        from lint_rules.schema import _review_grade
+        with open(os.path.join(HERE, "routing", "policies", "review-grade.json"), encoding="utf-8") as fh:
+            doc = json.load(fh)
+        graded = set(doc["models"])
+        self.assertTrue(graded, "the committed review-grade set is empty: this case would compare nothing")
+        for provider, model in (("anthropic", "claude-opus-5-5"), ("anthropic", "claude-haiku-4-5-20251001"),
+                                ("openai", "gpt-6.1-sol"), ("openrouter", "anthropic/claude-opus-5-5"),
+                                ("openrouter", "nobody/no-model")):
+            self.assertEqual(_review_grade(routing_mod, model, provider, graded),
+                             routing_mod.review_grade_ok(model, provider=provider), (provider, model))
+
     def test_the_committed_policy_keeps_openai_the_less_tolerant(self) -> None:
         live_path = os.path.join(HERE, "routing", "policies", "availability.json")
         if not os.path.exists(live_path):
