@@ -113,6 +113,39 @@ def session_env(pid: int, env_of: Callable[[int], bytes | str] | None = None) ->
     return out
 
 
+def _on_token(env: dict | None, tok: str | None) -> bool:
+    """A plain-claude session runs on the synced token when its own environment holds it. One whose environment
+    cannot be read (env is None) is taken as not on it, as a restart has always taken it."""
+    t = env["token"] if env else None
+    return bool(t and tok and util.sha12(t) == util.sha12(tok))
+
+
+def sessions_on_old_sign_in(home: str, *, pids: list[int] | None = None, env_of: Callable[[int], bytes | str] | None = None,
+                            pgrep: Callable[..., Any] | None = None) -> int | None:
+    """How many plain-claude sessions of this account still run on a sign-in other than the synced one — what
+    `fabric-accounts assign --no-restart` leaves behind until each is relaunched. Broker and gateway sessions
+    are never counted (see session_env). None where it cannot be told: no synced token to compare with (the
+    launcher refuses a session on none, so a running one is not "old", it is unknowable), or the process table
+    unreadable. A count of 0 is a measurement, None is not."""
+    tok = synced_var("CLAUDE_CODE_OAUTH_TOKEN", home)
+    if not tok:
+        return None
+    try:
+        running = pids if pids is not None else upgrade().session_pids(**({"run": pgrep} if pgrep else {}))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    old = 0
+    for pid in running:
+        try:
+            env = session_env(pid, env_of)
+        except OSError:
+            env = None
+        if env and (env["transport"] == "gateway" or (env["provider"] and env["provider"] != "anthropic")):
+            continue
+        old += not _on_token(env, tok)
+    return old
+
+
 def _alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -235,8 +268,7 @@ def secrets_sync_once(
                                      util.sha12(tok) if tok else None,
                                      now().isoformat(timespec="milliseconds").replace("+00:00", "Z"))
         extra["gateway"] = proof["detail"]
-    stale = [p for p in running if p not in broker and p not in gateway
-             and not ((t := token_of(p)) and tok and util.sha12(t) == util.sha12(tok))]
+    stale = [p for p in running if p not in broker and p not in gateway and not _on_token(envs[p], tok)]
     if not stale:
         if len(broker) == len(running):
             return done("running (broker): no Claude account to move")

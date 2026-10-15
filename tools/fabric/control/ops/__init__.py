@@ -139,6 +139,19 @@ def _keys(ctx: Mapping[str, Any]) -> Any:
             codex_signin(ctx.get("home"), **({"runtime_root": ctx["runtime_root"]} if ctx.get("runtime_root") else {}))]
 
 
+def _session(ctx: Mapping[str, Any]) -> Any:
+    """session, plus how many of its sessions still run on an account the login has since been moved off
+    (`stale_sign_in`, absent where that cannot be told): a status reader sees an `assign --no-restart` not yet
+    taken up. Additive to the frozen reply."""
+    from control import secrets
+    out = session(ctx.get("uid"), **_run_kw(ctx))
+    if ctx.get("home"):
+        old = secrets.sessions_on_old_sign_in(ctx["home"], **(ctx.get("session_opts") or {}))
+        if old is not None:
+            out["on_old_sign_in"] = old
+    return out
+
+
 def _run_kw(ctx: Mapping[str, Any]) -> dict:
     return {"run": ctx["run"]} if ctx.get("run") else {}
 
@@ -150,7 +163,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "usage": lambda c: c["usage_cached"]() if c.get("usage_cached") else usage(c.get("home"), **({"fetch": c["fetch"]} if c.get("fetch") else {})),
     "keys": _keys,
     "fabric": lambda c: fabric(c.get("root"), **_run_kw(c)),
-    "session": lambda c: session(c.get("uid"), **_run_kw(c)),
+    "session": _session,
     "presence": lambda c: presence(**(c.get("presence_opts") or {})),
     "script": lambda c: script(c.get("home"), source=source_locale(c.get("who"), root=c.get("root"))),
     "recall": lambda c: recall(c.get("home")),
