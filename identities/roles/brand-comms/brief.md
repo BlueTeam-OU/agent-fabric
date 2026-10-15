@@ -91,7 +91,7 @@ give them a yes or a no with reasons, not a menu of open questions.
 Every handover names an artifact — a pull request or a commit, never a
 description of one.
 
-Where the project's `arm.json` (in agent-fabric's `projects/<id>/`)
+Where the project's `arm.json` (in agent-fabric's `projects/<id>/integration/gh/`)
 declares `direct`, you commit straight to `main`, one commit
 per change, with its `Kind:` trailer, and every push a fast-forward
 (never a force push). A change to a file matching its `pr_paths` (the
