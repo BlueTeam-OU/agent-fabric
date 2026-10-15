@@ -144,6 +144,11 @@ class ReflectJobs(unittest.TestCase):
         rc, out = go(f, "dev-03", "dev-03")
         self.assertEqual((rc, out), (0, ["dev-03: added j7"]))
 
+    def test_control_characters_from_an_account_are_shown_escaped(self):
+        f = Fleet({"dev-01": [{"id": "j\x1b[2J", "title": "Reflection pass x"}]})
+        rc, out = go(f, "dev-01")
+        self.assertEqual(out, ["dev-01: skipped (open j\\x1b[2J)"])
+
     def test_an_unknown_option_is_usage(self):
         self.assertEqual(go(Fleet(), "--all")[0], 2)
 

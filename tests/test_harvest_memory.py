@@ -525,6 +525,35 @@ def test_a_drain_with_no_reflection_memory_counts_zero(tmp: str) -> None:
     assert _reflection_count(out) == 0
 
 
+def test_a_reflection_memory_that_is_held_applied_or_before_the_watermark_is_not_counted(tmp: str) -> None:
+    """Kills: counting before the verdict, before the applied-correction skip, or before the watermark."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from corrections import memory_key
+    NEW = "The new fact."
+    mem, out = os.path.join(tmp, "mrefl2"), os.path.join(tmp, "orefl2")
+    os.makedirs(mem)
+    wc = os.path.join(tmp, "wc-refl2")
+    os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    entry = {"slice": ".agent-fabric/memory/architect-cto/solution.md", "heading": "New heading", "replaced": "Old heading",
+             "memory": "fix", "replaced_key": memory_key("The old fact."), "applied_key": memory_key(NEW)}
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"applied_corrections": [entry], "watermarks": {f"{LOGIN}@hostA": 1_000_000_000_000}}, fh)
+
+    def put(name: str, body: str, extra: str = "", description: str = "d") -> None:
+        with open(os.path.join(mem, f"{name}.md"), "w", encoding="utf-8") as fh:
+            fh.write(f"---\nname: {name}\ndescription: {description}\nmetadata:\n  type: project\n  roles_class: solution\n"
+                     f"  origin: reflection{extra}\n---\n\n{body}\n")
+    put("held", "Русский факт.\n\n## English\n\nThe fact in English.", description="По-русски")
+    put("applied", NEW, extra='\n  merge_target: "Old heading"')
+    put("old", "Drained already.")
+    os.utime(os.path.join(mem, "old.md"), (1_000_000, 1_000_000))
+    put("counted", "A fresh reflection fact.")
+    r = run(mem, out, "--working-copy", wc, "--project", "demo", "--host", "hostA")
+    assert r.returncode == 0, r.stderr
+    assert [c["topic"] for c in claims_of(out)] == ["counted"], claims_of(out)
+    assert _reflection_count(out) == 1
+
+
 def test_dry_run_writes_nothing(tmp: str) -> None:
     mem, out = os.path.join(tmp, "m10"), os.path.join(tmp, "o10")
     os.makedirs(mem)
@@ -1031,6 +1060,7 @@ def main() -> int:
     cases = [
         test_only_claims_with_origin_reflection_are_counted,
         test_a_drain_with_no_reflection_memory_counts_zero,
+        test_a_reflection_memory_that_is_held_applied_or_before_the_watermark_is_not_counted,
         test_an_author_s_merge_target_supersedes_without_a_question,
         test_the_watermark_round_trips_through_the_committed_report,
         test_a_bundle_round_trips_and_a_damaged_one_is_refused_by_file,

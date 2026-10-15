@@ -144,10 +144,14 @@ def reflect_one(login: str, week: str, run: Runner, dry_run: bool) -> dict:
         return {"login": login, "result": "failed", "reason": " ".join(reason.split())}
 
 
+_CONTROL = re.compile("[\u0000-\u001f\u007f-\u009f]")
+
+
 def line_of(r: dict) -> str:
     what = {"added": f"added {r.get('job')}", "would-add": "would add",
             "skipped": f"skipped (open {r.get('job')})", "failed": f"failed: {r.get('reason')}"}[r["result"]]
-    return f"{r['login']}: {what}"
+    # What an account sent (a job id, a refusal) reaches the operator's terminal: control characters shown escaped.
+    return _CONTROL.sub(lambda m: f"\\x{ord(m.group(0)):02x}", f"{r['login']}: {what}")
 
 
 def parse(argv: list[str]) -> dict:
@@ -184,6 +188,8 @@ def main(argv: list[str] | None = None, *, run: Runner = real_runner, placed: Ca
     except (OSError, ValueError) as e:
         print(f"fabric-reflect-jobs: the placements cannot be read: {e}", file=sys.stderr)
         return 1
+    if not logins:
+        print("fabric-reflect-jobs: no placed login of kind agent; nothing to do", file=sys.stderr)
     results = [reflect_one(login, week, run, args["dry_run"]) for login in logins]
     if args["json"]:
         out(json.dumps(results))

@@ -5,7 +5,7 @@ through runtime/control/<module>.mjs and through the Python module, against
 the same fixture homes, and the two answers compared byte for byte; the Node's
 answers are frozen in tests/fixtures/node-oracle-ctl-upgrade-sessions-queue.json
 beside the case's input and its Python body, and the Python side is run here
-and compared with them. The cases are the old parity suite's, unchanged
+and compared with them. The cases are the old parity suite's, unchanged but for the reflection clause of the memory table (see AFTER_NODE_REFLECTION; case 28's Python body cuts it before hashing)
 (tests/parity_cases_{ctl,upgrade,sessions,queue}.py at origin/main before s8):
 ctl's argv and every table over answered, forged and partial replies, upgrade's
 argument check and marker bytes, the sessions' state records, the queue's CLI.
@@ -40,7 +40,7 @@ AFTER_NODE_ROW_KEYS = '"gateway":null,"gatewayInstall":null,'
 AFTER_NODE_RESTART_KEY = '"restart":null,'
 # --version goes with gateway-install too now; the Node's words said "with upgrade only".
 AFTER_NODE_VERSION_WORDS = "with upgrade and gateway-install only"
-# ...and the memory table's "<n> from reflection" after the claims (ADR-058 rule 5); n is whatever the
+# ...and the memory table's (case 28's Python body in the fixture cuts it too before hashing; its `node` answer is untouched) "<n> from reflection" after the claims (ADR-058 rule 5); n is whatever the
 # account sent (a forged reply's value is said as it is), so the clause is cut as a whole.
 AFTER_NODE_REFLECTION = re.compile(r", [^,]*? from reflection(?=, )")
 
