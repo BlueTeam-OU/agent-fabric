@@ -105,10 +105,10 @@ check that failed and changing nothing:
      request open or a branch on origin; blocked: a checkable blocker not yet cleared, or
      "owner: <the decision awaited>" as text; paused: its branch pushed; dropped: a reason. Evidence is read from the job's
      artifacts (owner/repo#N, #N, a pull request URL, a commit sha, or reply:<MESSAGE-ID>, the reply's own id or the id it
-     answers, which counts for a job whose artifact is a REPLY, when the journal holds it as sent); a job with topic reflection is also landed by this login's
+     answers, which counts for a job whose artifact is an answer, a message of this login with an IN-REPLY-TO, a REPLY or a DECISION alike, when the journal holds it as sent: accepted by the carrier); a job with topic reflection is also landed by this login's
      fabric-reflect cursor, closed after the job started (ADR-058 rule 4). Whatever the outcome: no uncommitted change in the job's working
-     copy, its worktree or this directory's checkout; every inbound message addressed to this login with REPLY-EXPECTED: yes
-     has an answer of this login in the journal (any outbound message whose IN-REPLY-TO names it, a DECISION as well as a REPLY); and a file in the working copy's memory directory changed since the job last
+     copy, its worktree or this directory's checkout; every inbound REQUEST or QUESTION received since the job (or this session) started, addressed to this login with REPLY-EXPECTED: yes
+     or whose record cannot be read, has an answer of this login in the journal (any accepted outbound message whose IN-REPLY-TO names it, a DECISION as well as a REPLY); and a file in the working copy's memory directory changed since the job last
      became active. A check that cannot be told is a failure, said as such, never a pass.
      `deliver <id> <artifact>` on a done job appends evidence and leaves it closed (a dropped job takes none).
      `retract <id> <artifact>` removes one recorded artifact whatever the job's state, so a mistaken one cannot hold the job; it refuses,

@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -146,6 +147,12 @@ def main() -> int:
                                        env=os.environ, input=json.dumps({"content": text, "seq": 1, **({"ts": ts} if ts else {})}) + "\n" if direction == "in" else text,
                                        capture_output=True, text=True, timeout=60)
                     assert r.returncode == 0, r.stderr
+                    if direction in ("out", "out-failed"):
+                        mid = re.search(r"^MESSAGE-ID: (\S+)$", text, re.M).group(1)
+                        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "gzcoord-out-final", mid,
+                                            "--state", "failed" if direction == "out-failed" else "accepted"],
+                                           env=os.environ, capture_output=True, text=True, timeout=60)
+                        assert r.returncode == 0, r.stderr
 
         def request(mid: str, expect: str = "yes") -> str:
             return (f"[GZCOORD/1] REQUEST\nFROM: peer/sender\nROLE: x\nPROJECT: p\nTO: {me}\nREPLY-EXPECTED: {expect}\n"
@@ -511,7 +518,7 @@ def main() -> int:
         json.dump(doc, open(jobs_path, "w"))
         w.add("the next job")
         rc, out, err = w.switch()
-        check("reflection: a job with no readable start time says so, never a traceback", rc == 1 and "cannot be dated" in err and "Traceback" not in err, out + err)
+        check("reflection: a job with no readable start time says the cursor cannot be dated", rc == 1 and "so the fabric-reflect cursor cannot be dated" in err, out + err)
 
         print("settling the old job: blocked, dropped")
         w = World()
@@ -584,6 +591,22 @@ def main() -> int:
         w.journal(("in", request(RID)))
         w.journal(("out", answer("01a12bae-0000-7000-8000-000000000004", RID).replace("] REPLY", "] INFO").replace("IN-REPLY-TO: " + RID + "\n", "")))
         settles(w, j1, "an outbound message with no IN-REPLY-TO answers nothing", f"({RID})")
+        for label, kind, state in (("an empty IN-REPLY-TO", "empty", "out"), ("a failed send", "reply", "out-failed"), ("a send still pending", "reply", "out-pending")):
+            w = World()
+            j1 = w.working(f"an owed reply 'answered' by {label}")
+            w.sw("drop", j1, "done with it")
+            w.journal(("in", request(RID)))
+            text = answer("01a12bae-0000-7000-8000-000000000007", RID)
+            if kind == "empty":
+                text = text.replace("] REPLY", "] INFO").replace("IN-REPLY-TO: " + RID, "IN-REPLY-TO: ")
+            w.journal((state, text))
+            settles(w, j1, f"{label} answers nothing", f"({RID})")
+            D2 = "01a12bae-0000-7000-8000-000000000008"
+            w = World()
+            j1 = w.working(f"delivered by the id of {label}")
+            w.journal((state, text.replace("000000000007", "000000000008")))
+            w.sw("deliver", j1, f"reply:{D2}")
+            settles(w, j1, f"reply:<id> of {label} is no evidence", f"reply:{D2} names no answer this login sent")
         w = World()
         j1 = w.working("an owed reply 'answered' by an inbound message")
         w.sw("drop", j1, "done with it")
