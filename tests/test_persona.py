@@ -62,6 +62,15 @@ class Persona(unittest.TestCase):
         self.assertEqual(got["web-dev"], "AI First4 Sur4, Web developer")
         self.assertEqual(got["p2p-network-dev-01"], "AI First6 Sur6, P2P developer")
 
+    def test_role_of_a_jurisdiction_a_number_or_a_locale_suffix(self) -> None:
+        roles = ["legal-expert", "language-culture", "python-dev", "legal"]
+        want = {"legal-expert-ee-eu": "legal-expert", "legal-expert-ch": "legal-expert", "legal-expert-ge": "legal-expert",
+                "legal-expert-01": "legal-expert", "language-culture-ru": "language-culture", "legal-expert": "legal-expert",
+                "nope-x": None, "python-devx": None}
+        for login, role in want.items():
+            self.assertEqual(persona.role_of(login, roles, set(), self.root), role, login)
+        self.assertFalse(os.path.isdir(roots.locale_dir("legal-expert", "ee-eu", root=self.root)), "no locale is needed")
+
     def test_a_login_with_no_role_has_a_name_without_a_title(self) -> None:
         self.assertEqual(persona.find("stranger-01", self.root)["display"], "AI First5 Sur5")
 

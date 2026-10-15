@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,17 +31,15 @@ def _load(path: str) -> dict:
 
 
 def role_of(login: str, role_ids: list[str], coordinator_logins: set[str], root: str | None = None) -> str | None:
-    """The role a login holds: a coordinator holder, else a catalog role's id alone, with `-<n>`, or with a
-    locale suffix that exists under identities/roles/<role>/locale/. Longest id first: `a-b` before `a`."""
+    """The role a login holds: a coordinator holder, else the longest catalog role id the login is, or starts with
+    followed by `-<suffix>`: a number (`python-dev-02`), a locale (`language-culture-ge`) or a jurisdiction
+    (`legal-expert-ee-eu`). Longest id first, so `a-b-x` is `a-b`'s when both `a` and `a-b` are roles. A suffix
+    need not name a directory: legal-expert-ee-eu has no locale/ee-eu/ and was left roleless when it had to
+    (2026-10-15). `root` is kept for callers; the role no longer depends on the tree."""
     if login in coordinator_logins:
         return "fabric-coordinator"
     for role in sorted(role_ids, key=len, reverse=True):
-        if login == role:
-            return role
-        if not login.startswith(role + "-"):
-            continue
-        rest = login[len(role) + 1:]
-        if re.fullmatch(r"\d+", rest) or os.path.isdir(roots.locale_dir(role, rest, root=root)):
+        if login == role or (login.startswith(role + "-") and len(login) > len(role) + 1):
             return role
     return None
 
