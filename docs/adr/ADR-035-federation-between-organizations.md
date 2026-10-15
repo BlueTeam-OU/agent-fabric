@@ -154,5 +154,5 @@ Accepted and in force.
   ADR-024 (messages are advisory), ADR-032 (the protocol's freeze),
   ADR-033 (the relay's shared token).
 - `runtime/hosts/registry.json` (`operator_key`),
-  `runtime/control/sign.mjs`, `projects/registry.json` (`license`),
+  `tools/fabric/control/sign.py`, `projects/registry.json` (`license`),
   `tools/fabric/lint.py` (`project_name_findings`, `GENERIC_DIRS`).

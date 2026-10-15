@@ -149,6 +149,6 @@ Accepted and in force.
   ADR-010 (hosts, leases, quota), ADR-021 (a test run leaves nothing),
   ADR-026 (supervision per verified result), ADR-029 (`host`, `tokens`),
   ADR-031 (usage windows).
-- `bin/fabric-lease`, `bin/fabric-usage`, `runtime/control/ops.mjs`
+- `bin/fabric-lease`, `bin/fabric-usage`, `tools/fabric/control/ops/`
   (`tokens`, `equivalent`), `tools/fabric/launch_prompt.py`
   (`MAX_CHARS`), `tools/fabric/lint.py` (the template and slice budgets).

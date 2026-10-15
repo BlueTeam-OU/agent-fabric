@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** communication/gzcoord/protocol/ (SPEC.md, MESSAGE-FORMAT.md, SEMANTICS.md, CONFORMANCE.md, examples/); the reference validator communication/gzcoord/scripts/gzmsg.mjs and communication/gzcoord/tests/protocol.test.mjs; fabric-coordinator's authority over the protocol (identities/roles/fabric-coordinator/charter.md, "The GZCoord protocol"); how a protocol change is proposed, judged and recorded
+**Scope:** communication/gzcoord/protocol/ (SPEC.md, MESSAGE-FORMAT.md, SEMANTICS.md, CONFORMANCE.md, examples/); the reference validator tools/fabric/gzcoord/gzmsg.py and tests/test_gzcoord_protocol.py; fabric-coordinator's authority over the protocol (identities/roles/fabric-coordinator/charter.md, "The GZCoord protocol"); how a protocol change is proposed, judged and recorded
 **Pillar:** P5
 
 ## 1. Context and Problem
@@ -150,8 +150,8 @@ record on.
 
 - `communication/gzcoord/protocol/SPEC.md` (§4, §6, §10, §18),
   `MESSAGE-FORMAT.md`, `SEMANTICS.md`, `CONFORMANCE.md`, `examples/`.
-- `communication/gzcoord/scripts/gzmsg.mjs` (`validate`),
-  `communication/gzcoord/tests/protocol.test.mjs`.
+- `tools/fabric/gzcoord/gzmsg.py` (`validate`),
+  `tests/test_gzcoord_protocol.py`.
 - `identities/roles/fabric-coordinator/charter.md` §"The GZCoord
   protocol".
 - `communication/gzcoord/README.md`.

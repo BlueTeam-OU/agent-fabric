@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** communication/gzcoord/i18n/ (README.md — the manual, en-US.json, i18n.schema.json); communication/gzcoord/scripts/i18n.mjs and its callers gzmsg.mjs, send.mjs and inbox.mjs; communication/gzcoord/tests/i18n.test.mjs; an active locale's dictionary under identities/roles/<role>/locale/<suffix>/; the dictionary checks in tools/fabric/lint.py; `GZCOORD_DEFAULT_LOCALE_ONLY` in tests/run.sh; any dictionary the fabric adds later
+**Scope:** communication/gzcoord/i18n/ (README.md — the manual, en-US.json, i18n.schema.json); tools/fabric/gzcoord/i18n.py and its callers gzmsg.py, send.py and inbox.py; tests/test_gzcoord_i18n.py; an active locale's dictionary under identities/roles/<role>/locale/<suffix>/; the dictionary checks in tools/fabric/lint.py; `GZCOORD_DEFAULT_LOCALE_ONLY` in tests/run.sh; any dictionary the fabric adds later
 **Pillar:** P4
 
 ## 1. Context and Problem
@@ -177,8 +177,8 @@ tools print the reader's language; `ru` is the one active locale.
 
 - `communication/gzcoord/i18n/README.md` (the manual), `en-US.json`,
   `i18n.schema.json`.
-- `communication/gzcoord/scripts/i18n.mjs`, `gzmsg.mjs` (`validate`),
-  `send.mjs`, `inbox.mjs`; `communication/gzcoord/tests/i18n.test.mjs`.
+- `tools/fabric/gzcoord/i18n.py`, `gzmsg.py` (`validate`),
+  `send.py`, `inbox.py`; `tests/test_gzcoord_i18n.py`.
 - `identities/roles/language-culture/locale/ru/ru-RU.json`, `locale.json`.
 - `tools/fabric/lint.py` (`i18n_default_dictionary_findings`,
   `i18n_dictionary_findings`); `tests/run.sh`.

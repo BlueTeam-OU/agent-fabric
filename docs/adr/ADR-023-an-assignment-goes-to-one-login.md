@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** communication/gzcoord/protocol/SPEC.md §13 and §18; communication/gzcoord/protocol/MESSAGE-FORMAT.md §"Direct versus role addressing"; communication/gzcoord/protocol/examples/; the validator in communication/gzcoord/scripts/gzmsg.mjs and communication/gzcoord/scripts/send.mjs; communication/gzcoord/skills/gzcoord-send and gzcoord-receive
+**Scope:** communication/gzcoord/protocol/SPEC.md §13 and §18; communication/gzcoord/protocol/MESSAGE-FORMAT.md §"Direct versus role addressing"; communication/gzcoord/protocol/examples/; the validator in tools/fabric/gzcoord/gzmsg.py and tools/fabric/gzcoord/send.py; communication/gzcoord/skills/gzcoord-send and gzcoord-receive
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -116,8 +116,8 @@ stub pointing here.
   `communication/gzcoord/protocol/MESSAGE-FORMAT.md` §"Direct versus role
   addressing"; `communication/gzcoord/protocol/examples/observation.txt`,
   `observation-diagnosis.txt`.
-- `communication/gzcoord/scripts/gzmsg.mjs` (validate), `send.mjs`;
-  `communication/gzcoord/tests/protocol.test.mjs`;
+- `tools/fabric/gzcoord/gzmsg.py` (validate), `send.py`;
+  `tests/test_gzcoord_protocol.py`;
   `communication/gzcoord/i18n/en-US.json` (`validate.request-to-role`,
   `validate.section-to-role`).
 - `communication/gzcoord/skills/gzcoord-send/SKILL.md`,

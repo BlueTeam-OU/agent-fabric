@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-01, by the merge of agent-fabric #78 (30c99471), which carried it, as §8 provided
 **Decision Makers:** the owner (the design, after a written review of what history the fleet keeps); drafted by fabric-coordinator
-**Scope:** `tools/fabric/episodic.py` (the journal), `tools/fabric/history.py` and `bin/fabric-history` (retrieval), the journal calls in `communication/gzcoord/scripts/send.mjs` and `inbox.mjs`, the per-agent `episodic.db` in the account's runtime state
+**Scope:** `tools/fabric/episodic.py` (the journal), `tools/fabric/history.py` and `bin/fabric-history` (retrieval), the journal calls in `tools/fabric/gzcoord/send.py` and `inbox.py`, the per-agent `episodic.db` in the account's runtime state
 **Pillar:** P1
 **Evidence:** docs/live-checks/2026-10-01-episodic-journal.md
 

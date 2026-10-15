@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-09, in the coordinator's session ("accept adr 045"), carried by the pull request that marks it Accepted
 **Decision Makers:** the owner (the three layers and the open engine); drafted by fabric-coordinator
-**Scope:** what agent-fabric holds and what moves out of it: the engine (this repository, to be published), the operator repository of the company that runs the agents, and each client's engagement; the seam that lets one engine read either (`roots`, to be created by stage 2 as `tools/fabric/roots.py` and `runtime/control/roots.mjs`); how a working copy resolves to its client; decision-record numbering across the split
+**Scope:** what agent-fabric holds and what moves out of it: the engine (this repository, to be published), the operator repository of the company that runs the agents, and each client's engagement; the seam that lets one engine read either (`roots`, to be created by stage 2 as `tools/fabric/roots.py` and `tools/fabric/roots.py`); how a working copy resolves to its client; decision-record numbering across the split
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -95,7 +95,7 @@ Rule 4 holds today: no record has been renumbered.
 ## References
 
 - ADR-001 (the records and their numbering), ADR-011 (a project's pin of the fabric), ADR-013 and ADR-014 (the memory corpus and its drain), ADR-038 and ADR-039 (keys, stores, the agent id), ADR-044 (identity kinds).
-- `tools/fabric/layout.py`, `tools/fabric/workingcopy.py`, `runtime/control/gzcoord.mjs`: today's readers of instance data.
+- `tools/fabric/layout.py`, `tools/fabric/workingcopy.py`, `tools/fabric/control/gzcoord.py`: today's readers of instance data.
 - `tools/fabric/lint_rules/docs.py` `project_name_findings`: the boundary lint the seam's rule extends.
 
 ## Amendments

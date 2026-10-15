@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** communication/gzcoord/docs/TRANSPORT-ADAPTER-CONTRACT.md and HUMAN-RELAY-TRANSPORT.md (the manuals); communication/gzcoord/history/ (telegram-transport, claude-bridge-selection); the relay's deployment — communication/gzcoord/runtime/gzcoord-relay.service, its installation in runtime/claude-code/bootstrap.sh, the session-start activation in communication/gzcoord/scripts/inbox.mjs, the projects' integration configs (projects/gzapp/integration/gzcoord/config.json and its siblings), and projects/gzapp/integration/gzcoord/BRIDGE-RELAY-SETUP.md
+**Scope:** communication/gzcoord/docs/TRANSPORT-ADAPTER-CONTRACT.md and HUMAN-RELAY-TRANSPORT.md (the manuals); communication/gzcoord/history/ (telegram-transport, claude-bridge-selection); the relay's deployment — communication/gzcoord/runtime/gzcoord-relay.service, its installation in runtime/claude-code/bootstrap.sh, the session-start activation in tools/fabric/gzcoord/inbox.py, the projects' integration configs (projects/gzapp/integration/gzcoord/config.json and its siblings), and projects/gzapp/integration/gzcoord/BRIDGE-RELAY-SETUP.md
 **Pillar:** P5
 
 ## 1. Context and Problem
@@ -166,8 +166,8 @@ relay is the fallback, and the relay is central.
 - `communication/gzcoord/runtime/gzcoord-relay.service`,
   `communication/gzcoord/runtime/README.md`,
   `runtime/claude-code/bootstrap.sh`,
-  `communication/gzcoord/scripts/inbox.mjs` (the relay's activation,
-  `forMe`), `communication/gzcoord/scripts/gzmsg.mjs` (`new-id`,
+  `tools/fabric/gzcoord/inbox.py` (the relay's activation,
+  `forMe`), `tools/fabric/gzcoord/gzmsg.py` (`new-id`,
   `normalize`).
 - `projects/gzapp/integration/gzcoord/BRIDGE-RELAY-SETUP.md`,
   `projects/*/integration/gzcoord/config.json`.

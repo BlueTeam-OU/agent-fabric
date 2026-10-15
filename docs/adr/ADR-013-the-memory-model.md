@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** memory/ (README.md, RUBRIC.md, domains/, shared/, agents/); every managed project's .agent-fabric/memory/; tools/fabric/layout.py, tools/fabric/harvest_memory.py, tools/fabric/assemble.py, runtime/claude-code/hooks/memory-write-check.py, tools/fabric/lint.py, fabric-query; identities/schemas/claims.schema.json; identities/prompt/memory.md; policies/hygiene.json; runtime/control/ctl.mjs (the `memory` op); bin/fabric-status (the undrained count)
+**Scope:** memory/ (README.md, RUBRIC.md, domains/, shared/, agents/); every managed project's .agent-fabric/memory/; tools/fabric/layout.py, tools/fabric/harvest_memory.py, tools/fabric/assemble.py, runtime/claude-code/hooks/memory-write-check.py, tools/fabric/lint.py, fabric-query; identities/schemas/claims.schema.json; identities/prompt/memory.md; policies/hygiene.json; tools/fabric/control/ctl.py (the `memory` op); bin/fabric-status (the undrained count)
 **Pillar:** P2
 
 ## 1. Context and Problem
@@ -280,7 +280,7 @@ the manual.
   `identities/schemas/claims.schema.json`.
 - `tests/test_harvest_memory.py`, `tests/test_assemble.py`,
   `tests/test_lint.py`.
-- `runtime/control/ctl.mjs` (the `memory` op, `wrong-agent`),
+- `tools/fabric/control/ctl.py` (the `memory` op, `wrong-agent`),
   `runtime/claude-code/hooks/session-start.py` (the project layer),
   `bin/fabric-status`.
 - ADR-000 (P2), ADR-001 (promotion of a rationale slice), ADR-002 (the
