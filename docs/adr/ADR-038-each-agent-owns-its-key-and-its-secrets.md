@@ -214,7 +214,9 @@ sharing a machine.
     - its commits are signed and verified as ADR-042 says of an agent's,
       with the holders as its only writers, because every agent's
       `GH_TOKEN` can push to it. Each commit is judged against the
-      holders of the fabric commit it records, and each re-encryption is
+      holders of the fabric commit it records and must be signed by a
+      holder now, so a removed holder's key extends nothing; each
+      re-encryption is
       a checkpoint; a holder that has never held the store verifies it
       from the newest checkpoint signed by a holder on `origin/main` now,
       and every commit after it, each recording a fabric commit no older
@@ -229,7 +231,8 @@ sharing a machine.
       commit's. A verifier reads such a checkpoint and never the
       commits it supersedes, and judges it against that commit, never
       the superseded ones; this is the one exception to rule 3 here,
-      and the owner's recovery goes through it;
+      and the owner's recovery goes through it, the owner naming the
+      commit it restores when no current holder signed a checkpoint;
     - no other agent decrypts it. What an agent needs is put into the
       agent's own store, write-only, by the agent's parent (ADR-042
       rule 2's only writer besides the agent; a holder that is not the
