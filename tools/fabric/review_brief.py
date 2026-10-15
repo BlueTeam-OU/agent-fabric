@@ -557,14 +557,27 @@ def ensure_head_worktree(repo: str, head_sha: str) -> tuple[str, bool]:
     root = os.path.dirname(path)
     os.makedirs(root, mode=0o700, exist_ok=True)
     os.chmod(root, 0o700)
-    if os.path.lexists(path):
-        if worktree_head(path) == head_sha:
+    try:
+        if os.path.lexists(path):
+            if worktree_head(path) != head_sha:
+                raise EvidenceRefused(f"{path} exists and is not a worktree at {head_sha[:12]}; "
+                                      "it is not mine to delete: move it away or remove it, then render again")
+            # A reviewer reads this tree as the head: a tracked edit would be evidence that is not the head.
+            st = _git(path, "status", "--porcelain", "--untracked-files=no")
+            changed = st.stdout.decode(errors="replace").splitlines()
+            if st.returncode != 0 or changed:
+                raise EvidenceRefused(f"{path} is not clean ({changed[0][3:] if changed else st.stderr.decode(errors='replace').strip()}); "
+                                      "it is not mine to delete: restore or remove it, then render again")
             return path, False
-        raise EvidenceRefused(f"{path} exists and is not a worktree at {head_sha[:12]}; "
-                              "it is not mine to delete: move it away or remove it, then render again")
-    r = _git(repo, "worktree", "add", "--detach", path, head_sha)
-    if r.returncode != 0:
-        raise EvidenceRefused(f"git worktree add --detach {path} {head_sha[:12]} failed: {r.stderr.decode(errors='replace').strip()}")
+        r = _git(repo, "worktree", "add", "--detach", path, head_sha)
+        # A cleaned temp dir leaves the clone's registration behind; prune drops only registrations whose path is gone.
+        if r.returncode != 0 and b"missing but already registered" in r.stderr:
+            _git(repo, "worktree", "prune")
+            r = _git(repo, "worktree", "add", "--detach", path, head_sha)
+        if r.returncode != 0:
+            raise EvidenceRefused(f"git worktree add --detach {path} {head_sha[:12]} failed: {r.stderr.decode(errors='replace').strip()}")
+    except subprocess.TimeoutExpired as exc:
+        raise EvidenceRefused(f"{' '.join(map(str, exc.cmd))} timed out after {exc.timeout:g}s; {path} may be half made: check it, then render again")
     return path, True
 
 
@@ -599,7 +612,8 @@ def pinned_evidence(req: dict, allow_rationale: bool = False):
         yield path
     except BaseException:
         if made and path:
-            _git(req["repository"], "worktree", "remove", "--force", path)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                _git(req["repository"], "worktree", "remove", "--force", path)
         raise
 
 

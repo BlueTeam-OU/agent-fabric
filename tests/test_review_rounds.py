@@ -320,17 +320,27 @@ def main() -> int:
         r = run("save", "8", "1", stdin=hdr(base))
         check("save leaves a directory that is not the expected worktree alone", r.returncode == 0 and os.path.isdir(plain)
               and "removed" not in r.stderr, r)
+        # the case the guard protects: a registered worktree of the same repo at the path, checked out elsewhere
+        def at(rev: str) -> None:
+            subprocess.run(["git", "-C", wt, "checkout", "-q", "--detach", rev], env=env, check=True, capture_output=True, timeout=30)
+        at(base)
+        r = run("save", "8", "1", stdin=hdr(head1))
+        check("save leaves a registered worktree of the repo that is at another commit, and says why",
+              r.returncode == 0 and os.path.isdir(wt) and wt in git("worktree", "list") and "removed" not in r.stderr
+              and f"left {wt}: not a worktree at {head1[:12]}" in r.stderr, r)
+        at(head1)
         r = run("save", "8", "1", stdin=hdr(head1, "working-tree"))
-        check("save removes nothing for a report that was not pinned", r.returncode == 0 and os.path.isdir(wt), r)
+        check("save removes nothing for a report that was not pinned, quietly", r.returncode == 0 and os.path.isdir(wt) and "left" not in r.stderr, r)
         r = run("save", "8", "1", stdin="## Round\n")
-        check("...nor without a header", r.returncode == 0 and os.path.isdir(wt), r)
+        check("...nor without a header", r.returncode == 0 and os.path.isdir(wt) and "left" not in r.stderr, r)
         r = run("save", "8", "1", stdin=hdr("../../etc"))
         check("...nor for a head_sha that is no commit id", r.returncode == 0 and os.path.isdir(wt), r)
         r = run("save", "8", "1", stdin=hdr(head1))
         check("save removes the round's worktree and says so", r.returncode == 0 and not os.path.exists(wt)
               and f"removed the head worktree {wt}" in r.stderr and wt not in git("worktree", "list"), r)
         r = run("save", "8", "2", stdin=hdr(head1))
-        check("...and with nothing there it succeeds quietly", r.returncode == 0 and "removed" not in r.stderr, r)
+        check("...and with nothing there it succeeds, naming the path it looked at",
+              r.returncode == 0 and "removed" not in r.stderr and f"left {wt}: nothing there" in r.stderr, r)
         shutil.rmtree(plain)
         bad = os.path.join(tmp, "scratch", "BAD.json")
         with open(bad, "w") as f:

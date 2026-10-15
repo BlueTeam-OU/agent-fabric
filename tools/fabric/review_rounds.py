@@ -167,12 +167,20 @@ def remove_head_worktree(report: str, repo: str) -> str | None:
             and isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha)):
         return None
     path = review_brief.evidence_path(repo, sha)
-    if os.path.dirname(path) != os.path.join(tempfile.gettempdir(), "fabric-review") or review_brief.worktree_head(path) != sha:
+    try:
+        at = review_brief.worktree_head(path) if os.path.dirname(path) == os.path.join(tempfile.gettempdir(), "fabric-review") else None
+        if at != sha:
+            # Said, not silent: --repo naming something other than the clone's directory looks here and finds nothing.
+            print(f"fabric-review: left {path}: " + ("nothing there" if not os.path.lexists(path) else f"not a worktree at {sha[:12]}"),
+                  file=sys.stderr)
+            return None
+        common = subprocess.run(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                capture_output=True, text=True, timeout=30)
+        gone = subprocess.run(["git", f"--git-dir={common.stdout.strip()}", "worktree", "remove", "--force", path],
+                              capture_output=True, text=True, timeout=120) if common.returncode == 0 else common
+    except subprocess.TimeoutExpired as exc:
+        print(f"fabric-review: warning: could not remove the head worktree {path}: {exc}", file=sys.stderr)
         return None
-    common = subprocess.run(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                            capture_output=True, text=True, timeout=30)
-    gone = subprocess.run(["git", f"--git-dir={common.stdout.strip()}", "worktree", "remove", "--force", path],
-                          capture_output=True, text=True, timeout=120) if common.returncode == 0 else common
     if gone.returncode != 0:
         print(f"fabric-review: warning: could not remove the head worktree {path}: {gone.stderr.strip()}", file=sys.stderr)
         return None

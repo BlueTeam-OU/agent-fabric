@@ -387,6 +387,49 @@ def test_a_refused_pinned_request_leaves_no_worktree(tmp: str) -> None:
         tempfile.tempdir = saved
 
 
+def test_reusing_and_remaking_a_head_worktree(tmp: str) -> None:
+    repo = mkrepo(tmp, "reusedrepo")
+    head = g(repo, "rev-parse", "HEAD")
+    env = TMPENV(tmp)
+    want = os.path.join(env["TMPDIR"], "fabric-review", f"reusedrepo-{head[:12]}")
+    req = os.path.join(tmp, "reused.json")
+    json.dump(base_request(repo), open(req, "w"))
+
+    def brief() -> subprocess.CompletedProcess:
+        return subprocess.run([BIN, "brief", req], capture_output=True, text=True, env=env)
+
+    assert brief().returncode == 0
+    open(os.path.join(want, "__pycache__"), "w").close()
+    assert brief().returncode == 0, "an untracked file does not refuse a reuse"
+    open(os.path.join(want, "a.txt"), "a").write("edited\n")
+    r = brief()
+    assert r.returncode == 2 and want in r.stderr and "a.txt" in r.stderr and r.stdout == "", r
+    assert "edited" in open(os.path.join(want, "a.txt")).read(), "a dirty worktree is refused, never deleted"
+    g(repo, "worktree", "remove", "--force", want)
+    # the registration outlives a cleaned temp dir: pruned once, then made again
+    assert brief().returncode == 0
+    shutil.rmtree(want)
+    r = brief()
+    assert r.returncode == 0 and os.path.isdir(want), r.stderr
+    g(repo, "worktree", "remove", "--force", want)
+    # a git that hangs is a refusal, not a traceback
+    saved, tempfile.tempdir = tempfile.tempdir, env["TMPDIR"]
+    real = rb._git
+
+    def hang(*a, **k):
+        raise subprocess.TimeoutExpired(["git", "worktree", "add"], 60)
+    rb._git = hang
+    try:
+        try:
+            rb.ensure_head_worktree(repo, head)
+            raise AssertionError("no refusal")
+        except rb.EvidenceRefused as exc:
+            assert "timed out" in str(exc), exc
+    finally:
+        rb._git = real
+        tempfile.tempdir = saved
+
+
 def test_every_refusal_names_its_field(tmp: str) -> None:
     repo = mkrepo(tmp, "repo2")
     ok = base_request(repo)
@@ -614,7 +657,7 @@ def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
              test_render_carries_every_heading_once_and_the_named_lenses, test_the_project_review_card,
-             test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode, test_a_pinned_brief_checks_out_its_head_detached, test_a_refused_pinned_request_leaves_no_worktree,
+             test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode, test_a_pinned_brief_checks_out_its_head_detached, test_a_refused_pinned_request_leaves_no_worktree, test_reusing_and_remaking_a_head_worktree,
              test_every_refusal_names_its_field,
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
