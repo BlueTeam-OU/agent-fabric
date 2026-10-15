@@ -200,24 +200,32 @@ sharing a machine.
       recovery key is in this `.gpg-id` and in no agent's, because a
       company's store has no agent to be recovered through: a retired
       holder leaves no heir (rule 4), and the company's credentials
-      outlive every holder. A holder change merges first; each company
-      store is then re-encrypted to the list on `origin/main`, and until
-      it is, the store is refused for every use but that re-encryption;
+      outlive every holder. A holder is added in one merge and removed
+      in a later one, each followed by a re-encryption of every company
+      store to the list on `origin/main`, run by a holder that is still
+      a recipient; until it is, the store is refused for every use but
+      reading its recipients, cloning it and that re-encryption. When no
+      holder can decrypt (a lost key, rule 4), the owner re-encrypts it
+      with the recovery key, in a terminal;
     - its commits are signed and verified as ADR-042 says of an agent's,
       with the holders as its only writers, because every agent's
-      `GH_TOKEN` can push to it. Its trusted base is its root commit,
-      signed by a holder, so a holder that has never held it verifies its
-      whole history; its default branch refuses a force-push and a
-      deletion, and a holder refuses a head that does not descend from
-      the last head it verified;
+      `GH_TOKEN` can push to it. Each commit is judged against the
+      holders of the fabric commit it records, and each re-encryption is
+      a checkpoint; a holder that has never held the store verifies it
+      from the newest checkpoint whose recorded holders include its
+      signer, back to none older. Its default branch refuses a
+      force-push and a deletion, and a holder refuses a head that does
+      not descend from the last head it verified;
     - no other agent decrypts it. What an agent needs is put into the
       agent's own store, write-only, by the agent's parent (ADR-042
       rule 2's only writer besides the agent; a holder that is not the
       parent is refused), and only for a name the store's own grants
       give that login;
     - the fleet's names — the operator's values of `provision share`'s
-      allowlist — are put as themselves and applied as today. Every
-      other granted name, the operator's own included, is a client's:
+      allowlist, and what a holder command derives for every agent (a
+      Claude account's token, the Codex sign-in) — are put as themselves
+      and applied as today. Every other granted name, the operator's own
+      included, is a client's:
       put under that client's namespace (`client/<client>/<NAME>`),
       applied by sync to that client's file (`clients/<client>.env`,
       0600), never to `secrets.env`, and given to a command only in a

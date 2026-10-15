@@ -25,7 +25,6 @@ no store and nothing is proposed for it.
 | `CODEX_ASSIGNED_<id>` (26) | coordinator | blueteam, holder-only | the same record for the Codex sign-in | |
 | `OPENAI_ADMIN_KEY` | coordinator | blueteam, holder-only | mints every agent's `OPENAI_API_KEY` (`provision issue-key openai`) | |
 | `OPENROUTER_PROVISIONING_KEY` | coordinator | blueteam, holder-only | mints every agent's `OPENROUTER_API_KEY` | |
-| `CODEX_CHATGPT_ACCESS_TOKEN`, `CODEX_CHATGPT_ACCOUNT_ID` | coordinator and 25 children | blueteam, holder-only (source); each agent keeps the copy its Codex assignment puts, as today | the company's ChatGPT team sign-in, the same for every agent | |
 | `GH_TOKEN`, `CLAUDE_BRIDGE_AUTH_TOKEN`, `GIT_USER_NAME`, `GIT_USER_EMAIL`, `SSH_PRIVATE_KEY`, `SSH_PUBLIC_KEY` | coordinator and 25 children | blueteam, fleet names (source); each agent keeps its applied copy, granted `all` | six of `provision share`'s eight allowlisted names (the other two are under the owner's call): the coordinator's own value is the source today, and would die with its key | |
 | `BLUETEAM_DEPLOY_HOST`, `BLUETEAM_DEPLOY_USER`, `BLUETEAM_DEPLOY_PASSWORD` | edge-hosting (set by itself, 2026-10-11) | blueteam, client names (`client/blueteam/…`), granted edge-hosting | the company's deploy target, not the agent's own; a second holder of the role would need it. A client name, so it reaches only blueteam's working copies | |
 
@@ -35,6 +34,7 @@ no store and nothing is proposed for it.
 |---|---|
 | `AGENT_LOGIN`, `AGENT_HOST` | who the store is (sync's exit 3) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | this login's assigned account; put from a template, applied per login |
+| `CODEX_CHATGPT_ACCESS_TOKEN`, `CODEX_CHATGPT_ACCOUNT_ID` (coordinator and 25) | a fleet name `codex-token` derives from the sign-in home (`~/.codex-chatgpt`), not from a store: nothing to move; each copy is applied as today |
 | `OPENAI_API_KEY`, `OPENROUTER_API_KEY` | one per login by design, for per-agent spend |
 | `FABRIC_CONTROL_SIGNING_KEY` | the host operator's own signing key (ADR-029) |
 | `GZAPP_PORT_OFFSET` (11) | a per-login value of gzapp's, not a credential |

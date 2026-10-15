@@ -165,9 +165,12 @@ Only the fleet's names (`provision share`'s allowlist) stay fleet-wide;
 every other granted name, the operator's own included, is a client's,
 namespaced and applied to that client's working copies only — ADR-045
 rule 6, with rule 9's honest limit: it stops an accident, not the login.
-Because any agent can push to a company store, its trusted base is its
-holder-signed root, its branch refuses a force-push, and a holder refuses
-a head older than the last it verified.
+Because any agent can push to a company store, each commit is judged
+against the holders of the fabric commit it records, each re-encryption
+is a checkpoint a new holder verifies from, its branch refuses a
+force-push, and a holder refuses a head older than the last it verified.
+A holder is added before the one it replaces is removed, so someone can
+always re-encrypt; when no one can, the owner does, with the recovery key.
 
 Rejected: an agent as a recipient of its client's store (every agent would
 read every client credential it was never granted, and a grant would be a
