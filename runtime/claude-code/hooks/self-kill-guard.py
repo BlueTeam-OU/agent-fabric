@@ -115,8 +115,15 @@ def unevaluated(command: str) -> str | None:
     """The expansion a command that kills uses and this hook does not
     evaluate — ANSI-C or locale quoting, a backslash-newline, a brace
     expansion — or None. Chasing each spelling took four review rounds on
-    #242; what is left asks instead of passing (round 4)."""
-    if "kill" not in unquoted(command):
+    #242; what is left asks instead of passing (round 4).
+
+    Judged on the text a shell runs: a here-document's body is data unless
+    a shell reads it (drop_heredoc_bodies, as kill detection does), and kill,
+    pkill or killall count only as command words (KILL_TOOL_WORD), so an edit script's
+    `os.kill`, a `self_kill` file name or a Python dict's braces no longer
+    ask (two sessions stopped on it, 2026-10-15)."""
+    command = drop_heredoc_bodies(command)
+    if not KILL_TOOL_WORD.search(unquoted(command)):
         return None
     for mark, what in (("$'", "ANSI-C quoting $'…'"), ('$"', 'locale quoting $"…"'),
                        ("\\\n", "a backslash-newline")):
@@ -329,6 +336,8 @@ OWN_JOB = {"$!", "${!}"}
 # kill`, inside any quoting or nested shell), not pkill, killall or a
 # hyphenated name; and an integer-looking token, its sign dropped.
 KILL_WORD = re.compile(r"(?<![\w.-])kill(?![\w.-])")
+# kill, pkill or killall as a command word: what unevaluated() asks about.
+KILL_TOOL_WORD = re.compile(r"(?<![\w.-])(?:kill|pkill|killall)(?![\w.-])")
 INTEGER = re.compile(r"(?<![\w.])[+-]?(\d{1,10})(?![\w.])")
 MAX_PIDS = 512
 
