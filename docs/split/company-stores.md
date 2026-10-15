@@ -45,8 +45,8 @@ rows or names, never a value; a value enters only on stdin.
 | `company clone <client>` | a holder's first contact with an existing store: clones it and verifies it from the newest checkpoint its own login can anchor (see Signed and verified), as far as commits verify; it records that commit as its last verified head and names the first that does not verify, after which the store is refused for all but `repair` and `recover`. |
 | `company recipients <client> [--json]` | expected against actual recipients; exit 0 equal, 3 different. |
 | `company reencrypt <client>` | every entry re-encrypted to the expected recipients, one signed commit, a checkpoint. Run after each holder change merges, by a holder that is still a recipient. After an addition the added holder runs it (its `clone` starts from an existing holder's checkpoint, and it can decrypt once an existing holder's `reencrypt` has run, so the order is: existing holder `reencrypt`, added holder `clone`, added holder `reencrypt`); a removal merges only after the store's newest checkpoint is signed by a holder that remains, and is re-encrypted by a remaining one. |
-| `company repair <client>` | a holder, on a store refused for a commit that does not verify. Verifies forward from its own start (its last verified head, or a fresh clone's checkpoint) along the first-parent chain as far as commits verify; the last that does is the verified parent P. Pushes on top of the head a checkpoint R with P's tree (so P's `.gpg-id` and grants: no newer signed commit is undone), `Supersedes: <P>..<head>` (every commit after P), and a recorded fabric commit judged against P's, never against a superseded one. Refused, naming why, when nothing after its start verifies. Exempt from the recipients rule, which it judges at P. |
-| `company recover <client>` | the owner, in a terminal, when no remaining holder can re-encrypt or repair (none can decrypt, or none can clone): verifies forward from the fresh-clone start as `repair` does, supersedes what does not verify, and re-encrypts with the recovery key (its passphrase asked by gpg) to the holders on `origin/main`, signed by a holder's key that the owner names. Refuses inside a model session (`CLAUDECODE` set), as `paper` does (ADR-038 rule 6). |
+| `company repair <client>` | a holder, on a store refused for a commit that does not verify. Fetches the fabric's `origin/main` first, so every holder judges the same holders. Verifies forward from its own start (its last verified head, or a fresh clone's checkpoint) along the first-parent chain as far as commits verify; P is the start itself or the last commit after it that verifies. Pushes on top of the head a checkpoint R with P's tree (so P's `.gpg-id` and grants: no newer signed commit is undone), `Supersedes: <P>..<head>` (every commit after P), and a recorded fabric commit judged against P's, never against a superseded one. Refused, naming why, only when its start cannot be anchored. Exempt from the recipients rule, which it judges at P. |
+| `company recover <client>` | the owner, in a terminal, when no remaining holder can decrypt, or none can anchor a start (every checkpoint's signer retired): pushes a repair checkpoint as `repair` does when a commit does not verify (P from the newest checkpoint any current holder signed, else the root), then, as a separate checkpoint, re-encrypts with the recovery key (its passphrase asked by gpg) to the holders on `origin/main`, signed by a holder's key that the owner names. Refuses inside a model session (`CLAUDECODE` set), as `paper` does (ADR-038 rule 6). |
 | `company set <client> NAME` / `rm <client> NAME` | writes or removes an entry, value on stdin; one signed commit each. |
 | `company names <client> [--json]` | the entries, by name, with their grants. |
 | `company grant <client> NAME <login…\|all>` / `revoke …` | edits `grants.json` (`{"NAME": ["login", …] \| "all"}`), one signed commit. |
@@ -81,7 +81,8 @@ whose holders it was written under; it verifies when that fabric commit is on
 `origin/main`, is not older than the one its parent records, and its signer was a holder
 there. A re-encryption is a checkpoint. A holder that never held the store verifies from
 the newest checkpoint whose signer is a holder on `origin/main` now and was one at the
-fabric commit it records, which is no older than the one its parent records, forward to
+fabric commit it records, which is no older than the one its parent records (for a repair
+checkpoint, P's, here and in the rule above), forward to
 the head, each commit after it verified as above — history before it is not judged, as
 ADR-042's base, and no base is ever taken from a fetch alone. A checkpoint signed by a
 retired holder is never a starting point; one after the start is refused. Each holder's clone records,
@@ -106,6 +107,7 @@ company store's ciphertext is safe against that; what the repository *says* is n
 | A forged entry (encrypted by anyone to the right recipients) replaces a real one | The same verification: no entry is read from a store whose new commits are not all a holder's. |
 | An agent pushes the store back to an older holder-signed head (before a `revoke` or a rotation) | The branch refuses a force-push; a holder refuses a head that does not descend from the last it verified. A holder's first `clone` after such a push cannot tell, which is why no entry is written before the branch setting is read back, and why the live check records that the fleet `GH_TOKEN` cannot lift it. |
 | An agent pushes one or more commits that do not verify, which the branch keeps (no force-push), possibly rewriting `.gpg-id` or `grants.json` | Every holder refuses the store, a security event, until a holder runs `repair`: P's tree — the last commit that verifies, so a newer signed `revoke` or rotation is kept — over the head, superseding everything after P. A repair is a start for a fresh clone like any other; an existing clone reads it and not what it supersedes. When no holder can, `recover`. |
+| A holder repairs to an older P than the last that verifies | Not checked by verifiers: a holder can sign a reverting commit anyway, so this adds no capability; `repair` computes P itself, and its rows say which P. |
 | A retired holder's key, stolen, signs a new commit or a forged checkpoint at the head | Its recorded fabric commit would have to be one where it was a holder, older than the checkpoint that removed it; a commit may not record an older fabric commit than its parent, so it does not verify after the start, and a fresh clone never starts from a checkpoint whose signer is not a holder now. |
 | A merge adds a holder to `authority.json` | The holder becomes a reader of every company store at the next `reencrypt`. The anchor is the same as ADR-042's lineage: `origin/main`, under the charter-authority guard and the owner's review of `policies/` — a tripwire, not a wall, said here. |
 | A holder that is not an agent's parent writes into its store | `company put` refuses that row, naming the parent; ADR-042's verification would refuse the commit on the agent's side anyway, as a security event. |
@@ -170,8 +172,15 @@ as the company store; the suite passes with `AGENT_FABRIC_OPERATOR` unset and se
     re-grant.
 24. A superseded commit recording the newest fabric commit does not make the repair fail
     its fabric-commit check, which is judged against P's.
-25. No holder with a verified head and a head that does not verify: `recover` restores
-    the store from the fresh-clone start.
+25. No holder with a verified head and a head that does not verify: a holder's `repair`
+    from a fresh-clone start succeeds. Every checkpoint's signer retired and no holder a
+    recipient: `recover` pushes a repair checkpoint, then a re-encryption; an existing
+    clone and a fresh one both accept the store.
+26. A one-commit attack on a holder's last verified head H: `repair` takes P = H.
+27. A fresh clone whose newest checkpoint is a repair whose superseded commit records a
+    newer fabric commit than the repair: the clone starts from the repair.
+28. A holder whose fabric checkout is stale: `repair` fetches it first, and P matches the
+    one a current holder computes.
 
 ## Lanes
 

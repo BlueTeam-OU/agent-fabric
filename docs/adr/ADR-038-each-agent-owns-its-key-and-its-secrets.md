@@ -227,7 +227,9 @@ sharing a machine.
       commit that verifies before it, naming every commit after that one
       as superseded, its recorded fabric commit judged against that
       commit's. A verifier reads such a checkpoint and never the
-      commits it supersedes; this is the one exception to rule 3 here;
+      commits it supersedes, and judges it against that commit, never
+      the superseded ones; this is the one exception to rule 3 here,
+      and the owner's recovery goes through it;
     - no other agent decrypts it. What an agent needs is put into the
       agent's own store, write-only, by the agent's parent (ADR-042
       rule 2's only writer besides the agent; a holder that is not the
