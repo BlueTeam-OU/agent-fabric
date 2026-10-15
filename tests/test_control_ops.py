@@ -564,6 +564,12 @@ class Memory(Base):
         self.assertEqual(calls[0][i:i + 2], ["--store", "projects-root"])
         self.assertNotIn("--store", calls[1], "the checkout's own store keeps its key")
 
+    def test_memory_passes_the_counts_whole_the_reflection_count_included(self):
+        report = {"role": "r", "claims": 2, "counts": {"in_scope": 3, "total": 3, "reflection": 2}, "needs_rendering": [], "skipped_no_roles_class": []}
+        run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, b"tar", json.dumps(report).encode())
+        m = ops.memory("/home/x", root="/r", run=run, dirs=[{"slug": "s", "memory": "/m", "files": 1, "working_copy": "/home/x/projects/p"}], all=True)
+        self.assertEqual(m["bundles"][0]["report"]["counts"], {"in_scope": 3, "total": 3, "reflection": 2})
+
     def test_memory_one_harvester_run_per_directory_gzipped_base64_in_parts_a_failure_and_a_stray_are_rows(self):
         tar = os.urandom(3000)   # incompressible: the parts are real
         report = {"role": "db-admin", "claims": 2, "counts": {"in_scope": 3, "total": 3}, "needs_rendering": ["ka-note"], "skipped_no_roles_class": ["private"], "memory_dir": "/never/leaves"}

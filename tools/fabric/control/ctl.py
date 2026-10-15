@@ -1187,7 +1187,7 @@ def _table_memory(rs: list) -> list[str]:
             continue
         for b in bs:
             rep_ = dig(b, "report")
-            rep = (f"{S(dig(rep_, 'claims'))} claim(s), {S(jlen(dig(rep_, 'needs_rendering')))} need rendering, {S(jlen(dig(rep_, 'skipped_no_roles_class')))} skipped"
+            rep = (f"{S(dig(rep_, 'claims'))} claim(s), {S(nullish(dig(rep_, 'counts', 'reflection'), 0))} from reflection, {S(jlen(dig(rep_, 'needs_rendering')))} need rendering, {S(jlen(dig(rep_, 'skipped_no_roles_class')))} skipped"
                    if T(rep_) else "no report")
             status = dig(b, "status")
             if status == "harvest-failed":
