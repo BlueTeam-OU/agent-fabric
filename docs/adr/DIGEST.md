@@ -728,6 +728,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   SPECIALTIES are optional metadata on any message.
 - A 2026-10-04 — WAIVES, an optional common field (SPEC §7.5): a waiver
   role's word that one pull request, at one head, may arm.
+- A 2026-10-15 — the worked waiver example names BlueTeam-OU/InterWeave.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change, WAIVES, waiver.
