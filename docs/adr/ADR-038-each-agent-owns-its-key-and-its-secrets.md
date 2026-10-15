@@ -195,28 +195,36 @@ sharing a machine.
     `projects/clients.json`; the contract its tooling meets is
     `docs/split/company-stores.md`:
     - its recipients, in its `.gpg-id`, are the agent keys of the logins
-      `policies/authority.json` names as fabric-coordinator holders, and
-      the owner's recovery key. The recovery key is a recipient here and
-      on no agent's store, because a company's store has no agent to be
-      recovered through: a retired holder leaves no heir (rule 4), and the
-      company's credentials outlive every holder. A holder change
-      re-encrypts every company store before the change merges, and a
-      store whose recipients differ from that list is refused, never
-      read;
+      `policies/authority.json` lists as fabric-coordinator holders (that
+      list, not a login's name), and the owner's recovery key. The
+      recovery key is in this `.gpg-id` and in no agent's, because a
+      company's store has no agent to be recovered through: a retired
+      holder leaves no heir (rule 4), and the company's credentials
+      outlive every holder. A holder change merges first; each company
+      store is then re-encrypted to the list on `origin/main`, and until
+      it is, the store is refused for every use but that re-encryption;
     - its commits are signed and verified as ADR-042 says of an agent's,
       with the holders as its only writers, because every agent's
-      `GH_TOKEN` can push to it;
-    - no other agent decrypts it. Its parent puts what an agent needs
-      into the agent's own store, write-only, as `provision share` does
-      (rule 3): the operator's names fleet-wide, as today; a client's
-      names under that client's namespace (`client/<client>/<NAME>`),
-      and only into the logins the store's own grants list names;
-    - sync applies a client's names to that client's file
-      (`clients/<client>.env`, 0600), never to `secrets.env`, and a
-      command receives them only in a working copy that resolves to
-      that client (ADR-045 rule 5). Like rule 9, this keeps a client's
-      credential out of another client's work by accident, never from
-      a session of the login that sets out to read it;
+      `GH_TOKEN` can push to it. Its trusted base is its root commit,
+      signed by a holder, so a holder that has never held it verifies its
+      whole history; its default branch refuses a force-push and a
+      deletion, and a holder refuses a head that does not descend from
+      the last head it verified;
+    - no other agent decrypts it. What an agent needs is put into the
+      agent's own store, write-only, by the agent's parent (ADR-042
+      rule 2's only writer besides the agent; a holder that is not the
+      parent is refused), and only for a name the store's own grants
+      give that login;
+    - the fleet's names — the operator's values of `provision share`'s
+      allowlist — are put as themselves and applied as today. Every
+      other granted name, the operator's own included, is a client's:
+      put under that client's namespace (`client/<client>/<NAME>`),
+      applied by sync to that client's file (`clients/<client>.env`,
+      0600), never to `secrets.env`, and given to a command only in a
+      working copy that resolves to that client (ADR-045 rule 5). Like
+      rule 9, this keeps a client's credential out of another client's
+      work by accident, never from a session of the login that sets out
+      to read it;
     - a name lives in one company's store, which is its source; an
       agent's copy is applied, never edited, and a rotation is set in
       the company's store, then put with `--replace`, then synced;
@@ -283,7 +291,9 @@ own store is the source of every shared name and template, as before.
 ## References
 
 - ADR-012 — credentials; the Doppler layout this replaced.
-- ADR-031 — the Claude-account templates, which move to the coordinator's store.
+- ADR-031 — the Claude-account templates, in the coordinator's store until rule 10 moves them to the operator's.
+- ADR-042 — store commits signed and verified; rule 10 applies it to a company's store.
+- ADR-045 — the engine, the operator and the clients; each client's `secrets_store`.
 - ADR-029 — the signed control actions that carry sync.
 - ADR-003 — per-agent state, which a moved login carries.
 

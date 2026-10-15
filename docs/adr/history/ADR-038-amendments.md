@@ -156,13 +156,18 @@ take the company's credentials with its key (rule 4).
 Rule 10 answers it. A company's store is read by the fabric-coordinator
 holders (the role, not the account: a holder change re-encrypts it, as the
 charter says authority attaches to the role) and by the owner's recovery
-key, which is a recipient there and on no agent's store, because a
+key, which is in that store's `.gpg-id` and in no agent's, because a
 company's store has no one agent to be recovered through. Nothing else
 changes for an agent: it reads only its own store, and what it needs from
-a company's is put into it as `provision share` puts a shared value
-today. A client's names are namespaced and applied to that client's
-working copies only — ADR-045 rule 6, with rule 9's honest limit: it
-stops an accident, not the login.
+a company's is put into it by its parent, as `provision share` puts a
+shared value today, so ADR-042's writers stay the agent and its parent.
+Only the fleet's names (`provision share`'s allowlist) stay fleet-wide;
+every other granted name, the operator's own included, is a client's,
+namespaced and applied to that client's working copies only — ADR-045
+rule 6, with rule 9's honest limit: it stops an accident, not the login.
+Because any agent can push to a company store, its trusted base is its
+holder-signed root, its branch refuses a force-push, and a holder refuses
+a head older than the last it verified.
 
 Rejected: an agent as a recipient of its client's store (every agent would
 read every client credential it was never granted, and a grant would be a
