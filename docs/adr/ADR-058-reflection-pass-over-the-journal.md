@@ -82,7 +82,12 @@ bounded: a week of messages, a capped read, one job.
 4. **The pass moves its cursor only when it finishes.** The last
    message read is recorded in the agent's own state when the job is
    done, so an interrupted pass reads the same messages again; a pass
-   that writes nothing still finishes and says so.
+   that writes nothing still finishes and says so. The closed cursor is
+   the job's evidence: a pass lands no PR, commit or reply, so
+   `fabric-jobs` settles a job with topic `reflection` as done when the
+   login's cursor was closed (`fabric-reflect done`) after the job
+   started, and refuses it, naming `fabric-reflect done --through`, while
+   there is no cursor, an older one or one it cannot read.
 5. **Nothing reaches the corpus but through the drain** (ADR-041 rule
    8). The drain report counts the memories each agent's pass wrote
    (`origin: reflection`), beside the others.
@@ -113,3 +118,11 @@ job and the drain report's count wait on the coordinator.
 - ADR-041 (the journal; rules 1, 7, 8), ADR-037 (jobs), ADR-050 (the
   drain, the rubric's test 6), ADR-013 (the drain), memory/RUBRIC.md,
   tools/fabric/history.py.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-058-amendments.md](history/ADR-058-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-15 | A pass is closed by its cursor | §5 rule 4: the closed `fabric-reflect` cursor, dated after the job started, is a reflection job's evidence for `done` |

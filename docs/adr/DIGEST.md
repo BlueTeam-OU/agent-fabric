@@ -1244,5 +1244,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   passes, `origin: reflection` with its MESSAGE-IDs (§5 rule 3).
 - The cursor moves when the pass finishes; the drain alone promotes,
   and counts reflection memories (§5 rules 4-5).
+- A 2026-10-15 — a pass is closed by its cursor: a job with topic
+  `reflection` settles done when the login's fabric-reflect cursor was
+  closed after the job started (§5 rule 4).
 - Keywords: reflection, journal, episodic.db, fabric-reflect, lessons,
   messages, memory candidates, drain.
