@@ -289,7 +289,7 @@ def _replies(found: dict, problems: list[str]) -> list[str]:
         if said is True:
             out.append(f"reply {mid[:8]} sent")
         elif said is False:
-            problems.append(f"reply:{mid} names no answer this login sent (a message with IN-REPLY-TO: the id gzcoord-send printed for it, or the id of the message it answers); "
+            problems.append(f"reply:{mid} names no answer this login sent (a message the carrier accepted, with IN-REPLY-TO: the id gzcoord-send printed for it, or the id of the message it answers; one that failed or is pending is sent again, not named); "
                             f"if it was recorded by mistake: fabric-jobs retract <id> reply:{mid}")
         else:
             problems.append(f"could not tell whether reply:{mid} was sent ({said})")
