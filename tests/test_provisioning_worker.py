@@ -173,7 +173,7 @@ def main() -> int:
             seen.append(list(cmd))
             if cmd[:1] == ["getent"]:
                 return subprocess.CompletedProcess(cmd, 2, stdout="", stderr="")
-            if "get-url" in cmd:
+            if "remote.origin.url" in cmd:
                 if origin is None:
                     return subprocess.CompletedProcess(cmd, 128, stdout="", stderr="")
                 return subprocess.CompletedProcess(cmd, 0, stdout=origin + "\n", stderr=None)
@@ -198,8 +198,11 @@ def main() -> int:
     seen, said = step6(ssh)
     check("a clone already on its remote is untouched", not sets(seen) and "origin set" not in said, f"{sets(seen)} {said}")
     seen, said = step6(https, "--dry-run")
-    check("dry run says what it would do and changes nothing", not sets(seen) and f"would: as_login git -C ~/projects/'agent-fabric' remote set-url origin '{ssh}'" in said,
+    check("dry run says what it would do and changes nothing", not sets(seen) and f"would: as_login git -C ~/projects/'agent-fabric' remote set-url origin '{ssh}'" in said
+          and "origin set to" not in said,
           f"{sets(seen)} {said}")
+    seen, said = step6(https, "--project", "other")
+    check("a project the registry gives no remote for is left alone", len(sets(seen)) == 1, f"{sets(seen)} {said}")
     seen, said = step6(None)
     check("an origin that cannot be read is left as it is, and said", not sets(seen) and "origin not readable; left as it is" in said, f"{sets(seen)} {said}")
 
