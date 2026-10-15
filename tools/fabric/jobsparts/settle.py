@@ -6,6 +6,7 @@ cannot be told (gh, git or the journal did not answer) is a failure too, said as
 from __future__ import annotations
 
 import calendar
+import glob
 import json
 import os
 import re
@@ -169,38 +170,59 @@ def started_at(job: dict) -> float | None:
         return None
 
 
+def main_worktree(working_copy: str) -> str | None:
+    """The checkout that holds the repository's .git, when `working_copy` is a linked worktree of one: Claude Code keys
+    a session launched in a worktree by the directory it was launched in, which is often the main checkout. None when
+    git cannot say or the repository is bare; the candidates then stay the working copy's own."""
+    if not os.path.isdir(working_copy):
+        return None
+    try:
+        common = vcs.text(working_copy, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    except vcs.VcsError:
+        return None
+    return os.path.dirname(common) if os.path.basename(common) == ".git" else None
+
+
 def memory_candidates(candidates: list[str]) -> list[str]:
-    """Each working copy and its ancestors below the login's home, deduplicated, nearest first. Claude Code keys a
-    session's memory by its launch directory, and the workspace CLAUDE.md invites launching in ~/projects, above the
-    checkout; the home's own key is a different session's, and a working copy outside the home has no such ancestors
-    to claim (the filesystem root's key would belong to everyone). A sibling checkout is never a candidate."""
+    """Each working copy, the main checkout of its repository, and the ancestors of both below the login's home,
+    deduplicated, nearest first. The workspace CLAUDE.md invites launching in ~/projects, above the checkout; the home's
+    own key is a different session's, and a directory outside the home has no ancestors to claim (the filesystem root's
+    key would belong to everyone). A sibling checkout is never a candidate."""
     home = os.path.realpath(os.path.expanduser("~"))
     found: dict[str, None] = {}
     for c in candidates:
         if not c:
             continue
-        d = os.path.abspath(c)
-        found[d] = None
-        if not os.path.realpath(d).startswith(home + os.sep):
-            continue
-        while True:
-            d = os.path.dirname(d)
-            if not os.path.realpath(d).startswith(home + os.sep):
-                break
+        for d in (os.path.abspath(c), main_worktree(c)):
+            if d is None:
+                continue
             found[d] = None
+            if not os.path.realpath(d).startswith(home + os.sep):
+                continue
+            while True:
+                d = os.path.dirname(d)
+                if not os.path.realpath(d).startswith(home + os.sep):
+                    break
+                found[d] = None
     return list(found)
 
 
-def memory_dirs(candidates: list[str]) -> tuple[list[str], list[str]]:
-    """(the memory directories that exist, every one looked for)."""
+def memory_dirs(job: dict, candidates: list[str]) -> tuple[list[str], list[str]]:
+    """(the memory directories that exist, every place looked for). A reflection job's lesson belongs where it applies,
+    which is any project's memory of this login, not the checkout the job happened to run in."""
     layout = _load("fabric_layout", os.path.join(FABRIC_ROOT, "tools", "fabric", "layout.py"))
     tried = list(dict.fromkeys(layout.default_memory_dir(c) for c in memory_candidates(candidates)))
-    return [d for d in tried if os.path.isdir(d)], tried
+    dirs = [d for d in tried if os.path.isdir(d)]
+    if job.get("topic") == "reflection":
+        every = os.path.expanduser("~/.claude/projects/*/memory")
+        tried.append(every)
+        dirs += [d for d in sorted(glob.glob(every)) if os.path.isdir(d) and d not in dirs]
+    return dirs, tried
 
 
 def memory_changed(job: dict, candidates: list[str]) -> str | None:
     """None when a memory file changed since the job started; otherwise the problem."""
-    dirs, tried = memory_dirs(candidates)
+    dirs, tried = memory_dirs(job, candidates)
     if not dirs:
         return ("no memory directory was found for this job's working copy (looked in " + ", ".join(tried)
                 + "); write what the job taught you as a memory")

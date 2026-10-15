@@ -496,6 +496,43 @@ def main() -> int:
         rc, out, err = w.sw("switch")
         check("with none existing, the refusal lists the paths tried", rc == 1 and "no memory directory" in err and key(w.repo) in err, err)
 
+        w = World(under=workspace)
+        wt = w.repo + "-wt"
+        subprocess.run(["git", "-C", w.repo, "worktree", "add", "-q", "-b", "wt-branch", wt], check=True, env=jobs_world.git_env())
+        j1 = w.add("job in a linked worktree", "--working-copy", wt)
+        w.sw("start", j1)
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        for d in (w.repo, workspace):
+            os.utime(os.path.join(key(d), "fact.md"), (1, 1))
+        w.memory_of = os.path.join(workspace, "other-checkout")
+        rc, out, err = w.switch(cwd=wt)
+        check("a memory written for a sibling is not read for a worktree job", rc == 1 and "has not changed during" in err, err)
+        w.memory_of = w.repo
+        rc, out, err = w.switch(cwd=wt)
+        check("a session launched in the main checkout settles a job in its linked worktree", rc == 0, err)
+        w = World(under=workspace)
+        w.memory_of = workspace
+        j1 = w.add("reflect on it", "--topic", "reflection")
+        w.sw("start", j1)
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        os.utime(os.path.join(key(w.repo), "fact.md"), (1, 1))
+        os.utime(os.path.join(key(workspace), "fact.md"), (1, 1))
+        elsewhere = os.path.join(home, "herdr")
+        w.memory_of = elsewhere
+        rc, out, err = w.switch()
+        check("a reflection job counts every memory directory of the login", rc == 0, err)
+        w = World(under=workspace)
+        j1 = w.working("not a reflection")
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        os.utime(os.path.join(key(w.repo), "fact.md"), (1, 1))
+        os.utime(os.path.join(key(workspace), "fact.md"), (1, 1))
+        w.memory_of = elsewhere
+        rc, out, err = w.switch()
+        check("…and another job does not (the positive control)", rc == 1 and "has not changed during" in err, err)
+
         w = World()
         j1 = w.working("several things wrong")
         w.sw("block", j1, "just words")
