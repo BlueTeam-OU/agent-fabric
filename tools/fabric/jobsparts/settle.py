@@ -177,6 +177,8 @@ def main_worktree(working_copy: str) -> str | None:
     the caller says so rather than let the missing candidate read as an unwritten memory."""
     # Whether a repository is there is read from the filesystem: git exits 128 alike for "no repository" and for a broken
     # one, and its message is localised.
+    if not os.path.isdir(working_copy):
+        return None         # a worktree swept after its job landed is gone, not a git failure
     probe = os.path.abspath(working_copy)
     while not os.path.lexists(os.path.join(probe, ".git")):
         if os.path.dirname(probe) == probe:

@@ -548,6 +548,10 @@ def main() -> int:
         subprocess.run(["git", "-C", home, "init", "-q"], check=True, env=jobs_world.git_env())
         os.makedirs(os.path.join(home, "sub"))
         try:
+            gone = [os.path.join(home, "swept-worktree")]
+            check("a working copy that no longer exists is not blamed on git, even under a repository",
+                  settle_mod.memory_changed({"id": "jX", "created": "2000-01-01T00:00:00Z", "log": []}, gone) is not None
+                  and "git could not" not in settle_mod.memory_changed({"id": "jX", "created": "2000-01-01T00:00:00Z", "log": []}, gone), gone)
             got = settle_mod.memory_candidates([os.path.join(home, "sub")])
             check("the home is never a candidate, even when it is itself a repository", home not in got and os.path.join(home, "sub") in got, got)
         finally:
