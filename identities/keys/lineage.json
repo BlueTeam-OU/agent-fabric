@@ -154,5 +154,11 @@
     "fingerprint": "F88C6F8165D469D65854259B0A14EAA22C3ADFAB",
     "login": "rust-ui-dev-02",
     "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a14107-9ab9-761e-971a-3994d937546a": {
+    "born": "2026-10-15T19:26:19.833Z",
+    "fingerprint": "5486A123212E81828603A017313100F04A235893",
+    "login": "legal-expert-ee-eu",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
   }
 }
