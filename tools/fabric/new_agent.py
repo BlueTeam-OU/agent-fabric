@@ -14,7 +14,8 @@ tools it calls (ADR-040 rule 5's fixture departure).
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <login> <role> (--claude-account <slug> | --no-claude-account)
             [--host <id>] [--project <id>]...
-            [--claude VERSION|stable|latest] [--no-signing-key] [--dry-run],
+            [--claude VERSION|stable|latest] [--surname <Surname>]
+            [--no-signing-key] [--dry-run],
             or <login> --human [--host <id>] [--dry-run]; each value
             spaced or with `=`, flags anywhere. -h/--help: HELP on stdout,
             exit 0 (the bash's header, lines 2-52, cut where it cut).
@@ -122,6 +123,7 @@ from provisioning import config as cfg  # noqa: E402
 from provisioning.new_agent_args import HELP, Exit, die, parse, say  # noqa: E402
 from provisioning.signing import signing_key  # noqa: E402
 from provisioning.steps import Steps  # noqa: E402
+from provisioning import surname as persona_surname  # noqa: E402
 from provisioning.store_step import HUMAN_SHARED, claude_template, login_kind, secrets_step  # noqa: E402
 
 
@@ -164,6 +166,15 @@ def new_agent(argv: list[str]) -> int:
         if r is None:
             die(f"project '{pid}' is not in projects/registry.json — register it first.")
         remote[pid] = r
+    # The surname before anything is made, the dry run too (ADR-056 rule 4): a run that would end with a claim
+    # it cannot write must not make an account first.
+    if o["surname"] is not None:
+        try:
+            why = persona_surname.check(login, o["surname"])
+        except persona_surname.Refused as exc:
+            why = f"{exc}; nothing made"
+        if why:
+            die(why)
 
     hosts_path = roots.hosts_registry(engine=cfg.ROOT)
     with tempfile.NamedTemporaryFile(prefix="new-agent-", suffix=".log", delete=False) as fh:
@@ -268,6 +279,7 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
             "would: assign no Claude account (--no-claude-account: the broker path only)")
     else:
         secrets_step(s, login, host, o["projects"], slug, fp, human=human, role=role)
+    claim_surname(login, o["surname"], dry)
 
     # ---- 6-10 on the host ---------------------------------------------------
     clones = [a for pid in o["projects"] for a in ("--clone", f"{pid}={remote[pid]}")]
@@ -293,6 +305,25 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     elif signing_next:
         return signing_key(login, host, via=host if host != local_host else "")
     return 0
+
+
+def claim_surname(login: str, surname: str | None, dry: bool) -> None:
+    """5a. The surname claim, once step 5 has given the account its agent id (ADR-056 rule 4): written into this
+    checkout, never committed here — fabric-coordinator commits it with identities/keys/. The first name stays
+    null until the agent chooses one (rule 5). A must: an agent provisioned without the claim it was promised
+    would take the surname's name with no record of it."""
+    if surname is None:
+        return
+    if dry:
+        say(f"would: 5a. claim {surname} for {login}'s agent id in identities/personas/claims.json (first_name null: "
+            "the agent chooses it), to commit with identities/keys/")
+        return
+    try:
+        aid = persona_surname.write_claim(login, surname)
+    except (persona_surname.Refused, OSError) as exc:
+        die(f"step failed: 5a. the surname claim: {exc}")
+    say(f"5a. {surname} claimed for {login} ({aid}) in identities/personas/claims.json, first_name null until it "
+        "chooses one (ADR-056 rule 5); fabric-coordinator commits it with identities/keys/")
 
 
 def register_signing_key(s: Steps, login: str, dry: bool) -> None:

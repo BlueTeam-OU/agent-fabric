@@ -71,6 +71,47 @@ class Persona(unittest.TestCase):
             self.assertEqual(persona.role_of(login, roles, set(), self.root), role, login)
         self.assertFalse(os.path.isdir(roots.locale_dir("legal-expert", "ee-eu", root=self.root)), "no locale is needed")
 
+    def pend(self, n: int) -> None:
+        path = os.path.join(self.root, "identities/personas/claims.json")
+        with open(path) as fh:
+            claims = json.load(fh)["claims"]
+        claims[IDS[n]] = {"surname": f"Sur{n}", "first_name": None}   # claimed by new-agent --surname
+        write(self.root, "identities/personas/claims.json", {"claims": claims})
+
+    def test_a_first_name_not_chosen_yet_is_the_surname_and_the_role(self) -> None:
+        self.pend(2)
+        other = type("P", (), {"pw_name": "someone-else"})()     # never the runner's own login, which could be this one
+        self.enterContext(mock.patch.object(persona.pwd, "getpwuid", return_value=other))
+        self.assertEqual(self.run_main("python-dev-02"), (0, "AI Sur2, Python developer\n", ""))
+        self.assertIsNone(json.loads(self.run_main("--json", "python-dev-02")[1])["first_name"])
+        rc, out, err = self.run_main("--all")
+        self.assertEqual((rc, err), (0, ""))
+        self.assertIn("AI Sur2, Python developer\n", out)
+
+    def test_the_agent_itself_is_told_to_choose_its_first_name(self) -> None:
+        self.pend(2)
+        me = type("P", (), {"pw_name": "python-dev-02"})()
+        with mock.patch.object(persona.pwd, "getpwuid", return_value=me):
+            rc, out, err = self.run_main("python-dev-02")
+            self.assertEqual((rc, out), (0, "AI Sur2, Python developer\n"))
+            self.assertEqual(len(err.splitlines()), 1)
+            # The order (the owner, 2026-10-15): the sex first, then a first name of that sex, from the culture.
+            self.assertLess(err.index("choose your sex first (F or M"), err.index("then a first name of that sex"))
+            self.assertIn("from the culture Sur2 comes from", err, "no surname list in the fixture: said in words")
+            write(self.root, "identities/personas/surnames.json", {"surnames": [{"surname": "Sur2", "from": "Georgia"}]})
+            self.assertIn("a first name of that sex from Georgia (rule 5)", self.run_main("python-dev-02")[2])
+            self.assertEqual(self.run_main("user")[2], "", "another agent asked: no line")
+
+    def test_a_claim_without_the_first_name_key_is_still_bad(self) -> None:
+        bad: list[str] = []
+        path = os.path.join(self.root, "identities/personas/claims.json")
+        with open(path) as fh:
+            claims = json.load(fh)["claims"]
+        claims[IDS[2]] = {"surname": "Sur2"}
+        write(self.root, "identities/personas/claims.json", {"claims": claims})
+        self.assertIsNone(persona.find("python-dev-02", self.root, bad))
+        self.assertEqual(bad, [IDS[2]])
+
     def test_a_login_with_no_role_has_a_name_without_a_title(self) -> None:
         self.assertEqual(persona.find("stranger-01", self.root)["display"], "AI First5 Sur5")
 

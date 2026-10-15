@@ -435,19 +435,26 @@ def main() -> int:
         check("values spaced or with =, flags anywhere",
               nargs.parse(["--project=a", "l", "--host", "h", "r", "--project", "b", "--claude=latest", "--claude-account=a-b"])
               == {"dry": False, "login": "l", "role": "r", "projects": ["a", "b"], "claude": "latest", "host": "h",
-                  "claude-account": "a-b", "no-claude-account": False, "human": False, "no-signing-key": False}
+                  "claude-account": "a-b", "no-claude-account": False, "human": False, "no-signing-key": False, "surname": None}
               and nargs.parse(["l", "--claude-account", "a", "r"])["claude-account"] == "a")
+        check("--surname <S>, spaced or with =, kept as given (ADR-056 rule 4)",
+              nargs.parse(["l", "r", "--no-claude-account", "--surname", "Ibn al-Haytham"])["surname"] == "Ibn al-Haytham"
+              and nargs.parse(["l", "--surname=Huber", "r", "--no-claude-account"])["surname"] == "Huber")
+        check("…and named in the usage and the help", "--surname <Surname>" in nargs.USAGE and "--surname <Surname>" in nargs.HELP)
         check("--no-signing-key is a flag of an agent's run",
               nargs.parse(["l", "r", "--no-claude-account", "--no-signing-key"])["no-signing-key"] is True)
         # A human login (ADR-044): its login and --host, nothing of a session.
         check("--human: a login and no role", nargs.parse(["--human", "p", "--host=h"])
               == {"dry": False, "login": "p", "role": "", "projects": [], "claude": "", "host": "h", "claude-account": None,
-                  "no-claude-account": False, "human": True, "no-signing-key": False})
+                  "no-claude-account": False, "human": True, "no-signing-key": False, "surname": None})
         for argv, said in ((["p", "r", "--human"], "a human login has no role"),
                            (["p", "--human", "--claude-account", "a"], "--human takes --host and --dry-run only"),
                            (["p", "--human", "--no-claude-account"], "--human takes --host and --dry-run only"),
                            (["p", "--human", "--claude", "latest"], "--human takes --host and --dry-run only"),
                            (["p", "--human", "--project", "demo"], "--human takes --host and --dry-run only"),
+                           (["p", "--human", "--surname", "Huber"], "no persona surname"),
+                           (["l", "r", "--no-claude-account", "--surname", "--dry-run"], "is not a surname"),
+                           (["l", "r", "--no-claude-account", "--surname=huber;id"], "is not a surname"),
                            (["--human"], "usage:")):
             try:
                 nargs.parse(argv)
@@ -678,6 +685,52 @@ esac
             rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", terminal=True, signing_rc=1)
             check("…a step 11 that fails: new-agent exits 1, and 0-10 stayed done",
                   rc == 1 and msg is None and "finish new r" in calls and signed == [("new", "here")], f"{rc} {msg}")
+
+            print("the orchestrator, --surname (ADR-056 rule 4, A 2026-10-15)")
+            other_id, new_id = "01a00bc1-4824-7ace-a01e-6e46a11f9acc", "01a1f000-0000-7000-8000-000000000001"
+            claims_path = f"{fk}/root/identities/personas/claims.json"
+            lineage_path = f"{fk}/root/identities/keys/lineage.json"
+            put(f"{fk}/root/identities/personas/surnames.json", json.dumps({"surnames": [
+                {"surname": "Huber", "person": "Eugen Huber", "from": "Switzerland"},
+                {"surname": "Kelsen", "person": "Hans Kelsen", "from": "Austria"}]}))
+            put(claims_path, json.dumps({"claims": {other_id: {"surname": "Kelsen", "first_name": "Lena"}}}))
+
+            def claims() -> dict:
+                return json.load(open(claims_path))["claims"]
+            for surname, said in (("Nobody", "--surname 'Nobody' is not on identities/personas/surnames.json"),
+                                  ("Kelsen", f"--surname 'Kelsen' is claimed by {other_id}")):
+                for dry in (("--dry-run",), ()):
+                    rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--surname", surname, *dry)
+                    check(f"{surname}{' (dry run)' if dry else ''}: refused before the host is asked, nothing made",
+                          rc == 1 and said in (msg or "") and "nothing made" in msg and calls == ""
+                          and secrets_calls() == "", f"{msg}\n{calls}")
+            rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--surname", "Huber", "--dry-run")
+            check("a free listed surname, dry run: the claim planned, none written",
+                  rc == 0 and "would: 5a. claim Huber for new's agent id" in err and "first_name null" in err
+                  and list(claims()) == [other_id], err)
+            rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--surname", "Huber")
+            check("…a real run with no agent id in lineage: step 5a fails, named, and nothing after it ran",
+                  rc == 1 and "step failed: 5a. the surname claim" in (msg or "") and "finish" not in calls
+                  and list(claims()) == [other_id], f"{msg}\n{calls}")
+            put(lineage_path, json.dumps({new_id: {"login": "new", "born": "2026-10-15T10:00:00Z"}}))
+            try:
+                rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--surname", "Huber")
+                check("…once store-enroll has given it an id: {surname, first_name: null} keyed by it, after step 5",
+                      rc == 0 and claims().get(new_id) == {"surname": "Huber", "first_name": None}
+                      and claims().get(other_id) == {"surname": "Kelsen", "first_name": "Lena"}
+                      and "finish new r" in calls, f"{msg}\n{claims()}")
+                check("…and says fabric-coordinator commits it with identities/keys/, never committing it itself",
+                      "5a. Huber claimed for new (" + new_id + ")" in err and "fabric-coordinator commits it with identities/keys/" in err,
+                      err)
+                rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--surname", "Huber")
+                check("…a re-run: its own claim is no conflict, and the file is left as it is",
+                      rc == 0 and claims().get(new_id) == {"surname": "Huber", "first_name": None}, f"{msg}")
+                rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--surname", "Kelsen", "--dry-run")
+                check("…a second surname for the same agent: refused, named", rc == 1 and calls == ""
+                      and "new (" + new_id + ") already claims 'Huber'" in (msg or ""), msg)
+            finally:
+                for f in (lineage_path, claims_path):
+                    os.remove(f)
 
             print("the orchestrator, a human login (ADR-044)")
             humans = put(f"{fk}/humans.json", json.dumps({
