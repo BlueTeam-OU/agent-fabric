@@ -14,8 +14,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   exit      0 posted; 2 an invocation problem, a refusal, or a post
             GitHub rejected or did not confirm
 
-A REVIEW COVERS THE HEAD IT READ, never the PR's head at posting time
-(agent-fabric ADR-020 §5 rule 10). A report with dispatch headers is posted
+A REVIEW COVERS THE HEAD IT READ, never the PR's head at posting time: what
+"only a pinned review covers a head" (agent-fabric ADR-020 §5 rule 10) means
+for the post, decided in REQUEST 01a14012; the record does not spell out this
+part yet. A report with dispatch headers is posted
 with commit_id = their head_sha: every header names the same one, or the
 report is refused; a sha that is not a commit of the PR is refused; one that
 is no longer the head is posted against it all the same, saying so on
@@ -425,7 +427,7 @@ def run(argv: list[str], stdin) -> int:
             return 2
 
     # The head the review read, never the head now: a review of an older head posted as the new one's reads in the
-    # gate as coverage of commits nobody reviewed (ADR-020 §5 rule 10).
+    # gate as coverage of commits nobody reviewed (the module docstring).
     commit = reviewed or head
     if commit != head:
         refusal = pr_commit_refusal(repo, pr, commit)
@@ -444,8 +446,8 @@ def run(argv: list[str], stdin) -> int:
         header += "\n<!-- posted by the locale carve-out's merger -->"
     # The second engine (agent-fabric ADR-053) is not the review class, and
     # its review must not say it is; the marker and its reading are the same.
-    who = ("Codex, the second review engine, run once against this head" if (model or "").strip().lower() == "codex"
-           else "the review class, dispatched against this head")
+    who = ("Codex, the second review engine, run once against the commit this review is on" if (model or "").strip().lower() == "codex"
+           else "the review class, dispatched against the commit this review is on")
     full_body = f"""{header}
 **Blind review** — {who} with a
 brief of facts and none of the author's session context. Its findings
