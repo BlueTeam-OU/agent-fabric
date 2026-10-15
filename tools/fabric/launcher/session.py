@@ -182,6 +182,48 @@ def session_command(provider: str, session: str, caller_model: bool, session_eff
     return cmd + [prompt_flag, prompt_file, *args]
 
 
+# What a fresh session needs of its job beyond the title: a session started for
+# a job made from a REQUEST saw only the title, built half of what was asked
+# (2026-10-15) or went digging in notes to rebuild it (2026-10-14). The
+# request's own text, capped, and the job's last note travel in the opening
+# prompt; the whole thread stays one command away.
+REQUEST_CAP = 3000
+
+
+def job_context(fabric_root: str, job: str) -> str:
+    env = env_with(AGENT_FABRIC_ROOT=fabric_root)
+    shown = stripped(helper([sys.executable, f"{fabric_root}/tools/fabric/jobs.py", "show", job, "--json"], env=env, quiet=True))
+    try:
+        doc = json.loads(shown) if shown else {}
+    except ValueError:
+        return ""
+    out = ""
+    notes = [e.get("note") for e in (doc.get("log") or []) if isinstance(e, dict) and e.get("note")]
+    if notes:
+        out += f" Its last note: {' '.join(str(notes[-1]).split())[:400]}"
+    src = doc.get("source") if isinstance(doc.get("source"), dict) else {}
+    mid = str(src.get("message_id") or "")
+    if src.get("kind") != "request" or not mid:
+        return out
+    hist = stripped(helper([sys.executable, f"{fabric_root}/tools/fabric/history.py", "--thread", mid, "--json",
+                            "--limit", "50"], env=env, quiet=True))
+    try:
+        episodes = json.loads(hist).get("episodes", []) if hist else []
+    except ValueError:
+        episodes = []
+    content = next((e.get("content", "") for e in episodes if e.get("message_id") == mid), "")
+    # The body only: the header (FROM, TO, ids) says nothing the job does not, and REFERENCES is locators.
+    body = content.split("\n\n", 1)[1] if "\n\n" in content else ""
+    body = body.split("\nREFERENCES:", 1)[0].strip()
+    replay = f"fabric-history --thread {mid} --full"
+    if not body:
+        return out + f" It came from request {mid}, which your journal does not hold; read it with `{replay}`."
+    cut = len(body) > REQUEST_CAP
+    body = body[:REQUEST_CAP] + (" […]" if cut else "")
+    return (out + f" It came from {src.get('from') or 'another agent'}'s request {mid}, whose text follows; the "
+            f"whole thread: `{replay}`.\n\n<request id=\"{mid}\">\n{body}\n</request>\n")
+
+
 def opening_prompt(fabric_root: str, resumed: bool = False) -> str:
     text = OPENING
     # A session that ended its own job (bin/fabric-fresh) left a note for this
@@ -198,7 +240,7 @@ def opening_prompt(fabric_root: str, resumed: bool = False) -> str:
                                env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True))
         if line:
             text = (text.removesuffix(WAIT_TAIL) + f" It is for your job {line}: read job {job} in full "
-                    f"from your job list, and start on it.")
+                    f"from your job list, and start on it." + job_context(fabric_root, job))
         del os.environ["AGENT_FABRIC_FRESH_JOB"]
     if resumed and text.endswith(WAIT_TAIL):
         text = text.removesuffix(WAIT_TAIL) + RESUMED
