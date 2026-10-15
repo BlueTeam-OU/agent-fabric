@@ -312,6 +312,8 @@ def parse_memory(path: str) -> dict[str, Any] | None:
         "type": meta.get("metadata.type") or meta.get("type", ""),
         "body": body,
         "roles_class": meta.get("metadata.roles_class") or meta.get("roles_class", ""),
+        # Where the fact came from (ADR-058 rule 5): `reflection` marks a memory written from a fabric-reflect pass.
+        "origin": (meta.get("metadata.origin") or meta.get("origin") or "").strip(),
         # `shared_with: web-dev, backend-dev` — the other roles that own the
         # fact; one value on one line, since the frontmatter is read flat.
         "shared_with": sorted({r for r in re.split(r"[,\s]+",
@@ -486,6 +488,7 @@ def main() -> int:
     replaced_by_key = {e["replaced_key"]: e for e in applied}
     applied_skipped: list[str] = []
     superseded_originals: list[str] = []
+    reflection = 0
 
     for name in sorted(os.listdir(memory_dir)):
         if not name.endswith(".md"):
@@ -553,6 +556,8 @@ def main() -> int:
             **({"language": language} if language else {}),
         })
         next_ms = max(next_ms, parsed["mtime_ms"])
+        if parsed["origin"] == "reflection":
+            reflection += 1
         claims.append({
             "topic": parsed["name"],
             "title": title,
@@ -628,7 +633,10 @@ def main() -> int:
         "store": store,
         "next_watermark": next_ms,
         "counts": {"in_scope": total - len(before_watermark), "total": total,
-                   "before_watermark": len(before_watermark), "provisional_agent": 0},
+                   "before_watermark": len(before_watermark), "provisional_agent": 0,
+                   # Claims harvested this drain whose origin is exactly `reflection` (ADR-058 rule 5);
+                   # skipped, held and refused memories are not counted.
+                   "reflection": reflection},
     }
     if use is not None:
         report["memory_use"] = use

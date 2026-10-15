@@ -420,6 +420,18 @@ def test_drain_report_records_unattributable_rows(tmp: str) -> None:
     assert harvest.get("in_scope") == 41, harvest
 
 
+def test_drain_report_carries_the_reflection_count(tmp: str) -> None:
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"host": "boxA", "since_watermark": 0, "next_watermark": 9,
+                   "counts": {"provisional_agent": 0, "in_scope": 4, "reflection": 3}}, fh)
+    run_assemble(drain, claims_dir, out)
+    harvest = json.loads(read(report_path(out))).get("harvest") or {}
+    assert harvest.get("reflection") == 3, harvest
+
+
 def test_drain_report_tolerates_a_drain_with_no_harvest_report(tmp: str) -> None:
     # A hand-built drain directory is legitimate — the assembler must not
     # require the harvester to have run, only benefit from it when it did.
@@ -3652,6 +3664,7 @@ def main() -> int:
         test_helpful_marks_are_counted_per_section_and_only_those,
         test_the_retrieval_summary_is_per_login_over_hosts_and_says_unknown_when_there_was_no_find,
         test_drain_report_records_unattributable_rows,
+        test_drain_report_carries_the_reflection_count,
         test_drain_report_tolerates_a_drain_with_no_harvest_report,
         test_unattributable_rows_warn_loudly_but_do_not_fail_the_drain,
         test_a_fully_attributed_drain_says_nothing_about_bindings,

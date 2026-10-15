@@ -196,6 +196,8 @@ def report(run: Run) -> int:
             "next_watermark": hr.get("next_watermark"),
             "provisional_agent": counts.get("provisional_agent", counts.get("provisional_clone")),
             "in_scope": counts.get("in_scope"),
+            # Memories drained as claims with origin: reflection (ADR-058 rule 5); absent in a report an older harvest wrote.
+            "reflection": counts.get("reflection"),
             # The memories the harvest left out for want of a roles_class:
             # in the committed record, so the owner sees them after the
             # drain directory is gone. Names an agent chose, held to the

@@ -107,6 +107,18 @@ class Tables(unittest.TestCase):
         self.assertRegex(script(workers={"status": "none", "other_subagents": 0}), re.compile(r"db-admin\s+ok\s+none.*unreadable\s+-\s*$", re.M))
         self.assertRegex(script(notes={"status": "not measured", "reason": "the source locale"}), r"db-admin\s+ok\s+not measured: the source locale\s")   # never "none", which reads as no notes
 
+    def test_memory_table_names_the_claims_that_came_from_reflection_and_reads_an_older_report_as_none(self):
+        def line(counts):
+            rep = {"claims": 5, "needs_rendering": [], "skipped_no_roles_class": []}
+            if counts is not None:
+                rep["counts"] = counts
+            row = {"account": "db-admin", "status": "ok", "memory": {"status": "ok", "bundles": [
+                {"slug": "s", "working_copy": "/h/projects/gzapp", "files": 1, "status": "ok", "report": rep}]}}
+            return ctl._table_memory([row])[1]
+        self.assertIn("5 claim(s), 3 from reflection, 0 need rendering", line({"in_scope": 5, "reflection": 3}))
+        self.assertIn("5 claim(s), 0 from reflection, 0 need rendering", line({"in_scope": 5}), "an older agentd's report has no key")
+        self.assertIn("5 claim(s), 0 from reflection, 0 need rendering", line(None))
+
     def test_keys_table_held_keys_whether_git_signs_and_a_refused_store_said_in_full(self):
         expected = placed("alpha", "beta", "quiet")
         t = ctl.table("keys", ctl.rows(expected, [
@@ -814,7 +826,7 @@ class Commands(unittest.TestCase):
         file = os.path.join(out, "db-admin", "gzapp.tar")
         with open(file, "rb") as fh:
             self.assertEqual(fh.read(), tar)
-        self.assertRegex(res.stdout, r"db-admin\s+ok\s+gzapp\s+7 memories\s+ok -> .*gzapp\.tar\s+5 claim\(s\), 2 need rendering, 1 skipped")
+        self.assertRegex(res.stdout, r"db-admin\s+ok\s+gzapp\s+7 memories\s+ok -> .*gzapp\.tar\s+5 claim\(s\), 0 from reflection, 2 need rendering, 1 skipped")
         # --json: the row carries the report and where the tar went, never a chunk
         r.rows.clear()
         a.arm()

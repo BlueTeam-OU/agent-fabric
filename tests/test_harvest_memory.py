@@ -494,6 +494,37 @@ def test_a_memory_without_links_omits_citations(tmp: str) -> None:
     assert claims_of(out)[0]["citations"] == {}, claims_of(out)[0]["citations"]
 
 
+def _reflection_count(out: str) -> int:
+    with open(os.path.join(out, "harvest-report.json"), encoding="utf-8") as fh:
+        return json.load(fh)["counts"]["reflection"]
+
+
+def test_only_claims_with_origin_reflection_are_counted(tmp: str) -> None:
+    """ADR-058 rule 5: the count is of memories harvested as claims, origin exactly `reflection`."""
+    mem, out = os.path.join(tmp, "mrefl"), os.path.join(tmp, "orefl")
+    os.makedirs(mem)
+    def put(name: str, front: str) -> None:
+        with open(os.path.join(mem, f"{name}.md"), "w", encoding="utf-8") as fh:
+            fh.write(f"---\nname: {name}\ndescription: d\n{front}---\n\nthe fact\n")
+    put("nested", "metadata:\n  type: feedback\n  roles_class: workflow\n  origin: reflection\n")
+    put("toplevel", "type: feedback\nroles_class: workflow\norigin: reflection\n")
+    put("other-origin", "metadata:\n  type: feedback\n  roles_class: workflow\n  origin: reflection-notes\n")
+    put("no-origin", "metadata:\n  type: feedback\n  roles_class: workflow\n")
+    put("no-class", "metadata:\n  type: feedback\n  origin: reflection\n")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    assert len(claims_of(out)) == 4, claims_of(out)
+    assert _reflection_count(out) == 2, "the nested and the top-level origin count; a class-less memory is skipped, not counted"
+
+
+def test_a_drain_with_no_reflection_memory_counts_zero(tmp: str) -> None:
+    mem, out = os.path.join(tmp, "mrefl0"), os.path.join(tmp, "orefl0")
+    os.makedirs(mem)
+    write_memory(mem, "plain", "feedback", roles_class="workflow")
+    assert run(mem, out).returncode == 0
+    assert _reflection_count(out) == 0
+
+
 def test_dry_run_writes_nothing(tmp: str) -> None:
     mem, out = os.path.join(tmp, "m10"), os.path.join(tmp, "o10")
     os.makedirs(mem)
@@ -622,7 +653,7 @@ def test_the_watermark_round_trips_through_the_committed_report(tmp: str) -> Non
     assert r.returncode == 0, r.stderr
     hr = json.load(open(os.path.join(out1, "harvest-report.json"), encoding="utf-8"))
     assert hr["since_watermark"] == 0 and hr["next_watermark"] == new_ms, hr
-    assert hr["counts"] == {"in_scope": 2, "total": 2, "before_watermark": 0, "provisional_agent": 0}, hr
+    assert hr["counts"] == {"in_scope": 2, "total": 2, "before_watermark": 0, "provisional_agent": 0, "reflection": 0}, hr
     assert "memory_dir" not in hr, "an absolute home path reached the report the assembler carries"
     assert len(claims_of(out1)) == 2
     r = subprocess.run([sys.executable, assemble, "--claims", os.path.join(out1, "claims"), "--drain", out1,
@@ -633,6 +664,7 @@ def test_the_watermark_round_trips_through_the_committed_report(tmp: str) -> Non
     me = json.load(open(os.path.join(out1, "harvest-report.json"), encoding="utf-8"))["agent"]
     assert committed["watermarks"] == {f"{me}@hostA": new_ms}, committed.get("watermarks")
     assert committed["harvest"]["next_watermark"] == new_ms and committed["harvest"]["in_scope"] == 2, committed["harvest"]
+    assert committed["harvest"]["reflection"] == 0, committed["harvest"]
     # Second drain, nothing new: an empty delta, and the watermark holds.
     out2 = os.path.join(tmp, "o14b")
     r = run(mem, out2, "--working-copy", wc, "--project", "demo", "--host", "hostA")
@@ -997,6 +1029,8 @@ def test_a_co_owner_that_is_not_a_slug_refuses_the_drain(tmp: str) -> None:
 
 def main() -> int:
     cases = [
+        test_only_claims_with_origin_reflection_are_counted,
+        test_a_drain_with_no_reflection_memory_counts_zero,
         test_an_author_s_merge_target_supersedes_without_a_question,
         test_the_watermark_round_trips_through_the_committed_report,
         test_a_bundle_round_trips_and_a_damaged_one_is_refused_by_file,
