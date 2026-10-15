@@ -522,6 +522,37 @@ class SessionsOnOldSignIn(unittest.TestCase):
         self.assertNotIn("on_old_sign_in", ops.collect("session", {**ctx, "home": Fixture(self, before=None).home, "run": run})["session"],
                          "no synced token to compare with")
 
+    def test_process_started_reads_stat_field_22_against_btime_and_is_none_where_unreadable(self):
+        d = tempfile.mkdtemp(prefix="proc-")
+        self.addCleanup(__import__("shutil").rmtree, d)
+        os.makedirs(os.path.join(d, "77"))
+        hz = os.sysconf("SC_CLK_TCK")
+        fields = ["S"] + ["0"] * 18 + [str(hz * 100)] + ["0"] * 5   # state, then fields 4..21 and starttime = 100 s after boot
+        with open(os.path.join(d, "77", "stat"), "w") as fh:
+            fh.write("77 (clau de) " + " ".join(fields))
+        with open(os.path.join(d, "stat"), "w") as fh:
+            fh.write("cpu 1 2 3\nbtime 1760000000\n")
+        self.assertEqual(S.process_started(77, d), "2025-10-09T08:55:00Z")
+        self.assertIsNone(S.process_started(78, d))
+
+    def test_status_session_section_also_carries_when_the_old_sessions_began(self):
+        from control import ops
+        f = Fixture(self, before=TPL)
+        d = tempfile.mkdtemp(prefix="proc-")
+        self.addCleanup(__import__("shutil").rmtree, d)
+        for pid, secs in (("11", 10), ("12", 20)):
+            os.makedirs(os.path.join(d, pid))
+            with open(os.path.join(d, pid, "stat"), "w") as fh:
+                fh.write(f"{pid} (claude) " + " ".join(["S"] + ["0"] * 18 + [str(os.sysconf("SC_CLK_TCK") * secs)] + ["0"] * 5))
+        with open(os.path.join(d, "stat"), "w") as fh:
+            fh.write("btime 1760000000\n")
+        envs = {11: env_with(OLD), 12: env_with(OLD), 13: env_with(TPL)}
+        run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "")  # noqa: E731
+        ctx = {"home": f.home, "uid": 1, "run": run,
+               "session_opts": {"pids": [12, 11, 13], "env_of": lambda pid: envs[pid](pid), "proc": d}}
+        sec = ops.collect("session", ctx)["session"]
+        self.assertEqual((sec["on_old_sign_in"], sec["old_sign_in_started"]), (2, ["2025-10-09T08:53:30Z", "2025-10-09T08:53:40Z"]))
+
     def test_a_session_that_exits_before_its_environment_is_read_is_not_counted(self):
         f = Fixture(self, before=TPL)
 

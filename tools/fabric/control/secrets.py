@@ -120,13 +120,13 @@ def _on_token(env: dict | None, tok: str | None) -> bool:
     return bool(t and tok and util.sha12(t) == util.sha12(tok))
 
 
-def sessions_on_old_sign_in(home: str | None, *, uid: int | None = None, pids: list[int] | None = None, env_of: Callable[[int], bytes | str] | None = None,
-                            pgrep: Callable[..., Any] | None = None) -> int | None:
-    """How many plain-claude sessions of this account still run on a sign-in other than the synced one — what
+def old_sign_in_pids(home: str | None, *, uid: int | None = None, pids: list[int] | None = None,
+                     env_of: Callable[[int], bytes | str] | None = None, pgrep: Callable[..., Any] | None = None) -> list[int] | None:
+    """The plain-claude sessions of this account still running on a sign-in other than the synced one — what
     `fabric-accounts assign --no-restart` leaves behind until each is relaunched. Broker and gateway sessions
-    are never counted (see session_env). None where it cannot be told: no synced token to compare with (the
+    are never listed (see session_env). None where it cannot be told: no synced token to compare with (the
     launcher refuses a session on none, so a running one is not "old", it is unknowable), or the process table
-    unreadable. A count of 0 is a measurement, None is not."""
+    unreadable. An empty list is a measurement, None is not."""
     tok = synced_var("CLAUDE_CODE_OAUTH_TOKEN", home)
     if not tok:
         return None
@@ -134,7 +134,7 @@ def sessions_on_old_sign_in(home: str | None, *, uid: int | None = None, pids: l
         running = pids if pids is not None else upgrade().session_pids(uid=uid, **({"run": pgrep} if pgrep else {}))
     except (OSError, subprocess.SubprocessError):
         return None
-    old = 0
+    old: list[int] = []
     for pid in running:
         try:
             env = session_env(pid, env_of)
@@ -144,8 +144,30 @@ def sessions_on_old_sign_in(home: str | None, *, uid: int | None = None, pids: l
             env = None
         if env and (env["transport"] == "gateway" or (env["provider"] and env["provider"] != "anthropic")):
             continue
-        old += not _on_token(env, tok)
+        if not _on_token(env, tok):
+            old.append(pid)
     return old
+
+
+def sessions_on_old_sign_in(home: str | None, **kw: Any) -> int | None:
+    found = old_sign_in_pids(home, **kw)
+    return None if found is None else len(found)
+
+
+def process_started(pid: int, proc: str = "/proc") -> str | None:
+    """When the process began, UTC to the second (stat field 22 in clock ticks since boot, plus /proc/stat's
+    btime); None where either cannot be read. A pid reused after the listing would name another process's
+    start, which only ever reads as a later one."""
+    try:
+        with open(os.path.join(proc, str(pid), "stat"), encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+        ticks = int(raw[raw.rfind(")") + 2:].split(" ")[19])
+        with open(os.path.join(proc, "stat"), encoding="utf-8", errors="replace") as fh:
+            btime = next(int(ln.split()[1]) for ln in fh if ln.startswith("btime "))
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(btime + ticks // os.sysconf("SC_CLK_TCK"), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (OSError, ValueError, IndexError, StopIteration):
+        return None
 
 
 def _alive(pid: int) -> bool:
