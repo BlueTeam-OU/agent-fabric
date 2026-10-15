@@ -204,35 +204,32 @@ sharing a machine.
       in a later one, each followed by a re-encryption of every company
       store to the list on `origin/main`, run by a holder that is still a
       recipient: after an addition, an existing holder's re-encryption
-      and then the added holder's own, so a removal merges only once a
-      remaining holder has signed a checkpoint. Until a store is
-      re-encrypted it is refused for every use but reading its
-      recipients, cloning it, re-encrypting, repairing and recovering
-      it: when no remaining holder can re-encrypt or repair (a lost key,
-      rule 4), the owner recovers it with the recovery key, in a
-      terminal;
+      and then the added holder's own; a removal merges only when the
+      store's head is a checkpoint signed by a holder that remains. Until
+      a store is re-encrypted it is refused for every use but reading its
+      recipients, cloning, re-encrypting, repairing and recovering it;
     - its commits are signed and verified as ADR-042 says of an agent's,
       with the holders as its only writers, because every agent's
-      `GH_TOKEN` can push to it. Each commit is judged against the
-      holders of the fabric commit it records and must be signed by a
-      holder now, so a removed holder's key extends nothing; each
-      re-encryption is
-      a checkpoint; a holder that has never held the store verifies it
-      from the newest checkpoint signed by a holder on `origin/main` now,
-      and every commit after it, each recording a fabric commit no older
-      than its parent's. Its default branch refuses a
-      force-push and a deletion, and a holder refuses a head that does
+      `GH_TOKEN` can push to it. Each commit records the fabric commit
+      whose holders it was written under. A checkpoint (its first
+      commit, a re-encryption, a repair, a recovery) holds the whole
+      store, and every reader starts from the newest one signed by a
+      holder now — never a retired holder's, and for a reader that has
+      verified the store before, only one descending from what it
+      verified — reading nothing before it, as ADR-042's base. Each
+      commit after the start must be signed by a holder now, who was one
+      at the fabric commit it records, no older than its parent's; the
+      first that is not stops the read. Its default branch refuses a
+      force-push and a deletion, and a reader refuses a head that does
       not descend from the last head it verified;
     - a commit that does not verify stays, since nothing may force-push;
-      ADR-042 rule 3's refusal holds until a holder repairs the store: a
-      checkpoint on top of the head whose tree is that of the last
-      commit that verifies before it, naming every commit after that one
-      as superseded, its recorded fabric commit judged against that
-      commit's. A verifier reads such a checkpoint and never the
-      commits it supersedes, and judges it against that commit, never
-      the superseded ones; this is the one exception to rule 3 here,
-      and the owner's recovery goes through it, the owner naming the
-      commit it restores when no current holder signed a checkpoint;
+      a holder repairs the store with a checkpoint on top of it holding
+      the last commit its own read verified. When no holder can read the
+      store (a lost key, rule 4; every checkpoint's signer retired), the
+      owner recovers it, in a terminal, from a backup bundle checked
+      against its manifest, re-encrypted with the recovery key. Both are
+      checkpoints like any other, so ADR-042 rule 3 holds without
+      exception;
     - no other agent decrypts it. What an agent needs is put into the
       agent's own store, write-only, by the agent's parent (ADR-042
       rule 2's only writer besides the agent; a holder that is not the

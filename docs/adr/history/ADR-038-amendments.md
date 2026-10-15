@@ -165,16 +165,17 @@ Only the fleet's names (`provision share`'s allowlist) stay fleet-wide;
 every other granted name, the operator's own included, is a client's,
 namespaced and applied to that client's working copies only — ADR-045
 rule 6, with rule 9's honest limit: it stops an accident, not the login.
-Because any agent can push to a company store, each commit is judged
-against the holders of the fabric commit it records, each re-encryption
-is a checkpoint a new holder verifies from, its branch refuses a
-force-push, and a holder refuses a head older than the last it verified.
-A holder is added before the one it replaces is removed, so someone can
-always re-encrypt; when no one can, the owner does, with the recovery key.
-A commit that does not verify cannot be removed (no force-push), so a
-holder repairs the store with a checkpoint restoring the last commit
-that verifies, which verifiers read in place of what it supersedes — the
-one exception to ADR-042 rule 3 for a company store, stated in rule 10.
+Because any agent can push to a company store, every reader starts
+from the newest checkpoint a current holder signed and reads only
+current holders' commits after it: a stolen retired key extends
+nothing, and a commit that does not verify — which no one can remove,
+since the branch refuses a force-push — is covered by a holder's repair
+checkpoint, which readers start from. A holder is added before the one
+it replaces is removed, and the removal waits for a remaining holder's
+checkpoint at the head, so someone can always re-encrypt. When no one
+can read the store, the owner restores it from a backup bundle checked
+against its manifest, so nothing a stolen key wrote into its history
+chooses what comes back.
 
 Rejected: an agent as a recipient of its client's store (every agent would
 read every client credential it was never granted, and a grant would be a
