@@ -226,10 +226,10 @@ class Daemon(Scratch):
         env.update(over)
         return {k: v for k, v in env.items() if v is not None}
 
-    def run_once(self, url: str, timeout: float = 60, **over) -> SimpleNamespace:
+    def run_once(self, url: str, timeout: float = 60, cwd: str | None = None, **over) -> SimpleNamespace:
         """Asynchronous with respect to the fake relay: it lives in this process's threads."""
         p = subprocess.run([sys.executable, AGENTD, "--once"], env=self.env(url, **over), capture_output=True, text=True,
-                           timeout=timeout, check=False, stdin=subprocess.DEVNULL)
+                           timeout=timeout, check=False, stdin=subprocess.DEVNULL, cwd=cwd)
         return SimpleNamespace(status=p.returncode, stderr=p.stderr, stdout=p.stdout)
 
     def start(self, url: str, **over) -> subprocess.Popen:
@@ -817,7 +817,13 @@ class Wire(Daemon):
     def test_port_no_token_is_a_refusal_to_start_too(self):
         r = self.with_relay()
         home = self.scratch("agentd-notoken-")
-        out = self.run_once(r.url(), HOME=home)
+        # Every token source the lookup walks is a place this machine may fill:
+        # the cwd's checkout (settings.local.json) and the workspace beside the
+        # fabric root (.gzcoord/bridge-token on the relay's host). A cwd outside
+        # any repository and a fabric root of its own leave none of them; the
+        # ceiling keeps git from walking up out of a TMPDIR inside a checkout.
+        out = self.run_once(r.url(), cwd=home, HOME=home, AGENT_FABRIC_ROOT=os.path.join(home, "ws", "fabric"),
+                            GIT_CEILING_DIRECTORIES=os.path.dirname(home))
         self.assertEqual(out.status, 3, out.stderr)
         self.assertIn("no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)", out.stderr)
         self.assertEqual(r.hits, [])
