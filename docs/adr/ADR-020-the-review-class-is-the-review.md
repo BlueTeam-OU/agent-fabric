@@ -155,7 +155,12 @@ outage procedure.
     `evidence: working-tree`, and the brief and its dispatch header say
     which. Pinned: the reviewer reads the change as `git diff <base>..<head>`
     and files as `git show <head>:<path>`, so what it reports as read at
-    the head is the head's blob; a plain read of the live clone is listed
+    the head is the head's blob. For a ranged request `brief` and `next`
+    also make the head's worktree, detached, at
+    `<TMPDIR>/fabric-review/<repository>-<head12>`, and the brief names it:
+    the reviewer reads and runs the head's files there and makes no
+    extract or copy of its own; `save` removes it, recomputing the path
+    from the report header's head SHA. A plain read of the live clone is listed
     under Brief notes, not counted as pinned evidence. Working-tree: the
     live clone as it stands, uncommitted changes included, time-stamped in
     the brief; its report is never posted as a review of a head,
@@ -221,3 +226,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 |---|---|---|
 | 2026-10-05 | The reviewer inherits no secret | §5 rule 4: the fence also refuses printing the environment and secret material, and every command it lets through runs with a clean environment |
 | 2026-10-14 | The card is read at the base; a review names its evidence mode | §5 rules 9-10: the project review card governs from the base (`card_base`, else the range's base), never the head; `evidence: pinned` reads through `git show <head>:<path>` and alone counts as coverage of a head, `working-tree` is labelled and never posted as a review of a head |
+| 2026-10-15 | A pinned review reads a detached worktree of the head | §5 rule 10: `brief` and `next` check the range's head out detached under `<TMPDIR>/fabric-review/` and the brief names it; the reviewer reads and runs there and makes no extract of its own; `save` removes it |

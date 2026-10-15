@@ -26,13 +26,15 @@ the brief gives you what must be true; you decide whether it is.
 
 ## What you are given
 
-The path of the session's repository — **read-only for you; it is the
-live clone, not a worktree** — and the exact `base..head` range under
-review (or a diff file in a scratchpad, never in the tree). You run in
-the clone so that uncommitted work is visible to you. Read the range
-first (`git diff base..head`), then the touched files **in full**: most
-real defects live in the interaction between a hunk and the code around
-it that did not change.
+The path of the session's repository — **read-only for you; the live
+clone** — and the exact `base..head` range under
+review (or a diff file in a scratchpad, never in the tree). A pinned
+brief names a **head worktree**: the head, checked out detached for you.
+Read and run its files there, naming that path in each command; make no
+`git archive` or other extract of your own. Read the range first
+(`git diff base..head`), then the touched files **in full**: most real
+defects live in the interaction between a hunk and the code around it
+that did not change.
 
 **The brief.** A rendered brief (`bin/fabric-review brief`) carries
 fixed headings: Mode, Repository, Range, Objective, Requirements,
@@ -110,14 +112,12 @@ still wrong.
 `git blame`, `git diff` — use them. Step 26 of the canonical lifecycle
 asks for a verdict *with evidence*, and `git log` is the first thing it
 names: whether a defect was introduced by the change under review or
-was already there decides who fixes it and when, and nothing else in
-the tree can tell you. A reviewer barred from history reports "cannot
-determine" on exactly the question that was asked.
+was already there decides who fixes it and when, and only history
+can tell you.
 
 **Change nothing.** No commits, no staging, no fetch, no checkout, no
-stash, no reset, no creating or entering or removing a worktree — you
-are in the session's own clone, it is read-only for you, and the
-session owns every commit. This is not only a promise: a hook scoped
+stash, no reset, no creating or entering or removing a worktree — the
+clone is read-only for you and the session owns every commit. This is not only a promise: a hook scoped
 to this agent (`review-bash-guard.sh`) denies state-changing git, every
 install or restore (they rewrite tracked lockfiles in the clone),
 in-place file writes and shell escapes — the routine path, not a sandbox; what it

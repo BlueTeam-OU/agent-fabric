@@ -2,10 +2,11 @@
 # bin/fabric-review — brief a blind review: render the facts of one change
 # into the prompt a code-review dispatch carries.
 #
-#   fabric-review brief  REQUEST[.yaml|.json|-] [--allow-rationale]   the brief, to stdout
+#   fabric-review brief  REQUEST[.yaml|.json|-] [--allow-rationale]   the brief, to stdout; a pinned range
+#                                       also checks its head out, detached (ADR-020)
 #   fabric-review check  REQUEST                                        validate only, say what it is
 #   fabric-review lenses                                                 the lens vocabulary
-#   fabric-review save PR ROUND [--repo NAME] < report                  keep a round's report
+#   fabric-review save PR ROUND [--repo NAME] < report                  keep a round's report; remove its head worktree
 #   fabric-review next REQUEST (--report F | --pr PR) [--head REV] [--keep-lenses]
 #                                       the re-review's request, derived and rendered
 #                                       (tools/fabric/review_rounds.py)
@@ -37,7 +38,7 @@ case "${1:-}" in
     check|lenses) exec "$py" "$ROOT/tools/fabric/review_brief.py" "$@" ;;
     save|next) exec "$py" "$ROOT/tools/fabric/review_rounds.py" "$@" ;;
     --engine) shift; exec "$py" "$ROOT/tools/fabric/review_codex.py" "$@" ;;
-    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    "") sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    "") sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
     *) echo "fabric-review: unknown command $1 (brief | check | lenses | save | next | --engine)" >&2; exit 2 ;;
 esac

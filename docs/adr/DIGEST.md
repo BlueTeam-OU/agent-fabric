@@ -455,24 +455,27 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - The review class's blind review is the review of every PR: on every
   head, to judge a finding, to re-review a fix range; no automated
-  reviewer is assumed (§2, §5 rule 1).
+  reviewer is assumed (§5 rule 1).
 - Dispatch: `code-review`, `model: fable`, description "review…" or
   "re-review…", no isolation; the guard drops the alias so the agent
-  file's routed model decides, within `review-grade.json` (§5 rules 2–3).
+  file's routed model decides (§5 rules 2–3).
 - The reviewer writes nothing (`review-bash-guard.sh`); its brief is
-  facts from `fabric-review brief`, never conclusions (§5 rules 4–5).
+  facts, never conclusions (§5 rules 4–5).
 - Posted by `fabric-pr post-review` with the marker; counted only when marked
   and posted by the PR's account or a named poster, or unmarked from a
   trusted account (§5 rules 6–7). Legacy markers until the sunset (§5
   rule 8).
-- A 2026-10-05 — the reviewer inherits no secret: every command its fence
-  lets through runs with a clean environment (§5 rule 4).
+- A 2026-10-05 — the reviewer inherits no secret: its commands run with
+  a clean environment (§5 rule 4).
 - A 2026-10-14 — the project review card governs from the base, never
   the head, and the reviewer's agent file omits the project's instruction
   files (§5 rule 9); a review names its evidence mode, only `pinned`
   (`git show <head>:<path>`) counts as coverage of a head, and
-  `working-tree` is labelled and never posted as a review of a head
+  `working-tree` is never posted as a review of a head
   (§5 rule 10).
+- A 2026-10-15 — a pinned review reads a detached head worktree that
+  `brief`/`next` make, the brief names and `save` removes; no extract of
+  its own (§5 rule 10).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
   review-grade, substitute, review card, evidence mode, pinned,
