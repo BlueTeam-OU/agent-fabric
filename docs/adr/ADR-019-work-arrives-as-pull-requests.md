@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md (the PR rules every session reads); fabric-pr gate, tools/fabric/github/commit_class.py, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; `fabric-repo-settings` and the GitHub-side settings of gzapi-org/agent-fabric
+**Scope:** identities/prompt/team.md and policies/pull-requests/SKILL.md (the PR rules every session reads); fabric-pr gate, tools/fabric/github/commit_class.py, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; `fabric-repo-settings` and the GitHub-side settings of gzapi-org/agent-fabric
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -42,7 +42,7 @@ the gate is met, without the owner's word, a security-boundary change
 too; fewer ask the owner, who arms;
 sixteen is the size to open a batch at, not a condition for arming it.
 
-**The gate is read before arming.** `pr-gate.sh` gives each open PR one
+**The gate is read before arming.** `fabric-pr gate` gives each open PR one
 verdict from its checks, its review, its threads and its merge state;
 arming follows a `MERGEABLE` verdict and nothing else.
 
@@ -145,10 +145,10 @@ not on a pipe's exit status.
    next batch.
 5. The gate is `fabric-pr gate`'s verdict for the PR, read
    before arming: `MERGEABLE` needs checks green, a review on the current
-   head (`pr-review-status.sh`), no unresolved thread, no conflict, no
+   head (`fabric-pr review-status`), no unresolved thread, no conflict, no
    draft and no unfolded supply. The verdict does not read the review's
    findings; the session also has no open P1 or P2 finding before it arms
-   (`identities/prompt/team.md`). Arming is a separate command, run on a
+   (`policies/pull-requests/SKILL.md`). Arming is a separate command, run on a
    verdict read — never chained behind the gate's own run. An arming
    holds for the head it was made on: a push after it takes auto-merge
    off (`.github/workflows/disarm-on-push.yml`, which says so on the PR),
@@ -203,7 +203,7 @@ not on a pipe's exit status.
   requires only `ci-ok`, the job that needs them all, and a leg renamed
   or added changes nothing there.
 - Nothing on GitHub enforces rules 1, 2, 4 or 5 on agent-fabric; they are
-  practice, read to every session in `team.md`, and visible in the history.
+  practice, read to every session in `team.md` and the pull-requests skill, and visible in the history.
 - A managed project's CI checks this public repository out without a
   credential, at the commit its `fabric-ref` pins (ADR-011).
 
@@ -223,7 +223,7 @@ stub pointing here.
 
 ## References
 
-- `identities/prompt/team.md` (the band, one open PR, the gate's
+- `policies/pull-requests/SKILL.md` (the band, one open PR, the gate's
   conditions), `AGENTS.md` §"Git discipline".
 - `fabric-pr gate`, `tools/fabric/github/commit_class.py`,
   `fabric-pr review-status`, and their tests.
