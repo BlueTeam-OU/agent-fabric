@@ -24,7 +24,7 @@ REPLY = re.compile(rf"\breply:({MESSAGE_ID.pattern})", re.ASCII)
 SHA = re.compile(r"(?<![0-9a-zA-Z])[0-9a-f]{7,40}(?![0-9a-zA-Z])", re.ASCII)
 # What a blocked job's free text must say to count as an owner's decision (rule 10: the one blocker no tool can check).
 OWNER_DECISION = re.compile(r"\s*(?:owner(?:'s)?\s+decision|owner:|the owner(?:'s)?\s+decision)", re.IGNORECASE)
-EVIDENCE_FORMS = "a pull request (owner/repo#N, #N or its URL), a commit sha, a branch on origin or reply:<MESSAGE-ID>"
+EVIDENCE_FORMS = "a pull request (owner/repo#N, #N or its URL), a commit sha, a branch on origin or reply:<MESSAGE-ID> (the reply's id or the id it answers)"
 # A branch artifact is a ref name (or origin/<ref>) holding a slash. The pattern keeps a leading dash out of git's argv; whether a
 # candidate is a branch at all is asked of git, so a path or a repo name that matches is no evidence and no failure.
 BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)+", re.ASCII)
@@ -97,14 +97,16 @@ def _journal():
 
 
 def replied(message_id: str) -> bool | str:
-    """True when this login's journal holds a REPLY of its own to `message_id`; False when not; a string saying why it could not be told."""
+    """True when this login's journal holds a REPLY of its own that answers `message_id` or is `message_id` (gzcoord-send prints only the
+    reply's own id, so a holder cannot be asked for the answered one); False when not; a string saying why it could not be told.
+    Both are UUIDv7s and only this login's outbound REPLY rows are read, so neither reading can name another message."""
     try:
         conn = _journal()
         if conn is None:
             return False
         try:
-            return conn.execute("SELECT 1 FROM episodes WHERE direction='outbound' AND type='REPLY' AND lower(in_reply_to)=? LIMIT 1",
-                                (message_id,)).fetchone() is not None
+            return conn.execute("SELECT 1 FROM episodes WHERE direction='outbound' AND type='REPLY' "
+                                "AND (lower(in_reply_to)=? OR lower(message_id)=?) LIMIT 1", (message_id, message_id)).fetchone() is not None
         finally:
             conn.close()
     except Exception as e:  # noqa: BLE001 — an unreadable journal is "could not tell", never a traceback
@@ -281,7 +283,7 @@ def _replies(found: dict, problems: list[str]) -> list[str]:
         if said is True:
             out.append(f"reply {mid[:8]} sent")
         elif said is False:
-            problems.append(f"reply:{mid} is not in this login's journal as sent")
+            problems.append(f"reply:{mid} names no REPLY this login sent (the id gzcoord-send printed for the reply, or the id of the message it answers)")
         else:
             problems.append(f"could not tell whether reply:{mid} was sent ({said})")
     return out
