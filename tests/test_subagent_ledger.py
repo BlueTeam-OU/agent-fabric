@@ -400,12 +400,16 @@ def main() -> int:
                 os.remove(ledger)
             payload = json.dumps({"hook_event_name": "SubagentStop", "session_id": "sess-1", "cwd": "/",
                                   "agent_id": "afixture", "agent_transcript_path": transcript})
+            # The stop is whole on stdin before the line is appended: the hook reads the transcript once stdin ends.
+            # A file, not a pipe closed by hand: communicate() then flushes the closed pipe, a ValueError on
+            # debian's Python 3.13 (CI of #268).
+            stop = os.path.join(sandbox, "stop.json")
+            with open(stop, "w", encoding="utf-8") as fh:
+                fh.write(payload)
             start = time.monotonic()
-            p = subprocess.Popen([sys.executable, UNDER_TEST], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT, text=True, env=env)
-            # The stop is sent before the line is appended: the hook reads the transcript once stdin closes.
-            p.stdin.write(payload)
-            p.stdin.close()
+            with open(stop, encoding="utf-8") as stdin:
+                p = subprocess.Popen([sys.executable, UNDER_TEST], stdin=stdin, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True, env=env)
             if late_line is not None:
                 time.sleep(0.5)
                 with open(transcript, "a", encoding="utf-8") as fh:
