@@ -341,8 +341,9 @@ def change(args) -> int:
                 job["blockers"] = specs
             said["specs"], said["hint"] = specs, text is not None and not specs and bl.names_a_checkable(text)
         elif args.cmd == "deliver" and job["state"] == "done":
-            # Evidence only: the job stays closed (nothing reopens it), so a missing artifact can be added. Artifacts are never
-            # removed; a wrong one is outweighed by a landed one, as settle reads them.
+            # Evidence only: the job stays closed (nothing reopens it), so a missing artifact can be added. `deliver` never removes one; a
+            # wrong artifact does not hide behind a landed one (settle makes a reply: naming no sent REPLY a problem whatever else
+            # landed), it is taken out with `retract`.
             job["artifacts"] = list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))
             job["updated"] = identity.now_iso()
         elif args.cmd == "deliver":
