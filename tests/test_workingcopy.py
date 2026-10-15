@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import subprocess
 import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 spec = importlib.util.spec_from_file_location("fabric_workingcopy", os.path.join(ROOT, "tools", "fabric", "workingcopy.py"))
@@ -140,8 +146,76 @@ def test_a_hanging_git_reads_as_no_repository_within_the_bound() -> None:
         assert took < 10, f"took {took:.1f} s"
 
 
+REGISTRY = {"projects": {
+    "acme-app": {"remotes": ["git@github.com:some-other-org/acme-app.git"], "client": "acme"},
+    "loose": {"remotes": ["git@github.com:some-other-org/loose.git"]},
+    "stray": {"remotes": ["git@github.com:some-other-org/stray.git"], "client": "ghost"}}}
+CLIENTS = {"clients": {"acme": {"title": "Acme", "engagement": "acme/rules", "secrets_store": "acme/secrets",
+                                "channel": "acme:chan", "settings_repo": "acme/settings"},
+                       "bare": {}}}
+
+
+def test_a_project_resolves_to_its_registered_client() -> None:
+    assert wc.client_for_project(None, REGISTRY, CLIENTS) is None
+    assert wc.client_for_project("loose", REGISTRY, CLIENTS) is None, "a project with no client field has none"
+    assert wc.client_for_project("unregistered", REGISTRY, CLIENTS) is None
+    assert wc.client_for_project("acme-app", REGISTRY, CLIENTS) == {
+        "id": "acme", "title": "Acme", "engagement": "acme/rules", "secrets_store": "acme/secrets",
+        "channel": "acme:chan", "settings_repo": "acme/settings"}
+    bare = {"projects": {"p": {"client": "bare"}}}
+    assert wc.client_for_project("p", bare, CLIENTS) == {
+        "id": "bare", "title": None, "engagement": None, "secrets_store": None, "channel": None, "settings_repo": None}
+
+
+def test_an_unknown_client_refuses_naming_the_project_and_the_files() -> None:
+    try:
+        wc.client_for_project("stray", REGISTRY, CLIENTS)
+    except SystemExit as exc:
+        msg = str(exc.code)
+        assert "stray" in msg and "ghost" in msg and "projects/clients.json" in msg, msg
+    else:
+        raise AssertionError("an unlisted client must refuse")
+
+
+def _repo(tmp: str, remote: str) -> str:
+    top = os.path.join(tmp, "wc")
+    os.makedirs(top)
+    subprocess.run(["git", "-C", top, "init", "-q"], env=git_env(), check=True)
+    subprocess.run(["git", "-C", top, "remote", "add", "origin", remote], env=git_env(), check=True)
+    return top
+
+
+def test_resolve_names_the_client_from_the_project_never_the_organisation() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        top = _repo(tmp, "git@github.com:some-other-org/acme-app.git")
+        got = wc.resolve(top, REGISTRY)
+        assert got["project"] == "acme-app" and got["client"] == "acme", got
+        assert got["operator"] == wc.roots.operator_root(engine=wc.FABRIC_ROOT), got
+        triple = wc.resolve_client(top, REGISTRY, CLIENTS)
+        assert triple["project"] == "acme-app" and triple["client"]["id"] == "acme", triple
+        assert triple["operator"] == got["operator"] and triple["working_copy"] == got["path"], triple
+    with tempfile.TemporaryDirectory() as tmp:
+        top = _repo(tmp, "git@github.com:nobody/unregistered.git")
+        got = wc.resolve(top, REGISTRY)
+        assert got["project"] is None and got["client"] is None, got
+        assert wc.resolve_client(top, REGISTRY, CLIENTS)["client"] is None
+    with tempfile.TemporaryDirectory() as tmp:
+        got = wc.resolve(tmp, REGISTRY)
+        assert got["client"] is None and got["operator"] is None, got
+
+
+def test_resolve_never_refuses_over_a_client() -> None:
+    """An unknown client is client_for_project's refusal, not resolve's:
+    resolve answers the registry's word and keeps the project."""
+    with tempfile.TemporaryDirectory() as tmp:
+        top = _repo(tmp, "git@github.com:some-other-org/stray.git")
+        got = wc.resolve(top, REGISTRY)
+        assert got["project"] == "stray" and got["client"] == "ghost", got
+
+
 def main() -> int:
-    cases = [test_blueteam_projects_resolve_under_both_github_orgs, test_the_shapes_git_accepts_parse_to_one_structure, test_what_is_not_a_network_remote_parses_to_nothing,
+    cases = [test_resolve_never_refuses_over_a_client, test_a_project_resolves_to_its_registered_client, test_an_unknown_client_refuses_naming_the_project_and_the_files,
+             test_resolve_names_the_client_from_the_project_never_the_organisation, test_blueteam_projects_resolve_under_both_github_orgs, test_the_shapes_git_accepts_parse_to_one_structure, test_what_is_not_a_network_remote_parses_to_nothing,
              test_scp_syntax_follows_gits_own_rule, test_canonical_ignores_scheme_and_user_keeps_port_and_host_case_folds,
              test_path_case_is_host_specific, test_project_matching_uses_the_canonical_form,
              test_a_hanging_git_reads_as_no_repository_within_the_bound]

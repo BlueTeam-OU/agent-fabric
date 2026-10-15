@@ -179,9 +179,14 @@ def test_hook_gives_the_project_layer_from_the_working_copy(tmp: str) -> None:
     assert "# db-admin — remit in fixture-proj (.agent-fabric/roles/db-admin.md)" in ctx, ctx
     assert "ask `memory_find` before changing" in ctx and "`memory_read`" in ctx and "nothing else now" in ctx, ctx
     assert "INDEX.md" not in ctx, ctx   # ADR-049 rule 8: the tools, not a path
+    client = [n for n, l in enumerate(ctx.splitlines()) if l.startswith("agent-fabric: client fixture-client (")]
+    remit = [n for n, l in enumerate(ctx.splitlines()) if l.startswith("# db-admin — remit in fixture-proj")]
+    assert len(client) == 1 and remit and 0 < client[0] < remit[0], ctx
     parent = os.path.join(tmp, "projects"); os.makedirs(parent)
     ctx = context_of(run_hook({"cwd": parent}, env))
     assert "not in a registered working copy" in ctx and "REMIT-BODY-LINE" not in ctx, ctx
+    # The binding still names fixture-proj; its client is not this directory's.
+    assert "agent-fabric: client" not in ctx, ctx
 
 
 def test_hook_says_when_the_binding_drifted_from_the_launch(tmp: str) -> None:
@@ -765,8 +770,36 @@ def test_hook_says_missing_tools(tmp: str) -> None:
     assert hook.tools_line("gzapp", state) == [], "an unreadable report: nothing said"
 
 
+def test_hook_names_the_client_of_the_project(tmp: str) -> None:
+    """The client line follows the project's registry `client`; a project
+    with none says nothing, and a declaration error is a line, not a raise."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("session_start_hook",
+                                                  os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.py"))
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+    # The hook's FABRIC_ROOT is AGENT_FABRIC_ROOT when set, which a launched
+    # session points at another checkout: this tree's resolver is the one tested.
+    hook.FABRIC_ROOT = ROOT
+    registry = {"projects": {"app": {"client": "acme"}, "loose": {}, "stray": {"client": "ghost"}}}
+    clients = {"clients": {"acme": {"title": "Acme", "engagement": None, "secrets_store": None, "channel": "acme:chan"}}}
+    assert hook.client_line("app", registry, clients) == [
+        "agent-fabric: client acme (Acme) \u2014 channel acme:chan, secrets store none, engagement none yet (ADR-045 stage 5); "
+        "a client is the project's, never the GitHub organization's (ADR-045 \u00a75 rule 5)"]
+    clients["clients"]["acme"].update(engagement="acme/rules", secrets_store="acme/secrets")
+    line = hook.client_line("app", registry, clients)[0]
+    assert "secrets store acme/secrets, engagement acme/rules;" in line, line
+    assert hook.client_line(None, registry, clients) == [] and hook.client_line("loose", registry, clients) == []
+    clients["clients"]["bare"] = {"settings_repo": "o/s"}
+    registry["projects"]["thin"] = {"client": "bare"}
+    line = hook.client_line("thin", registry, clients)[0]
+    assert "client bare (untitled) \u2014 channel none, secrets store none" in line and "None" not in line, line
+    bad = hook.client_line("stray", registry, clients)
+    assert len(bad) == 1 and bad[0].startswith("agent-fabric: client unresolved \u2014 ") and "ghost" in bad[0], bad
+
+
 def main() -> int:
-    cases = [test_hook_records_context_not_identity, test_a_subagent_start_never_rebinds_the_login,
+    cases = [test_hook_names_the_client_of_the_project, test_hook_records_context_not_identity, test_a_subagent_start_never_rebinds_the_login,
              test_hook_gives_the_project_layer_from_the_working_copy,
              test_hook_says_when_the_binding_drifted_from_the_launch,
              test_hook_from_the_parent_directory_has_no_project,

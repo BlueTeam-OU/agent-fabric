@@ -124,6 +124,10 @@ def projects_registry(root: str | None = None, environ: Mapping[str, str] | None
     return _under(root, environ, engine, "projects", "registry.json")
 
 
+def clients_registry(root: str | None = None, environ: Mapping[str, str] | None = None, engine: str | None = None) -> str:
+    return _under(root, environ, engine, "projects", "clients.json")
+
+
 def projects_dir(root: str | None = None, environ: Mapping[str, str] | None = None, engine: str | None = None) -> str:
     return _under(root, environ, engine, "projects")
 

@@ -148,6 +148,10 @@ def main() -> int:
         drift = identity.launch_role_drift(binding)
         if drift:
             lines.append(f"agent-fabric: DRIFT {drift}")
+        # The working copy's project only: a project kept from the binding (a
+        # start in projects/ or an unregistered clone) would hand this session
+        # another working copy's channel and secrets store (review of #269).
+        lines += client_line(ctx["project"] if ctx["project_source"] == "working-copy" else None)
         lines += project_layer(role, ctx["project"], ctx["working_copy"])
         try:
             lines += trailing(ctx["working_copy"])
@@ -412,6 +416,32 @@ def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
             if a <= 1:
                 break
     return False
+
+
+def client_line(project: str | None, registry: dict | None = None, clients: dict | None = None) -> list[str]:
+    """One line naming the client the working copy's project works for
+    (agent-fabric ADR-045 §5 rule 5), with the channel, secrets store and
+    engagement its sessions are bound by. A resolution error is said, not
+    raised: a client declaration gone wrong must not cost the session its
+    start."""
+    if not project:
+        return []
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "fabric_workingcopy", os.path.join(FABRIC_ROOT, "tools", "fabric", "workingcopy.py"))
+        wc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wc)
+        registry = registry if registry is not None else wc.load_registry()
+        clients = clients if clients is not None else wc.load_clients()
+        client = wc.client_for_project(project, registry, clients)
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 — see the docstring
+        return [f"agent-fabric: client unresolved — {exc.code if isinstance(exc, SystemExit) else exc}"]
+    if not client:
+        return []
+    return [f"agent-fabric: client {client['id']} ({client['title'] or 'untitled'}) — channel {client['channel'] or 'none'}, "
+            f"secrets store {client['secrets_store'] or 'none'}, "
+            f"engagement {client['engagement'] or 'none yet (ADR-045 stage 5)'}; "
+            "a client is the project's, never the GitHub organization's (ADR-045 §5 rule 5)"]
 
 
 def project_layer(role: str | None, project: str | None, working_copy: str | None) -> list[str]:

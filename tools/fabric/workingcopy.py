@@ -146,12 +146,49 @@ def project_for_remote(url: str | None, registry: dict[str, Any]) -> str | None:
     return None
 
 
+def load_clients(path: str | None = None) -> dict[str, Any]:
+    path = path or roots.clients_registry(engine=FABRIC_ROOT)
+    if not os.path.exists(path):
+        return {"version": 1, "clients": {}}
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+CLIENT_FIELDS = ("title", "engagement", "secrets_store", "channel", "settings_repo")
+
+
+def client_for_project(project: str | None, registry: dict[str, Any], clients: dict[str, Any]) -> dict[str, Any] | None:
+    """The client a project works for: its registry entry's `client`,
+    looked up in clients.json. Never derived from the remote's GitHub
+    organisation (ADR-045 §5 rule 5): one organisation holds every
+    repository today, so it says nothing about whose work this is.
+
+    A client the file does not list is a declaration error and refuses
+    here, like a bad marker; lint holds the two files to each other, this
+    is the same check at the moment a session depends on it."""
+    if not project:
+        return None
+    declared = ((registry.get("projects") or {}).get(project) or {}).get("client")
+    if not declared:
+        return None
+    known = clients.get("clients") or {}
+    if declared not in known:
+        raise SystemExit(f"workingcopy: project {project!r} names client {declared!r}, which projects/clients.json "
+                         f"does not know ({', '.join(sorted(known)) or 'none registered'}). Fix the project's "
+                         "`client` in projects/registry.json or add the client")
+    entry = known[declared] or {}
+    return {"id": declared, **{f: entry.get(f) for f in CLIENT_FIELDS}}
+
+
 def resolve(path: str, registry: dict[str, Any] | None = None) -> dict[str, Any]:
-    """{path, id, remote, project, project_source} for the working copy
-    containing `path`. Outside a repository every field is None."""
+    """{path, id, remote, project, project_source, client, operator} for
+    the working copy containing `path`; `operator` is the operator root
+    this module's defaults read, which a caller passing its own `registry`
+    may not have used. Outside a repository every field is None."""
     top = toplevel(path)
     if not top:
-        return {"path": None, "id": None, "remote": None, "project": None, "project_source": None}
+        return {"path": None, "id": None, "remote": None, "project": None, "project_source": None,
+                "client": None, "operator": None}
     registry = registry if registry is not None else load_registry()
     remote = remote_url(top)
     project, source = None, None
@@ -176,8 +213,25 @@ def resolve(path: str, registry: dict[str, Any] | None = None) -> dict[str, Any]
     if project is None:
         project = project_for_remote(remote, registry)
         source = "remote" if project else None
+    # The registry's word only, never clients.json: resolve is on the path of
+    # the pre-push hook, lint, bootstrap and session start, and an error in
+    # clients.json must not cost them the project. The refusal lives where a
+    # caller needs the client's fields (client_for_project, resolve_client).
+    declared = ((registry.get("projects") or {}).get(project) or {}).get("client") if project else None
     return {"path": top, "id": os.path.basename(top), "remote": remote,
-            "project": project, "project_source": source}
+            "project": project, "project_source": source,
+            "client": declared or None, "operator": roots.operator_root(engine=FABRIC_ROOT)}
+
+
+def resolve_client(path: str, registry: dict[str, Any] | None = None, clients: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The (operator, client, project) triple for the working copy at
+    `path`, with the client's fields for a caller that needs more than
+    its id."""
+    registry = registry if registry is not None else load_registry()
+    clients = clients if clients is not None else load_clients()
+    got = resolve(path, registry)
+    return {"operator": got["operator"], "client": client_for_project(got["project"], registry, clients),
+            "project": got["project"], "working_copy": got["path"]}
 
 
 if __name__ == "__main__":
