@@ -63,11 +63,11 @@ class Reply(_ReplyRequired, _ReplyOptional):
 # Up: what agentd posts once when it starts, so ctl can tell a restart.
 Up = TypedDict("Up", {"v": int, "kind": str, "from": str, "ts": str})
 
-# State: what an account's sessions are doing (sessions.mjs), posted when
+# State: what an account's sessions are doing (control/sessions.py), posted when
 # it changes and on a heartbeat (ADR-029 rule 16). `sessions` holds
 # {"session", "state": working|blocked|idle, "since"} per live session
 # (and, where known, "reason": permission|question on a blocked one, "context": {"pct", "at"}, "activity":
-# recent|quiet; each absent or null where unknown),
+# recent|quiet, "ssh_client": {"addr", "port"} of the ssh login the session runs under; each absent or null where unknown),
 # empty when none runs, or the string "unreadable" when the account cannot
 # read its own session state (j68; ctl shows that account unknown, never
 # none); `waits_on` the GZCoord ids the account's blocked jobs wait on

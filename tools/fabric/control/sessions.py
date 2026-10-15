@@ -23,7 +23,7 @@ never rewritten here; the hook owns it.
 
 What leaves the account is the session id, its state and since when,
 and for a session that has them its `reason` (permission or question, blocked only), `context` (an integer
-percentage with its sample time) and `activity` (recent or quiet), never the transcript's path,
+percentage with its sample time) and `activity` (recent or quiet) and `ssh_client` (see SSH_CLIENTS_DIR), never the transcript's path,
 the binding's role and project, its last session's id with whether its
 transcript is here (resumable), and `waits_on`, the GZCoord message ids
 this login's blocked jobs wait on (ADR-037 rule 8): no path, no process
@@ -90,6 +90,13 @@ STATES = ("working", "blocked", "idle")
 # is optional on the wire and absent where unknown: a view never reads a missing sample as 0 % or a missing reason as "permission".
 REASONS = ("permission", "question")
 CONTEXT_FILE = "session-context.json"
+# runtime/provisioning/moveto/enter-ssh writes <state>/ssh-clients/<its pid> holding $SSH_CLIENT
+# ("<ip> <port> <server port>"), mode 700: the operator's deck cannot read it, so the State record carries
+# the client of a session that has one as `ssh_client` {"addr", "port"}, found by walking the session's
+# parents to the first pid with such a file. Optional, absent where there is no record or it does not parse.
+SSH_CLIENTS_DIR = "ssh-clients"
+SSH_CLIENT_LINE = re.compile(r"([0-9a-fA-F.:]+) ([0-9]+) [0-9]+\n?", re.ASCII)
+SSH_WALK_MAX = 64
 # The one time form the producer writes and fleet's attention_time accepts; any other would pass here and be null there.
 SAMPLE_TIME = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z", re.ASCII)
 # The transcript is written when a message completes, not while one streams: "recent" means a message landed
@@ -197,6 +204,47 @@ def alive(pid, start, proc: str = "/proc", *, since=None, now_ms: float | None =
     return field == start
 
 
+def _parent(pid: int, proc: str) -> int | None:
+    """The parent pid from /proc/<pid>/stat (field 4); None when it cannot be read."""
+    try:
+        with open(os.path.join(proc, str(pid), "stat"), encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+        return int(raw[raw.rfind(")") + 2:].split(" ")[1])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def ssh_client(pid, state_dir: str, proc: str = "/proc") -> dict | None:
+    """{"addr", "port"} of the ssh client whose enter-ssh is `pid` or the nearest of its
+    ancestors with a record under <state_dir>/ssh-clients; None when there is none or the
+    record does not parse. The pid itself counts: enter-ssh execs on, so a record's pid may be
+    the session's own. A pid reused since its record was written is a known gap, accepted
+    by the requester (j83): it needs a stale record on a live session's own ancestor, and
+    the next ssh entry prunes dead ones. No start-time check.
+    """
+    if not _is_integer(pid):
+        return None
+    cur = int(pid)
+    for _ in range(SSH_WALK_MAX):
+        if cur <= 1:
+            return None
+        try:
+            with open(os.path.join(state_dir, SSH_CLIENTS_DIR, str(cur)), encoding="utf-8") as fh:
+                m = SSH_CLIENT_LINE.fullmatch(fh.read(256))
+        except FileNotFoundError:
+            m = False
+        except (OSError, UnicodeDecodeError):
+            return None
+        if m is not False:
+            port = int(m[2]) if m else -1
+            return {"addr": m[1], "port": port} if m and port <= 65535 else None
+        nxt = _parent(cur, proc)
+        if nxt is None or nxt == cur:
+            return None
+        cur = nxt
+    return None
+
+
 def read_sessions(file: str, *, proc: str = "/proc", now_ms: float | None = None,
                   on_stale: Callable[[str], None] = lambda _id: None) -> list | None:
     """The sessions the file names whose process lives, sorted by id; [] when
@@ -229,6 +277,9 @@ def read_sessions(file: str, *, proc: str = "/proc", now_ms: float | None = None
                 row["reason"] = s["reason"]
             if sid in contexts:
                 row["context"] = contexts[sid]
+            client = ssh_client(s.get("pid"), os.path.dirname(file), proc)
+            if client:
+                row["ssh_client"] = client
             seen = activity(s.get("transcript"), now_ms)
             if seen:
                 row["activity"] = seen
