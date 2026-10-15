@@ -41,7 +41,7 @@ rows or names, never a value; a value enters only on stdin.
 
 | Command | Does |
 |---|---|
-| `company init <client>` | on an empty store: `.gpg-id` with the expected recipients and an empty `grants.json`, as the root commit and first checkpoint, signed, pushed. A store that has commits is left alone. No entry is written to a store until its default branch is read back (through the API) refusing a force-push and a deletion; `set`, `import` and `grant` refuse, naming the setting, until it does. |
+| `company init <client>` | on an empty store: `.gpg-id` with the expected recipients and an empty `grants.json`, as the root commit and first checkpoint, signed, pushed. A store that has commits is left alone. Every writing command after it (`set`, `rm`, `import`, `grant`, `revoke`, `reencrypt`, `recover`, the rename's grant rewrite) first reads back (through the API) that the default branch refuses a force-push and a deletion, and refuses, naming the setting, when it does not. |
 | `company clone <client>` | a holder's first contact with an existing store: clones it and verifies it from the newest checkpoint its own login can anchor (see Signed and verified); refused, naming the commit, on any commit that does not verify. |
 | `company recipients <client> [--json]` | expected against actual recipients; exit 0 equal, 3 different. |
 | `company reencrypt <client>` | every entry re-encrypted to the expected recipients, one signed commit, a checkpoint. Run after each holder change merges, by a holder that is still a recipient: an added holder's merge is re-encrypted by an existing holder; a removal merges only after that, and is re-encrypted by a remaining one. |
@@ -79,9 +79,11 @@ writers change over time, so each commit records, in a trailer, the agent-fabric
 whose holders it was written under; it verifies when that fabric commit is on
 `origin/main`, is not older than the one its parent records, and its signer was a holder
 there. A re-encryption is a checkpoint. A holder that never held the store verifies from
-the newest checkpoint signed by a holder of its recorded fabric commit whose holders
-include the cloning login, forward to the head — history before it is not judged, as
-ADR-042's base, and no base is ever taken from a fetch alone. Each holder's clone records,
+the newest checkpoint whose signer is a holder on `origin/main` now and was one at the
+fabric commit it records, which is no older than the one its parent records, forward to
+the head, each commit after it verified as above — history before it is not judged, as
+ADR-042's base, and no base is ever taken from a fetch alone. A checkpoint signed by a
+retired holder is never a starting point; one after the start is refused. Each holder's clone records,
 in its own git configuration, the last head it verified, and refuses a fetched head that
 does not descend from it: a push back to an older signed head, which signatures alone
 would pass.
@@ -95,11 +97,11 @@ company store's ciphertext is safe against that; what the repository *says* is n
 
 | Threat | What stops it |
 |---|---|
-| An agent rewrites `.gpg-id` to add its own key, and a holder's next `set` encrypts to it | No command encrypts to the repository's `.gpg-id`: every write uses the expected recipients computed from `origin/main`, and a store whose `.gpg-id` differs is refused until `reencrypt`. |
+| An agent rewrites `.gpg-id` to add its own key, and a holder's next `set` encrypts to it | No command encrypts to the repository's `.gpg-id`: every write uses the expected recipients computed from `origin/main`, and a store whose `.gpg-id` differs is refused for all but `recipients`, `clone`, `reencrypt` and `recover` until one of the last two runs. |
 | An agent edits `grants.json` to grant itself a client's name | ADR-042's verification with holders as the writers: an unsigned commit, or one signed by any non-holder key — every agent has a valid signing subkey (ADR-057) — refuses the whole operation, naming the commit. |
 | A forged entry (encrypted by anyone to the right recipients) replaces a real one | The same verification: no entry is read from a store whose new commits are not all a holder's. |
 | An agent pushes the store back to an older holder-signed head (before a `revoke` or a rotation) | The branch refuses a force-push; a holder refuses a head that does not descend from the last it verified. A holder's first `clone` after such a push cannot tell, which is why no entry is written before the branch setting is read back, and why the live check records that the fleet `GH_TOKEN` cannot lift it. |
-| A retired holder's key, stolen, signs a new commit | Its recorded fabric commit would have to be one where it was a holder, older than the checkpoint that removed it; a commit may not record an older fabric commit than its parent, so it does not verify. |
+| A retired holder's key, stolen, signs a new commit or a forged checkpoint at the head | Its recorded fabric commit would have to be one where it was a holder, older than the checkpoint that removed it; a commit may not record an older fabric commit than its parent, so it does not verify after the start, and a fresh clone never starts from a checkpoint whose signer is not a holder now. |
 | A merge adds a holder to `authority.json` | The holder becomes a reader of every company store at the next `reencrypt`. The anchor is the same as ADR-042's lineage: `origin/main`, under the charter-authority guard and the owner's review of `policies/` — a tripwire, not a wall, said here. |
 | A holder that is not an agent's parent writes into its store | `company put` refuses that row, naming the parent; ADR-042's verification would refuse the commit on the agent's side anyway, as a security event. |
 | A client's credential reaches another client's work | Namespaced names, one file per client, `fabric-secret-run`'s resolution; tested both ways. The login can still read the file: rule 9's limit, said, not hidden. |
@@ -134,7 +136,8 @@ as the company store; the suite passes with `AGENT_FABRIC_OPERATOR` unset and se
     unsigned or foreign-signed commit: refused. A store whose root was signed by a holder
     since removed, re-encrypted at a checkpoint by a remaining holder: a new holder's
     `clone` succeeds. A commit recording an older fabric commit than its parent's:
-    refused.
+    refused. A checkpoint at the head signed by a removed holder, recording an older
+    fabric commit: a fresh `clone` neither starts from it nor accepts it.
 12. A fetched head that is an ancestor of the last verified head: refused, nothing applied.
 13. `put` by a holder into a login whose parent is another holder: that row refused,
     naming the parent; the other rows written.
@@ -147,6 +150,8 @@ as the company store; the suite passes with `AGENT_FABRIC_OPERATOR` unset and se
 18. After a removal merged alone (no remaining holder is a recipient), `reencrypt` refuses
     naming `company recover`; `recover` refuses with `CLAUDECODE` set.
 19. `set` on a store whose branch setting is not read back: refused, naming it.
+20. Each writing command, with the branch setting lifted after `init`: refused, naming
+    it.
 
 ## Lanes
 

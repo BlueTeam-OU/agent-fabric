@@ -212,8 +212,9 @@ sharing a machine.
       `GH_TOKEN` can push to it. Each commit is judged against the
       holders of the fabric commit it records, and each re-encryption is
       a checkpoint; a holder that has never held the store verifies it
-      from the newest checkpoint whose recorded holders include its
-      signer, back to none older. Its default branch refuses a
+      from the newest checkpoint signed by a holder on `origin/main` now,
+      and every commit after it, each recording a fabric commit no older
+      than its parent's. Its default branch refuses a
       force-push and a deletion, and a holder refuses a head that does
       not descend from the last head it verified;
     - no other agent decrypts it. What an agent needs is put into the
