@@ -216,7 +216,10 @@ sharing a machine.
       store, and every reader starts from the newest one signed by a
       holder now — never a retired holder's, and for a reader that has
       verified the store before, only one descending from what it
-      verified — reading nothing before it, as ADR-042's base. Each
+      verified, chosen over all parents — reading nothing before it: the
+      company store's own base, in place of ADR-042 rule 4's, since it
+      has no enrolment bundle and a current holder's signature anchors
+      it. A commit with two parents never verifies. Each
       commit after the start must be signed by a holder now, who was one
       at the fabric commit it records, no older than its parent's; the
       first that is not stops the read. Its default branch refuses a
@@ -226,10 +229,11 @@ sharing a machine.
       a holder repairs the store with a checkpoint on top of it holding
       the last commit its own read verified. When no holder can read the
       store (a lost key, rule 4; every checkpoint's signer retired), the
-      owner recovers it, in a terminal, from a backup bundle checked
-      against its manifest, re-encrypted with the recovery key. Both are
-      checkpoints like any other, so ADR-042 rule 3 holds without
-      exception;
+      owner recovers it, in a terminal, from a backup bundle the owner
+      identifies, re-encrypted with the recovery key; what came after the
+      bundle is listed and lost, and the owner re-applies any revoke or
+      rotation in it. Both are checkpoints like any other, so ADR-042
+      rule 3 holds without exception;
     - no other agent decrypts it. What an agent needs is put into the
       agent's own store, write-only, by the agent's parent (ADR-042
       rule 2's only writer besides the agent; a holder that is not the
