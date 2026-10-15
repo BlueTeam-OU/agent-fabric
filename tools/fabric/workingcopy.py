@@ -180,7 +180,7 @@ def client_for_project(project: str | None, registry: dict[str, Any], clients: d
     return {"id": declared, **{f: entry.get(f) for f in CLIENT_FIELDS}}
 
 
-def resolve(path: str, registry: dict[str, Any] | None = None, clients: dict[str, Any] | None = None) -> dict[str, Any]:
+def resolve(path: str, registry: dict[str, Any] | None = None) -> dict[str, Any]:
     """{path, id, remote, project, project_source, client, operator} for
     the working copy containing `path`; `operator` is the root whose
     registries answered. Outside a repository every field is None."""
@@ -212,13 +212,14 @@ def resolve(path: str, registry: dict[str, Any] | None = None, clients: dict[str
     if project is None:
         project = project_for_remote(remote, registry)
         source = "remote" if project else None
-    found = None
-    if project:
-        # Lazily: a working copy no project claims needs no clients file.
-        found = client_for_project(project, registry, clients if clients is not None else load_clients())
+    # The registry's word only, never clients.json: resolve is on the path of
+    # the pre-push hook, lint, bootstrap and session start, and an error in
+    # clients.json must not cost them the project. The refusal lives where a
+    # caller needs the client's fields (client_for_project, resolve_client).
+    declared = ((registry.get("projects") or {}).get(project) or {}).get("client") if project else None
     return {"path": top, "id": os.path.basename(top), "remote": remote,
             "project": project, "project_source": source,
-            "client": found["id"] if found else None, "operator": roots.operator_root(engine=FABRIC_ROOT)}
+            "client": declared or None, "operator": roots.operator_root(engine=FABRIC_ROOT)}
 
 
 def resolve_client(path: str, registry: dict[str, Any] | None = None, clients: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -227,7 +228,7 @@ def resolve_client(path: str, registry: dict[str, Any] | None = None, clients: d
     its id."""
     registry = registry if registry is not None else load_registry()
     clients = clients if clients is not None else load_clients()
-    got = resolve(path, registry, clients)
+    got = resolve(path, registry)
     return {"operator": got["operator"], "client": client_for_project(got["project"], registry, clients),
             "project": got["project"], "working_copy": got["path"]}
 
@@ -245,7 +246,6 @@ def sibling_working_copies(root: str, fabric_project_id: str = "agent-fabric") -
     out: dict[str, str] = {}
     parent = os.path.dirname(os.path.abspath(root))
     registry = load_registry(roots.projects_registry(engine=root))
-    clients = load_clients(roots.clients_registry(engine=root))   # the registry's own beside it, not the running engine's
     try:
         names = sorted(os.listdir(parent))
     except OSError:
@@ -256,7 +256,7 @@ def sibling_working_copies(root: str, fabric_project_id: str = "agent-fabric") -
         # resolve it, and an operator's move must not move it.
         if path == os.path.abspath(root) or not os.path.isdir(os.path.join(path, ".agent-fabric", "memory")):
             continue
-        pid = resolve(path, registry, clients).get("project")
+        pid = resolve(path, registry).get("project")
         if pid and pid != fabric_project_id and pid not in out:
             out[pid] = path
     return out

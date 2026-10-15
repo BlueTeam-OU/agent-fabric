@@ -188,7 +188,7 @@ def _repo(tmp: str, remote: str) -> str:
 def test_resolve_names_the_client_from_the_project_never_the_organisation() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         top = _repo(tmp, "git@github.com:some-other-org/acme-app.git")
-        got = wc.resolve(top, REGISTRY, CLIENTS)
+        got = wc.resolve(top, REGISTRY)
         assert got["project"] == "acme-app" and got["client"] == "acme", got
         assert got["operator"] == wc.roots.operator_root(engine=wc.FABRIC_ROOT), got
         triple = wc.resolve_client(top, REGISTRY, CLIENTS)
@@ -196,16 +196,25 @@ def test_resolve_names_the_client_from_the_project_never_the_organisation() -> N
         assert triple["operator"] == got["operator"] and triple["working_copy"] == got["path"], triple
     with tempfile.TemporaryDirectory() as tmp:
         top = _repo(tmp, "git@github.com:nobody/unregistered.git")
-        got = wc.resolve(top, REGISTRY, CLIENTS)
+        got = wc.resolve(top, REGISTRY)
         assert got["project"] is None and got["client"] is None, got
         assert wc.resolve_client(top, REGISTRY, CLIENTS)["client"] is None
     with tempfile.TemporaryDirectory() as tmp:
-        got = wc.resolve(tmp, REGISTRY, CLIENTS)
+        got = wc.resolve(tmp, REGISTRY)
         assert got["client"] is None and got["operator"] is None, got
 
 
+def test_resolve_never_refuses_over_a_client() -> None:
+    """An unknown client is client_for_project's refusal, not resolve's:
+    resolve answers the registry's word and keeps the project."""
+    with tempfile.TemporaryDirectory() as tmp:
+        top = _repo(tmp, "git@github.com:some-other-org/stray.git")
+        got = wc.resolve(top, REGISTRY)
+        assert got["project"] == "stray" and got["client"] == "ghost", got
+
+
 def main() -> int:
-    cases = [test_a_project_resolves_to_its_registered_client, test_an_unknown_client_refuses_naming_the_project_and_the_files,
+    cases = [test_resolve_never_refuses_over_a_client, test_a_project_resolves_to_its_registered_client, test_an_unknown_client_refuses_naming_the_project_and_the_files,
              test_resolve_names_the_client_from_the_project_never_the_organisation, test_blueteam_projects_resolve_under_both_github_orgs, test_the_shapes_git_accepts_parse_to_one_structure, test_what_is_not_a_network_remote_parses_to_nothing,
              test_scp_syntax_follows_gits_own_rule, test_canonical_ignores_scheme_and_user_keeps_port_and_host_case_folds,
              test_path_case_is_host_specific, test_project_matching_uses_the_canonical_form,
