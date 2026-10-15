@@ -17,10 +17,17 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TESTS = os.path.join(ROOT, "tests")
 fails = 0
+# Every process this run starts carries this token in its environment (env() sets it; nothing on the way drops it), and
+# the cases that look in /proc for their own processes match it: two runs of this file at once on one account (one inside
+# a `tests/run.sh python`, one beside it) found each other's sleeps by command line, counted them as survivors and killed
+# them — an escaped daemon killed by the other run closed its pipe early and failed the daemon case.
+RUN_TOKEN_VARIABLE = "TEST_RUN_PY_TOKEN"
+RUN_TOKEN = uuid.uuid4().hex
 
 
 def check(label: str, good: bool, detail: object = "") -> None:
@@ -66,9 +73,33 @@ def env(base: str, **extra: str) -> dict[str, str]:
          "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
          "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
          "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid", "PYTHONDONTWRITEBYTECODE": "1",
-         "AGENT_FABRIC_TEST_JOBS": "2"}
+         "AGENT_FABRIC_TEST_JOBS": "2", RUN_TOKEN_VARIABLE: RUN_TOKEN}
     e.update(extra)
     return e
+
+
+def ours(needle: bytes) -> list[int]:
+    """This run's live processes (zombies excluded) whose command line holds `needle`. Another account's environment
+    cannot be read, and is not ours."""
+    mark = f"{RUN_TOKEN_VARIABLE}={RUN_TOKEN}".encode()
+    found = []
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/cmdline", "rb") as fh:
+                if needle not in fh.read():
+                    continue
+            with open(f"/proc/{name}/environ", "rb") as fh:
+                if mark not in fh.read().split(b"\0"):
+                    continue
+            with open(f"/proc/{name}/stat", "rb") as fh:
+                if fh.read().rsplit(b")", 1)[1].split()[0] == b"Z":
+                    continue
+        except (OSError, IndexError):
+            continue
+        found.append(int(name))
+    return found
 
 
 def run(base: str, *args: str, **extra: str) -> subprocess.CompletedProcess:
@@ -328,7 +359,7 @@ def main() -> int:
             started = os.path.join(sandbox, f"started-group-{name}")
             os.makedirs(started)
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, start_new_session=True,
+                                 stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True, start_new_session=True,
                                  env=env(base, STARTED=started))
             for _ in range(100):
                 if len(os.listdir(started)) >= 2:
@@ -337,14 +368,14 @@ def main() -> int:
             time.sleep(0.5)
             os.killpg(p.pid, sig)
             try:
-                out, _ = p.communicate(timeout=30)
+                out, err = p.communicate(timeout=30)
                 rc = p.returncode
             except subprocess.TimeoutExpired:
                 os.killpg(p.pid, signal.SIGKILL)
-                out, rc = p.communicate()[0], None
+                (out, err), rc = p.communicate(), None
             shown = sorted(set(re.findall(r"MARK\d", out)))
             check(f"a group {name} during the python section: the exit is {128 + int(sig)} and both running suites' lines reach stdout",
-                  rc == 128 + int(sig) and len(shown) == 2, (rc, shown, out[-300:]))
+                  rc == 128 + int(sig) and len(shown) == 2, (rc, shown, out[-300:], err[-600:]))
         # A group INT also reaches run.py, which asks the runner to stop by TERM: that alone ends the run and hides a runner
         # that takes no INT of its own. So INT goes to the runner and its suites only, as a terminal would send it to a
         # foreground group run.py is not in.
@@ -382,7 +413,7 @@ def main() -> int:
         base = fresh(files=deaf)
         started = os.path.join(sandbox, "started-deaf")
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
-                             stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
+                             stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
         for _ in range(100):
             if os.path.exists(started):
                 break
@@ -391,15 +422,17 @@ def main() -> int:
         began = time.monotonic()
         p.send_signal(signal.SIGTERM)
         try:
-            out, _ = p.communicate(timeout=30)
+            out, err = p.communicate(timeout=30)
             rc = p.returncode
         except subprocess.TimeoutExpired:
             p.kill()
-            out, rc = p.communicate()[0], None
+            (out, err), rc = p.communicate(), None
         took = time.monotonic() - began
-        bound = run_python_suites.STOP_GRACE_S + 2
-        check(f"a suite that ignores TERM: the run ends within the grace plus two seconds ({bound:g} s), exit 143, its line kept",
-              rc == 143 and took < bound and "MARK-DEAF" in out, (rc, round(took, 1), out[-300:]))
+        # The kept line is the proof that the runner KILLed the suite itself after its grace: a runner that does not is still
+        # waiting on the suite when run.py stops waiting for it, and run.py's KILL loses everything it had buffered. A
+        # stopwatch adds nothing to that and fails under load (7.4 s against a 7 s bound once in twenty runs).
+        check(f"a suite that ignores TERM: the runner ends it after its {run_python_suites.STOP_GRACE_S:g} s grace, exit 143, its line kept",
+              rc == 143 and "MARK-DEAF" in out, (rc, round(took, 1), out[-300:], err[-600:]))
         time.sleep(0.3)
         check("…and no process of that suite is left", not runs_left(base)
               and subprocess.run(["pgrep", "-f", os.path.join(base, "tests", "test_deaf.py")], capture_output=True).returncode == 1)
@@ -447,16 +480,10 @@ def main() -> int:
                 rc = subprocess.run([sys.executable, probe, mode], env=env(base), stdout=out, stderr=out, timeout=60).returncode
             r = subprocess.CompletedProcess([], rc, open(outfile).read(), "")
             time.sleep(0.5)
-            survivors = []
-            for pid in (x for x in os.listdir("/proc") if x.isdigit()):
-                try:
-                    cmd = open(f"/proc/{pid}/cmdline", "rb").read()
-                    state = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0]
-                except OSError:
-                    continue
-                if needle in cmd and state != "Z":
-                    survivors.append(int(pid))
-                    os.kill(int(pid), signal.SIGKILL)
+            survivors = ours(needle)
+            for pid in survivors:
+                with contextlib.suppress(OSError):
+                    os.kill(pid, signal.SIGKILL)
             check(f"{mode}: the signal is raised through invoke and no process of the suite outlives it",
                   "SIGNALLED" in r.stdout and not survivors, (r.stdout, r.stderr, survivors))
 
@@ -484,12 +511,9 @@ def main() -> int:
             "import time\ntime.sleep(60)\n")})
         t0 = time.monotonic()
         r = run(base, "python", AGENT_FABRIC_TEST_SUITE_TIMEOUT_S="1")
-        for pid in (x for x in os.listdir("/proc") if x.isdigit()):
-            try:
-                if b"sleep\x0029.789" in open(f"/proc/{pid}/cmdline", "rb").read():
-                    os.kill(int(pid), signal.SIGKILL)
-            except OSError:
-                pass
+        for pid in ours(b"sleep\x0029.789"):
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGKILL)
         check("a process that escaped the suite's tree and holds its pipe cannot hang the runner past its budget",
               r.returncode == 1 and time.monotonic() - t0 < 40 and "FAILED_SUITES=1" in r.stdout and "rest of its output is lost" in r.stdout and "== tests/test_daemon.py" in r.stdout,
               (r.returncode, time.monotonic() - t0, r.stdout, r.stderr))
