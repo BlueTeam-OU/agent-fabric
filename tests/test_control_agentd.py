@@ -820,8 +820,10 @@ class Wire(Daemon):
         # Every token source the lookup walks is a place this machine may fill:
         # the cwd's checkout (settings.local.json) and the workspace beside the
         # fabric root (.gzcoord/bridge-token on the relay's host). A cwd outside
-        # any repository and a fabric root of its own leave none of them.
-        out = self.run_once(r.url(), cwd=home, HOME=home, AGENT_FABRIC_ROOT=os.path.join(home, "ws", "fabric"))
+        # any repository and a fabric root of its own leave none of them; the
+        # ceiling keeps git from walking up out of a TMPDIR inside a checkout.
+        out = self.run_once(r.url(), cwd=home, HOME=home, AGENT_FABRIC_ROOT=os.path.join(home, "ws", "fabric"),
+                            GIT_CEILING_DIRECTORIES=os.path.dirname(home))
         self.assertEqual(out.status, 3, out.stderr)
         self.assertIn("no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)", out.stderr)
         self.assertEqual(r.hits, [])
