@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-16, in the coordinator's session, choosing "the opinion's (b)" on PR #278
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** what personal data of anyone other than Blueteam's own people may reach the Claude Max plan the fleet runs on; what the blueteam.ee privacy notice says of it. Not the OpenAI business account, which has a processing agreement (the opinion's §4)
+**Scope:** what personal data of anyone other than Blueteam's own people may reach the Claude Max plan the fleet runs on; what the blueteam.ee privacy notice says of it. Not the OpenAI business account, for which OpenAI offers a processing agreement (unverified in the opinion; the owner confirms it is accepted, the redraft's section 5)
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -29,9 +29,10 @@ The fleet keeps the Max plan, and no personal data of a third party
 (clients, their people, visitors of Blueteam's sites) goes into it:
 cleaned logs only, no client repository with real commit history, no
 production access. This is the opinion's (b) as it was worded. It
-governs the Max plan only: an AI tool with a processing agreement (the
-OpenAI business account) is outside it, and client personal data goes
-there only as the opinion's (a) describes, under a later record.
+governs the Max plan only. The OpenAI business account is outside it:
+OpenAI offers a processing agreement for it, which the opinion could
+not verify and the owner confirms in the account. Client personal data
+goes there only under a record made by rule 4.
 
 ## 3. Alternatives Considered
 
@@ -88,3 +89,11 @@ enforces them: they are practice, kept by every role.
 
 - `docs/legal/2026-10-15-privacy-notice-blueteam-ee.md` (the opinion,
   §6 point 1), `docs/legal/README.md`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-059-amendments.md](history/ADR-059-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-16 | The OpenAI agreement is unverified | Scope and §2: OpenAI's processing agreement is stated as offered and unverified, for the owner to confirm |

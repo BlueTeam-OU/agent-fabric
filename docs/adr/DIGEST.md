@@ -1262,7 +1262,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - The fleet keeps the Claude Max plan; no personal data of a client,
   its people or a site visitor goes into it (§2, §5 rule 1). The OpenAI
-  business account, with a processing agreement, is outside it (§2).
+  business account is outside it; its processing agreement is offered,
+  unverified, for the owner to confirm (§2).
+- A 2026-10-16 — the OpenAI processing agreement is stated as offered
+  and unverified, for the owner to confirm (Scope, §2).
 - Work on a client's system uses cleaned data: no real commit history,
   no production access (§5 rule 2).
 - The blueteam.ee privacy notice is true only while that practice is;
