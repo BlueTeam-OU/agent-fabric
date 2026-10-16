@@ -131,13 +131,13 @@ def main() -> int:
         print("the shapes old jobs hold: a merged pull request closes, whatever form names it")
         gh_says({f"{REPO}#5": "MERGED", f"{REPO}#6": "MERGED", f"{REPO}#7": "MERGED", f"{REPO}#8": "MERGED", f"{REPO}#9": "MERGED",
                  f"{REPO}#10": "OPEN", f"{REPO}#11": "MERGED", "fixture-org/other-proj#3": "MERGED"})
-        shapes = [f"pr:{REPO}#5", f"{PROJECT} #6", f"{PROJECT} PR #7", "PR #8 merged (3 work, 1 fix)", f"https://github.com/{REPO}/pull/9",
+        shapes = [f"pr:{REPO}#5", f"{PROJECT} #6", f"{PROJECT} PR #7", f"{PROJECT}#8 merged (3 work, 1 fix)", f"https://github.com/{REPO}/pull/9",
                   "other-proj #3 merged", "other-proj PR 3 (no hash sign)"]
         ids = seed([("delivered", [a]) for a in shapes])
         before = open(path, "rb").read()
         rc, out, err = run("sweep", "--dry-run")
         check("--dry-run changes nothing", rc == 0 and open(path, "rb").read() == before, out + err)
-        check("each form is read: pr:o/r#N, <project> #N, <project> PR #N, bare PR #N, the URL, another project's #N, its PR N",
+        check("each form is read: pr:o/r#N, <project> #N, <project> PR #N, <project>#N, the URL, another project's #N, its PR N",
               all("would close" in line(out, j) for j in ids), out + err)
         check("the line names the evidence", f"{REPO}#5 merged" in line(out, ids[0]) and "fixture-org/other-proj#3 merged" in line(out, ids[5]), out)
         rc, out, err = run("sweep")
@@ -165,8 +165,13 @@ def main() -> int:
                     ("delivered", [f"{REPO}#12", "reply:01a14482-0000-7000-8000-000000000001"]),        # a reply this login never sent
                     ("delivered", ["other-proj #3, #11"]),                                              # both merged: the second is another list item of other-proj
                     ("delivered", ["other-proj pull request #3 and unregistered merged #11"]),
-                    ("delivered", ["PR #11 and #12 merged"]),
-                    ("delivered", ["fixture-org/other-proj#3, #11"])])                                          # the positive control for the filler words
+                    ("delivered", [f"{PROJECT} #11 and {PROJECT} #12 merged"]),                          # the positive control: each number with its project
+                    ("delivered", ["fixture-org/other-proj#3, #11"]),
+                    ("delivered", ["PR #11 merged"]),                                                   # a bare number: whose?
+                    ("delivered", [f"{PROJECT} #11 merged, and fixes #12 in unreg"]),                   # a number after, naming another repository
+                    ("delivered", [f"{REPO}#11", "gzcoord#4"]),                                         # a shape no pattern reads, beside a merged one
+                    ("delivered", ["gzcoord pull request", "#11"]),
+                    ("delivered", [f"{REPO}#11", "see PR 12"])])                                        # a name in one artifact, the number in the next
         reflection = seed([("delivered", [f"{REPO}#12"])])[0]
         doc = json.load(open(path, encoding="utf-8"))
         next(j for j in doc["jobs"] if j["id"] == reflection)["topic"] = "reflection"
@@ -179,17 +184,19 @@ def main() -> int:
         check("a gh failure stays and says it could not tell", "stays" in line(out, ids[2]) and "could not tell" in line(out, ids[2]), out)
         check("a merged and an open pull request together stay", "stays" in line(out, ids[3]) and "open" in line(out, ids[3]), out)
         check("a #N with no registered project beside a merged one stays", "stays" in line(out, ids_unreg[0]) and "unresolved" in line(out, ids_unreg[0]), out)
-        check("a #N that follows another project's name is not the job's own pull request", "stays" in line(out, ids[4]) and "stands after 'gzcoord'" in line(out, ids[4]), out)
+        check("a #N that follows another project's name is not the job's own pull request", "stays" in line(out, ids[4]) and "names no repository" in line(out, ids[4]), out)
         check("no artifacts stays", "stays" in line(out, ids[5]) and "no artifacts" in line(out, ids[5]), out)
         check("a branch that is not on origin stays, and says so", "stays" in line(out, ids[6]) and "is not on origin" in line(out, ids[6]), out)
         check("the positive control, the same world, closes", "closed" in line(out, ids[13]) and job(ids[13])["state"] == "done", out)
         check("a number after an unregistered project's name, with or without #, is no pull request of the job's own",
-              "stays" in line(out, ids[14]) and "stands after 'gzcoord'" in line(out, ids[14]) and job(ids[14])["state"] == "delivered", out)
+              "stays" in line(out, ids[14]) and "names no repository" in line(out, ids[14]) and job(ids[14])["state"] == "delivered", out)
         check("a reply artifact the journal does not hold stays beside a merged pull request, as `done` would refuse it",
               "stays" in line(out, ids[15]) and "names no answer this login sent" in line(out, ids[15]) and job(ids[15])["state"] == "delivered", out)
         check("a bare number after a registered project's name or any other word is not the job's own",
-              all("stays" in line(out, j) and "may be another repository's" in line(out, j) for j in (ids[16], ids[17], ids[19])) and all(job(j)["state"] == "delivered" for j in (ids[16], ids[17], ids[19])), out)
-        check("a bare list of the job's own numbers, with only filler between, closes", "closed" in line(out, ids[18]), out)
+              all("stays" in line(out, j) and "names no repository" in line(out, j) for j in (ids[16], ids[17], ids[19])) and all(job(j)["state"] == "delivered" for j in (ids[16], ids[17], ids[19])), out)
+        check("the positive control, each number written with its project, closes", "closed" in line(out, ids[18]), out)
+        check("a bare number, one that follows its project's name, and a shape no pattern reads all stay",
+              all("stays" in line(out, j) and "names no repository" in line(out, j) for j in ids[20:23] + ids[23:25]) and all(job(j)["state"] == "delivered" for j in ids[20:25]), out)
         check("a reflection job is asked for its cursor too, and stays without one", "stays" in line(out, reflection) and "fabric-reflect" in line(out, reflection), out)
         check("every other delivered job is still delivered, every other state untouched",
               all(job(j)["state"] == "delivered" for j in ids[:7]) and job(ids_unreg[0])["state"] == "delivered"
@@ -211,7 +218,7 @@ def main() -> int:
 
         print("one gh lookup per distinct pull request")
         gh_says({f"{REPO}#21": "MERGED"})
-        ids = seed([("delivered", [f"{REPO}#21"]), ("delivered", [f"{PROJECT} #21"]), ("delivered", ["PR #21"])])
+        ids = seed([("delivered", [f"{REPO}#21"]), ("delivered", [f"{PROJECT} #21"]), ("delivered", [f"{PROJECT} PR #21"])])
         rc, out, err = run("sweep")
         calls = [c for c in open(os.path.join(fake, "calls.log"), encoding="utf-8").read().split() if c.endswith("#21")]    # earlier sections' stayers are asked again
         check("three jobs naming one pull request ask gh once, and all close", calls == [f"{REPO}#21"] and all(job(j)["state"] == "done" for j in ids), calls)

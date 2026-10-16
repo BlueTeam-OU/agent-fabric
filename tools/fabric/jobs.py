@@ -47,8 +47,8 @@ at `list` first.
 `sweep` looks again at every delivered job of this list (`switch` looked once, when the agent left it) and moves to done the ones
 whose evidence has landed, by the test `switch` applies to a done job: a pull request merged, a commit or a branch tip (a branch
 that is on origin now) on origin's default branch, a reply sent, and for a reflection job the fabric-reflect cursor. The artifacts are read as old jobs hold them: owner/repo#N, a pull request
-URL, "<project> #N" or "<project> PR #N" (the project's first github.com remote in projects/registry.json), a bare "PR #N" or
-"#N" (in the job's own project, when only filler words such as "on" or "merged" stand before it), "branch:<name>" or a branch name holding a slash, and a commit sha in an artifact that names the
+URL, "<project> #N" or "<project> PR #N" (the project's first github.com remote in projects/registry.json; a number that names
+no repository, "PR #N" or "#N" alone, is unresolved and keeps the job delivered), "branch:<name>" or a branch name holding a slash, and a commit sha in an artifact that names the
 job's own project (asked of the job's working copy). A job closes only when something landed and nothing its artifacts name is
 still open, could not be asked or could not be resolved to a repository; anything else stays delivered and the line says why.
 One line per delivered job: "would close (<evidence>)" under --dry-run, "closed (<evidence>)" without it, or "stays (<why>)". The
