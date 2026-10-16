@@ -26,7 +26,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import new_agent as na  # noqa: E402
 from provisioning import config as cfg, new_agent_args as nargs, signing, steps as steps_mod  # noqa: E402
-from provisioning import bounded, host_steps as hs, verify as vf, worker_args as wa  # noqa: E402
+from provisioning import bounded, github_signing_key as gsk, host_steps as hs, verify as vf, worker_args as wa  # noqa: E402
 
 SHIM = os.path.join(HERE, "runtime", "provisioning", "new-agent.sh")
 
@@ -560,11 +560,21 @@ esac
         vias: list[str] = []
         saved_terminal, saved_signing = na.on_terminal, na.signing_key
 
+        scope_notice_real = na.scope_notice
+        scope_calls: list = []
+        scope_text: list = [None]
+
+        def scope_notice_seen():
+            scope_calls.append(1)
+            return scope_text[0]
+
         def orchestrate(*argv, hosts_path=hosts, terminal=False, signing_rc=0):
             if not any(a.startswith("--claude-account") or a in ("--no-claude-account", "--human") for a in argv):
                 argv = (*argv, "--claude-account", "acct-one")
             # Never the runner's own terminal: a case says whether there is one.
             na.on_terminal = lambda: terminal
+            # The operator's gh is not asked (GitHub, the runner's token): the cases about the scope notice replace this.
+            na.scope_notice = scope_notice_seen
             signed.clear()
             vias.clear()
             na.signing_key = lambda login, host, via="": signed.append((login, host)) or vias.append(via) or signing_rc
@@ -790,8 +800,11 @@ esac
                       rc == 0 and claims().get(new_id) == {"surname": "Huber", "first_name": None}
                       and claims().get(other_id) == {"surname": "Kelsen", "first_name": "Lena"}
                       and "finish new r" in calls, f"{msg}\n{claims()}")
-                check("…and says fabric-coordinator commits it with identities/keys/, never committing it itself",
-                      "5a. Huber claimed for new (" + new_id + ")" in err and "fabric-coordinator commits it with identities/keys/" in err,
+                taken = {e["surname"]: e.get("taken_by") for e in json.load(open(f"{fk}/root/identities/personas/surnames.json"))["surnames"]}
+                check("…and marks the surname's entry taken_by {agent, login}, leaving the unclaimed one bare",
+                      taken == {"Huber": {"agent": new_id, "login": "new"}, "Kelsen": None}, f"{taken}")
+                check("…and says fabric-coordinator commits both with identities/keys/, never committing them itself",
+                      "5a. Huber claimed for new (" + new_id + ")" in err and "fabric-coordinator commits both with identities/keys/" in err,
                       err)
                 rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--surname", "Huber")
                 check("…a re-run: its own claim is no conflict, and the file is left as it is",
@@ -802,6 +815,61 @@ esac
             finally:
                 for f in (lineage_path, claims_path):
                     os.remove(f)
+
+            print("the orchestrator, the operator's gh scope (j35, 2026-10-16)")
+            scope_text[0] = "12. NOTICE-TEXT"
+            for dry in (("--dry-run",), ()):
+                scope_calls.clear()
+                rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", *dry)
+                check(f"a notice is said{' (dry run)' if dry else ''} before the host is asked, and the run is not refused for it",
+                      rc == 0 and err.startswith("new-agent: 12. NOTICE-TEXT\n") and calls.startswith("--resolve here\n")
+                      and scope_calls == [1], f"{msg}\n{err}")
+            scope_calls.clear()
+            humans_here = put(f"{fk}/humans-scope.json", json.dumps({
+                "hosts": {"here": {"ssh": None}}, "placement": {"person": "here"}, "kinds": {"person": "human"}}))
+            rc, msg, err, calls = orchestrate("person", "--human", hosts_path=humans_here)
+            check("a human has no step 12: the token is not asked", scope_calls == [] and "NOTICE-TEXT" not in err, err)
+            rc, msg, err, calls = orchestrate("nobody", "no-such-role", "--dry-run")
+            check("a refused run asks nothing of gh", rc == 1 and scope_calls == [], f"{msg}")
+            scope_text[0] = None
+
+            print("the scope check itself, against a fake gh")
+            ghdir = tempfile.mkdtemp(prefix="fake-gh-")
+            try:
+                def fake_gh(header: str | None, rc: int = 0) -> None:
+                    body = "HTTP/2.0 200 OK\\r\\n" + (f"X-Oauth-Scopes: {header}\\r\\n" if header is not None else "") + "\\r\\n{}\\nX-Oauth-Scopes: admin:ssh_signing_key\\n"
+                    put(f"{ghdir}/gh", f"#!/bin/sh\n[ \"$1 $2 $3\" = 'api -i user' ] || exit 9\nprintf '{body}'\nexit {rc}\n", 0o755)
+                saved_path = os.environ["PATH"]
+                os.environ["PATH"] = f"{ghdir}:{saved_path}"
+                try:
+                    na.scope_notice = scope_notice_real
+                    fake_gh("repo, admin:ssh_signing_key, user")
+                    check("a token with the scope: no notice", gsk.scope_notice() is None)
+                    fake_gh("repo, write:ssh_signing_key")  # the body's header-looking line carries the scope: it must not count
+                    notice = gsk.scope_notice() or ""
+                    check("one without it (a sibling scope is not it): the notice names the refresh and the stored GH_TOKEN",
+                          "lacks admin:ssh_signing_key" in notice and "gh auth refresh -h github.com -s admin:ssh_signing_key" in notice
+                          and "as GH_TOKEN" in notice and "\n" not in notice, notice)
+                    fake_gh(None)
+                    check("a token that states no scopes is unknown, not missing", "states no scopes" in (gsk.scope_notice() or ""))
+                    fake_gh("", 0)
+                    check("an empty header is a token with no scopes: missing", "lacks admin:ssh_signing_key" in (gsk.scope_notice() or ""))
+                    fake_gh("repo", 1)
+                    check("a gh that fails cannot answer: said, not taken for missing", "could not be read" in (gsk.scope_notice() or ""))
+                    fake_gh("repo")
+                    os.chmod(f"{ghdir}/gh", 0o644)
+                    os.environ["PATH"] = ghdir  # a later, runnable gh on PATH would be found past this one
+                    check("a gh that is there and cannot be run: said, not a traceback",
+                          "gh cannot be run" in (gsk.scope_notice() or ""))
+                    os.environ["PATH"] = f"{ghdir}:{saved_path}"
+                    os.remove(f"{ghdir}/gh")
+                    os.environ["PATH"] = ghdir
+                    check("no gh at all: said", "gh is not installed" in (gsk.scope_notice() or ""))
+                finally:
+                    os.environ["PATH"] = saved_path
+                    na.scope_notice = scope_notice_seen
+            finally:
+                shutil.rmtree(ghdir, ignore_errors=True)
 
             print("the orchestrator, a human login (ADR-044)")
             humans = put(f"{fk}/humans.json", json.dumps({

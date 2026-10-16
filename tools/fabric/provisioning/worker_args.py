@@ -5,13 +5,15 @@ new_agent_worker.py, which handed the shell the same parse as bash text).
 CONTRACT of the worker, frozen from the bash (ADR-040 §5 rule 3):
 `prepare|finish <login> <role> [--claude V] [--clone <id>=<remote>]…
 [--project <id>]… [--claude-account <slug>=<fp12> | --no-claude-account]
-[--signing-key-next] [--via-host <id>] [--dry-run]` or `host-check <login>`; or, for a human
+[--signing-key-next] [--via-host <id>] [--fabric-remote <url>] [--dry-run]` or `host-check <login>`; or, for a human
 login (ADR-044), `prepare|finish <login> --human [--dry-run]`, where any of
 the others is exit 2. --signing-key-next (finish): the orchestrator imports
 the signing key after this phase, so the closing says it follows rather
 than print the lines a person runs. --via-host (finish): the account is on
 another host than the coordinator's, so the closing's lines reach it through
-fabric-host <id>, never a local sudo. A missing phase:
+fabric-host <id>, never a local sudo. --fabric-remote (finish): the registry's SSH
+remote of agent-fabric, which step 4 cloned over https; step 6 points that clone's origin at
+it when agent-fabric is not a --project. A missing phase:
 USAGE, exit 2; an unknown argument, no login, no role: one line, exit 2;
 --claude without a value: exit 1. Exactly as the bash shifted: a phase
 with too few words keeps them, so `prepare <login>` reports the login as
@@ -58,6 +60,7 @@ class WorkerArgs:
     no_account: bool
     signing_next: bool
     via: str
+    fabric_remote: str = ""
 
 
 def parse_args(argv: list[str]) -> WorkerArgs:
@@ -76,6 +79,7 @@ def parse_args(argv: list[str]) -> WorkerArgs:
     else:
         raise Exit(2, USAGE)
     dry, claude, projects, remote, account, no_account, signing_next, via = False, "", [], {}, "", False, False, ""
+    fabric_remote = ""
     i = 0
     while i < len(rest):
         a = rest[i]
@@ -105,6 +109,16 @@ def parse_args(argv: list[str]) -> WorkerArgs:
                 account = a[len("--claude-account="):]
             if not CLAUDE_ACCOUNT.fullmatch(account):
                 raise Exit(2, "new-agent-worker: --claude-account takes <slug>=<12 hex of its token's sha256>")
+        elif a == "--fabric-remote" or a.startswith("--fabric-remote="):
+            if a == "--fabric-remote":
+                if i + 1 >= len(rest):
+                    raise Exit(1, f"new-agent-worker: {a} needs a value")
+                i += 1
+                fabric_remote = rest[i]
+            else:
+                fabric_remote = a[len("--fabric-remote="):]
+            if not fabric_remote:
+                raise Exit(2, "new-agent-worker: --fabric-remote takes a git remote URL")
         elif a in ("--claude", "--clone", "--project"):
             if i + 1 >= len(rest):
                 raise Exit(1, f"new-agent-worker: {a} needs a value")
@@ -134,6 +148,6 @@ def parse_args(argv: list[str]) -> WorkerArgs:
         raise Exit(2, "new-agent-worker: no role")
     if account and no_account:
         raise Exit(2, "new-agent-worker: --claude-account and --no-claude-account together")
-    if human and (account or no_account or claude or projects or signing_next or via):
+    if human and (account or no_account or claude or projects or signing_next or via or fabric_remote):
         raise Exit(2, "new-agent-worker: --human takes no Claude account, claude, project or signing key (ADR-044)")
-    return WorkerArgs(phase, login, role, human, dry, claude, projects, remote, account, no_account, signing_next, via)
+    return WorkerArgs(phase, login, role, human, dry, claude, projects, remote, account, no_account, signing_next, via, fabric_remote)

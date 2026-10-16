@@ -30,6 +30,9 @@ class Personas(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.s = os.path.join(self.tmp, "surnames.json")
         self.c = os.path.join(self.tmp, "claims.json")
+        self.l = os.path.join(self.tmp, "lineage.json")
+        with open(self.l, "w", encoding="utf-8") as fh:
+            json.dump({A1: {"login": "one"}, A2: {"login": "two"}}, fh)
 
     def judge(self, surnames: list, excluded: list, claims: dict) -> list[str]:
         with open(self.s, "w", encoding="utf-8") as fh:
@@ -37,10 +40,12 @@ class Personas(unittest.TestCase):
         claims = {k: {"surname": v, "first_name": "Ada"} if isinstance(v, str) else v for k, v in claims.items()}
         with open(self.c, "w", encoding="utf-8") as fh:
             json.dump({"claims": claims}, fh)
-        return personas_findings(self.s, self.c)
+        return personas_findings(self.s, self.c, self.l)
 
     def test_a_consistent_list_and_claims_are_clean(self) -> None:
-        self.assertEqual(self.judge([entry("Maxwell"), entry("Noether")], [{"surname": "Nobel", "why": "dynamite"}],
+        self.assertEqual(self.judge([{**entry("Maxwell"), "taken_by": {"agent": A1, "login": "one"}},
+                                     {**entry("Noether"), "taken_by": {"agent": A2, "login": "two"}}],
+                                    [{"surname": "Nobel", "why": "dynamite"}],
                                     {A1: "Maxwell", A2: "Noether"}), [])
 
     def test_a_surname_listed_twice_is_refused(self) -> None:
@@ -72,7 +77,7 @@ class Personas(unittest.TestCase):
 
     def test_a_first_name_null_is_not_chosen_yet(self) -> None:
         # Provisioning claims the surname; the agent chooses its first name later (ADR-056 A 2026-10-15).
-        self.assertEqual(self.judge([entry("Maxwell")], [], {A1: {"surname": "Maxwell", "first_name": None}}), [])
+        self.assertEqual(self.judge([{**entry("Maxwell"), "taken_by": {"agent": A1, "login": "one"}}], [], {A1: {"surname": "Maxwell", "first_name": None}}), [])
 
     def test_a_first_name_is_never_recorded_before_its_sex(self) -> None:
         # The sex first, then a first name of that sex (ADR-056 rules 5-6, A 2026-10-15). The sex lives in the agent's
@@ -89,7 +94,7 @@ class Personas(unittest.TestCase):
 
     def test_a_pronoun_is_optional_but_not_empty(self) -> None:
         ok = {"surname": "Maxwell", "first_name": "Ada", "pronoun": "it"}
-        self.assertEqual(self.judge([entry("Maxwell")], [], {A1: ok}), [])
+        self.assertEqual(self.judge([{**entry("Maxwell"), "taken_by": {"agent": A1, "login": "one"}}], [], {A1: ok}), [])
         self.assertTrue(any("empty pronoun" in f for f in self.judge([entry("Maxwell")], [], {A1: {**ok, "pronoun": ""}})))
 
     def test_a_claim_with_an_unknown_key_is_refused(self) -> None:
@@ -107,6 +112,26 @@ class Personas(unittest.TestCase):
         with open(self.c, "w", encoding="utf-8") as fh:
             json.dump({"claims": {A1: "Maxwell"}}, fh)
         self.assertTrue(any("not a claim object" in f for f in personas_findings(self.s, self.c)))
+
+    def test_taken_by_matches_claims_or_is_a_finding(self) -> None:
+        def taken(s: str, agent: str, login: str) -> dict:
+            return {**entry(s), "taken_by": {"agent": agent, "login": login}}
+        claims = {A1: "Maxwell"}
+        self.assertEqual(self.judge([taken("Maxwell", A1, "one"), entry("Noether")], [], claims), [], "the control")
+        ghost = "01a00bc1-0000-7000-8000-000000000000"
+        cases = (
+            ("has no taken_by", [entry("Maxwell")], claims),
+            ("has no claim on it", [taken("Maxwell", A1, "one"), taken("Noether", A2, "two")], claims),
+            ("is not its claimant", [taken("Maxwell", A2, "two")], claims),
+            ("is not " + A1 + "'s login", [taken("Maxwell", A1, "two")], claims),
+            ("does not list", [taken("Maxwell", ghost, "x")], {ghost: "Maxwell"}),
+            ("malformed taken_by", [{**entry("Maxwell"), "taken_by": "one"}], claims),
+            ("malformed taken_by", [{**entry("Maxwell"), "taken_by": {"agent": A1}}], claims),
+            ("malformed taken_by", [{**entry("Maxwell"), "taken_by": {"agent": A1, "login": "one", "x": 1}}], claims),
+            ("malformed taken_by", [{**entry("Maxwell"), "taken_by": {"agent": A1, "login": ""}}], claims),
+        )
+        for said, surnames, cl in cases:
+            self.assertTrue(any(said in f for f in self.judge(surnames, [], cl)), said)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "The surnames an agent may take for its persona (agent-fabric ADR-056 §5 rule 3), one agent per surname, the agent's first name from the culture in `from` (a man's or a woman's name): scientists from all over the world, deceased, none who knowingly worked toward a weapon — designing, building, testing, directing or producing for one, or research done for a weapon's end use; theory published without a weapon in view, which others later used, does not exclude. Where the record is mixed, the owner judges, and the entry says so. Each entry names the person it comes from and why it passed; `excluded` names the ones the test removed and why, so the list can be reviewed. Curated by fabric-coordinator, checked by the owner; an addition needs the same test.",
+  "description": "The surnames an agent may take for its persona (agent-fabric ADR-056 §5 rule 3), one agent per surname, the agent's first name from the culture in `from` (a man's or a woman's name): scientists from all over the world, deceased, none who knowingly worked toward a weapon — designing, building, testing, directing or producing for one, or research done for a weapon's end use; theory published without a weapon in view, which others later used, does not exclude. Where the record is mixed, the owner judges, and the entry says so. Each entry names the person it comes from and why it passed; `excluded` names the ones the test removed and why, so the list can be reviewed. Curated by fabric-coordinator, checked by the owner; an addition needs the same test. `taken_by` ({agent, login}) marks a surname that is claimed: provisioning writes it with the claim in claims.json (the agent id, and the login lineage.json gives it), and lint checks it against claims.json; an unclaimed entry has none.",
   "surnames": [
     {
       "surname": "Abel",
@@ -77,7 +77,11 @@
       "person": "Charles Babbage",
       "from": "England",
       "known_for": "computing engines",
-      "lived": "1791-1871"
+      "lived": "1791-1871",
+      "taken_by": {
+        "agent": "019bbe31-2fff-7a2f-9849-96bdf286e011",
+        "login": "user"
+      }
     },
     {
       "surname": "Banach",
@@ -147,7 +151,11 @@
       "person": "George Boole",
       "from": "Ireland",
       "known_for": "logic",
-      "lived": "1815-1864"
+      "lived": "1815-1864",
+      "taken_by": {
+        "agent": "01a00bc1-473a-7be3-bfe2-4b1814f37e09",
+        "login": "backend-dev-02"
+      }
     },
     {
       "surname": "Born",
@@ -308,7 +316,11 @@
       "person": "Paul Erdos",
       "from": "Hungary",
       "known_for": "combinatorics",
-      "lived": "1913-1996"
+      "lived": "1913-1996",
+      "taken_by": {
+        "agent": "01a11619-eab1-74c0-bbd0-42fafa15c39b",
+        "login": "p2p-network-dev-02"
+      }
     },
     {
       "surname": "Euclid",
@@ -322,14 +334,22 @@
       "person": "Leonhard Euler",
       "from": "Switzerland",
       "known_for": "mathematics; his 1745 gunnery commentary is a mixed record; kept by the owner's judgement",
-      "lived": "1707-1783"
+      "lived": "1707-1783",
+      "taken_by": {
+        "agent": "01a00bc1-4824-7ace-a01e-6e46a11f9acc",
+        "login": "domain-transit"
+      }
     },
     {
       "surname": "Faraday",
       "person": "Michael Faraday",
       "from": "England",
       "known_for": "electromagnetism; refused to make chemical weapons",
-      "lived": "1791-1867"
+      "lived": "1791-1867",
+      "taken_by": {
+        "agent": "01a1181e-00d9-7754-9b26-445987f94160",
+        "login": "language-culture-en"
+      }
     },
     {
       "surname": "Fermat",
@@ -469,7 +489,11 @@
       "person": "Jaroslav Heyrovsky",
       "from": "Czechia",
       "known_for": "polarography",
-      "lived": "1890-1967"
+      "lived": "1890-1967",
+      "taken_by": {
+        "agent": "01a0f7ea-15b0-7ed9-a176-6eb006592db1",
+        "login": "rust-ui-dev-01"
+      }
     },
     {
       "surname": "Hilbert",
@@ -504,7 +528,11 @@
       "person": "Grace Hopper",
       "from": "United States",
       "known_for": "programming languages, compilers; kept by the owner's judgement",
-      "lived": "1906-1992"
+      "lived": "1906-1992",
+      "taken_by": {
+        "agent": "01a11fdd-7964-789c-9bd2-ff45c9b4db16",
+        "login": "python-dev-04"
+      }
     },
     {
       "surname": "Houssay",
@@ -526,7 +554,11 @@
       "from": "Switzerland",
       "known_for": "jurisprudence: the Swiss Civil Code of 1907, which he drafted, and the history of Swiss private law",
       "lived": "1849-1923",
-      "note": "a jurist, not a natural scientist: the owner's choice for legal-expert-ch, 2026-10-15; deceased, and no weapon work"
+      "note": "a jurist, not a natural scientist: the owner's choice for legal-expert-ch, 2026-10-15; deceased, and no weapon work",
+      "taken_by": {
+        "agent": "01a14174-8c0b-729f-ac13-fa44f6453336",
+        "login": "legal-expert-ch"
+      }
     },
     {
       "surname": "Humboldt",
@@ -547,7 +579,11 @@
       "person": "Christiaan Huygens",
       "from": "Netherlands",
       "known_for": "wave theory of light",
-      "lived": "1629-1695"
+      "lived": "1629-1695",
+      "taken_by": {
+        "agent": "01a00bc1-4782-7de9-88a5-8f6ee3849c46",
+        "login": "web-dev-01"
+      }
     },
     {
       "surname": "Hypatia",
@@ -561,7 +597,11 @@
       "person": "Hasan Ibn al-Haytham",
       "from": "Arab world",
       "known_for": "optics, scientific method",
-      "lived": "965-1040"
+      "lived": "965-1040",
+      "taken_by": {
+        "agent": "01a00bc1-4796-745d-ae76-02c0cf34501c",
+        "login": "web-dev-02"
+      }
     },
     {
       "surname": "Ibn al-Nafis",
@@ -582,7 +622,11 @@
       "person": "Ino Tadataka",
       "from": "Japan",
       "known_for": "cartography",
-      "lived": "1745-1818"
+      "lived": "1745-1818",
+      "taken_by": {
+        "agent": "01a00bc1-47ca-7fea-a066-68decae2c621",
+        "login": "flutter-dev-02"
+      }
     },
     {
       "surname": "Ito",
@@ -610,7 +654,11 @@
       "person": "Jang Yeong-sil",
       "from": "Korea",
       "known_for": "astronomical instruments, water clocks",
-      "lived": "c.1390-c.1450"
+      "lived": "c.1390-c.1450",
+      "taken_by": {
+        "agent": "01a00bc1-47e7-7bc8-9a0d-2e436f5740de",
+        "login": "devex-tooling"
+      }
     },
     {
       "surname": "Javakhishvili",
@@ -618,7 +666,11 @@
       "from": "Georgia",
       "known_for": "history of Georgian law and of Georgia; a founder of Tbilisi State University",
       "lived": "1876-1940",
-      "note": "a historian of law, not a natural scientist: the owner's choice for legal-expert-ge, 2026-10-15; deceased, and no weapon work"
+      "note": "a historian of law, not a natural scientist: the owner's choice for legal-expert-ge, 2026-10-15; deceased, and no weapon work",
+      "taken_by": {
+        "agent": "01a1417b-3c0f-723d-a7a6-a5a13e19532a",
+        "login": "legal-expert-ge"
+      }
     },
     {
       "surname": "Jenner",
@@ -661,7 +713,11 @@
       "from": "Austria",
       "known_for": "legal theory (the Pure Theory of Law), the Austrian constitution of 1920 and its constitutional court",
       "lived": "1881-1973",
-      "note": "a jurist, not a scientist: added at the owner's request of 2026-10-15 for legal-expert-ee-eu, which still claims it (rule 4); deceased, and no weapon work"
+      "note": "a jurist, not a scientist: added at the owner's request of 2026-10-15 for legal-expert-ee-eu, which still claims it (rule 4); deceased, and no weapon work",
+      "taken_by": {
+        "agent": "01a14107-9ab9-761e-971a-3994d937546a",
+        "login": "legal-expert-ee-eu"
+      }
     },
     {
       "surname": "Kelvin",
@@ -682,7 +738,11 @@
       "person": "Evgeni Kharadze",
       "from": "Georgia",
       "known_for": "astronomy, Abastumani Observatory",
-      "lived": "1907-2001"
+      "lived": "1907-2001",
+      "taken_by": {
+        "agent": "01a0add8-5248-73ec-a60d-34cff7e5e3e7",
+        "login": "language-culture-ge"
+      }
     },
     {
       "surname": "Khayyam",
@@ -703,7 +763,11 @@
       "person": "Muhammad ibn Musa al-Khwarizmi",
       "from": "Persia",
       "known_for": "algebra, algorithms",
-      "lived": "c.780-c.850"
+      "lived": "c.780-c.850",
+      "taken_by": {
+        "agent": "01a00bc1-475f-791e-a72f-4ce38715e628",
+        "login": "db-admin"
+      }
     },
     {
       "surname": "Kindi",
@@ -745,7 +809,11 @@
       "person": "Sofia Kovalevskaya",
       "from": "Russia",
       "known_for": "analysis, mechanics",
-      "lived": "1850-1891"
+      "lived": "1850-1891",
+      "taken_by": {
+        "agent": "01a11a69-f363-7de9-b212-88785c3128e2",
+        "login": "python-dev-03"
+      }
     },
     {
       "surname": "Kupradze",
@@ -787,7 +855,11 @@
       "person": "Henrietta Swan Leavitt",
       "from": "United States",
       "known_for": "variable stars",
-      "lived": "1868-1921"
+      "lived": "1868-1921",
+      "taken_by": {
+        "agent": "01a0f782-7e06-7dee-811f-0a860ed93bf3",
+        "login": "python-dev-01"
+      }
     },
     {
       "surname": "Leeuwenhoek",
@@ -857,7 +929,11 @@
       "person": "Mikhail Lomonosov",
       "from": "Russia",
       "known_for": "chemistry, physics",
-      "lived": "1711-1765"
+      "lived": "1711-1765",
+      "taken_by": {
+        "agent": "01a0b312-4031-7730-b5fd-321848a63a84",
+        "login": "language-culture-ru"
+      }
     },
     {
       "surname": "Lorentz",
@@ -871,14 +947,22 @@
       "person": "Ada Lovelace",
       "from": "England",
       "known_for": "first program",
-      "lived": "1815-1852"
+      "lived": "1815-1852",
+      "taken_by": {
+        "agent": "01a1438f-bed1-7500-a13d-b11b6e558f55",
+        "login": "ux-designer-01"
+      }
     },
     {
       "surname": "Lyapunov",
       "person": "Aleksandr Lyapunov",
       "from": "Russia",
       "known_for": "stability theory",
-      "lived": "1857-1918"
+      "lived": "1857-1918",
+      "taken_by": {
+        "agent": "01a11618-0f9b-7e96-8272-dad8faa1defa",
+        "login": "rust-services-dev-01"
+      }
     },
     {
       "surname": "Lyell",
@@ -920,7 +1004,11 @@
       "person": "Andrey Markov",
       "from": "Russia",
       "known_for": "stochastic processes",
-      "lived": "1856-1922"
+      "lived": "1856-1922",
+      "taken_by": {
+        "agent": "01a12051-ae61-7f33-a9ae-eedb3153ed42",
+        "login": "rust-services-dev-02"
+      }
     },
     {
       "surname": "Maxwell",
@@ -962,7 +1050,11 @@
       "person": "Maria Sibylla Merian",
       "from": "Germany",
       "known_for": "entomology, illustration",
-      "lived": "1647-1717"
+      "lived": "1647-1717",
+      "taken_by": {
+        "agent": "01a0a6a1-bfd6-7967-af5c-34ea643640a3",
+        "login": "brand-comms-01"
+      }
     },
     {
       "surname": "Milankovic",
@@ -1004,7 +1096,11 @@
       "person": "Nikoloz Muskhelishvili",
       "from": "Georgia",
       "known_for": "elasticity theory",
-      "lived": "1891-1976"
+      "lived": "1891-1976",
+      "taken_by": {
+        "agent": "01a00bc1-4716-7e1f-bc43-931dc632f798",
+        "login": "backend-dev-01"
+      }
     },
     {
       "surname": "Mutis",
@@ -1025,7 +1121,11 @@
       "person": "Emmy Noether",
       "from": "Germany",
       "known_for": "abstract algebra, symmetry",
-      "lived": "1882-1935"
+      "lived": "1882-1935",
+      "taken_by": {
+        "agent": "019ffcb2-78fd-7670-93fc-a3577216395f",
+        "login": "architect-cto-01"
+      }
     },
     {
       "surname": "Noguchi",
@@ -1102,7 +1202,11 @@
       "person": "Alexander Popov",
       "from": "Russia",
       "known_for": "radio",
-      "lived": "1859-1906"
+      "lived": "1859-1906",
+      "taken_by": {
+        "agent": "01a0af8f-16e9-7ea7-87fb-de56cec54f8b",
+        "login": "p2p-network-dev-01"
+      }
     },
     {
       "surname": "Ptolemy",
@@ -1116,7 +1220,11 @@
       "person": "Jan Evangelista Purkyne",
       "from": "Czechia",
       "known_for": "physiology",
-      "lived": "1787-1869"
+      "lived": "1787-1869",
+      "taken_by": {
+        "agent": "01a129e5-3558-7a18-9443-f4b58ead1cf6",
+        "login": "rust-ui-dev-02"
+      }
     },
     {
       "surname": "Raman",
@@ -1130,7 +1238,11 @@
       "person": "Srinivasa Ramanujan",
       "from": "India",
       "known_for": "number theory",
-      "lived": "1887-1920"
+      "lived": "1887-1920",
+      "taken_by": {
+        "agent": "01a11615-14e1-7139-975c-84ad21a5c91f",
+        "login": "python-dev-02"
+      }
     },
     {
       "surname": "Ramon y Cajal",
@@ -1242,7 +1354,11 @@
       "person": "Seki Takakazu",
       "from": "Japan",
       "known_for": "mathematics",
-      "lived": "c.1642-1708"
+      "lived": "c.1642-1708",
+      "taken_by": {
+        "agent": "01a00bc1-4805-7e5b-ab38-2fe6e65b2eed",
+        "login": "edge-hosting"
+      }
     },
     {
       "surname": "Semmelweis",
@@ -1354,7 +1470,11 @@
       "person": "Ilia Vekua",
       "from": "Georgia",
       "known_for": "partial differential equations",
-      "lived": "1907-1977"
+      "lived": "1907-1977",
+      "taken_by": {
+        "agent": "01a00bc1-47ae-77e3-82cd-263b23004b9a",
+        "login": "flutter-dev-01"
+      }
     },
     {
       "surname": "Vernadsky",

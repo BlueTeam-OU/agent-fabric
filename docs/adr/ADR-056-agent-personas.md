@@ -93,7 +93,9 @@ its own rather than imposed.
    unclaimed, checked before anything is made — and otherwise the agent
    claims one. A claim carries `first_name` null until the agent has
    chosen it (rule 5); until then people read "AI <Surname>, <role>"
-   (A 2026-10-15). Where a claim and the agent's own profile differ, the
+   (A 2026-10-15). A claimed surname is marked in `surnames.json` by its
+   entry's `taken_by` {agent, login}, written with the claim and checked
+   by lint against `claims.json`. Where a claim and the agent's own profile differ, the
    claim wins, first name and surname alike.
 5. The agent chooses its sex first (rule 6), then its first name: a
    name of that sex, from the culture its surname comes from (the
@@ -165,3 +167,4 @@ The body above reads current; each change's full note is in [history/ADR-056-ame
 | 2026-10-13 | Candidate avatars wait in a shared folder on the host | §5 rule 7: candidates in /usr/local/share/agent-fabric/avatars/<id>/, brand-comms writes, every agent reads |
 | 2026-10-13 | An agent is named with its role as people say it, from a public directory | §5 rule 2: "AI <Name> <Surname>, <role>" with the short title, never the login where people read; rule 4: claims carry the first name |
 | 2026-10-15 | Provisioning claims the surname; the agent chooses its sex, then a first name of that sex | §2; §5 rule 4: new-agent --surname claims it, first_name null until chosen; rule 5: sex first, then a first name of that sex; rule 6: the sex chosen first, kept in the profile |
+| 2026-10-16 | A claimed surname is marked taken in the list | §5 rule 4: surnames.json's entry carries taken_by {agent, login}, written with the claim, checked by lint against claims.json |

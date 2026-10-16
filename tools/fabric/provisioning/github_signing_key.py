@@ -109,6 +109,8 @@ def _gh(*args: str) -> str:
         p = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT_S, stdin=subprocess.DEVNULL)
     except FileNotFoundError:
         raise Refused("gh is not installed") from None
+    except OSError as exc:  # PermissionError: a gh that is there and cannot be run
+        raise Refused(f"gh cannot be run: {exc.strerror or exc}") from None
     except subprocess.TimeoutExpired:
         raise Refused(f"gh did not answer within {GH_TIMEOUT_S} s") from None
     if p.returncode != 0:
@@ -118,6 +120,42 @@ def _gh(*args: str) -> str:
         hint = f" (if the token lacks the scope: {SCOPE_HINT})" if "gh auth refresh" not in p.stderr and ("403" in said or "404" in said) else ""
         raise Refused(f"gh {args[0]} failed: {said}{hint}")
     return p.stdout
+
+
+SCOPE = "admin:ssh_signing_key"
+
+
+def token_scopes() -> set[str] | None:
+    """The OAuth scopes of the gh token in use, from the X-OAuth-Scopes header of `gh api -i user` (the token itself is
+    never read or printed); None when the answer has no such header (a fine-grained or app token states none), which is
+    not the same as an empty set. Refused when gh cannot answer."""
+    # CRLF first: split on the bare blank line, or gh's own CRLF finds none and the body is scanned as headers.
+    head = _gh("api", "-i", "user").replace("\r", "").split("\n\n", 1)[0]
+    for line in head.splitlines():
+        name, sep, value = line.partition(":")
+        if sep and name.strip().lower() == "x-oauth-scopes":
+            return {x.strip() for x in value.split(",") if x.strip()}
+    return None
+
+
+def scope_notice() -> str | None:
+    """What the operator is told up front about step 12, or None when the token carries the scope. Never a refusal of
+    the run: the fabric-secrets sync that writes gh's config from the stored GH_TOKEN is why `gh auth refresh` alone
+    does not last, so the new token is stored as GH_TOKEN too."""
+    try:
+        scopes = token_scopes()
+    except Refused as exc:
+        return (f"12. the operator's gh token scopes could not be read ({exc}); step 12 may not register the signing "
+                f"key. It needs the {SCOPE} scope.")
+    if scopes is None:
+        return (f"12. the operator's gh token states no scopes (a fine-grained or app token); step 12 needs {SCOPE} "
+                "and may not register the signing key.")
+    if SCOPE in scopes:
+        return None
+    return (f"12. the operator's gh token lacks {SCOPE}, so step 12 will NOT register this agent's signing key on "
+            f"GitHub (its commits read Unverified until it is). To fix it: run `{SCOPE_HINT}` in a terminal, then store "
+            "the new token in the operator's own store as GH_TOKEN (fabric-secrets), because fabric-secrets sync rewrites "
+            "gh's config from the stored GH_TOKEN and a refresh alone does not last. The run goes on.")
 
 
 def registered() -> list[dict]:

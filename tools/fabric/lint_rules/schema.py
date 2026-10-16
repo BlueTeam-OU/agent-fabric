@@ -439,11 +439,13 @@ def _review_grade(routing: Any, model: str, provider: str, graded: set[str]) -> 
     return model in graded
 
 
-def personas_findings(surnames_path: str, claims_path: str) -> list[str]:
+def personas_findings(surnames_path: str, claims_path: str, lineage_path: str | None = None) -> list[str]:
     """identities/personas/ (agent-fabric ADR-056 §5 rules 3-4): surnames are unique and none is also excluded;
     every entry names its person and where it is from, every exclusion its reason; a claim is keyed by an agent
     id and is {surname, first_name, pronoun?}: a listed surname claimed once, a non-empty first name or null (not
-    chosen yet), a non-empty pronoun if given. Absent files are not judged."""
+    chosen yet), a non-empty pronoun if given; an entry's `taken_by` {agent, login} is there exactly when the surname is
+    claimed, and names the claim's agent id and that id's login in lineage.json (`lineage_path`; absent, the login
+    is not judged). Absent files are not judged."""
     findings: list[str] = []
     if os.path.exists(surnames_path):
         doc = load_json(surnames_path, "identities/personas/surnames.json", findings) or {}
@@ -465,6 +467,7 @@ def personas_findings(surnames_path: str, claims_path: str) -> list[str]:
         claims = (load_json(claims_path, "identities/personas/claims.json", findings) or {}).get("claims") or {}
         held: dict[str, str] = {}
         where = "identities/personas/claims.json"
+        claim_of = {c.get("surname"): aid for aid, c in claims.items() if isinstance(c, dict) and isinstance(c.get("surname"), str)}
         for aid, claim in sorted(claims.items()):
             if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", aid):
                 findings.append(f"{where}: {aid!r} is not an agent id (a UUIDv7)")
@@ -491,6 +494,42 @@ def personas_findings(surnames_path: str, claims_path: str) -> list[str]:
                 findings.append(f"{where}: {aid} has no first_name (a non-empty string, or null until the agent chooses one)")
             if "pronoun" in claim and not (isinstance(claim["pronoun"], str) and claim["pronoun"].strip()):
                 findings.append(f"{where}: {aid} has an empty pronoun (leave it out instead)")
+        findings += _taken_by_findings(surnames_path, claim_of, lineage_path)
+    return findings
+
+
+def _taken_by_findings(surnames_path: str, claim_of: dict[str, str], lineage_path: str | None) -> list[str]:
+    """surnames.json `taken_by` against claims.json: `claim_of` maps a claimed surname to the agent id holding it."""
+    if not os.path.exists(surnames_path):
+        return []
+    where = "identities/personas/surnames.json"
+    findings: list[str] = []
+    doc = load_json(surnames_path, where, []) or {}
+    lineage: dict = {}
+    if lineage_path and os.path.exists(lineage_path):
+        lineage = load_json(lineage_path, "identities/keys/lineage.json", findings) or {}
+    for s in doc.get("surnames") or []:
+        name = s.get("surname")
+        tb = s.get("taken_by")
+        owner = claim_of.get(name)
+        if "taken_by" in s and not (isinstance(tb, dict) and set(tb) == {"agent", "login"}
+                                    and all(isinstance(v, str) and v for v in tb.values())):
+            findings.append(f"{where}: {name!r} has a malformed taken_by (an object {{agent, login}} of strings)")
+        elif owner is None:
+            if tb is not None:
+                findings.append(f"{where}: {name!r} has taken_by {tb['agent']}, but claims.json has no claim on it")
+        elif tb is None:
+            findings.append(f"{where}: {name!r} is claimed by {owner} in claims.json but has no taken_by")
+        else:
+            if tb["agent"] != owner:
+                findings.append(f"{where}: {name!r} taken_by agent {tb['agent']} is not its claimant {owner}")
+            elif lineage_path:
+                rec = lineage.get(owner)
+                expected = rec.get("login") if isinstance(rec, dict) else None
+                if expected is None:
+                    findings.append(f"{where}: {name!r} is claimed by {owner}, which lineage.json does not list")
+                elif tb["login"] != expected:
+                    findings.append(f"{where}: {name!r} taken_by login {tb['login']!r} is not {owner}'s login {expected!r} in lineage.json")
     return findings
 
 

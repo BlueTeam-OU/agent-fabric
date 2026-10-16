@@ -1229,6 +1229,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — candidates wait in /usr/local/share/agent-fabric/avatars/<id>/ (§5 rule 7).
 - A 2026-10-13 — named "AI <Name> <Surname>, <role>", never the login where people read; first names in claims.json (§5 rules 2, 4).
 - A 2026-10-15 — provisioning claims the surname (`new-agent --surname`), first_name null until chosen; the agent chooses its sex first, then a first name of that sex (§5 rules 4-6).
+- A 2026-10-16 — a claimed surname is marked `taken_by` {agent, login} in surnames.json, checked by lint (§5 rule 4).
 
 ### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Accepted)
 

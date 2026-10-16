@@ -13,7 +13,7 @@ the subordinate id range, the host keys an account lacks; verify: the read-back)
 
     worker.py prepare <login> (<role> | --human) [--claude V] [--dry-run]    0-4 (a human, ADR-044: 0, 1, 4)
     worker.py finish  <login> (<role> | --human) [--clone <id>=<remote>]... [--claude-account <slug>=<fp12> |
-                      --no-claude-account] [--signing-key-next] [--via-host <id>] [--dry-run]     6-10 (a human: 10)
+                      --no-claude-account] [--signing-key-next] [--via-host <id>] [--fabric-remote <url>] [--dry-run]     6-10 (a human: 10)
     worker.py host-check <login>      hostname -s, then whether the account exists
 
 Every step is must, probe or best_effort (tests/test_new_agent_cli.py fails
@@ -403,12 +403,17 @@ def finish(w: Worker) -> int:
     for pid in a.projects:
         if w.sudo_test("-d", os.path.join(w.home, "projects", pid, ".git")):
             w.say(f"6. ~/projects/{pid} present")
-            point_origin_at_registry(w, pid)
+            point_origin_at_registry(w, pid, a.remote.get(pid, ""))
         else:
             remote = a.remote.get(pid, "")
             w.must_as_login(["git", "clone", "-q", remote, os.path.join(w.home, "projects", pid)],
                             f"git clone -q '{remote}' ~/projects/'{pid}'")
             w.say(f"6. {pid} cloned from {remote}")
+    # Step 4's https clone is the one that stays when agent-fabric is not a --project: the loop above never saw it.
+    # A dry run has made no clone yet, so there is nothing to read.
+    if (a.fabric_remote and "agent-fabric" not in a.projects
+            and w.sudo_test("-d", os.path.join(w.home, "projects", "agent-fabric", ".git"))):
+        point_origin_at_registry(w, "agent-fabric", a.fabric_remote)
     if not a.human:     # 7-9 never for a human (ADR-044 rule 2)
         record_launch_provider(w)
         bootstrap_and_bind(w)
@@ -422,12 +427,11 @@ def finish(w: Worker) -> int:
     return verify(w)
 
 
-def point_origin_at_registry(w: Worker, pid: str) -> None:
+def point_origin_at_registry(w: Worker, pid: str, remote: str) -> None:
     """A clone that is already there keeps the origin it was made with. Step 4 clones the fabric over https (the
     account has no key yet), step 6 then skips that clone as present, and the account is left pushing to an https
     origin it holds no credentials for. Only the origin URL (the key set-url rewrites, so a re-run settles) that is read and differs is rewritten: a lookup that fails
     is not a different URL, so the clone is left as it is and the line says so."""
-    remote = w.a.remote.get(pid, "")
     if not remote:
         return
     repo = os.path.join(w.home, "projects", pid)

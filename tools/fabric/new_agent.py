@@ -67,6 +67,19 @@ set, and a test signature as the account proves it. Without a terminal,
 or with --no-signing-key, the closing prints the two lines a person runs.
 A human never gets it (ADR-044 rule 3).
 
+STEP 12 AND THE OPERATOR'S GH TOKEN (the owner, 2026-10-16). Registering the
+subkey needs `admin:ssh_signing_key` on the operator's gh token, and a
+`gh auth refresh` alone does not last: fabric-secrets sync rewrites gh's config
+from the stored GH_TOKEN. So the token's scopes are read before anything is made
+(the dry run too; X-OAuth-Scopes of `gh api -i user`, the token never printed)
+and, when the scope is missing or unknowable, one paragraph says so and what
+fixes it. It never refuses the run.
+
+THE FABRIC'S ORIGIN (same day). Step 4 clones the fabric over https (no key yet);
+step 6 only switched the --project clones to their SSH remote. When agent-fabric
+is not a --project, the worker is given its registry remote (--fabric-remote) and
+switches that clone too, under step 6's rules: only if it differs, never in a dry run.
+
 THE CLAUDE ACCOUNT (ADR-031; the owner, 2026-10-07). Assigned after new-agent
 by fabric-accounts, the token was written but the account's own sync
 refused it until identities/keys/ merged; new-agent's first sync (bundle,
@@ -122,6 +135,7 @@ sys.path.insert(0, HERE)
 import roots  # noqa: E402
 from provisioning import config as cfg  # noqa: E402
 from provisioning.new_agent_args import HELP, Exit, die, parse, parse_signing_key_only, say  # noqa: E402
+from provisioning.github_signing_key import scope_notice  # noqa: E402
 from provisioning.signing import signing_key  # noqa: E402
 from provisioning.steps import Steps  # noqa: E402
 from provisioning import surname as persona_surname  # noqa: E402
@@ -179,6 +193,12 @@ def new_agent(argv: list[str]) -> int:
             why = f"{exc}; nothing made"
         if why:
             die(why)
+
+    # Before anything is made, the dry run too: step 12 is the last to fail and the first the operator can mend.
+    if not o["human"]:
+        notice = scope_notice()
+        if notice:
+            say(notice)
 
     hosts_path = roots.hosts_registry(engine=cfg.ROOT)
     with tempfile.NamedTemporaryFile(prefix="new-agent-", suffix=".log", delete=False) as fh:
@@ -292,7 +312,11 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     # The closing's hand-import lines run here, on the coordinator's host: an
     # account on another reaches its gpg through fabric-host (#118, Codex).
     via = ["--via-host", host] if host != local_host and not human else []
-    if s.through([cfg.HX, host, "--", cfg.WORKER, "finish", login, *who, *clones, *account, *nxt, *via, *dry_arg]) != 0:
+    # Step 4 cloned the fabric over https, as the account had no key; a project clone of it is switched in step 6,
+    # and when it is not a --project the worker switches it from this remote. Not for a human (ADR-044: no key).
+    fabric = project_remote("agent-fabric") if not human and "agent-fabric" not in o["projects"] else None
+    fabric_arg = ["--fabric-remote", fabric] if fabric else []
+    if s.through([cfg.HX, host, "--", cfg.WORKER, "finish", login, *who, *clones, *account, *nxt, *via, *fabric_arg, *dry_arg]) != 0:
         die("the host half stopped (above); nothing after it ran")
 
     # ---- 12. its signing subkey on GitHub (ADR-057 rule 6) -------------------
@@ -313,21 +337,22 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
 
 def claim_surname(login: str, surname: str | None, dry: bool) -> None:
     """5a. The surname claim, once step 5 has given the account its agent id (ADR-056 rule 4): written into this
-    checkout, never committed here — fabric-coordinator commits it with identities/keys/. The first name stays
+    checkout, never committed here — fabric-coordinator commits claims.json and surnames.json with identities/keys/. The first name stays
     null until the agent chooses one (rule 5). A must: an agent provisioned without the claim it was promised
     would take the surname's name with no record of it."""
     if surname is None:
         return
     if dry:
         say(f"would: 5a. claim {surname} for {login}'s agent id in identities/personas/claims.json (first_name null: "
-            "the agent chooses it), to commit with identities/keys/")
+            "the agent chooses it) and mark it taken in identities/personas/surnames.json, to commit with identities/keys/")
         return
     try:
         aid = persona_surname.write_claim(login, surname)
     except (persona_surname.Refused, OSError) as exc:
         die(f"step failed: 5a. the surname claim: {exc}")
-    say(f"5a. {surname} claimed for {login} ({aid}) in identities/personas/claims.json, first_name null until it "
-        "chooses one (ADR-056 rule 5); fabric-coordinator commits it with identities/keys/")
+    say(f"5a. {surname} claimed for {login} ({aid}) in identities/personas/claims.json and marked taken in "
+        "identities/personas/surnames.json, first_name null until it chooses one (ADR-056 rule 5); fabric-coordinator "
+        "commits both with identities/keys/")
 
 
 def signing_key_only(login: str) -> int:
