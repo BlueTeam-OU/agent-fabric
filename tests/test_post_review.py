@@ -108,6 +108,47 @@ def main() -> int:
           post_review.evidence_refusal(f"F1 a\u2028b\x0cc\nF2\n> {tree.splitlines()[0]}").startswith("line 3 ")
           and "header at line 2 " in post_review.evidence_refusal(f"F1 a\u2028b\n{tree}"))
 
+    print("a pinned report names the one head it covers (agent-fabric ADR-020 §5 rule 10)")
+    old, new = "a" * 40, "b" * 40
+
+    def ranged(sha: str | None) -> str:
+        """A pinned header as the brief renders it for a range whose head is sha."""
+        return "\n".join(review_brief.dispatch_header({"mode": "review", "repository": "/nowhere", "range": "x..y"},
+                                                       {"base_sha": "c" * 40, "head_sha": sha, "card_base": None},
+                                                       "claude", None, "d-1", "2026-10-14T00:00:00Z"))
+    for label, body, want, why in (
+        ("no header: no head, the PR's is taken", "F1 (P2) …", None, ""),
+        ("one header: its head_sha", f"{ranged(old)}\nF1", old, ""),
+        ("two headers on one head: that head", f"{ranged(old)}\nF1\n````\n{ranged(old)}\n````", old, ""),
+        ("two headers on different heads: refused, naming both", f"{ranged(old)}\n{ranged(new)}", None,
+         "different heads (aaaaaaaaaaaa at line 1, bbbbbbbbbbbb at line"),
+        ("a header naming no head_sha: refused", f"{ranged(None)}\nF1", None, "names no head_sha"),
+        ("a header from a request with no range: refused", header(range="a..b") + "\nF1", None, "names no head_sha"),
+        ("an abbreviated sha: refused", f"{ranged(old[:12])}\nF1", None, "names no head_sha"),
+        ("a sha-256 head: taken", f"{ranged('d' * 64)}\nF1", "d" * 64, ""),
+    ):
+        got, refusal = post_review.report_head(body)
+        check(f"{label} (got {got!r}, {refusal!r})", got == want and (why in refusal if why else not refusal))
+
+    print("a head that is not the PR's head is posted only when it is a commit of the PR, failing closed")
+    real_run = gh.run
+    try:
+        for label, out, want in (
+            ("listed: posts", [[{"sha": new}], [{"sha": old}]], ""),
+            ("not listed: refused", [[{"sha": new}]], "is not a commit of PR #1"),
+            ("a failing call: refused", None, "could not be read"),
+            ("an error object for a page: refused", [{"message": "Not Found"}], "could not be read"),
+            ("output that is not JSON: refused", "not json", "could not be read"),
+            ("not in 250, GitHub's cap: refused, the list may be cut", [[{"sha": new}] * 250], "a list it cuts there"),
+            ("in 250, the cap: posts", [[{"sha": new}] * 249 + [{"sha": old}]], ""),
+        ):
+            gh.run = (lambda out: lambda args, **kw: (_ for _ in ()).throw(gh.GhError("gh api", "Not Found", 404))
+                      if out is None else out if isinstance(out, str) else json.dumps(out))(out)
+            got = post_review.pr_commit_refusal("o/r", "1", old)
+            check(f"{label} (got {got!r})", want in got if want else got == "")
+    finally:
+        gh.run = real_run
+
     print("the posted report carries no dispatch header (review of #259, risk 1)")
     named = header(range="a..b", job_id="j9")
     check("the fixture header names a job", '"job_id": "j9"' in named)
@@ -168,7 +209,7 @@ def main() -> int:
     # The repository is named, never read from the checkout's origin (a copy without a remote has none).
     os.environ["GH_REPO"] = "o/r"
     try:
-        post_review.run(["552"], "findings")
+        post_review.run(["552", "--head", "a" * 40], "findings")
         check("refused", False)
     except post_review.Refused as e:
         check("refused, naming the branch", "head branch" in str(e))
