@@ -59,7 +59,8 @@ coordinator's as the account's parent, ADR-038).
 identities/personas/surnames.json and unclaimed, checked before anything
 is made, the dry run too; once the account has its agent id, the claim
 {surname, first_name: null} is written into this checkout's
-identities/personas/claims.json, for fabric-coordinator to commit with
+identities/personas/claims.json and the surname marked taken in
+identities/personas/surnames.json, for fabric-coordinator to commit with
 identities/keys/. The agent chooses its first name itself (rule 5).
 
 On a terminal, an agent's last step imports the fleet's signing key

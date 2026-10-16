@@ -337,21 +337,22 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
 
 def claim_surname(login: str, surname: str | None, dry: bool) -> None:
     """5a. The surname claim, once step 5 has given the account its agent id (ADR-056 rule 4): written into this
-    checkout, never committed here — fabric-coordinator commits it with identities/keys/. The first name stays
+    checkout, never committed here — fabric-coordinator commits claims.json and surnames.json with identities/keys/. The first name stays
     null until the agent chooses one (rule 5). A must: an agent provisioned without the claim it was promised
     would take the surname's name with no record of it."""
     if surname is None:
         return
     if dry:
         say(f"would: 5a. claim {surname} for {login}'s agent id in identities/personas/claims.json (first_name null: "
-            "the agent chooses it), to commit with identities/keys/")
+            "the agent chooses it) and mark it taken in identities/personas/surnames.json, to commit with identities/keys/")
         return
     try:
         aid = persona_surname.write_claim(login, surname)
     except (persona_surname.Refused, OSError) as exc:
         die(f"step failed: 5a. the surname claim: {exc}")
-    say(f"5a. {surname} claimed for {login} ({aid}) in identities/personas/claims.json, first_name null until it "
-        "chooses one (ADR-056 rule 5); fabric-coordinator commits it with identities/keys/")
+    say(f"5a. {surname} claimed for {login} ({aid}) in identities/personas/claims.json and marked taken in "
+        "identities/personas/surnames.json, first_name null until it chooses one (ADR-056 rule 5); fabric-coordinator "
+        "commits both with identities/keys/")
 
 
 def signing_key_only(login: str) -> int:
