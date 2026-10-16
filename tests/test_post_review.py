@@ -118,7 +118,7 @@ def main() -> int:
                                                        {"base_sha": "c" * 40, "head_sha": sha, "card_base": None},
                                                        "claude", None, "d-1", "2026-10-14T00:00:00Z"))
     for label, body, want, why in (
-        ("no header: no head, the PR's is taken", "F1 (P2) …", None, ""),
+        ("no header: no head read here, so run() refuses it without --head", "F1 (P2) …", None, ""),
         ("one header: its head_sha", f"{ranged(old)}\nF1", old, ""),
         ("two headers on one head: that head", f"{ranged(old)}\nF1\n````\n{ranged(old)}\n````", old, ""),
         ("two headers on different heads: refused, naming both", f"{ranged(old)}\n{ranged(new)}", None,
