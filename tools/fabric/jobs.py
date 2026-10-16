@@ -14,6 +14,7 @@ behind bin/fabric-jobs.
     fabric-jobs deliver <id> <artifact>...
     fabric-jobs retract <id> <artifact>                          remove one artifact, exactly as recorded, in any state; noted in the log
     fabric-jobs done <id>
+    fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
     fabric-jobs drop <id> "<why>"
     fabric-jobs show <id> [--json]
     fabric-jobs switch [<id>] [--json] [--type feat|fix|docs|chore|test|refactor] [--needs-merged]
@@ -42,6 +43,18 @@ plane's jobs-add for it (tools/fabric/gzcoord/intake.py), both under the
 title "<SUBJECT> (REQUEST <MESSAGE-ID>)"; `add --request` for a job
 the sender's half made (it records no message id) adds a second job, so look
 at `list` first.
+
+`sweep` looks again at every delivered job of this list (`switch` looked once, when the agent left it) and moves to done the ones
+whose evidence has landed, by the test `switch` applies to a done job: a pull request merged, a commit or a branch tip (a branch
+that is on origin now) on origin's default branch. The artifacts are read as old jobs hold them: owner/repo#N, a pull request
+URL, "<project> #N" or "<project> PR #N" (the project's first github.com remote in projects/registry.json), a bare "PR #N" or
+"#N" (in the job's own project), "branch:<name>" or a branch name holding a slash, and a commit sha in an artifact that names the
+job's own project (asked of the job's working copy). A job closes only when something landed and nothing its artifacts name is
+still open, could not be asked or could not be resolved to a repository; anything else stays delivered and the line says why.
+One line per delivered job: "would close (<evidence>)" under --dry-run, "closed (<evidence>)" without it, or "stays (<why>)". The
+transition carries the evidence as its note ("swept: …") and is applied under the list's lock, to a job still delivered with the
+artifacts the evidence was read from. One gh lookup per distinct pull request in the run, each with a timeout; a lookup that
+fails leaves the job delivered and says so. No other state is touched, no artifact removed, and a second run changes nothing.
 
 A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
 normal when none was set, and in a list written before priorities
@@ -160,6 +173,7 @@ from fabric_jobs.queue import QUEUE, QUEUE_TIMEOUT_S, Unreachable, ask_queue, st
 from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, claimed_job, pool_job, printable, pool_line  # noqa: E402, F401
 from fabric_jobs.render import line, show, summary  # noqa: E402, F401
 from fabric_jobs.branching import TYPES  # noqa: E402, F401
+from fabric_jobs.sweep import sweep  # noqa: E402, F401
 from fabric_jobs.verbs import decide, add, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
 
 
@@ -197,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
     rt = sub.add_parser("retract", help="remove one artifact from a job, exactly as recorded")
     rt.add_argument("id")
     rt.add_argument("artifact")
+    sw = sub.add_parser("sweep", help="move delivered jobs whose evidence has landed to done")
+    sw.add_argument("--dry-run", action="store_true", help="say what would close and why the rest stay; change nothing")
     dr = sub.add_parser("drop")
     dr.add_argument("id")
     dr.add_argument("why")
@@ -224,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--working-copy")
     args = ap.parse_args(argv)
 
-    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job}.get(args.cmd, change)
+    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep}.get(args.cmd, change)
     try:
         return verb(args)
     except Refused as exc:

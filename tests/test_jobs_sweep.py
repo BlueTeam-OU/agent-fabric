@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""fabric-jobs sweep (agent-fabric ADR-037 rule 10): a delivered job whose evidence has landed becomes done. Run in process
+(jobs.main) against a fake gh on PATH and bare origins, with a registry fixture for the project names; the artifact strings are the
+shapes old jobs hold (fabric-jobs list --all). Every refusal to close has its positive control in the same world: the job that
+differs only by the evidence closes."""
+from __future__ import annotations
+
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import jobs_world  # noqa: E402 — tests/, the script's own directory
+from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+scrub_process_env()
+own_instance_tree()
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = jobs_world.GH_REPO
+PROJECT = "fixture-proj"
+GH = """#!/usr/bin/env python3
+import json, os, sys
+a = sys.argv[1:]
+fake = os.environ["FAKE_DIR"]
+doc = json.load(open(os.path.join(fake, "gh.json")))
+if a[:2] == ["pr", "view"] and "--repo" in a:
+    key = a[a.index("--repo") + 1] + "#" + a[2]
+    with open(os.path.join(fake, "calls.log"), "a") as fh:
+        fh.write(key + "\\n")
+    if key in doc["states"]:
+        print(json.dumps({"state": doc["states"][key]}))
+        sys.exit(0)
+    sys.stderr.write("GraphQL: Could not resolve to a PullRequest (HTTP 404)\\n")
+    sys.exit(1)
+sys.stderr.write("fake gh: unsupported: " + " ".join(a) + "\\n")
+sys.exit(2)
+"""
+
+
+def main() -> int:
+    fails = 0
+
+    def check(label: str, good: bool, detail: object = "") -> None:
+        nonlocal fails
+        print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good else f": {str(detail)[:900]}"))
+        fails += not good
+
+    spec = importlib.util.spec_from_file_location("jobs_under_test", os.path.join(ROOT, "tools", "fabric", "jobs.py"))
+    jobs = importlib.util.module_from_spec(spec)
+    with tempfile.TemporaryDirectory(prefix="jobs-sweep-") as tmp:
+        fake = os.path.join(tmp, "fake")
+        os.makedirs(os.path.join(fake, "bin"))
+        with open(os.path.join(fake, "bin", "gh"), "w", encoding="utf-8") as fh:
+            fh.write(GH)
+        os.chmod(os.path.join(fake, "bin", "gh"), 0o755)
+        home = os.path.join(tmp, "home")
+        os.makedirs(home)
+        operator = os.path.join(tmp, "operator")
+        os.makedirs(os.path.join(operator, "projects"))
+        with open(os.path.join(operator, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "projects": {
+                PROJECT: {"remotes": [f"git@github.com:{REPO}.git", f"https://github.com/{REPO}"]},
+                "other-proj": {"remotes": ["https://github.com/fixture-org/other-proj"]}}}, fh)
+        os.environ.update(jobs_world.identity_env(), HOME=home, AGENT_FABRIC_ROOT=ROOT, FAKE_DIR=fake,
+                          PATH=os.path.join(fake, "bin") + os.pathsep + os.environ.get("PATH", ""), CLAUDE_CODE_SESSION_ID="sess-A",
+                          AGENT_FABRIC_HOSTS_REGISTRY=os.path.join(tmp, "none.json"), AGENT_FABRIC_STATE_DIR=os.path.join(tmp, "state"))
+        store = os.path.join(tmp, "store")
+        os.makedirs(store)
+        with open(os.path.join(store, ".agent-id"), "w", encoding="utf-8") as fh:
+            fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
+        os.environ["AGENT_FABRIC_SECRET_STORE"] = store
+        spec.loader.exec_module(jobs)
+        login = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
+        path = os.path.join(tmp, "state", "agents", login, "jobs.json")
+        repo = jobs_world.seeded(os.path.join(tmp, "wc"), os.path.join(tmp, "origins"))
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True, env=git_env()).stdout.strip()
+
+        main_tip = git("rev-parse", "HEAD")
+        git("push", "-q", "origin", "HEAD:refs/heads/dev/host/feat/folded")
+        git("checkout", "-q", "-b", "dev/host/feat/ahead")
+        git("commit", "-q", "--allow-empty", "-m", "ahead")
+        ahead_tip = git("rev-parse", "HEAD")
+        git("push", "-q", "origin", "dev/host/feat/ahead")
+        git("checkout", "-q", "main")
+
+        def gh_says(states: dict[str, str]) -> None:
+            with open(os.path.join(fake, "gh.json"), "w", encoding="utf-8") as fh:
+                json.dump({"states": states}, fh)
+            open(os.path.join(fake, "calls.log"), "w").close()
+
+        def run(*argv: str) -> tuple[int, str, str]:
+            os.chdir(repo)
+            out, err = io.StringIO(), io.StringIO()
+            outer = os.environ.get("AGENT_FABRIC_OPERATOR")       # a run nested in another's gh lookup puts the outer one's value back
+            os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            try:
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    rc = jobs.main(list(argv))
+            finally:
+                if outer is None:
+                    del os.environ["AGENT_FABRIC_OPERATOR"]
+                else:
+                    os.environ["AGENT_FABRIC_OPERATOR"] = outer
+            return rc, out.getvalue(), err.getvalue()
+
+        def seed(entries: list[tuple[str, list[str]]], project: str | None = PROJECT) -> list[str]:
+            """One job per (state, artifacts), j1.. in order, written as the list keeps them."""
+            ids = []
+            for n, (state, arts) in enumerate(entries, 1):
+                rc, out, err = run("add", f"job {n}", "--working-copy", repo, *(["--project", project] if project else []))
+                assert rc == 0, err
+                ids.append(out.split()[1])
+            doc = json.load(open(path, encoding="utf-8"))
+            for job, (state, arts) in zip(doc["jobs"][-len(entries):], entries):
+                job.update(state=state, artifacts=arts, project=project)
+            json.dump(doc, open(path, "w", encoding="utf-8"))
+            return ids
+
+        def job(jid: str) -> dict:
+            return next(j for j in json.load(open(path, encoding="utf-8"))["jobs"] if j["id"] == jid)
+
+        def line(out: str, jid: str) -> str:
+            return next((l for l in out.splitlines() if l.startswith(jid + " ")), "")
+
+        print("the shapes old jobs hold: a merged pull request closes, whatever form names it")
+        gh_says({f"{REPO}#5": "MERGED", f"{REPO}#6": "MERGED", f"{REPO}#7": "MERGED", f"{REPO}#8": "MERGED", f"{REPO}#9": "MERGED",
+                 f"{REPO}#10": "OPEN", f"{REPO}#11": "MERGED", "fixture-org/other-proj#3": "MERGED"})
+        shapes = [f"pr:{REPO}#5", f"{PROJECT} #6", f"{PROJECT} PR #7", "PR #8 merged (3 work, 1 fix)", f"https://github.com/{REPO}/pull/9",
+                  "other-proj #3 merged"]
+        ids = seed([("delivered", [a]) for a in shapes])
+        before = open(path, "rb").read()
+        rc, out, err = run("sweep", "--dry-run")
+        check("--dry-run changes nothing", rc == 0 and open(path, "rb").read() == before, out + err)
+        check("each form is read: pr:o/r#N, <project> #N, <project> PR #N, bare PR #N, the URL, another project's #N",
+              all("would close" in line(out, j) for j in ids), out + err)
+        check("the line names the evidence", f"{REPO}#5 merged" in line(out, ids[0]) and "fixture-org/other-proj#3 merged" in line(out, ids[5]), out)
+        rc, out, err = run("sweep")
+        done = [job(j) for j in ids]
+        check("without --dry-run they are done, each with a note naming the evidence", rc == 0 and all(j["state"] == "done" for j in done)
+              and all(j["log"][-1].get("note", "").startswith("swept: ") and "merged" in j["log"][-1]["note"] for j in done), out + err)
+        check("no artifact is removed", [j["artifacts"] for j in done] == [[a] for a in shapes])
+        after = open(path, "rb").read()
+        rc, out, err = run("sweep")
+        check("a second run changes nothing", rc == 0 and open(path, "rb").read() == after and "no delivered jobs" in out, out + err)
+
+        print("what stays delivered, and why")
+        gh_says({f"{REPO}#10": "OPEN", f"{REPO}#11": "MERGED", f"{REPO}#12": "MERGED"})
+        ids = seed([("delivered", [f"{REPO}#10"]),                                                      # open
+                    ("delivered", ["scan reported to the coordinator (seq above)"]),                    # unresolvable free text
+                    ("delivered", [f"{REPO}#404"]),                                                     # gh cannot answer
+                    ("delivered", [f"{REPO}#11", f"{REPO}#10"]),                                        # one merged, one still open
+                    ("delivered", [f"{REPO}#11", "PR #13 (unregistered project)"]),                      # a #N that names no repository
+                    ("delivered", []),
+                    ("delivered", ["branch:dev/host/feat/gone"]),
+                    ("queued", [f"{REPO}#12"]), ("active", [f"{REPO}#12"]), ("paused", [f"{REPO}#12"]), ("blocked", [f"{REPO}#12"]),
+                    ("done", [f"{REPO}#12"]), ("dropped", [f"{REPO}#12"]),
+                    ("delivered", [f"{REPO}#12"])])                                                    # the positive control
+        ids_unreg = seed([("delivered", [f"{REPO}#11", "PR #13"])], project="unregistered")
+        before = open(path, "rb").read()
+        rc, out, err = run("sweep")
+        check("an open pull request stays and is named", "stays" in line(out, ids[0]) and f"{REPO}#10" in line(out, ids[0]) and "open" in line(out, ids[0]), out)
+        check("an unresolvable free-text artifact stays", "stays" in line(out, ids[1]) and "no artifact" in line(out, ids[1]), out)
+        check("a gh failure stays and says it could not tell", "stays" in line(out, ids[2]) and "could not tell" in line(out, ids[2]), out)
+        check("a merged and an open pull request together stay", "stays" in line(out, ids[3]) and "open" in line(out, ids[3]), out)
+        check("a #N with no registered project beside a merged one stays", "stays" in line(out, ids_unreg[0]) and "unresolved" in line(out, ids_unreg[0]), out)
+        check("no artifacts stays", "stays" in line(out, ids[5]) and "no artifacts" in line(out, ids[5]), out)
+        check("a branch that is not on origin stays", "stays" in line(out, ids[6]), out)
+        check("the positive control, the same world, closes", "closed" in line(out, ids[13]) and job(ids[13])["state"] == "done", out)
+        check("every other delivered job is still delivered, every other state untouched",
+              all(job(j)["state"] == "delivered" for j in ids[:7]) and job(ids_unreg[0])["state"] == "delivered"
+              and [job(j)["state"] for j in ids[7:13]] == ["queued", "active", "paused", "blocked", "done", "dropped"]
+              and all(job(j)["log"] == json.loads(before)["jobs"][int(j[1:]) - 1]["log"] for j in ids[7:13]), out)
+
+        print("one gh lookup per distinct pull request")
+        gh_says({f"{REPO}#21": "MERGED"})
+        ids = seed([("delivered", [f"{REPO}#21"]), ("delivered", [f"{PROJECT} #21"]), ("delivered", ["PR #21"])])
+        rc, out, err = run("sweep")
+        calls = [c for c in open(os.path.join(fake, "calls.log"), encoding="utf-8").read().split() if c.endswith("#21")]    # earlier sections' stayers are asked again
+        check("three jobs naming one pull request ask gh once, and all close", calls == [f"{REPO}#21"] and all(job(j)["state"] == "done" for j in ids), calls)
+        gh_says({})
+        ids = seed([("delivered", [f"{REPO}#22"]), ("delivered", [f"{REPO}#22"])])
+        rc, out, err = run("sweep")
+        calls = [c for c in open(os.path.join(fake, "calls.log"), encoding="utf-8").read().split() if c.endswith("#22")]
+        check("a lookup that failed is not repeated for the next job, and both stay", calls == [f"{REPO}#22"]
+              and all(job(j)["state"] == "delivered" for j in ids), calls)
+
+        print("a job that changed while gh was asked is not closed on the evidence read from the old one")
+        gh_says({f"{REPO}#31": "MERGED"})
+        ids = seed([("delivered", [f"{REPO}#31"])])
+        sweep_part = sys.modules["fabric_jobs.sweep"]
+        asked = sweep_part.PrStates.__call__
+
+        def edited_meanwhile(self, repo_name, number):
+            if number == "31":
+                assert run("deliver", ids[0], "an artifact added meanwhile")[0] == 0
+            return asked(self, repo_name, number)
+        sweep_part.PrStates.__call__ = edited_meanwhile
+        try:
+            rc, out, err = run("sweep")
+        finally:
+            sweep_part.PrStates.__call__ = asked
+        check("it stays and says so", "stays (changed while the sweep ran)" in line(out, ids[0]) and job(ids[0])["state"] == "delivered", out + err)
+        rc, out, err = run("sweep")
+        check("the next sweep, reading the new artifacts, closes it", "closed" in line(out, ids[0]), out + err)
+
+        print("commits and branches on origin's default branch")
+        gh_says({})
+        ids = seed([("delivered", ["branch:dev/host/feat/folded"]),
+                    ("delivered", ["develop/dev/host/feat/ahead pushed, no PR"]),
+                    ("delivered", [f"{PROJECT} commit {main_tip[:8]}"]),
+                    ("delivered", [f"{PROJECT} commit {ahead_tip[:8]}"]),
+                    ("delivered", [f"merged as {main_tip[:8]}"]),
+                    ("delivered", ["branch:dev/host/feat/ahead"])])
+        rc, out, err = run("sweep")
+        check("a branch artifact whose tip is on origin/main closes", "closed" in line(out, ids[0]) and "branch dev/host/feat/folded" in line(out, ids[0]), out + err)
+        check("a branch ahead of origin/main stays", "stays" in line(out, ids[5]) and "not on origin/main" in line(out, ids[5]), out)
+        check("a commit beside the project's name, on origin/main, closes", "closed" in line(out, ids[2]) and main_tip[:8] in line(out, ids[2]), out)
+        check("a commit not on origin/main stays", "stays" in line(out, ids[3]), out)
+        check("a commit with no project beside it is no evidence", "stays" in line(out, ids[4]), out)
+
+    print("PASS" if not fails else f"FAILED: {fails}")
+    return 1 if fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

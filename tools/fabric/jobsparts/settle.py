@@ -270,13 +270,18 @@ def memory_changed(job: dict, candidates: list[str]) -> str | None:
     return None
 
 
-def _landed(job: dict, found: dict, problems: list[str]) -> list[str]:
-    """The artifacts that show the work on the default branch, for `done`: merged PRs, commits on origin's default branch, replies."""
+def _pr_state(repo: str, number: str) -> str:
+    return str(vcs.gh.pr_view(int(number), ["state"], repo=repo).get("state") or "")
+
+
+def _landed(job: dict, found: dict, problems: list[str], pr_state=_pr_state) -> list[str]:
+    """The artifacts that show the work on the default branch, for `done`: merged PRs, commits on origin's default branch, replies.
+    `pr_state(repo, number)` asks gh for a pull request's state; `sweep` hands in one that remembers, so a PR named by many jobs is asked once."""
     landed, opened = [], []
     wc = job.get("working_copy")
     for repo, number in found["prs"]:
         try:
-            state = str(vcs.gh.pr_view(int(number), ["state"], repo=repo).get("state") or "")
+            state = pr_state(repo, number)
         except (vcs.gh.GhError, ValueError) as e:
             problems.append(f"could not tell whether {repo}#{number} is merged ({getattr(e, 'reason', e)})")
             continue
