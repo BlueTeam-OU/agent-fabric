@@ -70,6 +70,15 @@ def failing_names(checks: list) -> str:
         return ""
 
 
+def pending_names(checks: list) -> str:
+    """Required checks still running or queued: a known answer, the PR is
+    waiting, which is no failure of the watcher."""
+    try:
+        return ", ".join(str(c.get("name")) for c in checks if c.get("bucket") == "pending")
+    except AttributeError:
+        return ""
+
+
 def outage_line(health: dict | None) -> str:
     """actions-health's outage, told apart by its fields: degraded before any
     billing was read (no period). Built from its status and incident; from a
