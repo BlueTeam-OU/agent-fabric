@@ -467,6 +467,25 @@ def run() -> None:
     finally:
         j.close()
     write_operator(since=old)
+    # A parsed file that lists no usable owner definition must not drop the
+    # owner role to the name convention (fabric-coordinator-2 would hold it).
+    for label, body in (("absent", {}), ("null", {"role_definitions": None}), ("an empty list", {"role_definitions": []}),
+                        ("no role", {"role_definitions": {"holders": ["user"]}}),
+                        ("an empty role", {"role_definitions": {"role": "", "holders": ["user"]}}),
+                        ("a list entry with no role", {"role_definitions": [{"holders": ["user"]}]})):
+        with open(os.path.join(FABRIC, "policies", "authority.json"), "w", encoding="utf-8") as f:
+            json.dump(body, f)
+        j = guard_mod.Judge(env(AGENT_FABRIC_OPERATOR=FABRIC), "ssh")
+        try:
+            listed = j.holders.get("fabric-coordinator")
+            by_list = listed is not None and "fabric-coordinator-2" not in listed
+            decides = bool(j.global_problem) or ("user" in listed and by_list if label.startswith(("no role", "an empty role", "a list")) else False)
+            check(f"role_definitions {label}: refuses or decides by the list, never by the name",
+                  by_list and decides and not guard_mod.may_hold("fabric-coordinator-2", "fabric-coordinator", listed, []),
+                  (listed, j.global_problem))
+        finally:
+            j.close()
+    write_operator(since=old)
     sig = b"-----BEGIN SSH SIGNATURE-----\nabc\n-----END SSH SIGNATURE-----"
     good = proof_mod.MAGIC + b"\x01\x08" + hashlib.sha256(sig).digest() + b"\x00tail"
     for label, blob in (("the proof of this signature", good), ("another signature's", proof_mod.MAGIC + b"\x01\x08" + hashlib.sha256(sig + b"x").digest()),
@@ -479,6 +498,7 @@ def run() -> None:
           and guard_mod.may_hold("user", "fabric-coordinator", ["user"], [])
           and not guard_mod.may_hold("fabric-coordinator-2", "fabric-coordinator", ["user"], [])
           and not guard_mod.may_hold("fabric-coordinator", "fabric-coordinator", ["user"], [])
+          and not guard_mod.may_hold("fabric-coordinator-en", "fabric-coordinator", ["user"], ["en"])
           and not guard_mod.may_hold("python-dev-evil", "python-dev", None, ["en"])
           and not guard_mod.may_hold("web-dev-01", "python-dev", None, []))
     with open(CI, encoding="utf-8") as f:

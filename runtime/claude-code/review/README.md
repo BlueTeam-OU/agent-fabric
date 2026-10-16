@@ -169,7 +169,9 @@ runs there and makes no extract of its own (the earlier practice left
 itself makes nothing: the path is passed in. `fabric-review save` removes
 the round's worktree, recomputing the path from the report header's
 `head_sha`, and only when it is a worktree at that head; a working-tree or
-diff-file request makes none, and `check` makes none. The reviewer opens its report with the brief's header, copied
+diff-file request makes none, and `check` makes none. After saving a round, the
+dispatcher removes the scratch directory the report names (it is under the
+reviewer's `TMPDIR`). The reviewer opens its report with the brief's header, copied
 unchanged, so the mode travels with the report: `fabric-pr post-review`
 refuses a report whose header says `working-tree` (only a pinned review
 covers a head), and `fabric-review save` records each round's mode in
