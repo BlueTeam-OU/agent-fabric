@@ -72,3 +72,20 @@ worktree at that head; a failed removal is a warning, the report being
 saved. `render()` stays side-effect free (the path is passed in), and a
 working-tree or diff-file request makes none. Not changed: the second
 engine's own extract (`review_codex.py`) and the reviewer's Bash fence.
+
+### Amendment 2026-10-16 — A review covers the commit it read
+
+§5 rule 6 said only how a review is posted. post-review sent the PR's
+head at the time of posting as the review's commit, so a review of an
+older head, posted after a push, was counted by the gate and the arm as
+a review of the new one: seen live on 2026-10-16, when a review was
+posted after its PR's head had moved (devex-tooling j137). The rule now
+pins a review to the commit its report read: the dispatch header's
+`head_sha` (every header in the report must agree), or `--head` with a
+full sha for a report that carries none, which is the second engine's
+shape (`review_codex.py` passes the head it archived). A report naming
+no head, a `--head` that disagrees with its header, or a commit that is
+not one of the PR's (read from the PR's commit list, failing closed when
+it cannot be read or is truncated) is refused before anything is posted,
+`--dry-run` included. The gate's coverage test is unchanged: it already
+compared a review's commit with the head.

@@ -174,7 +174,10 @@ dispatcher removes the scratch directory the report names (it is under the
 reviewer's `TMPDIR`). The reviewer opens its report with the brief's header, copied
 unchanged, so the mode travels with the report: `fabric-pr post-review`
 refuses a report whose header says `working-tree` (only a pinned review
-covers a head), and `fabric-review save` records each round's mode in
+covers a head) and records the review on the header's `head_sha`, the
+commit it read, never the PR's head at posting time (agent-fabric
+ADR-020 §5 rule 6; a headerless report, the second engine's, names it
+with `--head`), and `fabric-review save` records each round's mode in
 `round-<N>.json` beside `round-<N>.md` (`null` when the report has no
 header). A re-review request carries `evidence` over from the previous
 one.
