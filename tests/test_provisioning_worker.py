@@ -165,7 +165,7 @@ def main() -> int:
     ssh = "git@github.com:BlueTeam-OU/agent-fabric.git"
     https = "https://github.com/BlueTeam-OU/agent-fabric.git"
 
-    def step6(origin: str | None, *argv: str, pushurl: str | None = None):
+    def step6(origin: str | None, *argv: str, pushurl: str | None = None, as_project: bool = True, present: bool = True):
         """Run finish up to the end of step 6 with a present clone whose remote.origin.url reads `origin` (None: unreadable)."""
         seen: list = []
 
@@ -173,6 +173,8 @@ def main() -> int:
             seen.append(list(cmd))
             if cmd[:1] == ["getent"]:
                 return subprocess.CompletedProcess(cmd, 2, stdout="", stderr="")
+            if not present and "test" in cmd:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
             if "remote.origin.pushurl" in cmd:
                 if pushurl is None:
                     return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
@@ -183,8 +185,7 @@ def main() -> int:
                 return subprocess.CompletedProcess(cmd, 0, stdout=origin + "\n", stderr=None)
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         out = io.StringIO()
-        w = make_worker(
-            "--clone", f"agent-fabric={ssh}", *argv)
+        w = make_worker(*(["--clone", f"agent-fabric={ssh}"] if as_project else []), *argv)
         w.a.phase = "finish"
         with mock.patch.object(subprocess, "run", fake), mock.patch.object(worker, "record_launch_provider", side_effect=Reached), \
                 redirect_stderr(out):
@@ -213,6 +214,29 @@ def main() -> int:
     check("…and none is said when it is the registry remote", len(sets(seen)) == 1 and "push URL" not in said, f"{sets(seen)} {said}")
     seen, said = step6(None)
     check("an origin that cannot be read is left as it is, and said", not sets(seen) and "origin not readable; left as it is" in said, f"{sets(seen)} {said}")
+
+    print("finish: the fabric checkout of step 4 when agent-fabric is not a --project")
+    seen, said = step6(https, "--fabric-remote", ssh, "--project", "other", as_project=False)
+    check("its https origin is set to the registry's SSH remote, as the login, said in one line",
+          [c[-4:] for c in sets(seen)] == [["remote", "set-url", "origin", ssh]] and f"6. agent-fabric: origin set to {ssh}" in said
+          and "-C" in sets(seen)[0] and f"-u {LOGIN}" in " ".join(sets(seen)[0]), f"{sets(seen)} {said}")
+    seen, said = step6(ssh, "--fabric-remote", ssh, as_project=False)
+    check("…only if it differs", not sets(seen) and "origin set" not in said, f"{sets(seen)} {said}")
+    seen, said = step6(https, "--fabric-remote", ssh, "--dry-run", as_project=False)
+    check("…never in a dry run (said as would)", not sets(seen) and f"remote set-url origin '{ssh}'" in said and "origin set to" not in said,
+          f"{sets(seen)} {said}")
+    seen, said = step6(https, "--fabric-remote", ssh, "--dry-run", as_project=False, present=False)
+    check("…and a dry run with no clone made yet reads nothing", not sets(seen) and "origin" not in said, f"{seen} {said}")
+    seen, said = step6(https, as_project=False)
+    check("without --fabric-remote the checkout is left as it is", not sets(seen), f"{sets(seen)} {said}")
+    seen, said = step6(https, "--fabric-remote", ssh)
+    check("when agent-fabric is also a --clone project, origin is set once, not twice", len(sets(seen)) == 1, f"{sets(seen)}")
+    try:
+        wa.parse_args(["finish", LOGIN, "--human", "--fabric-remote", ssh])
+        refused = False
+    except wa.Exit as exc:
+        refused = exc.code == 2
+    check("a human takes no --fabric-remote", refused)
 
     print("dry run: a step of two commands says it once")
     err = io.StringIO()
