@@ -331,7 +331,8 @@ def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = N
 # never a Monitor: the harness caps a Monitor at 30 minutes and each expiry
 # rang the Fleet Deck and woke the agent to re-arm, every half hour of a
 # quiet session; a background command is capped at 2 hours and wakes the
-# session only by delivering (the owner, 2026-10-10).
+# session by delivering, or quiet at its own deadline before that cap
+# (the owner, 2026-10-10; --deadline, #285).
 # The command is the name on PATH, never `$AGENT_FABRIC_ROOT/…`: the
 # harness asks before any command carrying an expansion, and a watch
 # re-armed that often asked every time (the owner, 2026-09-26;
@@ -340,7 +341,7 @@ WATCH_MISSING = ("agent-fabric: NO INBOX WATCH is running for this session ({sou
                  "as your first action: Bash(command: 'gzcoord-inbox --until-delivery', "
                  "run_in_background: true, timeout: 7200000, description: 'gzcoord inbox wait'); "
                  "when it completes, read its output, act on the delivery, and run it again after "
-                 "a delivery (exit 0) or after its timeout stopped it; on any other exit, read the reason "
+                 "a delivery (exit 0), after its deadline ended it quiet (exit 0) or after its timeout stopped it; on any other exit, read the reason "
                  "and do not run it again until it is fixed (gzcoord-receive §1). Never a Monitor: its 30-minute cap rings every quiet half hour. "
                  "One at a time: never a second.")
 

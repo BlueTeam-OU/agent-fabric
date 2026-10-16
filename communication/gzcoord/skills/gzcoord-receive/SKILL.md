@@ -39,8 +39,8 @@ except when its one line says "a watch is already running … do not run
 it again": that is no delivery, another watch of this login holds the
 inbox, and nothing is killed or re-armed (never `pkill` a watch; it ends
 at its next delivery or its deadline):
-one wake per delivery, and a quiet session is woken at most once per
-2 hours. On any other exit the output is the reason, and you do not run
+one wake per delivery, and a quiet session is woken about once per
+1 h 55 min, at the watch's deadline. On any other exit the output is the reason, and you do not run
 it again until it is fixed: 2 a control channel named, 3 not
 configured or no token, 4 the relay
 refused the token (see the token paragraph below), 5 the relay stayed

@@ -22,7 +22,7 @@ spells matches the shell running it (pkill spares only itself), the call
 never returns, and the session hangs; or it matches the harness's tracked
 inbox watch. Neither is the claude process, so a guard of claude alone let
 it through. An inbox watch never needs killing: it ends by itself at its
-next delivery, and gzcoord-inbox itself refuses a second one.
+next delivery or its deadline, and gzcoord-inbox itself refuses a second one.
 
 THE SHELL. At PreToolUse the shell that will run the command does not exist
 yet, so it is modelled: its command line as Claude Code writes it (seen

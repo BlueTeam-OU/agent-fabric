@@ -386,7 +386,7 @@ def main() -> int:
             ("a sibling background task by [x]-pattern", "pgrep -f '[z]zsib-bg' | xargs kill", f"pid {sib}"),
             ("…the same through pgrep alone", "pkill -f '[z]zsib-[[:alpha:]]+-task'", f"pid {sib}"),
             # (c) An inbox watch: by pattern, by name, by explicit pid.
-            ("gzcoord-inbox by pattern", "pkill -f gzcoord-inbox", "Never kill an inbox watch"),
+            ("gzcoord-inbox by pattern", "pkill -f gzcoord-inbox", "Never kill an inbox watch: it ends by itself at its next delivery or at its deadline"),
             ("gzcoord-inbox by a pattern the shell does not carry", "pkill -f '[g]zcoord-inbox'",
              "Never kill an inbox watch"),
             ("gzcoord-inbox by its pid", f"kill {inbox}", "Never kill an inbox watch"),
