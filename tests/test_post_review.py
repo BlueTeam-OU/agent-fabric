@@ -4,6 +4,7 @@ is tests/test_post_review_cli.py's, run through fabric-pr (ADR-040 §5
 rule 5)."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -117,7 +118,7 @@ def main() -> int:
                                                        {"base_sha": "c" * 40, "head_sha": sha, "card_base": None},
                                                        "claude", None, "d-1", "2026-10-14T00:00:00Z"))
     for label, body, want, why in (
-        ("no header: no head, the PR's is taken", "F1 (P2) …", None, ""),
+        ("no header: no head read here, so run() refuses it without --head", "F1 (P2) …", None, ""),
         ("one header: its head_sha", f"{ranged(old)}\nF1", old, ""),
         ("two headers on one head: that head", f"{ranged(old)}\nF1\n````\n{ranged(old)}\n````", old, ""),
         ("two headers on different heads: refused, naming both", f"{ranged(old)}\n{ranged(new)}", None,
@@ -234,6 +235,31 @@ def main() -> int:
         finally:
             held.stdin.close()
         check(f"{' '.join(args)} exits {want} with stdin still open", rc == want)
+    print("--help's examples: the review class's form is the one its guard admits (review of #283, F2)")
+    spec = importlib.util.spec_from_file_location(
+        "review_bash_guard", os.path.join(HERE, "runtime", "claude-code", "hooks", "review-bash-guard.py"))
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    examples, cur = [], None
+    for line in post_review.HELP.splitlines():
+        if line.startswith("  fabric-pr post-review 552"):
+            cur = [line[2:]]
+        elif cur is not None:
+            cur.append(line[2:])
+            if line == "  EOF":
+                examples.append("\n".join(cur))
+                cur = None
+    check(f"two examples, the first without --head and the second with it ({len(examples)} found)",
+          len(examples) == 2 and "--head" not in examples[0].splitlines()[0]
+          and "--head" in examples[1].splitlines()[0])
+    if len(examples) == 2:
+        check("the first opens its body with an agent-fabric-dispatch v1 block",
+              examples[0].splitlines()[1] == f"```{review_brief.DISPATCH_VERSION}")
+        check("the review class's guard admits the first", guard.posted_review(examples[0]) is not None)
+        # With a real sha for the placeholder: a guard widened to exempt a 40-hex --head must fail this.
+        real = examples[1].replace("<full sha of the commit reviewed>", "a" * 40)
+        check("and gives the second, the --head path outside the review class, no exemption",
+              "<" not in real.splitlines()[0].split("<<")[0] and guard.posted_review(real) is None)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
