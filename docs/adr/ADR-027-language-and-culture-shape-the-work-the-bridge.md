@@ -183,8 +183,9 @@ re-captured, and a holder who writes every answer twice.
     no longer matches is a warning that names it, and is still served —
     a launch never fails on a lag. A localized launch prompt's character
     ceiling is `LOCALE_CHARS_FACTOR` (1.35) times the English one.
-11. A locale's translations have no author but that locale's holder,
-    through the carve-out of ADR-018 §5 rule 5. fabric-coordinator commits
+11. A locale's translations have no author but that locale's holder (the
+    role that commits the text and answers for it, whatever draft it
+    began from), through the carve-out of ADR-018 §5 rule 5. fabric-coordinator commits
     the English sources, the machinery and the tests, authors no
     translation, and merges the holder's pull request. A role's charter
     is translated only for a holder whose work is in that language
@@ -195,7 +196,11 @@ re-captured, and a holder who writes every answer twice.
     passes of rule 3 before the pull request is opened. The holder may
     start from a draft `language-culture-<suffix>` hands it: what it
     commits under its own role is its text, answered for as its own,
-    and the commit says whose draft it began from (A 2026-10-16).
+    and the commit says whose draft it began from. When the draft is
+    the reviewer's own, its first pass judges the holder's committed text
+    and the holder's changes, and the holder's own reading against the
+    English source is the check a second author would have been
+    (A 2026-10-16).
 12. The holder's memory is written in the locale. A memory with a
     `roles_class` carries its rendering under `## English`, and a
     description in the locale carries `description_en` beside it; the

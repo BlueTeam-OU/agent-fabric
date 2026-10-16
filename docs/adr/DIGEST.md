@@ -612,7 +612,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   `needs_rendering`; locale search through `websearch-locale`, SerpAPI
   then Brave, the harness's `WebSearch` removed (§5 rules 12–13).
 - A 2026-10-07 — the source locale (en-US) has no bridge (§2).
-- A 2026-10-16 — a charter translated only for a holder working in that language, by that holder (§5 rule 11).
+- A 2026-10-16 — a charter translated only for a holder working in that language, by that holder; language-culture reviews (§5 rule 11).
 - A 2026-10-16 — the holder may adopt language-culture's draft (§5 rule 11).
 - Keywords: translation, worker, Georgian, Russian, ru-RU,
   system-prompt-file, notes, script, web search, carve-out, TaskStop,

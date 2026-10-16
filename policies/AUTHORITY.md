@@ -61,7 +61,8 @@ the role's charter, of the shared prompt sections and of the harness's
 own text, its worker and its search locale — is authored by the holder
 of `<role>` whose login is named for `<suffix>` (`language-culture-ge`
 writes `locale/ge/`): the CEO's rule of 2026-09-17 that no text in a
-locale has any author but its holder. A role's charter is translated
+locale has any author but its holder (the role that commits it and
+answers for it, whatever draft it began from). A role's charter is translated
 only for a holder whose work is in that language, and
 `language-culture-<suffix>` reviews it; the holder may start from that
 specialist's draft, names it in the commit, and answers for what it
