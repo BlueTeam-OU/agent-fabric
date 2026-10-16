@@ -10,7 +10,6 @@ Ported from runtime/openrouter/test_launch.sh (ADR-040 Wave 6), case for
 case. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
-import datetime
 import hashlib
 import json
 import os
@@ -69,11 +68,6 @@ for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_
 done
 '''
 SESSION_START = "Session start: arm your GZCoord inbox watch now, exactly as the session-start context's NO INBOX WATCH line gives it"
-
-
-def utc(seconds_from_now: float = 0) -> str:
-    return (datetime.datetime.now(datetime.timezone.utc)
-            + datetime.timedelta(seconds=seconds_from_now)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def fp(token: str) -> str:
@@ -981,16 +975,19 @@ def main() -> int:
             binding(project="gzapp", session="sess-123")
             runs = f"{sandbox}/runs"
 
-            def upgrade_session(status: str, requested_at: str) -> None:
-                marker = json.dumps({"request_id": "r1", "requested_at": requested_at, "piece": "claude", "from": "2.1.280",
+            # requested_at is stamped by the fake session when it writes the marker, as upgrade.py does: a stamp composed here
+            # would be measured against a launcher whose start a loaded host delays by seconds (a stamp a second ahead was
+            # "older than the launch" and the marker not obeyed). A literal is for the marker that must be older.
+            def upgrade_session(status: str, requested_at: str | None = None) -> None:
+                marker = json.dumps({"request_id": "r1", "requested_at": requested_at or "@NOW@", "piece": "claude", "from": "2.1.280",
                                      "to": "2.1.281", "installed": "2.1.281", "status": status, "reason": "network"})
                 put(f"{bin_}/ori", f"#!/usr/bin/env bash\nif [[ \"${{1:-}}\" == auth ]]; then echo '{AUTH_OK}'; exit 0; fi\n"
                     f'n="$(cat "{runs}" 2>/dev/null || echo 0)"; echo $((n+1)) > "{runs}"\n'
-                    f'if [[ "$n" == 0 ]]; then\n  printf \'%s\\n\' \'{marker}\' > "{agent_dir}/restart.json"\n'
+                    f'if [[ "$n" == 0 ]]; then\n  m=\'{marker}\'; printf \'%s\\n\' "${{m/@NOW@/$(date -u +%Y-%m-%dT%H:%M:%SZ)}}" > "{agent_dir}/restart.json"\n'
                     '  echo "RUN1:$*"; exit 143\nfi\necho "RUN2:$*"; exit 0\n', 0o755)
                 rm(runs, alog)
             time.sleep(1)
-            upgrade_session("done", utc(1))
+            upgrade_session("done")
             rc, out = runa("--resume", "old-id", "--model", "x")
             check("the upgrade is said, and the launcher does not exit with the stopped session",
                   rc == 0 and "claude upgraded 2.1.280 → 2.1.281; resuming the session on it" in out, f"rc={rc}\n{out}")
@@ -1002,12 +999,12 @@ def main() -> int:
             check("…and the relaunch's opening says it was resumed", has(r"^RUN2:.*This session was resumed: carry on", out), grep("RUN2", out))
             check("…and the marker is consumed", not os.path.exists(f"{agent_dir}/restart.json"))
             check("…and a stop and resume announce nothing either", not read(alog), read(alog))
-            upgrade_session("failed", utc(5))
+            upgrade_session("failed")
             rc, out = runa()
             check("a failed upgrade still brings the session back, and says why",
                   rc == 0 and "FAILED (network); resuming the session on what is installed" in out
                   and has(r"^RUN2:.*--resume sess-123", out), out)
-            upgrade_session("pending", utc(5))
+            upgrade_session("pending")
             rc, out = runa(AGENT_FABRIC_RESTART_WAIT_S="1")
             check("an upgrade that never finishes: the wait is bounded, the session comes back",
                   "waiting for it" in out and "did not finish within 1 s; resuming" in out and has(r"^RUN2:", out), out)
@@ -1294,7 +1291,9 @@ echo "CLAUDE-STATE:$(cat "$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway.json" 
 echo "CLAUDE-PROVIDER:${AGENT_FABRIC_LAUNCH_PROVIDER-}"
 echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
 u="$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway-usage.json"
-for _ in $(seq 1 40); do [ -s "$u" ] && break; sleep 0.1; done
+# Leaves the moment the file exists, so the deadline costs nothing idle: it is long for a loaded host, whose relay may take
+# seconds to answer; a case with a gateway that never answers shortens it.
+for _ in $(seq 1 "${FAKE_USAGE_WAIT_TENTHS:-300}"); do [ -s "$u" ] && break; sleep 0.1; done
 echo "CLAUDE-USAGE:$(cat "$u" 2>/dev/null || echo none)"
 """
             gw_log = f"{sandbox}/gateway.log"
@@ -1389,14 +1388,15 @@ echo "CLAUDE-USAGE:$(cat "$u" 2>/dev/null || echo none)"
             base_s = time.monotonic() - t0
             rm(gw_log)
             t0 = time.monotonic()
-            rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "silentcontrol"})
+            rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "silentcontrol", "FAKE_USAGE_WAIT_TENTHS": "10"})
             took = time.monotonic() - t0
-            # The fake harness itself waits up to 4 s for a usage file a silent gateway never lets exist, and the ask's own
-            # timeout of 10 s runs beside that wait, from the relay's start: a cut ask shows as base_s + 4, a session held
-            # for it as base_s + 10 (measured with Relay.stop not closing the socket: 10.0 s against 4.3 s). 7 sits
-            # between them, 3 s of room each way for a loaded runner (the sections run side by side).
+            # The fake harness itself waits 1 s for a usage file a silent gateway never lets exist, and the ask's own
+            # timeout of 10 s runs beside that wait, from the relay's start: a cut ask shows as base_s + 1, a session held
+            # for it as base_s + 10 (measured with Relay.stop not closing the socket). 6 sits between them, 4-5 s of room
+            # each way for a loaded runner (the sections run side by side); the wait was 4 s when the cut ask's room
+            # was 3 s, which a loaded host used up.
             check("a gateway that never answers the ask does not hold the end of the session (the ask is cut with the session)",
-                  rc == 0 and took < base_s + 7 and not os.path.exists(f"{agent_dir}/gateway-usage.json"),
+                  rc == 0 and took < base_s + 6 and not os.path.exists(f"{agent_dir}/gateway-usage.json"),
                   f"rc={rc} silent={took:.1f}s normal={base_s:.1f}s\n{out[-300:]}")
             check("the provider stamp stays the routing column and the transport is stamped as the gateway",
                   has(r"CLAUDE-PROVIDER:anthropic$", out) and has(r"CLAUDE-TRANSPORT:gateway$", out), out)
@@ -1414,7 +1414,10 @@ echo "CLAUDE-USAGE:$(cat "$u" 2>/dev/null || echo none)"
                                 ("publiclistener", "not loopback http"), ("contract2ready", "READY names runtime contract 2"),
                                 ("hang", "did not report READY within")):
                 rm(gw_log)
-                rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": mode, "AGENT_FABRIC_GW_READY_TIMEOUT_S": "2"})
+                # Only the hang is meant to run out the wait; the others answer at once, and a fake gateway started on a loaded
+                # host can take longer than 2 s to get as far as its answer.
+                rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": mode,
+                                                              "AGENT_FABRIC_GW_READY_TIMEOUT_S": "2" if mode == "hang" else "60"})
                 serve = next((r for r in gw_records() if r.get("event") == "serve"), {})
                 check(f"READY failure ({mode}): refused before the harness, the gateway not left running", rc == 1 and wants in out
                       and "CLAUDE-EXECCED" not in out and not alive(serve.get("pid", 0)) and not os.path.exists(state_file), (rc, out))
