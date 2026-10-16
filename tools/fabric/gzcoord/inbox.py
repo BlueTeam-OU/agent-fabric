@@ -39,6 +39,15 @@ CONTRACT, frozen from the Node:
                                 line naming the first's pid and start on
                                 STDOUT and exits 0. Every other mode
                                 takes no lock.
+                                --deadline S (default 6900, under the
+                                harness's 2 h cap, which kills the watch
+                                and can leave an orphan that blocks the
+                                next arm): a watch that has delivered
+                                nothing after S seconds prints exactly
+                                `gzcoord inbox: quiet for <N> min,
+                                nothing delivered; run the watch again`
+                                on STDOUT, releases its lock and exits 0.
+                                Only with --until-delivery.
             --wait [S]          block up to S seconds (Number(S), else
                                 1800) and return the moment a message
                                 addressed here lands; --keyword K
@@ -117,6 +126,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import math
 import os
 import sys
 import threading
@@ -152,6 +162,11 @@ from .inbox_parts.render import NOTIFICATION_CAP, MAX_FLAG_LINES, _SECTION, cut_
 from .inbox_parts.render import _drop_final_newline, split_message, render  # noqa: F401
 from .inbox_parts.watch import JOURNAL_RETRY_MS, bypass_inbound, wait_loop  # noqa: F401
 from .inbox_parts.watchlock import take_or_report  # noqa: F401
+
+
+QUIET_LINE = "gzcoord inbox: quiet for {minutes} min, nothing delivered; run the watch again"
+DEFAULT_DEADLINE_S = 6900.0
+DEADLINE_USAGE = "gzcoord inbox: --deadline takes a number of seconds above 0 and goes with --until-delivery"
 
 
 # How long --until-delivery rides out an unreachable relay before it exits
@@ -246,6 +261,13 @@ def main(argv: list[str]) -> int:
     if wait_given:
         n = js.number(_arg_after(argv, "--wait"))
         wait_total = n if js.truthy_number(n) else 1800.0
+    deadline_s = DEFAULT_DEADLINE_S
+    if "--deadline" in argv:
+        n = js.number(_arg_after(argv, "--deadline"))
+        if not until_delivery or not math.isfinite(n) or n <= 0:
+            print(DEADLINE_USAGE, file=sys.stderr)
+            return 1
+        deadline_s = n
     # Who this session is (the login) and which project it works in — the
     # second selects the integration: relay, channel, where the token and
     # runtime live, in the project's WORKING COPY.
@@ -405,10 +427,20 @@ def main(argv: list[str]) -> int:
         # rather than leaving a session believing it is watched.
         down = False
         down_since = 0.0
+        started = time.monotonic()
+        deadline = started + deadline_s
         while True:
+            # Checked before each arm, so a relay that was down at the
+            # deadline, or a hold that outlasted it, ends the watch as a quiet one.
+            left = deadline - time.monotonic()
+            if until_delivery and left <= 0:
+                print(QUIET_LINE.format(minutes=int((time.monotonic() - started) // 60)), flush=True)
+                return 0
             try:
-                r = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, 3600, mine_fn, [], me["address"], held,
-                                                           on_hold, journal=journal, on_journal_fail=on_journal_fail))
+                r = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, min(3600, math.ceil(left)) if until_delivery else 3600,
+                                                           mine_fn, [], me["address"], held, on_hold, journal=journal,
+                                                           on_journal_fail=on_journal_fail,
+                                                           deadline=deadline if until_delivery else None))
             except _JournalHeld as e:
                 print(e.line, flush=True)
                 return 6

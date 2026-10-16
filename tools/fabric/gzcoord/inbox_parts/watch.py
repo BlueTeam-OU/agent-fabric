@@ -46,7 +46,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
               sleep: Callable[[float], None] = lambda ms: time.sleep(ms / 1000),
               journal: Callable[[list[dict]], dict] | None = None,
               on_journal_fail: Callable[[str, int], None] = lambda reason, n: None,
-              journal_retry_ms: int = JOURNAL_RETRY_MS) -> dict:
+              journal_retry_ms: int = JOURNAL_RETRY_MS, deadline: float | None = None) -> dict:
     """One arm of the waiter. `delivered` iff some slice carried a message
     for this session. Every slice's messages are acknowledged before the
     loop continues or returns — an acknowledgement means "shown this
@@ -58,7 +58,9 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     GOODBYE (SPEC §8) an old session still sends is acknowledged and never
     delivered, not even listed: presence is the control plane's to answer
     (ADR-030), and on a busy day the announcements were most of what every
-    watch printed (the owner, 2026-09-25)."""
+    watch printed (the owner, 2026-09-25). `deadline` (time.monotonic) ends a
+    hold too: only the held branch looks at it, since every other path
+    returns within its own budget."""
     for_me_fn = for_me_fn or (lambda msg: False)
     keywords = keywords or []
     waited = 0.0
@@ -66,6 +68,8 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     was_held = False
     while True:
         if held():
+            if deadline is not None and time.monotonic() >= deadline:
+                return {"classified": [], "waited": waited, "delivered": False, "keywordHit": None, "othersPassed": 0}
             if not was_held:
                 on_hold(True)
                 was_held = True

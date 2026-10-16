@@ -913,6 +913,109 @@ def _():
     ok("the watch ended" in r.stdout and "waiting for it" not in r.stdout, r.stdout)
 
 
+QUIET = "gzcoord inbox: quiet for 0 min, nothing delivered; run the watch again\n"
+
+
+@case("--until-delivery --deadline: a quiet watch exits 0 with exactly the one line and frees the lock for the next watch")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        t0 = time.monotonic()
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "3"], env=env, capture_output=True, text=True, timeout=30)
+        eq(r.returncode, 0, r.stdout + r.stderr)
+        eq(r.stdout, QUIET)
+        ok(time.monotonic() - t0 < 15, "it ends near its deadline")
+        again = _arm(env, "--until-delivery")
+        try:
+            _wait_started(again, env)
+            ok(again.poll() is None, "the watch after the quiet one runs")
+        finally:
+            again.kill()
+            again.communicate()
+    finally:
+        stub.close()
+
+
+@case("--until-delivery --deadline: a delivery before the deadline is printed as without it")
+def _():
+    stub, _calls = _wait_stub([[_rec(1, "in-time", None)]])
+    try:
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "60"], env=_replay_env(stub, GZCOORD_JOURNAL="off"),
+                           capture_output=True, text=True, timeout=30)
+        eq(r.returncode, 0, r.stdout + r.stderr)
+        ok("in-time" in r.stdout and "quiet for" not in r.stdout, r.stdout)
+    finally:
+        stub.close()
+
+
+@case("--deadline: not a positive number, or without --until-delivery, is a usage line on stderr and exit 1")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        for argv in (["--until-delivery", "--deadline", "0"], ["--until-delivery", "--deadline", "-5"],
+                     ["--until-delivery", "--deadline", "soon"], ["--until-delivery", "--deadline"],
+                     ["--until-delivery", "--deadline", "Infinity"], ["--follow", "--deadline", "5"], ["--deadline", "5"]):
+            r = subprocess.run([P.INBOX_CMD, *argv], env=env, capture_output=True, text=True, timeout=30)
+            eq(r.returncode, 1, f"{argv}: {r.stdout}{r.stderr}")
+            ok("--deadline takes a number of seconds" in r.stderr and r.stdout == "", f"{argv}: {r.stdout}{r.stderr}")
+    finally:
+        stub.close()
+
+
+@case("a hold that outlasts the deadline ends wait_loop; before it, the hold keeps waiting")
+def _():
+    from gzcoord.inbox_parts.watch import wait_loop
+    naps: list[float] = []
+
+    def nap(ms: float) -> None:
+        naps.append(ms)
+        time.sleep(0.01)
+    never = lambda *_a: (_ for _ in ()).throw(Failed("a held watch fetched"))   # noqa: E731
+    res = wait_loop(never, never, 3600, held=lambda: True, sleep=nap, deadline=time.monotonic() - 1)
+    ok(res["delivered"] is False and not naps, f"{res} {naps}")
+    end = time.monotonic() + 0.2
+    res = wait_loop(never, never, 3600, held=lambda: True, sleep=nap, deadline=end)
+    ok(naps and time.monotonic() >= end and res["delivered"] is False, f"it waited out the hold: {naps}")
+
+
+@case("a watch killed by SIGTERM frees the lock; a mark left by a dead pid is taken over with a line on stderr, a live one is not reported")
+def _():
+    import signal
+    from gzcoord.inbox_parts import watchlock
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        first = _arm(env, "--until-delivery")
+        try:
+            _wait_started(first, env)
+            first.send_signal(signal.SIGTERM)
+            first.communicate(timeout=10)
+        finally:
+            first.kill()
+        again = _arm(env, "--until-delivery")
+        try:
+            _wait_started(again, env)
+            ok(again.poll() is None, "a watch after a SIGTERMed one runs")
+        finally:
+            again.kill()
+            again.communicate()
+    finally:
+        stub.close()
+    base = P.scratch("mark-")
+    path = os.path.join(base, "agent-fabric", "x.lock")
+    os.makedirs(os.path.dirname(path))
+    for pid, gone in ((2**22 + 1, True), (os.getppid(), False)):   # beyond pid_max, and a live control
+        open(path, "w").write(f"{pid}\n2026-10-16T00:00:00Z\n")
+        lock = watchlock.WatchLock(path)
+        try:
+            ok(lock.acquire(), "the lock is free")
+            eq(lock.took_over, str(pid) if gone else None)
+        finally:
+            lock.release()
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:
