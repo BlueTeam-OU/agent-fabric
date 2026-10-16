@@ -41,3 +41,12 @@ sex then chose name accordingly with sex". So the sex (F or M) comes
 first and the first name agrees with it, from the surname's culture as
 before. The sex stays where rule 1 put it, in the agent's profile, whose
 schema already takes no first name without one; the claim holds no sex.
+
+### Amendment 2026-10-16 — A claimed surname is marked taken in the list
+
+The owner asked for the surname list to show which surnames are taken.
+A claimed entry in `identities/personas/surnames.json` carries
+`taken_by` with the agent id and its login, written by provisioning with
+the claim and checked by lint against `claims.json` and `lineage.json`.
+The claim stays the record of who holds a surname; the mark is its
+reflection in the list, so a reader of the list sees what is free.
