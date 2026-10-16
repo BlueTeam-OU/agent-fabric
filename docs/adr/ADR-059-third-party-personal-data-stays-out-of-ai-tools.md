@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-16, in the coordinator's session, choosing "the opinion's (b)" on PR #278
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** what personal data of anyone other than Blueteam's own people may reach the Claude Max plan the fleet runs on; what the blueteam.ee privacy notice says of it. Not the OpenAI business account, for which OpenAI offers a processing agreement (unverified in the opinion; the owner confirms it is accepted, the redraft's section 5)
+**Scope:** what personal data of anyone other than Blueteam's own people may reach the Claude Max plan the fleet runs on; what the blueteam.ee privacy notice says of it. Not the OpenAI business account, for which OpenAI offers a processing agreement (unverified in the opinion; for the owner to confirm in the account, the redraft's section 5)
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -31,7 +31,7 @@ cleaned logs only, no client repository with real commit history, no
 production access. This is the opinion's (b) as it was worded. It
 governs the Max plan only. The OpenAI business account is outside it:
 OpenAI offers a processing agreement for it, which the opinion could
-not verify and the owner confirms in the account. Client personal data
+not verify, for the owner to confirm in the account. Client personal data
 goes there only under a record made by rule 4.
 
 ## 3. Alternatives Considered
