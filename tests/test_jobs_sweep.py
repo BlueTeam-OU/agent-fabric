@@ -171,7 +171,13 @@ def main() -> int:
                     ("delivered", [f"{PROJECT} #11 merged, and fixes #12 in unreg"]),                   # a number after, naming another repository
                     ("delivered", [f"{REPO}#11", "gzcoord#4"]),                                         # a shape no pattern reads, beside a merged one
                     ("delivered", ["gzcoord pull request", "#11"]),
-                    ("delivered", [f"{REPO}#11", "see PR 12"])])                                        # a name in one artifact, the number in the next
+                    ("delivered", [f"{REPO}#11", "see PR 12"]),
+                    ("delivered", [f"{REPO}#11", "pull request 12 on o/other"]),
+                    ("delivered", [f"{REPO}#11", "PR-12 in o/other"]),
+                    ("delivered", [f"{REPO}#11", "https://github.example.com/o/r/pull/12"]),
+                    ("delivered", [f"{REPO}#11", "o/r!12"]),
+                    ("delivered", [f"{REPO}#11", "https://gitlab.example.com/o/r/-/merge_requests/12"]),
+                    ("delivered", [f"{REPO}#11", "see ＃12 (fullwidth)"])])                                        # a name in one artifact, the number in the next
         reflection = seed([("delivered", [f"{REPO}#12"])])[0]
         doc = json.load(open(path, encoding="utf-8"))
         next(j for j in doc["jobs"] if j["id"] == reflection)["topic"] = "reflection"
@@ -196,7 +202,7 @@ def main() -> int:
               all("stays" in line(out, j) and "names no repository" in line(out, j) for j in (ids[16], ids[17], ids[19])) and all(job(j)["state"] == "delivered" for j in (ids[16], ids[17], ids[19])), out)
         check("the positive control, each number written with its project, closes", "closed" in line(out, ids[18]), out)
         check("a bare number, one that follows its project's name, and a shape no pattern reads all stay",
-              all("stays" in line(out, j) and "names no repository" in line(out, j) for j in ids[20:23] + ids[23:25]) and all(job(j)["state"] == "delivered" for j in ids[20:25]), out)
+              all("stays" in line(out, j) and "names no repository" in line(out, j) for j in ids[20:31]) and all(job(j)["state"] == "delivered" for j in ids[20:31]), out)
         check("a reflection job is asked for its cursor too, and stays without one", "stays" in line(out, reflection) and "fabric-reflect" in line(out, reflection), out)
         check("every other delivered job is still delivered, every other state untouched",
               all(job(j)["state"] == "delivered" for j in ids[:7]) and job(ids_unreg[0])["state"] == "delivered"

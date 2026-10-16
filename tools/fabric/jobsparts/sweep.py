@@ -23,7 +23,7 @@ from fabric_jobs.records import transition
 
 GH_TIMEOUT_S = 30
 # "branch:<name>" is the explicit form; the same word without the prefix is read as settle reads a branch artifact.
-LEFTOVER = re.compile(r"#\s*[0-9]+|\bPR\s*[0-9]+", re.ASCII | re.IGNORECASE)
+LEFTOVER = re.compile(r"[#＃!]\s*\d+|\b(?:PR|MR|pull(?:\s+request)?|merge[\s_-]*request)s?\b\W{0,3}(?:no\.?\s*)?\d+", re.IGNORECASE)
 BRANCH_PREFIX = re.compile(r"\bbranch:\s*(?=[A-Za-z0-9])", re.ASCII | re.IGNORECASE)
 
 
