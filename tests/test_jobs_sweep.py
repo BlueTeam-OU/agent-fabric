@@ -155,12 +155,18 @@ def main() -> int:
                     ("delivered", ["scan reported to the coordinator (seq above)"]),                    # unresolvable free text
                     ("delivered", [f"{REPO}#404"]),                                                     # gh cannot answer
                     ("delivered", [f"{REPO}#11", f"{REPO}#10"]),                                        # one merged, one still open
-                    ("delivered", [f"{REPO}#11", "PR #13 (unregistered project)"]),                      # a #N that names no repository
+                    ("delivered", [f"{REPO}#11", "gzcoord #13 (a project the registry does not hold)"]),   # merged beside a #N of no known repository
                     ("delivered", []),
                     ("delivered", ["branch:dev/host/feat/gone"]),
                     ("queued", [f"{REPO}#12"]), ("active", [f"{REPO}#12"]), ("paused", [f"{REPO}#12"]), ("blocked", [f"{REPO}#12"]),
                     ("done", [f"{REPO}#12"]), ("dropped", [f"{REPO}#12"]),
-                    ("delivered", [f"{REPO}#12"])])                                                    # the positive control
+                    ("delivered", [f"{REPO}#12"]),                                                     # the positive control
+                    ("delivered", ["gzcoord #11", "gzcoord PR 11"]),                                    # REPO#11 is merged: the job's own, were it read so
+                    ("delivered", [f"{REPO}#12", "reply:01a14482-0000-7000-8000-000000000001"])])       # a reply this login never sent
+        reflection = seed([("delivered", [f"{REPO}#12"])])[0]
+        doc = json.load(open(path, encoding="utf-8"))
+        next(j for j in doc["jobs"] if j["id"] == reflection)["topic"] = "reflection"
+        json.dump(doc, open(path, "w", encoding="utf-8"))
         ids_unreg = seed([("delivered", [f"{REPO}#11", "PR #13"])], project="unregistered")
         before = open(path, "rb").read()
         rc, out, err = run("sweep")
@@ -169,9 +175,15 @@ def main() -> int:
         check("a gh failure stays and says it could not tell", "stays" in line(out, ids[2]) and "could not tell" in line(out, ids[2]), out)
         check("a merged and an open pull request together stay", "stays" in line(out, ids[3]) and "open" in line(out, ids[3]), out)
         check("a #N with no registered project beside a merged one stays", "stays" in line(out, ids_unreg[0]) and "unresolved" in line(out, ids_unreg[0]), out)
+        check("a #N that follows another project's name is not the job's own pull request", "stays" in line(out, ids[4]) and "follows 'gzcoord'" in line(out, ids[4]), out)
         check("no artifacts stays", "stays" in line(out, ids[5]) and "no artifacts" in line(out, ids[5]), out)
-        check("a branch that is not on origin stays", "stays" in line(out, ids[6]), out)
+        check("a branch that is not on origin stays, and says so", "stays" in line(out, ids[6]) and "is not on origin" in line(out, ids[6]), out)
         check("the positive control, the same world, closes", "closed" in line(out, ids[13]) and job(ids[13])["state"] == "done", out)
+        check("a number after an unregistered project's name, with or without #, is no pull request of the job's own",
+              "stays" in line(out, ids[14]) and "follows 'gzcoord'" in line(out, ids[14]) and job(ids[14])["state"] == "delivered", out)
+        check("a reply artifact the journal does not hold stays beside a merged pull request, as `done` would refuse it",
+              "stays" in line(out, ids[15]) and "names no answer this login sent" in line(out, ids[15]) and job(ids[15])["state"] == "delivered", out)
+        check("a reflection job is asked for its cursor too, and stays without one", "stays" in line(out, reflection) and "fabric-reflect" in line(out, reflection), out)
         check("every other delivered job is still delivered, every other state untouched",
               all(job(j)["state"] == "delivered" for j in ids[:7]) and job(ids_unreg[0])["state"] == "delivered"
               and [job(j)["state"] for j in ids[7:13]] == ["queued", "active", "paused", "blocked", "done", "dropped"]
@@ -218,7 +230,14 @@ def main() -> int:
                     ("delivered", [f"{PROJECT} commit {ahead_tip[:8]}"]),
                     ("delivered", [f"merged as {main_tip[:8]}"]),
                     ("delivered", ["branch:dev/host/feat/ahead"])])
-        rc, out, err = run("sweep")
+        vcs_part, fetched = sys.modules["fabric_jobs.vcs"], []
+        real_fetch = vcs_part.fetch
+        vcs_part.fetch = lambda where: (fetched.append(where), real_fetch(where))[1]
+        try:
+            rc, out, err = run("sweep")
+        finally:
+            vcs_part.fetch = real_fetch
+        check("the checkout is fetched once for the whole run, however many jobs ask git", len(fetched) == 1, fetched)
         check("a branch artifact whose tip is on origin/main closes", "closed" in line(out, ids[0]) and "branch dev/host/feat/folded" in line(out, ids[0]), out + err)
         check("a branch ahead of origin/main stays", "stays" in line(out, ids[5]) and "not on origin/main" in line(out, ids[5]), out)
         check("a commit beside the project's name, on origin/main, closes", "closed" in line(out, ids[2]) and main_tip[:8] in line(out, ids[2]), out)
