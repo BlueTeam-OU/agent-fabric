@@ -459,6 +459,43 @@ def run() -> None:
     r = guard()
     check("a policy that cannot be read: refused, never read as absent", refused(r, "signing policy cannot be read"), r.stderr)
     write_operator(since=old)
+    os.remove(os.path.join(FABRIC, "policies", "authority.json"))
+    j = guard_mod.Judge(env(AGENT_FABRIC_OPERATOR=FABRIC), "ssh")
+    try:
+        check("a missing authority.json refuses, naming why (no holder is read as none listed)",
+              "policies/authority.json cannot be read" in j.global_problem, j.global_problem)
+    finally:
+        j.close()
+    write_operator(since=old)
+    # A parsed file that lists no usable owner definition must not drop the
+    # owner role to the name convention (fabric-coordinator-2 would hold it).
+    for label, body in (("absent", {}), ("null", {"role_definitions": None}), ("an empty list", {"role_definitions": []}),
+                        ("no role", {"role_definitions": {"holders": ["user"]}}),
+                        ("an empty role", {"role_definitions": {"role": "", "holders": ["user"]}}),
+                        ("a list entry with no role", {"role_definitions": [{"holders": ["user"]}]})):
+        with open(os.path.join(FABRIC, "policies", "authority.json"), "w", encoding="utf-8") as f:
+            json.dump(body, f)
+        j = guard_mod.Judge(env(AGENT_FABRIC_OPERATOR=FABRIC), "ssh")
+        try:
+            listed = j.holders.get("fabric-coordinator")
+            by_list = listed is not None and "fabric-coordinator-2" not in listed
+            decides = bool(j.global_problem) or ("user" in listed and by_list if label.startswith(("no role", "an empty role", "a list")) else False)
+            check(f"role_definitions {label}: refuses or decides by the list, never by the name",
+                  by_list and decides and not guard_mod.may_hold("fabric-coordinator-2", "fabric-coordinator", listed, []),
+                  (listed, j.global_problem))
+        finally:
+            j.close()
+    # A role named with no usable holders list is listed and held by nobody.
+    for label, extra in (("no holders", {"role": "python-dev"}), ("holders a string", {"role": "python-dev", "holders": "user"})):
+        with open(os.path.join(FABRIC, "policies", "authority.json"), "w", encoding="utf-8") as f:
+            json.dump({"role_definitions": [{"role": "fabric-coordinator", "holders": ["user"]}, extra]}, f)
+        j = guard_mod.Judge(env(AGENT_FABRIC_OPERATOR=FABRIC), "ssh")
+        try:
+            listed = j.holders.get("python-dev")
+            check(f"a named role with {label}: listed, held by nobody", listed == [] and not guard_mod.may_hold("python-dev-3", "python-dev", listed, []), listed)
+        finally:
+            j.close()
+    write_operator(since=old)
     sig = b"-----BEGIN SSH SIGNATURE-----\nabc\n-----END SSH SIGNATURE-----"
     good = proof_mod.MAGIC + b"\x01\x08" + hashlib.sha256(sig).digest() + b"\x00tail"
     for label, blob in (("the proof of this signature", good), ("another signature's", proof_mod.MAGIC + b"\x01\x08" + hashlib.sha256(sig + b"x").digest()),
@@ -467,10 +504,13 @@ def run() -> None:
         check(f"the checker's proof match agrees with signing/proof.py: {label}",
               guard_mod.proof_matches(sig, blob) == proof_mod.matches(sig, blob))
     check("may_hold: -<n>, a locale suffix, a holder; not another role's -<word>",
-          guard_mod.may_hold("python-dev-04", "python-dev", [], []) and guard_mod.may_hold("lc-en", "lc", [], ["en"])
+          guard_mod.may_hold("python-dev-04", "python-dev", None, []) and guard_mod.may_hold("lc-en", "lc", None, ["en"])
           and guard_mod.may_hold("user", "fabric-coordinator", ["user"], [])
-          and not guard_mod.may_hold("python-dev-evil", "python-dev", [], ["en"])
-          and not guard_mod.may_hold("web-dev-01", "python-dev", [], []))
+          and not guard_mod.may_hold("fabric-coordinator-2", "fabric-coordinator", ["user"], [])
+          and not guard_mod.may_hold("fabric-coordinator", "fabric-coordinator", ["user"], [])
+          and not guard_mod.may_hold("fabric-coordinator-en", "fabric-coordinator", ["user"], ["en"])
+          and not guard_mod.may_hold("python-dev-evil", "python-dev", None, ["en"])
+          and not guard_mod.may_hold("web-dev-01", "python-dev", None, []))
     with open(CI, encoding="utf-8") as f:
         ci = f.read()
     check("CI fetches refs/notes/fabric-ots before the checker runs",

@@ -138,7 +138,8 @@ Why these choices:
    and says it is stale (A 2026-10-09).
    `block --on` also accepts checkable blockers, `pr:<owner/repo>#<n>`
    (cleared when merged or closed), `request:<message-id>` (cleared when
-   a REPLY to it is in the journal) and `job:<login>/j<n>` (cleared when
+   the journal holds an inbound message of any type whose non-empty
+   IN-REPLY-TO names it) and `job:<login>/j<n>` (cleared when
    delivered, or closed after it was seen open); several may be given
    and all must clear. `list`, `next` and `block` re-check a blocker at
    most every ten minutes and never one that cleared; a job whose

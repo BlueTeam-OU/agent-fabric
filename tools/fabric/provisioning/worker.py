@@ -436,12 +436,17 @@ def point_origin_at_registry(w: Worker, pid: str) -> None:
     if not have:
         w.say(f"6. {pid}: origin not readable; left as it is")
         return
-    if have == remote:
-        return
-    w.must_as_login(["git", "-C", repo, "remote", "set-url", "origin", remote],
-                    f"git -C ~/projects/'{pid}' remote set-url origin '{remote}'")
-    if not w.a.dry:
-        w.say(f"6. {pid}: origin set to {remote}")
+    if have != remote:
+        w.must_as_login(["git", "-C", repo, "remote", "set-url", "origin", remote],
+                        f"git -C ~/projects/'{pid}' remote set-url origin '{remote}'")
+        if not w.a.dry:
+            w.say(f"6. {pid}: origin set to {remote}")
+    # set-url leaves a pushurl of its own alone, so pushes would still go there: said, not rewritten (a hand-made
+    # setting is the person's).
+    push = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.pushurl"], stderr=subprocess.DEVNULL)
+    pushurl = (push.stdout or "").strip("\n") if push.returncode == 0 else ""
+    if pushurl and pushurl != remote:
+        w.say(f"6. {pid}: warning: origin has its own push URL {pushurl}; pushes still go there")
 
 
 def record_launch_provider(w: Worker) -> None:

@@ -129,8 +129,8 @@ tools/validate_*/validate.js`, `bash tools/checks/*.sh`. Never `pub
 get`, `pnpm install`, `dotnet restore`; if a check needs one, say so
 and skip it.
 
-**Leave nothing behind.** Reproduce in one `mktemp -d` directory and
-remove it before you report.
+**One scratch directory.** Reproduce in one `mktemp -d` directory and
+name it in your report; the dispatcher removes it.
 
 ## What has shipped here
 
