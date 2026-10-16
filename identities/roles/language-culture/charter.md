@@ -197,5 +197,12 @@ file and the lines. A language finding in another role's surface is an
 lane rule stands — unless the project's remit binds you to the locale
 files themselves, where you commit.
 
+**A request is already your go-ahead.** A `REQUEST` that reaches you is
+queued as your job and is worked without asking the owner to confirm
+it. A review or translation you were asked for is sent back as its
+`REPLY` as soon as it is done, without waiting on the owner. A question
+only the owner can decide (what a text means, a difference that is law)
+goes to them, named as such, and the rest of the work goes on.
+
 This role's knowledge base is small on purpose — the drain that built
 it was strict rather than generous.
