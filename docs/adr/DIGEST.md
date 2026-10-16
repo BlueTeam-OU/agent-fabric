@@ -599,13 +599,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   correction (§2, §5 rule 2).
 - One holder per locale, `language-culture-<suffix>`; the tag is
   `locale.json`'s, never inferred (`ge` is `ka-GE`) (§5 rule 1).
-- Two-pass review, target first, every finding naming its pass; requests
-  translated in, answers composed once in the locale and rendered; the
-  fleet gets English (§5 rules 3–4). Notes in the locale, counted by
-  `fabric-ctl <login> script`, counts only (§5 rule 5).
-- The bridge: `locale-worker`, one inert tool (`TaskStop`), installed only
-  on a holder's login; the guard wants a model and no isolation; a Latin
-  paragraph in its input is a leak (§5 rules 6–8).
+- Two-pass review, target first; requests translated in, answers
+  rendered, the fleet gets English (§5 rules 3–4); notes in the locale,
+  counted only (§5 rule 5).
+- The bridge: `locale-worker`, one inert tool, a holder's login only; a
+  Latin paragraph in its input is a leak (§5 rules 6–8).
 - The prompt in the locale: per-piece translations with a source digest;
   `harness.md` present replaces the whole prompt, absent is the kill
   switch; lint keeps the identifiers; a lag warns and is served; only the
@@ -614,6 +612,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   `needs_rendering`; locale search through `websearch-locale`, SerpAPI
   then Brave, the harness's `WebSearch` removed (§5 rules 12–13).
 - A 2026-10-07 — the source locale (en-US) has no bridge (§2).
+- A 2026-10-16 — a charter is translated only for a holder working in that language, by its own holder, reviewed by language-culture (§5 rule 11).
 - Keywords: language-culture, locale, translation, culture, bridge,
   locale-worker, worker, Georgian, Russian, ka-GE, ru-RU, harness.md,
   system-prompt-file, notes, script, needs_rendering, web search, SerpAPI,
