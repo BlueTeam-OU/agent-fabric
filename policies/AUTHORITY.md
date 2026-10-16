@@ -207,8 +207,9 @@ change and is judged like any other (`policies/githooks/guarded-change.sh`,
 `check_charter_authority.sh` reads the agent segment of the branch name
 (`<host>/<agent>/<type>/<desc>`) and passes a recognised holder of
 `fabric-coordinator`: a login listed in `policies/authority.json` (at the
-base of the diff, never the branch's own copy) or an account named for the
-role.
+base of the diff, never the branch's own copy). A role authority.json lists
+is held by its list alone; the name convention stays for roles it does not
+list.
 Every session pushes as the same GitHub account, so there is no identity
 to check; the branch name is self-declared. This is a **tripwire**: it
 stops the accident and the absent-minded edit, and it makes a deliberate

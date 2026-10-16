@@ -225,7 +225,8 @@ def run(argv: list[str], env: dict[str, str]) -> int:
         listing(changed, "  ")
         return 0
 
-    # Holders: the committed list, or an account named for the role. Read from
+    # Holders: the committed list alone (a role authority.json lists is not held
+    # by name; the name convention is for roles it does not list). Read from
     # the BASE side of the diff, so a branch cannot add itself to the list in
     # the same change it uses the list to justify.
     shown = git.run(root, "show", f"{base}:policies/authority.json", check=False)
