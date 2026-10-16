@@ -7,9 +7,12 @@ and the copy review is language-culture's.
 
 The notice is written on agent-fabric ADR-059 (the owner, 2026-10-16):
 the fleet keeps the Max plan, and no personal data of a third party
-(clients, their people, visitors of Blueteam's sites) goes into any AI
-tool it uses. Section 5 below is true only while ADR-059's rules 1 and 2
-are kept; a change of practice changes the notice in the same step.
+(clients, their people, visitors of Blueteam's sites) goes into it.
+ADR-059 governs the Max plan only; the OpenAI business account, with
+its processing agreement, is outside it, and client personal data goes
+there only under a later record. Section 5 below is true only while
+ADR-059's rules 1 and 2 are kept; a change of practice changes the
+notice in the same step.
 
 How to read this draft:
 
@@ -72,18 +75,28 @@ our behalf and on our instructions, unless the table says otherwise.
 | Smart Accounts OÜ | accounting software | Estonia |
 | Wisor Accounts OÜ | accounting and payroll services | Estonia |
 | Holvi Payment Services Oy | payments; Holvi acts as an independent controller under its own [privacy policy] | Finland |
+| OpenAI Ireland Ltd (business plan) | AI tools, see section 5 | Ireland; copies for abuse monitoring in the United States |
 
 We also disclose data where the law, a court or an authority requires
 it, and to our legal advisers where we need advice.
 
 ### 5. AI tools
 
-We use AI tools from OpenAI and Anthropic in our work. We do not enter
-your personal data, or personal data we handle for our clients, into
-them. Where a task needs a log, a screenshot or a document that contains
-personal data, we remove the personal data first. The AI providers
-therefore receive no personal data from us, and are not among the
-recipients in section 4.
+We use AI tools from Anthropic and OpenAI in our work.
+
+- **Anthropic (Claude).** We do not enter your personal data, or
+  personal data we handle for our clients, into it. Where a task needs a
+  log, a screenshot or a document that contains personal data, we remove
+  the personal data first. Anthropic receives no personal data from us,
+  and is not among the recipients in section 4.
+- **OpenAI (business plan).** OpenAI processes what we enter on our
+  instructions, under a data processing agreement, and does not use it
+  to train its models [FACT: confirm in the account that the data
+  processing agreement is accepted and that training is off]. It may
+  keep a copy for abuse monitoring in the United States (section 6).
+
+Personal data we handle for a client goes into an AI tool only where
+that client has agreed to it in writing.
 
 We make no decisions about you by automated means, and we do not
 profile you.
@@ -93,8 +106,12 @@ profile you.
 Our providers keep your data in the EEA or in Switzerland
 [FACT: confirm that Smart Accounts hosts its data in the EEA; its
 privacy policy does not say]. Switzerland is covered by an adequacy
-decision of the European Commission. We do not transfer your data to
-any other country.
+decision of the European Commission. The one exception is OpenAI's
+copy for abuse monitoring in the United States (sections 4 and 5),
+covered by [FACT: the safeguard OpenAI's data processing agreement
+states — the EU-US Data Privacy Framework or Standard Contractual
+Clauses]. You can ask us for a copy of the safeguard at
+`info@blueteam.ee`. We do not transfer your data to any other country.
 
 ### 7. Social media
 
@@ -156,8 +173,8 @@ us, we tell you before it takes effect.
 - The paragraph claiming the record-of-processing exemption
   (Article 30(5)): the exemption is unlikely to apply, and a notice is
   not the place for it.
-- The data breach section: it promised more than Articles 33 and 34
-  require, and Article 13 does not ask for it.
+- The data breach section: it promised more than Articles 33(1) and
+  34(1) require, and Article 13 does not ask for it.
 - "We do not collect any data from your visit": the host keeps server
   logs (now in section 2).
 - "At your own risk" for social media: it does not discharge the joint

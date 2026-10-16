@@ -1,7 +1,8 @@
 # The privacy notice at blueteam.ee/privacy.html
 
-Opinion of `legal-expert-ee-eu`, 2026-10-15. Not the advice of an
-attorney admitted to the bar. The redraft this opinion leads to is
+Opinion of `legal-expert-ee-eu`, 2026-10-15; section 6 revised
+2026-10-16, before the merge, to record the owner's decision on it (the
+#278 review). Not the advice of an attorney admitted to the bar. The redraft this opinion leads to is
 `2026-10-15-privacy-notice-blueteam-ee-draft.md`.
 
 ## 1. Question
@@ -149,8 +150,8 @@ OpenAI's processing agreement.
    for the page's visitor statistics (*Wirtschaftsakademie*,
    *unverified*); "at your own risk" does not discharge it. Article 26(2)
    asks that the essence of the arrangement be made available.
-9. **Smaller points.** The breach section promises more than Articles 33
-   and 34 require, and is not information Article 13 asks for. The
+9. **Smaller points.** The breach section promises more than Articles
+   33(1) and 34(1) require, and is not information Article 13 asks for. The
    contact person is not a data protection officer and should not read
    as one. "Privacy by default" is defined wrongly in the glossary.
 
@@ -167,10 +168,12 @@ and unlikely to be pursued alone.
 For the owner to decide; point 1 is decided.
 
 1. **Client personal data and Max.** Decided: the owner chose (b),
-   recorded as agent-fabric ADR-059 (2026-10-16). The fleet keeps Max,
-   and no personal data of a third party (clients, their people, visitors
-   of Blueteam's sites) goes into any AI tool it uses. The options as
-   they were put:
+   recorded as agent-fabric ADR-059 (2026-10-16). The fleet keeps the Max
+   plan, and no personal data of a third party (clients, their people,
+   visitors of Blueteam's sites) goes into it. ADR-059 governs the Max
+   plan only: the OpenAI business account, with its processing
+   agreement, is outside it, and client personal data goes there only as
+   (a) describes, under a later record. The options as they were put:
    - (a) Run client work that touches personal data only on a plan
      with a processing agreement: the OpenAI business account, or an
      Anthropic commercial plan.
