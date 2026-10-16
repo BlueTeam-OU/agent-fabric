@@ -161,8 +161,11 @@ def main() -> int:
             if case.get("fake_role"):
                 env["FAKE_ROLE"] = case["fake_role"]
             r = subprocess.run(["timeout", "20", *UNDER_TEST, *args], cwd=clone, env=env, input=body,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60)
-            return r.returncode, r.stdout
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
+            # Both streams for the checks of what is said; stdout alone kept for those of where it is said, which the
+            # contract fixes (review of 3de34c0d, F4).
+            case["stdout"] = r.stdout
+            return r.returncode, r.stdout + r.stderr
 
         def calls() -> str:
             try:
@@ -213,8 +216,8 @@ def main() -> int:
         check("posted to the reviews endpoint", "POST repos/gzapi-org/gzapp/pulls/552/reviews" in calls(), calls())
 
         print("post-review: it says what it is — the review class's blind review, nothing less")
-        check("output names the commit it is recorded on, the PR's head", f"recorded on {HEAD}, the head of PR #552" in out,
-              out)
+        check("stdout names the commit it is recorded on, the PR's head",
+              f"recorded on {HEAD}, the head of PR #552" in case["stdout"], out)
         check("the body names the method", "**Blind review**" in body_of(), body_of())
         for word in ("substitute", "fallback", "not a real review", "not an equivalent"):
             check(f"the body never says '{word}'", word not in body_of(), body_of())
@@ -381,7 +384,7 @@ def main() -> int:
         check("…the gate counts nothing for the new head, and counts the head it read",
               not head_covered(HEAD, [], [payload()]) and head_covered(OLD, [], [payload()]), json.dumps(payload()))
         check("…and it says on stdout which commit it is recorded on, and that the head is not covered",
-              f"recorded on {OLD}; the head {HEAD} of PR #552 is not covered by it." in out, out)
+              f"recorded on {OLD}; the head {HEAD} of PR #552 is not covered by it." in case["stdout"], out)
         rc, out = invoke(dispatch("pinned", head=OLD) + "F1 (P2) …", "552", "--dry-run")
         check("--dry-run shows the head it would post against", rc == 0 and f"recorded on {OLD};" in out, out)
 
@@ -397,7 +400,7 @@ def main() -> int:
         rc, out = invoke("F1 (P2) …", "552", head=OLD)
         check("--head an older commit of the PR posts against it, the head not covered",
               rc == 0 and payload().get("commit_id") == OLD and not head_covered(HEAD, [], [payload()])
-              and f"the head {HEAD} of PR #552 is not covered" in out, f"rc={rc}\n{out}{calls()}")
+              and f"the head {HEAD} of PR #552 is not covered" in case["stdout"], f"rc={rc}\n{out}{calls()}")
         set_pr(f"{me}/feat/thing")
         put("commits.json", json.dumps([[{"sha": HEAD}]]) + "\n")
         rc, out = invoke("F1 (P2) …", "552", head=OLD)

@@ -22,7 +22,7 @@ part yet. A report with dispatch headers is posted
 with commit_id = their head_sha: every header names the same one, or the
 report is refused; a sha that is not a commit of the PR is refused; one that
 is no longer the head is posted against it all the same, saying so on
-stderr, so the gate counts it for that commit and never for the head pushed
+stdout with the URL, so the gate counts it for that commit and never for the head pushed
 after it. A report with no header names its head with --head, or is refused
 (REQUEST 01a143a6): posted against the PR's head, a summary written for an
 older range read as the review of the head pushed after it.
@@ -72,7 +72,7 @@ and this is how that review reaches the PR and the gate.
 Usage:
   fabric-pr post-review <pr> [options]   # body on stdin
 
-  fabric-pr post-review 552 <<'EOF'
+  fabric-pr post-review 552 --head <full sha of the commit reviewed> <<'EOF'
   Found a P1 in the ownership guard: a four-segment branch typed
   `Fix/` was classified unowned, so fabric-pr reply would post to it.
   EOF
@@ -383,7 +383,8 @@ def run(argv: list[str], stdin) -> int:
     if reviewed is None and not given_head:
         die("not posting this report: it has no dispatch header and no --head, so the commit it reviewed is "
             "unknown, and posted on the PR's head it would read as the review of whatever was pushed last. "
-            "Post the review class's report with its header, or name the commit it read with --head.")
+            "Post the review class's report whole, its agent-fabric-dispatch v1 block first as the brief gave it, "
+            "or name the commit it read with --head.")
     if reviewed and given_head and given_head != reviewed:
         die(f"not posting this report: --head {given_head[:12]} is not the head_sha {reviewed[:12]} its dispatch "
             "header names.")
