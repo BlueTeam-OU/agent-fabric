@@ -686,7 +686,7 @@ def _():
                 t0 = time.monotonic()
                 r = subprocess.run([P.INBOX_CMD, flag], env=env, capture_output=True, text=True, timeout=10)
                 eq(r.returncode, 0, r.stdout + r.stderr)
-                ok(f"a watch is already running (pid {first.pid}, started " in r.stdout and "it ends at its next delivery or with its session — nothing to kill; do not run it again" in r.stdout, r.stdout)
+                ok(f"a watch is already running (pid {first.pid}, started " in r.stdout and "it ends at its next delivery, at its --deadline (default 1 h 55 min) with the quiet line, or with its session — nothing to kill; do not run it again" in r.stdout, r.stdout)
                 ok(r.stdout.count("\n") == 1, "one line: " + r.stdout)
                 ok(time.monotonic() - t0 < 8, "it exits at once")
             release.set()
@@ -911,6 +911,215 @@ def _():
     r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=20)   # under the 30 s retry sleep: the deadline is honoured
     eq(r.returncode, 5, r.stdout + r.stderr)
     ok("the watch ended" in r.stdout and "waiting for it" not in r.stdout, r.stdout)
+
+
+QUIET = "gzcoord inbox: quiet for 0 min, nothing delivered; run the watch again\n"
+
+
+@case("--until-delivery --deadline: a quiet watch exits 0 with exactly the one line and frees the lock for the next watch")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        t0 = time.monotonic()
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "3"], env=env, capture_output=True, text=True, timeout=30)
+        eq(r.returncode, 0, r.stdout + r.stderr)
+        eq(r.stdout, QUIET)
+        ok(time.monotonic() - t0 < 15, "it ends near its deadline")
+        again = _arm(env, "--until-delivery")
+        try:
+            _wait_started(again, env)
+            ok(again.poll() is None, "the watch after the quiet one runs")
+        finally:
+            again.kill()
+            again.communicate()
+    finally:
+        stub.close()
+
+
+@case("--until-delivery --deadline: a delivery before the deadline is printed as without it")
+def _():
+    stub, _calls = _wait_stub([[_rec(1, "in-time", None)]])
+    try:
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "60"], env=_replay_env(stub, GZCOORD_JOURNAL="off"),
+                           capture_output=True, text=True, timeout=30)
+        eq(r.returncode, 0, r.stdout + r.stderr)
+        ok("in-time" in r.stdout and "quiet for" not in r.stdout, r.stdout)
+    finally:
+        stub.close()
+
+
+@case("--deadline: not a positive number, or without --until-delivery, is a usage line on stderr and exit 1")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        for argv in (["--until-delivery", "--deadline", "0"], ["--until-delivery", "--deadline", "-5"],
+                     ["--until-delivery", "--deadline", "soon"], ["--until-delivery", "--deadline"],
+                     ["--until-delivery", "--deadline", "Infinity"], ["--follow", "--deadline", "5"], ["--deadline", "5"]):
+            r = subprocess.run([P.INBOX_CMD, *argv], env=env, capture_output=True, text=True, timeout=30)
+            eq(r.returncode, 1, f"{argv}: {r.stdout}{r.stderr}")
+            ok("--deadline takes a number of seconds" in r.stderr and r.stdout == "", f"{argv}: {r.stdout}{r.stderr}")
+    finally:
+        stub.close()
+
+
+@case("--deadline defaults to 6900 s, under the harness's 7200 s cap")
+def _():
+    from gzcoord import inbox
+    eq(inbox.DEFAULT_DEADLINE_S, 6900.0)
+
+
+@case("a hold that outlasts the deadline ends wait_loop; before it, the hold keeps waiting")
+def _():
+    from gzcoord.inbox_parts.watch import wait_loop
+    naps: list[float] = []
+
+    def nap(ms: float) -> None:
+        naps.append(ms)
+        if len(naps) > 500:   # a deadline that is ignored must fail the case, not hang the suite
+            raise Failed("the hold outlasted its deadline")
+        time.sleep(0.01)
+    never = lambda *_a: (_ for _ in ()).throw(Failed("a held watch fetched"))   # noqa: E731
+    res = wait_loop(never, never, 3600, held=lambda: True, sleep=nap, deadline=time.monotonic() - 1)
+    ok(res["delivered"] is False and not naps, f"{res} {naps}")
+    end = time.monotonic() + 0.2
+    res = wait_loop(never, never, 3600, held=lambda: True, sleep=nap, deadline=end)
+    ok(naps and time.monotonic() >= end and res["delivered"] is False, f"it waited out the hold: {naps}")
+
+
+@case("a watch killed by SIGTERM frees the lock; a mark left by a dead pid is taken over with a line on stderr, a live one is not reported")
+def _():
+    import signal
+    from gzcoord.inbox_parts import watchlock
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        first = _arm(env, "--until-delivery")
+        try:
+            _wait_started(first, env)
+            first.send_signal(signal.SIGTERM)
+            first.communicate(timeout=10)
+        finally:
+            first.kill()
+        again = _arm(env, "--until-delivery")
+        try:
+            _wait_started(again, env)
+            ok(again.poll() is None, "a watch after a SIGTERMed one runs")
+        finally:
+            again.kill()
+            again.communicate()
+    finally:
+        stub.close()
+    base = P.scratch("mark-")
+    path = os.path.join(base, "agent-fabric", "x.lock")
+    os.makedirs(os.path.dirname(path))
+    for pid, gone in ((2**22 + 1, True), (os.getppid(), False)):   # beyond pid_max, and a live control
+        open(path, "w").write(f"{pid}\n2026-10-16T00:00:00Z\n")
+        lock = watchlock.WatchLock(path)
+        try:
+            ok(lock.acquire(), "the lock is free")
+            eq(lock.took_over, str(pid) if gone else None)
+        finally:
+            lock.release()
+
+
+def _mark_path(env: dict) -> str:
+    lock = glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock"))
+    ok(len(lock) == 1, f"one lock file: {lock}")
+    return lock[0]
+
+
+@case("--deadline: a relay that accepts and never answers still ends the watch near its deadline")
+def _():
+    import socket
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    held_open: list[socket.socket] = []
+    stop = threading.Event()
+
+    def accept() -> None:
+        srv.settimeout(0.2)
+        while not stop.is_set():
+            try:
+                held_open.append(srv.accept()[0])
+            except OSError:
+                pass
+    th = threading.Thread(target=accept, daemon=True)
+    th.start()
+    try:
+        env = P.cmd_env(**{"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{srv.getsockname()[1]}", "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
+                           "GZCOORD_CHANNEL": "fixture:chan", "GZCOORD_JOURNAL": "off"})
+        t0 = time.monotonic()
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "2"], env=env, capture_output=True, text=True, timeout=40)
+        eq(r.returncode, 0, r.stdout + r.stderr)
+        eq(r.stdout, QUIET)
+        ok(time.monotonic() - t0 < 20, "the unanswered request is not waited out")
+    finally:
+        stop.set()
+        th.join()
+        for c in held_open:
+            c.close()
+        srv.close()
+
+
+@case("--deadline: a relay that refuses connections ends the watch at the deadline, not after the 30 s retry sleep")
+def _():
+    stub, _calls = _wait_stub([])
+    url = stub.url
+    stub.close()   # nothing listens there now: every try is refused at once
+    env = _replay_env(stub, GZCOORD_JOURNAL="off")   # the give-up bound stays at its 900 s, so only the deadline can end it
+    env["CLAUDE_BRIDGE_URL"] = url
+    t0 = time.monotonic()
+    r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "2"], env=env, capture_output=True, text=True, timeout=20)
+    eq(r.returncode, 0, r.stdout + r.stderr)
+    eq(r.stdout, QUIET)
+    ok(time.monotonic() - t0 < 10, "the retry sleep is cut at the deadline")
+
+
+@case("an invalid --deadline neither rewrites the mark nor is answered with another watch's refusal line")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        first = _arm(env, "--until-delivery")
+        try:
+            _wait_started(first, env)
+            before = open(_mark_path(env)).read()
+            r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "0"], env=env, capture_output=True, text=True, timeout=30)
+            eq(r.returncode, 1, r.stdout + r.stderr)
+            ok("--deadline takes a number of seconds" in r.stderr and r.stdout == "", r.stdout + r.stderr)
+            eq(open(_mark_path(env)).read(), before)
+        finally:
+            first.kill()
+            first.communicate()
+    finally:
+        stub.close()
+
+
+@case("the start says so when a killed watch left its mark, and not after a watch that ended by itself")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        line = "taking over the watch mark of pid"
+        quiet = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "1"], env=env, capture_output=True, text=True, timeout=30)
+        eq(quiet.stdout, QUIET)
+        again = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "1"], env=env, capture_output=True, text=True, timeout=30)
+        ok(line not in again.stderr, "a watch that ended by itself leaves no mark: " + again.stderr)
+        first = _arm(env, "--until-delivery")
+        try:
+            _wait_started(first, env)
+        finally:
+            first.kill()   # SIGKILL: the pid stays in the file
+            first.communicate()
+        killed = first.pid
+        after = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "1"], env=env, capture_output=True, text=True, timeout=30)
+        ok(f"{line} {killed}, which is gone" in after.stderr, after.stderr)
+        eq(after.stdout, QUIET)
+    finally:
+        stub.close()
 
 
 def main() -> int:

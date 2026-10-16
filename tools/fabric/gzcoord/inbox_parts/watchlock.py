@@ -18,10 +18,13 @@ import time
 import urllib.parse
 from typing import IO
 
+from .hold import pid_alive
+
 # Not through the dictionary: the line is the contract of the request that
 # introduced it, and the dictionary is the coordinator's.
 ALREADY_RUNNING = ("gzcoord-inbox: a watch is already running (pid {pid}, started {started}); "
-                   "it ends at its next delivery or with its session — nothing to kill; do not run it again")
+                   "it ends at its next delivery, at its --deadline (default 1 h 55 min) with the quiet line, or with its session "
+                   "— nothing to kill; do not run it again")
 _UNKNOWN = "unknown"
 
 
@@ -37,6 +40,9 @@ class WatchLock:
     def __init__(self, path: str):
         self.path = path
         self.holder: tuple[str, str] | None = None
+        # The pid a previous watch left in the file when it is gone: the
+        # kernel already freed its flock, this only lets the start say so.
+        self.took_over: str | None = None
         self._fh: IO[str] | None = None
 
     @property
@@ -64,6 +70,9 @@ class WatchLock:
         # buffered line a failed flush left behind would make close() raise
         # at release, past the watch's exit codes.
         self._fh = fh
+        left, _ = _read_holder(fh)
+        if left.isdigit() and int(left) != os.getpid() and not pid_alive(int(left)):
+            self.took_over = left
         try:
             os.ftruncate(fh.fileno(), 0)
             os.pwrite(fh.fileno(), f"{os.getpid()}\n{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n".encode(), 0)
@@ -73,6 +82,12 @@ class WatchLock:
 
     def release(self) -> None:
         if self._fh is not None:
+            # Emptied while the lock is still ours: a pid left in the file
+            # then means the watch did not end by itself (see took_over).
+            try:
+                os.ftruncate(self._fh.fileno(), 0)
+            except OSError:
+                pass
             self._fh.close()
             self._fh = None
 
@@ -97,6 +112,8 @@ def take_or_report(login: str) -> WatchLock | None:
     lock = WatchLock(lock_path(login))
     try:
         if lock.acquire():
+            if lock.took_over:
+                print(f"gzcoord-inbox: taking over the watch mark of pid {lock.took_over}, which is gone", file=sys.stderr)
             return lock
     except OSError as e:
         print(f"gzcoord-inbox: no watch lock ({lock.path}: {e.strerror or e}); watching without one", file=sys.stderr)
