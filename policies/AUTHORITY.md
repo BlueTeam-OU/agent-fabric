@@ -61,7 +61,10 @@ the role's charter, of the shared prompt sections and of the harness's
 own text, its worker and its search locale — is authored by the holder
 of `<role>` whose login is named for `<suffix>` (`language-culture-ge`
 writes `locale/ge/`): the CEO's rule of 2026-09-17 that no text in a
-locale has any author but its holder. The fence meets it halfway: a
+locale has any author but its holder. A role's charter is translated
+only for a holder whose work is in that language, and
+`language-culture-<suffix>` reviews it (agent-fabric ADR-027 §5 rule 11,
+A 2026-10-16). The fence meets it halfway: a
 commit that stages nothing but that subtree, from a session bound to
 that role on that login, passes the pre-commit hook and is recorded as
 `Fabric-Role: <role>`; CI admits such a commit for that subtree alone.

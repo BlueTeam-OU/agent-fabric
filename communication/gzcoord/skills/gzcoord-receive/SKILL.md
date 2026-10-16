@@ -31,13 +31,16 @@ Bash(command: 'gzcoord-inbox --until-delivery',
 ```
 
 **When it completes, read its output and act on the delivery.** Run it
-again after a delivery (exit 0) or after the Bash timeout stopped it —
+again after a delivery (exit 0), after its own deadline ended it quiet
+(exit 0, one line "quiet for <N> min, nothing delivered; run the watch
+again", before the 2 h cap, `--deadline`, default 1 h 55 min), or after
+the Bash timeout stopped it —
 except when its one line says "a watch is already running … do not run
 it again": that is no delivery, another watch of this login holds the
 inbox, and nothing is killed or re-armed (never `pkill` a watch; it ends
-at its next delivery):
-one wake per delivery, and a quiet session is woken at most once per
-2 hours. On any other exit the output is the reason, and you do not run
+at its next delivery or its deadline):
+one wake per delivery, and a quiet session is woken about once per
+1 h 55 min, at the watch's deadline. On any other exit the output is the reason, and you do not run
 it again until it is fixed: 2 a control channel named, 3 not
 configured or no token, 4 the relay
 refused the token (see the token paragraph below), 5 the relay stayed

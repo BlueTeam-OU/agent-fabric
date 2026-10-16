@@ -611,6 +611,7 @@ def main() -> int:
         rc, out = run("7", "--basis", "b")
         check("a claude-only policy, a plain PR with no review: refused, naming claude",
               rc == 1 and "by the claude engine" in out and "engines required: claude)" in out and "pr merge" not in calls(), out)
+        check("…naming the post with the PR", "then `fabric-pr post-review 7` with its report" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
         rc, out = run("7", "--basis", "b")
         check("…with the claude review of the head: armed", rc == 0 and "ARMED #7" in out
@@ -620,6 +621,8 @@ def main() -> int:
         check("a policy requiring claude and codex, only the claude review of the head: refused, naming codex",
               rc == 1 and "by the codex engine" in out and "review=claude ✓ codex ✗ (head abcdef01)" in out
               and "pr merge" not in calls(), out)
+        check("…naming the codex command as it runs: the PR, a request ending at the head",
+              "`fabric-review --engine codex 7 REQUEST` with a ranged request ending at abcdef01" in out, out)
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01:codex")
         rc, out = run("7", "--basis", "b", policy=both)
         check("codex required, only the codex review: refused, naming claude", rc == 1 and "by the claude engine" in out, out)

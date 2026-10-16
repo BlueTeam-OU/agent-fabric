@@ -114,7 +114,13 @@ outage procedure.
    renders it flagged).
 6. The review is posted by `fabric-pr post-review` as a review object whose
    first line is the marker; the body names the method and carries no
-   disclaimer.
+   disclaimer. **A review covers the commit it read, never the PR's head
+   at posting time:** post-review records it on the report's dispatch
+   header `head_sha`, or, for a report with no header (the second
+   engine's), on `--head <full sha>`; a report naming no head, two heads,
+   a head that disagrees with `--head`, or a commit that is not the PR's
+   is refused and nothing is posted. A review of an older head therefore
+   leaves the current head uncovered for the gate and the arm.
 7. `pr-review-status.sh` counts as coverage: a marked review posted by the
    PR's author account or a login in `AGENT_FABRIC_REVIEW_POSTERS`; an
    unmarked review from the repository owner, an organisation member or a
@@ -227,3 +233,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | 2026-10-05 | The reviewer inherits no secret | §5 rule 4: the fence also refuses printing the environment and secret material, and every command it lets through runs with a clean environment |
 | 2026-10-14 | The card is read at the base; a review names its evidence mode | §5 rules 9-10: the project review card governs from the base (`card_base`, else the range's base), never the head; `evidence: pinned` reads through `git show <head>:<path>` and alone counts as coverage of a head, `working-tree` is labelled and never posted as a review of a head |
 | 2026-10-15 | A pinned review reads a detached worktree of the head | §5 rule 10: `brief` and `next` check the range's head out detached under `<TMPDIR>/fabric-review/` and the brief names it; the reviewer reads and runs there and makes no extract of its own; `save` removes it |
+| 2026-10-16 | A review covers the commit it read | §5 rule 6: post-review records a review on the head its report names (dispatch header `head_sha`, or `--head` for a headerless report) and refuses a report naming none, several or a commit outside the PR; a review posted after a push no longer covers the new head |

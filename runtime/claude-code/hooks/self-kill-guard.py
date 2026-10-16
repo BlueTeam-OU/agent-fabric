@@ -22,7 +22,7 @@ spells matches the shell running it (pkill spares only itself), the call
 never returns, and the session hangs; or it matches the harness's tracked
 inbox watch. Neither is the claude process, so a guard of claude alone let
 it through. An inbox watch never needs killing: it ends by itself at its
-next delivery, and gzcoord-inbox itself refuses a second one.
+next delivery or its deadline, and gzcoord-inbox itself refuses a second one.
 
 THE SHELL. At PreToolUse the shell that will run the command does not exist
 yet, so it is modelled: its command line as Claude Code writes it (seen
@@ -727,7 +727,7 @@ def message(found: list[tuple[str, bool]], pats: list[str] | None = None) -> str
     by = f" (pattern {', '.join(repr(p) for p in dict.fromkeys(pats))})" if pats else ""
     if any(inbox for _, inbox in found):
         return (f"This command would kill {what}{by}. Never kill an inbox watch: it ends by itself at its next "
-                "delivery, and gzcoord-inbox itself refuses a second watch, so there is nothing to kill.")
+                "delivery or at its deadline, and gzcoord-inbox itself refuses a second watch, so there is nothing to kill.")
     if all(label == SHELL_LABEL for label, _ in found):
         return (f"This command would kill {what}{by}. Select by the exact pid of a process you started "
                 "(kill <pid>), never by a -f pattern or a name.")

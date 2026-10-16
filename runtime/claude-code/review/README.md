@@ -174,7 +174,10 @@ dispatcher removes the scratch directory the report names (it is under the
 reviewer's `TMPDIR`). The reviewer opens its report with the brief's header, copied
 unchanged, so the mode travels with the report: `fabric-pr post-review`
 refuses a report whose header says `working-tree` (only a pinned review
-covers a head), and `fabric-review save` records each round's mode in
+covers a head) and records the review on the header's `head_sha`, the
+commit it read, never the PR's head at posting time (agent-fabric
+ADR-020 §5 rule 6; a headerless report, the second engine's, names it
+with `--head`), and `fabric-review save` records each round's mode in
 `round-<N>.json` beside `round-<N>.md` (`null` when the report has no
 header). A re-review request carries `evidence` over from the previous
 one.
@@ -198,7 +201,7 @@ range and treats the rest as facts only where they are facts.
 `bin/fabric-review --engine codex <PR> REQUEST` renders the same brief and
 runs it once through the pinned `codex exec`, read-only, on an extract of
 the PR's head, then posts the findings with `fabric-pr post-review <PR>
---model codex`. It is not a subagent dispatch: the guard and the dispatch
+--model codex --head <the head it read>`. It is not a subagent dispatch: the guard and the dispatch
 shape above do not apply, and the Claude review still has to be dispatched.
 A finding it posts is judged by the review class like any other. Which
 engines a pull request needs is the arming policy's `reviews`

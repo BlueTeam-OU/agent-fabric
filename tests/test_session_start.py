@@ -412,6 +412,8 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     os.chmod(fake, 0o755)
     bare = subprocess.run([fake], capture_output=True, text=True, env=env)
     assert "NO INBOX WATCH is running for this session (resume)" in context_of(bare), bare.stdout
+    # Its quiet end is a reason to run it again, as a delivery is (#283 round 6).
+    assert "after its deadline ended it quiet (exit 0)" in context_of(bare), bare.stdout
     armed = subprocess.run([fake, "watch"], capture_output=True, text=True, env=env)
     assert "NO INBOX WATCH" not in context_of(armed), armed.stdout
     until = subprocess.run([fake, "until"], capture_output=True, text=True, env=env)

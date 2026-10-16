@@ -186,7 +186,13 @@ re-captured, and a holder who writes every answer twice.
 11. A locale's translations have no author but that locale's holder,
     through the carve-out of ADR-018 §5 rule 5. fabric-coordinator commits
     the English sources, the machinery and the tests, authors no
-    translation, and merges the holder's pull request.
+    translation, and merges the holder's pull request. A role's charter
+    is translated only for a holder whose work is in that language
+    (`language-culture-ge`, `legal-expert-ge`, whose sources are Georgian);
+    a holder whose corpus is English, as EU law is for
+    `legal-expert-ee-eu`, keeps the English. The role's own locale holder
+    writes it, and `language-culture-<suffix>` reviews it in the two
+    passes of rule 3 before the pull request is opened.
 12. The holder's memory is written in the locale. A memory with a
     `roles_class` carries its rendering under `## English`, and a
     description in the locale carries `description_en` beside it; the
@@ -291,3 +297,4 @@ The body above reads current; each change's full note is in [history/ADR-027-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-07 | The source locale has no bridge | §2: an en-US holder's locale carries locale.json alone; no worker, no rendering, notes unmeasured; global English |
+| 2026-10-16 | A charter is translated for a holder who works in that language | §5 rule 11: only a holder whose work is in the locale's language gets its charter translated; the role's locale holder writes it, language-culture-<suffix> reviews it |

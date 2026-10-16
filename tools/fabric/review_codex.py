@@ -56,9 +56,9 @@ nothing.
 
 WHAT RUNS. The brief is review_brief.render() of REQUEST, byte for byte, with
 the engine's answer-shape section appended and nothing else (rule 1). The
-request must be a ranged one whose head is the PR's current head: the review
-is posted against the PR's head, so a request for any other commit would be
-counted as a review of something it never read. That head is `git archive`d
+request must be a ranged one whose head is the PR's current head: post-review
+records the review on the commit Codex read (--head), so a review of any other
+commit would cover that commit and leave the head the gate reads unreviewed. That head is `git archive`d
 into a scratch directory (never the working copy) and `codex exec` runs there
 once per attempt (an attempt is repeated only when the model is at capacity,
 below) with --sandbox read-only, a time budget for each run (20 minutes unless
@@ -86,7 +86,7 @@ runtime/claude-code/review/codex-answer.schema.json (also handed to
 --output-schema). Anything else — no message, prose, a fence, two objects, a
 finding without a fix — is a failed review: nothing is posted and the reason
 is said (rule 4). A valid answer is rendered with the engine, the model and the level sent on
-its first line and posted by `fabric-pr post-review PR --model codex` from the
+its first line and posted by `fabric-pr post-review PR --model codex --head HEAD` from the
 request's repository; --no-post prints it instead. Rule 5 is the reader's:
 each finding is judged by the review class before it is answered.
 
@@ -405,7 +405,7 @@ def range_head(req: dict) -> str:
 
 
 def pr_head(repo: str, pr: str) -> str:
-    """The PR's head commit as GitHub has it now; post-review pins the review there."""
+    """The PR's head commit as GitHub has it now: the one a request must name, as the commit the gate reads."""
     r = subprocess.run(["gh", "pr", "view", pr, "--json", "headRefOid,state"], cwd=repo, capture_output=True,
                        text=True, timeout=60, stdin=subprocess.DEVNULL)
     try:
@@ -855,10 +855,13 @@ def render_review(model: str, head: str, rng: str, findings: list[dict], effort_
 _posting = False
 
 
-def post(repo: str, pr: str, body: str) -> int:
+def post(repo: str, pr: str, head: str, body: str) -> int:
     global _posting
     _posting = True
-    r = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-pr"), "post-review", pr, "--model", ENGINE],
+    r = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-pr"), "post-review", pr, "--model", ENGINE,
+                        # The commit Codex read: the body carries no dispatch header, and post-review records a
+                        # report only on the head it names (ADR-020 §5 rule 6).
+                        "--head", head],
                        cwd=repo, input=body, text=True, timeout=180)
     return r.returncode
 
@@ -964,8 +967,8 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     repo = req["repository"]
     head = range_head(req)
     if pr_head(repo, pr) != head:
-        raise Refused(f"the request's head {head[:12]} is not PR #{pr}'s head: a review is posted against the PR's "
-                      "head, so it must be the one read (update the request's range)")
+        raise Refused(f"the request's head {head[:12]} is not PR #{pr}'s head: a review covers only the commit it "
+                      "read, and the gate reads the PR's head (update the request's range)")
     root = scratch_root(repo, environ)
     observed.facts = {"brief": brief, "pr": pr, "head": head, "model": model, "level": level}
 
@@ -1019,7 +1022,7 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     if no_post:
         sys.stdout.write(body)
         return 0
-    return 0 if post(repo, pr, body) == 0 else 1
+    return 0 if post(repo, pr, head, body) == 0 else 1
 
 
 def _raise_signal(signum, _frame):
