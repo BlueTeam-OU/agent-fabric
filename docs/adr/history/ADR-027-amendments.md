@@ -28,3 +28,7 @@ passes. The first attempt had language-culture-ge render legal-expert's
 charter, which the pre-commit hook refused and which fabric-coordinator
 then committed in its place, against rule 11; that commit was reverted
 on agent-fabric #283 and legal-expert-ge authors its own.
+
+### Amendment 2026-10-16 — A holder may adopt language-culture's draft
+
+#283's round-5 review found the Georgian legal-expert charter mostly language-culture-ge's text: legal-expert-ge committed it "from language-culture-ge's draft" (72641b50), changing 17 of 105 lines, while rule 11 said the holder "writes it". The owner, asked whether adopting the draft meets that, answered yes (2026-10-16). Rule 11 now says so: the holder may start from the language specialist's draft, owns what it commits under its own role, and names the draft in the commit, so the provenance a trailer cannot show is in the message.
