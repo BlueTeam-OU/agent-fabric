@@ -98,7 +98,8 @@ class Fake:
         if isinstance(answer, tuple):
             code = answer[2] if len(answer) > 2 else 1
             out = answer[0] if isinstance(answer[0], str) else json.dumps(answer[0])
-            raise gh.GhError("gh pr checks", answer[1], stdout=out, stderr=answer[1] + "\n", code=code)
+            raise gh.GhError("gh pr checks", answer[1] or f"exit {code}", stdout=out,
+                             stderr=answer[1] + "\n" if answer[1] else "", code=code)
         return json.dumps(answer)
 
     def api(self, path, **kw):
@@ -235,13 +236,21 @@ def main() -> int:
               code == 0 and err.count("checks pending: ci-ok") == 3 and "could not read" not in err,
               f"{code} {text} {err}")
     c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"] * 2 + ["MERGED"]), c, interval=1, timeout=600)
+    check("blocked with every check passed does not claim a pending check",
+          code == 0 and "blocked; no required check is pending" in err and "still pending" not in err, err)
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED", "MERGED"], checks=[[]]), c, interval=1, timeout=600)
+    check("blocked with no check reported says none reported yet", "no required check is pending (none reported yet)"
+          in err, err)
+    c = Clock()
     code, text, err, _ = watch(Fake(c, ["OPEN:UNSTABLE"] * 2 + ["MERGED"], checks=[(pend, "", 8)]), c, interval=1,
                                timeout=600)
     check("pending is said whatever the merge state", code == 0 and "checks pending: ci-ok" in err, err)
     # Positive controls: a real failure of the read is still loud, with its reason.
-    for label, answer, why in (("exit 8 with nothing on stdout", ("", "", 8), "gh exit 8"),
-                               ("an auth failure", ("", "HTTP 401: Bad credentials", 1), "gh exit 1: HTTP 401"),
-                               ("a non-JSON table on exit 8", ("ci-ok\tpending", "", 8), "gh exit 8")):
+    for label, answer, why in (("exit 8 with nothing on stdout", ("", "", 8), "gh exit 8, and its stdout is not JSON"),
+                               ("an auth failure", ("", "HTTP 401: Bad credentials", 1), "gh exit 1: HTTP 401: Bad credentials, and its stdout is not JSON"),
+                               ("a non-JSON table on exit 8", ("ci-ok\tpending", "", 8), "gh exit 8, and its stdout is not JSON")):
         c = Clock()
         code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[answer]), c, interval=1, timeout=600)
         check(f"{label} is unreadable, exit 2, with why, and claims no pending state",
@@ -250,7 +259,7 @@ def main() -> int:
     c = Clock()
     code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[(pend + [{"name": "t", "bucket": "fail"}], "", 8)]),
                                c, interval=1, timeout=600)
-    check("a failed check beside a pending one is still BLOCKED", code == 5 and "t" in text, text)
+    check("a failed check beside a pending one is still BLOCKED", code == 5 and text.endswith("failed: t"), text)
 
     # gh says "there are none" as an error line, not as [] (#128's watch
     # gave up on it after five polls and the PR merged minutes later).

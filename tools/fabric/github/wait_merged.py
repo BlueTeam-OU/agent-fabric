@@ -470,7 +470,10 @@ class Watch:
                 if pending:
                     self.note(f"#{pr} checks pending: {pending}")
                 elif readable and merge_state == "BLOCKED":
-                    self.note(f"#{pr} blocked, checks still pending")
+                    # Said from what was read: no required check is pending, so
+                    # what blocks the PR is not a check still running.
+                    self.note(f"#{pr} blocked; no required check is pending"
+                              + (" (none reported yet)" if not checks else ""))
                 # ARMING CAN VANISH WITHOUT ANYONE TOUCHING IT: a base that
                 # moves goes DIRTY and GitHub drops auto-merge; folded and
                 # pushed, the PR is CLEAN, green, unarmed, forever. Probed
@@ -569,18 +572,21 @@ class Watch:
         pends: that is an answer, so its stdout is read either way. With none
         reported it prints no JSON at all, and that is an answer too: []."""
         args = ["pr", "checks", self.pr, "--required", "--json", "name,bucket", "--repo", self.repo]
-        why = "gh printed no JSON"
+        why = "gh exited 0"
         try:
             out = gh.run(args, what="gh pr checks")
         except gh.GhError as e:
             if gh.no_checks_reported(e):
                 return []
             out = e.stdout
-            why = e.reason if e.code is None else f"gh exit {e.code}: {e.reason}"
-        self.checks_why = why
+            # gh.run's reason is "exit N" when gh wrote nothing to stderr:
+            # not said twice.
+            why = e.reason if e.code is None else (
+                f"gh exit {e.code}" + ("" if e.reason == f"exit {e.code}" else f": {e.reason}"))
         try:
             return json.loads(out)
         except ValueError:
+            self.checks_why = f"{why}, and its stdout is not JSON"
             return None
 
 
