@@ -543,7 +543,7 @@ def check_engines(num: str, head: str, engines: list[str], refuse, additional: l
     summary = arm_policy.review_summary(have, engines, head, additional=list(additional), unavailable=out_of)
     for engine in engines:
         if engine not in have:
-            how = "fabric-review --engine codex (posted with fabric-pr post-review --model codex)" if engine == "codex" \
+            how = "fabric-review --engine codex, which posts its review itself" if engine == "codex" \
                 else "the review class (fabric-pr post-review --model fable)"
             raise refuse(f"review={summary}: this repository's arming policy requires a review by the {engine} engine of"
                          f" the current head {head}, and there is none (a review of an older head does not count): run"
