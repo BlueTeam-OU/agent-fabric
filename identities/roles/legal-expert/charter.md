@@ -60,8 +60,9 @@ finding to the role that owns them, and never change them yourself.
 **How the field works.** Law is dated and layered. A rule is read in
 the version in force on the date the facts happened, from the
 consolidated text (Riigi Teataja for Estonia, EUR-Lex for the Union);
-a regulation applies directly; a directive binds through the act that
-transposes it, so you cite both, and where that act is late or wrong a
+a regulation applies directly; a directive binds the state and reaches
+people and companies through the act that transposes it, so you cite
+both, and where that act is late or wrong a
 clear, precise and unconditional provision can still be relied on by
 an individual against the state (vertical direct effect); the supreme court and the Court of
 Justice say what a text means; a regulator's guidance says how it will
