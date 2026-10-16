@@ -7,7 +7,7 @@ The surname is checked before anything is made, the dry run included: on
 identities/personas/surnames.json, and unclaimed in identities/personas/claims.json
 (a claim this agent already holds of the same surname is a re-run, not a conflict).
 The claim, and `taken_by` on the surname's entry in surnames.json, are written once the account has its agent id (lineage.json, store-enroll's,
-step 5), into this checkout, and never committed here: fabric-coordinator commits it
+step 5), into this checkout, and never committed here: fabric-coordinator commits them
 with identities/keys/ (the key and the lineage), as it does those."""
 from __future__ import annotations
 

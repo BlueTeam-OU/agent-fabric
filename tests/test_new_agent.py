@@ -845,12 +845,12 @@ esac
                     na.scope_notice = scope_notice_real
                     fake_gh("repo, admin:ssh_signing_key, user")
                     check("a token with the scope: no notice", gsk.scope_notice() is None)
-                    fake_gh("repo, write:ssh_signing_key")  # the body's header-looking line carries the scope: it must not count
+                    fake_gh("repo, write:ssh_signing_key")
                     notice = gsk.scope_notice() or ""
                     check("one without it (a sibling scope is not it): the notice names the refresh and the stored GH_TOKEN",
                           "lacks admin:ssh_signing_key" in notice and "gh auth refresh -h github.com -s admin:ssh_signing_key" in notice
                           and "as GH_TOKEN" in notice and "\n" not in notice, notice)
-                    fake_gh(None)
+                    fake_gh(None)  # the body's header-looking line must not be read as the missing header
                     check("a token that states no scopes is unknown, not missing", "states no scopes" in (gsk.scope_notice() or ""))
                     fake_gh("", 0)
                     check("an empty header is a token with no scopes: missing", "lacks admin:ssh_signing_key" in (gsk.scope_notice() or ""))
