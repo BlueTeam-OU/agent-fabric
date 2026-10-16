@@ -256,8 +256,10 @@ def main() -> int:
         check("the first opens its body with an agent-fabric-dispatch v1 block",
               examples[0].splitlines()[1] == f"```{review_brief.DISPATCH_VERSION}")
         check("the review class's guard admits the first", guard.posted_review(examples[0]) is not None)
-        check("and refuses the second, the --head path outside the review class",
-              guard.posted_review(examples[1]) is None)
+        # With a real sha for the placeholder: a guard widened to exempt a 40-hex --head must fail this.
+        real = examples[1].replace("<full sha of the commit reviewed>", "a" * 40)
+        check("and gives the second, the --head path outside the review class, no exemption",
+              "<" not in real.splitlines()[0].split("<<")[0] and guard.posted_review(real) is None)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

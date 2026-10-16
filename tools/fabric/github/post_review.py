@@ -82,8 +82,9 @@ Usage:
   EOF
 
   # A report with no header, posted outside the review class (a second
-  # engine's, say): --head names the commit it read. The review class
-  # itself cannot post this form; its guard admits only the one above.
+  # engine's, say): --head names the commit it read. Not the review
+  # class's: its guard gives the post-review exemption to the form above
+  # alone, and judges this one as any other command line, body included.
   fabric-pr post-review 552 --head <full sha of the commit reviewed> <<'EOF'
   …
   EOF
