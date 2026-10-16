@@ -5,16 +5,18 @@ The reasons are in `2026-10-15-privacy-notice-blueteam-ee.md`. Placing
 it on the site is brand-comms's work in the `blueteam.ee` repository,
 and the copy review is language-culture's.
 
-The owner chose option B for AI tools on 2026-10-15: no personal data
-of clients, their people or visitors goes into any AI tool. The notice
-below is written on that choice, and it is true only while the practice
-is (see the opinion, section 6).
+The notice is written on agent-fabric ADR-059 (the owner, 2026-10-16):
+the fleet keeps the Max plan, and no personal data of a third party
+(clients, their people, visitors of Blueteam's sites) goes into any AI
+tool it uses. Section 5 below is true only while ADR-059's rules 1 and 2
+are kept; a change of practice changes the notice in the same step.
 
 How to read this draft:
 
 - `[FACT: …]` is a fact the owner fills in before publishing.
 - `[SWISS COUNSEL]` marks text that a Swiss attorney should confirm.
-- Every article number in the text is GDPR, read from the official text.
+- Every article number in the text is GDPR, read from the official text
+  in this session; the opinion's section 3 lists each one.
 
 ---
 
