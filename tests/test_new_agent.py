@@ -803,8 +803,8 @@ esac
                 taken = {e["surname"]: e.get("taken_by") for e in json.load(open(f"{fk}/root/identities/personas/surnames.json"))["surnames"]}
                 check("…and marks the surname's entry taken_by {agent, login}, leaving the unclaimed one bare",
                       taken == {"Huber": {"agent": new_id, "login": "new"}, "Kelsen": None}, f"{taken}")
-                check("…and says fabric-coordinator commits it with identities/keys/, never committing it itself",
-                      "5a. Huber claimed for new (" + new_id + ")" in err and "fabric-coordinator commits it with identities/keys/" in err,
+                check("…and says fabric-coordinator commits both with identities/keys/, never committing them itself",
+                      "5a. Huber claimed for new (" + new_id + ")" in err and "fabric-coordinator commits both with identities/keys/" in err,
                       err)
                 rc, msg, err, calls = orchestrate("new", "r", "--no-claude-account", "--surname", "Huber")
                 check("…a re-run: its own claim is no conflict, and the file is left as it is",
@@ -837,7 +837,7 @@ esac
             ghdir = tempfile.mkdtemp(prefix="fake-gh-")
             try:
                 def fake_gh(header: str | None, rc: int = 0) -> None:
-                    body = "HTTP/2.0 200 OK\\r\\n" + (f"X-Oauth-Scopes: {header}\\r\\n" if header is not None else "") + "\\r\\n{}\\n"
+                    body = "HTTP/2.0 200 OK\\r\\n" + (f"X-Oauth-Scopes: {header}\\r\\n" if header is not None else "") + "\\r\\n{}\\nX-Oauth-Scopes: admin:ssh_signing_key\\n"
                     put(f"{ghdir}/gh", f"#!/bin/sh\n[ \"$1 $2 $3\" = 'api -i user' ] || exit 9\nprintf '{body}'\nexit {rc}\n", 0o755)
                 saved_path = os.environ["PATH"]
                 os.environ["PATH"] = f"{ghdir}:{saved_path}"
@@ -845,7 +845,7 @@ esac
                     na.scope_notice = scope_notice_real
                     fake_gh("repo, admin:ssh_signing_key, user")
                     check("a token with the scope: no notice", gsk.scope_notice() is None)
-                    fake_gh("repo, write:ssh_signing_key")
+                    fake_gh("repo, write:ssh_signing_key")  # the body's header-looking line carries the scope: it must not count
                     notice = gsk.scope_notice() or ""
                     check("one without it (a sibling scope is not it): the notice names the refresh and the stored GH_TOKEN",
                           "lacks admin:ssh_signing_key" in notice and "gh auth refresh -h github.com -s admin:ssh_signing_key" in notice
@@ -856,6 +856,12 @@ esac
                     check("an empty header is a token with no scopes: missing", "lacks admin:ssh_signing_key" in (gsk.scope_notice() or ""))
                     fake_gh("repo", 1)
                     check("a gh that fails cannot answer: said, not taken for missing", "could not be read" in (gsk.scope_notice() or ""))
+                    fake_gh("repo")
+                    os.chmod(f"{ghdir}/gh", 0o644)
+                    os.environ["PATH"] = ghdir  # a later, runnable gh on PATH would be found past this one
+                    check("a gh that is there and cannot be run: said, not a traceback",
+                          "gh cannot be run" in (gsk.scope_notice() or ""))
+                    os.environ["PATH"] = f"{ghdir}:{saved_path}"
                     os.remove(f"{ghdir}/gh")
                     os.environ["PATH"] = ghdir
                     check("no gh at all: said", "gh is not installed" in (gsk.scope_notice() or ""))

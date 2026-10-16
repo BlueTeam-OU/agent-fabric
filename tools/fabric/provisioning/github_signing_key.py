@@ -109,6 +109,8 @@ def _gh(*args: str) -> str:
         p = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT_S, stdin=subprocess.DEVNULL)
     except FileNotFoundError:
         raise Refused("gh is not installed") from None
+    except OSError as exc:  # PermissionError: a gh that is there and cannot be run
+        raise Refused(f"gh cannot be run: {exc.strerror or exc}") from None
     except subprocess.TimeoutExpired:
         raise Refused(f"gh did not answer within {GH_TIMEOUT_S} s") from None
     if p.returncode != 0:
@@ -127,7 +129,8 @@ def token_scopes() -> set[str] | None:
     """The OAuth scopes of the gh token in use, from the X-OAuth-Scopes header of `gh api -i user` (the token itself is
     never read or printed); None when the answer has no such header (a fine-grained or app token states none), which is
     not the same as an empty set. Refused when gh cannot answer."""
-    head = _gh("api", "-i", "user").split("\n\n", 1)[0].replace("\r", "")
+    # CRLF first: split on the bare blank line, or gh's own CRLF finds none and the body is scanned as headers.
+    head = _gh("api", "-i", "user").replace("\r", "").split("\n\n", 1)[0]
     for line in head.splitlines():
         name, sep, value = line.partition(":")
         if sep and name.strip().lower() == "x-oauth-scopes":

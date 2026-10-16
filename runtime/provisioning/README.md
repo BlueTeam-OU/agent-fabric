@@ -58,10 +58,21 @@ rule 4): it must be on `identities/personas/surnames.json` and unclaimed in
 `identities/personas/claims.json`, checked before anything is made, the
 dry run too. Once step 5 has given the account its agent id, the claim
 `{surname, first_name: null}` is written into this checkout's
-`claims.json` (5a), uncommitted: fabric-coordinator commits it with
+`claims.json` (5a) and the surname marked taken (`taken_by`) in
+`surnames.json`, both uncommitted: fabric-coordinator commits them with
 `identities/keys/`. The agent chooses its sex and then a first name of
 that sex itself (rules 5-6); `fabric-persona` names it "AI <Surname>,
 <role>" until then.
+
+Step 12 registers the signing subkey on GitHub and needs
+`admin:ssh_signing_key` on the operator's gh token. So, before anything is
+made (the dry run too, never for a human), the token's scopes are read from
+the `X-OAuth-Scopes` header of `gh api -i user` (the token is never printed)
+and, when the scope is missing, unreadable or not stated (a fine-grained or
+app token), one paragraph says so and names the fix (`gh auth refresh -h
+github.com -s admin:ssh_signing_key`, and the new token stored as `GH_TOKEN`,
+as `fabric-secrets sync` rewrites gh's config from it). It never refuses the
+run.
 
 Every step is `must` (a failure stops the run, named; nothing after it
 runs), `probe` (a question) or `best_effort` (one warning) —
@@ -91,7 +102,8 @@ SSH key is in that store, so it cannot pull it yet) and its first sync,
 as the account, without a pull (`sync --no-pull`); every
 `--project` cloned as the account over SSH from the remote the registry
 names, and a clone already there (step 4's https one) has its origin set to
-that remote; the provider of its first launch recorded (6b,
+that remote — the fabric's own clone too when agent-fabric is not a
+`--project` (the worker is given its registry remote, `--fabric-remote`); the provider of its first launch recorded (6b,
 `provisioning/launch_record.py`: a `routing/profiles.json` layer's
 `launch_provider` when one names it, else `anthropic` with a Claude
 account, `openrouter` with `--no-claude-account`; a record already there is
