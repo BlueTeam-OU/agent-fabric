@@ -72,9 +72,21 @@ and this is how that review reaches the PR and the gate.
 Usage:
   fabric-pr post-review <pr> [options]   # body on stdin
 
-  fabric-pr post-review 552 --head <full sha of the commit reviewed> <<'EOF'
+  # The review class's report, as it arrives: it opens with the brief's
+  # agent-fabric-dispatch v1 block, which names the head it read.
+  fabric-pr post-review 552 <<'EOF'
+  ```agent-fabric-dispatch v1
+  { …, "evidence_mode": "pinned", "head_sha": "<full sha>", … }
+  ```
   Found a P1 in the ownership guard: a four-segment branch typed
   `Fix/` was classified unowned, so fabric-pr reply would post to it.
+  EOF
+
+  # A report with no header, posted outside the review class (a second
+  # engine's, say): --head names the commit it read. The review class
+  # itself cannot post this form; its guard admits only the one above.
+  fabric-pr post-review 552 --head <full sha of the commit reviewed> <<'EOF'
+  …
   EOF
 
 Options:
