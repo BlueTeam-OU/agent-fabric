@@ -610,10 +610,10 @@ its record disagree, the record wins. Look it up, never read it whole:
   holder translates (§5 rules 9–11).
 - Memory rendered under `## English` by its holder, else
   `needs_rendering`; locale search through `websearch-locale`, SerpAPI
-  then Brave, the harness's `WebSearch` removed (§5 rules 12–13).
+  then Brave, `WebSearch` removed (§5 rules 12–13).
 - A 2026-10-07 — en-US, the source, has no bridge (§2).
 - A 2026-10-16 — charters translated only for holders working in that language; language-culture reviews (§5 rule 11).
-- A 2026-10-16 — a holder may adopt its draft, read against the English (§5 rule 11).
+- A 2026-10-16 — a holder may adopt language-culture's draft, read against the English, recorded (§5 rule 11).
 - Keywords: translation, worker, Georgian, Russian, ru-RU,
   system-prompt-file, notes, script, web search, carve-out, TaskStop,
   isolation.

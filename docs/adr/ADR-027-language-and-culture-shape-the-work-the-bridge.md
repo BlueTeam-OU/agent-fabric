@@ -198,8 +198,9 @@ re-captured, and a holder who writes every answer twice.
     for it, whatever draft it began from. Because the reviewer then
     reads its own draft, the holder reads the whole committed text
     against the English source before the pull request is opened, both
-    of rule 3's passes still run on that text, and the commit names the
-    draft and says the holder made that reading (A 2026-10-16).
+    of rule 3's passes still run on that text, and the last commit before
+    the pull request names the draft and says the holder read the text as
+    it then stands (A 2026-10-16).
 12. The holder's memory is written in the locale. A memory with a
     `roles_class` carries its rendering under `## English`, and a
     description in the locale carries `description_en` beside it; the
