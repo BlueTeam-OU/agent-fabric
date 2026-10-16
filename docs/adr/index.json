@@ -531,6 +531,15 @@
       "date": "2026-10-14",
       "pillar": "P1",
       "amendments": 1
+    },
+    {
+      "number": "059",
+      "file": "ADR-059-third-party-personal-data-stays-out-of-ai-tools.md",
+      "title": "Third-party personal data stays out of the Max plan",
+      "status": "Accepted",
+      "date": "2026-10-16",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }

@@ -77,10 +77,12 @@ open; blocked: a named blocker; paused: its branch pushed; dropped: a
 reason; a reply-only job: `reply:<MESSAGE-ID>` as its artifact, the id
 `gzcoord-send` printed for your answer or the id of the message it
 answers; a reflection job: your `fabric-reflect` cursor closed after the
-job started), nothing is uncommitted, and every `REPLY-EXPECTED: yes`
-received since the job started is answered. An answer is any message you
-sent with `IN-REPLY-TO` naming it, a REPLY or a DECISION alike; one
-without `IN-REPLY-TO` answers nothing. It then names the next job's branch: your open
+job started), nothing is uncommitted, and every REQUEST or QUESTION
+addressed to you with `REPLY-EXPECTED: yes`, received since the earlier
+of the job's and the session's start, is answered. An answer is any
+message you sent that the carrier accepted, with a non-empty
+`IN-REPLY-TO` naming it, a REPLY or a DECISION alike; a failed or
+pending send, or one without `IN-REPLY-TO`, answers nothing. It then names the next job's branch: your open
 PR's when still addable, else a new one off a freshly fetched default
 branch (`--needs-merged` when the job needs your open PR merged first).
 Write what you learnt into your memory before you switch.

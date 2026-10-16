@@ -62,6 +62,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | an agent's name, surname, avatar; the "AI" prefix; personas | ADR-056 |
 | signing commits; an agent's own key; ssh or gpg signing; fabric-sign; timestamps; Verified on GitHub | ADR-057 |
 | lessons in messages; reflection pass; fabric-reflect; turning the journal into memory | ADR-058 |
+| personal data in AI tools; Max plan; client data; privacy notice; sub-processor | ADR-059 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1256,3 +1257,15 @@ its record disagree, the record wins. Look it up, never read it whole:
   closed after the job started (§5 rule 4).
 - Keywords: reflection, journal, episodic.db, fabric-reflect, lessons,
   messages, memory candidates, drain.
+
+### ADR-059 — Third-party personal data stays out of the Max plan (Accepted)
+
+- The fleet keeps the Claude Max plan; no personal data of a client,
+  its people or a site visitor goes into it (§2, §5 rule 1). The OpenAI
+  business account, with a processing agreement, is outside it (§2).
+- Work on a client's system uses cleaned data: no real commit history,
+  no production access (§5 rule 2).
+- The blueteam.ee privacy notice is true only while that practice is;
+  a plan with a processing agreement needs a new record (§5 rules 3-4).
+- Keywords: personal data, AI tools, Max, consumer plan, sub-processor,
+  GDPR Article 28, privacy notice, client data.
