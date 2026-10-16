@@ -92,7 +92,19 @@ esac
 ''',
     "ssh-keyscan": '#!/usr/bin/env bash\necho "ssh-keyscan $*" >> "{CALLS}"; '
                    'echo "fake: ssh-keyscan must never be called (the host keys are committed)" >&2; exit 99\n',
-    "gh": '#!/usr/bin/env bash\necho "gh auth: Logged in to github.com"\n',
+    # `gh api -i user` answers the scopes of the operator's token: FAKE_GH_SCOPES is the header's value, NONE leaves
+    # the header out, FAIL is a gh that cannot answer; unset, the token carries the signing-key scope.
+    "gh": r'''#!/usr/bin/env bash
+if [[ "$1" == api && "$2" == -i ]]; then
+  case "${FAKE_GH_SCOPES-repo, admin:ssh_signing_key}" in
+    FAIL) echo "gh: HTTP 401" >&2; exit 1 ;;
+    NONE) printf 'HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n{}\n' ;;
+    *) printf 'HTTP/2.0 200 OK\r\nX-Oauth-Scopes: %s\r\n\r\n{"login":"x"}\n' "${FAKE_GH_SCOPES-repo, admin:ssh_signing_key}" ;;
+  esac
+  exit 0
+fi
+echo "gh auth: Logged in to github.com"
+''',
     "git": r'''#!/usr/bin/env bash
 [[ "$1" == clone ]] && grep -qsxF git "{FAULT}" && { echo "fake git: clone failed (injected)" >&2; exit 128; }
 exec /usr/bin/git "$@"
@@ -252,9 +264,16 @@ def main() -> int:
         base["AGENT_FABRIC_HOSTS_REGISTRY"] = hosts
         shim = f"{fab}/runtime/provisioning/new-agent.sh"
 
+        # The operator's gh is the fake whatever PATH a case gives: never the real one, which would ask GitHub.
+        ghbin = f"{sandbox}/ghbin"
+        put(f"{ghbin}/gh", FAKES["gh"], 0o755)
+
         def run(*args: str, **extra: str) -> tuple[int, str]:
             argv = [a for a in with_account(args, ("--no-claude-account",)) if a != "--no-account-flag"]
-            r = subprocess.run(["bash", shim, *argv], env={**base, "HOME": f"{sandbox}/home", **extra},
+            env = {**base, "HOME": f"{sandbox}/home", **extra}
+            if "PATH" not in extra:
+                env["PATH"] = f"{ghbin}:{env.get('PATH', '/usr/bin:/bin')}"
+            r = subprocess.run(["bash", shim, *argv], env=env,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
             return r.returncode, r.stdout
 
@@ -296,6 +315,23 @@ def main() -> int:
                 ok(f"plans: {step}", step in out, out)
             ok("…and verifies nothing", "dry run: nothing verified" in out, out)
             ok("…and plans the GitHub signing key, sending nothing", "would: 12. register zz-fixture-login's signing subkey" in out, out)
+            ok("a token carrying admin:ssh_signing_key draws no scope notice", "gh token" not in out, out)
+            notice = "will NOT register this agent's signing key"
+            rc, o = run("zz-fixture-login", "backend-dev", "--dry-run", FAKE_GH_SCOPES="repo, user")
+            ok("a token without it: said up front, dry run too, with the fix and the store, and the run goes on",
+               rc == 0 and notice in o and "gh auth refresh -h github.com -s admin:ssh_signing_key" in o
+               and "as GH_TOKEN" in o and "does not last" in o, f"rc={rc}\n{o}")
+            ok("…before anything else is said", o.index(notice) < o.index("host "), o)
+            ok("…in one paragraph (one line)", len([l for l in o.splitlines() if "gh token" in l]) == 1, o)
+            rc, o = run("zz-fixture-login", "backend-dev", "--dry-run", FAKE_GH_SCOPES="write:ssh_signing_key, repo")
+            ok("…a sibling scope is not the scope", rc == 0 and notice in o, o)
+            rc, o = run("zz-fixture-login", "backend-dev", "--dry-run", FAKE_GH_SCOPES="NONE")
+            ok("a token that states no scopes is unknown, said so, not taken for missing or present",
+               rc == 0 and "states no scopes" in o and notice not in o, o)
+            rc, o = run("zz-fixture-login", "backend-dev", "--dry-run", FAKE_GH_SCOPES="FAIL")
+            ok("a gh that cannot answer is said, and the run goes on", rc == 0 and "scopes could not be read" in o, o)
+            rc, o = run("human-here", "--human", "--dry-run", FAKE_GH_SCOPES="repo")
+            ok("a human has no step 12: no notice", rc == 0 and "gh token" not in o, o)
             ok("no account was created", subprocess.run(["getent", "passwd", "zz-fixture-login"], stdout=subprocess.DEVNULL,
                                                          timeout=30).returncode != 0)
             ok("a project clone uses the registry's SSH remote", "git@github.com" in out, out)
@@ -324,7 +360,7 @@ def main() -> int:
                 if entry != "python3":
                     os.symlink(os.readlink(f"{nogh}/{entry}"), f"{oldpy}/{entry}")
             for tool in ("gh", "paperkey", "openssl"):
-                src = shutil.which(tool, path=base.get("PATH"))
+                src = f"{ghbin}/gh" if tool == "gh" else shutil.which(tool, path=base.get("PATH"))
                 if src and not os.path.exists(f"{oldpy}/{tool}"):
                     os.symlink(src, f"{oldpy}/{tool}")
             real_py = shutil.which("python3", path=base.get("PATH"))
@@ -427,6 +463,9 @@ def main() -> int:
         with open(f"{fab}/projects/registry.json", encoding="utf-8") as fh:
             reg = json.load(fh)
         reg["projects"]["demo"] = {"remotes": [demo], "license": "Apache-2.0"}
+        # The fabric's SSH remote is the clone URL's repository under another spelling, so that a switch is visible.
+        fabric_ssh = f"file://{bare}"
+        reg["projects"]["agent-fabric"] = {"remotes": [fabric_ssh], "license": "Apache-2.0"}
         put(f"{fab}/projects/registry.json", json.dumps(reg))
         for name, text in FAKES.items():
             put(f"{bin_}/{name}", filled(text), 0o755)
@@ -475,6 +514,9 @@ def main() -> int:
             reset_seq()
             rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
             ok("the whole sequence exits 0", rc == 0, f"rc={rc}\n{out}")
+            ok("6: agent-fabric is no --project, yet its https clone of step 4 is pointed at the registry's remote, said in one line",
+               git_out("-C", f"{homes}/seq-login/projects/agent-fabric", "config", "--get", "remote.origin.url") == fabric_ssh
+               and out.count(f"6. agent-fabric: origin set to {fabric_ssh}") == 1, out)
             ok("step 12 is best effort: a login the lineage does not hold leaves it unregistered, said with the line to run, and the run still exits 0",
                "12. its signing key was NOT registered on GitHub" in out and "github_signing_key.py add" in out, out)
             where = "far-host" if backend == "ssh" else local
@@ -585,7 +627,7 @@ def main() -> int:
             ok("a second run skips every step already true",
                "1. account seq-login exists" in out and f"2. claude {pin} present" in out and "OpenRouter key: 1 present" in out
                and not has(r"^useradd", read(calls)) and not has(r"^usermod --add-subuids", read(calls))
-               and "subuid/subgid: 524288:65536" in out, out)
+               and "subuid/subgid: 524288:65536" in out and "origin set to" not in out, out)
             if backend == "local":
                 # Step 4: a fabric clone already there is brought to
                 # origin/main, never left old (bootstrap and the launcher run
