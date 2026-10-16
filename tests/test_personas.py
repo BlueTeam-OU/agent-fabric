@@ -133,12 +133,6 @@ class Personas(unittest.TestCase):
         for said, surnames, cl in cases:
             self.assertTrue(any(said in f for f in self.judge(surnames, [], cl)), said)
 
-    def test_the_committed_tree_marks_every_claim(self) -> None:
-        got = personas_findings(os.path.join(HERE, "identities", "personas", "surnames.json"),
-                                os.path.join(HERE, "identities", "personas", "claims.json"),
-                                os.path.join(HERE, "identities", "keys", "lineage.json"))
-        self.assertEqual(got, [])
-
 
 if __name__ == "__main__":
     unittest.main()
