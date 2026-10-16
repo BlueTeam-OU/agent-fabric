@@ -762,8 +762,8 @@ def arm(argv: list[str]) -> int:
                 # (a managed project's PR #930 blind review, F1).
                 what = "a security-boundary change" if is_boundary else "a PR on a direct repository (merged at once)"
                 raise refuse(f"{what} with no review-class review of the current head: dispatch the"
-                             f" review class on {head} and post with fabric-pr post-review, then arm (an independent"
-                             f" or automated review does not count here)")
+                             f" review class on a brief of a range ending at {head}, then `fabric-pr post-review {num}`"
+                             f" with its report, then arm (an independent or automated review does not count here)")
             if not isinstance(unresolved, int) or isinstance(unresolved, bool):
                 raise Unanswered(f"pr-review-status reported no unresolved_threads count for #{num} (null: the lookup"
                                  f" failed) — cannot judge the open findings")

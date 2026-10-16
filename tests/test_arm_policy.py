@@ -1200,8 +1200,9 @@ class ArmRun(unittest.TestCase):
         merged = {"state": "MERGED", "autoMergeRequest": None}
         for label, kw, words in (
                 ("a red check", {"checks": "red:ci", "basis": "the owner's word"}, "every check on the head must be green first"),
+                # A command the operator can run as written: the PR and the head are in it (#283 round 5).
                 ("no review of a boundary head", {"reviewed": False, "basis": "the owner's word", "files": ("policies/x.json",)},
-                 "dispatch the review class on"),
+                 f"dispatch the review class on a brief of a range ending at {self.HEAD}, then `fabric-pr post-review 7`"),
                 ("an open thread on a boundary", {"unresolved": 1, "basis": "the owner's word", "files": ("policies/x.json",)},
                  "answer and resolve them first"),
                 # Not a boundary file: a direct repository merges at once, so the head's review and its
