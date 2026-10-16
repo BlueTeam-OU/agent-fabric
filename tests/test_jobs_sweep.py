@@ -175,6 +175,7 @@ def main() -> int:
         check("every other delivered job is still delivered, every other state untouched",
               all(job(j)["state"] == "delivered" for j in ids[:7]) and job(ids_unreg[0])["state"] == "delivered"
               and [job(j)["state"] for j in ids[7:13]] == ["queued", "active", "paused", "blocked", "done", "dropped"]
+              and not any(line(out, j) for j in ids[7:13])      # not even a line: they are not this verb's business
               and all(job(j)["log"] == json.loads(before)["jobs"][int(j[1:]) - 1]["log"] for j in ids[7:13]), out)
 
         print("one gh lookup per distinct pull request")
