@@ -172,5 +172,11 @@
     "fingerprint": "0A95F76A8C613B0EEA707C156BFD6190A9E64BC7",
     "login": "legal-expert-ge",
     "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a1438f-bed1-7500-a13d-b11b6e558f55": {
+    "born": "2026-10-16T07:14:16.401Z",
+    "fingerprint": "E2F48ABFC0612BA559C07BB799E8CE4F5C0BFE0C",
+    "login": "ux-designer-01",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
   }
 }
