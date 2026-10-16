@@ -678,7 +678,9 @@ def main() -> int:
                 findings += model_profile_findings(root, profiles, known_roles)
     findings += account_switch_findings(root, roots.routing_policy("account-switch.json", engine=root))
     findings += availability_findings(root, roots.routing_policy("availability.json", engine=root))
-    findings += personas_findings(roots.personas("surnames.json", engine=root), roots.personas("claims.json", engine=root))
+    lineage_path = os.path.join(roots.keys_dir(engine=root), "lineage.json")
+    findings += personas_findings(roots.personas("surnames.json", engine=root), roots.personas("claims.json", engine=root),
+                                  lineage_path)
     findings += signing_findings(root, roots.policy("signing.json", engine=root), roots.projects_registry(engine=root))
 
     # --- role identities ---------------------------------------------------

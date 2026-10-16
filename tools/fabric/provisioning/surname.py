@@ -6,7 +6,7 @@ still chooses its first name in its first session (rule 5), so the claim is writ
 The surname is checked before anything is made, the dry run included: on
 identities/personas/surnames.json, and unclaimed in identities/personas/claims.json
 (a claim this agent already holds of the same surname is a re-run, not a conflict).
-The claim is written once the account has its agent id (lineage.json, store-enroll's,
+The claim, and `taken_by` on the surname's entry in surnames.json, are written once the account has its agent id (lineage.json, store-enroll's,
 step 5), into this checkout, and never committed here: fabric-coordinator commits it
 with identities/keys/ (the key and the lineage), as it does those."""
 from __future__ import annotations
@@ -64,9 +64,19 @@ def check(login: str, surname: str) -> str | None:
     return None
 
 
+def _write(path: str, doc: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.new-agent"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
 def write_claim(login: str, surname: str) -> str:
-    """{surname, first_name: null} keyed by the login's agent id into this checkout's claims.json; an existing claim
-    of this agent (a re-run, or a first name already chosen) is left as it is. Returns the agent id."""
+    """{surname, first_name: null} keyed by the login's agent id into this checkout's claims.json, and the surname's
+    entry in surnames.json marked `taken_by` {agent, login} (lint holds the two together); an existing claim of this
+    agent (a re-run, or a first name already chosen) is left as it is. Returns the agent id."""
     aid = agent_id_of(login, roots.operator_root(engine=cfg.ROOT))
     path = _path("claims.json")
     doc = _load(path, CLAIMS)
@@ -74,10 +84,13 @@ def write_claim(login: str, surname: str) -> str:
     if aid not in claims:
         claims[aid] = {"surname": surname, "first_name": None}
         doc["claims"] = dict(sorted(claims.items()))
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = f"{path}.new-agent"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(doc, fh, indent=2, ensure_ascii=False)
-            fh.write("\n")
-        os.replace(tmp, path)
+        _write(path, doc)
+    spath = _path("surnames.json")
+    sdoc = _load(spath, SURNAMES)
+    mark = {"agent": aid, "login": login}
+    for entry in sdoc.get("surnames") or []:
+        if isinstance(entry, dict) and entry.get("surname") == claims[aid].get("surname") and entry.get("taken_by") != mark:
+            entry["taken_by"] = mark
+            _write(spath, sdoc)
+            break
     return aid

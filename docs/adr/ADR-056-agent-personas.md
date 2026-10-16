@@ -93,7 +93,9 @@ its own rather than imposed.
    unclaimed, checked before anything is made — and otherwise the agent
    claims one. A claim carries `first_name` null until the agent has
    chosen it (rule 5); until then people read "AI <Surname>, <role>"
-   (A 2026-10-15). Where a claim and the agent's own profile differ, the
+   (A 2026-10-15). A claimed surname is marked in `surnames.json` by its
+   entry's `taken_by` {agent, login}, written with the claim and checked
+   by lint against `claims.json`. Where a claim and the agent's own profile differ, the
    claim wins, first name and surname alike.
 5. The agent chooses its sex first (rule 6), then its first name: a
    name of that sex, from the culture its surname comes from (the
