@@ -977,6 +977,8 @@ def _():
 
     def nap(ms: float) -> None:
         naps.append(ms)
+        if len(naps) > 500:   # a deadline that is ignored must fail the case, not hang the suite
+            raise Failed("the hold outlasted its deadline")
         time.sleep(0.01)
     never = lambda *_a: (_ for _ in ()).throw(Failed("a held watch fetched"))   # noqa: E731
     res = wait_loop(never, never, 3600, held=lambda: True, sleep=nap, deadline=time.monotonic() - 1)
