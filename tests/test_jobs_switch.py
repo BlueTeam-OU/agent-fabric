@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sqlite3
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -96,18 +97,19 @@ def main() -> int:
         class World:
             """A fresh state directory and a fresh checkout with its origin."""
 
-            def __init__(self) -> None:
+            def __init__(self, under: str | None = None) -> None:
                 nonlocal n_worlds
                 n_worlds += 1
                 self.n = n_worlds
                 self.state = os.path.join(tmp, f"state{self.n}")
                 os.environ["AGENT_FABRIC_STATE_DIR"] = self.state
-                self.repo = jobs_world.seeded(os.path.join(tmp, f"wc{self.n}"), origins)
+                self.repo = jobs_world.seeded(os.path.join(under or tmp, f"wc{self.n}"), origins)
+                self.memory_of = self.repo      # the launch directory whose memory each switch refreshes
                 self.memory()
                 gh_says()
 
             def memory(self) -> None:
-                jobs_world.touch_memory(home, self.repo)
+                jobs_world.touch_memory(home, self.memory_of)
 
             def sw(self, *argv: str, cwd: str | None = None) -> tuple[int, str, str]:
                 os.chdir(cwd or self.repo)
@@ -636,6 +638,124 @@ def main() -> int:
         check("a memory directory that did not change during the job is refused", rc == 1 and "has not changed during" in err, err)
         rc, out, err = w.switch()
         check("…and written, it switches (the positive control)", rc == 0, err)
+
+        print("memory of a session launched above the working copy")
+        workspace = os.path.join(home, "projects")
+        os.makedirs(workspace)
+        key = lambda d: os.path.join(home, ".claude", "projects", jobs_world.re.sub(r"[^A-Za-z0-9]", "-", d), "memory")
+        w = World(under=workspace)
+        j1 = w.working("launched in ~/projects")
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        os.utime(key(w.repo), (1, 1)); os.utime(os.path.join(key(w.repo), "fact.md"), (1, 1))
+        w.memory_of = workspace
+        rc, out, err = w.switch()
+        check("a session dir above the working copy settles once a file there changes", rc == 0, err)
+        w = World(under=workspace)
+        j1 = w.working("sibling and home keys")
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        for d in (w.repo, workspace):      # the workspace's key still holds the previous case's fresh file
+            os.utime(os.path.join(key(d), "fact.md"), (1, 1))
+        sibling = os.path.join(workspace, "other-checkout")
+        for d in (sibling, home):
+            w.memory_of = d
+            rc, out, err = w.switch()
+            check(f"a memory written for {os.path.relpath(d, tmp)} is not read", rc == 1 and "has not changed during" in err, err)
+        w.memory_of = workspace
+        rc, out, err = w.switch()
+        check("…the ancestor below the home is (the positive control)", rc == 0, err)
+        w = World()
+        j1 = w.working("no memory anywhere")
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        shutil.rmtree(key(w.repo))
+        rc, out, err = w.sw("switch")
+        check("with none existing, the refusal lists the paths tried", rc == 1 and "no memory directory" in err and key(w.repo) in err, err)
+
+        w = World(under=workspace)
+        wt = w.repo + "-wt"
+        subprocess.run(["git", "-C", w.repo, "worktree", "add", "-q", "-b", "wt-branch", wt], check=True, env=jobs_world.git_env())
+        j1 = w.add("job in a linked worktree", "--working-copy", wt)
+        w.sw("start", j1)
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        for d in (w.repo, workspace):
+            os.utime(os.path.join(key(d), "fact.md"), (1, 1))
+        w.memory_of = os.path.join(workspace, "other-checkout")
+        rc, out, err = w.switch(cwd=wt)
+        check("a memory written for a sibling is not read for a worktree job", rc == 1 and "has not changed during" in err, err)
+        w.memory_of = w.repo
+        rc, out, err = w.switch(cwd=wt)
+        check("a session launched in the main checkout settles a job in its linked worktree", rc == 0, err)
+        settle_mod = sys.modules["fabric_jobs.settle"]
+        real_text = settle_mod.vcs.text
+        def failing(repo, *a, **k):
+            if "--git-common-dir" in a:
+                raise settle_mod.vcs.VcsError("git rev-parse: exit 128: boom")
+            return real_text(repo, *a, **k)
+        settle_mod.vcs.text = failing
+        try:
+            why = settle_mod.memory_changed({"id": "jX", "created": "2000-01-01T00:00:00Z", "log": []}, [wt])
+        finally:
+            settle_mod.vcs.text = real_text
+        check("a git failure naming the main checkout is said in the refusal, not read as an unwritten memory",
+              why is not None and "git could not name the main checkout" in why and "boom" in why and "has not changed" not in why, why)
+        cfg = os.path.join(w.repo, ".git", "config")
+        with open(cfg, "a", encoding="utf-8") as fh:
+            fh.write("[broken\n")
+        try:
+            why = settle_mod.memory_changed({"id": "jX", "created": "2000-01-01T00:00:00Z", "log": []}, [wt])
+        finally:
+            with open(cfg, encoding="utf-8") as fh:
+                text = fh.read()
+            with open(cfg, "w", encoding="utf-8") as fh:
+                fh.write(text.replace("[broken\n", ""))
+        check("a repository git cannot read is a failure said as such, not 'no repository'",
+              why is not None and "could not tell whether jX wrote a memory" in why and "has not changed" not in why, why)
+        lone = World()
+        shutil.rmtree(key(lone.repo))
+        settle_mod.vcs.text = failing
+        try:
+            why = settle_mod.memory_changed({"id": "jX", "created": "2000-01-01T00:00:00Z", "log": []}, [lone.repo])
+        finally:
+            settle_mod.vcs.text = real_text
+        check("…and with no memory directory at all, the refusal still carries the git failure",
+              why is not None and "no memory directory" in why and "boom" in why, why)
+        subprocess.run(["git", "-C", home, "init", "-q"], check=True, env=jobs_world.git_env())
+        os.makedirs(os.path.join(home, "sub"))
+        try:
+            gone = [os.path.join(home, "swept-worktree")]
+            check("a working copy that no longer exists is not blamed on git, even under a repository",
+                  settle_mod.memory_changed({"id": "jX", "created": "2000-01-01T00:00:00Z", "log": []}, gone) is not None
+                  and "git could not" not in settle_mod.memory_changed({"id": "jX", "created": "2000-01-01T00:00:00Z", "log": []}, gone), gone)
+            got = settle_mod.memory_candidates([os.path.join(home, "sub")])
+            check("the home is never a candidate, even when it is itself a repository", home not in got and os.path.join(home, "sub") in got, got)
+        finally:
+            shutil.rmtree(os.path.join(home, ".git"))
+            os.rmdir(os.path.join(home, "sub"))
+
+        w = World(under=workspace)
+        w.memory_of = workspace
+        j1 = w.add("reflect on it", "--topic", "reflection")
+        w.sw("start", j1)
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        os.utime(os.path.join(key(w.repo), "fact.md"), (1, 1))
+        os.utime(os.path.join(key(workspace), "fact.md"), (1, 1))
+        elsewhere = os.path.join(home, "herdr")
+        w.memory_of = elsewhere
+        rc, out, err = w.switch()
+        check("a reflection job counts every memory directory of the login", rc == 0, err)
+        w = World(under=workspace)
+        j1 = w.working("not a reflection")
+        w.sw("drop", j1, "done with it")
+        w.add("next")
+        os.utime(os.path.join(key(w.repo), "fact.md"), (1, 1))
+        os.utime(os.path.join(key(workspace), "fact.md"), (1, 1))
+        w.memory_of = elsewhere
+        rc, out, err = w.switch()
+        check("…and another job does not (the positive control)", rc == 1 and "has not changed during" in err, err)
 
         w = World()
         j1 = w.working("several things wrong")
