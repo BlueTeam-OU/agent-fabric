@@ -855,10 +855,13 @@ def render_review(model: str, head: str, rng: str, findings: list[dict], effort_
 _posting = False
 
 
-def post(repo: str, pr: str, body: str) -> int:
+def post(repo: str, pr: str, head: str, body: str) -> int:
     global _posting
     _posting = True
-    r = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-pr"), "post-review", pr, "--model", ENGINE],
+    r = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-pr"), "post-review", pr, "--model", ENGINE,
+                        # The commit Codex read: the body carries no dispatch header, and post-review records a
+                        # report only on the head it names (REQUEST 01a143a6).
+                        "--head", head],
                        cwd=repo, input=body, text=True, timeout=180)
     return r.returncode
 
@@ -1019,7 +1022,7 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     if no_post:
         sys.stdout.write(body)
         return 0
-    return 0 if post(repo, pr, body) == 0 else 1
+    return 0 if post(repo, pr, head, body) == 0 else 1
 
 
 def _raise_signal(signum, _frame):
