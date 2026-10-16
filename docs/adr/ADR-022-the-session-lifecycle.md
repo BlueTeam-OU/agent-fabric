@@ -168,8 +168,8 @@ the same command asks on one account and not on another.
 - A resumed session is told it has no watch; a relaunched one arms it on
   its first turn. The watch is a background command that ends on each
   delivery, so running it again after the delivery is the session's job
-  (`gzcoord-receive` §1); a quiet session is woken at most once per two
-  hours, the Bash background cap.
+  (`gzcoord-receive` §1); a quiet session is woken about once per 1 h 55
+  min, by the watch's own deadline before the Bash background cap.
 - After a plan is approved the planning span's deliveries arrive
   together, and the session reads them before acting: the tree may have
   moved.
