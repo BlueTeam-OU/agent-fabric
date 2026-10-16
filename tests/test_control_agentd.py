@@ -1123,6 +1123,49 @@ class Resident(Daemon):
         self.assertGreaterEqual(time.monotonic() - t0, 1.5, "after the quiet period")
 
 
+class JobsSweep(unittest.TestCase):
+    """The hourly sweep (ADR-037 rule 12): what the daemon runs and what it says, with the child faked."""
+
+    def sweep(self, result=None, raises=None):
+        calls, said = [], []
+
+        def run(argv, **kw):
+            calls.append((argv, kw))
+            if raises:
+                raise raises
+            return result
+        agentd.jobs_sweep(run=run, log=said.append)
+        return calls, said
+
+    def test_runs_this_trees_fabric_jobs_sweep_bounded(self):
+        calls, _ = self.sweep(SimpleNamespace(returncode=0, stdout="no delivered jobs\n", stderr=""))
+        argv, kw = calls[0]
+        self.assertEqual(argv, [os.path.join(agentd.FABRIC_ROOT, "bin", "fabric-jobs"), "sweep"], "not --dry-run: it closes")
+        self.assertEqual(kw["timeout"], agentd.JOBS_SWEEP_TIMEOUT_S)
+        self.assertIs(kw["stdin"], subprocess.DEVNULL)
+
+    def test_says_what_closed_and_nothing_for_what_stays(self):
+        out = "j3  fix: a title with a colon: closed (PR o/r#5 merged)\nj4  y: stays (PR o/r#6 open)\nj9  z: closed (reply sent)\n"
+        _, said = self.sweep(SimpleNamespace(returncode=0, stdout=out, stderr=""))
+        self.assertEqual(said, ["agentd: jobs sweep: closed 2 delivered job(s) whose evidence landed: j3, j9"])
+        _, said = self.sweep(SimpleNamespace(returncode=0, stdout="j4 y: stays (PR o/r#6 open)\n", stderr=""))
+        self.assertEqual(said, [], "a hand-over still waiting is the normal case, said by nobody every hour")
+
+    def test_a_failure_is_one_line_with_the_reason(self):
+        _, said = self.sweep(SimpleNamespace(returncode=2, stdout="", stderr="a\nfabric-jobs: the list is locked\n"))
+        self.assertEqual(said, ["agentd: jobs sweep: exit 2: fabric-jobs: the list is locked"])
+
+    def test_a_hung_sweep_is_ended_and_said_never_raised(self):
+        _, said = self.sweep(raises=subprocess.TimeoutExpired(["fabric-jobs"], agentd.JOBS_SWEEP_TIMEOUT_S))
+        self.assertEqual(len(said), 1)
+        self.assertIn(f"ended after {agentd.JOBS_SWEEP_TIMEOUT_S} s", said[0])
+
+    def test_the_resident_daemon_starts_it_on_the_stagger(self):
+        src = open(AGENTD, encoding="utf-8").read()
+        self.assertRegex(src, r'Ticker\("jobs sweep", jobs_sweep, JOBS_SWEEP_EVERY_S, first_s=tools_mod\.first_run_delay_s\(me\["address"\]\)\)\.start\(\)')
+        self.assertLess(src.index("if not once:"), src.index('Ticker("jobs sweep"'), "only the resident daemon sweeps, never --once")
+
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)
