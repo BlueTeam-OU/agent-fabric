@@ -191,6 +191,14 @@ Why these choices:
     will not do is dropped with its reason and answered (A 2026-10-09).
     A job may be a step of a coordinator's plan (ADR-047); the link is
     held in the plan, and the job gains no field (A 2026-10-09).
+12. A delivered job whose evidence has landed is done, by the test rule
+    10's `done` applies: `fabric-jobs sweep` closes it, and keeps
+    delivered, saying why, a job any of whose artifacts is still open,
+    could not be read or names no repository. Each account's control
+    agent runs the sweep once an hour, so a supplier's job closes when
+    the caller's pull request merges, whether or not the supplier's
+    session ever starts again; `delivered` then means waiting on
+    someone else, not finished long ago (A 2026-10-16).
 
 ## 6. Consequences
 
@@ -238,3 +246,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-12 | Checkable blockers | §5 rule 8: `block --on` takes `pr:`, `request:` and `job:` blockers, re-checked at most every ten minutes; a cleared job is listed first and taken first by `next` |
 | 2026-10-14 | Paused, and the transition between jobs | §5 rule 2 adds `paused` (the agent's choice) beside `blocked` (a wait it does not control); rule 10: `fabric-jobs switch` settles the old job with its evidence, starts the next fresh (rule 3 unchanged) and chooses its branch, refusing on a failed check |
 | 2026-10-15 | Built, and the text says so | §2's request intake and §5 rule 2's `paused` read as built (intake.py; `fabric-jobs pause` and `switch`); no rule changes |
+| 2026-10-16 | A delivered job whose evidence landed is swept to done | §5 rule 12 added: `fabric-jobs sweep` closes a delivered job by rule 10's `done` test, and each account's control agent runs it hourly |

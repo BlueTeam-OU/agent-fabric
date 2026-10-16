@@ -97,6 +97,7 @@ from __future__ import annotations
 import errno
 import math
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -701,6 +702,33 @@ def start_tools_report(keeper: tools_mod.ToolsKeeper | None = None, every_ms: fl
     return keeper
 
 
+JOBS_SWEEP_EVERY_S = 3600
+# One gh lookup per distinct pull request, each bounded to 30 s by the sweep; a list of a few hundred delivered jobs
+# names a few dozen, so ten minutes is a sweep that hung, not one still working.
+JOBS_SWEEP_TIMEOUT_S = 600
+
+
+def jobs_sweep(run: Callable[..., Any] = subprocess.run, log: Callable[[str], None] = _stderr) -> None:
+    """`fabric-jobs sweep` on this account's list (ADR-037 rule 12): a supplier's job delivered into a caller's pull
+    request closes when that merges, though the supplier's session may never start again to look. Run as a child, so a
+    hung lookup is ended by its timeout and never holds the daemon. Only what closed is said; a job that stays is the
+    normal case of a hand-over still waiting, and an hourly line per such job would be noise."""
+    try:
+        p = run([os.path.join(FABRIC_ROOT, "bin", "fabric-jobs"), "sweep"], capture_output=True, text=True,
+                timeout=JOBS_SWEEP_TIMEOUT_S, stdin=subprocess.DEVNULL, check=False)
+    except subprocess.TimeoutExpired:
+        log(f"agentd: jobs sweep: ended after {JOBS_SWEEP_TIMEOUT_S} s; the list is unchanged past what it had closed")
+        return
+    if p.returncode != 0:
+        tail = (p.stderr or p.stdout or "").strip().splitlines()[-1:] or ["no output"]
+        log(f"agentd: jobs sweep: exit {p.returncode}: {tail[0]}")
+        return
+    # A line is "<id>  <title>: closed (<evidence>)", and a title may hold a colon of its own: the id alone is said.
+    closed = [line.split()[0] for line in (p.stdout or "").splitlines() if ": closed (" in line]
+    if closed:
+        log(f"agentd: jobs sweep: closed {len(closed)} delivered job(s) whose evidence landed: {', '.join(closed)}")
+
+
 def _status_of(first: dict, op: str) -> str:
     section = (first.get("data") or {}).get(op)
     status = section.get("status") if isinstance(section, dict) else None
@@ -813,6 +841,9 @@ def main(argv: list[str] | None = None) -> int:
         # The proofs run in the background and never delay a reply.
         ctx["tools_refresh"] = start_tools_report(first_s=tools_mod.first_run_delay_s(me["address"]),
                                                   binding_file=who.get("binding")).refresh_again
+        # The jobs sweep (ADR-037 rule 12), on the same stagger as the tools report: fifteen accounts asking GitHub at
+        # one moment after a fleet restart is what the stagger exists to avoid.
+        Ticker("jobs sweep", jobs_sweep, JOBS_SWEEP_EVERY_S, first_s=tools_mod.first_run_delay_s(me["address"])).start()
         # Only the resident daemon samples: a --once run would add a lone
         # sample with no minute behind it.
         pressure_sampler = pressure.sampler()
