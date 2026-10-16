@@ -53,7 +53,7 @@ job's own project (asked of the job's working copy). A job closes only when some
 still open, could not be asked or could not be resolved to a repository; anything else stays delivered and the line says why.
 One line per delivered job: "would close (<evidence>)" under --dry-run, "closed (<evidence>)" without it, or "stays (<why>)". The
 transition carries the evidence as its note ("swept: …") and is applied under the list's lock, to a job still delivered with the
-artifacts the evidence was read from. One gh lookup per distinct pull request in the run, each with a timeout; a lookup that
+artifacts the evidence was read from. Each account's control agent runs it hourly (tools/fabric/control/agentd.py, ADR-037 rule 12). One gh lookup per distinct pull request in the run, each with a timeout; a lookup that
 fails leaves the job delivered and says so. No other state is touched, no artifact removed, and a second run changes nothing.
 
 A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
