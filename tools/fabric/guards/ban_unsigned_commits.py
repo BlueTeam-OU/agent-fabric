@@ -34,9 +34,9 @@ unless ALL of:
     and none names no one), and neither its key nor an ancestor's is revoked
     in its committed file;
   - its last `Fabric-Role:` trailer names a role (identities/roles/<role>/)
-    the agent may hold: a holder in policies/authority.json role_definitions,
-    or a login that is the role's name alone, with `-<n>`, or with `-<suffix>`
-    of one of the role's locales;
+    the agent may hold: a role authority.json lists is held by its holders
+    alone; any other role by a login that is the role's name alone, with
+    `-<n>`, or with `-<suffix>` of one of the role's locales;
   - its note under refs/notes/fabric-ots is ONE OpenTimestamps proof whose
     stamped digest is sha256 of this commit's own signature.
 
@@ -88,6 +88,7 @@ import tempfile
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+import common  # noqa: E402
 import git  # noqa: E402
 import roots  # noqa: E402
 import signing_policy  # noqa: E402
@@ -180,14 +181,14 @@ def proof_matches(signature: bytes, proof: bytes) -> bool:
 
 
 def may_hold(login: str, role: str, holders: list[str] | None, locales: list[str]) -> bool:
-    """A locale's holder (ADR-057 §5 rule 5), and: a role that authority.json lists
-    (`holders` not None) is held by its list alone, as charter_authority.is_holder
-    has it -- a login merely NAMED fabric-coordinator-N is whatever a provisioner
-    called it; any other role is held by the convention name or name-<n>."""
+    """A role that authority.json lists (`holders` not None) is held by its list
+    alone, as charter_authority.is_holder has it -- a login merely NAMED
+    fabric-coordinator-N, or fabric-coordinator-<locale>, is whatever a
+    provisioner called it. Any other role is held by the convention name,
+    name-<n>, or a locale's holder (ADR-057 §5 rule 5)."""
     if holders is not None:
-        if login in holders:
-            return True
-    elif re.fullmatch(re.escape(role) + r"(-[0-9]+)?", login):
+        return login in holders  # not the locales either: a listed role's list is complete
+    if re.fullmatch(re.escape(role) + r"(-[0-9]+)?", login):
         return True
     return any(login == f"{role}-{suffix}" for suffix in locales)
 
@@ -308,14 +309,25 @@ class Judge:
             f.write("".join(l + "\n" for l in ssh_lines))
         try:
             with open(roots.policy("authority.json", environ=self.environ), encoding="utf-8") as f:
-                definitions = json.load(f).get("role_definitions") or {}
+                definitions = json.load(f).get("role_definitions")
         except (OSError, ValueError) as e:  # a missing file too: no holders is not "no one is listed"
             self.global_problem = f"policies/authority.json cannot be read ({type(e).__name__}: {e})"
-            definitions = {}
-        self.holders: dict[str, list[str]] = {}
+            definitions = None
+        # The charter guard refuses a file with no role_definitions dict, and
+        # reads a definition with no role as DEFAULT_ROLE's (common.role_of);
+        # the same here, so the owner role is always listed and never falls back
+        # to the name convention.
+        if not isinstance(definitions, (dict, list)) or definitions == []:
+            self.global_problem = self.global_problem or "policies/authority.json has no role_definitions -- no holder can be named"
+            definitions = []
+        self.holders: dict[str, list[str]] = {common.DEFAULT_ROLE: []}
         for d in definitions if isinstance(definitions, list) else [definitions]:
-            if isinstance(d, dict) and isinstance(d.get("role"), str):
-                self.holders[d["role"]] = [h for h in d.get("holders") or [] if isinstance(h, str)]
+            if isinstance(d, dict):
+                role = d.get("role")
+                role = role if isinstance(role, str) and role else common.DEFAULT_ROLE
+                listed = d.get("holders")
+                if isinstance(listed, list):
+                    self.holders.setdefault(role, []).extend(h for h in listed if isinstance(h, str))
 
     def _locales(self, role: str) -> list[str]:
         try:
