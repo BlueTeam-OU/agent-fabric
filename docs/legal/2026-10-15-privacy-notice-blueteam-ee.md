@@ -51,21 +51,24 @@ with Proton, 1984, Smart Accounts and Wisor have been accepted.
 Read from the official text in this session:
 
 - Regulation (EU) 2016/679 (GDPR), OJ L 119, 4.5.2016, from the EU
-  Publications Office: Articles 3(1), 12(5), 13, 15(3), 21(4), 26, 30(5),
-  33(1), 34(1), 44, 45(9). No amendment is in force: the Digital Omnibus
+  Publications Office: Articles 3(1), 6(1), 12(5), 13, 15(3), 21(4), 26,
+  28(2), 28(4), 30(5), 33(1), 34(1), 44, 45(9). No amendment is in force: the Digital Omnibus
   proposal (procedure 2025/0360(COD)) had no Council position in October
   2026, per secondary sources.
 - Commission Decision 2000/518/EC of 26 July 2000 (OJ L 215,
   25.8.2000), Article 1: Switzerland provides an adequate level of
   protection; kept in force by GDPR Article 45(9).
-- Anthropic Consumer Terms (effective 8 October 2025) and Privacy Policy
-  (effective 10 September 2026), read through a fetch summary.
+- Anthropic's Consumer Terms of Service (effective 8 October 2025) and
+  Privacy Policy (effective 10 September 2026), from anthropic.com/legal,
+  the pages themselves; the phrases quoted in section 4 are theirs.
 
 *Unverified* in this session: the Accounting Act § 12 (seven-year
 retention of source documents); the General Part of the Civil Code Act
 § 146 (limitation periods); CJEU C-210/16 *Wirtschaftsakademie*; the
 WP29 position paper on Article 30(5) (2018); OpenAI's business terms and
-data processing addendum; the Swiss Federal Act on Data Protection
+data processing addendum; Anthropic's Commercial Terms of Service and
+its data processing addendum (what section 4 says of the commercial
+plans rests on them); the Swiss Federal Act on Data Protection
 (outside this jurisdiction).
 
 ## 4. Reading
@@ -74,8 +77,9 @@ data processing addendum; the Swiss Federal Act on Data Protection
 
 Anthropic sells two kinds of contract.
 
-- **Commercial** (Team, Enterprise, the API): Anthropic processes what
-  the customer sends on the customer's instructions. It is the
+- **Commercial** (Team, Enterprise, the API; *unverified*, see section
+  3): Anthropic processes what the customer sends on the customer's
+  instructions. It is the
   customer's processor, under a data processing agreement, and does not
   train on the content.
 - **Consumer** (Free, Pro, Max): Anthropic decides itself what it does
@@ -160,9 +164,13 @@ and unlikely to be pursued alone.
 
 ## 6. What to do
 
-For the owner to decide:
+For the owner to decide; point 1 is decided.
 
-1. **Client personal data and Max.**
+1. **Client personal data and Max.** Decided: the owner chose (b),
+   recorded as agent-fabric ADR-059 (2026-10-16). The fleet keeps Max,
+   and no personal data of a third party (clients, their people, visitors
+   of Blueteam's sites) goes into any AI tool it uses. The options as
+   they were put:
    - (a) Run client work that touches personal data only on a plan
      with a processing agreement: the OpenAI business account, or an
      Anthropic commercial plan.
@@ -176,8 +184,9 @@ For the owner to decide:
    with the provider table attached (Article 28(2)).
 3. **Processing agreements** with Proton, 1984, Smart Accounts and
    Wisor: confirm they are accepted, and keep copies.
-4. **Adopt the redraft**, once 1 is decided and the bracketed facts in it
-   are filled in.
+4. **Adopt the redraft**, which is written on ADR-059, once the bracketed
+   facts in it are filled in. It is true only while ADR-059's rules 1
+   and 2 are kept.
 
 Needs an attorney: the Swiss law questions (FADP, the clients' Swiss
 contracts), for which a Swiss data protection attorney is the
