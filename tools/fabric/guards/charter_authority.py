@@ -38,8 +38,8 @@ branch.
 AUTHORITY BELONGS TO THE ROLE, NOT TO THE ACCOUNT. The branch's second
 segment names the agent (Linux login) that opened it. The check asks
 whether that agent is a recognised holder of fabric-coordinator: named
-in policies/authority.json, or named FOR the role by the provisioning
-convention (fabric-coordinator, fabric-coordinator-02). An account
+in policies/authority.json (as the base ref has it) and nowhere else: a
+login merely named fabric-coordinator-02 is not. An account
 currently HOLDING some other role does not thereby own that role's
 definition — that is exactly the widening this tripwire exists to catch.
 
@@ -82,17 +82,16 @@ entry that is not a string, names nobody (the bash joined a string into its
 characters, split an entry on spaces and expanded `*` against the working
 directory); a `role` that is empty or not a string is the default,
 fabric-coordinator (an empty one made `$agent == ""*` true for everybody).
-NAMED FOR THE ROLE means the role's name, or that name and a number:
-fabric-coordinator, fabric-coordinator-02, as policies/authority.json says.
-The bash matched a PREFIX, so an account named fabric-coordinatorX, or
-fabric-coordinator-anything, was a holder too; any login a provisioner
-names that way would have owned every role's definition.
+A HOLDER is a login in that list, whole. The bash matched a PREFIX, so an
+account named fabric-coordinatorX, or fabric-coordinator-anything, was a
+holder too, and a later version a name or name-<n>; any login a provisioner
+names that way would have owned every role's definition. An authority.json
+the base cannot show, or without role_definitions, is a refusal (exit 2).
 """
 from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -157,8 +156,17 @@ def holders_of(text: str) -> list[str]:
     return listed if isinstance(listed, list) and all(isinstance(h, str) for h in listed) else []
 
 
-def is_holder(agent: str, holders: list[str], owner_role: str) -> bool:
-    return agent in holders or bool(re.fullmatch(re.escape(owner_role) + r"(-[0-9]+)?", agent))
+def _role_definitions(text: str):
+    try:
+        return json.loads(text).get("role_definitions")
+    except (ValueError, AttributeError):
+        return None
+
+
+def is_holder(agent: str, holders: list[str]) -> bool:
+    # The list alone: a login NAMED for the role is whatever a provisioner
+    # called it, and ban_unsigned_commits.may_hold decides by the same list.
+    return agent in holders
 
 
 def changed_paths(repo: str, base: str) -> list[str]:
@@ -221,9 +229,13 @@ def run(argv: list[str], env: dict[str, str]) -> int:
     # the BASE side of the diff, so a branch cannot add itself to the list in
     # the same change it uses the list to justify.
     shown = git.run(root, "show", f"{base}:policies/authority.json", check=False)
-    text = shown.stdout if shown.returncode == 0 else ""
+    if shown.returncode != 0:
+        raise Refused(f"cannot read policies/authority.json at {base} -- no holder can be named")
+    text = shown.stdout
+    if not isinstance(_role_definitions(text), dict):
+        raise Refused(f"policies/authority.json at {base} has no role_definitions -- no holder can be named")
     owner_role = common.role_of(text) or common.DEFAULT_ROLE
-    if is_holder(agent, holders_of(text), owner_role):
+    if is_holder(agent, holders_of(text)):
         say(f"check_charter_authority: OK — {len(changed)} role definition(s) "
             f"changed on a {owner_role} branch ({agent}).")
         return 0

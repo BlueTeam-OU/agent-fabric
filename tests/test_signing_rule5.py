@@ -459,6 +459,14 @@ def run() -> None:
     r = guard()
     check("a policy that cannot be read: refused, never read as absent", refused(r, "signing policy cannot be read"), r.stderr)
     write_operator(since=old)
+    os.remove(os.path.join(FABRIC, "policies", "authority.json"))
+    j = guard_mod.Judge(env(AGENT_FABRIC_OPERATOR=FABRIC), "ssh")
+    try:
+        check("a missing authority.json refuses, naming why (no holder is read as none listed)",
+              "policies/authority.json cannot be read" in j.global_problem, j.global_problem)
+    finally:
+        j.close()
+    write_operator(since=old)
     sig = b"-----BEGIN SSH SIGNATURE-----\nabc\n-----END SSH SIGNATURE-----"
     good = proof_mod.MAGIC + b"\x01\x08" + hashlib.sha256(sig).digest() + b"\x00tail"
     for label, blob in (("the proof of this signature", good), ("another signature's", proof_mod.MAGIC + b"\x01\x08" + hashlib.sha256(sig + b"x").digest()),
@@ -467,10 +475,12 @@ def run() -> None:
         check(f"the checker's proof match agrees with signing/proof.py: {label}",
               guard_mod.proof_matches(sig, blob) == proof_mod.matches(sig, blob))
     check("may_hold: -<n>, a locale suffix, a holder; not another role's -<word>",
-          guard_mod.may_hold("python-dev-04", "python-dev", [], []) and guard_mod.may_hold("lc-en", "lc", [], ["en"])
+          guard_mod.may_hold("python-dev-04", "python-dev", None, []) and guard_mod.may_hold("lc-en", "lc", None, ["en"])
           and guard_mod.may_hold("user", "fabric-coordinator", ["user"], [])
-          and not guard_mod.may_hold("python-dev-evil", "python-dev", [], ["en"])
-          and not guard_mod.may_hold("web-dev-01", "python-dev", [], []))
+          and not guard_mod.may_hold("fabric-coordinator-2", "fabric-coordinator", ["user"], [])
+          and not guard_mod.may_hold("fabric-coordinator", "fabric-coordinator", ["user"], [])
+          and not guard_mod.may_hold("python-dev-evil", "python-dev", None, ["en"])
+          and not guard_mod.may_hold("web-dev-01", "python-dev", None, []))
     with open(CI, encoding="utf-8") as f:
         ci = f.read()
     check("CI fetches refs/notes/fabric-ots before the checker runs",

@@ -179,9 +179,15 @@ def proof_matches(signature: bytes, proof: bytes) -> bool:
     return proof[head:head + 32] == hashlib.sha256(signature.strip()).digest()
 
 
-def may_hold(login: str, role: str, holders: list[str], locales: list[str]) -> bool:
-    """charter_authority.is_holder's rule, and a locale's holder (ADR-057 §5 rule 5)."""
-    if login in holders or re.fullmatch(re.escape(role) + r"(-[0-9]+)?", login):
+def may_hold(login: str, role: str, holders: list[str] | None, locales: list[str]) -> bool:
+    """A locale's holder (ADR-057 §5 rule 5), and: a role that authority.json lists
+    (`holders` not None) is held by its list alone, as charter_authority.is_holder
+    has it -- a login merely NAMED fabric-coordinator-N is whatever a provisioner
+    called it; any other role is held by the convention name or name-<n>."""
+    if holders is not None:
+        if login in holders:
+            return True
+    elif re.fullmatch(re.escape(role) + r"(-[0-9]+)?", login):
         return True
     return any(login == f"{role}-{suffix}" for suffix in locales)
 
@@ -303,9 +309,7 @@ class Judge:
         try:
             with open(roots.policy("authority.json", environ=self.environ), encoding="utf-8") as f:
                 definitions = json.load(f).get("role_definitions") or {}
-        except FileNotFoundError:
-            definitions = {}
-        except (OSError, ValueError) as e:
+        except (OSError, ValueError) as e:  # a missing file too: no holders is not "no one is listed"
             self.global_problem = f"policies/authority.json cannot be read ({type(e).__name__}: {e})"
             definitions = {}
         self.holders: dict[str, list[str]] = {}
@@ -389,7 +393,7 @@ class Judge:
             return f"signed by {login} ({agent}) but names no Fabric-Role"
         if not ROLE_RE.match(role) or not os.path.isdir(roots.role_dir(role, environ=self.environ)):
             return f"Fabric-Role: {role} is no role defined in identities/roles/"
-        if not may_hold(login, role, self.holders.get(role, []), self._locales(role)):
+        if not may_hold(login, role, self.holders.get(role), self._locales(role)):
             return f"signed by {login} ({agent}), who may not hold the role it names (Fabric-Role: {role})"
         if note_blob is None:
             return f"no timestamp proof in {NOTES_REF} (fetch it, or `fabric-sign note {sha[:10]}` and push)"
