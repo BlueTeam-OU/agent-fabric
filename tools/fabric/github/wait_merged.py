@@ -572,22 +572,32 @@ class Watch:
         pends: that is an answer, so its stdout is read either way. With none
         reported it prints no JSON at all, and that is an answer too: []."""
         args = ["pr", "checks", self.pr, "--required", "--json", "name,bucket", "--repo", self.repo]
-        why = "gh exited 0"
+        # The reason describes THIS read: a stale one from an earlier poll
+        # would name a failure that is no longer the one happening.
+        self.checks_why = why = "gh exited 0"
         try:
             out = gh.run(args, what="gh pr checks")
         except gh.GhError as e:
             if gh.no_checks_reported(e):
                 return []
+            if e.code is None:
+                # gh never ran or never answered: there was no stdout to call
+                # not-JSON.
+                self.checks_why = e.reason
+                return None
             out = e.stdout
             # gh.run's reason is "exit N" when gh wrote nothing to stderr:
             # not said twice.
-            why = e.reason if e.code is None else (
-                f"gh exit {e.code}" + ("" if e.reason == f"exit {e.code}" else f": {e.reason}"))
+            why = f"gh exit {e.code}" + ("" if e.reason == f"exit {e.code}" else f": {e.reason}")
         try:
-            return json.loads(out)
+            doc = json.loads(out)
         except ValueError:
             self.checks_why = f"{why}, and its stdout is not JSON"
             return None
+        if not isinstance(doc, list):
+            self.checks_why = f"{why}, and its JSON is not a list"
+            return None
+        return doc
 
 
 def run(argv: list[str]) -> int:

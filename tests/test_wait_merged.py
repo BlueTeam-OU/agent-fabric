@@ -238,7 +238,7 @@ def main() -> int:
     c = Clock()
     code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"] * 2 + ["MERGED"]), c, interval=1, timeout=600)
     check("blocked with every check passed does not claim a pending check",
-          code == 0 and "blocked; no required check is pending" in err and "still pending" not in err, err)
+          code == 0 and "blocked; no required check is pending" in err and "still pending" not in err and "none reported yet" not in err, err)
     c = Clock()
     code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED", "MERGED"], checks=[[]]), c, interval=1, timeout=600)
     check("blocked with no check reported says none reported yet", "no required check is pending (none reported yet)"
@@ -256,6 +256,16 @@ def main() -> int:
         check(f"{label} is unreadable, exit 2, with why, and claims no pending state",
               code == 2 and text.startswith("UNREADABLE — 5 checks") and f"(5/5): {why}" in err
               and "still pending" not in err, f"{code} {text} {err}")
+    # The reason is this read's: not "stdout is not JSON" for a gh that never
+    # answered, not an earlier poll's for a JSON that is not a list.
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[None]), c, interval=1, timeout=600)
+    check("a gh that never answered is not 'not JSON'", "(5/5): HTTP 502" in err and "not JSON" not in err, err)
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[("", "HTTP 401", 1), [], ("{}", "", 0)]), c,
+                               interval=1, timeout=600)
+    check("JSON that is not a list says so, not the earlier poll's reason",
+          "(1/5): gh exit 0, and its JSON is not a list" in err, err)
     c = Clock()
     code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[(pend + [{"name": "t", "bucket": "fail"}], "", 8)]),
                                c, interval=1, timeout=600)
