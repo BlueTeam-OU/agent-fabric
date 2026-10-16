@@ -790,6 +790,9 @@ esac
                       rc == 0 and claims().get(new_id) == {"surname": "Huber", "first_name": None}
                       and claims().get(other_id) == {"surname": "Kelsen", "first_name": "Lena"}
                       and "finish new r" in calls, f"{msg}\n{claims()}")
+                taken = {e["surname"]: e.get("taken_by") for e in json.load(open(f"{fk}/root/identities/personas/surnames.json"))["surnames"]}
+                check("…and marks the surname's entry taken_by {agent, login}, leaving the unclaimed one bare",
+                      taken == {"Huber": {"agent": new_id, "login": "new"}, "Kelsen": None}, f"{taken}")
                 check("…and says fabric-coordinator commits it with identities/keys/, never committing it itself",
                       "5a. Huber claimed for new (" + new_id + ")" in err and "fabric-coordinator commits it with identities/keys/" in err,
                       err)
