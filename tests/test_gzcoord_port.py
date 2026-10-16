@@ -964,6 +964,12 @@ def _():
         stub.close()
 
 
+@case("--deadline defaults to 6900 s, under the harness's 7200 s cap")
+def _():
+    from gzcoord import inbox
+    eq(inbox.DEFAULT_DEADLINE_S, 6900.0)
+
+
 @case("a hold that outlasts the deadline ends wait_loop; before it, the hold keeps waiting")
 def _():
     from gzcoord.inbox_parts.watch import wait_loop
