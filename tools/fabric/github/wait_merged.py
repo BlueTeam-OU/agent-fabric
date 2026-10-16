@@ -138,7 +138,7 @@ from github import actions_health, arm, landed  # noqa: E402
 from github.review_status.base import Die  # noqa: E402
 # These stay importable from here, where the unit suite reaches them.
 from github.wait_merged_input import (  # noqa: E402, F401
-    IDLE_SETTING, allowance_spent, failing_names, outage_line, parse_args)
+    IDLE_SETTING, allowance_spent, failing_names, outage_line, parse_args, pending_names)
 
 PROG = "wait-merged"
 HEALTH_SEAM = "AGENT_FABRIC_ACTIONS_HEALTH"
@@ -218,6 +218,7 @@ class Watch:
         self.pr, self.repo, self.quiet = opts["pr"], repo, opts["quiet"]
         self.interval, self.timeout, self.idle_threshold = opts["interval"], opts["timeout"], opts["idle_reads"]
         self.arm = arm_command()
+        self.checks_why = ""   # why the last checks lookup was unreadable, for the note
         self.eviction_note = eviction_note()
         # THE DEADLINE IS WALL-CLOCK, not a count of the naps taken: whole
         # seconds since the watch began, as bash's SECONDS counted, so it
@@ -427,7 +428,8 @@ class Watch:
                 if not readable:
                     check_failures += 1
                     unreadable_total += 1
-                    self.note(f"could not read #{pr} checks ({check_failures}/{MAX_CONSECUTIVE_FAILURES})")
+                    self.note(f"could not read #{pr} checks ({check_failures}/{MAX_CONSECUTIVE_FAILURES}): "
+                              f"{self.checks_why}")
                     if check_failures >= MAX_CONSECUTIVE_FAILURES:
                         raise Verdict(2, f"UNREADABLE — {MAX_CONSECUTIVE_FAILURES} checks lookups failed in a row;"
                                          " giving up")
@@ -462,8 +464,16 @@ class Watch:
                         self.diagnose(True)
                 else:
                     empty_polls = 0
-                if merge_state == "BLOCKED":
-                    self.note(f"#{pr} blocked, checks still pending")
+                # PENDING IS AN ANSWER, NOT A FAULT: said whatever the merge
+                # state, so a watch that keeps waiting reads as one.
+                pending = pending_names(checks) if readable else ""
+                if pending:
+                    self.note(f"#{pr} checks pending: {pending}")
+                elif readable and merge_state == "BLOCKED":
+                    # Said from what was read: no required check is pending, so
+                    # what blocks the PR is not a check still running.
+                    self.note(f"#{pr} blocked; no required check is pending"
+                              + (" (none reported yet)" if not checks else ""))
                 # ARMING CAN VANISH WITHOUT ANYONE TOUCHING IT: a base that
                 # moves goes DIRTY and GitHub drops auto-merge; folded and
                 # pushed, the PR is CLEAN, green, unarmed, forever. Probed
@@ -562,16 +572,32 @@ class Watch:
         pends: that is an answer, so its stdout is read either way. With none
         reported it prints no JSON at all, and that is an answer too: []."""
         args = ["pr", "checks", self.pr, "--required", "--json", "name,bucket", "--repo", self.repo]
+        # The reason describes THIS read: a stale one from an earlier poll
+        # would name a failure that is no longer the one happening.
+        self.checks_why = why = "gh exited 0"
         try:
             out = gh.run(args, what="gh pr checks")
         except gh.GhError as e:
             if gh.no_checks_reported(e):
                 return []
+            if e.code is None:
+                # gh never ran or never answered: there was no stdout to call
+                # not-JSON.
+                self.checks_why = e.reason
+                return None
             out = e.stdout
+            # gh.run's reason is "exit N" when gh wrote nothing to stderr:
+            # not said twice.
+            why = f"gh exit {e.code}" + ("" if e.reason == f"exit {e.code}" else f": {e.reason}")
         try:
-            return json.loads(out)
+            doc = json.loads(out)
         except ValueError:
+            self.checks_why = f"{why}, and its stdout is not JSON"
             return None
+        if not isinstance(doc, list):
+            self.checks_why = f"{why}, and its JSON is not a list"
+            return None
+        return doc
 
 
 def run(argv: list[str]) -> int:
