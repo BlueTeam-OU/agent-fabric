@@ -1291,9 +1291,11 @@ echo "CLAUDE-STATE:$(cat "$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway.json" 
 echo "CLAUDE-PROVIDER:${AGENT_FABRIC_LAUNCH_PROVIDER-}"
 echo "CLAUDE-TRANSPORT:${AGENT_FABRIC_LAUNCH_TRANSPORT-}"
 u="$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway-usage.json"
-# Leaves the moment the file exists, so the deadline costs nothing idle: it is long for a loaded host, whose relay may take
-# seconds to answer; a case with a gateway that never answers shortens it.
-for _ in $(seq 1 "${FAKE_USAGE_WAIT_TENTHS:-300}"); do [ -s "$u" ] && break; sleep 0.1; done
+# Leaves the moment the file exists, so the deadline is free when a relay answers: it is long for a loaded host, whose relay
+# may take seconds. With no gateway up (the record is absent) no file will ever come, so it does not wait at all; a gateway
+# that never answers shortens it.
+w="${FAKE_USAGE_WAIT_TENTHS:-300}"; [ -e "$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway.json" ] || w=0
+for _ in $(seq 1 "$w"); do [ -s "$u" ] && break; sleep 0.1; done
 echo "CLAUDE-USAGE:$(cat "$u" 2>/dev/null || echo none)"
 """
             gw_log = f"{sandbox}/gateway.log"
