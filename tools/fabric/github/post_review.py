@@ -23,7 +23,7 @@ report is refused; a sha that is not a commit of the PR is refused; one that
 is no longer the head is posted against it all the same, saying so on
 stdout with the URL, so the gate counts it for that commit and never for the head pushed
 after it. A report with no header names its head with --head, or is refused
-(REQUEST 01a143a6): posted against the PR's head, a summary written for an
+(ADR-020 §5 rule 6): posted against the PR's head, a summary written for an
 older range read as the review of the head pushed after it.
 
 REVIEW_MARKER is the contract with every reader (pr-review-status, the

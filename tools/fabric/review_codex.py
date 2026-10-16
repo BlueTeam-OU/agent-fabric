@@ -86,7 +86,7 @@ runtime/claude-code/review/codex-answer.schema.json (also handed to
 --output-schema). Anything else — no message, prose, a fence, two objects, a
 finding without a fix — is a failed review: nothing is posted and the reason
 is said (rule 4). A valid answer is rendered with the engine, the model and the level sent on
-its first line and posted by `fabric-pr post-review PR --model codex` from the
+its first line and posted by `fabric-pr post-review PR --model codex --head HEAD` from the
 request's repository; --no-post prints it instead. Rule 5 is the reader's:
 each finding is judged by the review class before it is answered.
 
@@ -860,7 +860,7 @@ def post(repo: str, pr: str, head: str, body: str) -> int:
     _posting = True
     r = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-pr"), "post-review", pr, "--model", ENGINE,
                         # The commit Codex read: the body carries no dispatch header, and post-review records a
-                        # report only on the head it names (REQUEST 01a143a6).
+                        # report only on the head it names (ADR-020 §5 rule 6).
                         "--head", head],
                        cwd=repo, input=body, text=True, timeout=180)
     return r.returncode

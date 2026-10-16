@@ -149,7 +149,7 @@ def main() -> int:
 
         case: dict[str, str] = {}
 
-        # A report with no dispatch header names its head with --head or is refused (REQUEST 01a143a6), so the checks
+        # A report with no dispatch header names its head with --head or is refused (ADR-020 §5 rule 6), so the checks
         # of everything else name the PR's head for it; head=None leaves --head out, and a report with a header names
         # its own.
         def invoke(body: str, *args: str, head: str | None = HEAD) -> tuple[int, str]:
@@ -391,7 +391,7 @@ def main() -> int:
         print("post-review: a report with no header names the head it read with --head, or is refused")
         set_pr(f"{me}/feat/thing")
         rc, out = invoke("F1 (P2) …", "552", head=None)
-        check("no header, no --head: refused, nothing sent (REQUEST 01a143a6)",
+        check("no header, no --head: refused, nothing sent (ADR-020 §5 rule 6)",
               rc == 2 and not posted() and "no dispatch header and no --head" in out, f"rc={rc}\n{out}{calls()}")
         rc, out = invoke("F1 (P2) …", "552", "--dry-run", head=None)
         check("…--dry-run refuses it too", rc == 2 and "would post" not in out, f"rc={rc}\n{out}")

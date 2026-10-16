@@ -1156,13 +1156,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - `fabric-review --engine codex <PR>`: the review class's blind brief,
   unchanged, run once by the pinned `codex exec`, read-only, on a `git
   archive` extract of the head, 20 minutes by default (§5 rules 1-2).
-- Codex goes through a gateway process of its own serving
-  `openai-responses`, base URL its root, key by env only; the session's
-  Anthropic URL and key and the account's `~/.codex` never reach it
-  (§5 rule 3).
+- Codex goes through its own gateway (`openai-responses`, key by env
+  only); the session's Anthropic key and `~/.codex` never reach it (§5
+  rule 3).
 - One JSON object of findings or nothing posted; posted with
-  `fabric-pr post-review <PR> --model codex`, judged like any finding
-  (§5 rules 4-5).
+  `fabric-pr post-review <PR> --model codex --head <sha>`, judged like
+  any finding (§5 rules 4-5).
 - A review is required: `fabric-pr arm` refuses until every engine the
   arming policy names (`reviews`, `boundary_reviews`; data, not this
   record) has reviewed the head with no open P1/P2 (§5 rule 6). Codex is
@@ -1171,7 +1170,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — every login reviews on a synced access token; both engines by default (§5 rules 6, 8).
 - A 2026-10-13 — the record requires a review; the arming policy names the engines (now both) (§5 rule 6).
 - A 2026-10-13 — codex additional: its review or unavailable marker per head (§5 rule 6, ADR-055 rule 8).
-- A 2026-10-14 — findings are judged once per head: one judging dispatch for every open finding of both engines (§5 rule 5).
+- A 2026-10-14 — findings judged once per head, one dispatch for both engines (§5 rule 5).
+- A 2026-10-16 — the post names the commit read (`--head`) (§5 rule 4).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 

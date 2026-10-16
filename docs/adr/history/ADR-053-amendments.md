@@ -74,3 +74,13 @@ number. Nothing about who judges, what counts as coverage, or the
 arming policy changes. Basis: the review-economics plan the owner
 approved on 2026-10-14 (package P5), requested by architect-cto-01;
 `policies/subagent-dispatch/SKILL.md` says the same.
+
+### Amendment 2026-10-16 — the post names the commit Codex read
+
+ADR-020 §5 rule 6 (amended the same day) has post-review record a review
+on the head its report names, and refuse a report with no dispatch
+header unless `--head` names it. A Codex report carries no header, so
+§5 rule 4's command gains `--head <the commit it read>`: `review_codex.py`
+passes the head it archived. A request whose head is not the PR's
+current one is still refused before the run, since its review would
+cover a commit the gate does not read.

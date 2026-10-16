@@ -503,7 +503,7 @@ def main() -> int:
         check("posted with the review marker and --model codex",
               lines[:2] == ["<!-- agent-fabric-review v1 -->", "<!-- model: codex -->"], lines[:3])
         check("the post names Codex, not the review class", "Codex, the second review engine" in b, b[:400])
-        check("recorded on the head Codex read (post-review --head, REQUEST 01a143a6)",
+        check("recorded on the head Codex read (post-review --head, ADR-020 §5 rule 6)",
               json.load(open(os.path.join(state, "payload.json"))).get("commit_id") == head)
         body_first = next((ln for ln in lines if ln.startswith("**Engine:**")), "")
         check("the review's own first line names engine and model, after post-review's header",
