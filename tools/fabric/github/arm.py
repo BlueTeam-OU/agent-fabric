@@ -543,11 +543,14 @@ def check_engines(num: str, head: str, engines: list[str], refuse, additional: l
     summary = arm_policy.review_summary(have, engines, head, additional=list(additional), unavailable=out_of)
     for engine in engines:
         if engine not in have:
-            how = "fabric-review --engine codex, which posts its review itself" if engine == "codex" \
-                else "the review class (fabric-pr post-review --model fable)"
+            # A command the operator can run as written: the PR and the head are in scope (#283 round 4).
+            how = (f"`fabric-review --engine codex {num} REQUEST` with a ranged request ending at {head}; it posts"
+                   f" its own review") if engine == "codex" \
+                else (f"the review class on a brief of a range ending at {head}, then `fabric-pr post-review {num}`"
+                      f" with its report")
             raise refuse(f"review={summary}: this repository's arming policy requires a review by the {engine} engine of"
                          f" the current head {head}, and there is none (a review of an older head does not count): run"
-                         f" {how} on it, then arm (engines required: {', '.join(engines)})")
+                         f" {how}, then arm (engines required: {', '.join(engines)})")
     absent = [e for e in additional if e not in have and e not in out_of]
     unresolved = rs.get("unresolved_threads")
     if not isinstance(unresolved, int) or isinstance(unresolved, bool):
