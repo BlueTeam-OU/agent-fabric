@@ -108,7 +108,7 @@ check that failed and changing nothing:
      answers, which counts for a job whose artifact is an answer, a message of this login with an IN-REPLY-TO, a REPLY or a DECISION alike, when the journal holds it as sent: accepted by the carrier); a job with topic reflection is also landed by this login's
      fabric-reflect cursor, closed after the job started (ADR-058 rule 4). Whatever the outcome: no uncommitted change in the job's working
      copy, its worktree or this directory's checkout; every inbound REQUEST or QUESTION received since the job or this session started, whichever is earlier, addressed to this login with REPLY-EXPECTED: yes
-     or whose record cannot be read or whose receipt time cannot be read (such a row is owed, never let through), has an answer of this login in the journal (any accepted outbound message whose IN-REPLY-TO names it, a DECISION as well as a REPLY); and a file changed since the job last became active in the memory directory of
+     (one whose receipt time cannot be read counts as inside the window, all of them when neither start is known) or whose record cannot be read, has an answer of this login in the journal (any accepted outbound message whose IN-REPLY-TO names it, a DECISION as well as a REPLY); and a file changed since the job last became active in the memory directory of
      the working copy, of its repository's main checkout, or of an ancestor of either below the home (any memory directory
      of the login for a job with topic reflection). A check that cannot be told is a failure, said as such, never a pass.
      `deliver <id> <artifact>` on a done job appends evidence and leaves it closed (a dropped job takes none).
