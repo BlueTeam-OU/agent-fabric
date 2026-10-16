@@ -686,7 +686,7 @@ def _():
                 t0 = time.monotonic()
                 r = subprocess.run([P.INBOX_CMD, flag], env=env, capture_output=True, text=True, timeout=10)
                 eq(r.returncode, 0, r.stdout + r.stderr)
-                ok(f"a watch is already running (pid {first.pid}, started " in r.stdout and "it ends at its next delivery or with its session — nothing to kill; do not run it again" in r.stdout, r.stdout)
+                ok(f"a watch is already running (pid {first.pid}, started " in r.stdout and "it ends at its next delivery, at its --deadline (default 1 h 55 min) with the quiet line, or with its session — nothing to kill; do not run it again" in r.stdout, r.stdout)
                 ok(r.stdout.count("\n") == 1, "one line: " + r.stdout)
                 ok(time.monotonic() - t0 < 8, "it exits at once")
             release.set()
@@ -1062,6 +1062,20 @@ def _():
         for c in held_open:
             c.close()
         srv.close()
+
+
+@case("--deadline: a relay that refuses connections ends the watch at the deadline, not after the 30 s retry sleep")
+def _():
+    stub, _calls = _wait_stub([])
+    url = stub.url
+    stub.close()   # nothing listens there now: every try is refused at once
+    env = _replay_env(stub, GZCOORD_JOURNAL="off")   # the give-up bound stays at its 900 s, so only the deadline can end it
+    env["CLAUDE_BRIDGE_URL"] = url
+    t0 = time.monotonic()
+    r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "2"], env=env, capture_output=True, text=True, timeout=20)
+    eq(r.returncode, 0, r.stdout + r.stderr)
+    eq(r.stdout, QUIET)
+    ok(time.monotonic() - t0 < 10, "the retry sleep is cut at the deadline")
 
 
 @case("an invalid --deadline neither rewrites the mark nor is answered with another watch's refusal line")

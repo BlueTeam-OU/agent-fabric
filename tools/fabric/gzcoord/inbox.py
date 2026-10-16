@@ -464,10 +464,10 @@ def main(argv: list[str]) -> int:
                 elif until_delivery and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
                     print(t("watch.relay-gave-up", {"relay_url": relay_url}), flush=True)
                     return 5
-                # The 30 s between tries, shortened to the time left before the give-up deadline (never negative: sleep
-                # refuses that); with the default 900 s it is 30 s until the last half minute, and a shorter deadline (a
-                # test's) is not slept through twice over.
-                time.sleep(max(0.0, min(30.0, UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since))) if until_delivery else 30)
+                # The 30 s between tries, shortened to the time left before the give-up bound and, under --until-delivery,
+                # before the --deadline (never negative: sleep refuses that): a relay that refuses connections must not
+                # carry the watch past the deadline it promised, and a shorter bound (a test's) is not slept through twice.
+                time.sleep(max(0.0, min(30.0, UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since), deadline - time.monotonic())) if until_delivery else 30)
                 continue
             if down:
                 if not until_delivery:
