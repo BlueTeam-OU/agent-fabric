@@ -4,7 +4,9 @@ contract.
 
 THE FORMS (`block <id> --on <blocker>`, several allowed, all must clear)
   pr:<owner/repo>#<n>       cleared when the pull request is merged or closed (gh, through tools/fabric/gh.py)
-  request:<message-id>      cleared when a REPLY whose IN-REPLY-TO is that id is in this login's journal
+  request:<message-id>      cleared when an inbound message of any type (a DECISION as well as a REPLY) whose
+                            non-empty IN-REPLY-TO is that id is in this login's journal, as settle.py reads
+                            the outbound side
                             (episodic.open_readonly, the one reader's door)
   job:<login>/j<n>          cleared when that job is delivered, or has left the open list because it is done or
                             dropped; read through `fabric-ctl <login> jobs` (a host operator's op: any other
@@ -95,7 +97,9 @@ def check_request(message_id: str) -> Check:
         return Check("unknown", f"journal: {e}"[:160])
     try:
         # lower(): the id is stored as the sender wrote it, the blocker as normalise() made it.
-        row = conn.execute("SELECT 1 FROM episodes WHERE direction='inbound' AND type='REPLY' AND lower(in_reply_to)=? LIMIT 1",
+        # Any type: a DECISION answers a REQUEST as a REPLY does, and settle.py counts an outbound answer the same way. The id is
+        # never empty, so an empty IN-REPLY-TO matches nothing.
+        row = conn.execute("SELECT 1 FROM episodes WHERE direction='inbound' AND lower(in_reply_to)=? LIMIT 1",
                            (message_id,)).fetchone()
     except Exception as e:  # noqa: BLE001 — an unreadable journal is unknown, never a traceback in a listing
         return Check("unknown", f"journal: {e}"[:160])

@@ -303,19 +303,23 @@ def main() -> int:
         check("a blocker never checked: unknown, no time, cleared null (the board reads it as not said)",
               j["blockers"][0]["state"] == "unknown" and j["blockers"][0]["checked_at"] is None and j["cleared"] is None, j)
 
-        print("request: only a REPLY clears it, not any message that carries the IN-REPLY-TO")
+        print("request: any inbound message with a non-empty IN-REPLY-TO naming it clears it, as settle.py reads the outbound side")
         RID2 = "01a12bb0-2791-7a73-abbc-a186091ebbb4"
-        jid = re.search(r"added (j\d+)", run("add", "held on a request answered by an INFO first").stdout).group(1)
+        jid = re.search(r"added (j\d+)", run("add", "held on a request answered by a DECISION").stdout).group(1)
         run("start", jid)
         run("block", jid, "--on", f"request:{RID2}")
-        info = (f"[GZCOORD/1] INFO\nFROM: develop-qzapp/peer\nROLE: x\nTO: develop-qzapp/me\nIN-REPLY-TO: {RID2}\n"
-                f"MESSAGE-ID: 01a12b00-0000-7000-8000-000000000003\nSUBJECT: s\n\nINFO:\nstill working\n")
-        episodic({"content": info, "seq": 3})
+
+        def inbound(kind: str, mid: str, header: str | None) -> str:
+            irt = "" if header is None else f"IN-REPLY-TO: {header}\n"
+            return (f"[GZCOORD/1] {kind}\nFROM: develop-qzapp/peer\nROLE: x\nTO: develop-qzapp/me\n{irt}"
+                    f"MESSAGE-ID: {mid}\nSUBJECT: s\n\n{kind}:\nx\n")
+        episodic({"content": inbound("INFO", "01a12b00-0000-7000-8000-000000000003", None), "seq": 3})
+        episodic({"content": inbound("INFO", "01a12b00-0000-7000-8000-000000000006", ""), "seq": 6})
         age()
-        check("an INFO that answers it is not a REPLY: still waiting", job(jid)["cleared"] is False, job(jid))
-        episodic({"content": reply("01a12b00-0000-7000-8000-000000000004", RID2), "seq": 4})
+        check("an INFO without IN-REPLY-TO and one with an empty header do not clear it", job(jid)["cleared"] is False, job(jid))
+        episodic({"content": inbound("DECISION", "01a12b00-0000-7000-8000-000000000004", RID2), "seq": 4})
         age()
-        check("the REPLY clears it", job(jid)["cleared"] is True, job(jid))
+        check("a DECISION naming it clears it (the positive control of the two above)", job(jid)["cleared"] is True, job(jid))
         run("start", jid)
         run("done", jid)
 
