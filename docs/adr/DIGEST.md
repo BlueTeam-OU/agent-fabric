@@ -1258,11 +1258,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: reflection, journal, episodic.db, fabric-reflect, lessons,
   messages, memory candidates, drain.
 
-### ADR-059 — Third-party personal data stays out of the AI tools (Accepted)
+### ADR-059 — Third-party personal data stays out of the Max plan (Accepted)
 
 - The fleet keeps the Claude Max plan; no personal data of a client,
-  its people or a site visitor goes into any AI tool the fleet uses
-  (§2, §5 rule 1).
+  its people or a site visitor goes into it (§2, §5 rule 1). The OpenAI
+  business account, with a processing agreement, is outside it (§2).
 - Work on a client's system uses cleaned data: no real commit history,
   no production access (§5 rule 2).
 - The blueteam.ee privacy notice is true only while that practice is;

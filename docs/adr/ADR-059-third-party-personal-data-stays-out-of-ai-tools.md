@@ -1,10 +1,10 @@
-# ADR-059 — Third-party personal data stays out of the AI tools
+# ADR-059 — Third-party personal data stays out of the Max plan
 
 **Date:** 2026-10-16
 **Status:** Accepted
 **Ratified:** owner, 2026-10-16, in the coordinator's session, choosing "the opinion's (b)" on PR #278
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** what personal data of anyone other than Blueteam's own people may reach the AI tools the fleet runs on (the Claude Max plan and the OpenAI account); the blueteam.ee privacy notice that describes it
+**Scope:** what personal data of anyone other than Blueteam's own people may reach the Claude Max plan the fleet runs on; what the blueteam.ee privacy notice says of it. Not the OpenAI business account, which has a processing agreement (the opinion's §4)
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -28,9 +28,10 @@ decided, because what it says about AI tools depends on it.
 The fleet keeps the Max plan, and no personal data of a third party
 (clients, their people, visitors of Blueteam's sites) goes into it:
 cleaned logs only, no client repository with real commit history, no
-production access. The same holds for every AI tool the fleet uses
-until a later record adopts a plan with a processing agreement for
-named work.
+production access. This is the opinion's (b) as it was worded. It
+governs the Max plan only: an AI tool with a processing agreement (the
+OpenAI business account) is outside it, and client personal data goes
+there only as the opinion's (a) describes, under a later record.
 
 ## 3. Alternatives Considered
 
@@ -51,12 +52,12 @@ that touches a client's system keeps that system's personal data out.
 ## 5. Binding Rules
 
 1. No personal data of a third party (a client, a client's people, a
-   visitor of a Blueteam site) is given to an AI tool the fleet uses:
-   not in a prompt, a file, a log, a repository or a tool's access.
-2. Work on a client's system uses cleaned data: logs with personal data
-   removed, repositories without real commit history, no access to
-   production data.
-3. The blueteam.ee privacy notice describes the AI tools as receiving no
+   visitor of a Blueteam site) is given to the Max plan: not in a
+   prompt, a file, a log, a repository or a tool's access.
+2. Work on a client's system done on the Max plan uses cleaned data:
+   logs with personal data removed, repositories without real commit
+   history, no access to production data.
+3. The blueteam.ee privacy notice describes the Max plan as receiving no
    third-party personal data, and is true only while rules 1 and 2 are
    kept; a change of practice changes the notice in the same step.
 4. Adopting a plan with a processing agreement for some work is a new
