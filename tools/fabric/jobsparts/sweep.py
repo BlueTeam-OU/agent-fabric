@@ -2,8 +2,9 @@
 A part of tools/fabric/jobs.py, whose docstring is the contract.
 
 `switch` looks at a delivered job's evidence once, when its agent leaves it; a supplier's work that merged later, in someone
-else's pull request, stayed delivered for ever and read as open work. The test here is settle._landed's, not a second one: a PR
-merged, a commit or a branch tip on origin's default branch. What differs is how the artifacts are read, because old jobs hold
+else's pull request, stayed delivered for ever and read as open work. The test here is settle._landed's plus _reflected's, the one
+`done` applies and not a second one: a PR merged, a commit or a branch tip on origin's default branch, a reply sent, a reflection
+cursor closed. What differs is how the artifacts are read, because old jobs hold
 free text ("PR #156 merged as 9a731b31"): a reference that cannot be resolved to a repository is a reason to stay, never a guess.
 
 A job closes only when something landed and nothing the artifacts name is open, unreadable or unresolved: unknown stays
@@ -22,9 +23,11 @@ from fabric_jobs.records import transition
 
 GH_TIMEOUT_S = 30
 # "branch:<name>" is the explicit form; the same word without the prefix is read as settle reads a branch artifact.
-# The words that may stand before a bare "PR #N" or "#N" without making it another project's: any other word there ("gzcoord #3")
-# could be a project this registry does not know, and the number is then no pull request of the job's own.
+# The words that may stand before a bare "PR #N" or "#N" without making it another project's: any other word there ("gzcoord #3",
+# "unreg merged #3", "gzcoord #3, #4") could be a project this registry does not know, and the number is then no pull request of the job's own.
 BARE_AFTER = frozenset("on in and see via of to for the a as by from with merged open pr pull request fixes closes landed lands is was are also then plus after before per".split())
+# Stands in the text for a reference already read, so a bare number after it is not mistaken for the first thing the artifact says.
+XREF = " xref "
 BRANCH_PREFIX = re.compile(r"\bbranch:\s*(?=[A-Za-z0-9])", re.ASCII | re.IGNORECASE)
 
 
@@ -70,21 +73,24 @@ def read_artifacts(job: Job, repos: dict[str, str], named: re.Pattern | None) ->
         text = st.MESSAGE_ID.sub(" ", str(art))
         for m in st.PR_URL.finditer(text):
             prs.append((m.group(1), m.group(2)))
-        text = st.PR_URL.sub(" ", text)
+        text = st.PR_URL.sub(XREF, text)
         for m in st.PR_FULL.finditer(text):
             prs.append((m.group(1), m.group(2)))
-        text = st.PR_FULL.sub(" ", text)
+        text = st.PR_FULL.sub(XREF, text)
         if named:
             for m in named.finditer(text):
                 project = next(p for p in repos if p.lower() == m.group(1).lower())
                 prs.append((repos[project], m.group(2)))
-            text = named.sub(" ", text)
+            text = named.sub(XREF, text)
+        since = 0
         for m in st.PR_BARE.finditer(text):
-            before = re.search(r"([\w.-]+)\W*$", text[:m.start()])
-            if before and before.group(1).lower() not in BARE_AFTER:
-                unresolved.append(f"#{m.group(1)} follows {before.group(1)!r}, which is no project of the registry")
+            # Everything between the last resolved reference and this one must be filler: any other word may name another repository.
+            stray = [w for w in re.findall(r"[\w.-]+", text[since:m.start()]) if w.lower() not in BARE_AFTER]
+            if stray:
+                unresolved.append(f"#{m.group(1)} stands after {' '.join(stray)[:40]!r}, so it may be another repository's")
             elif own in repos:
                 prs.append((repos[own], m.group(1)))
+                since = m.end()
             else:
                 unresolved.append(f"#{m.group(1)} (the job's project {own or 'is not set'} is not in the registry)")
         if own and re.search(rf"(?<![\w./-]){re.escape(own)}(?![\w.-])", str(art), re.IGNORECASE):

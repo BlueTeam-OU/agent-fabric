@@ -150,7 +150,7 @@ def main() -> int:
         check("a second run changes nothing", rc == 0 and open(path, "rb").read() == after and "no delivered jobs" in out, out + err)
 
         print("what stays delivered, and why")
-        gh_says({f"{REPO}#10": "OPEN", f"{REPO}#11": "MERGED", f"{REPO}#12": "MERGED"})
+        gh_says({f"{REPO}#10": "OPEN", f"{REPO}#11": "MERGED", f"{REPO}#12": "MERGED", "fixture-org/other-proj#3": "MERGED"})
         ids = seed([("delivered", [f"{REPO}#10"]),                                                      # open
                     ("delivered", ["scan reported to the coordinator (seq above)"]),                    # unresolvable free text
                     ("delivered", [f"{REPO}#404"]),                                                     # gh cannot answer
@@ -162,7 +162,11 @@ def main() -> int:
                     ("done", [f"{REPO}#12"]), ("dropped", [f"{REPO}#12"]),
                     ("delivered", [f"{REPO}#12"]),                                                     # the positive control
                     ("delivered", ["gzcoord #11", "gzcoord PR 11"]),                                    # REPO#11 is merged: the job's own, were it read so
-                    ("delivered", [f"{REPO}#12", "reply:01a14482-0000-7000-8000-000000000001"])])       # a reply this login never sent
+                    ("delivered", [f"{REPO}#12", "reply:01a14482-0000-7000-8000-000000000001"]),        # a reply this login never sent
+                    ("delivered", ["other-proj #3, #11"]),                                              # both merged: the second is another list item of other-proj
+                    ("delivered", ["other-proj pull request #3 and unregistered merged #11"]),
+                    ("delivered", ["PR #11 and #12 merged"]),
+                    ("delivered", ["fixture-org/other-proj#3, #11"])])                                          # the positive control for the filler words
         reflection = seed([("delivered", [f"{REPO}#12"])])[0]
         doc = json.load(open(path, encoding="utf-8"))
         next(j for j in doc["jobs"] if j["id"] == reflection)["topic"] = "reflection"
@@ -175,20 +179,35 @@ def main() -> int:
         check("a gh failure stays and says it could not tell", "stays" in line(out, ids[2]) and "could not tell" in line(out, ids[2]), out)
         check("a merged and an open pull request together stay", "stays" in line(out, ids[3]) and "open" in line(out, ids[3]), out)
         check("a #N with no registered project beside a merged one stays", "stays" in line(out, ids_unreg[0]) and "unresolved" in line(out, ids_unreg[0]), out)
-        check("a #N that follows another project's name is not the job's own pull request", "stays" in line(out, ids[4]) and "follows 'gzcoord'" in line(out, ids[4]), out)
+        check("a #N that follows another project's name is not the job's own pull request", "stays" in line(out, ids[4]) and "stands after 'gzcoord'" in line(out, ids[4]), out)
         check("no artifacts stays", "stays" in line(out, ids[5]) and "no artifacts" in line(out, ids[5]), out)
         check("a branch that is not on origin stays, and says so", "stays" in line(out, ids[6]) and "is not on origin" in line(out, ids[6]), out)
         check("the positive control, the same world, closes", "closed" in line(out, ids[13]) and job(ids[13])["state"] == "done", out)
         check("a number after an unregistered project's name, with or without #, is no pull request of the job's own",
-              "stays" in line(out, ids[14]) and "follows 'gzcoord'" in line(out, ids[14]) and job(ids[14])["state"] == "delivered", out)
+              "stays" in line(out, ids[14]) and "stands after 'gzcoord'" in line(out, ids[14]) and job(ids[14])["state"] == "delivered", out)
         check("a reply artifact the journal does not hold stays beside a merged pull request, as `done` would refuse it",
               "stays" in line(out, ids[15]) and "names no answer this login sent" in line(out, ids[15]) and job(ids[15])["state"] == "delivered", out)
+        check("a bare number after a registered project's name or any other word is not the job's own",
+              all("stays" in line(out, j) and "may be another repository's" in line(out, j) for j in (ids[16], ids[17], ids[19])) and all(job(j)["state"] == "delivered" for j in (ids[16], ids[17], ids[19])), out)
+        check("a bare list of the job's own numbers, with only filler between, closes", "closed" in line(out, ids[18]), out)
         check("a reflection job is asked for its cursor too, and stays without one", "stays" in line(out, reflection) and "fabric-reflect" in line(out, reflection), out)
         check("every other delivered job is still delivered, every other state untouched",
               all(job(j)["state"] == "delivered" for j in ids[:7]) and job(ids_unreg[0])["state"] == "delivered"
               and [job(j)["state"] for j in ids[7:13]] == ["queued", "active", "paused", "blocked", "done", "dropped"]
               and not any(line(out, j) for j in ids[7:13])      # not even a line: they are not this verb's business
               and all(job(j)["log"] == json.loads(before)["jobs"][int(j[1:]) - 1]["log"] for j in ids[7:13]), out)
+
+        print("a reflection job is done on the closed cursor, with no artifact at all")
+        with open(os.path.join(tmp, "state", "agents", login, "reflect-cursor.json"), "w", encoding="utf-8") as fh:
+            json.dump({"agent_id": "01a0f782-7e06-7dee-811f-0a860ed93bf3", "row": 7, "episode": "e", "done_at": "2999-01-01T00:00:00Z"}, fh)
+        bare_pass = seed([("delivered", [])])[0]
+        doc = json.load(open(path, encoding="utf-8"))
+        next(j for j in doc["jobs"] if j["id"] == bare_pass)["topic"] = "reflection"
+        json.dump(doc, open(path, "w", encoding="utf-8"))
+        rc, out, err = run("sweep")
+        check("it closes, naming the cursor", "closed" in line(out, bare_pass) and "fabric-reflect cursor at row 7" in line(out, bare_pass), out + err)
+        check("the same cursor lets the reflection job that also has a merged pull request close", "closed" in line(out, reflection), out)
+        os.remove(os.path.join(tmp, "state", "agents", login, "reflect-cursor.json"))
 
         print("one gh lookup per distinct pull request")
         gh_says({f"{REPO}#21": "MERGED"})
