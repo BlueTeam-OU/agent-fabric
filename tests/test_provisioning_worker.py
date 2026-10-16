@@ -165,14 +165,18 @@ def main() -> int:
     ssh = "git@github.com:BlueTeam-OU/agent-fabric.git"
     https = "https://github.com/BlueTeam-OU/agent-fabric.git"
 
-    def step6(origin: str | None, *argv: str):
-        """Run finish up to the end of step 6 with a present clone whose push URL reads `origin` (None: unreadable)."""
+    def step6(origin: str | None, *argv: str, pushurl: str | None = None):
+        """Run finish up to the end of step 6 with a present clone whose remote.origin.url reads `origin` (None: unreadable)."""
         seen: list = []
 
         def fake(cmd, **kw):
             seen.append(list(cmd))
             if cmd[:1] == ["getent"]:
                 return subprocess.CompletedProcess(cmd, 2, stdout="", stderr="")
+            if "remote.origin.pushurl" in cmd:
+                if pushurl is None:
+                    return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout=pushurl + "\n", stderr=None)
             if "remote.origin.url" in cmd:
                 if origin is None:
                     return subprocess.CompletedProcess(cmd, 128, stdout="", stderr="")
@@ -203,6 +207,10 @@ def main() -> int:
           f"{sets(seen)} {said}")
     seen, said = step6(https, "--project", "other")
     check("a project the registry gives no remote for is left alone", len(sets(seen)) == 1, f"{sets(seen)} {said}")
+    seen, said = step6(ssh, pushurl=https)
+    check("a push URL of its own is said, not rewritten", not sets(seen) and f"origin has its own push URL {https}" in said, f"{sets(seen)} {said}")
+    seen, said = step6(https, pushurl=ssh)
+    check("…and none is said when it is the registry remote", len(sets(seen)) == 1 and "push URL" not in said, f"{sets(seen)} {said}")
     seen, said = step6(None)
     check("an origin that cannot be read is left as it is, and said", not sets(seen) and "origin not readable; left as it is" in said, f"{sets(seen)} {said}")
 
