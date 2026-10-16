@@ -132,12 +132,12 @@ def main() -> int:
         gh_says({f"{REPO}#5": "MERGED", f"{REPO}#6": "MERGED", f"{REPO}#7": "MERGED", f"{REPO}#8": "MERGED", f"{REPO}#9": "MERGED",
                  f"{REPO}#10": "OPEN", f"{REPO}#11": "MERGED", "fixture-org/other-proj#3": "MERGED"})
         shapes = [f"pr:{REPO}#5", f"{PROJECT} #6", f"{PROJECT} PR #7", "PR #8 merged (3 work, 1 fix)", f"https://github.com/{REPO}/pull/9",
-                  "other-proj #3 merged"]
+                  "other-proj #3 merged", "other-proj PR 3 (no hash sign)"]
         ids = seed([("delivered", [a]) for a in shapes])
         before = open(path, "rb").read()
         rc, out, err = run("sweep", "--dry-run")
         check("--dry-run changes nothing", rc == 0 and open(path, "rb").read() == before, out + err)
-        check("each form is read: pr:o/r#N, <project> #N, <project> PR #N, bare PR #N, the URL, another project's #N",
+        check("each form is read: pr:o/r#N, <project> #N, <project> PR #N, bare PR #N, the URL, another project's #N, its PR N",
               all("would close" in line(out, j) for j in ids), out + err)
         check("the line names the evidence", f"{REPO}#5 merged" in line(out, ids[0]) and "fixture-org/other-proj#3 merged" in line(out, ids[5]), out)
         rc, out, err = run("sweep")
@@ -221,6 +221,22 @@ def main() -> int:
         check("it stays and says so", "stays (changed while the sweep ran)" in line(out, ids[0]) and job(ids[0])["state"] == "delivered", out + err)
         rc, out, err = run("sweep")
         check("the next sweep, reading the new artifacts, closes it", "closed" in line(out, ids[0]), out + err)
+
+        print("a fetch that fails is not repeated for every job, and none of them closes on it")
+        gh_says({})
+        ids = seed([("delivered", ["branch:dev/host/feat/folded"]), ("delivered", [f"{PROJECT} commit {main_tip[:8]}"])])
+        vcs_part, fetched = sys.modules["fabric_jobs.vcs"], []
+        real_fetch = vcs_part.fetch
+
+        def broken(where):
+            fetched.append(where)
+            raise vcs_part.VcsError("git fetch: exit 128: the remote is gone")
+        vcs_part.fetch = broken
+        try:
+            rc, out, err = run("sweep")
+        finally:
+            vcs_part.fetch = real_fetch
+        check("one attempt, both stay, and the line says git could not tell", len(fetched) == 1 and all("stays" in line(out, j) and "the remote is gone" in line(out, j) for j in ids), (fetched, out))
 
         print("commits and branches on origin's default branch")
         gh_says({})
