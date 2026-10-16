@@ -727,7 +727,7 @@ def message(found: list[tuple[str, bool]], pats: list[str] | None = None) -> str
     by = f" (pattern {', '.join(repr(p) for p in dict.fromkeys(pats))})" if pats else ""
     if any(inbox for _, inbox in found):
         return (f"This command would kill {what}{by}. Never kill an inbox watch: it ends by itself at its next "
-                "delivery, and gzcoord-inbox itself refuses a second watch, so there is nothing to kill.")
+                "delivery or at its deadline, and gzcoord-inbox itself refuses a second watch, so there is nothing to kill.")
     if all(label == SHELL_LABEL for label, _ in found):
         return (f"This command would kill {what}{by}. Select by the exact pid of a process you started "
                 "(kill <pid>), never by a -f pattern or a name.")

@@ -96,7 +96,10 @@ class Fake:
         if isinstance(answer, str):
             raise gh.GhError("gh pr checks", answer.splitlines()[-1], stdout="", stderr=answer + "\n", code=1)
         if isinstance(answer, tuple):
-            raise gh.GhError("gh pr checks", answer[1], stdout=json.dumps(answer[0]), stderr=answer[1] + "\n", code=1)
+            code = answer[2] if len(answer) > 2 else 1
+            out = answer[0] if isinstance(answer[0], str) else json.dumps(answer[0])
+            raise gh.GhError("gh pr checks", answer[1] or f"exit {code}", stdout=out,
+                             stderr=answer[1] + "\n" if answer[1] else "", code=code)
         return json.dumps(answer)
 
     def api(self, path, **kw):
@@ -221,6 +224,52 @@ def main() -> int:
     code, text, _, _ = watch(Fake(c, ["OPEN:BLOCKED"] * 9 + ["MERGED"], checks=[None] * 4 + [[]] + [None] * 4 + [[]]),
                              c, interval=1, timeout=600)
     check("a readable checks lookup resets the run of 5", code == 0, text)
+
+    # gh exits 8 while a check is pending, and its JSON is on stdout: that is
+    # a PR still running, not a watcher that cannot read (j53).
+    pend = [{"name": "ci-ok", "bucket": "pending"}, {"name": "lint", "bucket": "pass"}]
+    for label, answer in (("exit 8 with the pending JSON", (pend, "", 8)), ("exit 0 with the pending JSON", pend)):
+        c = Clock()
+        code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"] * 3 + ["MERGED"], checks=[answer]), c, interval=1,
+                                   timeout=600)
+        check(f"{label}: keeps waiting, says the checks are pending, never unreadable",
+              code == 0 and err.count("checks pending: ci-ok") == 3 and "could not read" not in err,
+              f"{code} {text} {err}")
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"] * 2 + ["MERGED"]), c, interval=1, timeout=600)
+    check("blocked with every check passed does not claim a pending check",
+          code == 0 and "blocked; no required check is pending" in err and "still pending" not in err and "none reported yet" not in err, err)
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED", "MERGED"], checks=[[]]), c, interval=1, timeout=600)
+    check("blocked with no check reported says none reported yet", "no required check is pending (none reported yet)"
+          in err, err)
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:UNSTABLE"] * 2 + ["MERGED"], checks=[(pend, "", 8)]), c, interval=1,
+                               timeout=600)
+    check("pending is said whatever the merge state", code == 0 and "checks pending: ci-ok" in err, err)
+    # Positive controls: a real failure of the read is still loud, with its reason.
+    for label, answer, why in (("exit 8 with nothing on stdout", ("", "", 8), "gh exit 8, and its stdout is not JSON"),
+                               ("an auth failure", ("", "HTTP 401: Bad credentials", 1), "gh exit 1: HTTP 401: Bad credentials, and its stdout is not JSON"),
+                               ("a non-JSON table on exit 8", ("ci-ok\tpending", "", 8), "gh exit 8, and its stdout is not JSON")):
+        c = Clock()
+        code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[answer]), c, interval=1, timeout=600)
+        check(f"{label} is unreadable, exit 2, with why, and claims no pending state",
+              code == 2 and text.startswith("UNREADABLE — 5 checks") and f"(5/5): {why}" in err
+              and "still pending" not in err, f"{code} {text} {err}")
+    # The reason is this read's: not "stdout is not JSON" for a gh that never
+    # answered, not an earlier poll's for a JSON that is not a list.
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[None]), c, interval=1, timeout=600)
+    check("a gh that never answered is not 'not JSON'", "(5/5): HTTP 502" in err and "not JSON" not in err, err)
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[("", "HTTP 401", 1), [], ("{}", "", 0)]), c,
+                               interval=1, timeout=600)
+    check("JSON that is not a list says so, not the earlier poll's reason",
+          "(1/5): gh exit 0, and its JSON is not a list" in err, err)
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[(pend + [{"name": "t", "bucket": "fail"}], "", 8)]),
+                               c, interval=1, timeout=600)
+    check("a failed check beside a pending one is still BLOCKED", code == 5 and text.endswith("failed: t"), text)
 
     # gh says "there are none" as an error line, not as [] (#128's watch
     # gave up on it after five polls and the PR merged minutes later).
