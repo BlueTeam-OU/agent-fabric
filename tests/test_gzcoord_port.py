@@ -1024,6 +1024,90 @@ def _():
             lock.release()
 
 
+def _mark_path(env: dict) -> str:
+    lock = glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock"))
+    ok(len(lock) == 1, f"one lock file: {lock}")
+    return lock[0]
+
+
+@case("--deadline: a relay that accepts and never answers still ends the watch near its deadline")
+def _():
+    import socket
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    held_open: list[socket.socket] = []
+    stop = threading.Event()
+
+    def accept() -> None:
+        srv.settimeout(0.2)
+        while not stop.is_set():
+            try:
+                held_open.append(srv.accept()[0])
+            except OSError:
+                pass
+    th = threading.Thread(target=accept, daemon=True)
+    th.start()
+    try:
+        env = P.cmd_env(**{"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{srv.getsockname()[1]}", "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
+                           "GZCOORD_CHANNEL": "fixture:chan", "GZCOORD_JOURNAL": "off"})
+        t0 = time.monotonic()
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "2"], env=env, capture_output=True, text=True, timeout=40)
+        eq(r.returncode, 0, r.stdout + r.stderr)
+        eq(r.stdout, QUIET)
+        ok(time.monotonic() - t0 < 20, "the unanswered request is not waited out")
+    finally:
+        stop.set()
+        th.join()
+        for c in held_open:
+            c.close()
+        srv.close()
+
+
+@case("an invalid --deadline neither rewrites the mark nor is answered with another watch's refusal line")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        first = _arm(env, "--until-delivery")
+        try:
+            _wait_started(first, env)
+            before = open(_mark_path(env)).read()
+            r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "0"], env=env, capture_output=True, text=True, timeout=30)
+            eq(r.returncode, 1, r.stdout + r.stderr)
+            ok("--deadline takes a number of seconds" in r.stderr and r.stdout == "", r.stdout + r.stderr)
+            eq(open(_mark_path(env)).read(), before)
+        finally:
+            first.kill()
+            first.communicate()
+    finally:
+        stub.close()
+
+
+@case("the start says so when a killed watch left its mark, and not after a watch that ended by itself")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        line = "taking over the watch mark of pid"
+        quiet = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "1"], env=env, capture_output=True, text=True, timeout=30)
+        eq(quiet.stdout, QUIET)
+        again = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "1"], env=env, capture_output=True, text=True, timeout=30)
+        ok(line not in again.stderr, "a watch that ended by itself leaves no mark: " + again.stderr)
+        first = _arm(env, "--until-delivery")
+        try:
+            _wait_started(first, env)
+        finally:
+            first.kill()   # SIGKILL: the pid stays in the file
+            first.communicate()
+        killed = first.pid
+        after = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "1"], env=env, capture_output=True, text=True, timeout=30)
+        ok(f"{line} {killed}, which is gone" in after.stderr, after.stderr)
+        eq(after.stdout, QUIET)
+    finally:
+        stub.close()
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:

@@ -19,9 +19,9 @@ CONTRACT, frozen from the Node:
                                 session reads it and runs this again. A
                                 held inbox is waited out as in --follow.
                                 Whatever ends it other than a delivery,
-                                the harness's timeout or a second watch's
-                                refusal (below) is an exit
-                                other than 0 with its reason on STDOUT (a
+                                the harness's timeout, a second watch's
+                                refusal or the --deadline quiet exit
+                                (below) is an exit other than 0 with its reason on STDOUT (a
                                 background command's output reaches the
                                 session only at exit): 2 a control
                                 channel named, 3 not configured
@@ -82,12 +82,13 @@ CONTRACT, frozen from the Node:
             reason; under GZCOORD_JOURNAL=off also the bypass warning)
             and no relay-down/back lines; the journal's held-messages
             line is printed only as it exits 6.
-            a second watch's refusal line (watchlock.py), which exits 0
-            without being a delivery.
+            a second watch's refusal line (watchlock.py) and the --deadline
+            quiet line, which exit 0 without being a delivery.
   stderr    every start-up and refusal line (under --until-delivery, the
             refusals that end it go to stdout instead); the hold's
             held/released
-  exit      0 drained, delivered, a second watch refused (one per login), nothing for you, relay unreachable on a
+  exit      0 drained, delivered, a second watch refused (one per login), --until-delivery quiet to its
+            --deadline, nothing for you, relay unreachable on a
             drain or wait, and (outside --until-delivery) not configured
             or no token; 1 a usage line, replay of no such message, the
             --held "not held"; 2 a control channel named, replay not
@@ -234,6 +235,17 @@ class _JournalHeld(Exception):
         self.line = line
 
 
+def deadline_arg(argv: list[str]) -> float | None:
+    """The --deadline seconds; None when absent. Raises ValueError for a value
+    that is not a positive finite number, or one given without --until-delivery."""
+    if "--deadline" not in argv:
+        return None
+    n = js.number(_arg_after(argv, "--deadline"))
+    if "--until-delivery" not in argv or not math.isfinite(n) or n <= 0:
+        raise ValueError(DEADLINE_USAGE)
+    return n
+
+
 def _arg_after(argv: list[str], flag: str) -> Any:
     i = argv.index(flag) if flag in argv else -1
     return (argv[i + 1] if i + 1 < len(argv) else js.UNDEFINED) if i >= 0 else None
@@ -261,13 +273,7 @@ def main(argv: list[str]) -> int:
     if wait_given:
         n = js.number(_arg_after(argv, "--wait"))
         wait_total = n if js.truthy_number(n) else 1800.0
-    deadline_s = DEFAULT_DEADLINE_S
-    if "--deadline" in argv:
-        n = js.number(_arg_after(argv, "--deadline"))
-        if not until_delivery or not math.isfinite(n) or n <= 0:
-            print(DEADLINE_USAGE, file=sys.stderr)
-            return 1
-        deadline_s = n
+    deadline_s = deadline_arg(argv) or DEFAULT_DEADLINE_S
     # Who this session is (the login) and which project it works in — the
     # second selects the integration: relay, channel, where the token and
     # runtime live, in the project's WORKING COPY.
@@ -415,14 +421,15 @@ def main(argv: list[str]) -> int:
         return for_me(msg, me)
 
     if follow or until_delivery:
-        # The watch. Each arm waits an hour of slices; a delivery is printed
-        # and the next arm starts at once; a quiet hour starts the next arm
-        # silently. Transport trouble is one line each way; a refused token
+        # The watch. Each arm waits an hour of slices (under --until-delivery
+        # the time left to the deadline, when that is less); a delivery is
+        # printed and the next arm starts at once; a quiet hour starts the next
+        # arm silently. Transport trouble is one line each way; a refused token
         # ends the watch with exit 4 so the harness reports it once.
         # --until-delivery is the same loop that returns after the first
         # delivery: a Monitor is capped at 30 minutes and every expiry rings
         # the Fleet Deck, a background command is capped at 2 hours and ends
-        # only by delivering (the owner, 2026-10-10). Its output reaches the
+        # by delivering or, quiet, at its --deadline (the owner, 2026-10-10). Its output reaches the
         # session only when it exits, so a relay down for long ends it too,
         # rather than leaving a session believing it is watched.
         down = False
@@ -505,6 +512,13 @@ def run(argv: list[str]) -> int:
     F1 on PR #28)."""
     lock = None
     try:
+        # Before the lock: a refused flag starts no watch, so it neither
+        # rewrites the mark nor is answered by another watch's refusal line.
+        try:
+            deadline_arg(argv)
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 1
         # One watch per login (inbox_parts/watchlock.py): the drain, replay,
         # history, wait and held modes take none. A second watch says so and
         # exits 0, so the harness's background call ends clean.

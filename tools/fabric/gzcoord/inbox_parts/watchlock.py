@@ -81,6 +81,12 @@ class WatchLock:
 
     def release(self) -> None:
         if self._fh is not None:
+            # Emptied while the lock is still ours: a pid left in the file
+            # then means the watch did not end by itself (see took_over).
+            try:
+                os.ftruncate(self._fh.fileno(), 0)
+            except OSError:
+                pass
             self._fh.close()
             self._fh = None
 
