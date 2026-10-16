@@ -4,12 +4,13 @@ class's blind review, as a marked review object (ADR-040 Wave 1;
 `fabric-pr post-review` runs it).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
-  argv      <pr> [--model <name>] [--dry-run] [-h|--help]
+  argv      <pr> [--model <name>] [--head <sha>] [--dry-run] [-h|--help]
   stdin     the review body, byte for byte; never an argument
   env       AGENT_FABRIC_ROOT, AGENT_FABRIC_LAUNCH_ROLE (the role the
             session was launched with)
-  stdout    `posted review: <url>` and the line after it; with --dry-run
-            the would-be review and its body
+  stdout    `posted review: <url>` and the line after it, naming the
+            commit the review is recorded on; with --dry-run the would-be
+            review and its body
   stderr    every refusal and warning, prefixed `post-review: `
   exit      0 posted; 2 an invocation problem, a refusal, or a post
             GitHub rejected or did not confirm
@@ -22,7 +23,9 @@ with commit_id = their head_sha: every header names the same one, or the
 report is refused; a sha that is not a commit of the PR is refused; one that
 is no longer the head is posted against it all the same, saying so on
 stderr, so the gate counts it for that commit and never for the head pushed
-after it. A report with no header is posted against the PR's head.
+after it. A report with no header names its head with --head, or is refused
+(REQUEST 01a143a6): posted against the PR's head, a summary written for an
+older range read as the review of the head pushed after it.
 
 REVIEW_MARKER is the contract with every reader (pr-review-status, the
 gate, results.py): the first line of the body, versioned because a later
@@ -77,6 +80,8 @@ Usage:
 Options:
   --model <name>   record which model produced the review (default: unset);
                    `codex` is the second engine's (agent-fabric ADR-053)
+  --head <sha>     the commit the review read, for a report with no dispatch
+                   header (the full sha); one with a header names its own
   --dry-run        show what would be posted, send nothing
   -h, --help
 
@@ -93,20 +98,23 @@ working-tree one, or a header it cannot read, is refused before the PR
 is read. A header is read only as a fenced block of its own; any other
 line naming agent-fabric-dispatch (in a blockquote, a list item, prose,
 or another version) is refused, naming the line. A report with no
-header posts as before; a pinned one posts with every header taken out,
-since a header names the dispatching session.
+header is posted only with --head naming the commit it read, and is
+refused without; a pinned one posts with every header taken out, since a
+header names the dispatching session.
 
 A pinned review is posted against the head it read, the headers'
 head_sha, never the PR's head at posting time: headers naming no
 head_sha or different ones refuse, and so does a sha that is not a
-commit of the PR. A review of an older head, posted after a push, is
-posted against that older commit, and says so: the gate counts it for
-that commit, not for the new head.
+commit of the PR, and so does a --head that names another. A review of
+an older head, posted after a push, is posted against that older commit,
+and says so on stdout: the gate counts it for that commit, not for the
+new head.
 
 Exit codes:
   0  posted
   2  invocation problem, a working-tree report, a report whose head is
-     not one commit of the PR, or the PR belongs to another session"""
+     unnamed or not one commit of the PR, or the PR belongs to another
+     session"""
 
 # Kept identical to pr_reply's: a wrong "names no session" means writing
 # to somebody else's PR.
@@ -320,14 +328,17 @@ def identity(fabric: str, *args: str) -> str:
 
 
 def run(argv: list[str], stdin) -> int:
-    pr, model, dry = "", "", False
+    pr, model, given_head, dry = "", "", "", False
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a == "--model":
+        if a in ("--model", "--head"):
             if i + 1 >= len(argv):
-                die("--model needs a value")
-            model = argv[i + 1]
+                die(f"{a} needs a value")
+            if a == "--model":
+                model = argv[i + 1]
+            else:
+                given_head = argv[i + 1]
             i += 2
             continue
         if a == "--dry-run":
@@ -346,6 +357,10 @@ def run(argv: list[str], stdin) -> int:
         die("a PR number is required (try --help)")
     if not re.fullmatch(r"[1-9][0-9]*", pr):
         die(f"'{pr}' is not a PR number")
+    # The full sha, as GitHub's commit_id takes it: an abbreviation would be a second resolution, against a clone
+    # that may not hold the commit.
+    if given_head and not SHA.fullmatch(given_head):
+        die(f"--head '{given_head}' is not a full commit sha")
     for binary in ("gh", "git", "hostname"):
         if not shutil.which(binary):
             die(f"{binary} is required but not installed.")
@@ -365,6 +380,14 @@ def run(argv: list[str], stdin) -> int:
     reviewed, refusal = report_head(body)
     if refusal:
         die(f"not posting this report: {refusal}.")
+    if reviewed is None and not given_head:
+        die("not posting this report: it has no dispatch header and no --head, so the commit it reviewed is "
+            "unknown, and posted on the PR's head it would read as the review of whatever was pushed last. "
+            "Post the review class's report with its header, or name the commit it read with --head.")
+    if reviewed and given_head and given_head != reviewed:
+        die(f"not posting this report: --head {given_head[:12]} is not the head_sha {reviewed[:12]} its dispatch "
+            "header names.")
+    reviewed = reviewed or given_head
     body = without_dispatch_headers(body)
     if not body.strip(" \t\n"):
         die("the review body is empty once its dispatch header is taken out.")
@@ -428,13 +451,14 @@ def run(argv: list[str], stdin) -> int:
 
     # The head the review read, never the head now: a review of an older head posted as the new one's reads in the
     # gate as coverage of commits nobody reviewed (the module docstring).
-    commit = reviewed or head
+    commit = reviewed
     if commit != head:
         refusal = pr_commit_refusal(repo, pr, commit)
         if refusal:
             die(f"not posting this report: {refusal}.")
-        say(f"post-review: this report covers {commit}, not the head {head} of PR #{pr}.")
-        say(f"  Posting it against {commit}: the gate counts it for that commit, not for the head.")
+    # Said on stdout with the URL, not as a warning: which commit the review is recorded on is the result.
+    recorded = (f"recorded on {commit}, the head of PR #{pr}." if commit == head else
+                f"recorded on {commit}; the head {head} of PR #{pr} is not covered by it.")
 
     # ── assemble ────────────────────────────────────────────────────
     # The marker goes FIRST so it survives any truncation a reader
@@ -456,7 +480,7 @@ are judged before they are answered; the judgement follows in the PR.
 {body}"""
 
     if dry:
-        print(f"would post a review to #{pr} ({state}) at {commit}")
+        print(f"would post a review to #{pr} ({state}), {recorded}")
         print("--- body ---")
         print(full_body)
         return 0
@@ -482,8 +506,7 @@ are judged before they are answered; the judgement follows in the PR.
     if not url:
         die("GitHub accepted the request but returned no review URL — treat as NOT posted.")
     print(f"posted review: {url}")
-    print("  marked so fabric-pr review-status counts it as the review of this head." if commit == head else
-          f"  marked as the review of {commit}; the head {head} is not covered by it.")
+    print(f"  {recorded}")
     return 0
 
 

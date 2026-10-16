@@ -149,7 +149,12 @@ def main() -> int:
 
         case: dict[str, str] = {}
 
-        def invoke(body: str, *args: str) -> tuple[int, str]:
+        # A report with no dispatch header names its head with --head or is refused (REQUEST 01a143a6), so the checks
+        # of everything else name the PR's head for it; head=None leaves --head out, and a report with a header names
+        # its own.
+        def invoke(body: str, *args: str, head: str | None = HEAD) -> tuple[int, str]:
+            if head and "agent-fabric-dispatch" not in body:
+                args = (*args, "--head", head)
             env = {**base, "AGENT_FABRIC_ROOT": case.get("fabric", f"{sandbox}/no-fabric")}
             if case.get("launch_role"):
                 env["AGENT_FABRIC_LAUNCH_ROLE"] = case["launch_role"]
@@ -208,7 +213,8 @@ def main() -> int:
         check("posted to the reviews endpoint", "POST repos/gzapi-org/gzapp/pulls/552/reviews" in calls(), calls())
 
         print("post-review: it says what it is — the review class's blind review, nothing less")
-        check("output says the reader counts it as THE review", "counts it as the review of this head" in out, out)
+        check("output names the commit it is recorded on, the PR's head", f"recorded on {HEAD}, the head of PR #552" in out,
+              out)
         check("the body names the method", "**Blind review**" in body_of(), body_of())
         for word in ("substitute", "fallback", "not a real review", "not an equivalent"):
             check(f"the body never says '{word}'", word not in body_of(), body_of())
@@ -374,16 +380,47 @@ def main() -> int:
               rc == 0 and posted() and payload().get("commit_id") == OLD, f"rc={rc}\n{out}{calls()}")
         check("…the gate counts nothing for the new head, and counts the head it read",
               not head_covered(HEAD, [], [payload()]) and head_covered(OLD, [], [payload()]), json.dumps(payload()))
-        check("…and it says which head it covers, not the PR's",
-              f"covers {OLD}, not the head {HEAD}" in out and "is not covered by it" in out, out)
+        check("…and it says on stdout which commit it is recorded on, and that the head is not covered",
+              f"recorded on {OLD}; the head {HEAD} of PR #552 is not covered by it." in out, out)
         rc, out = invoke(dispatch("pinned", head=OLD) + "F1 (P2) …", "552", "--dry-run")
-        check("--dry-run shows the head it would post against", rc == 0 and f"at {OLD}" in out, out)
+        check("--dry-run shows the head it would post against", rc == 0 and f"recorded on {OLD};" in out, out)
+
+        print("post-review: a report with no header names the head it read with --head, or is refused")
+        set_pr(f"{me}/feat/thing")
+        rc, out = invoke("F1 (P2) …", "552", head=None)
+        check("no header, no --head: refused, nothing sent (REQUEST 01a143a6)",
+              rc == 2 and not posted() and "no dispatch header and no --head" in out, f"rc={rc}\n{out}{calls()}")
+        rc, out = invoke("F1 (P2) …", "552", "--dry-run", head=None)
+        check("…--dry-run refuses it too", rc == 2 and "would post" not in out, f"rc={rc}\n{out}")
+        set_pr(f"{me}/feat/thing")
+        put("commits.json", json.dumps([[{"sha": OLD}, {"sha": HEAD}]]) + "\n")
+        rc, out = invoke("F1 (P2) …", "552", head=OLD)
+        check("--head an older commit of the PR posts against it, the head not covered",
+              rc == 0 and payload().get("commit_id") == OLD and not head_covered(HEAD, [], [payload()])
+              and f"the head {HEAD} of PR #552 is not covered" in out, f"rc={rc}\n{out}{calls()}")
+        set_pr(f"{me}/feat/thing")
+        put("commits.json", json.dumps([[{"sha": HEAD}]]) + "\n")
+        rc, out = invoke("F1 (P2) …", "552", head=OLD)
+        check("--head outside the PR refuses, nothing sent",
+              rc == 2 and not posted() and "is not a commit of PR #552" in out, f"rc={rc}\n{out}{calls()}")
+        set_pr(f"{me}/feat/thing")
+        rc, out = invoke("F1 (P2) …", "552", "--head", HEAD[:12], head=None)
+        check("an abbreviated --head refuses, nothing sent", rc == 2 and not posted() and "full commit sha" in out,
+              f"rc={rc}\n{out}")
+        set_pr(f"{me}/feat/thing")
+        rc, out = invoke(dispatch("pinned") + "F1 (P2) …", "552", "--head", OLD, head=None)
+        check("--head naming another commit than the header's refuses, nothing sent",
+              rc == 2 and not posted() and "is not the head_sha" in out, f"rc={rc}\n{out}{calls()}")
+        set_pr(f"{me}/feat/thing")
+        rc, out = invoke(dispatch("pinned") + "F1 (P2) …", "552", "--head", HEAD, head=None)
+        check("--head naming the header's own commit posts", rc == 0 and payload().get("commit_id") == HEAD,
+              f"rc={rc}\n{out}")
 
         def refused_head(label: str, report: str, why: str, commits: list | None = None) -> None:
             set_pr(f"{me}/feat/thing")
             if commits is not None:
                 put("commits.json", json.dumps(commits) + "\n")
-            rc, out = invoke(report + "F1 (P2) …", "552")
+            rc, out = invoke(report + "F1 (P2) …", "552", head=OLD)
             check(label, rc == 2 and not posted() and why in out, f"rc={rc}\n{out}{calls()}")
         refused_head("headers naming different heads refuse, nothing sent",
                      dispatch("pinned") + dispatch("pinned", head=OLD), "different heads")
@@ -404,8 +441,9 @@ def main() -> int:
                                   ("a missing PR number is refused", "x", ()),
                                   ("a non-numeric PR is refused", "x", ("notanumber",)),
                                   ("--model without a value is refused", "x", ("552", "--model")),
+                                  ("--head without a value is refused", "x", ("552", "--head")),
                                   ("an unknown option is refused", "x", ("552", "--bogus"))):
-            rc, out = invoke(body, *args)
+            rc, out = invoke(body, *args, head=None)
             check(label, rc == 2, f"rc={rc}\n{out}")
 
         print("post-review: a rejected post is reported, never assumed")

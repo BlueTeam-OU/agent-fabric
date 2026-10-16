@@ -209,7 +209,7 @@ def main() -> int:
     # The repository is named, never read from the checkout's origin (a copy without a remote has none).
     os.environ["GH_REPO"] = "o/r"
     try:
-        post_review.run(["552"], "findings")
+        post_review.run(["552", "--head", "a" * 40], "findings")
         check("refused", False)
     except post_review.Refused as e:
         check("refused, naming the branch", "head branch" in str(e))
