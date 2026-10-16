@@ -485,6 +485,16 @@ def run() -> None:
                   (listed, j.global_problem))
         finally:
             j.close()
+    # A role named with no usable holders list is listed and held by nobody.
+    for label, extra in (("no holders", {"role": "python-dev"}), ("holders a string", {"role": "python-dev", "holders": "user"})):
+        with open(os.path.join(FABRIC, "policies", "authority.json"), "w", encoding="utf-8") as f:
+            json.dump({"role_definitions": [{"role": "fabric-coordinator", "holders": ["user"]}, extra]}, f)
+        j = guard_mod.Judge(env(AGENT_FABRIC_OPERATOR=FABRIC), "ssh")
+        try:
+            listed = j.holders.get("python-dev")
+            check(f"a named role with {label}: listed, held by nobody", listed == [] and not guard_mod.may_hold("python-dev-3", "python-dev", listed, []), listed)
+        finally:
+            j.close()
     write_operator(since=old)
     sig = b"-----BEGIN SSH SIGNATURE-----\nabc\n-----END SSH SIGNATURE-----"
     good = proof_mod.MAGIC + b"\x01\x08" + hashlib.sha256(sig).digest() + b"\x00tail"

@@ -326,8 +326,11 @@ class Judge:
                 role = d.get("role")
                 role = role if isinstance(role, str) and role else common.DEFAULT_ROLE
                 listed = d.get("holders")
+                # A role it names is listed even with no usable holders list:
+                # held by nobody, never by the name convention.
+                names = self.holders.setdefault(role, [])
                 if isinstance(listed, list):
-                    self.holders.setdefault(role, []).extend(h for h in listed if isinstance(h, str))
+                    names.extend(h for h in listed if isinstance(h, str))
 
     def _locales(self, role: str) -> list[str]:
         try:
