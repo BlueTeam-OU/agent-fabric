@@ -106,6 +106,12 @@
       "group": "Rust Developer"
     },
     {
+      "id": "ux-designer",
+      "title": "User-experience designer: flows, interactions, accessibility, specified for the developer",
+      "short_title": "UX Designer",
+      "group": "Experts"
+    },
+    {
       "id": "web-dev",
       "title": "Web sub-app developer",
       "short_title": "Web Developer",

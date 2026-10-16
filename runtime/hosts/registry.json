@@ -48,6 +48,7 @@
     "rust-services-dev-02": "develop-qzapp",
     "legal-expert-ee-eu": "develop-qzapp",
     "legal-expert-ch": "develop-qzapp",
-    "legal-expert-ge": "develop-qzapp"
+    "legal-expert-ge": "develop-qzapp",
+    "ux-designer-01": "develop-qzapp"
   }
 }
