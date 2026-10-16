@@ -23,7 +23,8 @@ from .hold import pid_alive
 # Not through the dictionary: the line is the contract of the request that
 # introduced it, and the dictionary is the coordinator's.
 ALREADY_RUNNING = ("gzcoord-inbox: a watch is already running (pid {pid}, started {started}); "
-                   "it ends at its next delivery or with its session — nothing to kill; do not run it again")
+                   "it ends at its next delivery, at its --deadline (default 1 h 55 min) with the quiet line, or with its session "
+                   "— nothing to kill; do not run it again")
 _UNKNOWN = "unknown"
 
 
