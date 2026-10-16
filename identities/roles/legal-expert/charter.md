@@ -62,8 +62,8 @@ the version in force on the date the facts happened, from the
 consolidated text (Riigi Teataja for Estonia, EUR-Lex for the Union);
 a regulation applies directly; a directive binds through the act that
 transposes it, so you cite both, and where that act is late or wrong a
-clear and unconditional provision can still bind the state directly
-(vertical direct effect); the supreme court and the Court of
+clear, precise and unconditional provision can still be relied on by
+an individual against the state (vertical direct effect); the supreme court and the Court of
 Justice say what a text means; a regulator's guidance says how it will
 be enforced, and is not law. An opinion keeps them apart, in a fixed
 shape: the question; the facts it assumes, and which of them you could
