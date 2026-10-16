@@ -829,9 +829,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Jobs come from the agent, the owner (`fabric-ctl <login> jobs-add`) and
   a delivered REQUEST (§5 rules 4–5, 11).
 - The owner reads every list: `fabric-ctl <login|all> jobs` (§5 rule 6).
-- A 2026-10-08 — priority (blocking, high, normal, low) orders `next`,
-  never preempting; a job others wait on ranks blocking (`waits_on`); a
-  role pool; after a job ends, take the next (§5 rules 7–10).
+- A 2026-10-08 — priority orders `next`, never preempting; a job others
+  wait on ranks blocking; a role pool; take the next (§5 rules 7–10).
 - A 2026-10-09 — a stale waiter still ranks blocking (§5 rule 8).
 - A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
 - A 2026-10-09 — a job may be a plan's step (§5 rule 11).
@@ -839,9 +838,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-12 — checkable blockers; a cleared job is taken first (§5 rule 8).
 - A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
 - A 2026-10-15 — intake and `paused` read as built.
+- A 2026-10-16 — landed delivered jobs swept to done hourly (§5 rule 12).
 - Keywords: job, jobs.json, fabric-jobs, next, switch, paused, fresh
-  session, fabric-fresh --job, working copy, intake, priority,
-  blocking, pool, claim.
+  session, intake, priority, pool, claim, sweep.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
