@@ -15,10 +15,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   exit      0 posted; 2 an invocation problem, a refusal, or a post
             GitHub rejected or did not confirm
 
-A REVIEW COVERS THE HEAD IT READ, never the PR's head at posting time: what
-"only a pinned review covers a head" (agent-fabric ADR-020 §5 rule 10) means
-for the post, decided in REQUEST 01a14012; the record does not spell out this
-part yet. A report with dispatch headers is posted
+A REVIEW COVERS THE HEAD IT READ, never the PR's head at posting time
+(agent-fabric ADR-020 §5 rule 6; "only a pinned review covers a head" is
+rule 10). A report with dispatch headers is posted
 with commit_id = their head_sha: every header names the same one, or the
 report is refused; a sha that is not a commit of the PR is refused; one that
 is no longer the head is posted against it all the same, saying so on
