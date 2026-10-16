@@ -610,13 +610,13 @@ its record disagree, the record wins. Look it up, never read it whole:
   holder translates (§5 rules 9–11).
 - Memory rendered under `## English` by its holder, else
   `needs_rendering`; locale search through `websearch-locale`, SerpAPI
-  then Brave, the harness's `WebSearch` removed (§5 rules 12–13).
-- A 2026-10-07 — the source locale (en-US) has no bridge (§2).
-- A 2026-10-16 — a charter is translated only for a holder working in that language, by its own holder, reviewed by language-culture (§5 rule 11).
-- Keywords: language-culture, locale, translation, culture, bridge,
-  locale-worker, worker, Georgian, Russian, ka-GE, ru-RU, harness.md,
-  system-prompt-file, notes, script, needs_rendering, web search, SerpAPI,
-  Brave, carve-out, TaskStop, isolation.
+  then Brave, `WebSearch` removed (§5 rules 12–13).
+- A 2026-10-07 — en-US, the source, has no bridge (§2).
+- A 2026-10-16 — charters translated only for holders working in that language; language-culture reviews (§5 rule 11).
+- A 2026-10-16 — a holder may adopt language-culture's draft, read against the English, recorded (§5 rule 11).
+- Keywords: translation, worker, Georgian, Russian, ru-RU,
+  system-prompt-file, notes, script, web search, carve-out, TaskStop,
+  isolation.
 
 ### ADR-028 — The house i18n standard; GZCoord speaks the reader's language (Accepted)
 

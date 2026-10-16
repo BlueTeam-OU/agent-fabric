@@ -63,8 +63,12 @@ of `<role>` whose login is named for `<suffix>` (`language-culture-ge`
 writes `locale/ge/`): the CEO's rule of 2026-09-17 that no text in a
 locale has any author but its holder. A role's charter is translated
 only for a holder whose work is in that language, and
-`language-culture-<suffix>` reviews it (agent-fabric ADR-027 §5 rule 11,
-A 2026-10-16). The fence meets it halfway: a
+`language-culture-<suffix>` reviews it. The holder may start from that
+specialist's draft and is still the author, as the role that commits the
+text and answers for it: it reads the whole text against the English
+source before the pull request is opened, both of rule 3's passes still
+run on it, and its last commit before the pull request names the draft
+and that reading (agent-fabric ADR-027 §5 rule 11, A 2026-10-16). The fence meets it halfway: a
 commit that stages nothing but that subtree, from a session bound to
 that role on that login, passes the pre-commit hook and is recorded as
 `Fabric-Role: <role>`; CI admits such a commit for that subtree alone.

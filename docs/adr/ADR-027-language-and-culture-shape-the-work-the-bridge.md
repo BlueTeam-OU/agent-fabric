@@ -192,7 +192,15 @@ re-captured, and a holder who writes every answer twice.
     a holder whose corpus is English, as EU law is for
     `legal-expert-ee-eu`, keeps the English. The role's own locale holder
     writes it, and `language-culture-<suffix>` reviews it in the two
-    passes of rule 3 before the pull request is opened.
+    passes of rule 3 before the pull request is opened. The holder may
+    start from a draft `language-culture-<suffix>` hands it, and is still
+    the author: an author is the role that commits the text and answers
+    for it, whatever draft it began from. Because the reviewer then
+    reads its own draft, the holder reads the whole committed text
+    against the English source before the pull request is opened, both
+    of rule 3's passes still run on that text, and the last commit before
+    the pull request names the draft and says the holder read the text as
+    it then stands (A 2026-10-16).
 12. The holder's memory is written in the locale. A memory with a
     `roles_class` carries its rendering under `## English`, and a
     description in the locale carries `description_en` beside it; the
@@ -298,3 +306,4 @@ The body above reads current; each change's full note is in [history/ADR-027-ame
 |---|---|---|
 | 2026-10-07 | The source locale has no bridge | §2: an en-US holder's locale carries locale.json alone; no worker, no rendering, notes unmeasured; global English |
 | 2026-10-16 | A charter is translated for a holder who works in that language | §5 rule 11: only a holder whose work is in the locale's language gets its charter translated; the role's locale holder writes it, language-culture-<suffix> reviews it |
+| 2026-10-16 | A holder may adopt language-culture's draft | §5 rule 11: the holder may start from `language-culture-<suffix>`'s draft and is the author of what it commits; it reads the whole text against the English, both passes still run, and the commit names the draft and the reading |
