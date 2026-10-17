@@ -55,7 +55,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             `transport` when it is the gateway), on the gateway path
             $STATE_DIR/gateway-plan.json, gateway.json (pid, version,
             listener, plan digest; removed at the end) and gateway.log, and
-            creates /var/tmp/agent-fabric-<agent>. Fast-forwards the fabric
+            creates ~/agent-fabric-tmp (TMPDIR) and prunes what in it
+            is older than a week. Fast-forwards the fabric
             checkout and the launch working copy when they are behind.
   stdout    --print's report, byte for byte the bash's (compared for every
             role and both providers on the Wave 4 branch); otherwise
@@ -270,7 +271,7 @@ from fabric_launcher.routing import check_ori_auth, caller_value, effort_for  # 
 from fabric_launcher.secrets import synced_values, synced_oauth_token, settle_oauth_token  # noqa: E402, F401
 from fabric_launcher.secrets import SYNCED_SECRETS, HARNESS_CREDENTIAL, HARNESS_EXPANDS  # noqa: E402, F401
 from fabric_launcher.secrets import settle_secrets  # noqa: E402, F401
-from fabric_launcher.session import require_files, make_tmpdir, print_report  # noqa: E402, F401
+from fabric_launcher.session import require_files, make_tmpdir, settle_tmpdir, print_report  # noqa: E402, F401
 from fabric_launcher.session import record_launch_provider, install_agent_files  # noqa: E402, F401
 from fabric_launcher.session import mark_onboarding_done, session_command, opening_prompt  # noqa: E402, F401
 from fabric_launcher.session import ignore_quit, run_session, read_restart  # noqa: E402, F401
@@ -586,23 +587,18 @@ def launch(argv: list[str]) -> int:
     # decides the child's environment on every path, so it is exported here.
     env["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1"
 
-    # Temporary files go to a per-account directory under /var/tmp, not to
-    # the host's shared tmpfs and not under the home. /tmp on a host is one
-    # small memory filesystem for every agent account; a bare dotnet, flutter
-    # or marp run outside make writes its build and test scratch there and
-    # leaves it, and on 2026-09-17 it hit 100% and stopped every session at
-    # once (the CEO's decision, seq 748; the make half is each project's,
-    # this is the launcher's — the one place every session's environment is
-    # decided). /var/tmp is disk-backed and world-writable on every platform
-    # the fabric runs on; on a Qubes AppVM it sits on the volatile root
-    # volume and is emptied at every reboot, elsewhere systemd-tmpfiles
-    # clears entries older than thirty days — either way nothing
-    # accumulates under a home for ever (the CEO, 2026-09-17). One directory
-    # per login straight under /var/tmp, 700, so no account has to own a
-    # shared parent. A TMPDIR the account set itself wins.
-    own_tmpdir = env.get("TMPDIR")
-    env["TMPDIR"] = own_tmpdir or f"/var/tmp/agent-fabric-{agent}"
-    make_tmpdir(env["TMPDIR"], ours=not own_tmpdir)
+    # Temporary files go to a per-account directory in the account's home,
+    # on the volume that holds the homes (settle_tmpdir). Not /tmp: one
+    # small memory filesystem for every account, which a bare dotnet,
+    # flutter or marp run filled on 2026-09-17 and stopped every session at
+    # once (the CEO, seq 748). Not /var/tmp, where that decision put it: on a
+    # Qubes AppVM it is the volatile root volume, 40G shared with the
+    # system, and every account's build scratch filled it on 2026-10-17 and
+    # took the fleet down while the home volume had 74G free (the owner, the
+    # same day). The CEO's other condition, that nothing accumulates for
+    # ever, is kept by pruning at each launch. A TMPDIR the account set
+    # itself wins and is never pruned.
+    settle_tmpdir(env)
 
     if print_only:
         print_report(resolved, routing, label=label, agent=agent, role=role, provider=routing_provider, session=session,
