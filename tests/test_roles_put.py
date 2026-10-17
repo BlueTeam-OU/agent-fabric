@@ -267,8 +267,109 @@ def main() -> int:
             git(parent, mirror, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
                 "commit", "-q", "--allow-empty", "-m", "a commit of the parent's, not pushed")
             rc, out, err = install("ahead", "ahead", {"charter-addendum.md": addendum("charter-addendum", "dig-ahead")})
-            check("a mirror ahead of its remote is refused too", rc == 1 and "ahead of its remote" in err, out + err)
+            check("a mirror ahead of its remote is refused too, with advice that works on a mirror that is ahead",
+                  rc == 1 and "ahead of its remote" in err and "reset --hard origin/main" in err, out + err)
+            git(child, other, "pull", "-q", "--ff-only", "origin", "main")
+            git(child, other, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                "commit", "-q", "--allow-empty", "-m", "the child moved again")
+            git(child, other, "push", "-q", "origin", "HEAD:main")
+            rc, out, err = install("diverged", "div", {"charter-addendum.md": addendum("charter-addendum", "dig-div")})
+            check("…and one that has diverged from it", rc == 1 and "diverged from its remote" in err and "reset --hard" in err, out + err)
+            git(parent, mirror, "fetch", "-q", "origin")
             git(parent, mirror, "reset", "-q", "--hard", "origin/main")
+            n1 = count()
+
+            # An ignore rule drops a file from `git add` with exit 0 (the parent's excludes, or a .gitignore the child
+            # committed): the commit would hold less than was validated and its trailers would say otherwise.
+            exclude = os.path.join(mirror, ".git", "info", "exclude")
+            with open(exclude, "a") as fh:
+                fh.write("settings/roles/*/charter-addendum.md\n")
+            head_i = git(parent, mirror, "rev-parse", "HEAD")
+            rc, out, err = install("ignored", "ign", {"charter-addendum.md": addendum("charter-addendum", "dig-ign"),
+                                                      "holder.json": b'{"locale":"en"}'})
+            check("a file git ignores in the mirror refuses the install: no commit, and the file is not left behind",
+                  rc == 1 and "ignore rule" in err and "nothing written" in err and git(parent, mirror, "rev-parse", "HEAD") == head_i
+                  and git(parent, mirror, "status", "--porcelain", "--ignored") == "" and remote_head() == head_i.strip(), out + err)
+            rc, out, err = install("ignored1", "ign1", {"charter-addendum.md": addendum("charter-addendum", "dig-ign")})
+            check("…a first install of only the ignored file is refused too, not reported unchanged",
+                  rc == 1 and "ignore rule" in err, out + err)
+            rc, out, err = call(parent, "roles-put", "--agent", "kid", "--role", "ignrole", "--from",
+                                src("ign2", {"charter-addendum.md": addendum("charter-addendum", "dig-i2", "ignrole")}), "--approval", "A-8")
+            check("…and an ignored file that was never tracked is removed from the mirror again, not left for the next run",
+                  rc == 1 and not os.path.exists(os.path.join(mirror, "settings", "roles", "ignrole", "charter-addendum.md")), out + err)
+            with open(exclude, "w") as fh:
+                fh.write("")
+            n1 = count()
+
+            # A clean filter changes the bytes on their way into the commit: what is committed is not what was validated.
+            rot = "tr 'a-zA-Z' 'n-za-mN-ZA-M'"
+            git(parent, mirror, "config", "filter.rot.clean", rot)
+            git(parent, mirror, "config", "filter.rot.smudge", rot)
+            attrs = os.path.join(mirror, ".git", "info", "attributes")
+            with open(attrs, "w") as fh:
+                fh.write("settings/roles/*/holder.json filter=rot\n")
+            head_f = git(parent, mirror, "rev-parse", "HEAD")
+            rc, out, err = install("filter", "flt", {"charter-addendum.md": addendum("charter-addendum", "dig-flt"),
+                                                     "holder.json": b'{"locale":"en"}'})
+            check("a git filter that changes a file on its way into the commit refuses the install",
+                  rc == 1 and "git filter" in err and git(parent, mirror, "rev-parse", "HEAD") == head_f
+                  and git(parent, mirror, "status", "--porcelain") == "", out + err)
+            os.unlink(attrs)
+            git(parent, mirror, "config", "--unset", "filter.rot.clean")
+            git(parent, mirror, "config", "--unset", "filter.rot.smudge")
+
+            # SIGTERM while the commit is made: the same undo as Ctrl-C, ending as a one-line refusal, the handler put back.
+            import signal as _signal
+            before_handler = _signal.getsignal(_signal.SIGTERM)
+            head_t = git(parent, mirror, "rev-parse", "HEAD")
+            with mock.patch.object(sys.modules["secretstore.roles"], "_commit", side_effect=lambda *a: os.kill(os.getpid(), _signal.SIGTERM)):
+                rc, out, err = install("term", "term", {"charter-addendum.md": addendum("charter-addendum", "dig-term")})
+            check("SIGTERM during the commit undoes the install like Ctrl-C, and the handler is put back",
+                  rc == 1 and "interrupted" in err and git(parent, mirror, "rev-parse", "HEAD") == head_t
+                  and git(parent, mirror, "status", "--porcelain", "--ignored") == "" and _signal.getsignal(_signal.SIGTERM) == before_handler,
+                  out + err)
+
+            # A regular file where the role's directory belongs: one line, nothing written, nothing left.
+            with open(os.path.join(mirror, "settings", "roles", "filerole"), "w") as fh:
+                fh.write("x")
+            rc, out, err = call(parent, "roles-put", "--agent", "kid", "--role", "filerole", "--from",
+                                src("fr", {"charter-addendum.md": addendum("charter-addendum", "dig-f", "filerole")}), "--approval", "A-7")
+            check("a file in place of the role's directory is refused in one line, no traceback",
+                  rc == 1 and "not a directory" in err and "Traceback" not in err and count() == n1, out + err)
+            os.unlink(os.path.join(mirror, "settings", "roles", "filerole"))
+
+            # The undo: a write that fails half way, a push that fails, an interrupt in the push.
+            roles_mod = sys.modules["secretstore.roles"]
+            real_put_file = roles_mod._put_file
+            calls = []
+
+            def second_fails(dest, data):
+                calls.append(dest)
+                if len(calls) == 2:
+                    raise OSError(28, "No space left on device", dest)
+                real_put_file(dest, data)
+            head_u = git(parent, mirror, "rev-parse", "HEAD")
+            tree_u = git(parent, mirror, "ls-files", "-s")
+            with mock.patch.object(roles_mod, "_put_file", second_fails):
+                rc, out, err = install("half", "half", {"charter-addendum.md": addendum("charter-addendum", "dig-h"),
+                                                        "holder.json": b'{"locale":"en"}'})
+            check("a write that fails half way puts the mirror back: one line, same head and index, nothing left over",
+                  rc == 1 and "No space left" in err and "nothing written" in err and "Traceback" not in err
+                  and git(parent, mirror, "rev-parse", "HEAD") == head_u and git(parent, mirror, "ls-files", "-s") == tree_u
+                  and git(parent, mirror, "status", "--porcelain", "--ignored") == "", out + err)
+            for label, boom, needle in (("a push that fails", secret_store.StoreError("push refused"), "push refused"),
+                                        ("an interrupt in the push", KeyboardInterrupt(), "interrupted")):
+                with mock.patch.object(roles_mod, "_after_commit", side_effect=boom):
+                    rc, out, err = install("push", "push", {"charter-addendum.md": addendum("charter-addendum", "dig-push")})
+                check(f"{label} resets the mirror to its remote: no unpushed commit is left",
+                      rc == 1 and needle in err and git(parent, mirror, "rev-parse", "HEAD") == head_u
+                      and git(parent, mirror, "status", "--porcelain", "--ignored") == "" and remote_head() == head_u.strip(), out + err)
+            rc, out, err = install("after", "after", {"charter-addendum.md": addendum("charter-addendum", "dig-after")})
+            check("…and the next install is accepted (the mirror is whole)", rc == 0 and "committed as" in out, out + err)
+            n1 = count()
+            git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+            git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
+            n1 = count()
 
             keyname = trust.TRUST_KEY
             held = git(parent, mirror, "config", "--local", "--get", keyname).strip()
@@ -281,8 +382,11 @@ def main() -> int:
             os.rename(mirror, mirror + ".moved")
             os.makedirs(mirror)
             subprocess.run(["git", "-C", mirror, "init", "-q", "-b", "main"], check=True, env=parent)
+            with open(os.path.join(mirror, ".agent-id"), "w") as fh:
+                fh.write(PID + "\n")
             rc, out, err = install("nomirror", "nm", good)
-            check("a directory that is no mirror of the child (no .agent-id, no remote) is refused", rc == 1 and "nothing written" in err, out + err)
+            check("a directory that is the mirror of another agent is refused, naming it",
+                  rc == 1 and "not the mirror of agent" in err and "nothing written" in err, out + err)
             shutil.rmtree(mirror)
             os.rename(mirror + ".moved", mirror)
 
