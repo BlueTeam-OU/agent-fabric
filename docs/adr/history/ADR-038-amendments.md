@@ -199,3 +199,7 @@ every reader refuses a commit signed by any other key
 (`secretstore/trust.py` `writers`). Rule 3 now says what the code and
 ADR-042 already did, and rule 10 relies on it: a company's store takes
 writes only from its writers. No behaviour changes.
+
+### Amendment 2026-10-17 — Holder addenda (ADR-060)
+
+ADR-060 §5 rule 3: a holder's addenda are its permanent instructions, so the agent may not write them itself. The parent installs them with its own command; the agent's settings-put refuses any path under settings/roles/.

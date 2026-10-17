@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
+import json
 import os
 import re
 import sys
@@ -139,12 +140,23 @@ def _piece(role_dir: str, agent: str, name: str, default_text: str) -> tuple[str
     return (_body(locale), True) if locale else (default_text, False)
 
 
-def build(agent: str, host: str, role: str) -> str:
+# THE HOLDER'S ADDENDA (agent-fabric ADR-060). The launcher reads them from
+# the agent's own store (tools/fabric/addenda.py, which verifies them) and
+# hands them over as a file; this module only places them, so it stays pure.
+# Each is capped on its own, and the ceiling grows by exactly what they add:
+# the shared part keeps its budget whatever a holder carries.
+ADDENDUM_MAX_CHARS = 4000
+
+
+def build(agent: str, host: str, role: str, holder: dict | None = None) -> str:
     """The prompt text for one (agent, host, role): the fabric's part —
     header, charter, brief (or the missing-brief line), the shared
     sections — each from the login's locale when it carries a
-    translation, else the English. Pure: reads the repository, touches
-    nothing else; byte-identical for every login without locale files."""
+    translation, else the English — with the holder's charter addendum
+    after the charter and its brief addendum after the brief. Pure: reads
+    the repository, touches nothing else; byte-identical for every login
+    without locale files and without a holder."""
+    added = _addenda(role, holder)
     role_dir = layout.role_dir(role)
     charter = _charter_path(role_dir, agent)
     if not os.path.isfile(charter):
@@ -156,6 +168,8 @@ def build(agent: str, host: str, role: str) -> str:
     # The charter and the brief carry their own H1 ("<role> — charter",
     # "<role> — brief"); only a missing brief needs a heading of its own.
     parts.append(_body(charter))
+    if added["charter"]:
+        parts.append(added["charter"])
     brief = os.path.join(role_dir, "brief.md")
     if os.path.isfile(brief) or _locale_path(role_dir, agent, "brief"):
         text, loc = _piece(role_dir, agent, "brief", _body(brief) if os.path.isfile(brief) else "")
@@ -165,6 +179,8 @@ def build(agent: str, host: str, role: str) -> str:
         text, loc = _piece(role_dir, agent, "brief-missing", _template(BRIEF_MISSING_TEMPLATE))
         localized = localized or loc
         parts.append(text.replace("{role}", role).strip("\n") + "\n")   # the piece carries its own heading (blind review of #3: it was English in a Georgian prompt)
+    if added["brief"]:
+        parts.append(added["brief"])
     for name in layout.PROMPT_TEMPLATES:
         path = layout.prompt_template_path(name)
         if not os.path.isfile(path):
@@ -173,7 +189,9 @@ def build(agent: str, host: str, role: str) -> str:
         localized = localized or loc
         parts.append(text.replace("{role}", role).strip("\n") + "\n")
     text = "\n".join(parts)
-    ceiling = int(MAX_CHARS * LOCALE_CHARS_FACTOR) if localized else MAX_CHARS
+    # Each addendum is one more joined part, so it adds its length and one
+    # separator; the ceiling grows by exactly that (ADR-060 §5 rule 6).
+    ceiling = (int(MAX_CHARS * LOCALE_CHARS_FACTOR) if localized else MAX_CHARS) + sum(len(a) + 1 for a in added.values() if a)
     if len(text) > ceiling:
         raise SystemExit(f"launch_prompt: {len(text)} characters for role {role!r} exceeds {ceiling}; "
                          "shorten the charter or brief (tools/fabric/lint.py budgets them)")
@@ -204,12 +222,13 @@ def render_harness(role_dir: str, agent: str, cwd: str | None = None) -> str | N
     return _body(path).replace(HARNESS_PLACEHOLDER, layout.default_memory_dir(cwd or os.getcwd()))
 
 
-def build_launch(agent: str, host: str, role: str, cwd: str | None = None) -> tuple[str, bool]:
+def build_launch(agent: str, host: str, role: str, cwd: str | None = None,
+                 holder: dict | None = None) -> tuple[str, bool]:
     """What the launcher passes: build()'s text, and — when the locale
     carries a harness translation — that text appended last, with True
     meaning the file rides --system-prompt-file (the whole prompt) instead
     of --append-system-prompt-file. Without one, build()'s bytes and False."""
-    text = build(agent, host, role)
+    text = build(agent, host, role, holder)
     harness = render_harness(layout.role_dir(role), agent, cwd)
     if harness is None:
         return text, False
@@ -220,12 +239,12 @@ def digest(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def render(out: str, agent: str, host: str, role: str) -> str:
+def render(out: str, agent: str, host: str, role: str, holder: dict | None = None) -> str:
     """Write the prompt for (agent, host, role) to `out` atomically and
     return its digest: identity.atomic_write, like every write under
     agents/<login>/ (agent-fabric ADR-003), so a launch that dies
     mid-write leaves the previous prompt intact rather than a torn one."""
-    text, replace = build_launch(agent, host, role)
+    text, replace = build_launch(agent, host, role, holder=holder)
     print(f"replace: {'yes' if replace else 'no'}", file=sys.stderr)
     directory = os.path.dirname(os.path.abspath(out)) or "."
     os.makedirs(directory, exist_ok=True)
@@ -233,11 +252,47 @@ def render(out: str, agent: str, host: str, role: str) -> str:
     return digest(text)
 
 
+def _addenda(role: str, holder: dict | None) -> dict[str, str]:
+    """The holder's two addenda as prompt pieces, each ending in one newline
+    like the shared sections; empty when absent. A holder for another role,
+    or an addendum over its cap, stops the render: addenda.py has verified
+    them, so either means the file is not the one it wrote."""
+    out = {"charter": "", "brief": ""}
+    if holder is None:
+        return out
+    if holder.get("role") != role:
+        raise SystemExit(f"launch_prompt: the holder file is for role {holder.get('role')!r}, not {role!r}")
+    for name in out:
+        text = holder.get(name)
+        if text is None:
+            continue
+        if not isinstance(text, str):
+            raise SystemExit(f"launch_prompt: the holder's {name} addendum is not text")
+        if len(text) > ADDENDUM_MAX_CHARS:
+            raise SystemExit(f"launch_prompt: the holder's {name} addendum is {len(text)} characters, "
+                             f"over {ADDENDUM_MAX_CHARS} (agent-fabric ADR-060 §5 rule 6)")
+        out[name] = text.strip("\n") + "\n" if text.strip() else ""
+    return out
+
+
+def _holder_file(path: str, role: str) -> dict:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            holder = json.load(fh)
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"launch_prompt: the holder file {path} could not be read ({type(e).__name__})")
+    if not isinstance(holder, dict):
+        raise SystemExit(f"launch_prompt: the holder file {path} is not an object")
+    _addenda(role, holder)
+    return holder
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="launch_prompt.py", add_help=True)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--out", help="write the prompt here and print its digest")
     group.add_argument("--print", action="store_true", help="render to stdout, write nothing")
+    parser.add_argument("--holder-file", help="the holder's addenda as addenda.py wrote them (ADR-060)")
     args = parser.parse_args(argv)
 
     agent = identity.current_agent()
@@ -248,12 +303,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"launch_prompt: agent {agent!r} has no active role binding; "
               "bind one first (fabric-role bind <role>).", file=sys.stderr)
         return 1
+    holder = _holder_file(args.holder_file, role) if args.holder_file else None
     if args.print:
-        text, replace = build_launch(agent, host, role)
+        text, replace = build_launch(agent, host, role, holder=holder)
         sys.stdout.write(text)
         print(f"replace: {'yes' if replace else 'no'}", file=sys.stderr)
         return 0
-    print(render(args.out, agent, host, role))
+    print(render(args.out, agent, host, role, holder))
     return 0
 
 

@@ -67,16 +67,16 @@ project doctrine made up to fill a gap.
   metric label, structured log, panic or debug representation: you
   prove it with negative tests and by reading the observable output,
   not only the happy path.
-- **A guarantee the mechanism cannot give** goes back to architect-cto
-  with the evidence and the alternatives. It is never weakened in
+- **A guarantee the mechanism cannot give** goes back to the project's
+  architecture role with the evidence and the alternatives. It is never weakened in
   silence, faked in a status, or traded for a route or backend that is
   easier to serve.
 
 ## With the other roles
 
-- **The role the project's remit names** (architect-cto, for one, or the
-  control plane) owns what a route means, the routing policy, the product
-  contracts, and which guarantee the system exposes.
+- **The role the project's remit names** owns the routing policy and what
+  a route means; **the project's architecture role** (architect-cto, for
+  one) owns the product contracts and which guarantee the system exposes.
 - **p2p-network-dev** owns peer-to-peer transports, discovery,
   overlays, admission, and NAT and reachability.
 - **edge-hosting** owns DNS, edge certificates, public routing, edge

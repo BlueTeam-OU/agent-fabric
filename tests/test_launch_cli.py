@@ -39,7 +39,7 @@ if [[ "${1:-}" == auth ]]; then
     exit 0
 fi
 echo "ORI-EXECCED:$*"
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_AGENT AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_AGENT AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_STORE_SHA AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT AGENT_FABRIC_LAUNCH_CLAUDE_VERSION CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
     echo "ORI-ENV:$v=${!v:-}"
 done
 # Presence only, never a value: a template token must not reach the broker.
@@ -210,6 +210,8 @@ def main() -> int:
                 '---\nrole: backend-dev\nclass: charter\ndescription: "x"\ntier: 1\ndistilled_at: 2026-09-15\n---\n\n'
                 "# backend-dev — charter\n\nFIXTURE-CHARTER-LINE: the backend that owns meaning.\n")
             put(f"{fabric}/projects/registry.json", json.dumps({"projects": {}}))   # its own, never the live one
+            # The launcher reads holders_specialize from the catalogue and refuses a role it does not list.
+            put(f"{fabric}/identities/roles/catalog.json", json.dumps({"roles": [{"id": "backend-dev"}, {"id": "language-culture"}]}))
             binding()
             os.makedirs(repo)
             subprocess.run(["git", "init", "-q", repo], env=base, check=True, timeout=30)
@@ -1223,6 +1225,42 @@ def main() -> int:
             rc, out = run("--version")
             check("a role with no charter cannot launch: refused before exec",
                   rc != 0 and "could not render the role's system prompt" in out and "EXECCED" not in out, out)
+
+            print("launch: the holder's addenda of the bound role (ADR-060) — none is today's launch; unverifiable is a refusal")
+            mkfabric()
+            out = out_of("--version", AGENT_FABRIC_LAUNCH_STORE_SHA="inherited", AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT="inherited")
+            check("no addenda: the launch execs, and a stamp inherited from a replaced session is dropped",
+                  "ORI-EXECCED:" in out and has(r"ORI-ENV:AGENT_FABRIC_LAUNCH_STORE_SHA=$", out)
+                  and has(r"ORI-ENV:AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT=$", out), out)
+            check("…and leaves no holder file beside the prompt", not os.path.exists(f"{agent_dir}/launch-holder.json"))
+            store = f"{home}/.local/share/agent-fabric/secrets"
+            os.makedirs(store)
+            git("init", "-q", "-b", "main", store)
+
+            def commit_addendum(role: str) -> None:
+                put(f"{store}/settings/roles/{role}/charter-addendum.md", "---\nclass: charter-addendum\n---\nx\n")
+                git("add", "-A", cwd=store)
+                git("commit", "-q", "-m", f"addendum {role}", cwd=store)
+            commit_addendum("brand-comms")
+            rc, out = run("--version")
+            check("addenda of ANOTHER role in the store do not stop this launch (control)", rc == 0 and "ORI-EXECCED:" in out, out)
+            commit_addendum("backend-dev")
+            rc, out = run("--version")
+            check("addenda for the bound role that cannot be verified refuse the launch before exec, naming the role",
+                  rc != 0 and "addenda" in out and "backend-dev" in out and "EXECCED" not in out, out)
+            check("…and nothing is read as absence: no holder file is left", not os.path.exists(f"{agent_dir}/launch-holder.json"))
+            rm(store)
+            # F7: the policy of the bound role is read or the launch stops; a missing catalogue, and a role
+            # the catalogue does not list, are refusals (positive control: the cases above launch with both).
+            catalog = f"{fabric}/identities/roles/catalog.json"
+            rm(catalog)
+            rc, out = run("--version")
+            check("a missing role catalogue stops the launch: the policy is unknown, not optional",
+                  rc != 0 and "catalog.json" in out and "EXECCED" not in out, out)
+            put(catalog, json.dumps({"roles": [{"id": "other-role"}]}))
+            rc, out = run("--version")
+            check("…and a bound role the catalogue does not list stops it too",
+                  rc != 0 and "does not list the role backend-dev" in out and "EXECCED" not in out, out)
 
         if _want(8):
             print("launch: --provider gateway — the harness talks to the gateway, holding a local key and no upstream credential")
