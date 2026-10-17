@@ -20,6 +20,10 @@ control plane checked out beside it.
 
 - [`identities/roles/edge-hosting/charter.md`](identities/roles/edge-hosting/charter.md) — The layer between the public internet and the system: names, routes, certificates, and the platform serving what the local stack does not.
 
+## brief
+
+- [`identities/roles/edge-hosting/brief.md`](identities/roles/edge-hosting/brief.md) — How edge-hosting works day to day, in any project: the whole path from a public name to its response, every change with its rollback, public behaviour verified from outside, and failure domains kept apart.
+
 ## domain
 
 - [`memory/domains/edge-hosting/domain/cloudflare-origin-errors.md`](memory/domains/edge-hosting/domain/cloudflare-origin-errors.md) — Cloudflare 521 vs 522/523 — what each error class actually means
