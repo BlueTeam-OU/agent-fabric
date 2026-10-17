@@ -283,6 +283,41 @@ def main() -> int:
         finally:
             addenda.check.validate = real_validate
         check("validate is asked of EVERY file of the directory, holder.json included", sorted(seen_names) == sorted([CHARTER, BRIEF, HOLDER]), repr(seen_names))
+        # the SET, not each file (ADR-060 rules 1 and 9): the gloss rules show only there
+        sets: list[list[str]] = []
+        real_validate_set = addenda.check.validate_set
+        addenda.check.validate_set = lambda role, aid, files: sets.append(sorted(files)) or {n: ([f"{n}: planted set finding"] if n == BRIEF else []) for n in files}
+        try:
+            refused("a finding of validate_set on any file refuses the launch", load(), BRIEF, "planted set finding")
+            check("…and validate_set is asked once, of the whole directory", sets == [sorted([CHARTER, BRIEF, HOLDER])], repr(sets))
+        finally:
+            addenda.check.validate_set = real_validate_set
+        check("…control: the real validate_set, the same store, loads", isinstance(load(), addenda.Holder))
+
+        def gloss(cls: str, glosses: str) -> bytes:
+            return file(ROLE, KID, cls, "An English reading.\n", against=None, glosses_digest=glosses).replace(b"against_digest: sha256:" + b"0" * 64 + b"\n", b"")
+
+        et_charter = file(ROLE, KID, "charter-addendum", "Eesti õigus.\n", lang="et")
+        parent_push({CHARTER: et_charter}, "parent: non-English, no gloss")
+        refused("a non-English addendum without its English gloss is refused at render", load(), CHARTER, "gloss")
+        parent_push({CHARTER: et_charter, "charter-addendum.gloss.en.md": gloss("charter-addendum", "sha256:" + "f" * 64)}, "parent: stale gloss")
+        refused("a gloss whose glosses_digest is not the addendum's body digest is refused at render", load(), "stale gloss")
+        parent_push({CHARTER: et_charter, "charter-addendum.gloss.en.md": gloss("charter-addendum", addenda.check.body_digest(et_charter.decode()))}, "parent: fresh gloss")
+        check("…control: the same addendum with a fresh gloss loads", isinstance(load(), addenda.Holder))
+        parent_push({CHARTER: charter, "brief-addendum.gloss.en.md": gloss("brief-addendum", "sha256:" + "f" * 64)}, "parent: gloss alone")
+        refused("a gloss with no addendum beside it is refused at render", load(), "gloss", "not in the set")
+
+        # .agent-id as HEAD has it (the module's contract: never the working tree)
+        parent_push(files, "parent: restored for the id case")
+        aid_path = os.path.join(child_store, ".agent-id")
+        original_id = open(aid_path).read()
+        with open(aid_path, "w") as fh:
+            fh.write(PID + "\n")
+        try:
+            check("an uncommitted edit of .agent-id changes nothing: HEAD's is read", isinstance(load(), addenda.Holder))
+        finally:
+            with open(aid_path, "w") as fh:
+                fh.write(original_id)
         parent_push({CHARTER: charter}, "parent: link", links={BRIEF: "/etc/passwd"})
         refused("a symlink in the directory is refused (not a plain file), the parent having signed it", load(), "not a plain file", BRIEF)
         parent_push({CHARTER: charter, "sub/a": b"x"}, "parent: subdirectory")
@@ -426,6 +461,8 @@ def main() -> int:
         os.makedirs(state)
         cat = os.path.join(fabric, "identities", "roles")
         os.makedirs(cat)
+        catalog = os.path.join(cat, "catalog.json")
+        json.dump({"roles": [{"id": ROLE}, {"id": "brand-comms"}]}, open(catalog, "w"))
 
         def read_holder(role: str, login: str = "kid-renamed"):
             with account(child):
@@ -451,6 +488,9 @@ def main() -> int:
         err = read_holder("brand-comms")
         check("the catalogue's required policy reaches the reader: a required role with none is refused", isinstance(err, launch.Refused), repr(err))
         check("…and a role the catalogue does not mark stays optional", isinstance(read_holder(ROLE), tuple))
+        check("a role the catalogue does not list is refused, not read as optional (the policy is unknown)", isinstance(read_holder("unlisted-role"), launch.Refused))
+        os.unlink(catalog)
+        check("a catalogue that is missing is refused, not read as optional", isinstance(read_holder("brand-comms"), launch.Refused))
         json.dump({"roles": [{"id": "brand-comms", "holders_specialize": "sometimes"}]}, open(os.path.join(cat, "catalog.json"), "w"))
         check("a catalogue value that is neither is refused, not defaulted", isinstance(read_holder("brand-comms"), launch.Refused))
         open(os.path.join(cat, "catalog.json"), "w").write("{")
