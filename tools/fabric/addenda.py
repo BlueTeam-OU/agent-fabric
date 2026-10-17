@@ -11,14 +11,16 @@ Contract of `load(login, role, policy=)`:
           byte of content, for everything else: a required role with no
           addenda; a store whose .agent-id is not the id lineage gives the
           login; a trusted base missing or a HEAD that does not descend from
-          it; a last commit on the directory not signed by the parent's key
+          it; a last commit on the directory whose tree for it is not the one
+          HEAD has; a last commit on the directory not signed by the parent's key
           alone (the agent's own included); a directory holding anything
           but plain files; a set of files addendum_check.validate_set has a finding on.
           Tamper is never read as absence (rule 7).
   reads   git objects only, without replace refs or a commit-graph, those of
           the parent-signed last commit on the directory, each hashed against
           its name (the commit, the trees down to the directory, the blobs),
-          and .agent-id as HEAD has it: never the working tree, never env/,
+          and .agent-id as HEAD has it; HEAD's own path is resolved by git
+          (rev-parse, unhashed) and serves only as the comparison target: never the working tree, never env/,
           never a decryption. Besides objects it reads the store's .git/config
           (the trusted base) and .git/info/grafts, to refuse the latter. The one gpg call is
           verify-commit in a temporary GNUPGHOME that holds the parent's
@@ -150,10 +152,10 @@ def _directory(store: str, role: str) -> str | None:
     return r.stdout.decode().strip()
 
 
-def _verified_directory(store: str, role: str, commit: str, algo: str) -> list[tuple[str, str, str]]:
+def _verified_directory(store: str, role: str, commit: str, algo: str, head_tree: str) -> list[tuple[str, str, str]]:
     """The entries of settings/roles/<role> as the verified commit's own tree
-    holds them, every object between re-hashed, and that tree the one HEAD
-    shows."""
+    holds them, every object between re-hashed. That tree must be the oid
+    HEAD shows for the path: a refusal otherwise."""
     width = len(hashlib.new(algo).digest())
     body = _object(store, role, "commit", commit, algo)
     lines = body.split(b"\n", 1)[0].split()
@@ -165,8 +167,12 @@ def _verified_directory(store: str, role: str, commit: str, algo: str) -> list[t
         if len(hit) != 1 or hit[0][0] != "40000":
             raise _refuse(role, f"{part} is not a directory of the commit's tree", commit)
         oid = hit[0][2]
-    # `git log -1 -- <path>` names a commit whose version of the path is HEAD's
-    # own, and no replace ref is honoured, so this tree is the one HEAD shows.
+    # ADR-060 rule 3 wants the bytes the parent signed to be the bytes HEAD
+    # has. `git log -1 -- <path>` should name a commit whose version of the
+    # path is HEAD's, but that rests on git's history simplification, so the
+    # two oids are compared here instead of trusted.
+    if oid != head_tree:
+        raise _refuse(role, f"settings/roles/{role} in the parent-signed commit is not the tree HEAD has for it", commit)
     return _tree_entries(_object(store, role, "tree", oid, algo), width)
 
 
@@ -188,7 +194,8 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
     if base and _git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode == 0 \
             and not _descends(store, base):
         raise _refuse(role, "the store's HEAD does not descend from its trusted base")
-    if _directory(store, role) is None:
+    head_tree = _directory(store, role)
+    if head_tree is None:
         # Never there, or removed: a removal is the parent's too (rule 3), or an
         # unsigned deletion would turn any addendum into "no addenda".
         removed = _git(store, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/", check=False).stdout.decode().strip()
@@ -217,7 +224,7 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
         raise _refuse(role, f"the last commit on the directory is not the parent's ({e})", commit) from None
 
     algo = _algo(store)
-    rows = _verified_directory(store, role, commit, algo)
+    rows = _verified_directory(store, role, commit, algo, head_tree)
     for mode, name, _ in rows:
         if mode != "100644":
             raise _refuse(role, f"{name} is not a plain file (mode {mode}): no link, no subdirectory, no executable", commit)
