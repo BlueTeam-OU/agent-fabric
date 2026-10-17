@@ -141,7 +141,7 @@ def main() -> int:
         # the parent installs (by hand here; roles-put is its own tests')
         charter = file(ROLE, KID, "charter-addendum", "# Estonia and the Union\n\nThis holder answers for Estonian law.\n")
         brief = file(ROLE, KID, "brief-addendum", "# Sources\n\nRiigi Teataja first.\n", against="sha256:" + "1" * 64)
-        holder_json = json.dumps({"locale": "en", "timezone": "Europe/Tallinn", "search_country": "EE"}).encode()
+        holder_json = json.dumps({"locale": "en", "timezone": "Europe/Tallinn", "search": {"country": "ee"}}).encode()
 
         def self_commit(msg: str, env: dict = child, store: str = child_store, fpr: str = child_fpr) -> None:
             git(env, store, "add", "-A")
