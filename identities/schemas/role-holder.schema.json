@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BlueTeam-OU/agent-fabric/identities/schemas/role-holder.schema.json",
+  "title": "A holder's settings for one role (settings/roles/<role>/holder.json in the agent's store)",
+  "description": "agent-fabric ADR-060 §5 rule 8: who this holder is while it holds the role — the locale it renders in and the facts of its deployment. Installed by the parent only (rule 3); checked by tools/fabric/addenda_check.py at install and at render.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "locale"
+  ],
+  "properties": {
+    "locale": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}(-[a-z0-9]{2,8})*$",
+      "description": "The locale whose renderings the launcher chooses (identities/roles/<role>/locale/<locale>/, identities/prompt/locale/<locale>/); en for English."
+    },
+    "timezone": {
+      "type": "string",
+      "description": "An IANA zone name, the deployment's (not the language's)."
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "country": {
+          "type": "string",
+          "pattern": "^[a-z]{2}$",
+          "description": "The country the holder's web search answers as, lower-case ISO 3166-1 alpha-2."
+        }
+      }
+    }
+  }
+}
