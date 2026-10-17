@@ -64,8 +64,8 @@ settings (ADR-038, ADR-039, ADR-042, ADR-056), so the specialization follows
 the agent through a rename and never enters the public tree. Reading from
 the committed head, not the working tree, and checking the signer of the
 last commit on the path, makes the rendered text the text the parent
-installed, and matching each file to the digest its install recorded
-makes it the text the parent installed. Separating `holder.json` (who this holder is: its locale, its
+installed, and reading each file from that commit's own tree, each blob
+checked against its object name, makes it the text the parent installed. Separating `holder.json` (who this holder is: its locale, its
 deployment) from `locale/<lang>/` (what a language needs) removes the
 login-suffix key while moving only the role-independent prompt pieces,
 once per language.
@@ -85,11 +85,11 @@ once per language.
    its trusted base (ADR-042).
 3. The last commit that touched `settings/roles/R/` is signed by the
    agent's parent; the launcher verifies it with the parent's public key
-   alone and refuses any other signer, the agent's own included. Every
-   install commit records the digest of every file under
-   `settings/roles/R/` as it leaves them, and the launcher renders a file
-   only when its bytes at `HEAD` match the digest the last parent-signed
-   install recorded for it: an edit committed after the
+   alone and refuses any other signer, the agent's own included. The
+   record of an install is its signed commit's tree: the launcher renders
+   the files of `settings/roles/R/` as the tree of that last parent-signed
+   commit holds them, each blob checked against its object name, which is
+   the tree at `HEAD` on that path: an edit committed after the
    install, by anyone, is refused, not rendered under the parent's
    signature.
    `settings-put` refuses paths under `settings/roles/`; the parent
@@ -199,4 +199,4 @@ The body above reads current; each change's full note is in [history/ADR-060-ame
 
 | Date | Amendment | Effect |
 |---|---|---|
-| 2026-10-17 | Accepted; the digest check is per file; sizes restated | Status Accepted; §5 rule 3 records every file's digest at each install; §4 names the digest check; §1's size restated; §8 says which amendments land with which stage |
+| 2026-10-17 | Accepted; the digest check is per file; sizes restated | Status Accepted; §5 rule 3's record of an install is its signed commit's tree; §4 names the digest check; §1's size restated; §8 says which amendments land with which stage |

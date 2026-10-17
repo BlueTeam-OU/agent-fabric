@@ -268,8 +268,8 @@ addendum, `holder.json`) is installed by the parent alone, with
 `fabric-secrets child roles-put`, after the holder drafted it, the
 reviews it needs (language-culture's two passes for one in a locale) and
 the owner's approval; the agent's `settings-put` refuses that path, and
-the launcher renders only what the parent's last install signed and
-recorded. An addendum narrows or specialises its role and never repeals
+the launcher renders only the files of the parent's last signed
+install, as its commit's tree holds them. An addendum narrows or specialises its role and never repeals
 a rule of the role's charter or brief, or another role's authority.
 
 ## Proposing a change
