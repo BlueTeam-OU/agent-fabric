@@ -549,7 +549,6 @@ def launch(argv: list[str]) -> int:
     # because inherited from a replaced session they would name another holder's.
     suffix = pwd.getpwuid(os.getuid()).pw_name.rsplit("-", 1)[-1]
     loc = holder.resolve_locale(fabric_root, suffix, state_dir, bool(held))
-    holder.refuse_split_locale(fabric_root, suffix, loc.tag)
     for name, value in loc.exports().items():
         if value is None:
             env.pop(name, None)
@@ -621,7 +620,9 @@ def launch(argv: list[str]) -> int:
     # the file against the same resolution and denies a review when another
     # launch on this account has since rewritten it.
     if not asks_help(args):
-        install_agent_files(fabric_root, routing_provider, state_dir, transport="gateway" if provider == "gateway" else "")
+        # A suffix that is no tag names no locale: the installer keeps its own fallback, as bootstrap does.
+        install_agent_files(fabric_root, routing_provider, state_dir, transport="gateway" if provider == "gateway" else "",
+                            locale=loc.exports()["AGENT_FABRIC_LOCALE"])
 
     login = pwd.getpwuid(os.getuid()).pw_name
     # A plain-claude session runs only on a long-lived sign-in: a template's
