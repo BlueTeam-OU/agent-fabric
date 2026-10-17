@@ -219,6 +219,9 @@ def main() -> int:
         check("the read ran commands (the spy is live)", len(flat) > 3 and any("verify-commit" in c for c in flat), repr(flat[:3]))
         check("…none of them decrypts, none names env/ or a .gpg file", isinstance(spied, addenda.Holder)
               and not any("--decrypt" in c or " -d " in c or "env/" in c or ".gpg" in c.replace(".gpg-id", "") for c in flat), repr(flat))
+        git_reads = [c for c in flat if c.startswith("git ") and ("cat-file" in c or "merge-base" in c or " log " in c)]
+        check("…every read of an object went without replace refs and without a commit-graph",
+              git_reads and all("--no-replace-objects" in c and "core.commitGraph=false" in c for c in git_reads), repr(git_reads[:2]))
         check("…and the verification ran in a temporary GNUPGHOME, never the account's own keyring",
               homes and all(h and h != child["GNUPGHOME"] and not os.path.exists(h) for h in homes), repr(homes))
 
@@ -453,6 +456,8 @@ def main() -> int:
         open(os.path.join(cat, "catalog.json"), "w").write("{")
         check("a catalogue that cannot be parsed is refused, not read as optional", isinstance(read_holder("brand-comms"), launch.Refused))
 
+        check("status: git that cannot answer is not 'removed'", status._store_gone(os.path.join(tmp, "nowhere"), "HEAD:settings/roles/x") is False)
+        check("…and a path git says is not there is", status._store_gone(child_store, "HEAD:settings/roles/no-such-role") is True)
         # the parent removes the directory: the status line says so
         stamped_now = load(login="kid-renamed")
         import shutil
