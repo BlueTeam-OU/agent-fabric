@@ -99,10 +99,12 @@ prefix cacheable, so a changed digest means changed content.
    running. Binding also installs the role's skills into the workspace.
    A different role is a rebind and a relaunch.
 4. The launch prompt carries, in order: the identity header, the role's
-   charter, its brief, `identities/prompt/team.md` and
-   `identities/prompt/memory.md`. It carries no project, no timestamp, no
-   session id and no cwd, and renders the same bytes for the same (agent,
-   host, role). The one exception is the locale harness translation of
+   charter, the holder's charter addendum, the role's brief, the holder's
+   brief addendum, `identities/prompt/team.md` and
+   `identities/prompt/memory.md`; the addenda are the agent's own, from
+   its store, and absent for most holders (ADR-060). It carries no
+   project, no timestamp, no session id and no cwd, and renders the same
+   bytes for the same (agent, host, role, addenda) (A 2026-10-17). The one exception is the locale harness translation of
    the §2 exception: it comes last, and its `{memory_dir}` is filled from
    the launch directory — the one deliberate way the text varies with the
    cwd.
@@ -171,3 +173,11 @@ per-host bindings.
   announcement from the launcher).
 - ADR-000 (P1); ADR-001 (how this record changes). The state layer, adding
   a role, and model routing are the records that follow this one.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-002-amendments.md](history/ADR-002-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-17 | Holder addenda (ADR-060) | §5 rule 4: the holder's charter and brief addenda follow the role's charter and brief; the bytes depend on the addenda too |

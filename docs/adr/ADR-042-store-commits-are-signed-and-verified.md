@@ -76,7 +76,11 @@ a handful of times a day.
    tree, so an uncommitted edit names nobody; a key not there yet is
    refused with a pointer to fetch the fabric. The root agent, which has
    no parent, is its own store's only writer. Nothing else names a
-   writer.
+   writer. For `settings/roles/` the parent alone: the launcher reads a
+   holder's addenda only when the last commit on that directory is the
+   parent's, verified with the parent's public key alone, and only the files of
+   that commit's tree (ADR-060 §5 rule 3)
+   (A 2026-10-17).
 3. `pull`, `take-bundle`, the fast-forward before a push, and `sync`
    verify every commit they would take beyond the store's trusted base. A
    commit unsigned, signed by a key outside rule 2, or failing
@@ -146,3 +150,4 @@ The body above reads current; each change's full note is in [history/ADR-042-ame
 |---|---|---|
 | 2026-10-04 | Where writers are read; how a base is set | §5 rules 2 and 4: writers from origin/main, never the working tree; the base explicit, by a once-only migration or at first contact through the enrolment bundle |
 | 2026-10-07 | A commit verification could not judge is a stop, not a refusal | §5 rule 5: no [GNUPG:] status, the store format's signature header with PGP SIGNATURE armour: stop, nothing applied, nothing recorded; every other unverified commit refused as before |
+| 2026-10-17 | Holder addenda (ADR-060) | §5 rule 2: for settings/roles/, the parent alone, checked at launch by signer; what renders is that commit's tree |

@@ -63,6 +63,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | signing commits; an agent's own key; ssh or gpg signing; fabric-sign; timestamps; Verified on GitHub | ADR-057 |
 | lessons in messages; reflection pass; fabric-reflect; turning the journal into memory | ADR-058 |
 | personal data in AI tools; Max plan; client data; privacy notice; sub-processor | ADR-059 |
+| a holder's own specialization of a role; charter or brief addendum; holder.json; jurisdiction of a legal holder; locale chosen per holder | ADR-060 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -123,6 +124,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   project remit arrives from the SessionStart hook (§5 rules 4–5).
 - Drift is printed by `fabric-status`; a binding is per (agent, host)
   (§5 rules 6–7). Brief is identifier-free, the remit anchored (§5 rule 8).
+- A 2026-10-17 — the holder's charter and brief addenda follow the role's (§5 rule 4, ADR-060).
 - Keywords: identity, login, whoami, role, bind, launch prompt, charter,
   brief, remit, drift, binding, dimensions.
 
@@ -846,11 +848,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   an encrypted recovery copy (§5 rules 1, 6).
 - A key is an agent's when committed at `identities/keys/<id>.asc`,
   certified by its parent (§5 rule 2).
-- Each agent's secrets are pass(1) entries in its private repository
-  `fabric-agent-<id>`, encrypted to that key alone: the parent writes
-  and never reads (§5 rule 3).
-- No shared host assumed (§5 rules 4–5); `sync` reads the store alone
-  (§5 rules 7–8).
+- Secrets are pass(1) entries in `fabric-agent-<id>`, encrypted to
+  that key alone; the parent writes, never reads (§5 rule 3).
+- No shared host (§5 rules 4–5); `sync` reads only the store (§5 rules 7–8).
 - A 2026-09-29 — recovery copies and backups to Proton Drive.
 - A 2026-09-29 — recovery copies encrypted to the recovery key.
 - A 2026-09-29 — named by agent id (ADR-039).
@@ -863,8 +863,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — agents sign commits with own subkeys (§6, ADR-057).
 - A 2026-10-15 — company stores (§5 rule 10).
 - A 2026-10-15 — only agent and parent write (§5 rule 3).
+- A 2026-10-17 — `settings/roles/`: parent only (§5 rule 3).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
-  Doppler, provision, placement, company store.
+  Doppler, provision, company store.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing
@@ -950,6 +951,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   bootstrap's once-only migration, or first contact through the
   enrolment bundle; a store with no base refuses (§5 rules 2, 4).
 - A 2026-10-07 — a commit gpg could not judge stops, unrecorded (§5 rule 5).
+- A 2026-10-17 — `settings/roles/` is the parent's alone, checked at launch (§5 rule 2, ADR-060).
 - Keywords: store, signing, signature, verify, forged entry, lineage,
   pass, bundle, take-bundle, writer, trust-base, trusted base.
 
@@ -1270,3 +1272,27 @@ its record disagree, the record wins. Look it up, never read it whole:
   a plan with a processing agreement needs a new record (§5 rules 3-4).
 - Keywords: personal data, AI tools, Max, consumer plan, sub-processor,
   GDPR Article 28, privacy notice, client data.
+
+### ADR-060 — A holder's addenda specialise a shared role (Accepted)
+
+- A holder's specialization of role R is `settings/roles/R/` in its own
+  store: `charter-addendum.md`, `brief-addendum.md`, `holder.json`, all
+  optional, no working state (§2, §5 rule 1).
+- The launcher reads only the bound role's directory, from the store's
+  committed HEAD, never `env/`; it refuses a wrong `.agent-id` or a HEAD
+  off the trusted base (§5 rule 2).
+- Only the parent installs, in one signed commit naming author, review
+  passes and the owner's approval; any other signer refuses; what renders is that commit's tree (§5 rule 3).
+- Order: charter, its addendum, brief, its addendum; none gives today's
+  bytes, except where rule 8 moves locale pieces; an addendum narrows, never repeals, at most 4 000 characters,
+  with `against_digest` (§5 rules 4-6).
+- `holders_specialize: required` refuses a launch without valid addenda;
+  tamper is never absence (§5 rule 7).
+- `holder.json` chooses the locale, not the login's suffix; header, team
+  and memory are translated once per language, so a non-English holder
+  renders no English; a locale addendum gets the two passes and an
+  English gloss (§5 rules 8-9).
+- A 2026-10-17 — accepted; an install's record is its signed commit's
+  tree; §8 says which amendments land with which stage.
+- Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
+  holder.json, locale, parent-signed, holders_specialize.

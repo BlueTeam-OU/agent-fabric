@@ -66,8 +66,8 @@ only for a holder whose work is in that language, and
 `language-culture-<suffix>` reviews it. The holder may start from that
 specialist's draft and is still the author, as the role that commits the
 text and answers for it: it reads the whole text against the English
-source before the pull request is opened, both of rule 3's passes still
-run on it, and its last commit before the pull request names the draft
+source before the pull request is opened, both passes of ADR-027 §5
+rule 3 (the target first, then against the source) still run on it, and its last commit before the pull request names the draft
 and that reading (agent-fabric ADR-027 §5 rule 11, A 2026-10-16). The fence meets it halfway: a
 commit that stages nothing but that subtree, from a session bound to
 that role on that login, passes the pre-commit hook and is recorded as
@@ -261,6 +261,16 @@ a key of its own on each API). `fabric-secrets sync` refuses a store
 whose `AGENT_LOGIN` is not the login running it. No value from any store
 ever enters this tree or a managed repository; the guards that keep
 credentials out of commits apply unchanged.
+
+**A holder's addenda** (ADR-060) are the one part of a store its own
+login does not write: `settings/roles/<role>/` (a charter and a brief
+addendum, `holder.json`) is installed by the parent alone, with
+`fabric-secrets child roles-put`, after the holder drafted it, the
+reviews it needs (language-culture's two passes for one in a locale) and
+the owner's approval; the agent's `settings-put` refuses that path, and
+the launcher renders only the files of the parent's last signed
+install, as its commit's tree holds them. An addendum narrows or specialises its role and never repeals
+a rule of the role's charter or brief, or another role's authority.
 
 ## Proposing a change
 

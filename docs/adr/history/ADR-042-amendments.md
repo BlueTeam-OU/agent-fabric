@@ -44,3 +44,7 @@ with push access to a store's remote switch the refusal off (junk in
 PGP SIGNATURE armour, a header of the other object format, a header in no
 signature format), so the stop needs all three: no status line, the
 header git verifies for the store's format, and PGP SIGNATURE armour in it.
+
+### Amendment 2026-10-17 — Holder addenda (ADR-060)
+
+ADR-060 §5 rule 3: the verification of incoming commits never sees the agent's own local commits, so the launcher checks the last commit on settings/roles/<role>/ itself, with the parent's public key alone, and renders only the files of that commit's tree.

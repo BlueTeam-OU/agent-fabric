@@ -306,4 +306,4 @@ The body above reads current; each change's full note is in [history/ADR-027-ame
 |---|---|---|
 | 2026-10-07 | The source locale has no bridge | §2: an en-US holder's locale carries locale.json alone; no worker, no rendering, notes unmeasured; global English |
 | 2026-10-16 | A charter is translated for a holder who works in that language | §5 rule 11: only a holder whose work is in the locale's language gets its charter translated; the role's locale holder writes it, language-culture-<suffix> reviews it |
-| 2026-10-16 | A holder may adopt language-culture's draft | §5 rule 11: the holder may start from `language-culture-<suffix>`'s draft and is the author of what it commits; it reads the whole text against the English, both passes still run, and the commit names the draft and the reading |
+| 2026-10-16 | A holder may adopt language-culture's draft | §5 rule 11: the holder may start from `language-culture-<suffix>`'s draft and is the author of what it commits; it reads the whole text against the English, both passes still run, and the last commit before the pull request names the draft and the reading |

@@ -20,6 +20,10 @@ control plane checked out beside it.
 
 - [`identities/roles/rust-services-dev/charter.md`](identities/roles/rust-services-dev/charter.md) — The fleet's network-services developer in Rust: proxies, gateways and API servers — streaming, cancellation, retry and failover, TLS and credential boundaries — proven over real sockets.
 
+## brief
+
+- [`identities/roles/rust-services-dev/brief.md`](identities/roles/rust-services-dev/brief.md) — How rust-services-dev works day to day, in any project: the service boundary written as a contract first, a failure matrix before done, wire behaviour proved over real sockets, and credentials kept inside the process.
+
 ## domain
 
 - [`memory/domains/rust-services-dev/domain/cargo-exports-ssl-cert-env.md`](memory/domains/rust-services-dev/domain/cargo-exports-ssl-cert-env.md) — cargo sets SSL_CERT_FILE/SSL_CERT_DIR for every child; rustls-native-certs then reads them instead of the host store

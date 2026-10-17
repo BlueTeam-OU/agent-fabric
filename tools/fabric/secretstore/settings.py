@@ -11,7 +11,8 @@ Contract of `settings_put(src)`:
           file or directory when opened (a link, device, FIFO, socket); an
           entry that cannot be read, a file over its size cap, the tree
           over its total cap, nested deeper than MAX_DEPTH, a file with
-          several hard links; a name git treats as its own (.git*:
+          several hard links; a path under roles/ (the parent installs those,
+          ADR-060); a name git treats as its own (.git*:
           .gitignore would silently drop files from the commit).
   refused under the lock, after the store is brought up to its remote and
           before anything is written: when the tree carries a profile or an
@@ -76,9 +77,10 @@ SCHEMA_REL = os.path.join("identities", "schemas", "persona-profile.schema.json"
 _OPEN = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
-def _read_tree(src: str) -> dict[str, bytes]:
+def _read_tree(src: str, *, allow_empty: bool = False) -> dict[str, bytes]:
     """The source's regular files by their path below it; anything else, or
-    anything unreadable, refuses by path."""
+    anything unreadable, refuses by path. A tree with no file is refused, unless
+    the caller means one (roles-put --retire: an empty directory is the deletion)."""
     files: dict[str, bytes] = {}
     total = 0
 
@@ -169,7 +171,7 @@ def _read_tree(src: str) -> dict[str, bytes]:
         walk(top, "", 0)
     finally:
         os.close(top)
-    if not files:
+    if not files and not allow_empty:
         raise StoreError(f"{src}: no files in it; nothing written")
     return files
 
@@ -368,6 +370,15 @@ def _terminate(signum, _frame):
     raise KeyboardInterrupt(f"signal {signum}")
 
 
+def _refuse_roles(files: dict[str, bytes]) -> None:
+    """A holder's addenda are the parent's to install, signed by it (ADR-060 rule 3): a path an agent could
+    write here would be an agent rewriting its own permanent instructions. A file named `roles` is refused
+    too: it would take the directory's place."""
+    for rel in sorted(files):
+        if rel == "roles" or rel.startswith("roles" + os.sep):
+            raise StoreError(f"settings/{rel}: addenda are installed by your parent (ADR-060); nothing written")
+
+
 def settings_put(src: str) -> dict:
     # SIGTERM and SIGHUP end a Python process without an exception: raised here, the undo below runs for them
     # as for Ctrl-C. SIGKILL cannot be handled: it leaves the store dirty, and the next run refuses it by name.
@@ -376,7 +387,9 @@ def settings_put(src: str) -> dict:
     previous = {s: signal.signal(s, _terminate) for s in (signal.SIGTERM, signal.SIGHUP)
                 if signal.getsignal(s) != signal.SIG_IGN}
     try:
-        return _put(_read_tree(src), state)
+        files = _read_tree(src)
+        _refuse_roles(files)
+        return _put(files, state)
     except KeyboardInterrupt as e:
         what = str(e) or "Ctrl-C"
         if state["committed"]:

@@ -22,7 +22,7 @@ control plane checked out beside it.
 
 ## brief
 
-- [`identities/roles/web-dev/brief.md`](identities/roles/web-dev/brief.md) — How web-dev works day to day, in any project: the browser sub-apps and their shared package; suites that tell the truth, strict typing, and the gap between green and right.
+- [`identities/roles/web-dev/brief.md`](identities/roles/web-dev/brief.md) — How web-dev works day to day, in any project: the browser implementation of designed behaviour, on agreed contracts, with browser state treated as a system, suites that tell the truth, and proof in a real browser.
 
 ## domain
 

@@ -134,7 +134,9 @@ sharing a machine.
    adds one with `fabric-secrets put` and fills a new agent's store that way
    (`fabric-secrets provision`: identity, an allowlist of shared names, a key
    of its own on each API) (A 2026-09-30) (A 2026-10-15). Only the agent
-   decrypts. No store is
+   decrypts. Under `settings/roles/` only the parent writes: a holder's
+   addenda are installed by the parent and refused from the agent's own
+   `settings-put` (ADR-060 §5 rule 3) (A 2026-10-17). No store is
    encrypted to another agent's key; a company's store (rule 10) is no
    agent's store (A 2026-10-15).
 4. A key names no host. A login moved with its home keeps its key. A
@@ -349,3 +351,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-10-13 | Commits are signed by each agent's own key, as ADR-057 says | §6 Commits: the agent's signing subkey, OpenPGP or SSH; §7: per-agent signing leaves Future Evolution |
 | 2026-10-15 | What belongs to a company is kept in that company's store | Scope, §2, §5 rules 3 and 10, §8: a store per client, read by the fabric-coordinator holders and the recovery key; its names reach an agent by put, a client's for that client's working copies only |
 | 2026-10-15 | Only the agent and its parent write an entry | §5 rule 3: `put` is the parent's, and a store takes in commits only from the agent and its parent, as ADR-042 rule 2 says; holding the public key admits no one |
+| 2026-10-17 | Holder addenda (ADR-060) | §5 rule 3: under settings/roles/ only the parent writes; settings-put refuses it |
