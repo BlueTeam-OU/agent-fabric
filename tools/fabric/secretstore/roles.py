@@ -16,7 +16,8 @@ Contract of `roles_put(child, role, src, approval, ...)`:
           subdirectory or whose name starts with a dot; any finding of
           addenda_check.validate_set on the files (the gloss rules among them);
           an addendum with no readable against_digest in its frontmatter; an
-          addendum not in English without both review passes (pass-1, pass-2).
+          addendum not in English without both review passes by language-culture-<lang>,
+          each naming the sha256 of a file installed (an install-time gate: the render does not check it).
   refused under the mirror's write lock, before anything is written: a mirror
           with uncommitted changes, with no remote, with no trusted base, whose
           .agent-id is not the child's, or whose HEAD is not the remote's main
@@ -37,6 +38,7 @@ Contract of `roles_put(child, role, src, approval, ...)`:
           end as a one-line refusal; SIGKILL leaves the mirror dirty, which the next run refuses by name."""
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -55,7 +57,6 @@ ROLE_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 # One line, no whitespace inside a decision reference or a MESSAGE-ID; a trailer value is read by a parser.
 APPROVAL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#@-]{0,199}$")
 REVIEW_RE = re.compile(r"^([a-z][a-z0-9_-]{0,31}) (pass-[0-9]{1,2}) ([0-9a-f]{64})$")
-DIGEST_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z:._-]{0,127}$")
 ADDENDA = ("charter-addendum.md", "brief-addendum.md")
 
 
@@ -69,7 +70,7 @@ def against_digest(name: str, raw: bytes) -> str:
         raise StoreError(f"{name}: not UTF-8, so no against_digest; nothing written") from None
     if value is None:
         raise StoreError(f"{name}: no against_digest in its frontmatter (or no frontmatter); nothing written")
-    if not DIGEST_RE.fullmatch(value):
+    if not addenda_check.DIGEST_RE.fullmatch(value):
         raise StoreError(f"{name}: against_digest is not a digest; nothing written")
     return value
 
@@ -86,6 +87,27 @@ def _checked_args(role: str, approval: str, reviewed_by: list[str], authored_by:
         raise StoreError(f"--authored-by {authored_by!r} is not a login; nothing written")
 
 
+def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str]) -> list[str]:
+    """Rule 9: a text in another language is read in both passes of ADR-027 §5 rule 3 by language-culture-<lang>
+    (the role's login, with an instance number if it has one), each pass naming the sha256 of a file it read, and
+    the file is one of those installed. An install-time gate only: the render never sees the passes, so a commit
+    signed without roles-put renders unreviewed; the signing parent is what rule 3 trusts for that.
+    A set that validated has a lang to read; a file without one never gets here with the real validator."""
+    read = {hashlib.sha256(raw).hexdigest() for raw in plain.values()}
+    reviews = [r.split() for r in reviewed_by]
+    findings = []
+    for name in ADDENDA:
+        lang = addenda_check.frontmatter(plain[name].decode("utf-8")).get("lang", "en") if name in plain else "en"
+        if lang == "en":
+            continue
+        reviewer = re.compile(rf"language-culture-{re.escape(lang)}(-[0-9]+)?")
+        for n in ("pass-1", "pass-2"):
+            if not any(reviewer.fullmatch(login) and which == n and sha in read for login, which, sha in reviews):
+                findings.append(f"{name}: not in English, so it needs --reviewed-by 'language-culture-{lang} {n} <sha256 of "
+                                f"a file installed>' (ADR-060 rule 9)")
+    return findings
+
+
 def _checked_files(role: str, aid: str, files: dict[str, bytes], retire: bool, reviewed_by: list[str]) -> None:
     if retire and files:
         raise StoreError("--retire takes an empty directory: a retirement installs nothing; nothing written")
@@ -97,13 +119,7 @@ def _checked_files(role: str, aid: str, files: dict[str, bytes], retire: bool, r
     # are only visible together (ADR-060 rules 1 and 9).
     found += [f"{n}: {f}" for n, fs in sorted(addenda_check.validate_set(role, aid, plain).items()) for f in fs]
     if not found:
-        # Rule 9: a text in another language is read in both passes of ADR-027 §5 rule 3 before the parent installs it.
-        # A set that validated has a lang to read; a file without one never gets here with the real validator.
-        passes = {r.split()[1] for r in reviewed_by}
-        for name in ADDENDA:
-            if name in plain and addenda_check.frontmatter(plain[name].decode("utf-8")).get("lang", "en") != "en" \
-                    and not {"pass-1", "pass-2"} <= passes:
-                found.append(f"{name}: not in English, so it needs both review passes (--reviewed-by pass-1 and pass-2, ADR-060 rule 9)")
+        found += _unreviewed(plain, reviewed_by)
     if found:
         raise StoreError("the addenda are refused, nothing written: " + "; ".join(found))
 

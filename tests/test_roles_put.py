@@ -101,7 +101,11 @@ def main() -> int:
                 rc = secret_child.main(list(args))
             return rc, out.getvalue(), err.getvalue()
 
+        def dig(label: str) -> str:
+            return label if label.startswith("sha256:") else "sha256:" + hashlib.sha256(label.encode()).hexdigest()
+
         def addendum(kind: str, digest: str, role_: str = ROLE) -> bytes:
+            digest = dig(digest)
             return (f"---\nclass: {kind}\nrole: {role_}\nagent_id: {KID}\nlang: en\nagainst_digest: {digest}\n---\n"
                     f"# {kind}\nSpecialises {role_} for its holder.\n").encode()
 
@@ -166,7 +170,7 @@ def main() -> int:
             check("…its trailers: role, author, each review pass, the approval, each addendum's digest, in that order",
                   trailers == [f"Addendum-Role: {ROLE}", "Authored-By: legal-expert-ee", f"Reviewed-By: {REVIEW}",
                                f"Reviewed-By: {REVIEW2}", "Owner-Approval: ADR-060-2026-10-17",
-                               "Against-Digest: charter-addendum.md dig-charter-1", "Against-Digest: brief-addendum.md dig-brief-1"],
+                               f"Against-Digest: charter-addendum.md {dig('dig-charter-1')}", f"Against-Digest: brief-addendum.md {dig('dig-brief-1')}"],
                   repr(trailers))
             parsed = subprocess.run(
                 ["git", "-C", mirror, "interpret-trailers", "--parse"], input=git(parent, mirror, "log", "-1", "--format=%B"),
@@ -203,7 +207,7 @@ def main() -> int:
                   out + err + repr(os.listdir(os.path.join(mirror, "settings", "roles", ROLE))))
             check("…and its trailers carry the one digest left, with no review pass given",
                   "Reviewed-By" not in git(parent, mirror, "log", "-1", "--format=%B")
-                  and "Against-Digest: charter-addendum.md dig-charter-2" in git(parent, mirror, "log", "-1", "--format=%B")
+                  and f"Against-Digest: charter-addendum.md {dig('dig-charter-2')}" in git(parent, mirror, "log", "-1", "--format=%B")
                   and "Authored-By: kid" in git(parent, mirror, "log", "-1", "--format=%B"))
             rc, out, err = call(parent, "roles-put", "--agent", "kid", "--role", "other-role", "--from",
                                 src("o1", {"charter-addendum.md": addendum("charter-addendum", "dig-o", "other-role")}), "--approval", "A-2")
@@ -379,56 +383,72 @@ def main() -> int:
             git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
             git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
             # ── the set rules, with the real validator (ADR-060 rules 1 and 9) ──
-            if hasattr(addenda_check, "validate_set"):
-                def real_add(lang: str = "ka", kind: str = "charter-addendum") -> bytes:
-                    return (f"---\nclass: {kind}\nrole: {ROLE}\nagent_id: {KID}\nlang: {lang}\n"
-                            f"against_digest: sha256:{'a' * 64}\n---\n# {kind}\nSpecialises {ROLE}.\n").encode()
+            def real_add(lang: str = "ka", kind: str = "charter-addendum") -> bytes:
+                return (f"---\nclass: {kind}\nrole: {ROLE}\nagent_id: {KID}\nlang: {lang}\n"
+                        f"against_digest: sha256:{'a' * 64}\n---\n# {kind}\nSpecialises {ROLE}.\n").encode()
 
-                def gloss_of(add: bytes, digest: str | None = None, kind: str = "charter-addendum") -> bytes:
-                    d = digest or addenda_check.body_digest(add.decode())
-                    return (f"---\nclass: {kind}\nrole: {ROLE}\nagent_id: {KID}\nlang: en\n"
-                            f"glosses_digest: {d}\n---\n# {kind}\nSpecialises {ROLE}.\n").encode()
+            def gloss_of(add: bytes, digest: str | None = None, kind: str = "charter-addendum") -> bytes:
+                d = digest or addenda_check.body_digest(add.decode())
+                return (f"---\nclass: {kind}\nrole: {ROLE}\nagent_id: {KID}\nlang: en\n"
+                        f"glosses_digest: {d}\n---\n# {kind}\nSpecialises {ROLE}.\n").encode()
 
-                passes = ("--reviewed-by", REVIEW, "--reviewed-by", REVIEW2)
-                n_set = count()
-                ka = real_add()
-                rc, out, err = install("ka-nogloss", "kng", {"charter-addendum.md": ka}, *passes, validate=real_validate)
-                check("a non-English addendum with no English gloss is refused at install",
-                      rc == 1 and "needs its English gloss" in err and count() == n_set, out + err)
-                rc, out, err = install("stale", "stl", {"charter-addendum.md": ka,
-                                                        "charter-addendum.gloss.en.md": gloss_of(ka, "sha256:" + "0" * 64)},
-                                       *passes, validate=real_validate)
-                check("…a stale gloss too", rc == 1 and "stale gloss" in err and count() == n_set, out + err)
-                rc, out, err = install("orphan", "orp", {"charter-addendum.md": real_add("en"),
-                                                         "brief-addendum.gloss.en.md": gloss_of(ka, kind="brief-addendum")},
-                                       *passes, validate=real_validate)
-                check("…and a gloss with no addendum", rc == 1 and "not in the set" in err and count() == n_set, out + err)
-                rc, out, err = install("ka-ok", "kok", {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": gloss_of(ka)},
-                                       *passes, validate=real_validate)
-                check("…and the same pair with the gloss in step installs (the positive control)",
-                      rc == 0 and count() == n_set + 1, out + err)
-                git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
-                git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
-                for label, passes_given in (("no review pass", ()), ("pass-1 alone", ("--reviewed-by", REVIEW)),
-                                            ("pass-2 alone", ("--reviewed-by", REVIEW2))):
-                    rc, out, err = install("ka-" + label, "kp" + label[:3], {"charter-addendum.md": ka,
-                                           "charter-addendum.gloss.en.md": gloss_of(ka)}, *passes_given, validate=real_validate)
-                    check(f"a non-English addendum with {label} is refused: rule 9 wants both",
-                          rc == 1 and "both review passes" in err and count() == n_set, out + err)
-                # F2: one parser for install and render. A quoted or space-trailed digest validates, so it installs
-                # with the bare digest in its trailer, as the render will read it.
-                bare = "sha256:" + "a" * 64
-                for label, written in (("double-quoted", f'"{bare}"'), ("single-quoted", f"'{bare}'"), ("space-trailed", bare + "  ")):
-                    body = real_add("en").decode().replace(f"against_digest: {bare}", f"against_digest: {written}")
-                    rc, out, err = install("q-" + label, "q" + label[:4], {"charter-addendum.md": body.encode()}, validate=real_validate)
-                    trailer = git(parent, mirror, "log", "-1", "--format=%B").splitlines() if rc == 0 else []
-                    check(f"a {label} against_digest installs, and its trailer names the bare digest",
-                          rc == 0 and f"Against-Digest: charter-addendum.md {bare}" in trailer, out + err)
-                    if rc == 0:
-                        git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
-                        git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
-            else:
-                print("  skip the set rules: addenda_check is still the stub here; they run on the fold")
+            def sha(b: bytes) -> str:
+                return hashlib.sha256(b).hexdigest()
+
+            def reviews(*lines: str) -> tuple:
+                return tuple(x for line in lines for x in ("--reviewed-by", line))
+
+            n_set = count()
+            ka = real_add()
+            ka_gloss = gloss_of(ka)
+            passes = reviews(f"language-culture-ka pass-1 {sha(ka)}", f"language-culture-ka pass-2 {sha(ka_gloss)}")
+            rc, out, err = install("ka-nogloss", "kng", {"charter-addendum.md": ka}, *passes, validate=real_validate)
+            check("a non-English addendum with no English gloss is refused at install",
+                  rc == 1 and "needs its English gloss" in err and count() == n_set, out + err)
+            rc, out, err = install("stale", "stl", {"charter-addendum.md": ka,
+                                                    "charter-addendum.gloss.en.md": gloss_of(ka, "sha256:" + "0" * 64)},
+                                   *passes, validate=real_validate)
+            check("…a stale gloss too", rc == 1 and "stale gloss" in err and count() == n_set, out + err)
+            rc, out, err = install("orphan", "orp", {"charter-addendum.md": real_add("en"),
+                                                     "brief-addendum.gloss.en.md": gloss_of(ka, kind="brief-addendum")},
+                                   *passes, validate=real_validate)
+            check("…and a gloss with no addendum", rc == 1 and "not in the set" in err and count() == n_set, out + err)
+            rc, out, err = install("ka-ok", "kok", {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": ka_gloss},
+                                   *passes, validate=real_validate)
+            check("…and the same pair with the gloss in step installs (the positive control)",
+                  rc == 0 and count() == n_set + 1, out + err)
+            git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+            git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
+            for label, passes_given in (
+                    ("no review pass", ()),
+                    ("pass-1 alone", reviews(f"language-culture-ka pass-1 {sha(ka)}")),
+                    ("pass-2 alone", reviews(f"language-culture-ka pass-2 {sha(ka_gloss)}")),
+                    ("passes by a login that is not the language's reviewer", reviews(f"legal-expert-ee pass-1 {sha(ka)}", f"legal-expert-ee pass-2 {sha(ka_gloss)}")),
+                    ("passes by another language's reviewer", reviews(f"language-culture-ru pass-1 {sha(ka)}", f"language-culture-ru pass-2 {sha(ka_gloss)}")),
+                    ("a login that only starts like the reviewer's", reviews(f"language-culture-kab pass-1 {sha(ka)}", f"language-culture-kab pass-2 {sha(ka_gloss)}")),
+                    ("a pass-2 digest of a file not installed", reviews(f"language-culture-ka pass-1 {sha(ka)}", "language-culture-ka pass-2 " + "b" * 64))):
+                rc, out, err = install("ka-" + label, "kp" + label[:6], {"charter-addendum.md": ka,
+                                       "charter-addendum.gloss.en.md": ka_gloss}, *passes_given, validate=real_validate)
+                check(f"a non-English addendum with {label} is refused: rule 9 wants both, by its reviewer, over a file installed",
+                      rc == 1 and "language-culture-ka" in err and "ADR-060 rule 9" in err and count() == n_set, out + err)
+            rc, out, err = install("ka-inst", "kinst", {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": ka_gloss},
+                                   *reviews(f"language-culture-ka-02 pass-1 {sha(ka)}", f"language-culture-ka pass-2 {sha(ka_gloss)}"),
+                                   validate=real_validate)
+            check("…while the reviewer's login with an instance number is accepted", rc == 0 and count() == n_set + 1, out + err)
+            git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+            git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
+            # F2: one parser for install and render. A quoted or space-trailed digest validates, so it installs
+            # with the bare digest in its trailer, as the render will read it.
+            bare = "sha256:" + "a" * 64
+            for label, written in (("double-quoted", f'"{bare}"'), ("single-quoted", f"'{bare}'"), ("space-trailed", bare + "  ")):
+                body = real_add("en").decode().replace(f"against_digest: {bare}", f"against_digest: {written}")
+                rc, out, err = install("q-" + label, "q" + label[:4], {"charter-addendum.md": body.encode()}, validate=real_validate)
+                trailer = git(parent, mirror, "log", "-1", "--format=%B").splitlines() if rc == 0 else []
+                check(f"a {label} against_digest installs, and its trailer names the bare digest",
+                      rc == 0 and f"Against-Digest: charter-addendum.md {bare}" in trailer, out + err)
+                if rc == 0:
+                    git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+                    git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
 
             n1 = count()
 
@@ -495,14 +515,11 @@ def main() -> int:
             # ── the real command line, the real validator ─────────────────
             git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
             git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
-            if hasattr(addenda_check, "validate_set"):
-                real = subprocess.run([sys.executable, CHILD_TOOL, "roles-put", "--agent", KID, "--role", ROLE,
-                                       "--from", src("real", {"charter-addendum.md": addendum("charter-addendum", "sha256:" + hashlib.sha256(b"the shared charter\n").hexdigest())}),
-                                       "--approval", "ADR-060-real"], env=parent, cwd=tmp, capture_output=True, text=True)
-                check("the installed command line, with the real validator, installs a conforming addendum",
-                      real.returncode == 0 and "committed as" in real.stdout, real.stdout + real.stderr)
-            else:
-                print("  skip the real command line: addenda_check is still the stub here; it runs on the fold")
+            real = subprocess.run([sys.executable, CHILD_TOOL, "roles-put", "--agent", KID, "--role", ROLE,
+                                   "--from", src("real", {"charter-addendum.md": addendum("charter-addendum", "sha256:" + hashlib.sha256(b"the shared charter\n").hexdigest())}),
+                                   "--approval", "ADR-060-real"], env=parent, cwd=tmp, capture_output=True, text=True)
+            check("the installed command line, with the real validator, installs a conforming addendum",
+                  real.returncode == 0 and "committed as" in real.stdout, real.stdout + real.stderr)
             usage = subprocess.run([sys.executable, CHILD_TOOL], env=parent, cwd=tmp, capture_output=True, text=True)
             check("…and without a verb it is a usage error", usage.returncode == 2 and "Traceback" not in usage.stderr, usage.stderr)
         finally:
