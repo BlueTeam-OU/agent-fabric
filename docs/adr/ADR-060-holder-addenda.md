@@ -110,7 +110,13 @@ login-suffix key without moving a single translation.
    from it, and the login's suffix only while a holder has no
    `holder.json`. `locale/<lang>/` keeps what a language needs: its
    translations, its `locale-worker`, its dictionaries and its language
-   tags.
+   tags. The translations of the role-independent prompt pieces (header,
+   team, memory, brief-missing) live once per language in
+   `identities/prompt/locale/<lang>/`, for every role, authored by
+   `language-culture-<lang>`; a role's own `locale/<lang>/` carries its
+   charter and brief. A holder whose locale is not English renders none of
+   the fabric's prompt in English: a missing rendering it would need is a
+   lint finding.
 9. An addendum in a locale is authored by the holder in that language and
    reviewed by `language-culture-<locale>` in the two passes of ADR-027 §5
    rule 3 before the parent installs it; a change that may alter what the

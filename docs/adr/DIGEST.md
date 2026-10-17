@@ -1287,7 +1287,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   with `against_digest` (§5 rules 4-6).
 - `holders_specialize: required` refuses a launch without valid addenda;
   tamper is never absence (§5 rule 7).
-- `holder.json` chooses the locale, not the login's suffix; a locale
-  addendum gets the two passes and an English gloss (§5 rules 8-9).
+- `holder.json` chooses the locale, not the login's suffix; header, team
+  and memory are translated once per language, so a non-English holder
+  renders no English; a locale addendum gets the two passes and an
+  English gloss (§5 rules 8-9).
 - Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
   holder.json, locale, parent-signed, holders_specialize.
