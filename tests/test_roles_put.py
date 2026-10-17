@@ -10,6 +10,7 @@ exit 1 on any."""
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -435,7 +436,7 @@ def main() -> int:
             git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
             git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
             real = subprocess.run([sys.executable, CHILD_TOOL, "roles-put", "--agent", KID, "--role", ROLE,
-                                   "--from", src("real", {"charter-addendum.md": addendum("charter-addendum", "dig-real")}),
+                                   "--from", src("real", {"charter-addendum.md": addendum("charter-addendum", "sha256:" + hashlib.sha256(b"the shared charter\n").hexdigest())}),
                                    "--approval", "ADR-060-real"], env=parent, cwd=tmp, capture_output=True, text=True)
             check("the installed command line, with the real validator, installs a conforming addendum",
                   real.returncode == 0 and "committed as" in real.stdout, real.stdout + real.stderr)
