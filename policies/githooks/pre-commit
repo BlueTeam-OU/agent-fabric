@@ -59,7 +59,9 @@ if [[ "$held" == "$owner_role" ]]; then
 fi
 # THE LOCALE CARVE-OUT. A locale's translations — identities/roles/<role>/
 # locale/<suffix>/* — are authored by the holder of <role> whose login is
-# named for <suffix> (language-culture-ge writes locale/ge/): the CEO's
+# named for <suffix> (language-culture-ge writes locale/ge/), and the
+# shared prompt pieces' identities/prompt/locale/<suffix>/* by the holder
+# of language-culture named for <suffix> (ADR-060 stage 3): the CEO's
 # rule of 2026-09-17 that no Georgian in the fabric has any author but
 # its holder, and the plane's read-only rule meeting it halfway. A commit
 # that stages nothing but that subtree, from a session bound to that role
@@ -78,7 +80,7 @@ if locale_carve_out_role "${own[@]}"; then
         exit 0
     fi
     cat >&2 <<MSG
-pre-commit: this commit changes only identities/roles/$locale_role/locale/$locale_suffix/,
+pre-commit: this commit changes only $locale_role's locale/$locale_suffix/ translations,
   which the holder of $locale_role named for $locale_suffix may commit — this session's
   binding holds ${held:-(no role bound)} on login $(id -un).
 MSG

@@ -57,11 +57,15 @@ apply to this whole repository.
 ### A locale's translations
 
 `identities/roles/<role>/locale/<suffix>/` — a locale's rendering of
-the role's charter, of the shared prompt sections and of the harness's
+the role's charter and brief, and for language-culture of the harness's
 own text, its worker and its search locale — is authored by the holder
 of `<role>` whose login is named for `<suffix>` (`language-culture-ge`
 writes `locale/ge/`): the CEO's rule of 2026-09-17 that no text in a
-locale has any author but its holder. A role's charter is translated
+locale has any author but its holder. The shared prompt sections'
+renderings, which every role reads, live once per language in
+`identities/prompt/locale/<suffix>/` and are the
+`language-culture-<suffix>` holder's, under the same fence (agent-fabric
+ADR-060 stage 3). A role's charter is translated
 only for a holder whose work is in that language, and
 `language-culture-<suffix>` reviews it. The holder may start from that
 specialist's draft and is still the author, as the role that commits the

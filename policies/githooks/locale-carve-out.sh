@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # policies/githooks/locale-carve-out.sh — do these paths fall, all of them,
-# under one locale's translations: identities/roles/<role>/locale/<suffix>/?
+# under one locale's translations: identities/roles/<role>/locale/<suffix>/,
+# or the shared prompt pieces' identities/prompt/locale/<suffix>/, which are
+# language-culture's (ADR-060 stage 3)?
 # Sourced by pre-commit and by the CI authority check; sets `locale_role`
 # and `locale_suffix` and returns 0 when they do, 1 otherwise (any other
 # path, two roles, two suffixes, a path deeper than the locale directory,
@@ -23,8 +25,8 @@ locale_carve_out_role() {
     (( $# )) || return 1
     local p role suffix
     for p in "$@"; do
-        [[ "$p" =~ ^identities/roles/([a-z][a-z0-9-]*)/locale/([a-z][a-z0-9-]*)/[^/]+$ ]] || return 1
-        role="${BASH_REMATCH[1]}"; suffix="${BASH_REMATCH[2]}"
+        [[ "$p" =~ ^identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+$ ]] || return 1
+        role="${BASH_REMATCH[2]:-language-culture}"; suffix="${BASH_REMATCH[3]}"
         if [[ -z "$locale_role" ]]; then locale_role="$role"; locale_suffix="$suffix"
         elif [[ "$role" != "$locale_role" || "$suffix" != "$locale_suffix" ]]; then locale_role=""; locale_suffix=""; return 1
         fi
