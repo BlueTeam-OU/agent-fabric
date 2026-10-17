@@ -311,6 +311,19 @@ def main() -> int:
             fh.write(original)
         check("…control: the object restored, it loads", isinstance(load(), addenda.Holder))
 
+        # a signature is the signature of the commit it names, not of a stand-in a replace ref puts there
+        good_head2 = git(child, child_store, "rev-parse", "HEAD").stdout.strip()
+        with open(os.path.join(child_store, "settings", "roles", ROLE, CHARTER), "wb") as fh:
+            fh.write(file(ROLE, KID, "charter-addendum", "# EVIL\n\nSelf-written.\n"))
+        git(child, child_store, "add", "-A")
+        git(child, child_store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "unsigned edit")
+        unsigned = git(child, child_store, "rev-parse", "HEAD").stdout.strip()
+        git(child, child_store, "replace", "-f", unsigned, good_head2)
+        refused("a replace ref that stands a parent-signed commit in for the unsigned one is not believed", load(), "not the parent's")
+        git(child, child_store, "replace", "-d", unsigned)
+        git(child, child_store, "reset", "-q", "--hard", good_head2)
+        check("…control: repaired, it loads", isinstance(load(), addenda.Holder))
+
         # tamper is not absence: a store moved back before the install, with no directory
         before_install = git(child, child_store, "rev-parse", f"{installed}^").stdout.strip()
         tip = git(child, child_store, "rev-parse", "HEAD").stdout.strip()
@@ -403,7 +416,14 @@ def main() -> int:
                 except launch.Refused as e:
                     return e
 
-        got = read_holder(ROLE)
+        real_helper, argvs = launch.holder.helper, []
+        launch.holder.helper = lambda args, **k: (argvs.append(list(args)), real_helper(args, **k))[1]
+        try:
+            got = read_holder(ROLE)
+        finally:
+            launch.holder.helper = real_helper
+        check("the reader runs isolated (-I): no PYTHONPATH or user site of the agent's in the process that judges the signature",
+              len(argvs) == 1 and argvs[0][1] == "-I" and argvs[0][2].endswith("addenda.py"), repr(argvs))
         out_file = os.path.join(state, launch.holder.HOLDER_FILE)
         check("the launcher part: addenda read -> (store sha, addenda commit) and the file the render takes",
               isinstance(got, tuple) and got[0] == git(child, child_store, "rev-parse", "HEAD").stdout.strip()

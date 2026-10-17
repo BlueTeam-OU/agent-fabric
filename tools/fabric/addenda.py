@@ -98,6 +98,10 @@ def _object(store: str, role: str, kind: str, oid: str, algo: str, limit: int | 
     return body
 
 
+def _descends(store: str, base: str) -> bool:
+    return git(store, _NOREPLACE, "merge-base", "--is-ancestor", base, "HEAD", check=False).returncode == 0
+
+
 def _tree_entries(body: bytes, width: int) -> list[tuple[str, str, str]]:
     """(mode, name, oid) of a tree object's entries; width is the raw oid's."""
     out, i = [], 0
@@ -139,8 +143,8 @@ def _verified_directory(store: str, role: str, commit: str, algo: str) -> list[t
         if len(hit) != 1 or hit[0][0] != "40000":
             raise _refuse(role, f"{part} is not a directory of the commit's tree", commit)
         oid = hit[0][2]
-    if oid != _directory(store, role):
-        raise _refuse(role, "the directory at HEAD is not the directory its last commit made", commit)
+    # `git log -1 -- <path>` names a commit whose version of the path is HEAD's
+    # own, and no replace ref is honoured, so this tree is the one HEAD shows.
     return _tree_entries(_object(store, role, "tree", oid, algo), width)
 
 
@@ -158,7 +162,7 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
     # "no addenda" (rule 7). Without a base there is nothing to compare with.
     base = trust.trusted_base(store)
     if base and git(store, _NOREPLACE, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode == 0 \
-            and not trust._is_ancestor(store, base, "HEAD"):
+            and not _descends(store, base):
         raise _refuse(role, "the store's HEAD does not descend from its trusted base")
     if _directory(store, role) is None:
         return _absent(role, policy, "the store has no settings/roles/" + role)
