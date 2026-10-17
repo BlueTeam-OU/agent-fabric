@@ -86,9 +86,17 @@ def main() -> int:
             seen.append((role_, aid, name, raw))
             return [f"{name} is not allowed here"] if name.startswith("bad") else []
 
-        def call(env: dict, *args: str, validate=fake_validate) -> tuple[int, str, str]:
+        def fake_validate_set(role_: str, aid: str, files: dict) -> dict:
+            return {n: fake_validate(role_, aid, n, raw) for n, raw in files.items()}
+
+        def call(env: dict, *args: str, validate=None) -> tuple[int, str, str]:
+            """With no `validate` both the per-file check and the set check are stand-ins, so the cases do not move
+            when the validator's rules do; a real `validate` brings the real set rules (they call it)."""
             out, err = io.StringIO(), io.StringIO()
-            with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(addenda_check, "validate", validate), \
+            with mock.patch.dict(os.environ, env, clear=True), \
+                    mock.patch.object(addenda_check, "validate", validate or fake_validate), \
+                    mock.patch.object(addenda_check, "validate_set", fake_validate_set, create=True) if validate is None \
+                    else contextlib.nullcontext(), \
                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 rc = secret_child.main(list(args))
             return rc, out.getvalue(), err.getvalue()
@@ -108,7 +116,7 @@ def main() -> int:
                     fh.write(data)
             return d
 
-        def install(label: str, name: str, files: dict[str, bytes], *extra: str, env: dict = parent, validate=fake_validate):
+        def install(label: str, name: str, files: dict[str, bytes], *extra: str, env: dict = parent, validate=None):
             return call(env, "roles-put", "--agent", "kid", "--role", ROLE, "--from", src(name, files),
                         "--approval", "ADR-060-2026-10-17", *extra, validate=validate)
 
