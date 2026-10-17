@@ -306,6 +306,87 @@ def case_every_catalogue_role_renders_under_the_ceiling() -> None:
     assert not over, f"rendered prompt over MAX_CHARS={got['max']} — shorten the charter or brief, or move the ceiling with its reason: " + "; ".join(over)
 
 
+def _holder(f: "Fixture", tmp: str, **fields) -> str:
+    """A holder file as tools/fabric/addenda.py writes it (ADR-060)."""
+    doc = {"role": "backend-dev", "agent_id": "01a00000-0000-7000-8000-000000000000", "charter": None, "brief": None,
+           "holder": None, "against": {}, "store_sha": "a" * 40, "addenda_commit": "b" * 40, **fields}
+    path = os.path.join(tmp, "launch-holder.json")
+    write(path, json.dumps(doc, ensure_ascii=False))
+    return path
+
+
+def case_holder_addenda_follow_their_shared_piece() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Fixture(tmp)
+        plain = f.run("--print").stdout
+        both = f.run("--print", "--holder-file", _holder(f, tmp, charter="CHARTER-ADDENDUM-LINE\n",
+                                                          brief="BRIEF-ADDENDUM-LINE\n")).stdout
+        order = [both.index(s) for s in ("CHARTER-BODY-LINE", "CHARTER-ADDENDUM-LINE",
+                                          "BRIEF-BODY-LINE", "BRIEF-ADDENDUM-LINE")]
+        assert order == sorted(order), f"pieces out of order: {order}"
+        assert both.replace("CHARTER-ADDENDUM-LINE\n\n", "").replace("BRIEF-ADDENDUM-LINE\n\n", "") == plain, \
+            "the addenda changed something besides their own place"
+        only_charter = f.run("--print", "--holder-file", _holder(f, tmp, charter="CHARTER-ADDENDUM-LINE")).stdout
+        assert "CHARTER-ADDENDUM-LINE" in only_charter and "BRIEF-ADDENDUM-LINE" not in only_charter
+        only_brief = f.run("--print", "--holder-file", _holder(f, tmp, brief="BRIEF-ADDENDUM-LINE")).stdout
+        assert only_brief.index("BRIEF-BODY-LINE") < only_brief.index("BRIEF-ADDENDUM-LINE")
+        empty = f.run("--print", "--holder-file", _holder(f, tmp)).stdout
+        assert empty == plain, "a holder with no addenda is not today's prompt"
+
+
+def case_holder_addendum_follows_brief_missing_too() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Fixture(tmp, brief=False)
+        out = f.run("--print", "--holder-file", _holder(f, tmp, brief="BRIEF-ADDENDUM-LINE")).stdout
+        assert out.index("No brief has been distilled") < out.index("BRIEF-ADDENDUM-LINE"), out[:400]
+
+
+def case_holder_digest_moves_with_the_addendum_alone() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Fixture(tmp)
+        out = os.path.join(tmp, "state", "agents", LOGIN, "launch-prompt.md")
+        d1 = f.run("--out", out, "--holder-file", _holder(f, tmp, charter="ONE")).stdout.strip()
+        d2 = f.run("--out", out, "--holder-file", _holder(f, tmp, charter="ONE", store_sha="c" * 40)).stdout.strip()
+        d3 = f.run("--out", out, "--holder-file", _holder(f, tmp, charter="TWO")).stdout.strip()
+        assert d1 == d2, "the digest moved with a field that is not rendered"
+        assert d1 != d3, "the digest did not move with the addendum's text"
+
+
+def case_holder_file_for_another_role_or_oversized_is_refused() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Fixture(tmp)
+        r = f.run("--print", "--holder-file", _holder(f, tmp, role="db-admin", charter="X"))
+        assert r.returncode == 1 and "not 'backend-dev'" in r.stderr, r.stderr
+        r = f.run("--print", "--holder-file", _holder(f, tmp, charter="x" * 4001))
+        assert r.returncode == 1 and "over 4000" in r.stderr, r.stderr
+        bad = os.path.join(tmp, "bad.json")
+        write(bad, "{not json")
+        r = f.run("--print", "--holder-file", bad)
+        assert r.returncode == 1 and "could not be read" in r.stderr, r.stderr
+
+
+def case_holder_ceiling_grows_by_the_addenda_only() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Fixture(tmp)
+        size = len(f.run("--print").stdout)
+        pad = 28000 - size - 10   # the shared part just under MAX_CHARS
+        write(os.path.join(f.root, "identities", "roles", "backend-dev", "brief.md"),
+              "---\nrole: backend-dev\nclass: brief\n---\n\n# backend-dev — brief\n\n" + "p" * pad + "\n")
+        assert f.run("--print").returncode == 0, "the fixture is not under the ceiling"
+        r = f.run("--print", "--holder-file", _holder(f, tmp, charter="a" * 3999, brief="b" * 3999))
+        assert r.returncode == 0, "addenda within their cap pushed a shared part under MAX_CHARS over the ceiling: " + r.stderr
+        text = r.stdout
+        assert "a" * 3999 in text and "b" * 3999 in text
+
+
+def case_holder_georgian_addendum_is_kept_as_written() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Fixture(tmp)
+        ka = "ქართული დამატება: სამართალი საქართველოს მიხედვით.\n"
+        out = f.run("--print", "--holder-file", _holder(f, tmp, charter=ka)).stdout
+        assert ka in out, "the Georgian addendum was not rendered byte for byte"
+
+
 def main() -> int:
     cases = [
         case_locale_charter_is_rendered_for_the_login_suffix,
@@ -322,7 +403,13 @@ def main() -> int:
         case_byte_stable_across_builds_and_cwds,
         case_nothing_about_who_can_be_passed_in,
         case_oversized_prompt_is_refused,
-        case_every_catalogue_role_renders_under_the_ceiling]
+        case_every_catalogue_role_renders_under_the_ceiling,
+        case_holder_addenda_follow_their_shared_piece,
+        case_holder_addendum_follows_brief_missing_too,
+        case_holder_digest_moves_with_the_addendum_alone,
+        case_holder_file_for_another_role_or_oversized_is_refused,
+        case_holder_ceiling_grows_by_the_addenda_only,
+        case_holder_georgian_addendum_is_kept_as_written]
     failures = 0
     for case in cases:
         try:
