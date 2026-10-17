@@ -13,12 +13,14 @@ Contract of `load(login, role, policy=)`:
           login; a trusted base missing or a HEAD that does not descend from
           it; a last commit on the directory not signed by the parent's key
           alone (the agent's own included); a directory holding anything
-          but plain files; a file addendum_check.validate has a finding on.
+          but plain files; a set of files addendum_check.validate_set has a finding on.
           Tamper is never read as absence (rule 7).
   reads   git objects only, without replace refs or a commit-graph, those of
           the parent-signed last commit on the directory, each hashed against
-          its name (the commit, the trees down to the directory, the blobs):
-          never the working tree, never env/, never a decryption. The one gpg call is
+          its name (the commit, the trees down to the directory, the blobs),
+          and .agent-id as HEAD has it: never the working tree, never env/,
+          never a decryption. Besides objects it reads the store's .git/config
+          (the trusted base) and .git/info/grafts, to refuse the latter. The one gpg call is
           verify-commit in a temporary GNUPGHOME that holds the parent's
           public key alone (trust.verify_signed_by).
   writes  nothing.
@@ -49,7 +51,7 @@ import re  # noqa: E402
 
 import addenda_check as check  # noqa: E402
 from secretstore import mirrors, trust  # noqa: E402
-from secretstore.core import StoreError, _run, git, store_dir, own_agent_id
+from secretstore.core import AGENT_ID_RE, StoreError, _run, git, store_dir
 
 POLICIES = ("optional", "required")
 # Names of the files the reader takes the text of; whether any other name is
@@ -93,6 +95,16 @@ _NOREPLACE = "--no-replace-objects"
 
 def _git(store: str, *args: str, check: bool = True):
     return git(store, _NOREPLACE, "-c", "core.commitGraph=false", *args, check=check)
+
+
+def _committed_agent_id(store: str) -> str | None:
+    """.agent-id as HEAD has it: the checkout's copy is an edit the parent
+    never signed. None for a store that commits none."""
+    r = _git(store, "show", "HEAD:.agent-id", check=False)
+    if r.returncode != 0:
+        return None
+    aid = r.stdout.decode("utf-8", "replace").strip()
+    return aid if AGENT_ID_RE.fullmatch(aid) else None
 
 
 def _algo(store: str) -> str:
@@ -192,7 +204,7 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
         return _absent(role, policy, "the parent removed settings/roles/" + role)
 
     aid, _ = mirrors.resolve(login, fabric=fabric)
-    if own_agent_id(store) != aid:
+    if _committed_agent_id(store) != aid:
         raise _refuse(role, f"the store's .agent-id is not the id lineage gives {login}")
     head = _git(store, "rev-parse", "HEAD").stdout.decode().strip()
     if not base:
@@ -212,7 +224,10 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
         if mode != "100644":
             raise _refuse(role, f"{name} is not a plain file (mode {mode}): no link, no subdirectory, no executable", commit)
     files = {name: _object(store, role, "blob", oid, algo, _MAX_BLOB, name) for _, name, oid in rows}
-    findings = [f for name in sorted(files) for f in check.validate(role, aid, name, files[name])]
+    # The set, not each file: the gloss rules (a stale gloss, a gloss with no
+    # addendum, a non-English addendum without its gloss) show only there.
+    verdicts = check.validate_set(role, aid, files)
+    findings = [f for name in sorted(verdicts) for f in verdicts[name]]
     if findings:
         raise _refuse(role, "; ".join(findings[:5]) + ("; and more" if len(findings) > 5 else ""), commit)
 

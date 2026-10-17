@@ -16,21 +16,22 @@ HOLDER_FILE = "launch-holder.json"
 
 
 def policy(fabric_root: str, role: str) -> str:
-    """holders_specialize of the role in the catalogue: "optional" unless it
-    says "required" (rule 7). A catalogue that is missing is the fixture of a
-    test, which has no roles to specialise; one that cannot be read or holds a
-    value that is neither stops the launch: the flag exists so that a role
-    whose shared text names no jurisdiction is never launched without one."""
+    """holders_specialize of the role in the catalogue, "optional" when the
+    entry leaves it out (rule 7). A catalogue that is missing or cannot be
+    read, a role it does not list, or a value that is neither stops the
+    launch: the flag exists so that a role whose shared text names no
+    jurisdiction is never launched without addenda, and a policy that cannot
+    be read must not turn into "optional"."""
     path = roots.role_catalog(engine=fabric_root, environ=os.environ)
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
-    except FileNotFoundError:
-        return "optional"
     except (OSError, ValueError) as e:
         die(f"{path} could not be read ({type(e).__name__}), so whether {role} needs holder addenda is unknown.")
     entries = [r for r in doc.get("roles", []) if isinstance(r, dict) and r.get("id") == role] if isinstance(doc, dict) else []
-    value = entries[0].get("holders_specialize", "optional") if entries else "optional"
+    if not entries:
+        die(f"{path} does not list the role {role}, so whether it needs holder addenda is unknown.")
+    value = entries[0].get("holders_specialize", "optional")
     if value not in ("optional", "required"):
         die(f"{path}: holders_specialize of {role} is {value!r}, not optional or required.")
     return value

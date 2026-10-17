@@ -210,6 +210,8 @@ def main() -> int:
                 '---\nrole: backend-dev\nclass: charter\ndescription: "x"\ntier: 1\ndistilled_at: 2026-09-15\n---\n\n'
                 "# backend-dev — charter\n\nFIXTURE-CHARTER-LINE: the backend that owns meaning.\n")
             put(f"{fabric}/projects/registry.json", json.dumps({"projects": {}}))   # its own, never the live one
+            # The launcher reads holders_specialize from the catalogue and refuses a role it does not list.
+            put(f"{fabric}/identities/roles/catalog.json", json.dumps({"roles": [{"id": "backend-dev"}, {"id": "language-culture"}]}))
             binding()
             os.makedirs(repo)
             subprocess.run(["git", "init", "-q", repo], env=base, check=True, timeout=30)
@@ -1248,6 +1250,17 @@ def main() -> int:
                   rc != 0 and "addenda" in out and "backend-dev" in out and "EXECCED" not in out, out)
             check("…and nothing is read as absence: no holder file is left", not os.path.exists(f"{agent_dir}/launch-holder.json"))
             rm(store)
+            # F7: the policy of the bound role is read or the launch stops; a missing catalogue, and a role
+            # the catalogue does not list, are refusals (positive control: the cases above launch with both).
+            catalog = f"{fabric}/identities/roles/catalog.json"
+            rm(catalog)
+            rc, out = run("--version")
+            check("a missing role catalogue stops the launch: the policy is unknown, not optional",
+                  rc != 0 and "catalog.json" in out and "EXECCED" not in out, out)
+            put(catalog, json.dumps({"roles": [{"id": "other-role"}]}))
+            rc, out = run("--version")
+            check("…and a bound role the catalogue does not list stops it too",
+                  rc != 0 and "does not list the role backend-dev" in out and "EXECCED" not in out, out)
 
         if _want(8):
             print("launch: --provider gateway — the harness talks to the gateway, holding a local key and no upstream credential")
