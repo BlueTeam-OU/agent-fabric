@@ -1762,6 +1762,14 @@ def _():
         os.set_blocking(fd.fileno(), False)
     out = err = b""
     try:
+        # The child's startup is not this case's subject, and a loaded runner
+        # makes it slow: wait for its "inbox held" line, then watch the hold
+        # for longer than the poll interval (HOLD_POLL_MS, 1 s) so a watch
+        # that polled anyway would have done so by then.
+        started = time.monotonic() + 30
+        while not re.search(rb"inbox held", err) and time.monotonic() < started:
+            time.sleep(0.05)
+            err += child.stderr.read() or b""
         time.sleep(2.5)
         out += child.stdout.read() or b""
         err += child.stderr.read() or b""
