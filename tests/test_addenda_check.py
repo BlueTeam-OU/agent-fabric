@@ -126,6 +126,8 @@ def case_model_pins() -> None:
     for text in ("Use claude-opus-5-5 for this.\n", "Run on Sonnet 5 only.\n", "model anthropic/x-1\n",
                  "prefer gpt-5 here\n"):
         must_refuse("charter-addendum.md", addendum(text), "names a model")
+    for pinned in ("claude-3-5 here\n", "claude-instant\n", "claude-haiku\n"):
+        must_refuse("charter-addendum.md", addendum(pinned), "names a model")
     must_refuse("charter-addendum.md", addendum("use claude\u2011opus\u20114\n"), "names a model")
     must_pass("charter-addendum.md", addendum("A sonnet is a poem; an opus is a work.\n"))
     must_pass("charter-addendum.md", addendum("Claude-Henri de Saint-Simon wrote on law.\n"))
