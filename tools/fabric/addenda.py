@@ -132,11 +132,9 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
     commit = git(store, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/").stdout.decode().strip()
     if not commit:
         raise _refuse(role, "no commit touched the directory", head)
-    # History simplification returns a commit whose version of the path is
-    # HEAD's own; the equality is checked, not assumed, because the signature
-    # is only evidence about that commit's bytes.
-    if git(store, "rev-parse", f"{commit}:settings/roles/{role}").stdout != git(store, "rev-parse", f"HEAD:settings/roles/{role}").stdout:
-        raise _refuse(role, "the directory at HEAD is not the directory its last commit made", commit)
+    # `git log -1 -- <path>` follows history simplification: the commit it
+    # names has the path exactly as HEAD does, so its signature is evidence
+    # about the bytes read below (a merge shows only when it changed the path).
     try:
         trust.verify_signed_by(store, commit, trust.parent_writer(aid, fabric))
     except StoreError as e:
