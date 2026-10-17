@@ -262,6 +262,16 @@ whose `AGENT_LOGIN` is not the login running it. No value from any store
 ever enters this tree or a managed repository; the guards that keep
 credentials out of commits apply unchanged.
 
+**A holder's addenda** (ADR-060) are the one part of a store its own
+login does not write: `settings/roles/<role>/` (a charter and a brief
+addendum, `holder.json`) is installed by the parent alone, with
+`fabric-secrets child roles-put`, after the holder drafted it, the
+reviews it needs (language-culture's two passes for one in a locale) and
+the owner's approval; the agent's `settings-put` refuses that path, and
+the launcher renders only what the parent's last install signed and
+recorded. An addendum narrows or specialises its role and never repeals
+a rule of the role's charter or brief, or another role's authority.
+
 ## Proposing a change
 
 Send it to the role that owns the file: a GZCoord message naming the

@@ -124,6 +124,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   project remit arrives from the SessionStart hook (§5 rules 4–5).
 - Drift is printed by `fabric-status`; a binding is per (agent, host)
   (§5 rules 6–7). Brief is identifier-free, the remit anchored (§5 rule 8).
+- A 2026-10-17 — the holder's charter and brief addenda follow the role's (§5 rule 4, ADR-060).
 - Keywords: identity, login, whoami, role, bind, launch prompt, charter,
   brief, remit, drift, binding, dimensions.
 
@@ -847,11 +848,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   an encrypted recovery copy (§5 rules 1, 6).
 - A key is an agent's when committed at `identities/keys/<id>.asc`,
   certified by its parent (§5 rule 2).
-- Each agent's secrets are pass(1) entries in its private repository
-  `fabric-agent-<id>`, encrypted to that key alone: the parent writes
-  and never reads (§5 rule 3).
-- No shared host assumed (§5 rules 4–5); `sync` reads the store alone
-  (§5 rules 7–8).
+- Secrets are pass(1) entries in `fabric-agent-<id>`, encrypted to
+  that key alone; the parent writes, never reads (§5 rule 3).
+- No shared host (§5 rules 4–5); `sync` reads only the store (§5 rules 7–8).
 - A 2026-09-29 — recovery copies and backups to Proton Drive.
 - A 2026-09-29 — recovery copies encrypted to the recovery key.
 - A 2026-09-29 — named by agent id (ADR-039).
@@ -864,8 +863,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — agents sign commits with own subkeys (§6, ADR-057).
 - A 2026-10-15 — company stores (§5 rule 10).
 - A 2026-10-15 — only agent and parent write (§5 rule 3).
+- A 2026-10-17 — `settings/roles/`: parent only (§5 rule 3).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
-  Doppler, provision, placement, company store.
+  Doppler, provision, company store.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
 
 - Each agent has an id, a UUIDv7 whose time is its birth: an existing
@@ -951,6 +951,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   bootstrap's once-only migration, or first contact through the
   enrolment bundle; a store with no base refuses (§5 rules 2, 4).
 - A 2026-10-07 — a commit gpg could not judge stops, unrecorded (§5 rule 5).
+- A 2026-10-17 — `settings/roles/` is the parent's alone, checked at launch (§5 rule 2, ADR-060).
 - Keywords: store, signing, signature, verify, forged entry, lineage,
   pass, bundle, take-bundle, writer, trust-base, trusted base.
 
