@@ -151,6 +151,15 @@ it follows the cwd and reaches the session from the SessionStart hook.
 The role, and the prompt's sha256, are stamped into the child's
 environment (AGENT_FABRIC_LAUNCH_ROLE, _PROMPT_DIGEST) so fabric-status
 can say what this session was launched as and see a rebind under it.
+THE HOLDER'S ADDENDA (ADR-060). Before the render the launcher runs
+addenda.py for the bound role: it reads settings/roles/<role>/ from the
+account's store at its committed HEAD, verifies that the parent signed the
+last commit on it, and writes launch-holder.json beside the prompt, which
+launch_prompt.py takes as --holder-file. No such directory is today's
+prompt, byte for byte, unless the catalogue marks the role
+holders_specialize: required; anything unverifiable or invalid stops the
+launch with one line naming the path and the commit. What it read is
+stamped as AGENT_FABRIC_LAUNCH_STORE_SHA and _ADDENDA_COMMIT, and only then.
 The launcher announces nothing: whether a session is running is the
 control plane's to answer, from the process table (runtime/control/
 presence.mjs, docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md) — HELLO/GOODBYE are retired.
@@ -257,7 +266,7 @@ from fabric_launcher.session import require_files, make_tmpdir, print_report  # 
 from fabric_launcher.session import record_launch_provider, install_agent_files  # noqa: E402, F401
 from fabric_launcher.session import mark_onboarding_done, session_command, opening_prompt  # noqa: E402, F401
 from fabric_launcher.session import ignore_quit, run_session, read_restart  # noqa: E402, F401
-from fabric_launcher import gateway  # noqa: E402, F401
+from fabric_launcher import gateway, holder  # noqa: E402, F401
 
 
 # ── the fabric itself must be current ───────────────────────────────
@@ -504,7 +513,12 @@ def launch(argv: list[str]) -> int:
     # digest is stamped so a session can say what it was launched with and
     # fabric-status can see the file change under it.
     prompt_file = f"{state_dir}/launch-prompt.md"
-    r = helper([sys.executable, f"{fabric_root}/tools/fabric/launch_prompt.py", "--out", prompt_file], quiet=True)
+    # The holder's addenda of the bound role (ADR-060): read and verified
+    # before the render, which takes them as a file; none is today's prompt.
+    # A refusal stops the launch: tamper is never read as absence.
+    held = holder.read(fabric_root, agent, role, state_dir)
+    r = helper([sys.executable, f"{fabric_root}/tools/fabric/launch_prompt.py", "--out", prompt_file,
+                *(["--holder-file", f"{state_dir}/{holder.HOLDER_FILE}"] if held else [])], quiet=True)
     if r is None or r.returncode != 0:
         die("could not render the role's system prompt (tools/fabric/launch_prompt.py).")
     prompt_digest = stripped(r)
@@ -534,6 +548,13 @@ def launch(argv: list[str]) -> int:
         # is only appended (review of #31).
         env.pop("AGENT_FABRIC_LAUNCH_CLAUDE_VERSION", None)
     env["AGENT_FABRIC_LAUNCH_ROLE"] = role
+    # Stamped only when addenda were read, and dropped otherwise: inherited
+    # from a replaced session they would say of this one what it never read.
+    if held:
+        env["AGENT_FABRIC_LAUNCH_STORE_SHA"], env["AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT"] = held
+    else:
+        env.pop("AGENT_FABRIC_LAUNCH_STORE_SHA", None)
+        env.pop("AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT", None)
     env["AGENT_FABRIC_LAUNCH_PROMPT_DIGEST"] = prompt_digest
 
     # The tab title is the hook's (runtime/claude-code/hooks/tab-title.sh:
