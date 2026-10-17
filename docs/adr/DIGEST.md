@@ -1272,7 +1272,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: personal data, AI tools, Max, consumer plan, sub-processor,
   GDPR Article 28, privacy notice, client data.
 
-### ADR-060 — A holder's addenda specialise a shared role (Proposed)
+### ADR-060 — A holder's addenda specialise a shared role (Accepted)
 
 - A holder's specialization of role R is `settings/roles/R/` in its own
   store: `charter-addendum.md`, `brief-addendum.md`, `holder.json`, all
@@ -1281,9 +1281,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   committed HEAD, never `env/`; it refuses a wrong `.agent-id` or a HEAD
   off the trusted base (§5 rule 2).
 - Only the parent installs, in one signed commit naming author, review
-  passes and the owner's approval; any other signer refuses (§5 rule 3).
+  passes and the owner's approval; any other signer refuses, and only
+  files whose bytes match the digests the last install recorded render
+  (§5 rule 3).
 - Order: charter, its addendum, brief, its addendum; none gives today's
-  bytes; an addendum narrows, never repeals, at most 4 000 characters,
+  bytes, except where rule 8 moves locale pieces; an addendum narrows, never repeals, at most 4 000 characters,
   with `against_digest` (§5 rules 4-6).
 - `holders_specialize: required` refuses a launch without valid addenda;
   tamper is never absence (§5 rule 7).
@@ -1291,5 +1293,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   and memory are translated once per language, so a non-English holder
   renders no English; a locale addendum gets the two passes and an
   English gloss (§5 rules 8-9).
+- A 2026-10-17 — accepted; every install records every file's digest;
+  §8 says which amendments land with which stage.
 - Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
   holder.json, locale, parent-signed, holders_specialize.

@@ -545,10 +545,10 @@
       "number": "060",
       "file": "ADR-060-holder-addenda.md",
       "title": "A holder's addenda specialise a shared role",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-17",
       "pillar": "P1",
-      "amendments": 0
+      "amendments": 1
     }
   ]
 }

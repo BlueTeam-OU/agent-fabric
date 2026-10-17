@@ -1,7 +1,8 @@
 # ADR-060 — A holder's addenda specialise a shared role
 
 **Date:** 2026-10-17
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-17, in the coordinator's session ("adr 060 accepted")
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the permanent specialization one agent carries while it holds a shared role: where it is stored (the agent's own store, ADR-038), who writes it, how the launcher reads and renders it into the launch prompt (ADR-002), how it is validated and audited, and how the locale a holder renders in is chosen (ADR-027). Not the shared role's definition, not a project's remit, not working state.
 **Pillar:** P1
@@ -22,7 +23,7 @@ suffix of the login, which a rename changes (ADR-039), and mixes language
 assets with deployment facts (`locale.json` carries a timezone and a search
 country, the English one included). The prompt has little room: rendered
 for the shortest agent and host names (`x`, `h`), the legal-expert and
-language-culture prompts are about 24 600 and 25 700 of `MAX_CHARS`
+language-culture prompts are about 24 700 and 25 700 of `MAX_CHARS`
 28 000 characters, more for a real login and host.
 
 ## 2. Decision
@@ -63,7 +64,8 @@ settings (ADR-038, ADR-039, ADR-042, ADR-056), so the specialization follows
 the agent through a rename and never enters the public tree. Reading from
 the committed head, not the working tree, and checking the signer of the
 last commit on the path, makes the rendered text the text the parent
-installed. Separating `holder.json` (who this holder is: its locale, its
+installed, and matching each file to the digest its install recorded
+makes it the text the parent installed. Separating `holder.json` (who this holder is: its locale, its
 deployment) from `locale/<lang>/` (what a language needs) removes the
 login-suffix key while moving only the role-independent prompt pieces,
 once per language.
@@ -83,10 +85,11 @@ once per language.
    its trusted base (ADR-042).
 3. The last commit that touched `settings/roles/R/` is signed by the
    agent's parent; the launcher verifies it with the parent's public key
-   alone and refuses any other signer, the agent's own included. The
-   install commit records the digest of every file it installs, and the
-   launcher renders a file only when its bytes at `HEAD` match the digest
-   the last parent-signed install recorded: an edit committed after the
+   alone and refuses any other signer, the agent's own included. Every
+   install commit records the digest of every file under
+   `settings/roles/R/` as it leaves them, and the launcher renders a file
+   only when its bytes at `HEAD` match the digest the last parent-signed
+   install recorded for it: an edit committed after the
    install, by anyone, is refused, not rendered under the parent's
    signature.
    `settings-put` refuses paths under `settings/roles/`; the parent
@@ -172,8 +175,10 @@ the per-holder locale fallback (rule 8) has no remaining user and can go.
 
 ## 8. Decision Status
 
-Proposed. Its rules bind once it is accepted and the mechanism lands; the
-amendments it implies are made in the same pull request as the mechanism:
+Accepted. Rules 1-7 and 9-11 bind with the mechanism; rule 8 (the locale
+chosen by `holder.json`) binds with its stage. The amendments it implies
+are made where the behaviour lands: ADR-002, ADR-038 and ADR-042 with the
+mechanism, the rest with rule 8's stage:
 ADR-002 rules 4, 8, 9; ADR-018 §5 rule 5 (the carve-out admits
 `language-culture-<lang>` to `identities/prompt/locale/<lang>/`); ADR-027
 rules 1, 6, 9, 11 and 13 (the locale named by `holder.json`, the worker and
@@ -190,4 +195,8 @@ the login's suffix).
 
 ## Amendments
 
-None yet.
+The body above reads current; each change's full note is in [history/ADR-060-amendments.md](history/ADR-060-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-17 | Accepted; the digest check is per file; sizes restated | Status Accepted; §5 rule 3 records every file's digest at each install; §4 names the digest check; §1's size restated; §8 says which amendments land with which stage |
