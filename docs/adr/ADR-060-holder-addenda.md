@@ -111,9 +111,10 @@ once per language.
    (`charter-addendum` or `brief-addendum`), `role`, `agent_id`, `lang` and
    `against_digest`, the body digest of the shared piece it was written
    against; a lag is a warning, never a refused launch. `lang` is the
-   fabric's locale key, as `locale/<lang>/` and `language-culture-<lang>`
-   spell it (`ge`, not the BCP-47 `ka`), so the review passes rule 9
-   wants are that login's (A 2026-10-18).
+   text's language as BCP-47 spells it (`ka`, `ru`, `en`); the review
+   passes rule 9 wants are by `language-culture-<key>`, the holder of the
+   locale whose `locale/<key>/locale.json` tag has that language (`ka-GE`,
+   so `language-culture-ge`) (A 2026-10-18).
 7. A role is `holders_specialize: optional` unless the catalogue says
    `required`. For an optional role, a store with no addenda renders
    today's prompt; for a required role it is a refused launch. For either,
@@ -205,4 +206,4 @@ The body above reads current; each change's full note is in [history/ADR-060-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-17 | Accepted; the digest check is per file; sizes restated | Status Accepted; §5 rule 3's record of an install is its signed commit's tree; §4 names the digest check; §1's size restated; §8 says which amendments land with which stage |
-| 2026-10-18 | ADR-057 needs no amendment; `lang` is the locale key | §8: the signature checker reads public data only, so a holder's private locale cannot name a signer; the stage's other amendments (ADR-018, ADR-027) are made. §5 rule 6: an addendum's `lang` is the fabric's locale key (`ge`), which names its reviewer |
+| 2026-10-18 | ADR-057 needs no amendment; what `lang` names | §8: the signature checker reads public data only, so a holder's private locale cannot name a signer; the stage's other amendments (ADR-018, ADR-027) are made. §5 rule 6: an addendum's `lang` is its BCP-47 language (`ka`); its reviewer is the holder of the locale whose tag has that language (`language-culture-ge`) |

@@ -1293,6 +1293,6 @@ its record disagree, the record wins. Look it up, never read it whole:
   English gloss (§5 rules 8-9).
 - A 2026-10-17 — accepted; an install's record is its signed commit's
   tree; §8 says which amendments land with which stage.
-- A 2026-10-18 — no ADR-057 amendment (§8); `lang` is the locale key, `ge` (§5 rule 6).
+- A 2026-10-18 — no ADR-057 amendment (§8); `lang: ka` is reviewed by the `ka-GE` locale's holder (§5 rule 6).
 - Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
   holder.json, locale, parent-signed, holders_specialize.
