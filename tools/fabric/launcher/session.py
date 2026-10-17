@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import stat
 import subprocess
@@ -29,13 +30,14 @@ def require_files(*paths: str) -> None:
 def make_tmpdir(path: str, *, ours: bool = True) -> None:
     """mkdir -p -m 700: the mode on the directory made, whatever the umask;
     one that exists is left as it is, if it is this account's own directory.
-    /var/tmp is world-writable and sticky: another account can make
-    /var/tmp/agent-fabric-<agent> first, or a symlink by that name, and the
-    session would write its scratch where that account reads it and this one
-    cannot remove it. The bash's mkdir -p took either (review of #80); the
-    launch is refused instead, naming the path, so the person moves it. A
-    TMPDIR the account set itself (`ours` false) is its own choice, /tmp
-    included, and is taken as it is."""
+    A directory another account made first, or a symlink by that name (the
+    risk when the default lived in world-writable /var/tmp, and still one if
+    a home's cache is shared or linked), would put the session's scratch
+    where that account reads it and this one cannot remove it. The bash's
+    mkdir -p took either (review of #80); the launch is refused instead,
+    naming the path, so the person moves it. A TMPDIR the account set
+    itself (`ours` false) is its own choice, /tmp included, and is taken as
+    it is."""
     # Made first, checked after: a check before the mkdir left a window in
     # which another account's directory or symlink, made between the two,
     # was taken unchecked (review of #87). mkdir never follows a symlink.
@@ -56,6 +58,53 @@ def make_tmpdir(path: str, *, ours: bool = True) -> None:
     if st.st_uid != os.geteuid():
         die(f"TMPDIR {path} belongs to uid {st.st_uid}, not this account; remove it as that account or root, "
             "or set TMPDIR")
+
+
+TMPDIR_KEEP_S = 7 * 24 * 3600
+
+
+def _touched_since(path: str, cutoff: float) -> bool:
+    """Whether anything at or under `path` changed after `cutoff`; it stops
+    at the first that did. A directory's own mtime moves only when an entry
+    in it is added or removed, so a session writing deep inside one it made
+    a week ago would read as stale by that alone."""
+    try:
+        if os.lstat(path).st_mtime > cutoff:
+            return True
+    except OSError:
+        return True  # unreadable or gone: never a reason to remove
+    for root, dirs, files in os.walk(path, onerror=lambda e: None):
+        for name in dirs + files:
+            try:
+                if os.lstat(os.path.join(root, name)).st_mtime > cutoff:
+                    return True
+            except OSError:
+                return True
+    return False
+
+
+def prune_tmpdir(path: str, *, keep_s: float = TMPDIR_KEEP_S, now: float | None = None) -> None:
+    """Remove each top-level entry of the launcher's own TMPDIR in which
+    nothing changed for `keep_s`. The default TMPDIR is under the home and
+    no reboot or tmpfiles timer empties it, so without this a build's
+    scratch would stay for ever. Never fails a launch: what cannot be
+    removed now is tried again at the next."""
+    cutoff = (time.time() if now is None else now) - keep_s
+    try:
+        names = os.listdir(path)
+    except OSError:
+        return
+    for name in names:
+        entry = os.path.join(path, name)
+        if _touched_since(entry, cutoff):
+            continue
+        try:
+            if os.path.isdir(entry) and not os.path.islink(entry):
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                os.unlink(entry)
+        except OSError:
+            pass
 
 
 def print_report(d: dict, routing, *, label: str, agent: str, role: str, provider: str, session: str,

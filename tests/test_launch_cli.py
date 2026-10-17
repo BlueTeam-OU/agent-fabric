@@ -237,6 +237,8 @@ def main() -> int:
             e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state,
                  **(plant or {}), **env}
             e.pop("TMPDIR", None)
+            if "XDG_CACHE_HOME" not in env:
+                e.pop("XDG_CACHE_HOME", None)  # the default derives from the sandbox's HOME, never the runner's cache
             if keep_tmpdir is not None:
                 e["TMPDIR"] = keep_tmpdir
             r = subprocess.run(["bash", launcher, *args], cwd=cwd or repo, env=e, stdin=subprocess.DEVNULL,
@@ -653,10 +655,25 @@ def main() -> int:
             binding()
             out = plain
             check("tab-title writer off on plain claude too", "CLAUDE-ENV:CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1" in out, out)
-            tmp_default = f"/var/tmp/agent-fabric-{LOGIN}"
-            check("TMPDIR is a per-login directory under /var/tmp, created 700",
+            tmp_default = f"{home}/.cache/agent-fabric/tmp"
+            check("TMPDIR is the account's own cache directory, on the homes' volume, created 700",
                   f"CLAUDE-ENV:TMPDIR={tmp_default}" in out and os.path.isdir(tmp_default)
                   and oct(os.stat(tmp_default).st_mode & 0o777) == "0o700", out)
+            week_ago = time.time() - 8 * 24 * 3600
+            for q in ("stale-file", "stale-dir/old", "deep-live/now", "fresh"):
+                put(f"{tmp_default}/{q}", "x")
+            for q in ("stale-file", "stale-dir/old", "stale-dir", "deep-live"):
+                os.utime(f"{tmp_default}/{q}", (week_ago, week_ago))
+            out_of("--provider=anthropic", "--version")
+            left = sorted(os.listdir(tmp_default))
+            check("a launch prunes what in its TMPDIR is untouched for a week, and keeps a directory written deep inside",
+                  "stale-file" not in left and "stale-dir" not in left and "deep-live" in left and "fresh" in left, left)
+            os.makedirs(f"{sandbox}/own-stale", exist_ok=True)
+            put(f"{sandbox}/own-stale/old", "x")
+            os.utime(f"{sandbox}/own-stale/old", (week_ago, week_ago))
+            out_of("--provider=anthropic", "--version", keep_tmpdir=f"{sandbox}/own-stale")
+            check("…and never a TMPDIR the account set itself", os.path.exists(f"{sandbox}/own-stale/old"),
+                  os.listdir(f"{sandbox}/own-stale"))
             os.makedirs(f"{sandbox}/own-tmp")
             out2 = out_of("--provider=anthropic", "--version", keep_tmpdir=f"{sandbox}/own-tmp")
             check("a TMPDIR the account set wins", f"CLAUDE-ENV:TMPDIR={sandbox}/own-tmp" in out2, out2)

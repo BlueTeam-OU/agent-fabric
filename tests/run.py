@@ -88,7 +88,7 @@ class Signalled(BaseException):
 
 def short_dir(environ: dict[str, str]) -> str:
     """The run's directories are made SHORT: a unix socket path is limited to 107 bytes, and the account's own TMPDIR
-    (/var/tmp/agent-fabric-<login>/…) plus a suite's nesting overflowed it for gpg's agent and the relay, and truncated
+    (~/.cache/agent-fabric/tmp/…, /var/tmp/agent-fabric-<login>/… before 2026-10-17) plus a suite's nesting overflowed it for gpg's agent and the relay, and truncated
     paths in assertions (found by the 2026-10-11 parallel trial). The runtime directory is private to the account and
     short; /tmp is the fallback."""
     runtime = environ.get("XDG_RUNTIME_DIR", "")
