@@ -391,11 +391,16 @@ def _keyring(keys):
             _run(["gpgconf", "--homedir", tmp, "--kill", "all"], check=False)
 
 
-def _unsigned_reason(store: str, c: str, allowed: dict[str, bytes], subkeys: dict[str, str], env: dict) -> str | None:
+_UNKNOWN_KEY = ("signed by a key that is no writer of this store on the fabric's main "
+                "(a new or rotated key not yet merged: fetch the fabric)")
+
+
+def _unsigned_reason(store: str, c: str, allowed: dict[str, bytes], subkeys: dict[str, str], env: dict,
+                     unknown_key: str = _UNKNOWN_KEY) -> str | None:
     """None when commit `c` is signed by a signing subkey of one of the
     `allowed` primaries; else why not, in the words a refusal records.
     StoreError (nothing shown wrong with the commit) when gpg never ran."""
-    r = _run(["git", "-C", store, "-c", "gpg.program=gpg", "verify-commit", "--raw", c], env=env, check=False)
+    r = _run(["git", "-C", store, "--no-replace-objects", "-c", "gpg.program=gpg", "verify-commit", "--raw", c], env=env, check=False)
     # The same stderr carries git's own error after gpg's status,
     # and "bad/incompatible signature" quotes the header, newlines
     # and all: whoever pushes the commit writes that text, a
@@ -413,8 +418,7 @@ def _unsigned_reason(store: str, c: str, allowed: dict[str, bytes], subkeys: dic
         return {"BADSIG": "its signature does not verify", "EXPSIG": "its signature has expired",
                 "EXPKEYSIG": "signed by an expired key", "REVKEYSIG": "signed by a revoked key"}[bad]
     if not valid and tags & {"ERRSIG", "NO_PUBKEY"}:
-        return ("signed by a key that is no writer of this store on the fabric's main "
-                "(a new or rotated key not yet merged: fetch the fabric)")
+        return unknown_key
     if not status and _carries_pgp_signature(store, c):
         # A PGP signature git would hand to gpg, and not one
         # status line: gpg never ran (no usable TMPDIR, no gpg,
@@ -439,7 +443,7 @@ def _unsigned_reason(store: str, c: str, allowed: dict[str, bytes], subkeys: dic
     return None
 
 
-def verify_signed_by(store: str, commit: str, keys: dict[str, bytes]) -> str:
+def verify_signed_by(store: str, commit: str, keys: dict[str, bytes], *, unknown_key: str = _UNKNOWN_KEY) -> str:
     """`commit` is signed by a signing subkey of one of `keys` ({primary
     fingerprint: armored public key}) and by no other key: verified in a
     temporary GNUPGHOME holding only those keys. Returns the full commit
@@ -449,7 +453,7 @@ def verify_signed_by(store: str, commit: str, keys: dict[str, bytes]) -> str:
     decides what an unsigned commit means for what it was about to read."""
     commit = _full(store, commit)
     with _keyring(keys.values()) as (subkeys, env):
-        reason = _unsigned_reason(store, commit, keys, subkeys, env)
+        reason = _unsigned_reason(store, commit, keys, subkeys, env, unknown_key)
     if reason:
         raise StoreError(f"commit {commit[:12]} refused: {reason}")
     return commit

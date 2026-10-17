@@ -30,13 +30,14 @@ and only this path is the parent's alone.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 from dataclasses import asdict, dataclass
 
-# The launcher runs this as a script under -I, which puts no directory on
-# sys.path; secret_store.py does the same for the parts it loads.
+# The launcher runs this as a script under -I (launcher/holder.py), which puts
+# no directory on sys.path; secret_store.py does the same for the parts it loads.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import re  # noqa: E402
@@ -74,37 +75,73 @@ def _refuse(role: str, why: str, commit: str | None = None) -> StoreError:
                       + (f" (store commit {commit[:12]})" if commit else "") + "; the launch stops (ADR-060)")
 
 
+# Every read of an object goes through --no-replace-objects: the agent owns
+# its .git and refs/replace/<oid> would show other bytes under the name of one
+# the parent signed. A loose object overwritten in place is caught by hashing
+# what is read against the name it was read by (the commit whose signature is
+# verified, the trees down to the directory, each blob).
+_NOREPLACE = "--no-replace-objects"
+
+
+def _algo(store: str) -> str:
+    return git(store, "rev-parse", "--show-object-format").stdout.decode().strip()
+
+
+def _object(store: str, role: str, kind: str, oid: str, algo: str, limit: int | None = None, label: str = "") -> bytes:
+    if limit is not None:
+        size = int(git(store, _NOREPLACE, "cat-file", "-s", oid).stdout.decode())
+        if size > limit:
+            raise _refuse(role, f"{label or kind + ' ' + oid[:12]} is {size} bytes, over the limit")
+    body = git(store, _NOREPLACE, "cat-file", kind, oid).stdout
+    if hashlib.new(algo, f"{kind} {len(body)}\0".encode() + body).hexdigest() != oid:
+        raise _refuse(role, f"{kind} {oid[:12]} does not hash to its name: the object database was altered")
+    return body
+
+
+def _tree_entries(body: bytes, width: int) -> list[tuple[str, str, str]]:
+    """(mode, name, oid) of a tree object's entries; width is the raw oid's."""
+    out, i = [], 0
+    while i < len(body):
+        head_end = body.index(b"\0", i)
+        mode, _, name = body[i:head_end].partition(b" ")
+        out.append((mode.decode(), name.decode("utf-8", "surrogateescape"), body[head_end + 1:head_end + 1 + width].hex()))
+        i = head_end + 1 + width
+    return out
+
+
 def _directory(store: str, role: str) -> str | None:
     """The oid of settings/roles/<role> at HEAD; None when the store has no
     commit or no such path. A path that is not a directory, or a git that
     fails, is no absence."""
-    rel = f"HEAD:settings/roles/{role}"
-    r = git(store, "rev-parse", "-q", "--verify", rel, check=False)
+    r = git(store, _NOREPLACE, "rev-parse", "-q", "--verify", f"HEAD:settings/roles/{role}", check=False)
     if r.returncode == 1:
         return None
     if r.returncode != 0:
         raise _refuse(role, f"the store could not be read (git exit {r.returncode})")
-    kind = git(store, "cat-file", "-t", rel).stdout.decode().strip()
+    kind = git(store, _NOREPLACE, "cat-file", "-t", r.stdout.decode().strip()).stdout.decode().strip()
     if kind != "tree":
         raise _refuse(role, f"settings/roles/{role} is a {kind}, not a directory")
     return r.stdout.decode().strip()
 
 
-def _entries(store: str, role: str) -> list[tuple[str, str, str, str]]:
-    out = git(store, "ls-tree", "-z", f"HEAD:settings/roles/{role}").stdout.decode("utf-8", "surrogateescape")
-    rows = []
-    for rec in filter(None, out.split("\0")):
-        meta, _, name = rec.partition("\t")
-        mode, kind, oid = meta.split()
-        rows.append((mode, kind, oid, name))
-    return rows
-
-
-def _blob(store: str, role: str, name: str, oid: str) -> bytes:
-    size = int(git(store, "cat-file", "-s", oid).stdout.decode())
-    if size > _MAX_BLOB:
-        raise _refuse(role, f"{name} is {size} bytes, over the limit")
-    return git(store, "cat-file", "blob", oid).stdout
+def _verified_directory(store: str, role: str, commit: str, algo: str) -> list[tuple[str, str, str]]:
+    """The entries of settings/roles/<role> as the verified commit's own tree
+    holds them, every object between re-hashed, and that tree the one HEAD
+    shows."""
+    width = len(hashlib.new(algo).digest())
+    body = _object(store, role, "commit", commit, algo)
+    lines = body.split(b"\n", 1)[0].split()
+    if len(lines) != 2 or lines[0] != b"tree":
+        raise _refuse(role, "the commit has no tree header", commit)
+    oid = lines[1].decode()
+    for part in ("settings", "roles", role):
+        hit = [e for e in _tree_entries(_object(store, role, "tree", oid, algo), width) if e[1] == part]
+        if len(hit) != 1 or hit[0][0] != "40000":
+            raise _refuse(role, f"{part} is not a directory of the commit's tree", commit)
+        oid = hit[0][2]
+    if oid != _directory(store, role):
+        raise _refuse(role, "the directory at HEAD is not the directory its last commit made", commit)
+    return _tree_entries(_object(store, role, "tree", oid, algo), width)
 
 
 def load(login: str, role: str, policy: str = "optional", *, store: str | None = None,
@@ -116,38 +153,47 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
     store = store or store_dir()
     if not os.path.isdir(os.path.join(store, ".git")):
         return _absent(role, policy, "this account has no store")
+    # A HEAD outside the trusted base is tamper whether or not the directory
+    # is there: a store moved back to before the install must not read as
+    # "no addenda" (rule 7). Without a base there is nothing to compare with.
+    base = trust.trusted_base(store)
+    if base and git(store, _NOREPLACE, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode == 0 \
+            and not trust._is_ancestor(store, base, "HEAD"):
+        raise _refuse(role, "the store's HEAD does not descend from its trusted base")
     if _directory(store, role) is None:
         return _absent(role, policy, "the store has no settings/roles/" + role)
 
     aid, _ = mirrors.resolve(login, fabric=fabric)
     if own_agent_id(store) != aid:
         raise _refuse(role, f"the store's .agent-id is not the id lineage gives {login}")
-    head = git(store, "rev-parse", "HEAD").stdout.decode().strip()
-    base = trust.trusted_base(store)
+    head = git(store, _NOREPLACE, "rev-parse", "HEAD").stdout.decode().strip()
     if not base:
         raise _refuse(role, "the store has no trusted base (ADR-042)", head)
-    if not trust._is_ancestor(store, base, head):
-        raise _refuse(role, "the store's HEAD does not descend from its trusted base", head)
 
-    commit = git(store, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/").stdout.decode().strip()
+    commit = git(store, _NOREPLACE, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/").stdout.decode().strip()
     if not commit:
         raise _refuse(role, "no commit touched the directory", head)
-    # `git log -1 -- <path>` follows history simplification: the commit it
-    # names has the path exactly as HEAD does, so its signature is evidence
-    # about the bytes read below (a merge shows only when it changed the path).
     try:
-        trust.verify_signed_by(store, commit, trust.parent_writer(aid, fabric))
+        trust.verify_signed_by(store, commit, trust.parent_writer(aid, fabric), unknown_key="not signed by the parent's key")
     except StoreError as e:
         raise _refuse(role, f"the last commit on the directory is not the parent's ({e})", commit) from None
 
-    rows = _entries(store, role)
-    for mode, kind, _, name in rows:
-        if (mode, kind) != ("100644", "blob"):
-            raise _refuse(role, f"{name} is not a plain file (mode {mode}, {kind}): no link, no subdirectory, no executable", commit)
-    files = {name: _blob(store, role, name, oid) for _, _, oid, name in rows}
+    algo = _algo(store)
+    rows = _verified_directory(store, role, commit, algo)
+    for mode, name, _ in rows:
+        if mode != "100644":
+            raise _refuse(role, f"{name} is not a plain file (mode {mode}): no link, no subdirectory, no executable", commit)
+    files = {name: _object(store, role, "blob", oid, algo, _MAX_BLOB, name) for _, name, oid in rows}
     findings = [f for name in sorted(files) for f in check.validate(role, aid, name, files[name])]
     if findings:
         raise _refuse(role, "; ".join(findings[:5]) + ("; and more" if len(findings) > 5 else ""), commit)
+
+    def decoded(name: str) -> str:
+        try:
+            return files[name].decode("utf-8")
+        except UnicodeDecodeError:
+            # Not the exception's own text: it quotes a byte of the content.
+            raise _refuse(role, f"{name} is not UTF-8", commit) from None
 
     def text(name: str) -> tuple[str | None, str | None]:
         """(body, against_digest) of an addendum; validate has accepted it,
@@ -155,7 +201,7 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
         the reader, which stops the launch rather than render a guess."""
         if name not in files:
             return None, None
-        full = files[name].decode("utf-8")
+        full = decoded(name)
         m = _FRONTMATTER_RE.match(full)
         d = _AGAINST_RE.search(m.group(1)) if m else None
         if not m or not d:
@@ -164,8 +210,11 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
 
     charter, c_against = text(CHARTER)
     brief, b_against = text(BRIEF)
-    return Holder(role=role, agent_id=aid, charter=charter, brief=brief,
-                  holder=json.loads(files[HOLDER]) if HOLDER in files else None,
+    try:
+        holder = json.loads(decoded(HOLDER)) if HOLDER in files else None
+    except ValueError:
+        raise _refuse(role, f"{HOLDER} is not JSON", commit) from None
+    return Holder(role=role, agent_id=aid, charter=charter, brief=brief, holder=holder,
                   against={n: d for n, d in ((CHARTER, c_against), (BRIEF, b_against)) if d},
                   store_sha=head, addenda_commit=commit)
 

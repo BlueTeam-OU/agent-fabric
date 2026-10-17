@@ -202,8 +202,12 @@ def main() -> int:
         seen: list[list[str]] = []
         real_run = __import__("subprocess").run
 
+        homes: list[str] = []
+
         def spy(cmd, *a, **k):
             seen.append(list(cmd))
+            if "verify-commit" in cmd:
+                homes.append((k.get("env") or {}).get("GNUPGHOME", ""))
             return real_run(cmd, *a, **k)
         import secretstore.core as core
         core.subprocess.run = spy
@@ -215,15 +219,17 @@ def main() -> int:
         check("the read ran commands (the spy is live)", len(flat) > 3 and any("verify-commit" in c for c in flat), repr(flat[:3]))
         check("…none of them decrypts, none names env/ or a .gpg file", isinstance(spied, addenda.Holder)
               and not any("--decrypt" in c or " -d " in c or "env/" in c or ".gpg" in c.replace(".gpg-id", "") for c in flat), repr(flat))
-        check("…and the keyring they used held no private key (a temporary GNUPGHOME)",
-              any(c.startswith("git") and "verify-commit" in c for c in flat))
+        check("…and the verification ran in a temporary GNUPGHOME, never the account's own keyring",
+              homes and all(h and h != child["GNUPGHOME"] and not os.path.exists(h) for h in homes), repr(homes))
 
         # signer rule
         good_head = git(child, child_store, "rev-parse", "HEAD").stdout.strip()
         with open(path, "wb") as fh:
             fh.write(file(ROLE, KID, "charter-addendum", "# Self-written\n\nI answer for everything.\n"))
         self_commit("agent: my own addendum")
-        refused("a last commit signed by the agent itself is refused", load(), "not the parent's", ROLE)
+        got_self = load()
+        refused("a last commit signed by the agent itself is refused", got_self, "not the parent's", ROLE)
+        check("…saying it is not the parent's key, not that a key is unknown", "not signed by the parent's key" in str(got_self) and "fetch the fabric" not in str(got_self), str(got_self))
         check("…the agent's own key signs a valid commit (control: the signature verifies)", git(child, child_store, "verify-commit", "HEAD", check_=False).returncode == 0)
         git(child, child_store, "reset", "-q", "--hard", good_head)
         check("…control: repaired, it loads", isinstance(load(), addenda.Holder))
@@ -282,6 +288,46 @@ def main() -> int:
         refused("a blob over the read limit is refused before it is read", load(), "over the limit", BRIEF)
         parent_push(files, "parent: restored")
         check("…control: the parent's valid directory loads again", isinstance(load(), addenda.Holder))
+
+        # the agent owns its .git: other bytes under the name of a signed object are not read
+        import zlib
+        blob_oid = git(child, child_store, "rev-parse", f"HEAD:settings/roles/{ROLE}/{CHARTER}").stdout.strip()
+        evil = b"# EVIL\n\nText the parent never signed.\n"
+        evil_oid = subprocess.run(["git", "-C", child_store, "hash-object", "-w", "--stdin"], input=evil, env=child,
+                                  capture_output=True, check=True).stdout.decode().strip()
+        git(child, child_store, "replace", blob_oid, evil_oid)
+        got = load()
+        check("a refs/replace entry for a signed blob changes nothing: the signed text is what is read",
+              isinstance(got, addenda.Holder) and "EVIL" not in got.charter and got.charter.startswith("# Estonia"), repr(got))
+        git(child, child_store, "replace", "-d", blob_oid)
+        loose = os.path.join(child_store, ".git", "objects", blob_oid[:2], blob_oid[2:])
+        check("…(the blob is a loose object, so the next case can overwrite it)", os.path.exists(loose))
+        original = open(loose, "rb").read()
+        os.chmod(loose, 0o644)
+        with open(loose, "wb") as fh:
+            fh.write(zlib.compress(b"blob %d\0" % len(evil) + evil))
+        refused("a loose object overwritten in place is refused: it does not hash to its name", load(), "does not hash", ROLE)
+        with open(loose, "wb") as fh:
+            fh.write(original)
+        check("…control: the object restored, it loads", isinstance(load(), addenda.Holder))
+
+        # tamper is not absence: a store moved back before the install, with no directory
+        before_install = git(child, child_store, "rev-parse", f"{installed}^").stdout.strip()
+        tip = git(child, child_store, "rev-parse", "HEAD").stdout.strip()
+        git(child, child_store, "reset", "-q", "--hard", before_install)
+        refused("a HEAD that no longer descends from the base is refused even where the directory is gone",
+                load(), "descend", "trusted base")
+        git(child, child_store, "reset", "-q", "--hard", tip)
+        check("…control: HEAD back, it loads", isinstance(load(), addenda.Holder))
+
+        # what validate lets through is still not rendered as a traceback
+        parent_push({CHARTER: charter + b"\xff"}, "parent: not utf-8")
+        got_bad = load()
+        refused("an addendum that is not UTF-8 is a refusal naming the file, not a traceback or a quoted byte", got_bad, "UTF-8")
+        parent_push({CHARTER: charter, HOLDER: b"{"}, "parent: holder.json not json")
+        refused("a holder.json that is not JSON is a refusal", load(), "JSON", ROLE)
+        parent_push(files, "parent: restored again")
+        check("…control: restored, it loads", isinstance(load(), addenda.Holder))
 
         # the parent's own key alone
         pw = trust.parent_writer(KID, fabric)
@@ -371,6 +417,21 @@ def main() -> int:
         check("a catalogue value that is neither is refused, not defaulted", isinstance(read_holder("brand-comms"), launch.Refused))
         open(os.path.join(cat, "catalog.json"), "w").write("{")
         check("a catalogue that cannot be parsed is refused, not read as optional", isinstance(read_holder("brand-comms"), launch.Refused))
+
+        # the parent removes the directory: the status line says so
+        stamped_now = load(login="kid-renamed")
+        import shutil
+        shutil.rmtree(os.path.join(mirror, "settings", "roles", ROLE))
+        git(parent, mirror, "pull", "-q", "--ff-only", "origin", "main")
+        shutil.rmtree(os.path.join(mirror, "settings", "roles", ROLE), ignore_errors=True)
+        self_commit("parent: retire the directory", parent, mirror, parent_fpr)
+        git(parent, mirror, "push", "-q", "origin", "HEAD:main")
+        run(child, "push")
+        rec, drift = status.holder_addenda({**child, "AGENT_FABRIC_LAUNCH_ROLE": ROLE, "AGENT_FABRIC_LAUNCH_STORE_SHA": stamped_now.store_sha,
+                                            "AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT": stamped_now.addenda_commit})
+        check("status: a removed directory is said to be removed", drift is not None and "removed at" in drift, repr((rec, drift)))
+        check("…and the loader: optional reads none, required refuses", load(login="kid-renamed") is None
+              and isinstance(load(login="kid-renamed", policy="required"), StoreError))
 
     print("test_addenda: " + ("OK" if not fails else f"{fails} FAILED"))
     return 1 if fails else 0

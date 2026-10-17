@@ -44,7 +44,7 @@ def read(fabric_root: str, agent: str, role: str, state_dir: str) -> tuple[str, 
         os.unlink(out)
     except FileNotFoundError:
         pass
-    r = helper([sys.executable, os.path.join(HERE, "addenda.py"), "--login", agent, "--role", role,
+    r = helper([sys.executable, "-I", os.path.join(HERE, "addenda.py"), "--login", agent, "--role", role,
                 "--policy", policy(fabric_root, role), "--out", out])
     if r is None or r.returncode != 0:
         die(f"the holder addenda of role {role} could not be read (tools/fabric/addenda.py); the launch stops.")

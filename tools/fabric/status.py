@@ -279,7 +279,11 @@ def holder_addenda(environ):
               "addenda_changed": None if last is None else last != commit}
     drift = None
     if record["addenda_changed"]:
-        drift = (f"the holder addenda of {role} changed since launch (read at {(commit or '-')[:12]}, now {last[:12] or 'removed'}); "
+        # The commit that removed the directory is the last one on its path, so
+        # "removed" is told by the path being gone at HEAD, not by an empty answer.
+        gone = _store_git(store, "rev-parse", "-q", "--verify", f"HEAD:settings/roles/{role}") in (None, "")
+        drift = (f"the holder addenda of {role} changed since launch (read at {(commit or '-')[:12]}, "
+                 f"now {'removed at ' if gone else ''}{last[:12]}); "
                  "this session still holds the launched text — relaunch to read them")
     return record, drift
 
