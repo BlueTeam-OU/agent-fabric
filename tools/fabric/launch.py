@@ -55,7 +55,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             `transport` when it is the gateway), on the gateway path
             $STATE_DIR/gateway-plan.json, gateway.json (pid, version,
             listener, plan digest; removed at the end) and gateway.log, and
-            creates ~/.cache/agent-fabric/tmp (TMPDIR) and prunes what in it
+            creates ~/agent-fabric-tmp (TMPDIR) and prunes what in it
             is older than a week. Fast-forwards the fabric
             checkout and the launch working copy when they are behind.
   stdout    --print's report, byte for byte the bash's (compared for every
@@ -263,7 +263,7 @@ from fabric_launcher.routing import check_ori_auth, caller_value, effort_for  # 
 from fabric_launcher.secrets import synced_values, synced_oauth_token, settle_oauth_token  # noqa: E402, F401
 from fabric_launcher.secrets import SYNCED_SECRETS, HARNESS_CREDENTIAL, HARNESS_EXPANDS  # noqa: E402, F401
 from fabric_launcher.secrets import settle_secrets  # noqa: E402, F401
-from fabric_launcher.session import require_files, make_tmpdir, prune_tmpdir, print_report  # noqa: E402, F401
+from fabric_launcher.session import require_files, make_tmpdir, settle_tmpdir, print_report  # noqa: E402, F401
 from fabric_launcher.session import record_launch_provider, install_agent_files  # noqa: E402, F401
 from fabric_launcher.session import mark_onboarding_done, session_command, opening_prompt  # noqa: E402, F401
 from fabric_launcher.session import ignore_quit, run_session, read_restart  # noqa: E402, F401
@@ -569,23 +569,18 @@ def launch(argv: list[str]) -> int:
     # decides the child's environment on every path, so it is exported here.
     env["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1"
 
-    # Temporary files go to a per-account directory in the account's own
-    # cache, on the volume that holds the homes. Not /tmp: one small memory
-    # filesystem for every account, which a bare dotnet, flutter or marp run
-    # filled on 2026-09-17 and stopped every session at once (the CEO, seq
-    # 748). Not /var/tmp, where that decision put it: on a Qubes AppVM it is
-    # the volatile root volume, 40G shared with the system, and every
-    # account's build scratch filled it on 2026-10-17 and took the fleet
-    # down while the home volume had 74G free (the owner, the same day).
-    # The CEO's other condition, that nothing accumulates for ever, is kept
-    # by pruning at each launch (prune_tmpdir). A TMPDIR the account set
+    # Temporary files go to a per-account directory in the account's home,
+    # on the volume that holds the homes (settle_tmpdir). Not /tmp: one
+    # small memory filesystem for every account, which a bare dotnet,
+    # flutter or marp run filled on 2026-09-17 and stopped every session at
+    # once (the CEO, seq 748). Not /var/tmp, where that decision put it: on a
+    # Qubes AppVM it is the volatile root volume, 40G shared with the
+    # system, and every account's build scratch filled it on 2026-10-17 and
+    # took the fleet down while the home volume had 74G free (the owner, the
+    # same day). The CEO's other condition, that nothing accumulates for
+    # ever, is kept by pruning at each launch. A TMPDIR the account set
     # itself wins and is never pruned.
-    own_tmpdir = env.get("TMPDIR")
-    cache = env.get("XDG_CACHE_HOME") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".cache")
-    env["TMPDIR"] = own_tmpdir or os.path.join(cache, "agent-fabric", "tmp")
-    make_tmpdir(env["TMPDIR"], ours=not own_tmpdir)
-    if not own_tmpdir:
-        prune_tmpdir(env["TMPDIR"])
+    settle_tmpdir(env)
 
     if print_only:
         print_report(resolved, routing, label=label, agent=agent, role=role, provider=routing_provider, session=session,

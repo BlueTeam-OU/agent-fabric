@@ -63,20 +63,39 @@ def make_tmpdir(path: str, *, ours: bool = True) -> None:
 TMPDIR_KEEP_S = 7 * 24 * 3600
 
 
+def default_tmpdir(env: dict) -> str:
+    """The launcher's TMPDIR: on the volume that holds the homes, and in no
+    hidden directory of one. A dot-directory (~/.cache) would be refused by
+    the review class's Bash guard as a search path, and by review_codex's
+    scratch_root, which both read the session's TMPDIR (review of #292)."""
+    return os.path.join(env.get("HOME") or os.path.expanduser("~"), "agent-fabric-tmp")
+
+
+def _changed(st: os.stat_result, cutoff: float) -> bool:
+    # ctime as well as mtime: tar, cp -p, rsync -a and a rename into the
+    # directory keep a member's old mtime, and only ctime says it arrived
+    # now; nobody but root can set ctime back (review of #292).
+    return max(st.st_mtime, st.st_ctime) > cutoff
+
+
 def _touched_since(path: str, cutoff: float) -> bool:
     """Whether anything at or under `path` changed after `cutoff`; it stops
-    at the first that did. A directory's own mtime moves only when an entry
+    at the first that did. A directory's own times move only when an entry
     in it is added or removed, so a session writing deep inside one it made
-    a week ago would read as stale by that alone."""
+    a week ago would read as stale by those alone. A symlink is judged by
+    itself and never followed: os.walk follows a link given as its top."""
     try:
-        if os.lstat(path).st_mtime > cutoff:
-            return True
+        st = os.lstat(path)
     except OSError:
         return True  # unreadable or gone: never a reason to remove
+    if _changed(st, cutoff):
+        return True
+    if not stat.S_ISDIR(st.st_mode):
+        return False
     for root, dirs, files in os.walk(path, onerror=lambda e: None):
         for name in dirs + files:
             try:
-                if os.lstat(os.path.join(root, name)).st_mtime > cutoff:
+                if _changed(os.lstat(os.path.join(root, name)), cutoff):
                     return True
             except OSError:
                 return True
@@ -105,6 +124,17 @@ def prune_tmpdir(path: str, *, keep_s: float = TMPDIR_KEEP_S, now: float | None 
                 os.unlink(entry)
         except OSError:
             pass
+
+
+def settle_tmpdir(env: dict, *, now: float | None = None) -> None:
+    """TMPDIR for the session: the account's own wins, as it is, unpruned;
+    otherwise the default, made 700 and pruned."""
+    if env.get("TMPDIR"):
+        make_tmpdir(env["TMPDIR"], ours=False)
+        return
+    env["TMPDIR"] = default_tmpdir(env)
+    make_tmpdir(env["TMPDIR"], ours=True)
+    prune_tmpdir(env["TMPDIR"], now=now)
 
 
 def print_report(d: dict, routing, *, label: str, agent: str, role: str, provider: str, session: str,
