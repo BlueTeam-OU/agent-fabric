@@ -111,6 +111,31 @@ def main() -> int:
             absent = str(e)
         check("…the absent one names the file", "absent.json" in absent, absent)
 
+        print("the holder's search country (ADR-060 rule 8): exported by the launcher, never read from the store")
+        lf = locale_file(LOCALE, "country.json")
+
+        def gl(environ: dict) -> str:
+            return ws.request("serpapi", "q", ws.read_locale(lf, environ)).split("gl=")[1].split("&")[0]
+        check("no export: the locale file's country answers", gl({}) == "ge")
+        check("…an empty export too (the launcher drops what nobody names; empty is not a country)", gl({"AGENT_FABRIC_SEARCH_COUNTRY": ""}) == "ge")
+        check("an export replaces SerpAPI's gl", gl({"AGENT_FABRIC_SEARCH_COUNTRY": "us"}) == "us")
+        check("…and only gl: Brave's country and the other fields are the file's",
+              ws.read_locale(lf, {"AGENT_FABRIC_SEARCH_COUNTRY": "us"})["brave"] == LOCALE["brave"]
+              and ws.read_locale(lf, {"AGENT_FABRIC_SEARCH_COUNTRY": "us"})["serpapi"]["hl"] == "ka")
+        replaced = ws.read_locale(lf, {"AGENT_FABRIC_SEARCH_COUNTRY": "us"})
+        check("…and a read after it, without the export, is the file's again (nothing carried over)",
+              replaced["serpapi"]["gl"] == "us" and ws.read_locale(lf, {})["serpapi"]["gl"] == "ge")
+        for bad in ("US", "usa", "u", "1a", " us"):
+            try:
+                ws.read_locale(lf, {"AGENT_FABRIC_SEARCH_COUNTRY": bad})
+                named = ""
+            except ws.LocaleError as e:
+                named = str(e)
+            check(f"a malformed export {bad!r} is refused by name, not read as the file's", "AGENT_FABRIC_SEARCH_COUNTRY" in named, named)
+        brave_only = locale_file({"brave": LOCALE["brave"]}, "brave-only.json")
+        check("a locale with Brave alone has no gl to replace: the export changes nothing",
+              ws.read_locale(brave_only, {"AGENT_FABRIC_SEARCH_COUNTRY": "us"}) == {"brave": LOCALE["brave"]})
+
         print("the secrets")
         home = os.path.join(t, "home")
         os.makedirs(os.path.join(home, ".config", "agent-fabric"))
@@ -401,6 +426,12 @@ def main() -> int:
         check("a host without the pinned Python: exit 127 and one line that says how to install it, nothing on stdout (the risk of the re-install)",
               r.returncode == 127 and r.stdout == b"" and b"fleet's pinned Python is not installed" in r.stderr and b"python_pin.py install" in r.stderr
               and r.stderr.count(b"\n") == 1, r.stderr.decode())
+        r = subprocess.run([BIN], input=b"", env=dict(penv, AGENT_FABRIC_SEARCH_COUNTRY="USA"), capture_output=True, timeout=60)
+        check("the server process: a malformed AGENT_FABRIC_SEARCH_COUNTRY is one line on stderr and exit 1; "
+              "a well-formed one starts it (positive control)",
+              r.returncode == 1 and r.stdout == b"" and b"AGENT_FABRIC_SEARCH_COUNTRY" in r.stderr and r.stderr.count(b"\n") == 1
+              and subprocess.run([BIN], input=b"", env=dict(penv, AGENT_FABRIC_SEARCH_COUNTRY="us"), capture_output=True, timeout=60).returncode == 0,
+              r.stderr.decode())
         link = os.path.join(t, "linked-websearch")
         os.symlink(BIN, link)
         r = subprocess.run([link], input=(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n").encode(), env=penv, capture_output=True, timeout=60)
