@@ -133,20 +133,3 @@ def resolve_locale(fabric_root: str, suffix: str, state_dir: str, held: bool) ->
     return Locale(tag, timezone if isinstance(timezone, str) and timezone else None,
                   country if isinstance(country, str) and country else None)
 
-
-# What launch_prompt.py (the harness text) and install_agent_files.py (the locale worker and search server) still
-# choose by the login's suffix, and the launcher by the holder's locale: until they take the resolved locale, a launch
-# where the two keys disagree about one of these files would pair a prompt flag, a fence or a server with the other
-# locale's file (a session with no web search; the harness text twice, or none). Removed with the suffix there.
-SUFFIX_CHOSEN = ("harness.md", "locale.json", "worker.md")
-
-
-def refuse_split_locale(fabric_root: str, suffix: str, tag: str) -> None:
-    if tag == suffix:
-        return
-    for name in SUFFIX_CHOSEN:
-        have = [os.path.isfile(os.path.join(roots.locale_dir("language-culture", t, engine=fabric_root, environ=os.environ), name))
-                for t in (suffix, tag)]
-        if have[0] != have[1]:
-            die(f"the holder's locale {tag} and the login's suffix {suffix} disagree about language-culture's {name}, "
-                "which the prompt render and the agent files still choose by the suffix; the launch stops (ADR-060 rule 8).")

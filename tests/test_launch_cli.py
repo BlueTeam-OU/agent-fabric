@@ -1317,28 +1317,26 @@ if spec is not None:
                   exports(out) == ("en", "Asia/Tbilisi", "ge"), out)
             check("…and the harness's search is removed by the holder's locale (en has a locale.json), not the suffix's",
                   "--disallowedTools WebSearch" in out, out)
-            # prompt render and agent files still choose by the suffix: a disagreement is refused, not half applied
-            def refused(spec: str, name: str) -> bool:
-                rc, o = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER=spec)
-                return rc != 0 and "EXECCED" not in o and name in o and "disagree" in o
-            rm(f"{lc}/locale/{suffix}")
-            check("a suffix with no locale.json beside a holder locale that has one: refused (no search at all otherwise)",
-                  refused('{"locale":"ge"}', "locale.json"))
-            locale_json(suffix, "Europe/Suffixville", "sx")
-            rm(f"{lc}/locale/ge")
-            check("…and the reverse, a suffix with one and the holder's locale without",
-                  refused('{"locale":"ge"}', "locale.json"))
-            locale_json("ge", "Asia/Tbilisi", "ge")
-            put(f"{lc}/locale/{suffix}/harness.md", "x\n")
-            check("a harness text under the suffix only: refused — the prompt would carry it, and the flag would not",
-                  refused('{"locale":"en"}', "harness.md"))
+            # The installer is handed the holder's locale, not left to the suffix (a spy in place of the shim).
+            spy = f"{fabric}/runtime/claude-code/install-agent-files.sh"
+            real = read(spy)
+            put(spy, '#!/usr/bin/env bash\necho "$@" >> "$SPY_LOG"\n', 0o755)
+            spylog = f"{sandbox}/install-spy.log"
+
+            def installed_with(spec: str | None) -> str:
+                rm(spylog)
+                held(spec, SPY_LOG=spylog)
+                return read(spylog).strip() if os.path.exists(spylog) else "<not run>"
+            check("the installer gets --locale from holder.json, not the suffix",
+                  installed_with('{"locale":"ge"}') == "--provider anthropic --locale ge", installed_with('{"locale":"ge"}'))
+            check("…with no holder.json the suffix, when it is a locale tag; otherwise no --locale (the installer's own fallback)",
+                  installed_with(None) == ("--provider anthropic" + (f" --locale {suffix}" if sfx else "")), installed_with(None))
+            put(spy, real, 0o755)
             put(f"{lc}/locale/en/harness.md", "x\n")
             out = held('{"locale":"en"}')
-            check("…both having it (positive control): the launch replaces the prompt, as the holder's locale has the text",
+            check("a holder locale with the harness text replaces the prompt, whatever the suffix has",
                   "--system-prompt-file" in out and exports(out)[0] == "en", out)
-            rm(f"{lc}/locale/{suffix}/harness.md", f"{lc}/locale/en/harness.md")
-            out = held('{"locale":"ge"}')
-            check("(a holder locale equal to nothing of the suffix, the files agreeing: launches)", exports(out)[0] == "ge", out)
+            rm(f"{lc}/locale/en/harness.md")
             put(f"{lc}/locale/ge/locale.json", "{ nope")
             rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"ge"}')
             check("a locale.json that does not parse stops the launch, naming it — the timezone is not silently dropped",

@@ -131,10 +131,13 @@ def record_launch_provider(state_dir: str, provider: str, transport: str = "") -
     _record.write(state_dir, provider, transport, say=say)
 
 
-def install_agent_files(fabric_root: str, provider: str, state_dir: str | None = None, transport: str = "") -> None:
+def install_agent_files(fabric_root: str, provider: str, state_dir: str | None = None, transport: str = "",
+                        locale: str | None = None) -> None:
+    """locale: the holder's resolved locale (ADR-060 rule 8), which the installer chooses the locale worker and
+    search server by; None leaves it to the login's suffix."""
     try:
         r = subprocess.run(["bash", f"{fabric_root}/runtime/claude-code/install-agent-files.sh", "--provider",
-                            provider], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            provider, *(["--locale", locale] if locale else [])], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                            timeout=INSTALL_TIMEOUT_S)
         installed = r.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
