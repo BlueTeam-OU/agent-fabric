@@ -333,6 +333,21 @@ def main() -> int:
         git(child, child_store, "reset", "-q", "--hard", tip)
         check("…control: HEAD back, it loads", isinstance(load(), addenda.Holder))
 
+        # absence is not the agent's to declare: neither a grafts file nor an unsigned deletion
+        grafts = os.path.join(child_store, ".git", "info", "grafts")
+        os.makedirs(os.path.dirname(grafts), exist_ok=True)
+        with open(grafts, "w") as fh:
+            fh.write(f"{tip} {before_install}\n")
+        refused("a .git/info/grafts in the store is refused: it rewrites history under the ancestry check", load(role="brand-comms"), "grafts")
+        os.unlink(grafts)
+        check("…control: without it the same store loads", isinstance(load(), addenda.Holder))
+        git(child, child_store, "rm", "-r", "-q", f"settings/roles/{ROLE}")
+        git(child, child_store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "agent deletes the addenda")
+        refused("an unsigned deletion of the directory is refused, not read as 'no addenda'", load(), "removed the directory", ROLE)
+        refused("…also for a required role", load(policy="required"), "removed the directory")
+        git(child, child_store, "reset", "-q", "--hard", tip)
+        check("…control: repaired, it loads", isinstance(load(), addenda.Holder))
+
         # what validate lets through is still not rendered as a traceback
         parent_push({CHARTER: charter + b"\xff"}, "parent: not utf-8")
         got_bad = load()

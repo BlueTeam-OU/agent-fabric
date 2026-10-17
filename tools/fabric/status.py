@@ -260,6 +260,17 @@ def _store_git(store, *args):
     return r.stdout.strip() if r.returncode == 0 else None
 
 
+def _store_gone(store, rev):
+    """True only when git says the path is not there (exit 1); a git that could
+    not answer is not a removal."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    try:
+        return subprocess.run(["git", "-C", store, "rev-parse", "-q", "--verify", rev], capture_output=True, timeout=10,
+                              env=env, check=False).returncode == 1
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def holder_addenda(environ):
     """(record, drift line) for the holder addenda the launch read (ADR-060
     rule 10); (None, None) when the launch stamped none, which keeps the
@@ -281,7 +292,7 @@ def holder_addenda(environ):
     if record["addenda_changed"]:
         # The commit that removed the directory is the last one on its path, so
         # "removed" is told by the path being gone at HEAD, not by an empty answer.
-        gone = _store_git(store, "rev-parse", "-q", "--verify", f"HEAD:settings/roles/{role}") in (None, "")
+        gone = _store_gone(store, f"HEAD:settings/roles/{role}")
         drift = (f"the holder addenda of {role} changed since launch (read at {(commit or '-')[:12]}, "
                  f"now {'removed at ' if gone else ''}{last[:12]}); "
                  "this session still holds the launched text — relaunch to read them")

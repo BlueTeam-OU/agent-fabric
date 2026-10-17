@@ -15,11 +15,16 @@ Contract of `load(login, role, policy=)`:
           alone (the agent's own included); a directory holding anything
           but plain files; a file addendum_check.validate has a finding on.
           Tamper is never read as absence (rule 7).
-  reads   git objects at HEAD only (ls-tree, cat-file blob): never the
-          working tree, never env/, never a decryption. The one gpg call is
+  reads   git objects only, without replace refs or a commit-graph, those of
+          the parent-signed last commit on the directory, each hashed against
+          its name (the commit, the trees down to the directory, the blobs):
+          never the working tree, never env/, never a decryption. The one gpg call is
           verify-commit in a temporary GNUPGHOME that holds the parent's
           public key alone (trust.verify_signed_by).
   writes  nothing.
+  limit   the agent owns its .git (ADR-060 §6: a fence, not a wall). Not covered:
+          a process of the agent's that swaps a loose object between the
+          signature check and the hash check of the same commit.
 
 Why HEAD and not the working tree: the rendered text must be the text the
 parent installed and signed; a file edited in the checkout, or left
@@ -80,7 +85,14 @@ def _refuse(role: str, why: str, commit: str | None = None) -> StoreError:
 # the parent signed. A loose object overwritten in place is caught by hashing
 # what is read against the name it was read by (the commit whose signature is
 # verified, the trees down to the directory, each blob).
+# core.commitGraph off: an agent-written commit-graph file would feed merge-base
+# and history walks other parents. Grafts cannot be switched off from here (core
+# scrubs GIT_GRAFT_FILE from every git environment), so a grafts file is a refusal.
 _NOREPLACE = "--no-replace-objects"
+
+
+def _git(store: str, *args: str, check: bool = True):
+    return git(store, _NOREPLACE, "-c", "core.commitGraph=false", *args, check=check)
 
 
 def _algo(store: str) -> str:
@@ -89,17 +101,17 @@ def _algo(store: str) -> str:
 
 def _object(store: str, role: str, kind: str, oid: str, algo: str, limit: int | None = None, label: str = "") -> bytes:
     if limit is not None:
-        size = int(git(store, _NOREPLACE, "cat-file", "-s", oid).stdout.decode())
+        size = int(_git(store, "cat-file", "-s", oid).stdout.decode())
         if size > limit:
             raise _refuse(role, f"{label or kind + ' ' + oid[:12]} is {size} bytes, over the limit")
-    body = git(store, _NOREPLACE, "cat-file", kind, oid).stdout
+    body = _git(store, "cat-file", kind, oid).stdout
     if hashlib.new(algo, f"{kind} {len(body)}\0".encode() + body).hexdigest() != oid:
         raise _refuse(role, f"{kind} {oid[:12]} does not hash to its name: the object database was altered")
     return body
 
 
 def _descends(store: str, base: str) -> bool:
-    return git(store, _NOREPLACE, "merge-base", "--is-ancestor", base, "HEAD", check=False).returncode == 0
+    return _git(store, "merge-base", "--is-ancestor", base, "HEAD", check=False).returncode == 0
 
 
 def _tree_entries(body: bytes, width: int) -> list[tuple[str, str, str]]:
@@ -117,12 +129,12 @@ def _directory(store: str, role: str) -> str | None:
     """The oid of settings/roles/<role> at HEAD; None when the store has no
     commit or no such path. A path that is not a directory, or a git that
     fails, is no absence."""
-    r = git(store, _NOREPLACE, "rev-parse", "-q", "--verify", f"HEAD:settings/roles/{role}", check=False)
+    r = _git(store, "rev-parse", "-q", "--verify", f"HEAD:settings/roles/{role}", check=False)
     if r.returncode == 1:
         return None
     if r.returncode != 0:
         raise _refuse(role, f"the store could not be read (git exit {r.returncode})")
-    kind = git(store, _NOREPLACE, "cat-file", "-t", r.stdout.decode().strip()).stdout.decode().strip()
+    kind = _git(store, "cat-file", "-t", r.stdout.decode().strip()).stdout.decode().strip()
     if kind != "tree":
         raise _refuse(role, f"settings/roles/{role} is a {kind}, not a directory")
     return r.stdout.decode().strip()
@@ -160,21 +172,33 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
     # A HEAD outside the trusted base is tamper whether or not the directory
     # is there: a store moved back to before the install must not read as
     # "no addenda" (rule 7). Without a base there is nothing to compare with.
+    if os.path.exists(os.path.join(store, ".git", "info", "grafts")):
+        raise _refuse(role, "the store carries .git/info/grafts, which rewrites history")
     base = trust.trusted_base(store)
-    if base and git(store, _NOREPLACE, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode == 0 \
+    if base and _git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode == 0 \
             and not _descends(store, base):
         raise _refuse(role, "the store's HEAD does not descend from its trusted base")
     if _directory(store, role) is None:
-        return _absent(role, policy, "the store has no settings/roles/" + role)
+        # Never there, or removed: a removal is the parent's too (rule 3), or an
+        # unsigned deletion would turn any addendum into "no addenda".
+        removed = _git(store, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/", check=False).stdout.decode().strip()
+        if not removed:
+            return _absent(role, policy, "the store has no settings/roles/" + role)
+        aid, _ = mirrors.resolve(login, fabric=fabric)
+        try:
+            trust.verify_signed_by(store, removed, trust.parent_writer(aid, fabric), unknown_key="not signed by the parent's key")
+        except StoreError as e:
+            raise _refuse(role, f"the commit that removed the directory is not the parent's ({e})", removed) from None
+        return _absent(role, policy, "the parent removed settings/roles/" + role)
 
     aid, _ = mirrors.resolve(login, fabric=fabric)
     if own_agent_id(store) != aid:
         raise _refuse(role, f"the store's .agent-id is not the id lineage gives {login}")
-    head = git(store, _NOREPLACE, "rev-parse", "HEAD").stdout.decode().strip()
+    head = _git(store, "rev-parse", "HEAD").stdout.decode().strip()
     if not base:
         raise _refuse(role, "the store has no trusted base (ADR-042)", head)
 
-    commit = git(store, _NOREPLACE, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/").stdout.decode().strip()
+    commit = _git(store, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/").stdout.decode().strip()
     if not commit:
         raise _refuse(role, "no commit touched the directory", head)
     try:
