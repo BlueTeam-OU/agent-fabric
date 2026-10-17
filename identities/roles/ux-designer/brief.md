@@ -55,10 +55,12 @@ not take over everything the person can see.
   trigger, feedback while it moves, the committed result, how it is
   cancelled, how it is undone, and its non-gesture equivalent. A
   destructive action is never one accidental gesture from an
-  irreversible result without an approved reason and a way back. An
-  Undo is the reverse action, applied at once, never a commit deferred
-  until its feedback closes: an app killed during the undo window
-  leaves what the feedback already said.
+  irreversible result without an approved reason and a way back. What an app
+  killed during the undo window leaves must match what its feedback
+  already said. Applying the reverse action at once is one way to keep
+  that; holding the commit back until the window closes is the way for
+  an action whose effect cannot be reversed once it leaves (a message
+  sent, a payment), and then the feedback says it has not gone yet.
 - **Accessibility is design, from the first sketch**: focus order and
   where focus goes when the focused control disappears, keyboard reach,
   what the screen reader reads and in what order, target size, contrast,

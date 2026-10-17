@@ -20,9 +20,10 @@ for `language-culture`: its charter carries the English holder's exceptions,
 and the only per-holder mechanism, `locale/<suffix>/`, is chosen by the
 suffix of the login, which a rename changes (ADR-039), and mixes language
 assets with deployment facts (`locale.json` carries a timezone and a search
-country, the English one included). The prompt has little room: the
-legal-expert and language-culture prompts render at 24 538 and 25 627 of
-`MAX_CHARS` 28 000 characters.
+country, the English one included). The prompt has little room: rendered
+for the shortest agent and host names (`x`, `h`), the legal-expert and
+language-culture prompts are about 24 600 and 25 700 of `MAX_CHARS`
+28 000 characters, more for a real login and host.
 
 ## 2. Decision
 
@@ -64,7 +65,8 @@ the committed head, not the working tree, and checking the signer of the
 last commit on the path, makes the rendered text the text the parent
 installed. Separating `holder.json` (who this holder is: its locale, its
 deployment) from `locale/<lang>/` (what a language needs) removes the
-login-suffix key without moving a single translation.
+login-suffix key while moving only the role-independent prompt pieces,
+once per language.
 
 ## 5. Binding Rules
 
@@ -81,7 +83,12 @@ login-suffix key without moving a single translation.
    its trusted base (ADR-042).
 3. The last commit that touched `settings/roles/R/` is signed by the
    agent's parent; the launcher verifies it with the parent's public key
-   alone and refuses any other signer, the agent's own included.
+   alone and refuses any other signer, the agent's own included. The
+   install commit records the digest of every file it installs, and the
+   launcher renders a file only when its bytes at `HEAD` match the digest
+   the last parent-signed install recorded: an edit committed after the
+   install, by anyone, is refused, not rendered under the parent's
+   signature.
    `settings-put` refuses paths under `settings/roles/`; the parent
    installs with a command of its own, in one signed commit naming the
    author, each review pass with the digest of the text it read, the
@@ -89,7 +96,8 @@ login-suffix key without moving a single translation.
    against.
 4. The prompt is: header, shared charter, charter addendum, shared brief
    (or brief-missing), brief addendum, team, memory. With no addenda it is
-   byte-for-byte today's prompt.
+   byte-for-byte today's prompt, except where rule 8 itself moves a
+   holder's locale pieces.
 5. An addendum specialises or narrows its role: it may add scope, method
    and boundaries for its holder, and never repeals, overrides or
    contradicts a rule of the shared charter, brief or another role's
@@ -141,6 +149,12 @@ login-suffix key without moving a single translation.
   addenda, and `locale/ge/` re-renders the universal text. The
   `language-culture` charter loses the English holder's paragraph to that
   holder's addendum.
+- legal-expert-ge's header, team and memory renderings and
+  language-culture-ge's differ in terms on purpose (a lawyer's reading of
+  some words). When rule 8 moves those pieces to
+  `identities/prompt/locale/ge/`, language-culture-ge reconciles them into
+  one text both holders' reviews accept, in the two passes; until then a
+  role's own rendering wins over the shared one.
 - The parent becomes the one installer of every holder's specialization:
   more work for fabric-coordinator, and one place where it is reviewed.
 - An agent owns its home, the store's `.git/config` included: rules 2 and
@@ -159,8 +173,14 @@ the per-holder locale fallback (rule 8) has no remaining user and can go.
 ## 8. Decision Status
 
 Proposed. Its rules bind once it is accepted and the mechanism lands; the
-amendments it implies (ADR-002 rules 4, 8, 9; ADR-027 rule 11; ADR-038
-rule 3; ADR-042 rule 2) are made in the same pull request as the mechanism.
+amendments it implies are made in the same pull request as the mechanism:
+ADR-002 rules 4, 8, 9; ADR-018 §5 rule 5 (the carve-out admits
+`language-culture-<lang>` to `identities/prompt/locale/<lang>/`); ADR-027
+rules 1, 6, 9, 11 and 13 (the locale named by `holder.json`, the worker and
+the search setup keyed on it, the shared prompt pieces per language, no
+English piece for a non-English holder); ADR-038 rule 3; ADR-042 rule 2;
+ADR-057 §5 rule 5 (a locale signer named by the holder's locale, not only
+the login's suffix).
 
 ## References
 

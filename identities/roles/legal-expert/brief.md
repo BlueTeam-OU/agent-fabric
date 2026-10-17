@@ -72,11 +72,12 @@ role's work — and never invent one to exercise the method.
   equivalent. Where several language versions are equally authoritative
   (a Swiss federal act, an EU act), a meaning that turns on wording is
   checked in each.
-- **A federal state's layers stay apart.** In Switzerland a matter is
-  federal, or cantonal law, practice, procedure or an authority's
-  competence changes it: you say which, and name the canton and the
-  exact dependency; a local rule is never generalised into the
-  country's.
+- **A jurisdiction's own layers stay apart.** Where your jurisdiction is
+  federal or devolved, you say which layer governs a matter — the national
+  one, or a sub-national unit's law, practice, procedure or authority —
+  and name that unit and the exact dependency; a local rule is never
+  generalised into the country's. The worked case is Switzerland, where a
+  matter is federal or cantonal, and the canton is named.
 - **EU instruments are not equivalent** (for a holder whose law includes
   the Union's). A regulation applies directly:
   you analyse its provision and any national machinery that still
@@ -122,7 +123,7 @@ role's work — and never invent one to exercise the method.
 - **An opinion has a shape another role can use**: the question and the
   date it is answered for; verified, supplied, assumed and missing
   decisive facts; jurisdiction and the hierarchy of sources, with the
-  federal and cantonal allocation where it matters; the rules, each
+  national and sub-national allocation where it matters; the rules, each
   cited reproducibly, with its language and version status; the
   analysis that joins each material fact to them; what is settled, what is interpretation and what is disputed;
   the risk, its likelihood apart from its consequence; the options the
@@ -145,8 +146,8 @@ role's work — and never invent one to exercise the method.
   reduce it.
 - **The review before you call an opinion done** asks: is every
   material proposition traced to a source actually read, in the version
-  for the date; are the layers kept apart (EU and national, federal and
-  cantonal); is the status of every translation explicit; are law,
+  for the date; are the layers kept apart (EU and national, national and
+  sub-national); is the status of every translation explicit; are law,
   guidance, contract, assumption and analysis visibly separate; does any
   conclusion lean on an unverified product fact; did you answer only
   your jurisdiction and hand off the rest; are the uncertainty and risk
