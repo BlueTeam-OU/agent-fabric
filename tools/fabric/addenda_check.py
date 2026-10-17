@@ -99,11 +99,13 @@ INCLUDE_RES = (
     re.compile(r"\{\{|\{%"),                                # template tags
     re.compile(r"^[ \t]*(?:#include|!include|<!--\s*include)\b", re.M | re.I),
 )
-# Link text may hold balanced brackets and a line break (no bracket is matched by two parts of the pattern: a run of
-# "[[]" would otherwise backtrack exponentially), a reference definition's
-# destination may start on the next line, and a footnote label ([^1]) is no
-# link. Autolinks and raw HTML href/src are links too.
-LINK_RE = re.compile(r"!?\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\]\(\s*<?([^)\s>]*)")
+# Every "](" opens a destination, wherever its link text began: deriving the destination from the text needed a pattern
+# in which a bracket could belong to two parts (exponential backtracking on a run of "[[]") or one that stopped at an
+# inner "[" and missed a file link nested in another link's text. The lookahead matches at each "](" on its own, so
+# captures overlap, the cost is linear, and an unclosed destination cannot swallow the link after it. A reference
+# definition's destination may start on the next line, and a footnote label ([^1]) is no link. Autolinks and raw
+# HTML href/src are links too.
+LINK_RE = re.compile(r"(?=\]\(\s*<?([^)\s>]*))")
 REF_DEF_RE = re.compile(r"^[ \t]{0,3}\[(?!\^)[^\]\n]+\]:\s*<?(\S+)", re.M)
 AUTOLINK_RE = re.compile(r"<([A-Za-z][A-Za-z0-9+.-]*:[^>\s]*|[./][^>\s]*)>")
 HTML_ATTR_RE = re.compile(r"\b(?:href|src)\s*=\s*[\"']?([^\"'\s>]*)", re.I)
@@ -124,8 +126,8 @@ def validate(role: str, aid: str, name: str, raw: bytes) -> list[str]:
     if name not in ALLOWED_NAMES:
         return [f"{name}: not an allowed file name (allowed: {', '.join(ALLOWED_NAMES)})"]
     text, findings = _decode(name, raw)
-    if text is None:
-        return findings
+    if text is None or len(text) > MAX_CHARS:
+        return findings   # the patterns below never run over more than the cap
     findings += _hygiene(name, text) + _model_pins(name, text)
     if name == HOLDER_FILE:
         return findings + _holder(name, text)
