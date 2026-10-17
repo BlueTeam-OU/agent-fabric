@@ -161,7 +161,7 @@ def case_holder_json() -> None:
     must_refuse("holder.json", b"[]", "not a JSON object")
     must_refuse("holder.json", b'{"locale": "en", "locale": "ge"}', "not JSON")
     must_refuse("holder.json", b"{}", "lacks locale")
-    must_refuse("holder.json", b'{"locale": "ge", "login": "x"}', "key 'login'")
+    must_refuse("holder.json", b'{"locale": "ge", "login": "x"}', "a key outside")
     for bad in ('"GE"', '"georgian"', '1', '""', '"ge_GE"'):
         must_refuse("holder.json", f'{{"locale": {bad}}}'.encode(), "locale is not")
     for bad in ('"Mars/Olympus"', '"tbilisi"', '3', '""', '"../etc/passwd"'):
@@ -194,6 +194,7 @@ def case_holder_json_against_the_schema() -> None:
     try:
         import jsonschema  # noqa: F401
     except ImportError:
+        print("  skip case_holder_json_against_the_schema: jsonschema is not importable here")
         return
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "s.json")
@@ -225,14 +226,14 @@ def case_link_pattern_does_not_backtrack() -> None:
     old = signal.signal(signal.SIGALRM, alarm)
     signal.alarm(10)
     try:
-        for text in ("[[]" * 1300, "[" * 3999, "[a" * 1999, "![" + "[]" * 1999, "[[]" * 1000 + "x"):
+        for text in ("](" * 1999, "[[]" * 1300, "[" * 3999, "[a" * 1999, "![" + "[]" * 1999, "[[]" * 1000 + "x"):
             ac.LINK_RE.findall(text)
         ac.validate("r", "a", "charter-addendum.md", addendum("[[]" * 1300 + "\n"))   # through the public door too
         # The positive controls: every spelling that hides a file link is still found.
         for text, want in (("a [x [y] z](../f.md)", ["../f.md"]), ("a [x [y](../f.md)", ["../f.md"]),
                            ("see [the act [the charter](../charter.md)](https://www.riigiteataja.ee/en/)", ["../charter.md", "https://www.riigiteataja.ee/en/"]),
                            ("[[x](../f.md)](https://e.ee)", ["../f.md", "https://e.ee"]),
-                           ("[a [b [c] d] e](../f.md)", ["../f.md"]), ("[a](https://e[b](../f.md)", ["https://e[b](../f.md", "../f.md"])):
+                           ("[a [b [c] d] e](../f.md)", ["../f.md"]), ("[a](https://e[b](../f.md)", ["https://e[b", "../f.md"])):
             assert ac.LINK_RE.findall(text) == want, (text, ac.LINK_RE.findall(text))
             if "../" in text:
                 must_refuse("charter-addendum.md", addendum(text + "\n"), "link to a file")
@@ -241,11 +242,29 @@ def case_link_pattern_does_not_backtrack() -> None:
         signal.signal(signal.SIGALRM, old)
 
 
+def case_link_pattern_is_linear_on_a_run_of_destinations() -> None:
+    import time
+
+    def best(reps: int) -> float:
+        text, runs = "](" * reps, []
+        for _ in range(5):   # the least of five: a loaded host slows a run, never speeds one
+            t0 = time.perf_counter()
+            ac.LINK_RE.findall(text)
+            runs.append(time.perf_counter() - t0)
+        return min(runs)
+    small, large = best(2000), best(16000)
+    # 8 times the input: about 8 times the time if linear, about 64 if each "](" rescans the run after it (measured on the
+    # pattern whose destination class did not stop at "]": 0.05 s at the cap, 0.4 s at 5000 repetitions).
+    assert large < 24 * max(small, 1e-4), f"2000 repetitions {small:.4f} s, 16000 repetitions {large:.4f} s"
+
+
 def case_every_control_character_is_refused() -> None:
     for code in (list(range(0x00, 0x09)) + list(range(0x0b, 0x20)) + list(range(0x7f, 0xa0)) + [0x2028, 0x2029]
                  + list(range(0x202a, 0x202f)) + list(range(0x2066, 0x206a))):
         must_refuse("charter-addendum.md", addendum(f"a{chr(code)}b\n"), "control")
-    for ok in ("\n", "\t"):   # the positive control: LF and TAB are allowed
+    # Spaces and format-looking code points that are not controls: refusing them would refuse real text (a no-break
+    # space between a number and its unit, a narrow no-break space in French, the unassigned code points beside the bidi ones).
+    for ok in ("\n", "\t", "\u00a0", "\u202f", "\u2065", "\u206a"):   # the positive control: these are allowed
         must_pass("charter-addendum.md", addendum(f"a{ok}b\n"))
 
 
@@ -260,6 +279,37 @@ def case_oversize_file_runs_no_pattern() -> None:
         assert calls   # the control: under the cap the patterns do run
     finally:
         ac._hygiene, ac._model_pins = saved
+
+
+def case_a_finding_never_echoes_what_it_read() -> None:
+    secret = "ghp_" + "A1b2C3d4" * 5
+    cases = (addendum(role=secret), addendum(lang=secret), addendum(cls=secret), addendum(agent_id=secret), addendum(extra=secret))
+    for raw in cases:
+        found = ac.validate(ROLE, AID, "charter-addendum.md", raw)
+        assert found, "the control: the planted value is a finding"
+        assert not any(secret[:8] in f or secret[-8:] in f for f in found), found
+    found = ac.validate(ROLE, AID, "holder.json", f'{{"locale": "ge", "{secret}": 1}}'.encode())
+    assert found and not any(secret[:8] in f for f in found), found
+    files = {"charter-addendum.md": addendum(lang=secret)}
+    assert not any(secret[:8] in f for fs in ac.validate_set(ROLE, AID, files).values() for f in fs)
+
+
+def case_oversize_file_runs_no_control_scan() -> None:
+    saved = ac.CONTROL_RE
+    seen = []
+
+    class Spy:
+        def search(self, text):
+            seen.append(len(text))
+            return saved.search(text)
+    ac.CONTROL_RE = Spy()
+    try:
+        ac.validate(ROLE, AID, "charter-addendum.md", addendum("x" * (ac.MAX_CHARS + 1) + "\x01\n"))
+        assert not seen, seen
+        ac.validate(ROLE, AID, "charter-addendum.md", addendum("x\n"))
+        assert seen   # the control: under the cap the scan runs
+    finally:
+        ac.CONTROL_RE = saved
 
 
 def case_set_gloss_digest() -> None:
