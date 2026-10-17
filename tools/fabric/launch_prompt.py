@@ -98,13 +98,14 @@ def _body(path: str) -> str:
     return text.strip("\n") + "\n"
 
 
-# A locale's translation of any piece is rendered for a login whose name
-# ends in that locale (language-culture-ge -> locale/ge/<piece>.md): the
-# CEO's rule of 2026-09-17 that a holder who thinks in its language reads
-# its own definition in it. Keyed by the login's suffix, not by role: a
-# locale/ directory is an authored thing lint validates (a source digest,
-# a lag finding), and with none present every role renders as before,
-# byte-identical. A translation is served even when lint says it lags — a
+# A locale's translation of any piece is rendered for a holder of that
+# locale: the CEO's rule of 2026-09-17 that a holder who thinks in its
+# language reads its own definition in it. The locale is the holder's
+# holder.json `locale`, else the login's suffix (language-culture-ge ->
+# locale/ge/<piece>.md), the rule before holder.json (ADR-060 §5 rule 8;
+# locale_of below). A locale/ directory is an authored thing lint
+# validates (a source digest, a lag finding), and with none present every
+# role renders as before, byte-identical. A translation is served even when lint says it lags — a
 # launch never fails on a day's lag; lint is where the lag is seen. The
 # real cost is tokens, not characters: measured on the first Georgian
 # charter, the rendering is about the characters of its English (11 041
@@ -121,23 +122,48 @@ def _suffix(agent: str) -> str:
     return agent.rsplit("-", 1)[-1] if "-" in agent else agent
 
 
-def _locale_path(role_dir: str, agent: str, name: str) -> str | None:
-    """identities/roles/<role>/locale/<suffix>/<name>.md when the locale
-    carries it, else None — the same rule for every piece of the prompt."""
-    path = os.path.join(role_dir, "locale", _suffix(agent), f"{name}.md")
-    return path if os.path.isfile(path) else None
+def locale_of(agent: str, holder: dict | None = None) -> str:
+    """The locale this launch renders in (agent-fabric ADR-060 §5 rule 8):
+    the holder's holder.json `locale` when it names one, else the login's
+    suffix, the rule before holder.json and the one a holder without it
+    keeps. The launcher resolves the same way (launcher/holder.py), so the
+    prompt and the harness flag never pick two different locales."""
+    settings = (holder or {}).get("holder") or {}
+    tag = settings.get("locale") if isinstance(settings, dict) else None
+    return tag if isinstance(tag, str) and tag else _suffix(agent)
 
 
-def _charter_path(role_dir: str, agent: str) -> str:
-    return _locale_path(role_dir, agent, "charter") or os.path.join(role_dir, "charter.md")
+# The role-independent pieces (header, team, memory, brief-missing) are
+# translated once per language, for every role, under
+# identities/prompt/locale/<locale>/ (ADR-060 §5 rule 8): a holder of any
+# role in that language renders them in it. A role's own locale/<locale>/
+# still wins for a piece it carries, so a role may keep its own rendering.
+SHARED_PIECES = ("header", "team", "memory", "brief-missing")
 
 
-def _piece(role_dir: str, agent: str, name: str, default_text: str) -> tuple[str, bool]:
-    """A prompt piece: the locale's translation (its body) when the locale
-    carries one, else the English `default_text`; and whether it was the
-    locale's."""
-    locale = _locale_path(role_dir, agent, name)
-    return (_body(locale), True) if locale else (default_text, False)
+def _locale_path(role_dir: str, locale: str, name: str) -> str | None:
+    """The locale's rendering of a piece when one exists, else None: the
+    role's own identities/roles/<role>/locale/<locale>/<name>.md first, then,
+    for a role-independent piece, identities/prompt/locale/<locale>/<name>.md."""
+    path = os.path.join(role_dir, "locale", locale, f"{name}.md")
+    if os.path.isfile(path):
+        return path
+    if name in SHARED_PIECES:
+        shared = os.path.join(os.path.dirname(layout.prompt_template_path(HEADER_TEMPLATE)), "locale", locale, f"{name}.md")
+        if os.path.isfile(shared):
+            return shared
+    return None
+
+
+def _charter_path(role_dir: str, locale: str) -> str:
+    return _locale_path(role_dir, locale, "charter") or os.path.join(role_dir, "charter.md")
+
+
+def _piece(role_dir: str, locale: str, name: str, default_text: str) -> tuple[str, bool]:
+    """A prompt piece: the locale's rendering (its body) when there is one,
+    else the English `default_text`; and whether it was the locale's."""
+    path = _locale_path(role_dir, locale, name)
+    return (_body(path), True) if path else (default_text, False)
 
 
 # THE HOLDER'S ADDENDA (agent-fabric ADR-060). The launcher reads them from
@@ -157,12 +183,13 @@ def build(agent: str, host: str, role: str, holder: dict | None = None) -> str:
     the repository, touches nothing else; byte-identical for every login
     without locale files and without a holder."""
     added = _addenda(role, holder)
+    locale = locale_of(agent, holder)
     role_dir = layout.role_dir(role)
-    charter = _charter_path(role_dir, agent)
+    charter = _charter_path(role_dir, locale)
     if not os.path.isfile(charter):
         raise SystemExit(f"launch_prompt: role {role!r} has no charter at {charter}")
     localized = charter != os.path.join(role_dir, "charter.md")
-    header, loc = _piece(role_dir, agent, "header", _template(HEADER_TEMPLATE))
+    header, loc = _piece(role_dir, locale, "header", _template(HEADER_TEMPLATE))
     localized = localized or loc
     parts = [header.replace("{agent}", agent).replace("{host}", host).replace("{role}", role)]
     # The charter and the brief carry their own H1 ("<role> — charter",
@@ -171,12 +198,12 @@ def build(agent: str, host: str, role: str, holder: dict | None = None) -> str:
     if added["charter"]:
         parts.append(added["charter"])
     brief = os.path.join(role_dir, "brief.md")
-    if os.path.isfile(brief) or _locale_path(role_dir, agent, "brief"):
-        text, loc = _piece(role_dir, agent, "brief", _body(brief) if os.path.isfile(brief) else "")
+    if os.path.isfile(brief) or _locale_path(role_dir, locale, "brief"):
+        text, loc = _piece(role_dir, locale, "brief", _body(brief) if os.path.isfile(brief) else "")
         localized = localized or loc
         parts.append(text)
     else:
-        text, loc = _piece(role_dir, agent, "brief-missing", _template(BRIEF_MISSING_TEMPLATE))
+        text, loc = _piece(role_dir, locale, "brief-missing", _template(BRIEF_MISSING_TEMPLATE))
         localized = localized or loc
         parts.append(text.replace("{role}", role).strip("\n") + "\n")   # the piece carries its own heading (blind review of #3: it was English in a Georgian prompt)
     if added["brief"]:
@@ -185,7 +212,7 @@ def build(agent: str, host: str, role: str, holder: dict | None = None) -> str:
         path = layout.prompt_template_path(name)
         if not os.path.isfile(path):
             raise SystemExit(f"launch_prompt: {layout.root_rel(path)} is missing (tools/fabric/lint.py names it)")
-        text, loc = _piece(role_dir, agent, name[:-3], _read(path))
+        text, loc = _piece(role_dir, locale, name[:-3], _read(path))
         localized = localized or loc
         parts.append(text.replace("{role}", role).strip("\n") + "\n")
     text = "\n".join(parts)
@@ -215,8 +242,8 @@ def build(agent: str, host: str, role: str, holder: dict | None = None) -> str:
 HARNESS_PLACEHOLDER = "{memory_dir}"
 
 
-def render_harness(role_dir: str, agent: str, cwd: str | None = None) -> str | None:
-    path = _locale_path(role_dir, agent, "harness")
+def render_harness(role_dir: str, locale: str, cwd: str | None = None) -> str | None:
+    path = _locale_path(role_dir, locale, "harness")
     if not path:
         return None
     return _body(path).replace(HARNESS_PLACEHOLDER, layout.default_memory_dir(cwd or os.getcwd()))
@@ -229,7 +256,7 @@ def build_launch(agent: str, host: str, role: str, cwd: str | None = None,
     meaning the file rides --system-prompt-file (the whole prompt) instead
     of --append-system-prompt-file. Without one, build()'s bytes and False."""
     text = build(agent, host, role, holder)
-    harness = render_harness(layout.role_dir(role), agent, cwd)
+    harness = render_harness(layout.role_dir(role), locale_of(agent, holder), cwd)
     if harness is None:
         return text, False
     return text + "\n" + harness, True
