@@ -307,6 +307,15 @@ def main() -> int:
         parent_push({CHARTER: charter, "brief-addendum.gloss.en.md": gloss("brief-addendum", "sha256:" + "f" * 64)}, "parent: gloss alone")
         refused("a gloss with no addendum beside it is refused at render", load(), "gloss", "not in the set")
 
+        # what validate accepts, render reads (F2): the digest line in the forms the validator's parser strips
+        for label, raw_digest in (("double-quoted", '"sha256:' + "2" * 64 + '"'), ("single-quoted", "'sha256:" + "2" * 64 + "'"),
+                                  ("trailing-space", "sha256:" + "2" * 64 + "  ")):
+            quoted = file(ROLE, KID, "charter-addendum", "# Estonia\n", against=raw_digest)
+            check(f"control: validate accepts a {label} against_digest", addenda.check.validate(ROLE, KID, CHARTER, quoted) == [])
+            parent_push({CHARTER: quoted}, f"parent: {label} digest")
+            got_q = load()
+            check(f"…and load reads the same {label} digest, bare", isinstance(got_q, addenda.Holder) and got_q.against == {CHARTER: "sha256:" + "2" * 64}, repr(got_q))
+
         # .agent-id as HEAD has it (the module's contract: never the working tree)
         parent_push(files, "parent: restored for the id case")
         aid_path = os.path.join(child_store, ".agent-id")
