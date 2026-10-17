@@ -1,4 +1,4 @@
-"""tools/fabric/addenda_check.py — the validator of a holder's addenda (ADR-060 of the holder-addenda plan, §5 rules 1, 6 and 9; proposed, not on main when this landed).
+"""tools/fabric/addenda_check.py — the validator of a holder's addenda (ADR-060 of the holder-addenda plan, §5 rules 1, 6 and 9).
 
 A holder's specialization of role R is `settings/roles/R/` in the agent's
 store: `charter-addendum.md`, `brief-addendum.md`, `holder.json`, and an
@@ -40,10 +40,19 @@ HYGIENE: layout.load_hygiene_patterns raises HygieneError for a list it
 cannot read, and that propagates: a validator that cannot tell a leak
 from a clean text must not say "valid".
 
-holder.json: the role-holder schema is not written yet; until it is, the
-contract here is an object with `locale` (a short lowercase tag,
-required), `timezone` (an IANA name) and `search.country` (two letters),
-the last two optional, and no other key.
+holder.json: identities/schemas/role-holder.schema.json is the shape: an
+object with `locale` (a short lowercase tag, required), `timezone` (an IANA
+name) and `search.country` (two lowercase letters), the last two optional,
+and no other key. The checks below are written by hand so the module needs
+nothing but the standard library; where `jsonschema` is importable and the
+schema file is there, the schema is applied as well (a drift between the two
+is a finding, never a reason to skip a hand check), and a finding names the
+path and the rule, never the value.
+
+    frontmatter(text) -> dict[str, str]
+        The fields `validate` reads, by the same parser: the one reader of an
+        addendum's frontmatter (against_digest included), so what install
+        accepts, render reads the same way.
 """
 from __future__ import annotations
 
@@ -74,7 +83,7 @@ HOLDER_KEYS = {"locale", "timezone", "search"}
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 LOCALE_RE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*")
-COUNTRY_RE = re.compile(r"[A-Za-z]{2}")
+COUNTRY_RE = re.compile(r"[a-z]{2}")
 KEY_LINE_RE = re.compile(r"([a-z_]+): (.*)")
 
 # A pin makes the addendum choose the model a launch routes (ADR-006).
@@ -176,6 +185,10 @@ def _model_pins(name: str, text: str) -> list[str]:
     return []
 
 
+def frontmatter(text: str) -> dict[str, str]:
+    return _frontmatter(text)[0]
+
+
 def _frontmatter(text: str) -> tuple[dict[str, str], list[str]]:
     """(fields, problems); problems say what is not `key: value` scalars."""
     m = FRONTMATTER_RE.match(text)
@@ -230,6 +243,22 @@ def _markdown(role: str, aid: str, name: str, text: str) -> list[str]:
     return findings
 
 
+SCHEMA_PATH = os.path.join(HERE, "..", "..", "identities", "schemas", "role-holder.schema.json")
+
+
+def _schema_findings(name: str, data: object, schema_path: str | None = None) -> list[str]:
+    """What the schema refuses; nothing where it cannot be applied (no jsonschema, no file): the hand checks stand alone."""
+    try:
+        import jsonschema
+        with open(schema_path or SCHEMA_PATH, encoding="utf-8") as fh:
+            schema = json.load(fh)
+    except (ImportError, OSError):
+        return []
+    validator = jsonschema.Draft202012Validator(schema)
+    return [f"{name}: the schema refuses {'/'.join(str(p) for p in err.absolute_path) or 'the object'} ({err.validator})"
+            for err in sorted(validator.iter_errors(data), key=lambda e: list(map(str, e.absolute_path)))]
+
+
 def _holder(name: str, text: str) -> list[str]:
     def no_duplicates(items):
         keys = [k for k, _ in items]
@@ -257,8 +286,8 @@ def _holder(name: str, text: str) -> list[str]:
         if not isinstance(search, dict) or set(search) - {"country"}:
             findings.append(f"{name}: search is an object with country only")
         elif "country" in search and not (isinstance(search["country"], str) and COUNTRY_RE.fullmatch(search["country"])):
-            findings.append(f"{name}: search.country is not two letters")
-    return findings
+            findings.append(f"{name}: search.country is not two lowercase letters")
+    return findings or _schema_findings(name, data)
 
 
 def _is_iana(value: object) -> bool:

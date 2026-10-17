@@ -50,7 +50,7 @@ def must_refuse(name: str, raw: bytes, needle: str) -> None:
     assert any(needle in f for f in found), f"{name}: wanted a finding with {needle!r}, got {found}"
 
 
-HOLDER_OK = b'{"locale": "ge", "timezone": "Asia/Tbilisi", "search": {"country": "GE"}}\n'
+HOLDER_OK = b'{"locale": "ge", "timezone": "Asia/Tbilisi", "search": {"country": "ge"}}\n'
 
 
 def case_valid_english_and_georgian() -> None:
@@ -166,12 +166,55 @@ def case_holder_json() -> None:
         must_refuse("holder.json", f'{{"locale": {bad}}}'.encode(), "locale is not")
     for bad in ('"Mars/Olympus"', '"tbilisi"', '3', '""', '"../etc/passwd"'):
         must_refuse("holder.json", f'{{"locale": "ge", "timezone": {bad}}}'.encode(), "IANA")
-    for bad in ('"GEO"', '"G"', '1', '"1G"'):
-        must_refuse("holder.json", f'{{"locale": "ge", "search": {{"country": {bad}}}}}'.encode(), "two letters")
+    for bad in ('"GE"', '"GEO"', '"G"', '1', '"1G"'):
+        must_refuse("holder.json", f'{{"locale": "ge", "search": {{"country": {bad}}}}}'.encode(), "two lowercase letters")
     must_refuse("holder.json", b'{"locale": "ge", "search": {"hl": "ka"}}', "country only")
     must_refuse("holder.json", b'{"locale": "ge", "search": "GE"}', "country only")
     must_refuse("holder.json", HOLDER_OK.replace(b"\n", b"\r\n"), "carriage return")
     must_pass("holder.json", b'{"locale": "ka-ge", "timezone": "UTC", "search": {"country": "ge"}}')
+
+
+def case_frontmatter_is_the_one_reader() -> None:
+    digest = "sha256:" + "a" * 64
+    # Reviewed #290 F2: a quoted or space-trailed digest was valid here and unreadable to a hand-rolled regex at render.
+    for line in (f"against_digest: {digest}", f'against_digest: "{digest}"', f"against_digest: '{digest}'", f"against_digest: {digest}  "):
+        text = addendum().decode().replace(next(l for l in addendum().decode().split("\n") if l.startswith("against_digest")), line)
+        must_pass("charter-addendum.md", text.encode())
+        assert ac.frontmatter(text)["against_digest"] == digest, line
+    assert ac.frontmatter("no block\n") == {}
+
+
+CASES = (HOLDER_OK, b'{"locale": "ka-ge", "timezone": "UTC", "search": {"country": "ge"}}', b'{"locale": "GE"}',
+         b'{"locale": "ge", "search": {"country": "GE"}}', b'{"locale": "ge", "x": 1}', b'{}', b'{"locale": "ge", "search": {"hl": "ka"}}')
+
+
+def case_holder_json_against_the_schema() -> None:
+    import json
+    import tempfile
+    try:
+        import jsonschema  # noqa: F401
+    except ImportError:
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "s.json")
+        with open(path, "w") as fh:
+            json.dump({"type": "object", "properties": {"locale": {"type": "string", "pattern": "^x"}}}, fh)
+        found = ac._schema_findings("holder.json", {"locale": "ge"}, path)
+        assert found == ["holder.json: the schema refuses locale (pattern)"], found
+        assert not ac._schema_findings("holder.json", {"locale": "xx"}, path)   # the positive control
+        assert not ac._schema_findings("holder.json", {"locale": "ge"}, os.path.join(tmp, "absent.json"))
+    real = ac.SCHEMA_PATH
+    if os.path.exists(real):   # on main the schema is there: it and the hand checks agree on each of these
+        ac.SCHEMA_PATH, saved = os.path.join(tempfile.gettempdir(), "absent-schema.json"), ac.SCHEMA_PATH   # hand checks alone
+        try:
+            hand = {}
+            for raw in CASES:
+                hand[raw] = bool(ac._holder("holder.json", raw.decode()))
+        finally:
+            ac.SCHEMA_PATH = saved
+        for raw in CASES:
+            schema_refuses = bool(ac._schema_findings("holder.json", json.loads(raw)))
+            assert schema_refuses == hand[raw], (raw, schema_refuses, hand[raw])
 
 
 def case_set_gloss_digest() -> None:
