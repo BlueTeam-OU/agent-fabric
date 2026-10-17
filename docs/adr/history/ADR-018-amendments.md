@@ -88,3 +88,7 @@ merge, or from a supply branch — it now does.
 ### Amendment 2026-10-08 — A role that merges its own work may fold another contributor's supply
 
 python-dev-02's #116 folded devex-tooling's InterWeave configs, as the coordinator had routed them, and CI refused it: only a PR with an owner-role commit could carry a non-merging contributor's supply. A role whose entry merges already opens, reviews and merges its own pull request; it may now fold another contributor's supply as the coordinator does, being the one that merges. Each commit is still held to its own entry by the path check. The guard (tools/fabric/guards/contributors.py pull_request_problem) and its tests change with this rule.
+
+### Amendment 2026-10-18 — The shared prompt pieces' renderings are language-culture's
+
+ADR-060's stage 3 moved the header, team, memory and brief-missing renderings out of `identities/roles/language-culture/locale/<suffix>/` into `identities/prompt/locale/<suffix>/`, so that a holder of any role in that language reads them (abdf5db8). The carve-out matched only the first directory, so the holder that writes those renderings could no longer commit them. The pattern the pre-commit hook and the CI check share (`policies/githooks/locale-carve-out.sh`, `tools/fabric/guards/agent_fabric_dir_authority.py`) now takes either, and counts a prompt-locale path as `language-culture`'s; two suffixes, or another role's locale beside it, are refused as before.

@@ -131,7 +131,10 @@ record says so rather than claim otherwise.
    passes both hooks and is recorded as `Fabric-Role: <role>`; CI admits
    it for that subtree alone. Anything staged beside it, another role,
    another suffix, or an amend, is refused; the merge into `main` stays
-   `fabric-coordinator`'s.
+   `fabric-coordinator`'s. The shared prompt pieces' renderings,
+   `identities/prompt/locale/<suffix>/`, fall under the same carve-out as
+   `language-culture`'s, alone or with its own `locale/<suffix>/`
+   (ADR-060) (A 2026-10-18).
 6. A guard on committed content has a commit-time check where the fact is
    readable, a CI check over every commit a branch adds, and a suite case
    that plants the violation. The attribution ban, the read-only fence
@@ -238,3 +241,4 @@ The body above reads current; each change's full note is in [history/ADR-018-ame
 | 2026-10-04 | A merge is judged on its own change | §5 rules 3–4: a merge's own change is what differs from the clean three-way merge of its parents, at the hooks and in CI; CI no longer skips merges |
 | 2026-10-07 | A contributor that merges its own pull request | §5 rule 8: an entry's `merges` lets its role open, review and merge its own pull request within its entry; CI refuses a pull request from a for/ branch, and a contributor-only one whose role does not merge |
 | 2026-10-08 | A role that merges its own work may fold another contributor's supply | §5 rule 8: a PR with no owner-role commit passes when a role in it merges its own work |
+| 2026-10-18 | The shared prompt pieces' renderings are language-culture's | §5 rule 5: `identities/prompt/locale/<suffix>/` falls under the locale carve-out as `language-culture`'s (ADR-060) |

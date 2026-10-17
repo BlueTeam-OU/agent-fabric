@@ -183,9 +183,11 @@ ADR-002 rules 4, 8, 9; ADR-018 §5 rule 5 (the carve-out admits
 `language-culture-<lang>` to `identities/prompt/locale/<lang>/`); ADR-027
 rules 1, 6, 9, 11 and 13 (the locale named by `holder.json`, the worker and
 the search setup keyed on it, the shared prompt pieces per language, no
-English piece for a non-English holder); ADR-038 rule 3; ADR-042 rule 2;
-ADR-057 §5 rule 5 (a locale signer named by the holder's locale, not only
-the login's suffix).
+English piece for a non-English holder); ADR-038 rule 3; ADR-042 rule 2.
+ADR-057 §5 rule 5 needs none: its checker judges a commit from public
+data alone (the keys, the lineage, the committed holders and locale
+directories), and a holder's `holder.json` is private, so a locale signer
+stays named by its login's suffix or its committed holding (A 2026-10-18).
 
 ## References
 
@@ -200,3 +202,4 @@ The body above reads current; each change's full note is in [history/ADR-060-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-17 | Accepted; the digest check is per file; sizes restated | Status Accepted; §5 rule 3's record of an install is its signed commit's tree; §4 names the digest check; §1's size restated; §8 says which amendments land with which stage |
+| 2026-10-18 | ADR-057 needs no amendment | §8: the signature checker reads public data only, so a holder's private locale cannot name a signer; the stage's other amendments (ADR-018, ADR-027) are made |
