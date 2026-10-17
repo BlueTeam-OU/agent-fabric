@@ -988,7 +988,6 @@ def main() -> int:
                     f'if [[ "$n" == 0 ]]; then\n  m=\'{marker}\'; printf \'%s\\n\' "${{m/@NOW@/$(date -u +%Y-%m-%dT%H:%M:%SZ)}}" > "{agent_dir}/restart.json"\n'
                     '  echo "RUN1:$*"; exit 143\nfi\necho "RUN2:$*"; exit 0\n', 0o755)
                 rm(runs, alog)
-            time.sleep(1)
             upgrade_session("done")
             rc, out = runa("--resume", "old-id", "--model", "x")
             check("the upgrade is said, and the launcher does not exit with the stopped session",
