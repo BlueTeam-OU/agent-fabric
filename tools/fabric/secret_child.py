@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/secret_child.py — what a parent does to its children's stores, from its mirrors
-(fabric-secrets child …, agent-fabric ADR-060 §5 rule 3). Runs AS THE PARENT.
+(fabric-secrets child …, ADR-060 §5 rule 3). Runs AS THE PARENT.
 
   fabric-secrets child roles-put --agent ID|LOGIN --role R --from DIR --approval REF
                                  [--reviewed-by 'login pass-N sha256']… [--authored-by LOGIN] [--retire]

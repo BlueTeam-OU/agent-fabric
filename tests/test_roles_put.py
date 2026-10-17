@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fabric-secrets child roles-put (agent-fabric ADR-060 §5 rule 3): the parent installs a holder's addenda into
+"""fabric-secrets child roles-put (ADR-060 §5 rule 3): the parent installs a holder's addenda into
 the child's store, from its mirror, in one commit it signs, and nothing is committed when a file is refused.
 
 Parent and child are two scratch homes with their own keyrings (outside their HOME, see test_secret_store), a

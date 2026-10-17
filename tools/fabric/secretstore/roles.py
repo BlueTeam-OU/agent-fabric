@@ -1,4 +1,4 @@
-"""tools/fabric/secretstore/roles.py — the parent installs a holder's addenda (agent-fabric ADR-060 §5 rule 3).
+"""tools/fabric/secretstore/roles.py — the parent installs a holder's addenda (ADR-060 §5 rule 3).
 A part of secret_store.py's family; the CLI is secret_child.py.
 
 Contract of `roles_put(child, role, src, approval, ...)`:
