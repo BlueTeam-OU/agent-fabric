@@ -91,12 +91,11 @@ def _checked_files(role: str, aid: str, files: dict[str, bytes], retire: bool) -
         raise StoreError("--retire takes an empty directory: a retirement installs nothing; nothing written")
     if not retire and not files:
         raise StoreError("the directory holds no file; a retirement is an empty directory with --retire; nothing written")
-    found = []
-    for name, raw in sorted(files.items()):
-        if os.sep in name or name.startswith("."):
-            found.append(f"{name}: addenda are plain files directly in settings/roles/{role}/")
-            continue
-        found += [f"{name}: {f}" for f in addenda_check.validate(role, aid, name, raw)]
+    plain = {n: raw for n, raw in files.items() if os.sep not in n and not n.startswith(".")}
+    found = [f"{n}: addenda are plain files directly in settings/roles/{role}/" for n in sorted(set(files) - set(plain))]
+    # The set, not each file: a stale gloss, a gloss with no addendum and a non-English addendum with no gloss
+    # are only visible together (ADR-060 rules 1 and 9).
+    found += [f"{n}: {f}" for n, fs in sorted(addenda_check.validate_set(role, aid, plain).items()) for f in fs]
     if found:
         raise StoreError("the addenda are refused, nothing written: " + "; ".join(found))
 
