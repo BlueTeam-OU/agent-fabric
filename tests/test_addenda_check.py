@@ -74,7 +74,10 @@ def case_encoding() -> None:
     must_refuse("charter-addendum.md", b"\xef\xbb\xbf" + addendum(), "byte order mark")
     must_refuse("charter-addendum.md", addendum() + b"\xff\xfe", "UTF-8")
     must_refuse("charter-addendum.md", addendum().replace(b"\n", b"\r\n"), "carriage return")
-    must_refuse("charter-addendum.md", addendum().replace(b"\n", b"\r\n", 1), "carriage return")
+    must_refuse("charter-addendum.md", addendum("a\rb\n"), "carriage return")
+    for odd in ("a\x00b", "a\x1b[31mb", "a\x85b", "a\u2028b", "a\u202eb"):
+        must_refuse("charter-addendum.md", addendum(odd + "\n"), "control character")
+    must_pass("charter-addendum.md", addendum("a\tb\n"))
 
 
 def case_size_counts_characters() -> None:
@@ -96,6 +99,7 @@ def case_frontmatter_exact() -> None:
     must_refuse("charter-addendum.md", addendum(extra="x"), "outside")
     must_refuse("charter-addendum.md", addendum().replace(b"lang: en\n", b"lang: en\nlang: en\n"), "twice")
     must_refuse("charter-addendum.md", addendum().replace(b"lang: en\n", b"lang: en\n- item\n"), "key: value")
+    must_refuse("charter-addendum.md", addendum().replace(b"lang: en\n", b"lang:en\n"), "key: value")
 
 
 def case_frontmatter_values() -> None:
@@ -119,10 +123,12 @@ def case_credential_hygiene() -> None:
 
 
 def case_model_pins() -> None:
-    for text in ("Use claude-opus-5-5 for this.\n", "Run on Sonnet 5 only.\n", "model anthropic/claude-x\n",
+    for text in ("Use claude-opus-5-5 for this.\n", "Run on Sonnet 5 only.\n", "model anthropic/x-1\n",
                  "prefer gpt-5 here\n"):
         must_refuse("charter-addendum.md", addendum(text), "names a model")
+    must_refuse("charter-addendum.md", addendum("use claude\u2011opus\u20114\n"), "names a model")
     must_pass("charter-addendum.md", addendum("A sonnet is a poem; an opus is a work.\n"))
+    must_pass("charter-addendum.md", addendum("Claude-Henri de Saint-Simon wrote on law.\n"))
 
 
 def case_includes_placeholders_links() -> None:
@@ -135,6 +141,15 @@ def case_includes_placeholders_links() -> None:
     must_refuse("charter-addendum.md", addendum("![i](pic.png)\n"), "link to a file")
     must_refuse("charter-addendum.md", addendum("see [x][1]\n\n[1]: docs/a.md\n"), "link to a file")
     must_refuse("charter-addendum.md", addendum("see [[charter]]\n"), "link to a file")
+    must_refuse("charter-addendum.md", addendum("{% include x %}\n"), "include")
+    must_refuse("charter-addendum.md", addendum("!include x\n"), "include")
+    must_refuse("charter-addendum.md", addendum("<!-- include x -->\n"), "include")
+    for sneaky in ("see [a [b] c](../charter.md)\n", "see [the\ncharter](../charter.md)\n",
+                   "[x][1]\n\n[1]:\n  ../charter.md\n", "<file:///etc/passwd>\n", "<./charter.md>\n",
+                   '<a href="../charter.md">x</a>\n', "<img src=pic.png>\n"):
+        must_refuse("charter-addendum.md", addendum(sneaky), "link to a file")
+    must_pass("charter-addendum.md", addendum("Text.[^1]\n\n[^1]: Civil Code art. 5.\n"))
+    must_pass("charter-addendum.md", addendum("see [below](#scope); a rate <%5 is low\n"))
     must_pass("charter-addendum.md", addendum("see [the act](https://www.riigiteataja.ee/en/) and a@b.ee\n"))
     must_pass("charter-addendum.md", addendum("mail [me](mailto:a@b.ee); an email a@b.ee is prose\n"))
 
@@ -173,6 +188,43 @@ def case_set_gloss_digest() -> None:
     mixed = {"charter-addendum.md": ge, "brief-addendum.md": brief,
              "brief-addendum.gloss.en.md": gloss(ge, cls="brief-addendum")}
     assert any("stale gloss" in f for f in ac.validate_set(ROLE, AID, mixed)["brief-addendum.gloss.en.md"])
+
+
+def case_gloss_required_for_other_languages_only() -> None:
+    ge = addendum(GEORGIAN, lang="ka")
+    found = ac.validate_set(ROLE, AID, {"charter-addendum.md": ge})
+    assert any("needs its English gloss" in f for f in found["charter-addendum.md"]), found
+    assert ac.validate_set(ROLE, AID, {"charter-addendum.md": ge, "charter-addendum.gloss.en.md": gloss(ge)})[
+        "charter-addendum.md"] == []
+    en = addendum()
+    assert ac.validate_set(ROLE, AID, {"charter-addendum.md": en})["charter-addendum.md"] == []
+    found = ac.validate_set(ROLE, AID, {"charter-addendum.md": en, "charter-addendum.gloss.en.md": gloss(en)})
+    assert any("already in English" in f for f in found["charter-addendum.gloss.en.md"]), found
+    # The brief's gloss is not the charter's.
+    brief = addendum("Brief.\n", cls="brief-addendum", lang="ka")
+    found = ac.validate_set(ROLE, AID, {"brief-addendum.md": brief, "charter-addendum.gloss.en.md": gloss(ge)})
+    assert any("needs its English gloss" in f for f in found["brief-addendum.md"]), found
+
+
+def case_no_tz_database_is_an_error_not_a_verdict() -> None:
+    real = ac.zoneinfo.available_timezones
+    ac.zoneinfo.available_timezones = lambda: set()
+    try:
+        try:
+            check("holder.json", HOLDER_OK)
+        except RuntimeError:
+            return
+        raise AssertionError("an empty tz database was read as a verdict")
+    finally:
+        ac.zoneinfo.available_timezones = real
+
+
+def case_imports_no_lint() -> None:
+    import subprocess
+    code = ("import sys; sys.path.insert(0, %r); import addenda_check; "
+            "sys.exit(any(m.split('.')[0] in ('lint', 'fabric_lint_rules') for m in sys.modules))"
+            % os.path.join(ROOT, "tools", "fabric"))
+    subprocess.run([sys.executable, "-c", code], check=True, timeout=60)
 
 
 def case_gloss_shape() -> None:

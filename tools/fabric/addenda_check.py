@@ -75,11 +75,11 @@ FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 LOCALE_RE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*")
 COUNTRY_RE = re.compile(r"[A-Za-z]{2}")
-KEY_LINE_RE = re.compile(r"([a-z_]+): ?(.*)")
+KEY_LINE_RE = re.compile(r"([a-z_]+): (.*)")
 
 # A pin makes the addendum choose the model a launch routes (ADR-006).
 MODEL_PIN_PATTERNS = (
-    re.compile(r"\bclaude-[a-z0-9.-]+", re.I),
+    re.compile(r"\bclaude-(?:opus|sonnet|haiku|fable|instant|\d)", re.I),
     re.compile(r"\b(?:opus|sonnet|haiku|fable)[ -]?\d", re.I),
     re.compile(r"\b(?:anthropic|openai|google|deepseek|meta-llama|mistralai|qwen|x-ai|moonshotai)/[\w.:-]+", re.I),
     re.compile(r"\b(?:gpt|gemini|deepseek|qwen|llama|mistral|grok|kimi)-?[\w.-]*\d", re.I),
@@ -87,13 +87,23 @@ MODEL_PIN_PATTERNS = (
 PLACEHOLDER_RE = re.compile(r"\{[A-Za-z_][A-Za-z0-9_]*\}")
 INCLUDE_RES = (
     re.compile(r"^[ \t]*@\S", re.M),                       # Claude Code's @file include
-    re.compile(r"\{\{|\{%|<%"),                            # template tags
+    re.compile(r"\{\{|\{%"),                                # template tags
     re.compile(r"^[ \t]*(?:#include|!include|<!--\s*include)\b", re.M | re.I),
 )
-LINK_RE = re.compile(r"!?\[[^\]\n]*\]\(\s*<?([^)\s>]*)")
-REF_DEF_RE = re.compile(r"^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*<?(\S+)", re.M)
+# Link text may hold brackets and a line break, a reference definition's
+# destination may start on the next line, and a footnote label ([^1]) is no
+# link. Autolinks and raw HTML href/src are links too.
+LINK_RE = re.compile(r"!?\[[^\]]*(?:\[[^\]]*\][^\]]*)*\]\(\s*<?([^)\s>]*)")
+REF_DEF_RE = re.compile(r"^[ \t]{0,3}\[(?!\^)[^\]\n]+\]:\s*<?(\S+)", re.M)
+AUTOLINK_RE = re.compile(r"<([A-Za-z][A-Za-z0-9+.-]*:[^>\s]*|[./][^>\s]*)>")
+HTML_ATTR_RE = re.compile(r"\b(?:href|src)\s*=\s*[\"']?([^\"'\s>]*)", re.I)
+# A line separator other than LF, a control character or a bidi override
+# changes what a reader or an auditor of the gloss sees.
+CONTROL_RE = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
+# Unicode hyphens are folded before the model-pin patterns look.
+HYPHENS = dict.fromkeys(range(0x2010, 0x2016), "-")
 WIKILINK_RE = re.compile(r"\[\[[^\]\n]+\]\]")
-URL_SCHEME_RE = re.compile(r"(?:https?|mailto):", re.I)
+URL_SCHEME_RE = re.compile(r"(?:https?:|mailto:|#)", re.I)
 
 
 def body_digest(text: str) -> str:
@@ -125,6 +135,16 @@ def validate_set(role: str, aid: str, files: dict[str, bytes]) -> dict[str, list
             gloss_digest = _frontmatter(files[name].decode("utf-8"))[0]["glosses_digest"]
             if gloss_digest != body_digest(files[target].decode("utf-8")):
                 out[name].append(f"{name}: glosses_digest is not the body digest of {target} (stale gloss)")
+    for target in ADDENDUM_NAMES:
+        # Rule 1 allows a gloss only beside an addendum in another language, and rule 9 requires one there.
+        if target not in files or out[target]:
+            continue
+        gloss = target.replace(".md", ".gloss.en.md")
+        lang = _frontmatter(files[target].decode("utf-8"))[0]["lang"]
+        if lang != "en" and gloss not in files:
+            out[target].append(f"{target}: lang is {lang!r}, so it needs its English gloss {gloss}")
+        if lang == "en" and gloss in files:
+            out[gloss].append(f"{gloss}: glosses an addendum that is already in English")
     return out
 
 
@@ -138,6 +158,8 @@ def _decode(name: str, raw: bytes) -> tuple[str | None, list[str]]:
     findings = []
     if "\r" in text:
         findings.append(f"{name}: carriage return (LF line endings only)")
+    if CONTROL_RE.search(text):
+        findings.append(f"{name}: a control character, a line separator other than LF or a bidi override")
     if len(text) > MAX_CHARS:
         findings.append(f"{name}: {len(text)} characters, the limit is {MAX_CHARS}")
     return text, findings
@@ -149,7 +171,7 @@ def _hygiene(name: str, text: str) -> list[str]:
 
 
 def _model_pins(name: str, text: str) -> list[str]:
-    if any(p.search(text) for p in MODEL_PIN_PATTERNS):
+    if any(p.search(text.translate(HYPHENS)) for p in MODEL_PIN_PATTERNS):
         return [f"{name}: names a model (routing chooses the model, not an addendum)"]
     return []
 
@@ -202,7 +224,7 @@ def _markdown(role: str, aid: str, name: str, text: str) -> list[str]:
         findings.append(f"{name}: a {{placeholder}} (an addendum is rendered as written)")
     if any(r.search(body) for r in INCLUDE_RES):
         findings.append(f"{name}: an include or a template tag")
-    targets = LINK_RE.findall(body) + REF_DEF_RE.findall(body)
+    targets = LINK_RE.findall(body) + REF_DEF_RE.findall(body) + AUTOLINK_RE.findall(body) + HTML_ATTR_RE.findall(body)
     if WIKILINK_RE.search(body) or any(not URL_SCHEME_RE.match(t) for t in targets):
         findings.append(f"{name}: a link to a file (only http(s) and mailto links are allowed)")
     return findings
