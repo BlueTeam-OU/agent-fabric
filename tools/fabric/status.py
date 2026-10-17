@@ -17,7 +17,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             FABRIC_ROOT from it), AGENT_FABRIC_STATE_DIR (identity.py),
             AGENT_FABRIC_HOSTS_REGISTRY, AGENT_FABRIC_FALLBACK_DIR,
             AGENT_FABRIC_LAUNCH_{PROVIDER,SESSION_MODEL,ROLE,PROMPT_DIGEST,
-            PROFILE,EFFORT}, ANTHROPIC_BASE_URL, ANTHROPIC_DEFAULT_{HAIKU,
+            PROFILE,EFFORT,STORE_SHA,ADDENDA_COMMIT}, ANTHROPIC_BASE_URL, ANTHROPIC_DEFAULT_{HAIKU,
             SONNET,OPUS,FABLE}_MODEL (the pins), every other ANTHROPIC_*,
             OPENROUTER_API_KEY, CLAUDE_CODE_SUBAGENT_MODEL,
             CLAUDE_CODE_EFFORT_LEVEL (reported set, never echoed),
@@ -67,6 +67,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 from urllib.parse import urlsplit
 
@@ -246,6 +247,41 @@ def prompt_drift_line(digest, state_dir):
     except OSError:
         return f"the launched prompt file is gone ({prompt_path})"
     return None
+
+
+def _store_git(store, *args):
+    """git's stdout in the account's store, stripped; None when git could not
+    answer (unknown, which is not "unchanged"); "" when it answered nothing."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    try:
+        r = subprocess.run(["git", "-C", store, *args], capture_output=True, text=True, timeout=10, env=env, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def holder_addenda(environ):
+    """(record, drift line) for the holder addenda the launch read (ADR-060
+    rule 10); (None, None) when the launch stamped none, which keeps the
+    report as it was. The store may move for reasons of its own (an entry
+    synced); only a change to the addenda directory is drift."""
+    store_sha = environ.get("AGENT_FABRIC_LAUNCH_STORE_SHA")
+    commit = environ.get("AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT")
+    if not store_sha and not commit:
+        return None, None
+    role = environ.get("AGENT_FABRIC_LAUNCH_ROLE")
+    store = environ.get("AGENT_FABRIC_SECRET_STORE") or os.path.join(
+        environ.get("HOME") or os.path.expanduser("~"), ".local", "share", "agent-fabric", "secrets")
+    head = _store_git(store, "rev-parse", "-q", "--verify", "HEAD")
+    last = _store_git(store, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/") if role else None
+    record = {"store_sha": store_sha, "addenda_commit": commit,
+              "store_moved": None if head is None else head != store_sha,
+              "addenda_changed": None if last is None else last != commit}
+    drift = None
+    if record["addenda_changed"]:
+        drift = (f"the holder addenda of {role} changed since launch (read at {(commit or '-')[:12]}, now {last[:12] or 'removed'}); "
+                 "this session still holds the launched text — relaunch to read them")
+    return record, drift
 
 
 def placement_of(ctx, root, environ=None):
@@ -440,6 +476,7 @@ def build_report(root, environ=None, cred_environ=None):
                         "model that does not admit the level clamped it (CLAUDE_EFFORT is the harness's read-back)")
     digest = environ.get("AGENT_FABRIC_LAUNCH_PROMPT_DIGEST")
     prompt_drift = prompt_drift_line(digest, ctx["state_dir"])
+    holder, holder_drift = holder_addenda(environ)
 
     # --- host tooling installed from this repository ------------------------
     # moveto is a copy under /usr/local; the source moved on and nobody re-ran
@@ -467,7 +504,7 @@ def build_report(root, environ=None, cred_environ=None):
         "session": binding.get("session"), "binding_updated": binding.get("updated_at"),
         "launched_role": environ.get("AGENT_FABRIC_LAUNCH_ROLE"),
         "launch_prompt_digest": digest,
-        "drift": [d for d in (role_drift, model_drift, effort_drift, prompt_drift, placement_drift, fallback_drift, signin_drift) if d] or None,
+        "drift": [d for d in (role_drift, model_drift, effort_drift, prompt_drift, holder_drift, placement_drift, fallback_drift, signin_drift) if d] or None,
         "session_effort": session_effort,
         "undrained_memories": undrained,
         "jobs": jobs,
@@ -477,6 +514,7 @@ def build_report(root, environ=None, cred_environ=None):
                 "pins": {k: v for k, v in pins.items() if v} or "none (harness defaults)",
                 "credentials": credentials or "none visible in the environment",
                 "claude_sign_in": claude_sign_in(sign_env, sign_file, environ)},
+        **({"holder_addenda": holder} if holder else {}),
         "capabilities": classes,
         "engines": engines,
         "routing_check": "clean" if not checks else checks,
@@ -637,6 +675,10 @@ def render(report, base):
     p(f"role         {report['role'] or '(none — fabric-role bind <role>, from a login shell)'}")
     if report["launched_role"]:
         p(f"launched as  {report['launched_role']}    prompt {report['launch_prompt_digest'] or '(no digest stamped)'}")
+    if report.get("holder_addenda"):
+        _h = report["holder_addenda"]
+        _moved = {True: "; the store has moved past the launch", False: "", None: "; the store could not be read now"}[_h["store_moved"]]
+        p(f"addenda      store {(_h['store_sha'] or '-')[:12]}    addenda commit {(_h['addenda_commit'] or '-')[:12]}{_moved}")
     for d in report["drift"] or []:
         p(f"DRIFT        {d}")
     p(f"project      {report['project'] or '(none)'}    working copy  {report['working_copy'] or '(none)'}")
