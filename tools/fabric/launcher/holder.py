@@ -10,7 +10,7 @@ import json
 import os
 import sys
 
-from fabric_launcher.base import HERE, die, helper, stripped
+from fabric_launcher.base import HERE, die, helper, roots, stripped
 
 HOLDER_FILE = "launch-holder.json"
 
@@ -21,7 +21,7 @@ def policy(fabric_root: str, role: str) -> str:
     test, which has no roles to specialise; one that cannot be read or holds a
     value that is neither stops the launch: the flag exists so that a role
     whose shared text names no jurisdiction is never launched without one."""
-    path = os.path.join(fabric_root, "identities", "roles", "catalog.json")
+    path = roots.role_catalog(engine=fabric_root, environ=os.environ)
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
