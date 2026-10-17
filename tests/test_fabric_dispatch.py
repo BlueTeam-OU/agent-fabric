@@ -98,7 +98,7 @@ def main() -> int:
     print("fabric_secrets — the verb, else the sync")
     here = os.path.join(ROOT, "tools", "fabric")
     for verb, mod in (("store", "secret_store.py"), ("provision", "store_provision.py"), ("selftest", "secret_selftest.py"),
-                      ("state", "secret_state.py")):
+                      ("state", "secret_state.py"), ("child", "secret_child.py")):
         check(f"{mod} exists", os.path.isfile(f"{here}/{mod}"))
         with Execs() as e:
             fabric_secrets.main(["fabric-secrets", verb, "a", "--b"])
