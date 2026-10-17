@@ -106,7 +106,8 @@ from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_CONTROL_RE, I18
 from fabric_lint_rules.locales import I18N_EXTRA_PATTERNS, I18N_SCHEMA_REL, LOCALE_ENGINES  # noqa: E402, F401
 from fabric_lint_rules.locales import LOCALE_FILE_OPTIONAL, LOCALE_FILE_RE, _i18n_key_re  # noqa: E402, F401
 from fabric_lint_rules.locales import i18n_default_dictionary_findings, i18n_dictionary_findings  # noqa: E402, F401
-from fabric_lint_rules.locales import locale_file_findings, locale_translation_findings  # noqa: E402, F401
+from fabric_lint_rules.locales import (locale_coverage_findings, locale_file_findings,  # noqa: E402, F401
+                                       locale_translation_findings, shared_prompt_locale_findings)
 from fabric_lint_rules.locales import locale_alignment_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import locale_worker_findings  # noqa: E402, F401
 from fabric_lint_rules.signing import signing_findings  # noqa: E402, F401
@@ -653,6 +654,8 @@ def main() -> int:
     findings += review_lens_findings(root)
 
     findings += i18n_default_dictionary_findings()
+    findings += shared_prompt_locale_findings()
+    findings += locale_coverage_findings(layout.roles_dir())
 
     # --- the capability column, against its schema ---------------------------
     # routing.py check judges each cell through its provider's adapter; the

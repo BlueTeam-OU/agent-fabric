@@ -41,7 +41,8 @@ class Fixture:
             os.makedirs(os.path.dirname(os.path.join(self.root, rel)), exist_ok=True)
             shutil.copy2(os.path.join(ROOT, rel), os.path.join(self.root, rel))
         shutil.copytree(os.path.join(ROOT, "identities", "prompt"),
-                        os.path.join(self.root, "identities", "prompt"))
+                        os.path.join(self.root, "identities", "prompt"),
+                        ignore=shutil.ignore_patterns("locale"))   # the real translations: each case writes the ones it needs
         write(os.path.join(self.root, "identities", "roles", role, "charter.md"),
               f"---\nrole: {role}\nclass: charter\ndescription: \"x\"\ntier: 1\ndistilled_at: 2026-09-15\n---\n\n"
               f"# {role} — charter\n\nCHARTER-BODY-LINE for {role}.\n")
