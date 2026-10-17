@@ -334,7 +334,26 @@ def main() -> int:
         parent_push({CHARTER: charter, BRIEF: b"x" * (70 * 1024)}, "parent: huge")
         refused("a blob over the read limit is refused before it is read", load(), "over the limit", BRIEF)
         parent_push(files, "parent: restored")
+
         check("…control: the parent's valid directory loads again", isinstance(load(), addenda.Holder))
+
+        # rule 3 as a check: the signed commit's tree for the directory must be HEAD's (not left to `git log`'s simplification)
+        older = parent_push({CHARTER: file(ROLE, KID, "charter-addendum", "# Older\n"), HOLDER: holder_json}, "parent: an older install")
+        parent_push(files, "parent: the current install")
+        check("control: the current install loads its own text", getattr(load(), "charter", None) == charter.split(b"---\n", 2)[2].decode())
+        real_git = addenda._git
+
+        def log_names_older(store, *a, **k):
+            # only the lookup of the commit that last touched the directory is answered wrongly
+            if a[:1] == ("log",) and a[-2:-1] == ("--",) and a[-1] == f"settings/roles/{ROLE}/" and "--format=%H" in a and "HEAD" in a:
+                return real_git(store, "show", "-s", "--format=%H", older)
+            return real_git(store, *a, **k)
+        addenda._git = log_names_older
+        try:
+            refused("a parent-signed commit whose directory is not HEAD's (log naming an older install) is refused, naming the role", load(), "not the tree HEAD has", ROLE)
+        finally:
+            addenda._git = real_git
+        check("…control: git's own answer, the same store, loads", isinstance(load(), addenda.Holder))
 
         # the agent owns its .git: other bytes under the name of a signed object are not read
         import zlib
