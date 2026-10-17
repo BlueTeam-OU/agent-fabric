@@ -294,6 +294,23 @@ def case_a_finding_never_echoes_what_it_read() -> None:
     assert not any(secret[:8] in f for fs in ac.validate_set(ROLE, AID, files).values() for f in fs)
 
 
+def case_a_well_formed_value_is_not_echoed_either() -> None:
+    # The values that pass the shape checks are the ones a message is most tempted to quote: a lower-case tag, a key name.
+    token = "qwertyui"
+    found = ac.validate(ROLE, AID, "charter-addendum.gloss.en.md", gloss(addendum(), lang=f"zz-{token}"))
+    assert any("lang of a gloss" in f for f in found) and not any(token in f for f in found), found
+    files = {"charter-addendum.md": addendum(lang=f"zz-{token}")}
+    findings = [f for fs in ac.validate_set(ROLE, AID, files).values() for f in fs]
+    assert any("English gloss" in f for f in findings) and not any(token in f for f in findings), findings
+    raw = addendum().replace(b"lang: en\n", f"lang: en\n{token}: x\n".encode(), 1)
+    found = ac.validate(ROLE, AID, "charter-addendum.md", raw)
+    assert any("outside" in f for f in found) and not any(token in f for f in found), found
+    raw = addendum().replace(b"lang: en\n", f"lang: en\n{token}: x\n{token}: y\n".encode(), 1)
+    assert not any(token in f for f in ac.validate(ROLE, AID, "charter-addendum.md", raw))
+    raw = addendum().replace(b"lang: en\n", "lang: en\nlang: en\n".encode(), 1)
+    assert any("twice" in f for f in ac.validate(ROLE, AID, "charter-addendum.md", raw))   # the control: still a finding
+
+
 def case_oversize_file_runs_no_control_scan() -> None:
     saved = ac.CONTROL_RE
     seen = []

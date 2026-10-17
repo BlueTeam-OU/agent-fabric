@@ -210,7 +210,7 @@ def _frontmatter(text: str) -> tuple[dict[str, str], list[str]]:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
         if key in fields:
-            problems.append(f"frontmatter key {key} twice")
+            problems.append("a frontmatter key twice")
         fields[key] = value
     return fields, problems
 
