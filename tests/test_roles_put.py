@@ -378,6 +378,40 @@ def main() -> int:
             n1 = count()
             git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
             git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
+            # ── the set rules, with the real validator (ADR-060 rules 1 and 9) ──
+            if hasattr(addenda_check, "validate_set"):
+                def real_add(lang: str = "ka", kind: str = "charter-addendum") -> bytes:
+                    return (f"---\nclass: {kind}\nrole: {ROLE}\nagent_id: {KID}\nlang: {lang}\n"
+                            f"against_digest: sha256:{'a' * 64}\n---\n# {kind}\nSpecialises {ROLE}.\n").encode()
+
+                def gloss_of(add: bytes, digest: str | None = None, kind: str = "charter-addendum") -> bytes:
+                    d = digest or addenda_check.body_digest(add.decode())
+                    return (f"---\nclass: {kind}\nrole: {ROLE}\nagent_id: {KID}\nlang: en\n"
+                            f"glosses_digest: {d}\n---\n# {kind}\nSpecialises {ROLE}.\n").encode()
+
+                passes = ("--reviewed-by", REVIEW, "--reviewed-by", REVIEW2)
+                n_set = count()
+                ka = real_add()
+                rc, out, err = install("ka-nogloss", "kng", {"charter-addendum.md": ka}, *passes, validate=real_validate)
+                check("a non-English addendum with no English gloss is refused at install",
+                      rc == 1 and "needs its English gloss" in err and count() == n_set, out + err)
+                rc, out, err = install("stale", "stl", {"charter-addendum.md": ka,
+                                                        "charter-addendum.gloss.en.md": gloss_of(ka, "sha256:" + "0" * 64)},
+                                       *passes, validate=real_validate)
+                check("…a stale gloss too", rc == 1 and "stale gloss" in err and count() == n_set, out + err)
+                rc, out, err = install("orphan", "orp", {"charter-addendum.md": real_add("en"),
+                                                         "brief-addendum.gloss.en.md": gloss_of(ka, kind="brief-addendum")},
+                                       *passes, validate=real_validate)
+                check("…and a gloss with no addendum", rc == 1 and "not in the set" in err and count() == n_set, out + err)
+                rc, out, err = install("ka-ok", "kok", {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": gloss_of(ka)},
+                                       *passes, validate=real_validate)
+                check("…and the same pair with the gloss in step installs (the positive control)",
+                      rc == 0 and count() == n_set + 1, out + err)
+                git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+                git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
+            else:
+                print("  skip the set rules: addenda_check is still the stub here; they run on the fold")
+
             n1 = count()
 
             keyname = trust.TRUST_KEY
@@ -439,40 +473,6 @@ def main() -> int:
             rc, out, err = call(parent, "roles-put", "--agent", "kid", "--role", ROLE, "--from", empty, "--approval", "A-6", "--retire")
             check("…and a retirement of such a link is refused as well: no files to write, so the link itself is what is judged",
                   rc == 1 and "link" in err and "Traceback" not in err and os.listdir(elsewhere) == ["keep"], out + err)
-
-            # ── the set rules, with the real validator (ADR-060 rules 1 and 9) ──
-            if hasattr(addenda_check, "validate_set"):
-                def real_add(lang: str = "ka", kind: str = "charter-addendum") -> bytes:
-                    return (f"---\nclass: {kind}\nrole: {ROLE}\nagent_id: {KID}\nlang: {lang}\n"
-                            f"against_digest: sha256:{'a' * 64}\n---\n# {kind}\nSpecialises {ROLE}.\n").encode()
-
-                def gloss_of(add: bytes, digest: str | None = None, kind: str = "charter-addendum") -> bytes:
-                    d = digest or addenda_check.body_digest(add.decode())
-                    return (f"---\nclass: {kind}\nrole: {ROLE}\nagent_id: {KID}\nlang: en\n"
-                            f"glosses_digest: {d}\n---\n# {kind}\nSpecialises {ROLE}.\n").encode()
-
-                passes = ("--reviewed-by", REVIEW, "--reviewed-by", REVIEW2)
-                n_set = count()
-                ka = real_add()
-                rc, out, err = install("ka-nogloss", "kng", {"charter-addendum.md": ka}, *passes, validate=real_validate)
-                check("a non-English addendum with no English gloss is refused at install",
-                      rc == 1 and "needs its English gloss" in err and count() == n_set, out + err)
-                rc, out, err = install("stale", "stl", {"charter-addendum.md": ka,
-                                                        "charter-addendum.gloss.en.md": gloss_of(ka, "sha256:" + "0" * 64)},
-                                       *passes, validate=real_validate)
-                check("…a stale gloss too", rc == 1 and "stale gloss" in err and count() == n_set, out + err)
-                rc, out, err = install("orphan", "orp", {"charter-addendum.md": real_add("en"),
-                                                         "brief-addendum.gloss.en.md": gloss_of(ka, kind="brief-addendum")},
-                                       *passes, validate=real_validate)
-                check("…and a gloss with no addendum", rc == 1 and "not in the set" in err and count() == n_set, out + err)
-                rc, out, err = install("ka-ok", "kok", {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": gloss_of(ka)},
-                                       *passes, validate=real_validate)
-                check("…and the same pair with the gloss in step installs (the positive control)",
-                      rc == 0 and count() == n_set + 1, out + err)
-                git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
-                git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
-            else:
-                print("  skip the set rules: addenda_check is still the stub here; they run on the fold")
 
             # ── the real command line, the real validator ─────────────────
             git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
