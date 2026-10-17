@@ -221,6 +221,11 @@ def main() -> int:
             rc, out, err = install("nodigest", "nd", {"charter-addendum.md": b"---\nclass: charter-addendum\n---\nbody\n"})
             check("an addendum with no against_digest in its frontmatter is refused: nothing to record",
                   rc == 1 and "against_digest" in err and "nothing written" in err and count() == n1, out + err)
+            for label, digest in (("a word", "dig-loose"), ("upper-case hex", "sha256:" + "A" * 64), ("a short hex", "sha256:" + "a" * 63)):
+                rc, out, err = install("baddig", "bd" + label[:3], {"charter-addendum.md": addendum("charter-addendum", "x").replace(
+                    dig("x").encode(), digest.encode())})
+                check(f"an against_digest of {label} is not the validator's digest shape: refused whatever the validator said",
+                      rc == 1 and "not a digest" in err and count() == n1, out + err)
             rc, out, err = install("nofm", "nf", {"charter-addendum.md": b"no frontmatter\n"})
             check("…nor one with no frontmatter at all", rc == 1 and "frontmatter" in err and count() == n1, out + err)
 
