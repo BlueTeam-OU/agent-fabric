@@ -409,6 +409,24 @@ def main() -> int:
                       rc == 0 and count() == n_set + 1, out + err)
                 git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
                 git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
+                for label, passes_given in (("no review pass", ()), ("pass-1 alone", ("--reviewed-by", REVIEW)),
+                                            ("pass-2 alone", ("--reviewed-by", REVIEW2))):
+                    rc, out, err = install("ka-" + label, "kp" + label[:3], {"charter-addendum.md": ka,
+                                           "charter-addendum.gloss.en.md": gloss_of(ka)}, *passes_given, validate=real_validate)
+                    check(f"a non-English addendum with {label} is refused: rule 9 wants both",
+                          rc == 1 and "both review passes" in err and count() == n_set, out + err)
+                # F2: one parser for install and render. A quoted or space-trailed digest validates, so it installs
+                # with the bare digest in its trailer, as the render will read it.
+                bare = "sha256:" + "a" * 64
+                for label, written in (("double-quoted", f'"{bare}"'), ("single-quoted", f"'{bare}'"), ("space-trailed", bare + "  ")):
+                    body = real_add("en").decode().replace(f"against_digest: {bare}", f"against_digest: {written}")
+                    rc, out, err = install("q-" + label, "q" + label[:4], {"charter-addendum.md": body.encode()}, validate=real_validate)
+                    trailer = git(parent, mirror, "log", "-1", "--format=%B").splitlines() if rc == 0 else []
+                    check(f"a {label} against_digest installs, and its trailer names the bare digest",
+                          rc == 0 and f"Against-Digest: charter-addendum.md {bare}" in trailer, out + err)
+                    if rc == 0:
+                        git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+                        git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
             else:
                 print("  skip the set rules: addenda_check is still the stub here; they run on the fold")
 
