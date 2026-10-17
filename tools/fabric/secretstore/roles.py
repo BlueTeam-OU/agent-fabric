@@ -89,22 +89,31 @@ def _checked_args(role: str, approval: str, reviewed_by: list[str], authored_by:
 
 def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str]) -> list[str]:
     """Rule 9: a text in another language is read in both passes of ADR-027 §5 rule 3 by language-culture-<lang>
-    (the role's login, with an instance number if it has one), each pass naming the sha256 of a file it read, and
-    the file is one of those installed. An install-time gate only: the render never sees the passes, so a commit
-    signed without roles-put renders unreviewed; the signing parent is what rule 3 trusts for that.
+    (the role's login, with an instance number if it has one). Pass one read the text alone, so it names the sha256 of
+    that addendum; pass two read it against its English gloss, so it names the sha256 of the addendum or of the gloss.
+    A set with such a text records no pass over anything else: a Reviewed-By line is a statement of what was read.
+    An install-time gate only: the render never sees the passes, so a commit signed without roles-put renders
+    unreviewed; the signing parent is what rule 3 trusts for that.
     A set that validated has a lang to read; a file without one never gets here with the real validator."""
-    read = {hashlib.sha256(raw).hexdigest() for raw in plain.values()}
+    sha = lambda name: hashlib.sha256(plain[name]).hexdigest()  # noqa: E731
     reviews = [r.split() for r in reviewed_by]
     findings = []
+    others = {}   # name -> the digests its passes may name
     for name in ADDENDA:
         lang = addenda_check.frontmatter(plain[name].decode("utf-8")).get("lang", "en") if name in plain else "en"
         if lang == "en":
             continue
+        gloss = name.replace(".md", ".gloss.en.md")
+        allowed = {"pass-1": {sha(name)}, "pass-2": {sha(name)} | ({sha(gloss)} if gloss in plain else set())}
+        others[name] = allowed["pass-1"] | allowed["pass-2"]
         reviewer = re.compile(rf"language-culture-{re.escape(lang)}(-[0-9]+)?")
         for n in ("pass-1", "pass-2"):
-            if not any(reviewer.fullmatch(login) and which == n and sha in read for login, which, sha in reviews):
+            if not any(reviewer.fullmatch(login) and which == n and digest in allowed[n] for login, which, digest in reviews):
                 findings.append(f"{name}: not in English, so it needs --reviewed-by 'language-culture-{lang} {n} <sha256 of "
-                                f"a file installed>' (ADR-060 rule 9)")
+                                f"{'the addendum' if n == 'pass-1' else 'the addendum or its gloss'}>' (ADR-060 rule 9)")
+    if others:
+        installed = {hashlib.sha256(raw).hexdigest() for raw in plain.values()}
+        findings += [f"--reviewed-by {r[0]} {r[1]}: its sha256 is of no file installed" for r in reviews if r[2] not in installed]
     return findings
 
 

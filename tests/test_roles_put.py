@@ -95,7 +95,7 @@ def main() -> int:
             out, err = io.StringIO(), io.StringIO()
             with mock.patch.dict(os.environ, env, clear=True), \
                     mock.patch.object(addenda_check, "validate", validate or fake_validate), \
-                    mock.patch.object(addenda_check, "validate_set", fake_validate_set, create=True) if validate is None \
+                    mock.patch.object(addenda_check, "validate_set", fake_validate_set) if validate is None \
                     else contextlib.nullcontext(), \
                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 rc = secret_child.main(list(args))
@@ -436,6 +436,30 @@ def main() -> int:
                                        "charter-addendum.gloss.en.md": ka_gloss}, *passes_given, validate=real_validate)
                 check(f"a non-English addendum with {label} is refused: rule 9 wants both, by its reviewer, over a file installed",
                       rc == 1 and "language-culture-ka" in err and "ADR-060 rule 9" in err and count() == n_set, out + err)
+            # F1/F2 of #290 r2: a pass is over the addendum it gates, and no pass names a file that is not installed.
+            brief_ka = real_add("ka", "brief-addendum")
+            brief_gloss = gloss_of(brief_ka, kind="brief-addendum")
+            two = {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": ka_gloss,
+                   "brief-addendum.md": brief_ka, "brief-addendum.gloss.en.md": brief_gloss}
+            right = [f"language-culture-ka pass-1 {sha(ka)}", f"language-culture-ka pass-2 {sha(ka_gloss)}",
+                     f"language-culture-ka pass-1 {sha(brief_ka)}", f"language-culture-ka pass-2 {sha(brief_gloss)}"]
+            for label, lines in (("both passes over the charter only", right[:2]),
+                                 ("the brief's passes over the charter's files", right[:2] + [right[0].replace(sha(ka), sha(ka)), f"language-culture-ka pass-2 {sha(ka)}"]),
+                                 ("an extra pass over no installed file", right + ["language-culture-ka pass-2 " + "b" * 64]),
+                                 ("an English file's digest standing for the text", [right[0], right[1], f"language-culture-ka pass-1 {sha(ka_gloss)}",
+                                                                                        f"language-culture-ka pass-2 {sha(ka_gloss)}"])):
+                rc, out, err = install("two-" + label, "two" + label[:5], two, *reviews(*lines), validate=real_validate)
+                check(f"two non-English addenda with {label} are refused", rc == 1 and ("brief-addendum.md" in err or "of no file installed" in err) and count() == n_set, out + err)
+            rc, out, err = install("two-ok", "twook", two, *reviews(*right), validate=real_validate)
+            check("…and each addendum with its own two passes installs (the positive control)", rc == 0 and count() == n_set + 1, out + err)
+            git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+            git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
+            rc, out, err = install("ka-p2text", "kp2t", {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": ka_gloss},
+                                   *reviews(f"language-culture-ka pass-1 {sha(ka)}", f"language-culture-ka pass-2 {sha(ka)}"),
+                                   validate=real_validate)
+            check("…a second pass over the addendum itself is accepted as well", rc == 0 and count() == n_set + 1, out + err)
+            git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+            git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
             rc, out, err = install("ka-inst", "kinst", {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": ka_gloss},
                                    *reviews(f"language-culture-ka-02 pass-1 {sha(ka)}", f"language-culture-ka pass-2 {sha(ka_gloss)}"),
                                    validate=real_validate)
