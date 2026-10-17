@@ -3,8 +3,8 @@
 
 Default: the cores; 1 is the old serial run. Each suite is independent: it
 makes its own scratch under the run's TMPDIR (exported by run.sh), binds
-port 0 for any socket and gives itself a HOME (the one fixed path,
-/var/tmp/agent-fabric-<login> in test_launch_cli, is created idempotently).
+port 0 for any socket and gives itself a HOME (test_launch_cli's
+launcher TMPDIR is under that HOME, so no suite shares a fixed path).
 The slowest start first, so the last one started is a short one and not the
 3-minute launcher alone at the end. A suite's output is buffered and printed
 whole when it ends, under the "== <suite>" header the serial run printed, so

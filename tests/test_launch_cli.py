@@ -653,8 +653,8 @@ def main() -> int:
             binding()
             out = plain
             check("tab-title writer off on plain claude too", "CLAUDE-ENV:CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1" in out, out)
-            tmp_default = f"/var/tmp/agent-fabric-{LOGIN}"
-            check("TMPDIR is a per-login directory under /var/tmp, created 700",
+            tmp_default = f"{home}/agent-fabric-tmp"
+            check("TMPDIR is a per-login directory in the home, in no hidden one, created 700 (pruned: test_launch_tmpdir)",
                   f"CLAUDE-ENV:TMPDIR={tmp_default}" in out and os.path.isdir(tmp_default)
                   and oct(os.stat(tmp_default).st_mode & 0o777) == "0o700", out)
             os.makedirs(f"{sandbox}/own-tmp")
