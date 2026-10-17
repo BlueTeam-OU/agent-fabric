@@ -40,3 +40,7 @@ The owner, 2026-10-14: "how an agent move to another job, should be better desig
 ### Amendment 2026-10-15 — Built, and the text says so
 
 The prompt audit of 2026-10-14 (j45) found the record still saying the request intake was "decided and not yet built" and the DIGEST listing `paused` as "unbuilt". Both are built: the inbox queues a delivered REQUEST (`tools/fabric/gzcoord/intake.py`), and `fabric-jobs pause` and `switch` exist (`next` is its alias). `fabric-adr lookup` serves this text to agents, which then added requests by hand and set work aside as `blocked`. The body and the DIGEST entry now read current; no rule changes.
+
+### Amendment 2026-10-16 — A delivered job whose evidence landed is swept to done
+
+The owner, 2026-10-16, reading devex-tooling's tab in the fleet deck, took its job count for open work: it held 67 delivered jobs against 1 active and 3 queued, and the fleet held 387. `switch` reads a delivered job's evidence once, when its agent leaves it; a supplier's work that merged later, inside the caller's pull request, stayed delivered for good. Delivered stays open (a hand-over waits on someone else), and rule 12 makes it mean only that: `fabric-jobs sweep` (#282, python-dev-02) applies `done`'s test again and closes what has landed, and the control agent runs it hourly because a supplier's session may never start again to do it. The deck's count shows delivered apart from active and queued (FleetDeck, rust-ui-dev-02).
