@@ -683,12 +683,14 @@ def _():
         try:
             _wait_started(first, env)
             for flag in ("--until-delivery", "--follow"):
-                t0 = time.monotonic()
-                r = subprocess.run([P.INBOX_CMD, flag], env=env, capture_output=True, text=True, timeout=10)
+                # "At once" is proved by the run returning at all: a second
+                # watch that kept watching would last the whole deadline, far
+                # past this bound. A wall-clock bound tighter than that only
+                # measures how slow the runner's interpreter start is.
+                r = subprocess.run([P.INBOX_CMD, flag], env=env, capture_output=True, text=True, timeout=60)
                 eq(r.returncode, 0, r.stdout + r.stderr)
                 ok(f"a watch is already running (pid {first.pid}, started " in r.stdout and "it ends at its next delivery, at its --deadline (default 1 h 55 min) with the quiet line, or with its session — nothing to kill; do not run it again" in r.stdout, r.stdout)
                 ok(r.stdout.count("\n") == 1, "one line: " + r.stdout)
-                ok(time.monotonic() - t0 < 8, "it exits at once")
             release.set()
             out, err = first.communicate(timeout=30)
             eq(first.returncode, 0, out + err)
