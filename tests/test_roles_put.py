@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -50,6 +51,15 @@ def main() -> int:
         fabric = os.path.join(tmp, "fabric")
         os.makedirs(os.path.join(fabric, "identities", "keys"))
         write_secrets_instance(fabric)
+        # The fixture fabric holds the locales' real tags (read from this checkout, not a map kept here), in the real shape.
+        real_locales = os.path.join(ROOT, "identities", "roles", "language-culture", "locale")
+        locales = os.path.join(fabric, "identities", "roles", "language-culture", "locale")
+        for key in sorted(os.listdir(real_locales)):
+            os.makedirs(os.path.join(locales, key))
+            with open(os.path.join(real_locales, key, "locale.json"), encoding="utf-8") as fh:
+                tag = json.load(fh)["tag"]
+            with open(os.path.join(locales, key, "locale.json"), "w", encoding="utf-8") as fh:
+                json.dump({"tag": tag}, fh)
 
         def role(name: str) -> dict:
             h, g = os.path.join(tmp, name), os.path.join(tmp, f"{name}-gnupg")   # a keyring never at $HOME/.gnupg
@@ -406,7 +416,7 @@ def main() -> int:
             n_set = count()
             ka = real_add()
             ka_gloss = gloss_of(ka)
-            passes = reviews(f"language-culture-ka pass-1 {sha(ka)}", f"language-culture-ka pass-2 {sha(ka_gloss)}")
+            passes = reviews(f"language-culture-ge pass-1 {sha(ka)}", f"language-culture-ge pass-2 {sha(ka_gloss)}")
             rc, out, err = install("ka-nogloss", "kng", {"charter-addendum.md": ka}, *passes, validate=real_validate)
             check("a non-English addendum with no English gloss is refused at install",
                   rc == 1 and "needs its English gloss" in err and count() == n_set, out + err)
@@ -426,28 +436,28 @@ def main() -> int:
             git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
             for label, passes_given in (
                     ("no review pass", ()),
-                    ("pass-1 alone", reviews(f"language-culture-ka pass-1 {sha(ka)}")),
-                    ("pass-2 alone", reviews(f"language-culture-ka pass-2 {sha(ka_gloss)}")),
+                    ("pass-1 alone", reviews(f"language-culture-ge pass-1 {sha(ka)}")),
+                    ("pass-2 alone", reviews(f"language-culture-ge pass-2 {sha(ka_gloss)}")),
                     ("passes by a login that is not the language's reviewer", reviews(f"legal-expert-ee pass-1 {sha(ka)}", f"legal-expert-ee pass-2 {sha(ka_gloss)}")),
                     ("passes by another language's reviewer", reviews(f"language-culture-ru pass-1 {sha(ka)}", f"language-culture-ru pass-2 {sha(ka_gloss)}")),
-                    ("a login that only starts like the reviewer's", reviews(f"language-culture-kab pass-1 {sha(ka)}", f"language-culture-kab pass-2 {sha(ka_gloss)}")),
-                    ("a pass-2 digest of a file not installed", reviews(f"language-culture-ka pass-1 {sha(ka)}", "language-culture-ka pass-2 " + "b" * 64))):
+                    ("a login that only starts like the reviewer's", reviews(f"language-culture-geb pass-1 {sha(ka)}", f"language-culture-geb pass-2 {sha(ka_gloss)}")),
+                    ("a pass-2 digest of a file not installed", reviews(f"language-culture-ge pass-1 {sha(ka)}", "language-culture-ge pass-2 " + "b" * 64))):
                 rc, out, err = install("ka-" + label, "kp" + label[:6], {"charter-addendum.md": ka,
                                        "charter-addendum.gloss.en.md": ka_gloss}, *passes_given, validate=real_validate)
                 check(f"a non-English addendum with {label} is refused: rule 9 wants both, by its reviewer, over a file installed",
-                      rc == 1 and "language-culture-ka" in err and "ADR-060 rule 9" in err and count() == n_set, out + err)
+                      rc == 1 and "language-culture-ge" in err and "ADR-060 rule 9" in err and count() == n_set, out + err)
             # F1/F2 of #290 r2: a pass is over the addendum it gates, and no pass names a file that is not installed.
             brief_ka = real_add("ka", "brief-addendum")
             brief_gloss = gloss_of(brief_ka, kind="brief-addendum")
             two = {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": ka_gloss,
                    "brief-addendum.md": brief_ka, "brief-addendum.gloss.en.md": brief_gloss}
-            right = [f"language-culture-ka pass-1 {sha(ka)}", f"language-culture-ka pass-2 {sha(ka_gloss)}",
-                     f"language-culture-ka pass-1 {sha(brief_ka)}", f"language-culture-ka pass-2 {sha(brief_gloss)}"]
+            right = [f"language-culture-ge pass-1 {sha(ka)}", f"language-culture-ge pass-2 {sha(ka_gloss)}",
+                     f"language-culture-ge pass-1 {sha(brief_ka)}", f"language-culture-ge pass-2 {sha(brief_gloss)}"]
             for label, lines in (("both passes over the charter only", right[:2]),
-                                 ("the brief's passes over the charter's files", right[:2] + [right[0].replace(sha(ka), sha(ka)), f"language-culture-ka pass-2 {sha(ka)}"]),
-                                 ("an extra pass over no installed file", right + ["language-culture-ka pass-2 " + "b" * 64]),
-                                 ("an English file's digest standing for the text", [right[0], right[1], f"language-culture-ka pass-1 {sha(ka_gloss)}",
-                                                                                        f"language-culture-ka pass-2 {sha(ka_gloss)}"])):
+                                 ("the brief's passes over the charter's files", right[:2] + [right[0].replace(sha(ka), sha(ka)), f"language-culture-ge pass-2 {sha(ka)}"]),
+                                 ("an extra pass over no installed file", right + ["language-culture-ge pass-2 " + "b" * 64]),
+                                 ("an English file's digest standing for the text", [right[0], right[1], f"language-culture-ge pass-1 {sha(ka_gloss)}",
+                                                                                        f"language-culture-ge pass-2 {sha(ka_gloss)}"])):
                 rc, out, err = install("two-" + label, "two" + label[:5], two, *reviews(*lines), validate=real_validate)
                 check(f"two non-English addenda with {label} are refused", rc == 1 and ("brief-addendum.md" in err or "of no file installed" in err) and count() == n_set, out + err)
             rc, out, err = install("two-ok", "twook", two, *reviews(*right), validate=real_validate)
@@ -455,13 +465,48 @@ def main() -> int:
             git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
             git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
             rc, out, err = install("ka-p2text", "kp2t", {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": ka_gloss},
-                                   *reviews(f"language-culture-ka pass-1 {sha(ka)}", f"language-culture-ka pass-2 {sha(ka)}"),
+                                   *reviews(f"language-culture-ge pass-1 {sha(ka)}", f"language-culture-ge pass-2 {sha(ka)}"),
                                    validate=real_validate)
             check("…a second pass over the addendum itself is accepted as well", rc == 0 and count() == n_set + 1, out + err)
             git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
             git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
+            # ADR-060 rule 6: lang is the BCP-47 language, the reviewer the locale whose tag has it (ka-GE -> ge).
+            ka_pair = {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": ka_gloss}
+            rc, out, err = install("ka-by-ka", "kbk", ka_pair, *reviews(f"language-culture-ka pass-1 {sha(ka)}",
+                                                                      f"language-culture-ka pass-2 {sha(ka_gloss)}"), validate=real_validate)
+            check("lang ka with language-culture-ka's passes is refused: the locale is ge, and the message names it",
+                  rc == 1 and "language-culture-ge" in err and count() == n_set, out + err)
+            ru = real_add("ru")
+            ru_gloss = gloss_of(ru)
+            ru_pair = {"charter-addendum.md": ru, "charter-addendum.gloss.en.md": ru_gloss}
+            rc, out, err = install("ru-ok", "ruok", ru_pair, *reviews(f"language-culture-ru pass-1 {sha(ru)}",
+                                                                    f"language-culture-ru pass-2 {sha(ru_gloss)}"), validate=real_validate)
+            check("lang ru with language-culture-ru's passes installs", rc == 0 and count() == n_set + 1, out + err)
+            git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+            git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
+            rc, out, err = install("ru-by-ge", "ruge", ru_pair, *reviews(f"language-culture-ge pass-1 {sha(ru)}",
+                                                                       f"language-culture-ge pass-2 {sha(ru_gloss)}"), validate=real_validate)
+            check("…and with language-culture-ge's passes it is refused", rc == 1 and "language-culture-ru" in err and count() == n_set, out + err)
+            fr = real_add("fr")
+            fr_gloss = gloss_of(fr)
+            rc, out, err = install("fr", "fr", {"charter-addendum.md": fr, "charter-addendum.gloss.en.md": fr_gloss},
+                                   *reviews(f"language-culture-fr pass-1 {sha(fr)}", f"language-culture-fr pass-2 {sha(fr_gloss)}"),
+                                   validate=real_validate)
+            check("a lang that no locale's tag carries is refused, naming the lang and that no language-culture locale has it",
+                  rc == 1 and "'fr'" in err and "no language-culture locale" in err and count() == n_set, out + err)
+            broken = os.path.join(locales, "ge", "locale.json")
+            kept = open(broken, "rb").read()
+            try:
+                with open(broken, "w") as fh:
+                    fh.write("{not json")
+                rc, out, err = install("badloc", "badloc", ka_pair, *passes, validate=real_validate)
+                check("a locale.json that cannot be read is a refusal naming it, never a locale left out",
+                      rc == 1 and "locale.json" in err and "no readable tag" in err and count() == n_set, out + err)
+            finally:
+                with open(broken, "wb") as fh:
+                    fh.write(kept)
             rc, out, err = install("ka-inst", "kinst", {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": ka_gloss},
-                                   *reviews(f"language-culture-ka-02 pass-1 {sha(ka)}", f"language-culture-ka pass-2 {sha(ka_gloss)}"),
+                                   *reviews(f"language-culture-ge-02 pass-1 {sha(ka)}", f"language-culture-ge pass-2 {sha(ka_gloss)}"),
                                    validate=real_validate)
             check("…while the reviewer's login with an instance number is accepted", rc == 0 and count() == n_set + 1, out + err)
             git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
