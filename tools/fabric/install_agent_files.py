@@ -127,8 +127,12 @@ def login() -> str:
 
 
 class Installer:
-    def __init__(self, provider: str, dry_run: bool, root: str = FABRIC_ROOT) -> None:
+    def __init__(self, provider: str, dry_run: bool, root: str = FABRIC_ROOT, locale: str | None = None) -> None:
         self.provider, self.dry_run, self.root = provider, dry_run, root
+        # The holder's locale when the launcher resolved one (holder.json,
+        # agent-fabric ADR-060 §5 rule 8); bootstrap runs before any launch
+        # and has none, so the login's suffix stays its fallback.
+        self.locale = locale
         self.changed = 0
         self.same = 0
 
@@ -249,7 +253,7 @@ class Installer:
                 content = MODEL_LINE.sub(lambda m: m.group(0) + b"\neffort: " + effort.encode(), content, count=1)
             self.put(os.path.join(claude_home, "agents", f), content)
         role = self.role()
-        suffix = login().rsplit("-", 1)[-1]
+        suffix = self.locale or login().rsplit("-", 1)[-1]
         self.locale_worker(claude_home, role, suffix)
         rc = self.locale_search(claude_home, role, suffix) or self.memory_search()
         if rc:
@@ -400,6 +404,7 @@ def last_launch_provider() -> str | None:
 
 def main(argv: list[str]) -> int:
     dry_run = False
+    locale = None
     provider = os.environ.get("AGENT_FABRIC_LAUNCH_PROVIDER") or last_launch_provider() or "anthropic"
     i = 0
     while i < len(argv):
@@ -410,11 +415,16 @@ def main(argv: list[str]) -> int:
             provider, i = argv[i + 1], i + 2
         elif a.startswith("--provider="):
             provider, i = a[len("--provider="):], i + 1
+        elif a == "--locale" and i + 1 < len(argv):
+            locale, i = argv[i + 1], i + 2
         else:
             print(f"install-agent-files: unknown argument {a}", file=sys.stderr)
             return 2
     try:
-        return Installer(provider, dry_run).run()
+        if locale is not None and not re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", locale):
+            print(f"install-agent-files: --locale {locale!r} is not a locale tag", file=sys.stderr)
+            return 2
+        return Installer(provider, dry_run, locale=locale).run()
     except WriteError as e:
         print(e, file=sys.stderr)
         return 1
