@@ -217,6 +217,32 @@ def case_holder_json_against_the_schema() -> None:
             assert schema_refuses == hand[raw], (raw, schema_refuses, hand[raw])
 
 
+def case_link_pattern_does_not_backtrack() -> None:
+    import signal
+
+    def alarm(*_a):
+        raise AssertionError("LINK_RE did not return: exponential backtracking")
+    old = signal.signal(signal.SIGALRM, alarm)
+    signal.alarm(10)
+    try:
+        for text in ("[[]" * 1300, "[" * 3999, "[a" * 1999, "![" + "[]" * 1999, "[[]" * 1000 + "x"):
+            ac.LINK_RE.findall(text)
+        ac.validate("r", "a", "charter-addendum.md", addendum("[[]" * 1300 + "\n"))   # through the public door too
+        # The control: nested and unbalanced link text is still seen as a link.
+        assert ac.LINK_RE.findall("a [x [y] z](../f.md)") == ["../f.md"]
+        assert ac.LINK_RE.findall("a [x [y](../f.md)") == ["../f.md"]
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
+def case_every_control_character_is_refused() -> None:
+    for code in list(range(0x00, 0x09)) + list(range(0x0b, 0x20)) + [0x7f, 0x85, 0x9f]:
+        must_refuse("charter-addendum.md", addendum(f"a{chr(code)}b\n"), "control")
+    for ok in ("\n", "\t"):   # the positive control: LF and TAB are allowed
+        must_pass("charter-addendum.md", addendum(f"a{ok}b\n"))
+
+
 def case_set_gloss_digest() -> None:
     ge = addendum(GEORGIAN, lang="ka")
     files = {"charter-addendum.md": ge, "charter-addendum.gloss.en.md": gloss(ge), "holder.json": HOLDER_OK}

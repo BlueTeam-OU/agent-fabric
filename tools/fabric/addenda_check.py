@@ -99,16 +99,17 @@ INCLUDE_RES = (
     re.compile(r"\{\{|\{%"),                                # template tags
     re.compile(r"^[ \t]*(?:#include|!include|<!--\s*include)\b", re.M | re.I),
 )
-# Link text may hold brackets and a line break, a reference definition's
+# Link text may hold balanced brackets and a line break (no bracket is matched by two parts of the pattern: a run of
+# "[[]" would otherwise backtrack exponentially), a reference definition's
 # destination may start on the next line, and a footnote label ([^1]) is no
 # link. Autolinks and raw HTML href/src are links too.
-LINK_RE = re.compile(r"!?\[[^\]]*(?:\[[^\]]*\][^\]]*)*\]\(\s*<?([^)\s>]*)")
+LINK_RE = re.compile(r"!?\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\]\(\s*<?([^)\s>]*)")
 REF_DEF_RE = re.compile(r"^[ \t]{0,3}\[(?!\^)[^\]\n]+\]:\s*<?(\S+)", re.M)
 AUTOLINK_RE = re.compile(r"<([A-Za-z][A-Za-z0-9+.-]*:[^>\s]*|[./][^>\s]*)>")
 HTML_ATTR_RE = re.compile(r"\b(?:href|src)\s*=\s*[\"']?([^\"'\s>]*)", re.I)
 # A line separator other than LF, a control character or a bidi override
 # changes what a reader or an auditor of the gloss sees.
-CONTROL_RE = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
+CONTROL_RE = re.compile("[\x00-\x08\x0b\x0c\r\x0e-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
 # Unicode hyphens are folded before the model-pin patterns look.
 HYPHENS = dict.fromkeys(range(0x2010, 0x2016), "-")
 WIKILINK_RE = re.compile(r"\[\[[^\]\n]+\]\]")
