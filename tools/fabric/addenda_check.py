@@ -1,4 +1,4 @@
-"""tools/fabric/addenda_check.py — the validator of a holder's addenda (agent-fabric ADR-060 §5 rules 1, 6 and 9).
+"""tools/fabric/addenda_check.py — the validator of a holder's addenda (ADR-060 of the holder-addenda plan, §5 rules 1, 6 and 9; proposed, not on main when this landed).
 
 A holder's specialization of role R is `settings/roles/R/` in the agent's
 store: `charter-addendum.md`, `brief-addendum.md`, `holder.json`, and an

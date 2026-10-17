@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for tools/fabric/addenda_check.py (agent-fabric ADR-060 §5 rules 1, 6, 9). Every refusal is one mutation of a
+"""Tests for tools/fabric/addenda_check.py (ADR-060 §5 rules 1, 6, 9). Every refusal is one mutation of a
 file the same test shows valid first (the positive control), so a refusal is never the fixture's own fault."""
 from __future__ import annotations
 
