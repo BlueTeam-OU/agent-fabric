@@ -22,7 +22,7 @@ control plane checked out beside it.
 
 ## brief
 
-- [`identities/roles/domain-transit/brief.md`](identities/roles/domain-transit/brief.md) — How domain-transit works day to day, in any project: the transport network as data — what a line, a stop and 'served' mean, checked against the real map before any textbook answer.
+- [`identities/roles/domain-transit/brief.md`](identities/roles/domain-transit/brief.md) — How domain-transit works day to day, in any project: the transport network as data — every term defined, every result traceable to its source, checked against the real map before any textbook answer.
 
 ## domain
 

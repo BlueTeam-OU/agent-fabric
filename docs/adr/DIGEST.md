@@ -63,6 +63,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | signing commits; an agent's own key; ssh or gpg signing; fabric-sign; timestamps; Verified on GitHub | ADR-057 |
 | lessons in messages; reflection pass; fabric-reflect; turning the journal into memory | ADR-058 |
 | personal data in AI tools; Max plan; client data; privacy notice; sub-processor | ADR-059 |
+| a holder's own specialization of a role; charter or brief addendum; holder.json; jurisdiction of a legal holder; locale chosen per holder | ADR-060 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1270,3 +1271,25 @@ its record disagree, the record wins. Look it up, never read it whole:
   a plan with a processing agreement needs a new record (§5 rules 3-4).
 - Keywords: personal data, AI tools, Max, consumer plan, sub-processor,
   GDPR Article 28, privacy notice, client data.
+
+### ADR-060 — A holder's addenda specialise a shared role (Proposed)
+
+- A holder's specialization of role R is `settings/roles/R/` in its own
+  store: `charter-addendum.md`, `brief-addendum.md`, `holder.json`, all
+  optional, no working state (§2, §5 rule 1).
+- The launcher reads only the bound role's directory, from the store's
+  committed HEAD, never `env/`; it refuses a wrong `.agent-id` or a HEAD
+  off the trusted base (§5 rule 2).
+- Only the parent installs, in one signed commit naming author, review
+  passes and the owner's approval; any other signer refuses (§5 rule 3).
+- Order: charter, its addendum, brief, its addendum; none gives today's
+  bytes; an addendum narrows, never repeals, at most 4 000 characters,
+  with `against_digest` (§5 rules 4-6).
+- `holders_specialize: required` refuses a launch without valid addenda;
+  tamper is never absence (§5 rule 7).
+- `holder.json` chooses the locale, not the login's suffix; header, team
+  and memory are translated once per language, so a non-English holder
+  renders no English; a locale addendum gets the two passes and an
+  English gloss (§5 rules 8-9).
+- Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
+  holder.json, locale, parent-signed, holders_specialize.
