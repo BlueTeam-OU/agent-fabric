@@ -160,6 +160,14 @@ prompt, byte for byte, unless the catalogue marks the role
 holders_specialize: required; anything unverifiable or invalid stops the
 launch with one line naming the path and the commit. What it read is
 stamped as AGENT_FABRIC_LAUNCH_STORE_SHA and _ADDENDA_COMMIT, and only then.
+THE HOLDER'S LOCALE (ADR-060 rule 8). The locale the session renders and
+searches in is holder.json's `locale`, the login's suffix only while the
+holder has no holder.json. It is exported with the deployment facts as
+AGENT_FABRIC_LOCALE, AGENT_FABRIC_TZ and AGENT_FABRIC_SEARCH_COUNTRY: the
+timezone and country from holder.json, else from the locale.json of that
+locale (timezone, serpapi.gl), else dropped from the environment. The
+locale's harness text and search tools are chosen from it, not from the
+suffix; the readers of the exports never open the store.
 The launcher announces nothing: whether a session is running is the
 control plane's to answer, from the process table (runtime/control/
 presence.mjs, docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md) — HELLO/GOODBYE are retired.
@@ -524,7 +532,7 @@ def launch(argv: list[str]) -> int:
     prompt_digest = stripped(r)
     # THE PROMPT IN THE LOCALE. A language-culture login whose locale carries
     # a translation of the harness's own text (identities/roles/language-
-    # culture/locale/<suffix>/harness.md, of runtime/claude-code/harness/en.md)
+    # culture/locale/<locale>/harness.md, of runtime/claude-code/harness/en.md)
     # is launched with the WHOLE prompt replaced — the fabric's part in the
     # locale, then the harness text in the locale, in that order, rendered by
     # launch_prompt.py — instead of the fabric's part appended after the
@@ -535,8 +543,19 @@ def launch(argv: list[str]) -> int:
     # is the kill switch: append, as for every other login. On that branch
     # the build is stamped beside the capture's `build:`, so a build that
     # moved past it is visible — never a gate.
+    # The locale is the holder's (ADR-060 rule 8): holder.json's, the login's
+    # suffix only while the holder has none. Exported for every later reader
+    # (the locale search server), which never opens the store; set or dropped,
+    # because inherited from a replaced session they would name another holder's.
     suffix = pwd.getpwuid(os.getuid()).pw_name.rsplit("-", 1)[-1]
-    locale_dir = roots.locale_dir("language-culture", suffix, engine=fabric_root, environ=env)
+    loc = holder.resolve_locale(fabric_root, suffix, state_dir, bool(held))
+    holder.refuse_split_locale(fabric_root, suffix, loc.tag)
+    for name, value in loc.exports().items():
+        if value is None:
+            env.pop(name, None)
+        else:
+            env[name] = value
+    locale_dir = roots.locale_dir("language-culture", loc.tag, engine=fabric_root, environ=env)
     prompt_flag = "--append-system-prompt-file"
     if role == "language-culture" and os.path.isfile(f"{locale_dir}/harness.md"):
         prompt_flag = "--system-prompt-file"
@@ -638,7 +657,7 @@ def launch(argv: list[str]) -> int:
     cmd = session_command(routing_provider, session, caller_model, session_effort, caller_effort, prompt_flag,
                           prompt_file, args)
     # A language-culture login whose locale the fabric authored a search for
-    # (identities/roles/language-culture/locale/<suffix>/locale.json, served
+    # (identities/roles/language-culture/locale/<locale>/locale.json, served
     # by runtime/mcp/websearch-locale) searches through that alone: the
     # harness's own WebSearch — US-only, no locale — is removed from the
     # session at exec (the CEO, 2026-09-17). install-agent-files.sh writes the

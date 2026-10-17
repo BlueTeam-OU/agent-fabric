@@ -63,7 +63,7 @@ done
 for v in OPENROUTER_API_KEY GH_TOKEN CLAUDE_BRIDGE_AUTH_TOKEN OPENAI_API_KEY CLAUDE_CODE_OAUTH_TOKEN DEMO_PORT_OFFSET; do
     echo "CLAUDE-HAS:$v=${!v+yes}"
 done
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION AGENT_FABRIC_LOCALE AGENT_FABRIC_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
     echo "CLAUDE-ENV:$v=${!v:-}"
 done
 '''
@@ -616,6 +616,15 @@ def main() -> int:
             outlc = out_of("--provider", "anthropic", "--", "--version")
             check("a language-culture login with a locale search execs claude without WebSearch — the variadic flag last, "
                   "after the caller's arguments", has(r"CLAUDE-EXECCED:.*--version --disallowedTools WebSearch$", outlc), outlc)
+            exported = suffix if re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", suffix) else ""   # a suffix that is no tag is not exported
+            check("…with no holder.json the locale is the login's suffix, its timezone the locale file's, no search country named",
+                  has(rf"CLAUDE-ENV:AGENT_FABRIC_LOCALE={re.escape(exported)}$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_TZ=Asia/Tbilisi$", outlc)
+                  and has(r"CLAUDE-ENV:AGENT_FABRIC_SEARCH_COUNTRY=$", outlc), grep("CLAUDE-ENV:AGENT_FABRIC_(LOCALE|TZ|SEARCH)", outlc))
+            outlc = out_of("--provider", "anthropic", "--", "--version", AGENT_FABRIC_LOCALE="stale", AGENT_FABRIC_TZ="Europe/Stale",
+                           AGENT_FABRIC_SEARCH_COUNTRY="zz")
+            check("…and what a replaced session exported is overwritten or dropped, not inherited",
+                  has(rf"CLAUDE-ENV:AGENT_FABRIC_LOCALE={re.escape(exported)}$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_TZ=Asia/Tbilisi$", outlc)
+                  and has(r"CLAUDE-ENV:AGENT_FABRIC_SEARCH_COUNTRY=$", outlc), grep("CLAUDE-ENV:AGENT_FABRIC_(LOCALE|TZ|SEARCH)", outlc))
             outlc = out_of("--provider", "anthropic")
             check("…and a bare launch there: the opening after the variadic flag, behind --",
                   has(r"CLAUDE-EXECCED:.*--disallowedTools WebSearch -- Session start: arm", outlc), outlc)
@@ -649,6 +658,8 @@ def main() -> int:
             rm(f"{lc}/locale/{suffix}")
             outlc = out_of("--provider", "anthropic", "--", "--version")
             check("…and not when its locale has no search authored", "--disallowedTools" not in outlc, outlc)
+            check("…and with no locale file the timezone is dropped, the locale still the suffix (when it is a tag)",
+                  has(rf"CLAUDE-ENV:AGENT_FABRIC_LOCALE={re.escape(exported)}$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_TZ=$", outlc), outlc)
             rm(lc)
             binding()
             out = plain
@@ -1250,6 +1261,99 @@ def main() -> int:
                   rc != 0 and "addenda" in out and "backend-dev" in out and "EXECCED" not in out, out)
             check("…and nothing is read as absence: no holder file is left", not os.path.exists(f"{agent_dir}/launch-holder.json"))
             rm(store)
+            print("launch: the holder's locale (ADR-060 rule 8) — holder.json first, the suffix only while it has none")
+            # addenda.py is test_addenda.py's (the signed store); here only what the launcher does with the Holder
+            # it writes, so the tree runs a stand-in that writes the Holder of addenda.py's docstring from FAKE_HOLDER.
+            put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
+            code = f"{sandbox}/code"
+            rm(code)
+            shutil.copytree(f"{ROOT}/tools/fabric", f"{code}/tools/fabric", ignore=shutil.ignore_patterns("__pycache__"))
+            os.makedirs(f"{code}/runtime/openrouter")
+            shutil.copy2(LAUNCHER, f"{code}/runtime/openrouter/launch")
+            put(f"{code}/tools/fabric/addenda.py", """import json, os, sys
+out = sys.argv[sys.argv.index("--out") + 1]
+spec = os.environ.get("FAKE_HOLDER")
+if spec is not None:
+    with open(out, "w", encoding="utf-8") as fh:
+        json.dump({"role": "language-culture", "agent_id": "a", "charter": None, "brief": None,
+                   "holder": None if spec == "none" else json.loads(spec), "against": {},
+                   "store_sha": "a" * 40, "addenda_commit": "b" * 40}, fh)
+    print("a" * 40, "b" * 40)
+""", 0o644)
+            tree = f"{code}/runtime/openrouter/launch"
+            suffix = LOGIN.rsplit("-", 1)[-1]
+            lc = f"{fabric}/identities/roles/language-culture"
+            shutil.copytree(f"{fabric}/identities/roles/backend-dev", lc)
+
+            def locale_json(tag: str, tz: str, gl: str | None) -> None:
+                put(f"{lc}/locale/{tag}/locale.json", json.dumps(
+                    {"timezone": tz, **({"serpapi": {"gl": gl}} if gl else {}), "brave": {"country": "ALL", "tool_description": "x"}}))
+            locale_json(suffix, "Europe/Suffixville", "sx")   # what the login's name would choose: must lose to holder.json
+            locale_json("ge", "Asia/Tbilisi", "ge")
+            locale_json("en", "Asia/Tbilisi", "ge")
+            binding("language-culture")
+
+            def held(holder_json: str | None, **env: str) -> str:
+                extra = {} if holder_json is None else {"FAKE_HOLDER": holder_json}
+                return out_of("--provider", "anthropic", "--", "--version", launcher=tree, **extra, **env)
+
+            def exports(out: str) -> tuple[str, str, str]:
+                return tuple((re.search(rf"^CLAUDE-ENV:AGENT_FABRIC_{v}=(.*)$", out, re.M) or [None, "<absent>"])[1]
+                             for v in ("LOCALE", "TZ", "SEARCH_COUNTRY"))
+            sfx = suffix if re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", suffix) else ""
+            out = held(None)
+            check("no addenda at all: the suffix's locale, its file's facts, WebSearch removed",
+                  exports(out) == (sfx, "Europe/Suffixville", "sx") and "--disallowedTools WebSearch" in out, out)
+            out = held("none")
+            check("addenda but no holder.json: the same — the suffix is the fallback",
+                  exports(out) == (sfx, "Europe/Suffixville", "sx") and "--disallowedTools WebSearch" in out, out)
+            out = held('{"locale":"ge","timezone":"Asia/Yerevan","search":{"country":"am"}}')
+            check("holder.json present: its locale, timezone and country win over the suffix and the locale file",
+                  exports(out) == ("ge", "Asia/Yerevan", "am"), out)
+            out = held('{"locale":"ge"}')
+            check("…one that names only a locale takes the deployment facts from that locale's file",
+                  exports(out) == ("ge", "Asia/Tbilisi", "ge"), out)
+            out = held('{"locale":"en"}')
+            check("…English too: en is a locale like another, carrying Asia/Tbilisi and its country in its file",
+                  exports(out) == ("en", "Asia/Tbilisi", "ge"), out)
+            check("…and the harness's search is removed by the holder's locale (en has a locale.json), not the suffix's",
+                  "--disallowedTools WebSearch" in out, out)
+            # prompt render and agent files still choose by the suffix: a disagreement is refused, not half applied
+            def refused(spec: str, name: str) -> bool:
+                rc, o = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER=spec)
+                return rc != 0 and "EXECCED" not in o and name in o and "disagree" in o
+            rm(f"{lc}/locale/{suffix}")
+            check("a suffix with no locale.json beside a holder locale that has one: refused (no search at all otherwise)",
+                  refused('{"locale":"ge"}', "locale.json"))
+            locale_json(suffix, "Europe/Suffixville", "sx")
+            rm(f"{lc}/locale/ge")
+            check("…and the reverse, a suffix with one and the holder's locale without",
+                  refused('{"locale":"ge"}', "locale.json"))
+            locale_json("ge", "Asia/Tbilisi", "ge")
+            put(f"{lc}/locale/{suffix}/harness.md", "x\n")
+            check("a harness text under the suffix only: refused — the prompt would carry it, and the flag would not",
+                  refused('{"locale":"en"}', "harness.md"))
+            put(f"{lc}/locale/en/harness.md", "x\n")
+            out = held('{"locale":"en"}')
+            check("…both having it (positive control): the launch replaces the prompt, as the holder's locale has the text",
+                  "--system-prompt-file" in out and exports(out)[0] == "en", out)
+            rm(f"{lc}/locale/{suffix}/harness.md", f"{lc}/locale/en/harness.md")
+            out = held('{"locale":"ge"}')
+            check("(a holder locale equal to nothing of the suffix, the files agreeing: launches)", exports(out)[0] == "ge", out)
+            put(f"{lc}/locale/ge/locale.json", "{ nope")
+            rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"ge"}')
+            check("a locale.json that does not parse stops the launch, naming it — the timezone is not silently dropped",
+                  rc != 0 and "EXECCED" not in out and "ge/locale.json" in out, out)
+            locale_json("ge", "Asia/Tbilisi", "ge")
+            for bad in ('{"locale":"GE"}', '{"locale":"../ge"}', '{"timezone":"Asia/Yerevan"}', '"ge"'):
+                rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER=bad)
+                check(f"a holder.json the launcher cannot take a locale from ({bad}) stops the launch, not a guess from the suffix",
+                      rc != 0 and "EXECCED" not in out and "locale" in out, out)
+            rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"en"}')
+            check("(positive control: the same tree launches with a valid holder.json)", rc == 0 and "CLAUDE-EXECCED:" in out, out)
+            rm(lc, code)
+            binding()
+
             # F7: the policy of the bound role is read or the launch stops; a missing catalogue, and a role
             # the catalogue does not list, are refusals (positive control: the cases above launch with both).
             catalog = f"{fabric}/identities/roles/catalog.json"

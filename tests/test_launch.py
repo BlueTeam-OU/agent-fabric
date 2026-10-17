@@ -576,7 +576,7 @@ def main() -> int:
         os.makedirs(copy)
         shutil.copytree(os.path.join(os.path.dirname(MODULE), "launcher"), f"{copy}/launcher",
                         ignore=shutil.ignore_patterns("__pycache__"))
-        for f in ("launch.py", "git.py", "roots.py", "launch_provider_record.py"):
+        for f in ("launch.py", "git.py", "roots.py", "launch_provider_record.py", "addenda_check.py"):   # addenda_check: launcher/holder.py loads its locale rules
             shutil.copy(os.path.join(os.path.dirname(MODULE), f), f"{copy}/{f}")
         code = ("import importlib.util, inspect, sys\n"
                 "def load(name, path):\n"
