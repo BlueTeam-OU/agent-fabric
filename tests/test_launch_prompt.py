@@ -369,10 +369,14 @@ def case_holder_ceiling_grows_by_the_addenda_only() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp)
         size = len(f.run("--print").stdout)
-        pad = 28000 - size - 10   # the shared part just under MAX_CHARS
-        write(os.path.join(f.root, "identities", "roles", "backend-dev", "brief.md"),
-              "---\nrole: backend-dev\nclass: brief\n---\n\n# backend-dev — brief\n\n" + "p" * pad + "\n")
-        assert f.run("--print").returncode == 0, "the fixture is not under the ceiling"
+        brief = os.path.join(f.root, "identities", "roles", "backend-dev", "brief.md")
+        head = "---\nrole: backend-dev\nclass: brief\n---\n\n# backend-dev — brief\n\n"
+        pad = 28000 - size
+        for _ in range(3):   # the shared part exactly at MAX_CHARS: no slack to hide an off-by-one
+            write(brief, head + "p" * pad + "\n")
+            pad += 28000 - len(f.run("--print").stdout)
+        shared = f.run("--print")
+        assert shared.returncode == 0 and len(shared.stdout) == 28000, f"the fixture is not at the ceiling: {len(shared.stdout)}"
         r = f.run("--print", "--holder-file", _holder(f, tmp, charter="a" * 3999, brief="b" * 3999))
         assert r.returncode == 0, "addenda within their cap pushed a shared part under MAX_CHARS over the ceiling: " + r.stderr
         text = r.stdout

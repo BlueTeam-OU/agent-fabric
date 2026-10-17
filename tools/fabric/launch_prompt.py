@@ -189,7 +189,9 @@ def build(agent: str, host: str, role: str, holder: dict | None = None) -> str:
         localized = localized or loc
         parts.append(text.replace("{role}", role).strip("\n") + "\n")
     text = "\n".join(parts)
-    ceiling = (int(MAX_CHARS * LOCALE_CHARS_FACTOR) if localized else MAX_CHARS) + sum(len(a) for a in added.values())
+    # Each addendum is one more joined part, so it adds its length and one
+    # separator; the ceiling grows by exactly that (ADR-060 §5 rule 6).
+    ceiling = (int(MAX_CHARS * LOCALE_CHARS_FACTOR) if localized else MAX_CHARS) + sum(len(a) + 1 for a in added.values() if a)
     if len(text) > ceiling:
         raise SystemExit(f"launch_prompt: {len(text)} characters for role {role!r} exceeds {ceiling}; "
                          "shorten the charter or brief (tools/fabric/lint.py budgets them)")
