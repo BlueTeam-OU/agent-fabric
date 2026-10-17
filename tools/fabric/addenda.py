@@ -58,8 +58,6 @@ POLICIES = ("optional", "required")
 # allowed is addenda_check.validate's to say, and it is asked of every file.
 CHARTER, BRIEF, HOLDER = "charter-addendum.md", "brief-addendum.md", "holder.json"
 _ROLE_RE = re.compile(r"[a-z][a-z0-9-]*")
-_FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
-_AGAINST_RE = re.compile(r"(?m)^against_digest: (sha256:[0-9a-f]{64})$")
 # Far above any valid file (the cap is 4 000 characters), so a blob of this size
 # is refused before it is read into memory, not by the validator.
 _MAX_BLOB = 64 * 1024
@@ -245,11 +243,12 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
         if name not in files:
             return None, None
         full = decoded(name)
-        m = _FRONTMATTER_RE.match(full)
-        d = _AGAINST_RE.search(m.group(1)) if m else None
-        if not m or not d:
+        m = check.FRONTMATTER_RE.match(full)
+        # The validator's own parser, so what install and validate accept is what render reads.
+        digest = check.frontmatter(full).get("against_digest")
+        if not m or not digest or not check.DIGEST_RE.fullmatch(digest):
             raise _refuse(role, f"{name} passed validation but its frontmatter has no readable against_digest", commit)
-        return full[m.end():], d.group(1)
+        return full[m.end():], digest
 
     charter, c_against = text(CHARTER)
     brief, b_against = text(BRIEF)
