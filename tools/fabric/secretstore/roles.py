@@ -14,8 +14,9 @@ Contract of `roles_put(child, role, src, approval, ...)`:
           approval, reviewer or author that is not one line of the shape
           below; a source that settings._read_tree refuses; a file in a
           subdirectory or whose name starts with a dot; any finding of
-          addenda_check.validate on any file; an addendum with no readable
-          against_digest in its frontmatter.
+          addenda_check.validate_set on the files (the gloss rules among them);
+          an addendum with no readable against_digest in its frontmatter; an
+          addendum not in English without both review passes (pass-1, pass-2).
   refused under the mirror's write lock, before anything is written: a mirror
           with uncommitted changes, with no remote, with no trusted base, whose
           .agent-id is not the child's, or whose HEAD is not the remote's main
@@ -59,19 +60,18 @@ ADDENDA = ("charter-addendum.md", "brief-addendum.md")
 
 
 def against_digest(name: str, raw: bytes) -> str:
-    """The `against_digest` of an addendum's frontmatter, or a StoreError:
-    an install that cannot name what the text was written against records nothing."""
-    lines = raw.decode("utf-8", "replace").replace("\r\n", "\n").split("\n")
-    if lines[:1] != ["---"] or "---" not in lines[1:]:
-        raise StoreError(f"{name}: no frontmatter, so no against_digest; nothing written")
-    for line in lines[1:lines.index("---", 1)]:
-        key, sep, value = line.partition(":")
-        if sep and key.strip() == "against_digest":
-            value = value.strip().strip("'\"")
-            if not DIGEST_RE.fullmatch(value):
-                raise StoreError(f"{name}: against_digest is not a digest; nothing written")
-            return value
-    raise StoreError(f"{name}: its frontmatter has no against_digest; nothing written")
+    """The `against_digest` of an addendum's frontmatter, or a StoreError: an install that cannot name what the
+    text was written against records nothing. Read by the validator's own frontmatter parser, the one the launch
+    reads it with too: what install accepts, render accepts."""
+    try:
+        value = addenda_check.frontmatter(raw.decode("utf-8")).get("against_digest")
+    except UnicodeDecodeError:
+        raise StoreError(f"{name}: not UTF-8, so no against_digest; nothing written") from None
+    if value is None:
+        raise StoreError(f"{name}: no against_digest in its frontmatter (or no frontmatter); nothing written")
+    if not DIGEST_RE.fullmatch(value):
+        raise StoreError(f"{name}: against_digest is not a digest; nothing written")
+    return value
 
 
 def _checked_args(role: str, approval: str, reviewed_by: list[str], authored_by: str | None) -> None:
@@ -86,17 +86,24 @@ def _checked_args(role: str, approval: str, reviewed_by: list[str], authored_by:
         raise StoreError(f"--authored-by {authored_by!r} is not a login; nothing written")
 
 
-def _checked_files(role: str, aid: str, files: dict[str, bytes], retire: bool) -> None:
+def _checked_files(role: str, aid: str, files: dict[str, bytes], retire: bool, reviewed_by: list[str]) -> None:
     if retire and files:
         raise StoreError("--retire takes an empty directory: a retirement installs nothing; nothing written")
     if not retire and not files:
         raise StoreError("the directory holds no file; a retirement is an empty directory with --retire; nothing written")
-    found = []
-    for name, raw in sorted(files.items()):
-        if os.sep in name or name.startswith("."):
-            found.append(f"{name}: addenda are plain files directly in settings/roles/{role}/")
-            continue
-        found += [f"{name}: {f}" for f in addenda_check.validate(role, aid, name, raw)]
+    plain = {n: raw for n, raw in files.items() if os.sep not in n and not n.startswith(".")}
+    found = [f"{n}: addenda are plain files directly in settings/roles/{role}/" for n in sorted(set(files) - set(plain))]
+    # The set, not each file: a stale gloss, a gloss with no addendum and a non-English addendum with no gloss
+    # are only visible together (ADR-060 rules 1 and 9).
+    found += [f"{n}: {f}" for n, fs in sorted(addenda_check.validate_set(role, aid, plain).items()) for f in fs]
+    if not found:
+        # Rule 9: a text in another language is read in both passes of ADR-027 §5 rule 3 before the parent installs it.
+        # A set that validated has a lang to read; a file without one never gets here with the real validator.
+        passes = {r.split()[1] for r in reviewed_by}
+        for name in ADDENDA:
+            if name in plain and addenda_check.frontmatter(plain[name].decode("utf-8")).get("lang", "en") != "en" \
+                    and not {"pass-1", "pass-2"} <= passes:
+                found.append(f"{name}: not in English, so it needs both review passes (--reviewed-by pass-1 and pass-2, ADR-060 rule 9)")
     if found:
         raise StoreError("the addenda are refused, nothing written: " + "; ".join(found))
 
@@ -167,7 +174,7 @@ def roles_put(child: str, role: str, src: str, approval: str, *, reviewed_by: li
         raise StoreError(f"{rec.get('login')} is not this account's child in identities/keys/lineage.json; "
                          "only an agent's parent installs its addenda (ADR-060); nothing written")
     files = _read_tree(src, allow_empty=True)   # _checked_files says what an empty one means
-    _checked_files(role, aid, files, retire)
+    _checked_files(role, aid, files, retire, reviewed_by)
     for n in ADDENDA:   # an addendum that names no digest is refused before the mirror is looked at
         if n in files:
             against_digest(n, files[n])
