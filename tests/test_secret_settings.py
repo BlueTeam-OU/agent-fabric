@@ -180,6 +180,11 @@ def main() -> int:
 
         refused("a source that is not there is refused", os.path.join(tmp, "nope"), "nope")
         refused("a file for a source is refused", tree("f", {"x": b"1"}) + "/x", "not a directory")
+        # ADR-060 rule 3: a holder's addenda are the parent's to install, never the agent's own settings-put.
+        mine = "addenda are installed by your parent (ADR-060)"
+        refused("a path under roles/ is refused: the parent installs addenda", tree("roles1", {"roles/legal-expert/charter-addendum.md": b"x"}), mine)
+        refused("…one among otherwise good files refuses the whole tree", tree("roles2", {"ok.txt": b"1", "roles/r/holder.json": b"{}"}), mine)
+        refused("…and a file named roles, which would take the directory's place", tree("roles3", {"roles": b"1"}), mine)
         os.symlink(tree("real", {"x": b"1"}), os.path.join(tmp, "linked"))
         os.symlink(os.path.join(tmp, "real"), os.path.join(tmp, "linked-real"))
         # xonly grants search but not read, above the source:
@@ -477,6 +482,11 @@ def main() -> int:
         check("…and the next run pushes it as no new commit", p.returncode == 0 and "unchanged" in p.stdout
               and g("rev-parse", "HEAD") == subprocess.run(["git", "--git-dir", remote, "rev-parse", "main"],
                                                            capture_output=True, text=True).stdout, p.stdout + p.stderr)
+        # The positive control of the roles/ refusals: names that only start like it are ordinary settings.
+        n_like = count()
+        p = run("settings-put", "--from", tree("lookalike", {"roles-x/a": b"1", "rolesx": b"1", "other/roles/a": b"1"}))
+        check("a path that only starts like roles/ (roles-x/, rolesx, other/roles/) is written: the refusal is of roles/ alone",
+              p.returncode == 0 and count() == n_like + 1, p.stdout + p.stderr)
         with mock.patch.dict(os.environ, env), mock.patch.object(S, "_read_tree", side_effect=KeyboardInterrupt):
             try:
                 S.settings_put(tree("readint", {"a": b"1"}))
