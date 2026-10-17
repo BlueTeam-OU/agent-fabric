@@ -228,19 +228,38 @@ def case_link_pattern_does_not_backtrack() -> None:
         for text in ("[[]" * 1300, "[" * 3999, "[a" * 1999, "![" + "[]" * 1999, "[[]" * 1000 + "x"):
             ac.LINK_RE.findall(text)
         ac.validate("r", "a", "charter-addendum.md", addendum("[[]" * 1300 + "\n"))   # through the public door too
-        # The control: nested and unbalanced link text is still seen as a link.
-        assert ac.LINK_RE.findall("a [x [y] z](../f.md)") == ["../f.md"]
-        assert ac.LINK_RE.findall("a [x [y](../f.md)") == ["../f.md"]
+        # The positive controls: every spelling that hides a file link is still found.
+        for text, want in (("a [x [y] z](../f.md)", ["../f.md"]), ("a [x [y](../f.md)", ["../f.md"]),
+                           ("see [the act [the charter](../charter.md)](https://www.riigiteataja.ee/en/)", ["../charter.md", "https://www.riigiteataja.ee/en/"]),
+                           ("[[x](../f.md)](https://e.ee)", ["../f.md", "https://e.ee"]),
+                           ("[a [b [c] d] e](../f.md)", ["../f.md"]), ("[a](https://e[b](../f.md)", ["https://e[b](../f.md", "../f.md"])):
+            assert ac.LINK_RE.findall(text) == want, (text, ac.LINK_RE.findall(text))
+            if "../" in text:
+                must_refuse("charter-addendum.md", addendum(text + "\n"), "link to a file")
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old)
 
 
 def case_every_control_character_is_refused() -> None:
-    for code in list(range(0x00, 0x09)) + list(range(0x0b, 0x20)) + [0x7f, 0x85, 0x9f]:
+    for code in (list(range(0x00, 0x09)) + list(range(0x0b, 0x20)) + list(range(0x7f, 0xa0)) + [0x2028, 0x2029]
+                 + list(range(0x202a, 0x202f)) + list(range(0x2066, 0x206a))):
         must_refuse("charter-addendum.md", addendum(f"a{chr(code)}b\n"), "control")
     for ok in ("\n", "\t"):   # the positive control: LF and TAB are allowed
         must_pass("charter-addendum.md", addendum(f"a{ok}b\n"))
+
+
+def case_oversize_file_runs_no_pattern() -> None:
+    saved = ac._hygiene, ac._model_pins
+    calls = []
+    ac._hygiene = ac._model_pins = lambda *a: calls.append(a) or []
+    try:
+        found = ac.validate(ROLE, AID, "charter-addendum.md", addendum("x" * (ac.MAX_CHARS + 1) + "\n"))
+        assert any("the limit is" in f for f in found) and not calls, (found, len(calls))
+        ac.validate(ROLE, AID, "charter-addendum.md", addendum("x\n"))
+        assert calls   # the control: under the cap the patterns do run
+    finally:
+        ac._hygiene, ac._model_pins = saved
 
 
 def case_set_gloss_digest() -> None:
