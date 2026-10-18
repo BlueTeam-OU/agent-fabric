@@ -254,6 +254,7 @@ Options:
   --authorization <id|seq>  the boundary authority's message (see THE ARMING POLICY), for a boundary change under its minimum
   --any-owner           arm a PR whose branch is not this session's
   --dry-run             evaluate every gate, arm nothing, post nothing
+  --repo <owner/name|project>  the PR's repository, whose arm.json and policy apply, not the cwd checkout's
 
 Exit codes:
   0  armed or merged (or, with --dry-run, would arm)
@@ -630,14 +631,15 @@ def arm(argv: list[str]) -> int:
         return Refused(f"REFUSED #{num} — {why}")
 
     try:
-        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,baseRefName,body,title"],
-                               what=f"gh pr view {num}"))
-    except (gh.GhError, ValueError):
-        raise Unanswered(f"cannot read #{num} (gh pr view failed)") from None
-    try:
         repo = gh.this_repo()
     except gh.GhError as e:
         raise Unanswered(f"cannot read the repository: {e.reason}") from None
+    try:
+        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,baseRefName,body,title"],
+                               what=f"gh pr view {num}"))
+    except (gh.GhError, ValueError):
+        # The repository named: from another project's checkout, #N is looked for in the cwd's (2026-10-18).
+        raise Unanswered(f"cannot read #{num} in {repo} (gh pr view failed; --repo names another repository)") from None
     owner, name = repo.split("/", 1)
     state, branch = str(pr.get("state")), str(pr.get("headRefName") or "")
     head, title, body = str(pr.get("headRefOid") or ""), str(pr.get("title") or ""), str(pr.get("body") or "")
