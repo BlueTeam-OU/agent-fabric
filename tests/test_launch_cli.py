@@ -661,6 +661,11 @@ def main() -> int:
             outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Operator/Zone")
             check("…a TZ the operator set is not unset by a launch that knows no timezone",
                   has(r"CLAUDE-ENV:TZ=Operator/Zone$", outlc), outlc)
+            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Asia/Tbilisi", AGENT_FABRIC_LAUNCH_TZ="Asia/Tbilisi")
+            check("…but the TZ a previous launch set (a restart's inheritance) is dropped once the timezone is no longer known",
+                  has(r"CLAUDE-ENV:TZ=$", outlc), outlc)
+            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Operator/Zone", AGENT_FABRIC_LAUNCH_TZ="Asia/Tbilisi")
+            check("…and a TZ the operator changed since is kept", has(r"CLAUDE-ENV:TZ=Operator/Zone$", outlc), outlc)
             rm(lc)
             binding()
             out = plain
@@ -1288,7 +1293,7 @@ if spec is not None:
             def locale_json(tag: str, tz: str, gl: str | None) -> None:
                 put(f"{lc}/locale/{tag}/locale.json", json.dumps(
                     {"timezone": tz, **({"serpapi": {"gl": gl}} if gl else {}), "brave": {"country": "ALL", "tool_description": "x"}}))
-            locale_json(suffix, "Europe/Suffixville", "sx")   # what the login's name would choose: must lose to holder.json
+            locale_json(suffix, "Europe/Paris", "sx")   # what the login's name would choose: must lose to holder.json
             locale_json("ge", "Asia/Tbilisi", "ge")
             locale_json("en", "Asia/Tbilisi", "ge")
             binding("language-culture")
@@ -1303,10 +1308,10 @@ if spec is not None:
             sfx = suffix if re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", suffix) else ""
             out = held(None)
             check("no addenda at all: the suffix's locale, its file's facts, WebSearch removed",
-                  exports(out) == ("Europe/Suffixville", "sx") and "--disallowedTools WebSearch" in out, out)
+                  exports(out) == ("Europe/Paris", "sx") and "--disallowedTools WebSearch" in out, out)
             out = held("none")
             check("addenda but no holder.json: the same — the suffix is the fallback",
-                  exports(out) == ("Europe/Suffixville", "sx") and "--disallowedTools WebSearch" in out, out)
+                  exports(out) == ("Europe/Paris", "sx") and "--disallowedTools WebSearch" in out, out)
             out = held('{"locale":"ge","timezone":"Asia/Yerevan","search":{"country":"am"}}')
             check("holder.json present: its locale, timezone and country win over the suffix and the locale file",
                   exports(out) == ("Asia/Yerevan", "am"), out)
@@ -1342,6 +1347,10 @@ if spec is not None:
             rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"ge"}')
             check("a locale.json that does not parse stops the launch, naming it — the timezone is not silently dropped",
                   rc != 0 and "EXECCED" not in out and "ge/locale.json" in out, out)
+            locale_json("ge", "Asia/Tbilsi", "ge")
+            rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"ge"}')
+            check("a locale.json timezone that is no IANA name stops the launch, not a silent UTC",
+                  rc != 0 and "EXECCED" not in out and "Asia/Tbilsi" in out, out)
             locale_json("ge", "Asia/Tbilisi", "ge")
             for bad in ('{"locale":"GE"}', '{"locale":"../ge"}', '{"timezone":"Asia/Yerevan"}', '"ge"'):
                 rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER=bad)

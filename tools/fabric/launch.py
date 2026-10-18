@@ -168,7 +168,8 @@ TZ and AGENT_FABRIC_SEARCH_COUNTRY: the timezone and country from
 holder.json, else from the locale.json of that locale (timezone, serpapi.gl).
 A country not known is dropped from the environment; a timezone not known
 leaves TZ as the operator's own environment has it, since TZ is not ours to
-unset. The locale's harness text, agent files and search tools are chosen
+unset, unless TZ still holds the value a previous launch stamped in
+AGENT_FABRIC_LAUNCH_TZ (a restart re-executes with the environment it set). The locale's harness text, agent files and search tools are chosen
 from the locale, not from the suffix; the readers of the exports never open
 the store.
 The launcher announces nothing: whether a session is running is the
@@ -553,11 +554,17 @@ def launch(argv: list[str]) -> int:
     # holder's. A timezone not known leaves TZ alone: it is the operator's.
     suffix = pwd.getpwuid(os.getuid()).pw_name.rsplit("-", 1)[-1]
     loc = holder.resolve_locale(fabric_root, suffix, state_dir, bool(held))
+    # TZ the last launch set (a restart re-executes with that environment) is not the operator's.
+    stamped = env.pop(holder.LAUNCH_TZ, None)
     for name, value in loc.exports().items():
         if value is not None:
             env[name] = value
         elif name != "TZ":
             env.pop(name, None)
+        elif stamped is not None and env.get("TZ") == stamped:
+            env.pop("TZ")
+    if loc.timezone:
+        env[holder.LAUNCH_TZ] = loc.timezone
     locale_dir = roots.locale_dir("language-culture", loc.tag, engine=fabric_root, environ=env)
     prompt_flag = "--append-system-prompt-file"
     if role == "language-culture" and os.path.isfile(f"{locale_dir}/harness.md"):

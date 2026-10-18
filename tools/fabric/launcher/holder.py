@@ -20,6 +20,8 @@ HOLDER_FILE = "launch-holder.json"
 # neither reader opens the store. The tag is not exported: its one consumer
 # besides the launcher is the agent-file installer, which takes it as --locale.
 LOCALE_ENV = ("TZ", "AGENT_FABRIC_SEARCH_COUNTRY")
+# The TZ this launch set, so a restart (which re-executes with that environment) can tell it from the operator's.
+LAUNCH_TZ = "AGENT_FABRIC_LAUNCH_TZ"
 # The one definition of a valid locale tag and country: the validator the
 # install and the render already run.
 _check = _load("fabric_addenda_check", os.path.join(HERE, "addenda_check.py"))
@@ -134,6 +136,9 @@ def resolve_locale(fabric_root: str, suffix: str, state_dir: str, held: bool) ->
     serpapi = fallback.get("serpapi")
     country = search.get("country") if isinstance(search, dict) and "country" in search else \
         serpapi.get("gl") if isinstance(serpapi, dict) else None
+    if isinstance(timezone, str) and timezone and not _check._is_iana(timezone):
+        # Unlike a name nothing read, TZ sets the clock of every process of the session, and an unknown name is read as UTC without a word.
+        die(f"the holder's timezone {timezone!r} is no IANA timezone name; the launch stops.")
     return Locale(tag, timezone if isinstance(timezone, str) and timezone else None,
                   country if isinstance(country, str) and country else None)
 
