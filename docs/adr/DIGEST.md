@@ -87,20 +87,20 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-001 — Decision records (Accepted)
 
 - Decisions live in `docs/adr/` on gzapp's engine: numbered records,
-  amendment in place with a history note, supersession with a point map;
-  the index is generated (§2).
+  amended in place with a history note, superseded with a point map; a
+  generated index (§2).
 - fabric-coordinator writes; the owner accepts, and `Accepted` needs a
-  `Ratified:` line naming where the owner's word is; merging ratifies
-  already-practised records, and a new record only when the PR says arming
-  ratifies it and the owner arms it so (§5 rules 1–2).
+  `Ratified:` line naming where the owner's word is; merging ratifies a
+  practised record, a new one only when the PR says so and the owner arms
+  it (§5 rules 1–2).
 - An ADR body edit needs an Amendments row or an `ADR-Editorial:` trailer
   (§5 rule 4); from outside, cite "agent-fabric ADR-NNN" (§5 rule 6).
 - Live checks are immutable evidence (§5 rule 8); `sources/` keeps the
-  verbatim texts a record paraphrases, never edited (§5 rule 9).
+  verbatim texts records paraphrase (§5 rule 9).
 - A 2026-09-27 — a source's edit, rename or removal is refused whatever
   the commit's trailers (§5 rule 9).
-- A 2026-09-27 — no inline attribution: who decided and when are the
-  header's and the history's (§5 rule 10).
+- A 2026-09-27 — no inline attribution: who and when are the header's
+  and the history's (§5 rule 10).
 - A 2026-09-27 — a record reads current: no date in §2 to §8; §1 may date an
   incident (§5 rule 11).
 - A 2026-09-29 — the DIGEST is looked up (`fabric-adr lookup`), never read whole;
