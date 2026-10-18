@@ -125,8 +125,8 @@ once per language.
    is never read as absence.
 8. `holder.json` names the holder's `locale` and its deployment facts
    (timezone, search country). The launcher chooses `locale/<locale>/`
-   from it, and the login's suffix only while a holder has no
-   `holder.json`. `locale/<lang>/` keeps what a language needs: its
+   from it; a holder with no `holder.json` renders in English, whatever
+   its login is named (A 2026-10-18). `locale/<lang>/` keeps what a language needs: its
    translations, its `locale-worker`, its dictionaries and its language
    tags. The translations of the role-independent prompt pieces (header,
    team, memory, brief-missing) live once per language in
@@ -211,3 +211,4 @@ The body above reads current; each change's full note is in [history/ADR-060-ame
 | 2026-10-17 | Accepted; the digest check is per file; sizes restated | Status Accepted; §5 rule 3's record of an install is its signed commit's tree; §4 names the digest check; §1's size restated; §8 says which amendments land with which stage |
 | 2026-10-18 | ADR-057 needs no amendment; what `lang` names | §8: the signature checker reads public data only, so a holder's private locale cannot name a signer; the stage's other amendments (ADR-018, ADR-027) are made. §5 rule 6: an addendum's `lang` is its BCP-47 language (`ka`); its reviewer is the holder of the locale whose tag has that language (`language-culture-ge`) |
 | 2026-10-18 | The last commit on the path, over the whole history | §5 rule 3, §4: a merge whose version of the directory its parents do not carry over is the change, so a merge cannot route the path to an older install |
+| 2026-10-18 | The login's suffix no longer chooses a locale | §5 rule 8: a holder without `holder.json` renders in English; every holder in another language has one (the live check of 2026-10-18) |
