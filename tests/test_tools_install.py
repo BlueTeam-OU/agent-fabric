@@ -724,7 +724,14 @@ def main() -> int:
               subprocess.run([link, "--version"], capture_output=True, text=True, timeout=30).stdout.strip() == "faketool v1.2.3")
         again = tools_install.install("faketool", reg=wreg(whole), home=home, fetch=never)
         check("a second run is current and fetches nothing", again["status"] == "current", again)
-        os.unlink(os.path.join(wtree(home), "faketool"))   # the link stays, dangling: only the entrypoint says it is not current
+        os.unlink(os.path.join(wtree(home), "faketool"))
+        # The link dangles, and a faketool earlier on PATH still proves as 1.2.3: only the missing entrypoint says not current.
+        shadow = os.path.join(home, "shadow")
+        os.makedirs(shadow)
+        with open(os.path.join(shadow, "faketool"), "wb") as fh:
+            fh.write(SCRIPT)
+        os.chmod(os.path.join(shadow, "faketool"), 0o755)
+        os.environ["PATH"] = f"{shadow}:{os.environ['PATH']}"
         again = tools_install.install("faketool", reg=wreg(whole), home=home, fetch=serving(whole))
         check("a tree whose entrypoint is gone is installed again, whole, with no set-aside copy",
               again["status"] == "installed" and os.path.isfile(os.path.join(wtree(home), "faketool"))
@@ -751,7 +758,8 @@ def main() -> int:
             "a hard link": (base + [(f"{ROOTD}/lib/hard", "h", f"{ROOTD}/faketool", 0o755)], "neither a file"),
             "a fifo": (base + [(f"{ROOTD}/lib/fifo", "p", "", 0o644)], "neither a file"),
             "a file listed twice": (base + [(f"{ROOTD}/lib/deep/er/a.txt", "f", b"again", 0o644)], "twice"),
-            "a directory over a file": (base + [(f"{ROOTD}/lib/deep/er/a.txt/sub", "f", b"x", 0o644)], "under a file"),
+            "a file under a file": (base + [(f"{ROOTD}/lib/deep/er/a.txt/sub", "f", b"x", 0o644)], "under a file"),
+            "a directory over a file": (base + [(f"{ROOTD}/lib/deep/er/a.txt", "d", "", 0o755)], "over something else"),
             "an empty path part": (base + [(f"{ROOTD}/lib//dup", "f", b"x", 0o644)], "not a clean path"),
             "no entrypoint": ([e for e in base if e[0] != f"{ROOTD}/faketool"], "holds no"),
         }
