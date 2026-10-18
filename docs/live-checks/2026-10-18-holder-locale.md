@@ -38,10 +38,22 @@ read back from it.
 - `tools/fabric/lint.py` reports no addenda or locale finding over the
   coordinator's mirrors after the installs.
 
+## Afterwards: language-culture-en
+
+Retiring the fallback showed one more dependant. language-culture-en, whose
+locale is English, took its timezone (Asia/Tbilisi) and search country (ge)
+from `locale/en/locale.json` because its suffix named that locale; with no
+suffix fallback a login without `holder.json` has no timezone or country,
+and applying English's facts to every such login would put Asia/Tbilisi on
+logins that never had a timezone. Its store got a `holder.json` naming
+`en`, Asia/Tbilisi and ge (install commit a954eba, its two English addenda
+unchanged beside it), so it keeps both.
+
 ## What it decides
 
 Every holder whose locale is not English now names it in `holder.json`, and
-renders from it as it did from its login's suffix. The suffix fallback has no
+renders from it as it did from its login's suffix; so does the one English
+holder that took deployment facts from its locale. The suffix fallback has no
 remaining dependant: a holder without `holder.json` is English, which is what
 the suffix gave every other login (no other suffix names a locale). Stage 6
 can remove it.
