@@ -75,7 +75,7 @@ write paths' fetch, take-bundle, seed-child, child-bundle, refresh-mirror
 and push's fast-forward verify every commit beyond the store's trusted
 base (agent-fabric.trustedbase in its .git/config, set by `trust-base` or
 a new store's init, moved forward by each verified fetch and moved back to the
-commit it still shares with HEAD when a write's rebase or reset orphans it). A refusal names
+commit it still shares with HEAD when a write's rebase orphans it). A refusal names
 the commit and why, applies nothing, and is kept beside the store for
 `fabric-secrets status` and `fabric-ctl keys` until a verified fetch
 succeeds. One stop is no refusal: a commit whose object carries a PGP
