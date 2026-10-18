@@ -138,7 +138,7 @@ def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str], fabric: str | N
         others[name] = allowed["pass-1"] | allowed["pass-2"]
         keys = _locale_keys(lang, fabric)
         if not keys:
-            findings.append(f"{name}: lang {lang!r} is carried by no language-culture locale (no locale.json tag has it), "
+            findings.append(f"{name}: its lang is carried by no language-culture locale (no locale.json tag has it), "
                             "so no reviewer can be named (ADR-060 rule 6)")
             continue
         who = "|".join(re.escape(k) for k in keys)
@@ -147,9 +147,12 @@ def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str], fabric: str | N
             if not any(reviewer.fullmatch(login) and which == n and digest in allowed[n] for login, which, digest in reviews):
                 findings.append(f"{name}: not in English, so it needs --reviewed-by 'language-culture-{'|'.join(keys)} {n} <sha256 of "
                                 f"{'the addendum' if n == 'pass-1' else 'the addendum or its gloss'}>' (ADR-060 rule 9)")
-    if others:
-        installed = {hashlib.sha256(raw).hexdigest() for raw in plain.values()}
-        findings += [f"--reviewed-by {r[0]} {r[1]}: its sha256 is of no file installed" for r in reviews if r[2] not in installed]
+    # What a Reviewed-By line says was read: only the digests a pass over a non-English addendum may name. A set with
+    # none (English only, or a holder.json beside it) records no pass at all, and a pass over holder.json or an
+    # English text beside a non-English one is no pass over the text that needs it.
+    allowed_any = set().union(*others.values())
+    findings += [f"--reviewed-by {r[0]} {r[1]}: its sha256 is not of an addendum in another language or its English gloss"
+                 + ("" if others else " (this install has none, so it records no pass)") for r in reviews if r[2] not in allowed_any]
     return findings
 
 

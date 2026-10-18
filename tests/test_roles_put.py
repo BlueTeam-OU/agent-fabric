@@ -114,9 +114,9 @@ def main() -> int:
         def dig(label: str) -> str:
             return label if label.startswith("sha256:") else "sha256:" + hashlib.sha256(label.encode()).hexdigest()
 
-        def addendum(kind: str, digest: str, role_: str = ROLE) -> bytes:
+        def addendum(kind: str, digest: str, role_: str = ROLE, lang: str = "en") -> bytes:
             digest = dig(digest)
-            return (f"---\nclass: {kind}\nrole: {role_}\nagent_id: {KID}\nlang: en\nagainst_digest: {digest}\n---\n"
+            return (f"---\nclass: {kind}\nrole: {role_}\nagent_id: {KID}\nlang: {lang}\nagainst_digest: {digest}\n---\n"
                     f"# {kind}\nSpecialises {role_} for its holder.\n").encode()
 
         made = []
@@ -160,7 +160,11 @@ def main() -> int:
             start = count()
 
             # ── a valid install ───────────────────────────────────────────
-            charter, brief = addendum("charter-addendum", "dig-charter-1"), addendum("brief-addendum", "dig-brief-1")
+            # The validator is a stand-in here, so the charter can be in another language without its gloss: what is
+            # judged is the gate on the passes (a pass is over the non-English text), and the trailers it leaves.
+            charter, brief = addendum("charter-addendum", "dig-charter-1", lang="ka"), addendum("brief-addendum", "dig-brief-1")
+            REVIEW = f"language-culture-ge pass-1 {hashlib.sha256(charter).hexdigest()}"
+            REVIEW2 = f"language-culture-ge pass-2 {hashlib.sha256(charter).hexdigest()}"
             rc, out, err = install("valid", "v1", {"charter-addendum.md": charter, "brief-addendum.md": brief,
                                                    "holder.json": b'{"locale":"en"}'},
                                    "--reviewed-by", REVIEW, "--reviewed-by", REVIEW2, "--authored-by", "legal-expert-ee")
@@ -187,7 +191,7 @@ def main() -> int:
                 env=parent, capture_output=True, text=True).stdout.strip().splitlines()
             check("…and git reads them as trailers", parsed == trailers, repr(parsed))
             rc, out, err = install("same", "v1b", {"charter-addendum.md": charter, "brief-addendum.md": brief,
-                                                   "holder.json": b'{"locale":"en"}'})
+                                                   "holder.json": b'{"locale":"en"}'}, "--reviewed-by", REVIEW, "--reviewed-by", REVIEW2)
             check("the same files again are unchanged: no commit", rc == 0 and "unchanged" in out and count() == start + 1, out + err)
 
             # ── a refused file: nothing committed, nothing left ───────────
@@ -459,7 +463,7 @@ def main() -> int:
                                  ("an English file's digest standing for the text", [right[0], right[1], f"language-culture-ge pass-1 {sha(ka_gloss)}",
                                                                                         f"language-culture-ge pass-2 {sha(ka_gloss)}"])):
                 rc, out, err = install("two-" + label, "two" + label[:5], two, *reviews(*lines), validate=real_validate)
-                check(f"two non-English addenda with {label} are refused", rc == 1 and ("brief-addendum.md" in err or "of no file installed" in err) and count() == n_set, out + err)
+                check(f"two non-English addenda with {label} are refused", rc == 1 and ("brief-addendum.md" in err or "not of an addendum in another language" in err) and count() == n_set, out + err)
             rc, out, err = install("two-ok", "twook", two, *reviews(*right), validate=real_validate)
             check("…and each addendum with its own two passes installs (the positive control)", rc == 0 and count() == n_set + 1, out + err)
             git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
@@ -493,7 +497,7 @@ def main() -> int:
                                    *reviews(f"language-culture-fr pass-1 {sha(fr)}", f"language-culture-fr pass-2 {sha(fr_gloss)}"),
                                    validate=real_validate)
             check("a lang that no locale's tag carries is refused, naming the lang and that no language-culture locale has it",
-                  rc == 1 and "'fr'" in err and "no language-culture locale" in err and count() == n_set, out + err)
+                  rc == 1 and "'fr'" not in err and "lang: fr" not in err and "no language-culture locale" in err and count() == n_set, out + err)
             broken = os.path.join(locales, "ge", "locale.json")
             kept = open(broken, "rb").read()
             try:
@@ -505,6 +509,28 @@ def main() -> int:
             finally:
                 with open(broken, "wb") as fh:
                     fh.write(kept)
+            # #293 r1 F1: a Reviewed-By line becomes a trailer in the signed commit, so it names only what needs a pass.
+            en_add = real_add("en", "brief-addendum")
+            holder = b'{"locale":"ka"}'
+            mixed = {**ka_pair, "brief-addendum.md": en_add, "holder.json": holder}
+            ge_passes = [f"language-culture-ge pass-1 {sha(ka)}", f"language-culture-ge pass-2 {sha(ka_gloss)}"]
+            for label, files, lines in (
+                    ("a pass over an English addendum beside the non-English one", mixed, ge_passes + [f"language-culture-ge pass-2 {sha(en_add)}"]),
+                    ("a pass over holder.json beside the non-English addendum", mixed, ge_passes + [f"language-culture-ge pass-2 {sha(holder)}"]),
+                    ("any pass on an English-only set", {"brief-addendum.md": en_add}, [f"language-culture-ge pass-1 {sha(en_add)}"]),
+                    ("any pass on a set of holder.json alone", {"holder.json": holder}, [f"language-culture-ge pass-2 {sha(holder)}"])):
+                rc, out, err = install("r1f1-" + label, "r1f1" + label[:8], files, *reviews(*lines), validate=real_validate)
+                check(f"{label} is refused: no Reviewed-By line for what needs no review",
+                      rc == 1 and "its sha256 is not of an addendum in another language" in err and count() == n_set, out + err)
+            rc, out, err = install("mixed-ok", "mixok", mixed, *reviews(*ge_passes), validate=real_validate)
+            check("…and the non-English addendum with its own passes, beside an English one and holder.json, installs",
+                  rc == 0 and count() == n_set + 1, out + err)
+            git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+            git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
+            rc, out, err = install("en-only-ok", "enok", {"brief-addendum.md": en_add}, validate=real_validate)
+            check("…and an English-only set with no pass installs", rc == 0 and count() == n_set + 1, out + err)
+            git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
+            git(parent, mirror, "push", "-q", "--force", "origin", "HEAD:main")
             rc, out, err = install("ka-inst", "kinst", {"charter-addendum.md": ka, "charter-addendum.gloss.en.md": ka_gloss},
                                    *reviews(f"language-culture-ge-02 pass-1 {sha(ka)}", f"language-culture-ge pass-2 {sha(ka_gloss)}"),
                                    validate=real_validate)
@@ -554,14 +580,17 @@ def main() -> int:
             check("--retire with files is refused", rc == 1 and "empty directory" in err and count() == n3, out + err)
             rc, out, err = call(parent, "roles-put", "--agent", "kid", "--role", ROLE, "--from", empty, "--approval", "A-5",
                                 "--reviewed-by", REVIEW, "--retire")
+            check("a retirement records no pass: a Reviewed-By line says a text was read, and nothing is installed",
+                  rc == 1 and "records no pass" in err and count() == n3, out + err)
+            rc, out, err = call(parent, "roles-put", "--agent", "kid", "--role", ROLE, "--from", empty, "--approval", "A-5", "--retire")
             check("a retirement: an empty directory and --retire removes the role's addenda in one signed, pushed commit",
                   rc == 0 and "committed as" in out and count() == n3 + 1 and not os.path.exists(os.path.join(mirror, "settings", "roles", ROLE))
                   and os.path.isfile(os.path.join(mirror, "settings", "roles", "other-role", "charter-addendum.md"))
                   and git(parent, mirror, "log", "-1", "--format=%G?").strip() == "G"
                   and remote_head() == git(parent, mirror, "rev-parse", "HEAD").strip(), out + err)
             msg = git(parent, mirror, "log", "-1", "--format=%B")
-            check("…its trailers say whose, who approved, and name no digest",
-                  f"Addendum-Role: {ROLE}" in msg and "Owner-Approval: A-5" in msg and f"Reviewed-By: {REVIEW}" in msg
+            check("…its trailers say whose, who approved, and name no digest and no pass",
+                  f"Addendum-Role: {ROLE}" in msg and "Owner-Approval: A-5" in msg and "Reviewed-By" not in msg
                   and "Against-Digest" not in msg and "roles-retire" in msg.splitlines()[0], msg)
             rc, out, err = call(parent, "roles-put", "--agent", "kid", "--role", ROLE, "--from", empty, "--approval", "A-5", "--retire")
             check("retiring what is already gone is unchanged, no commit", rc == 0 and "unchanged" in out and count() == n3 + 1, out + err)
