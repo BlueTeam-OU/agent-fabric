@@ -368,6 +368,14 @@ def main() -> int:
         r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "--locale", "ka"], capture_output=True,
                            text=True, env=env_for(home, cfg), check=False)
         check("--locale ka installs ka's worker for a login named otherwise", os.path.isfile(os.path.join(cfg, "agents", "locale-worker.md")), r.stdout + r.stderr)
+        rm_worker = os.path.join(cfg, "agents", "locale-worker.md")
+        os.remove(rm_worker)
+        r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "--locale=ka"], capture_output=True,
+                           text=True, env=env_for(home, cfg), check=False)
+        check("--locale=ka behaves as --locale ka", os.path.isfile(rm_worker), r.stdout + r.stderr)
+        r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "--locale=Not A Tag"], capture_output=True,
+                           text=True, env=env_for(home, cfg), check=False)
+        check("…and --locale=X that is no tag is the same usage error", r.returncode == 2 and "not a locale tag" in r.stderr, r.stderr)
         r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "--locale", "Not A Tag"], capture_output=True,
                            text=True, env=env_for(home, cfg), check=False)
         check("a --locale that is no tag is a usage error", r.returncode == 2 and "not a locale tag" in r.stderr, r.stderr)

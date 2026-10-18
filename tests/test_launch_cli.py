@@ -63,7 +63,7 @@ done
 for v in OPENROUTER_API_KEY GH_TOKEN CLAUDE_BRIDGE_AUTH_TOKEN OPENAI_API_KEY CLAUDE_CODE_OAUTH_TOKEN DEMO_PORT_OFFSET; do
     echo "CLAUDE-HAS:$v=${!v+yes}"
 done
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION AGENT_FABRIC_LOCALE AGENT_FABRIC_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
     echo "CLAUDE-ENV:$v=${!v:-}"
 done
 '''
@@ -616,15 +616,13 @@ def main() -> int:
             outlc = out_of("--provider", "anthropic", "--", "--version")
             check("a language-culture login with a locale search execs claude without WebSearch — the variadic flag last, "
                   "after the caller's arguments", has(r"CLAUDE-EXECCED:.*--version --disallowedTools WebSearch$", outlc), outlc)
-            exported = suffix if re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", suffix) else ""   # a suffix that is no tag is not exported
-            check("…with no holder.json the locale is the login's suffix, its timezone the locale file's, no search country named",
-                  has(rf"CLAUDE-ENV:AGENT_FABRIC_LOCALE={re.escape(exported)}$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_TZ=Asia/Tbilisi$", outlc)
-                  and has(r"CLAUDE-ENV:AGENT_FABRIC_SEARCH_COUNTRY=$", outlc), grep("CLAUDE-ENV:AGENT_FABRIC_(LOCALE|TZ|SEARCH)", outlc))
-            outlc = out_of("--provider", "anthropic", "--", "--version", AGENT_FABRIC_LOCALE="stale", AGENT_FABRIC_TZ="Europe/Stale",
-                           AGENT_FABRIC_SEARCH_COUNTRY="zz")
-            check("…and what a replaced session exported is overwritten or dropped, not inherited",
-                  has(rf"CLAUDE-ENV:AGENT_FABRIC_LOCALE={re.escape(exported)}$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_TZ=Asia/Tbilisi$", outlc)
-                  and has(r"CLAUDE-ENV:AGENT_FABRIC_SEARCH_COUNTRY=$", outlc), grep("CLAUDE-ENV:AGENT_FABRIC_(LOCALE|TZ|SEARCH)", outlc))
+            check("…with no holder.json the timezone is the locale file's, as the session's TZ, and no search country is named",
+                  has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_SEARCH_COUNTRY=$", outlc),
+                  grep("CLAUDE-ENV:(TZ|AGENT_FABRIC_SEARCH)", outlc))
+            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Europe/Stale", AGENT_FABRIC_SEARCH_COUNTRY="zz")
+            check("…and what the launching environment held is overwritten (TZ) or dropped (country), not inherited",
+                  has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_SEARCH_COUNTRY=$", outlc),
+                  grep("CLAUDE-ENV:(TZ|AGENT_FABRIC_SEARCH)", outlc))
             outlc = out_of("--provider", "anthropic")
             check("…and a bare launch there: the opening after the variadic flag, behind --",
                   has(r"CLAUDE-EXECCED:.*--disallowedTools WebSearch -- Session start: arm", outlc), outlc)
@@ -658,8 +656,11 @@ def main() -> int:
             rm(f"{lc}/locale/{suffix}")
             outlc = out_of("--provider", "anthropic", "--", "--version")
             check("…and not when its locale has no search authored", "--disallowedTools" not in outlc, outlc)
-            check("…and with no locale file the timezone is dropped, the locale still the suffix (when it is a tag)",
-                  has(rf"CLAUDE-ENV:AGENT_FABRIC_LOCALE={re.escape(exported)}$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_TZ=$", outlc), outlc)
+            check("…and with no locale file no timezone is known: TZ stays empty here (and stays the operator's, below)",
+                  has(r"CLAUDE-ENV:TZ=$", outlc), outlc)
+            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Operator/Zone")
+            check("…a TZ the operator set is not unset by a launch that knows no timezone",
+                  has(r"CLAUDE-ENV:TZ=Operator/Zone$", outlc), outlc)
             rm(lc)
             binding()
             out = plain
@@ -1296,25 +1297,25 @@ if spec is not None:
                 extra = {} if holder_json is None else {"FAKE_HOLDER": holder_json}
                 return out_of("--provider", "anthropic", "--", "--version", launcher=tree, **extra, **env)
 
-            def exports(out: str) -> tuple[str, str, str]:
-                return tuple((re.search(rf"^CLAUDE-ENV:AGENT_FABRIC_{v}=(.*)$", out, re.M) or [None, "<absent>"])[1]
-                             for v in ("LOCALE", "TZ", "SEARCH_COUNTRY"))
+            def exports(out: str) -> tuple[str, str]:
+                return tuple((re.search(rf"^CLAUDE-ENV:{v}=(.*)$", out, re.M) or [None, "<absent>"])[1]
+                             for v in ("TZ", "AGENT_FABRIC_SEARCH_COUNTRY"))
             sfx = suffix if re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", suffix) else ""
             out = held(None)
             check("no addenda at all: the suffix's locale, its file's facts, WebSearch removed",
-                  exports(out) == (sfx, "Europe/Suffixville", "sx") and "--disallowedTools WebSearch" in out, out)
+                  exports(out) == ("Europe/Suffixville", "sx") and "--disallowedTools WebSearch" in out, out)
             out = held("none")
             check("addenda but no holder.json: the same — the suffix is the fallback",
-                  exports(out) == (sfx, "Europe/Suffixville", "sx") and "--disallowedTools WebSearch" in out, out)
+                  exports(out) == ("Europe/Suffixville", "sx") and "--disallowedTools WebSearch" in out, out)
             out = held('{"locale":"ge","timezone":"Asia/Yerevan","search":{"country":"am"}}')
             check("holder.json present: its locale, timezone and country win over the suffix and the locale file",
-                  exports(out) == ("ge", "Asia/Yerevan", "am"), out)
+                  exports(out) == ("Asia/Yerevan", "am"), out)
             out = held('{"locale":"ge"}')
             check("…one that names only a locale takes the deployment facts from that locale's file",
-                  exports(out) == ("ge", "Asia/Tbilisi", "ge"), out)
+                  exports(out) == ("Asia/Tbilisi", "ge"), out)
             out = held('{"locale":"en"}')
             check("…English too: en is a locale like another, carrying Asia/Tbilisi and its country in its file",
-                  exports(out) == ("en", "Asia/Tbilisi", "ge"), out)
+                  exports(out) == ("Asia/Tbilisi", "ge"), out)
             check("…and the harness's search is removed by the holder's locale (en has a locale.json), not the suffix's",
                   "--disallowedTools WebSearch" in out, out)
             # The installer is handed the holder's locale, not left to the suffix (a spy in place of the shim).
@@ -1335,7 +1336,7 @@ if spec is not None:
             put(f"{lc}/locale/en/harness.md", "x\n")
             out = held('{"locale":"en"}')
             check("a holder locale with the harness text replaces the prompt, whatever the suffix has",
-                  "--system-prompt-file" in out and exports(out)[0] == "en", out)
+                  "--system-prompt-file" in out and exports(out) == ("Asia/Tbilisi", "ge"), out)
             rm(f"{lc}/locale/en/harness.md")
             put(f"{lc}/locale/ge/locale.json", "{ nope")
             rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"ge"}')
