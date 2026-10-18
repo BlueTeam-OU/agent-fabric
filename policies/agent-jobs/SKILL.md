@@ -116,6 +116,9 @@ fabric-jobs pool-claim <pool-id>       # it lands on your list, queued; one clai
 fabric-jobs switch
 ```
 
+When neither your list nor the pool has a job for you, end the session
+with `fabric-fresh --note "<what just finished>"`.
+
 A claim is checked against the role your own control agent reports, and
 a job another agent claimed is refused. If a claim was recorded but your
 list could not take it, the message gives the command to run again.
