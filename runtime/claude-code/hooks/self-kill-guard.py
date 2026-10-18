@@ -123,6 +123,8 @@ def unevaluated(command: str) -> str | None:
     `os.kill`, a `self_kill` file name or a Python dict's braces no longer
     ask (two sessions stopped on it, 2026-10-15)."""
     command = drop_heredoc_bodies(command)
+    if glued_kill_word(command):   # before the word test below: its letters are split, so neither text spells kill
+        return "a command word built from expansions that may spell kill"
     # The raw text as well as the unquoted one, as kills() reads: unquoted() turns "$x"kill and ${x}kill into
     # $xkill, whose x hides the word, and bash runs either as kill when x is empty (review of #268, F1).
     if not (KILL_TOOL_WORD.search(command) or KILL_TOOL_WORD.search(unquoted(command))):
@@ -141,9 +143,33 @@ def unevaluated(command: str) -> str | None:
 def kills(command: str) -> bool:
     """Whether the command kills at all, read in the raw text and with its
     quotes dropped, or a command word that is a killing tool once its glued
-    expansions are empty (`k"$x"ill`, which neither text spells)."""
+    expansions are empty (`k"$x"ill`, which neither text spells), or one
+    built from expansions that still spells one (glued_kill_word)."""
     return bool(KILLS.search(command) or KILLS.search(unquoted(command))
-                or any(os.path.basename(w[0]) in {"kill", "pkill", "killall"} for w in tool_commands(command)))
+                or any(os.path.basename(w[0]) in {"kill", "pkill", "killall"} for w in tool_commands(command))
+                or glued_kill_word(command))
+
+
+def _spells(name: str, word: str) -> bool:
+    """Whether `name`'s letters stand in `word` in order, whatever is between them."""
+    rest = iter(word)
+    return all(c in rest for c in name)
+
+
+def glued_kill_word(command: str) -> str | None:
+    """A command word holding an expansion that command_names could not resolve, whose letters still spell kill in
+    order: `"$p""$q"k"$r""$s"ill`, a cut inside the name past the bounded reduction or the length cap (review of #297,
+    P-1). It is asked about rather than read: an ask costs a rephrase, a pass could be kill -1. Only the command word,
+    and the word after a prefix, never an argument (echo "$skill")."""
+    for words in (seg for piece in lift(command) for seg in segments(piece)):
+        while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+            words = words[1:]
+        heads = [w for i, w in enumerate(words) if i == 0 or os.path.basename(words[i - 1]) in PREFIXES]
+        for w in heads:
+            if ("$" in w or SUBST in w) and _spells("kill", w) \
+                    and not {os.path.basename(n) for n in command_names(w)} & TOOL_NAMES:
+                return w
+    return None
 
 
 def own_claude_cmdline(proc: str = "/proc", pid: int | None = None) -> str | None:
@@ -368,32 +394,16 @@ OWN_JOB = {"$!", "${!}"}
 # remit's own `s=$!; kill -0 $s` reached the owner as a question). Read from the sources of both kills a command can
 # run — bash 5.3's builtin (builtins/kill.def) and util-linux 2.41's kill (misc-utils/kill.c): after the first signal
 # a later -N is a process group, not a signal, but -s SIG, -sSIG, -n NUM, -nNUM (bash) and -s, --signal, --timeout N
-# SIG (util-linux) set a signal wherever they stand, and `--` ends the options in both. So:
-#   kill -0 -- <anything>   every later word is a pid or job, given signal 0: nothing is signalled, xargs or not;
-#   kill -0 "$var"          one word whatever it holds: an option there leaves no pid, so no signal is sent;
-#   s=$!; kill -0 $s        unquoted, but the command's only mention of s gives it the one pid $! is;
-#   anything else asks: an unquoted variable splits (x='-s KILL -1' is kill -sKILL -1, review of #297, F1), and
-#   behind xargs the operands it appends from its input follow the variable.
-ZERO_PROBE_VAR = re.compile(r"\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})")
-XARGS_WORD = re.compile(r"(?<![\w.-])xargs(?![\w.-])")
-WORD_END = r"(?=$|[\s;&|)])"
+# SIG (util-linux) set a signal wherever they stand, and `--` ends the options in both. So `kill -0 -- <anything>` is
+# the probe: every later word is a pid or job given signal 0, whatever a variable holds, xargs or not. Nothing else
+# is: an unquoted variable splits (x='-s KILL -1' makes kill -0 $x a kill -sKILL -1), and the words this guard reads
+# have lost their quotes, so a "$x" cannot be told from a $x here. Judging that from the command's text was tried
+# twice and passed a SIGKILL to -1 both times (review of #297, F1 in rounds 1 and 2): write the probe with --.
 
 
-def _zero_probe(words: list[str], command: str) -> bool:
-    """`kill -0 -- <operands>`, or `kill -0 $var` quoted or holding $!: signal 0, which signals nothing."""
-    args = words[1:]
-    if args[:1] != ["-0"]:
-        return False
-    if args[1:2] == ["--"]:
-        return len(args) > 2
-    m = ZERO_PROBE_VAR.fullmatch(args[1]) if len(args) == 2 else None
-    if not m or XARGS_WORD.search(command):
-        return False
-    name = re.escape(m.group(1) or m.group(2))
-    quoted = re.search(rf'(?<![\w.-])kill\s+-0\s+"\$(?:{name}|\{{{name}\}})"{WORD_END}', command)
-    mentions = re.findall(rf"(?<![\w$]){name}(?!\w)", command)
-    own_job = len(mentions) == 1 and re.search(rf"(?<![\w$]){name}=\$!{WORD_END}", command)
-    return bool(quoted or own_job)
+def _zero_probe(words: list[str]) -> bool:
+    """`kill -0 -- <operands>`: signal 0, which signals nothing."""
+    return words[1:3] == ["-0", "--"] and len(words) > 3
 
 
 # The word kill as a command anywhere in the text (`/bin/kill`, `command
@@ -436,7 +446,7 @@ def kill_operands(command: str) -> tuple[list[int], list[str]]:
         return [], []
     pieces, held = lift(command), []
     for words in tool_commands(command):
-        if os.path.basename(words[0]) != "kill" or _zero_probe(words, command):
+        if os.path.basename(words[0]) != "kill" or _zero_probe(words):
             continue
         for w in words[1:]:
             m = PLACEHOLDER.fullmatch(w)
@@ -460,7 +470,7 @@ def kill_groups(command: str) -> list[str]:
     A liveness probe (_zero_probe) signals nothing, so its operands are none."""
     out = []
     for words in tool_commands(command):
-        if os.path.basename(words[0]) != "kill" or _zero_probe(words, command):
+        if os.path.basename(words[0]) != "kill" or _zero_probe(words):
             continue
         for i, w in enumerate(words[1:]):
             if (re.fullmatch(r"-\d+", w) and (w == "-1" or i > 0)) or re.fullmatch(r"\+?0+", w):
