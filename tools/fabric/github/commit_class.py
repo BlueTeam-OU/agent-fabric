@@ -83,25 +83,47 @@ FORM = r"(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#|[A-Za-z0-9_.-]+#|[A-Za-z0-9_.-]+\s+
 LABEL = r"[A-Z]{1,2}-?[0-9]+"
 
 
+def _projects(registry: str | None = None) -> dict[str, set[str]]:
+    """Each registered project id, lower-cased -> the owner/repo of each of
+    its remotes, lower-cased. An unreadable registry registers none."""
+    try:
+        reg = json.load(open(registry or roots.projects_registry(engine=roots.code_root()), encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    projects = {}
+    for pid, p in (reg.get("projects") or reg).items():
+        if not isinstance(p, dict):
+            continue
+        projects[pid.lower()] = {"/".join(re.split(r"[/:]", re.sub(r"\.git$", "", r))[-2:]).lower()
+                                 for r in p.get("remotes") or []}
+    return projects
+
+
 def known_repos(registry: str | None = None) -> set[str]:
     """The repository names the fabric registers: each project id and the
     name of each of its remotes, lower-cased. An unreadable registry names
     none."""
-    try:
-        reg = json.load(open(registry or roots.projects_registry(engine=roots.code_root()), encoding="utf-8"))
-    except (OSError, ValueError):
-        return set()
-    names = set()
-    for pid, p in (reg.get("projects") or reg).items():
-        if not isinstance(p, dict):
-            continue
-        names.add(pid.lower())
-        for r in p.get("remotes") or []:
-            names.add(re.sub(r"\.git$", "", r).rsplit("/", 1)[-1].rsplit(":", 1)[-1].lower())
+    return {name for pid, remotes in _projects(registry).items()
+            for name in {pid} | {r.rsplit("/", 1)[-1] for r in remotes}}
+
+
+def own_names(here: str, registry: str | None = None) -> set[str]:
+    """The words that name <owner/repo> itself, lower-cased: its own name,
+    and the id and every remote's name of each project whose remotes
+    include it. A project is one repository under all its names — herdr's
+    remotes are agent-fabric-fleetdeck and the agent-fabric-herdr it was
+    renamed from — so "herdr#44" on a fleetdeck PR is that PR's own review;
+    read as another repository's it counted three review fixes as work on
+    fleetdeck#44 (REQUEST 01a150de)."""
+    here = here.lower()
+    names = {here.rsplit("/", 1)[-1]}
+    for pid, remotes in _projects(registry).items():
+        if here in remotes:
+            names |= {pid} | {r.rsplit("/", 1)[-1] for r in remotes}
     return names
 
 
-def _ref(ref: str, here: str) -> str:
+def _ref(ref: str, here: str, registry: str | None = None) -> str:
     """One reference -> the PR number it names, or "x" when it names another
     repository than <owner/repo>. Without a repository only the number counts."""
     here = here.lower()
@@ -112,12 +134,13 @@ def _ref(ref: str, here: str) -> str:
         return n if pre.lower() == here else "x"
     m = re.fullmatch(r"([A-Za-z0-9_.-]+)\s*", pre)
     if m:
-        # "repo#N" or "repo #N": a repository only when the fabric registers
-        # the word ("PR#53" is this repository's #53). An unreadable
-        # registry names none, so the number is compared — a miscount at
-        # worst, never a refusal.
+        # "repo#N" or "repo #N": another repository only when the fabric
+        # registers the word and not as one of this repository's own names
+        # ("PR#53" is this repository's #53, and so is "herdr#53" on
+        # fleetdeck). An unreadable registry names none, so the number is
+        # compared — a miscount at worst, never a refusal.
         word = m.group(1).lower()
-        return "x" if word != here.rsplit("/", 1)[-1] and word in known_repos() else n
+        return "x" if word not in own_names(here, registry) and word in known_repos(registry) else n
     return n
 
 
