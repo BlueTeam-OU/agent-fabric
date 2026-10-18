@@ -119,6 +119,7 @@ Usage:
   fabric-pr gate 861 877      # these PRs, whoever opened them
   fabric-pr gate --all        # every open PR in the repository
   fabric-pr gate --json       # rows as data
+  fabric-pr gate --repo <project> 861   # another repository's PRs, from any checkout
   fabric-pr gate --in-flight [--path <prefix>]...   # every job in flight
   fabric-pr gate --overlap <PR number | branch>     # what shares its paths
 
