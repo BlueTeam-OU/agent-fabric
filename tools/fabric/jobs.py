@@ -13,7 +13,7 @@ behind bin/fabric-jobs.
     fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n>
     fabric-jobs deliver <id> <artifact>...
     fabric-jobs retract <id> <artifact>                          remove one artifact, exactly as recorded, in any state; noted in the log
-    fabric-jobs done <id>
+    fabric-jobs done <id> [--no-artifact "<what was done>"]      the reason is the evidence of work that leaves no artifact
     fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
     fabric-jobs drop <id> "<why>"
     fabric-jobs show <id> [--json]
@@ -124,6 +124,9 @@ check that failed and changing nothing:
      (one whose receipt time cannot be read counts as inside the window, all of them when neither start is known) or whose record cannot be read, has an answer of this login in the journal (any accepted outbound message whose IN-REPLY-TO names it, a DECISION as well as a REPLY); and a file changed since the job last became active in the memory directory of
      the working copy, of its repository's main checkout, or of an ancestor of either below the home (any memory directory
      of the login for a job with topic reflection). A check that cannot be told is a failure, said as such, never a pass.
+     `done <id> --no-artifact "<what was done>"` records the reason on the job (shown by show and list) and settle takes it as the
+     evidence of a done job that has none; on a job already done without evidence it adds the reason. An empty reason is refused,
+     and it never outweighs a problem the artifacts raise (an open pull request, an unfolded branch).
      `deliver <id> <artifact>` on a done job appends evidence and leaves it closed (a dropped job takes none).
      `retract <id> <artifact>` removes one recorded artifact whatever the job's state, so a mistaken one cannot hold the job; it refuses,
      naming the artifacts, when the string is not there, and notes what was removed in the job's log.
@@ -197,8 +200,10 @@ def main(argv: list[str] | None = None) -> int:
     pr = sub.add_parser("prio", help="set a job's priority")
     pr.add_argument("id")
     pr.add_argument("priority", choices=PRIORITIES)
-    for name in ("start", "done"):
-        sub.add_parser(name).add_argument("id")
+    sub.add_parser("start").add_argument("id")
+    dn = sub.add_parser("done", help="close a job; --no-artifact records why its work leaves nothing to name")
+    dn.add_argument("id")
+    dn.add_argument("--no-artifact", metavar="WHAT", help="what was done, for work with no PR, commit, branch or reply to name")
     b = sub.add_parser("block")
     b.add_argument("id")
     b.add_argument("on", nargs="?")

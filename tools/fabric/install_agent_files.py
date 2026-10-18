@@ -13,14 +13,17 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
   argv         [--provider openrouter|anthropic | --provider=P]
                [--locale TAG | --locale=TAG] [--dry-run]
                (--locale: the holder's locale, which the language-culture
-               files are chosen by instead of the login's suffix; a value
-               that is no locale tag: exit 2)
+               files are chosen by; without it, the locale the last launch
+               recorded, else en, never the login's name; a value that is
+               no locale tag: exit 2)
                anything else: "install-agent-files: unknown argument X" on
                stderr, exit 2 (as does a --provider with no value)
   environment  AGENT_FABRIC_LAUNCH_PROVIDER (the default provider; else
                the provider this account last launched on, from
                <state>/agents/<login>/launch-provider.json, which the
-               launcher writes; else anthropic), CLAUDE_CONFIG_DIR (else ~/.claude for the agent
+               launcher writes; else anthropic), the locale with no --locale
+               from <state>/agents/<login>/launch-locale.json (launch_locale.py,
+               which the launcher writes), CLAUDE_CONFIG_DIR (else ~/.claude for the agent
                files and the user settings; else $HOME for .claude.json),
                HOME. AGENT_FABRIC_ROOT is SET for the children, to this
                checkout (the module's own location), never read.
@@ -94,6 +97,7 @@ import tempfile
 FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import fabric_writes  # noqa: E402
+import launch_locale  # noqa: E402
 import roots  # noqa: E402
 
 CLASS_FILES = ("code-low.md", "code-medium.md", "code-high.md", "code-plan.md", "code-review.md")
@@ -133,9 +137,11 @@ def login() -> str:
 class Installer:
     def __init__(self, provider: str, dry_run: bool, root: str = FABRIC_ROOT, locale: str | None = None) -> None:
         self.provider, self.dry_run, self.root = provider, dry_run, root
-        # The holder's locale when the launcher resolved one (holder.json,
-        # agent-fabric ADR-060 §5 rule 8); bootstrap runs before any launch
-        # and has none, so the login's suffix stays its fallback.
+        # The holder's locale as the launcher resolved it (holder.json,
+        # agent-fabric ADR-060 §5 rule 8), passed as --locale. Bootstrap runs
+        # outside a launch and passes none: it reads the locale the last
+        # launch recorded (launch_locale.py), so an upgrade between launches
+        # keeps the holder's worker and search; the login's name is never read.
         self.locale = locale
         self.changed = 0
         self.same = 0
@@ -257,9 +263,9 @@ class Installer:
                 content = MODEL_LINE.sub(lambda m: m.group(0) + b"\neffort: " + effort.encode(), content, count=1)
             self.put(os.path.join(claude_home, "agents", f), content)
         role = self.role()
-        suffix = self.locale or login().rsplit("-", 1)[-1]
-        self.locale_worker(claude_home, role, suffix)
-        rc = self.locale_search(claude_home, role, suffix) or self.memory_search()
+        locale = self.locale or launch_locale.read(login())
+        self.locale_worker(claude_home, role, locale)
+        rc = self.locale_search(claude_home, role, locale) or self.memory_search()
         if rc:
             return rc
         # The review class was installed as blind-reviewer.md until 2026-09-15; a
@@ -289,12 +295,12 @@ class Installer:
             return ""
         return r.stdout.rstrip("\n") if r.returncode == 0 else ""
 
-    def locale_worker(self, claude_home: str, role: str, suffix: str) -> None:
+    def locale_worker(self, claude_home: str, role: str, locale: str) -> None:
         # The locale worker: the language-culture role's subagent, one inert tool, whose
         # system prompt is the locale's language (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md).
         # Installed as ~/.claude/agents/locale-worker.md on a login of that role
-        # whose name ends in a locale the fabric authored
-        # (identities/roles/language-culture/locale/<suffix>/worker.md); removed —
+        # whose locale (--locale, else the last launch's record) the fabric
+        # authored a worker for (identities/roles/language-culture/locale/<locale>/worker.md); removed —
         # by the `agent-fabric` marker in its description, as blind-reviewer.md
         # below — from any other login, and from one whose locale has no worker,
         # so a rebind never serves another locale's worker. No per-provider pin:
@@ -306,14 +312,14 @@ class Installer:
         # hand-written `effort:` in its source (one writer, as for the classes),
         # so a level here would need a routed home first: the absence is a
         # decision, not an oversight (re-review of 2026-09-23).
-        src = os.path.join(roots.locale_dir("language-culture", suffix, engine=self.root), "worker.md")
+        src = os.path.join(roots.locale_dir("language-culture", locale, engine=self.root), "worker.md")
         dest = os.path.join(claude_home, "agents", "locale-worker.md")
         if role == "language-culture" and os.path.isfile(src):
             self.put(dest, _read(src))
         elif os.path.isfile(dest) and marked(dest):
-            self.remove(dest, f"role is {role or 'unbound'}, or no worker authored for locale {suffix}")
+            self.remove(dest, f"role is {role or 'unbound'}, or no worker authored for locale {locale}")
 
-    def locale_search(self, claude_home: str, role: str, suffix: str) -> int:
+    def locale_search(self, claude_home: str, role: str, locale: str) -> int:
         # The locale search tools: an MCP server with one tool per engine the
         # locale file configures — Google's results through SerpAPI, located in
         # the locale, and Brave as a second index (bin/fabric-websearch-locale, entered by runtime/mcp/websearch-locale/install.py), in the login's user-scope
@@ -321,7 +327,7 @@ class Installer:
         # language-culture login whose locale has a locale.json; removed — by the
         # server path in its command or args — from any other. The key it needs is synced,
         # never written here (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md §5 rule 13).
-        locale_file = os.path.join(roots.locale_dir("language-culture", suffix, engine=self.root), "locale.json")
+        locale_file = os.path.join(roots.locale_dir("language-culture", locale, engine=self.root), "locale.json")
         claude_json = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or home(), ".claude.json")
         mcp = os.path.join(self.root, "runtime", "mcp", "websearch-locale")
         flags = ["--dry-run"] if self.dry_run else []

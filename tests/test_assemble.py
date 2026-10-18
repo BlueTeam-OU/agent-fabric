@@ -3490,6 +3490,63 @@ def test_every_role_the_project_binds_with_domain_slices_gets_an_index(tmp: str)
         f"a slice was written before the taxonomy refused: {proc.stderr}"
 
 
+def test_a_run_re_indexes_every_role_directory_the_project_holds(tmp: str) -> None:
+    """Project A's run writes a domain slice of `beta`, a role that only has
+    a directory in project B; B's run of another role must list the slice in
+    B's index for `beta` (two drains in a row needed that index by hand)."""
+    drain, claims_a, out = build(tmp, {"beta": claims("beta", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+    other = "other"
+    wc_b = os.path.join(out, "wc-" + other)
+    os.makedirs(os.path.join(wc_b, ".agent-fabric", "memory", "beta"))
+    os.makedirs(os.path.join(wc_b, ".agent-fabric", "memory", "shared"))
+    os.makedirs(os.path.join(wc_b, ".agent-fabric", "memory", "Not A Role"))
+    with open(os.path.join(wc_b, ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+        json.dump(HYGIENE, fh)
+    b_beta = os.path.join(wc_b, ".agent-fabric", "memory", "beta", "INDEX.md")
+    assert run_assemble(drain, claims_a, out).returncode == 0
+    assert not os.path.exists(b_beta), "project B is untouched by project A's run"
+
+    claims_b = os.path.join(tmp, "claims-b")
+    os.makedirs(claims_b)
+    with open(os.path.join(claims_b, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [{"class": "workflow", "topic": "w", "title": "W", "body": "b",
+                                    "evidence": ["h1"]}]), fh)
+    proc = subprocess.run(
+        [sys.executable, ASSEMBLE, "--claims", claims_b, "--drain", drain, "--fabric", out,
+         "--project", other, "--working-copy", wc_b, "--stamp", "2026-01-01"],
+        capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert os.path.exists(b_beta), "beta has a directory in project B and its index was not rebuilt"
+    index = read(b_beta)
+    assert "memory/domains/beta/domain.md" in index, index
+    memory_b = os.path.join(wc_b, ".agent-fabric", "memory")
+    assert not os.path.exists(os.path.join(memory_b, "shared", "INDEX.md")), "shared/ is no role"
+    assert os.listdir(os.path.join(memory_b, "Not A Role")) == [], "a name that is no role id is left alone"
+    report = json.loads(read(os.path.join(memory_b, "last-drain-report.json")))
+    assert report["roles"] == ["alpha"], f"a role this drain brought nothing is no role of the drain: {report['roles']}"
+
+    # A held role's unreadable crossref.json stops the drain before any write, naming the file.
+    gamma = os.path.join(memory_b, "gamma")
+    os.makedirs(gamma)
+    with open(os.path.join(gamma, "crossref.json"), "w", encoding="utf-8") as fh:
+        fh.write("{broken")
+    os.remove(os.path.join(memory_b, "last-drain-report.json"))
+    claims_c = os.path.join(tmp, "claims-c")
+    os.makedirs(claims_c)
+    with open(os.path.join(claims_c, "delta.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("delta", [{"class": "workflow", "topic": "w", "title": "W", "body": "b",
+                                    "evidence": ["h1"]}]), fh)
+    proc = subprocess.run(
+        [sys.executable, ASSEMBLE, "--claims", claims_c, "--drain", drain, "--fabric", out,
+         "--project", other, "--working-copy", wc_b, "--stamp", "2026-01-02"],
+        capture_output=True, text=True)
+    assert proc.returncode == 1 and "gamma/crossref.json" in proc.stderr and "Traceback" not in proc.stderr, proc.stderr
+    assert not os.path.exists(os.path.join(memory_b, "last-drain-report.json")) \
+        and not os.path.exists(os.path.join(memory_b, "delta")), "something was written before the refusal"
+
+
 def test_a_role_id_that_is_no_slug_is_refused_before_anything_is_written(tmp: str) -> None:
     """A role id becomes a path (the role's domain and project directories),
     from the project's taxonomy as from a claims file: one that is no role
@@ -3741,6 +3798,7 @@ def main() -> int:
         test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains,
         test_a_flat_file_moved_in_is_deduplicated_by_text_and_restamped,
         test_every_role_the_project_binds_with_domain_slices_gets_an_index,
+        test_a_run_re_indexes_every_role_directory_the_project_holds,
         test_a_correction_retitling_a_carried_files_only_section_renames_its_cue,
         test_a_withheld_name_in_a_topic_reaches_no_note,
         test_two_stores_of_one_account_keep_two_watermarks,

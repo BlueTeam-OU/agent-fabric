@@ -102,9 +102,9 @@ def _body(path: str) -> str:
 # A locale's translation of any piece is rendered for a holder of that
 # locale: the CEO's rule of 2026-09-17 that a holder who thinks in its
 # language reads its own definition in it. The locale is the holder's
-# holder.json `locale`, else the login's suffix (language-culture-ge ->
-# locale/ge/<piece>.md), the rule before holder.json (ADR-060 §5 rule 8;
-# locale_of below). A locale/ directory is an authored thing lint
+# holder.json `locale` (ADR-060 §5 rule 8; locale_of below), English
+# for a holder that names none; never the login's name, which a rename
+# changes. A locale/ directory is an authored thing lint
 # validates (a source digest, a lag finding), and with none present every
 # role renders as before, byte-identical. A translation is served even when lint says it lags — a
 # launch never fails on a day's lag; lint is where the lag is seen. The
@@ -117,21 +117,17 @@ def _body(path: str) -> str:
 LOCALE_CHARS_FACTOR = 1.35
 
 
-def _suffix(agent: str) -> str:
-    """The locale a login is named for: what follows its last dash
-    (language-culture-ge -> ge)."""
-    return agent.rsplit("-", 1)[-1] if "-" in agent else agent
-
-
 def locale_of(agent: str, holder: dict | None = None) -> str:
     """The locale this launch renders in (agent-fabric ADR-060 §5 rule 8):
-    the holder's holder.json `locale` when it names one, else the login's
-    suffix, the rule before holder.json and the one a holder without it
-    keeps. The launcher resolves the same way (launcher/holder.py), so the
-    prompt and the harness flag never pick two different locales."""
+    the holder's holder.json `locale` when it names one, else English. The
+    login's suffix chose it until every holder in another language had a
+    holder.json (docs/live-checks/2026-10-18-holder-locale.md); it is not
+    read, so a rename never changes the language. The launcher resolves the
+    same way (launcher/holder.py), so the prompt and the harness flag never
+    pick two different locales."""
     settings = (holder or {}).get("holder") or {}
     tag = settings.get("locale") if isinstance(settings, dict) else None
-    return tag if isinstance(tag, str) and tag else _suffix(agent)
+    return tag if isinstance(tag, str) and tag else "en"
 
 
 # The role-independent pieces (header, team, memory, brief-missing) are

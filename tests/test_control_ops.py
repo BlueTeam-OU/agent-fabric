@@ -9,8 +9,10 @@ of the Python ops' injection points (a `run` called as subprocess.run is, a
 from __future__ import annotations
 
 import base64
+import contextlib
 import http.client
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -18,6 +20,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 import zlib
 from datetime import datetime, timezone
 
@@ -62,6 +65,11 @@ def write(path: str, text: str = "", mode: str = "w") -> str:
 
 def touch(path: str, ms: float) -> None:
     os.utime(path, (ms / 1000, ms / 1000))
+
+
+def launched(state: str, agent: str, tag: str) -> None:
+    """The record the launcher leaves for `agent` (tools/fabric/launch_locale.py)."""
+    write(os.path.join(state, "agents", agent, "launch-locale.json"), json.dumps({"locale": tag}))
 
 
 class Base(unittest.TestCase):
@@ -400,15 +408,34 @@ class Script(Base):
         put("ge", json.dumps({"tag": "ka-GE"}))
         put("xx", "{broken")
         put("zq", json.dumps({"tag": ops.activity.SOURCE_TAG}))  # a suffix no live locale has: the fixture, not the checkout, answers
-        sl = lambda who, r=root: ops.source_locale(who, root=r)  # noqa: E731
-        self.assertIs(sl({"role": "language-culture", "agent": "language-culture-en"}), True)
-        self.assertIs(sl({"role": "language-culture", "agent": "language-culture-ge"}), False)
-        self.assertIs(sl({"role": "python-dev", "agent": "language-culture-en"}), False, "the role bound, not the login name")
-        self.assertIs(sl({"role": "language-culture", "agent": "language-culture-xx"}), False, "unreadable: measured, as before")
-        self.assertIs(sl({"role": "language-culture", "agent": "language-culture-zz"}), False, "no locale")
+        state = self.scratch("src-state-")
+        for agent, tag in (("language-culture-en", "en"), ("language-culture-ge", "ge"), ("language-culture-xx", "xx"),
+                           ("language-culture-zq", "zq"), ("holder-renamed", "zq"), ("language-culture-zz", "zz"),
+                           ("python-dev-02", "en")):
+            launched(state, agent, tag)
+        write(os.path.join(state, "agents", "language-culture-bad", "launch-locale.json"), "{ not json")
+        # Each production mutation this pins: the login's suffix as the locale turns the "-ge", "renamed" and
+        # "never launched" rows red.
+        with unittest.mock.patch.dict(os.environ, {"AGENT_FABRIC_STATE_DIR": state}):
+            sl = lambda who, r=root: ops.source_locale(who, root=r)  # noqa: E731
+            self.assertIs(sl({"role": "language-culture", "agent": "language-culture-en"}), True)
+            self.assertIs(sl({"role": "language-culture", "agent": "language-culture-ge"}), False)
+            self.assertIs(sl({"role": "python-dev", "agent": "language-culture-en"}), False, "the role bound, not the login name")
+            self.assertIs(sl({"role": "language-culture", "agent": "language-culture-xx"}), False, "unreadable: measured, as before")
+            self.assertIs(sl({"role": "language-culture", "agent": "language-culture-zz"}), False, "no locale")
+            self.assertIs(sl({"role": "language-culture", "agent": "holder-renamed"}), True, "no suffix, the record's locale")
+            self.assertIs(sl({"role": "language-culture", "agent": "language-culture-never"}), True,
+                          "never launched: en, the source locale")
+            os.unlink(os.path.join(state, "agents", "language-culture-ge", "launch-locale.json"))
+            self.assertIs(sl({"role": "language-culture", "agent": "language-culture-ge"}), True,
+                          "a -ge login with no launch record is English, not Georgian")
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                self.assertIs(sl({"role": "language-culture", "agent": "language-culture-bad"}), True, "unusable record: en")
+            self.assertIn("launch-locale:", err.getvalue())
         with open(os.path.join(HERE, "tools", "fabric", "lint_rules", "locales.py"), encoding="utf-8") as fh:
             self.assertRegex(fh.read(), rf'(?m)^SOURCE_TAG = "{ops.activity.SOURCE_TAG}"$')
-        self.assertIs(sl({"role": "language-culture", "agent": "language-culture-zq"}), True, "a locale whose locale.json carries the source tag")
+        with unittest.mock.patch.dict(os.environ, {"AGENT_FABRIC_STATE_DIR": state}):
+            self.assertIs(sl({"role": "language-culture", "agent": "language-culture-zq"}), True, "a locale whose locale.json carries the source tag")
 
     def test_collect_script_asks_whether_its_holder_is_the_source_locale(self):
         home = self.scratch("src-home-")
@@ -416,6 +443,13 @@ class Script(Base):
         root = self.scratch("src-root-")
         for suffix, tag in (("zq", ops.activity.SOURCE_TAG), ("ge", "ka-GE")):
             write(os.path.join(root, "identities", "roles", "language-culture", "locale", suffix, "locale.json"), json.dumps({"tag": tag}))
+
+        state = self.scratch("src-state-")
+        launched(state, "language-culture-zq", "zq")
+        launched(state, "language-culture-ge", "ge")
+        patch = unittest.mock.patch.dict(os.environ, {"AGENT_FABRIC_STATE_DIR": state})
+        patch.start()
+        self.addCleanup(patch.stop)
 
         def ask(who, h=home):
             return ops.collect("script", {"home": h, "who": who, "root": root})["script"]["notes"]

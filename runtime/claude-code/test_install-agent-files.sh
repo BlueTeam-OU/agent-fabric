@@ -10,7 +10,9 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REAL_ROOT="$(cd "$HERE/../.." && pwd)"
-LOGIN="$(id -un)"; SUFFIX="${LOGIN##*-}"
+# The locale is the one the last launch recorded (launch-locale.json, tools/fabric/launch_locale.py),
+# never the login's suffix (agent-fabric ADR-060 §5 rule 8): the fixture records qx.
+LOGIN="$(id -un)"; LOCALE=qx
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ✓ %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  ✗ %s\n' "$1"; [[ -n "${2:-}" ]] && printf '%s\n' "$2" | sed 's/^/      /' | head -6; }
@@ -21,6 +23,7 @@ export HOME="$SANDBOX/home"; mkdir -p "$HOME"; unset CLAUDE_CONFIG_DIR   # never
 unset AGENT_FABRIC_OPERATOR
 FABRIC="$SANDBOX/fabric"; STATE="$SANDBOX/state"
 mkdir -p "$FABRIC/runtime/claude-code" "$FABRIC/tools/fabric" "$FABRIC/runtime" "$STATE/agents/$LOGIN"
+printf '{"locale": "%s"}\n' "$LOCALE" > "$STATE/agents/$LOGIN/launch-locale.json"
 cp -r "$REAL_ROOT/routing" "$FABRIC/routing"
 # The committed roles/agents layers may name the login running this suite;
 # the cases assert what the defaults and the layers they write resolve to.
@@ -29,9 +32,9 @@ cp "$REAL_ROOT/runtime/claude-code/aliases.json" "$REAL_ROOT/runtime/claude-code
 cp -r "$REAL_ROOT/runtime/claude-code/agents" "$FABRIC/runtime/claude-code/agents"
 cp "$REAL_ROOT/runtime/identity.py" "$FABRIC/runtime/"
 mkdir -p "$FABRIC/runtime/mcp/fabric-memory"; cp "$REAL_ROOT/runtime/mcp/fabric-memory/install.py" "$FABRIC/runtime/mcp/fabric-memory/"
-cp "$REAL_ROOT/tools/fabric/routing.py" "$REAL_ROOT/tools/fabric/workingcopy.py" "$REAL_ROOT/tools/fabric/layout.py" "$REAL_ROOT/tools/fabric/install_agent_files.py" "$REAL_ROOT/tools/fabric/fabric_writes.py" "$REAL_ROOT/tools/fabric/roots.py" "$FABRIC/tools/fabric/"
+cp "$REAL_ROOT/tools/fabric/routing.py" "$REAL_ROOT/tools/fabric/workingcopy.py" "$REAL_ROOT/tools/fabric/layout.py" "$REAL_ROOT/tools/fabric/install_agent_files.py" "$REAL_ROOT/tools/fabric/fabric_writes.py" "$REAL_ROOT/tools/fabric/launch_locale.py" "$REAL_ROOT/tools/fabric/roots.py" "$FABRIC/tools/fabric/"
 bind() { printf '{"agent":"%s","host":"%s","role":"%s","updated_at":"x"}\n' "$LOGIN" "$(hostname -s)" "$1" > "$STATE/agents/$LOGIN/binding.json"; }
-WORKER="$FABRIC/identities/roles/language-culture/locale/$SUFFIX/worker.md"
+WORKER="$FABRIC/identities/roles/language-culture/locale/$LOCALE/worker.md"
 mkdir -p "$(dirname "$WORKER")"
 printf -- '---\nname: locale-worker\ndescription: The locale worker (agent-fabric) — fixture\nmodel: opus\ntools:\n---\n\nფიქსტურა.\n' > "$WORKER"
 run_install() { AGENT_FABRIC_ROOT="$FABRIC" AGENT_FABRIC_STATE_DIR="$STATE" bash "$FABRIC/runtime/claude-code/install-agent-files.sh" "$@" 2>&1; }
@@ -71,8 +74,8 @@ out="$(run_install)"; grep -q "=  $HOME/.claude.json mcpServers.fabric-memory" <
 echo "a language-culture login whose locale has no authored worker: removed, never another locale's"
 bind language-culture
 run_install >/dev/null; [[ -f "$DEST" ]] || bad "precondition: installed"
-rm -rf "$FABRIC/identities/roles/language-culture/locale/$SUFFIX"; mkdir -p "$FABRIC/identities/roles/language-culture/locale/xx"; cp "$WORKER" "$FABRIC/identities/roles/language-culture/locale/xx/worker.md" 2>/dev/null || printf -- '---\nname: locale-worker\ndescription: (agent-fabric)\nmodel: opus\ntools:\n---\nx\n' > "$FABRIC/identities/roles/language-culture/locale/xx/worker.md"
-out="$(run_install)"; [[ ! -e "$DEST" ]] && grep -q "no worker authored for locale $SUFFIX" <<<"$out" && ok "removed and the reason names the locale" || bad "wrong-locale removal" "$out"
+rm -rf "$FABRIC/identities/roles/language-culture/locale/$LOCALE"; mkdir -p "$FABRIC/identities/roles/language-culture/locale/xx"; cp "$WORKER" "$FABRIC/identities/roles/language-culture/locale/xx/worker.md" 2>/dev/null || printf -- '---\nname: locale-worker\ndescription: (agent-fabric)\nmodel: opus\ntools:\n---\nx\n' > "$FABRIC/identities/roles/language-culture/locale/xx/worker.md"
+out="$(run_install)"; [[ ! -e "$DEST" ]] && grep -q "no worker authored for locale $LOCALE" <<<"$out" && ok "removed and the reason names the locale" || bad "wrong-locale removal" "$out"
 
 echo "the class files carry the effort routing resolves, and only where a model expresses one"
 bind backend-dev; rm -rf "$HOME/.claude/agents"; run_install >/dev/null

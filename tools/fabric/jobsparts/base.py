@@ -36,6 +36,7 @@ class _JobKeys(TypedDict):
 class Job(_JobKeys, total=False):
     blocked_on: str
     reason: str
+    no_artifact: str
     priority: str
     waits_on: str
     blockers: list[str]

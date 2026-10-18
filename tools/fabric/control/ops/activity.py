@@ -15,6 +15,7 @@ from typing import Any, Callable, Mapping
 from . import util
 from gzcoord import gzmsg, jsvalues as js  # noqa: E402 — util puts tools/fabric on sys.path
 import roots  # noqa: E402
+import launch_locale  # noqa: E402
 
 # Which SCRIPT the account writes in — the signature of the language it
 # reasons in. A role that must think in the language it answers for
@@ -365,8 +366,8 @@ def notes_dir(home: str | None = None, env: Mapping[str, str] | None = None, log
 # script (ADR-027 §2, A 2026-10-07), so the op says that instead of
 # counts that would read as a measurement. The source is the locale whose
 # locale.json carries lint's SOURCE_TAG (tools/fabric/lint_rules/locales.py);
-# the holder's locale is the suffix after its login's last dash, as i18n
-# reads it. A locale.json that cannot be read is not the source: measured,
+# the holder's locale is the one the launcher resolved (launch_locale.py), as
+# i18n reads it; a login the launcher gave none is "en". A locale.json that cannot be read is not the source: measured,
 # as before this rule.
 SOURCE_TAG = "en-US"
 
@@ -376,8 +377,7 @@ def source_locale(who: Mapping[str, Any] | None = None, root: str | None = None)
     agent = who.get("agent") if isinstance(who, Mapping) else None
     if (who.get("role") if isinstance(who, Mapping) else None) != "language-culture" or not isinstance(agent, str):
         return False
-    suffix = agent[agent.rfind("-") + 1:]
-    loc = util.read_json(os.path.join(roots.locale_dir("language-culture", suffix, root=root), "locale.json"))
+    loc = util.read_json(os.path.join(roots.locale_dir("language-culture", launch_locale.read(agent), root=root), "locale.json"))
     return js.get(loc, "tag") == SOURCE_TAG
 
 

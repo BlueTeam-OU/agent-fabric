@@ -84,7 +84,7 @@ def main() -> int:
             for d in (home, cfg, os.path.join(root, "tools", "fabric"), os.path.join(root, "runtime", "mcp", "websearch-locale"), os.path.join(root, "runtime", "mcp", "fabric-memory")):
                 os.makedirs(d)
             shutil.copy(MODULE, os.path.join(root, "tools", "fabric", "install_agent_files.py"))
-            for sibling in ("fabric_writes.py", "roots.py"):
+            for sibling in ("fabric_writes.py", "launch_locale.py", "roots.py"):
                 shutil.copy(os.path.join(os.path.dirname(MODULE), sibling), os.path.join(root, "tools", "fabric"))
             shutil.copytree(AGENTS, os.path.join(root, "runtime", "claude-code", "agents"))
             for rel, body in (("tools/fabric/routing.py", ROUTING_STUB), ("runtime/identity.py", IDENTITY_STUB),
@@ -331,10 +331,12 @@ def main() -> int:
         check("an installer fault (exit 1, a traceback) fails the run, no count line",
               r.returncode == 1 and "agent files (" not in r.stdout and "PermissionError" in r.stderr, f"{r.returncode} {r.stdout} {r.stderr}")
 
-        # language-culture with a locale file: set and deny-websearch.
+        # language-culture with a locale file: set and deny-websearch. The locale is the one the last launch
+        # recorded for this login (launch_locale.py), here qx.
         root, home, cfg = fixture()
         me = pwd.getpwuid(os.getuid()).pw_name
-        suffix = me.rsplit("-", 1)[-1]
+        suffix = "qx"
+        put(home, f".local/state/agent-fabric/agents/{me}/launch-locale.json", json.dumps({"locale": suffix}) + "\n")
         put(root, "runtime/role.txt", "language-culture\n")
         put(root, f"identities/roles/language-culture/locale/{suffix}/locale.json", "{}")
         put(root, "bin/fabric-websearch-locale", "")
@@ -349,17 +351,24 @@ def main() -> int:
         ic = [c["argv"] for c in calls(root) if c["tool"] == "install"][2:]
         check("the same role with no locale file: remove and allow", [a[1] for a in ic] == ["remove", "allow-websearch"], str(ic))
 
-        # The locale suffix is what follows the LAST dash of the login.
+        # No --locale and no launch record: English, whatever the login ends in (ADR-060 §5 rule 8); a record
+        # names the locale for a login named otherwise. Kills: reading the login's suffix.
         root, home, cfg = fixture()
         put(root, "runtime/role.txt", "language-culture\n")
         put(root, "identities/roles/language-culture/locale/ka/worker.md", "---\nname: locale-worker\ndescription: (agent-fabric) ka\n---\n")
         drv = ("import sys; sys.path.insert(0, sys.argv[1]); import install_agent_files as m; "
-               "m.login = lambda: 'gz-writer-ka'; sys.exit(m.main([]))")
-        r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric")], capture_output=True, text=True,
-                           env=env_for(home, cfg), check=False)
-        check("login 'gz-writer-ka' takes locale ka's worker", os.path.isfile(os.path.join(cfg, "agents", "locale-worker.md")), r.stdout + r.stderr)
+               "m.login = lambda: sys.argv[2]; sys.exit(m.main([]))")
+        r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "gz-writer-ka"], capture_output=True,
+                           text=True, env=env_for(home, cfg), check=False)
+        check("login 'gz-writer-ka' with no launch record takes no ka worker",
+              r.returncode == 0 and not os.path.isfile(os.path.join(cfg, "agents", "locale-worker.md")), r.stdout + r.stderr)
+        put(home, ".local/state/agent-fabric/agents/gz-writer-x/launch-locale.json", json.dumps({"locale": "ka"}) + "\n")
+        r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "gz-writer-x"], capture_output=True,
+                           text=True, env=env_for(home, cfg), check=False)
+        check("login 'gz-writer-x' whose launch recorded ka takes ka's worker",
+              os.path.isfile(os.path.join(cfg, "agents", "locale-worker.md")), r.stdout + r.stderr)
 
-        # --locale (the holder's holder.json, agent-fabric ADR-060 §5 rule 8) wins over the suffix.
+        # --locale (the holder's holder.json, agent-fabric ADR-060 §5 rule 8) installs its locale's worker.
         root, home, cfg = fixture()
         put(root, "runtime/role.txt", "language-culture\n")
         put(root, "identities/roles/language-culture/locale/ka/worker.md", "---\nname: locale-worker\ndescription: (agent-fabric) ka\n---\n")
