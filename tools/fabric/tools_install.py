@@ -52,10 +52,11 @@ needs its lib/ directory, thousands of files, beside it).
 
 For a whole tree (a `members` pin reads only its listed members and ignores
 every other entry), entries outside `root` are not placed. The archive is
-refused whole for an entry with an absolute path or a `..` part, and for anything under `root` that
-is not a directory, a regular file or a symlink whose target resolves inside
-the tree; a path never passes through a link; the file count and the unpacked
-size are bounded. Setuid, setgid and group- or world-write bits are dropped.
+refused whole for an entry with an absolute path or a `..` part, and for
+anything under `root` that is not a directory, a regular file or a symlink
+whose target resolves inside the tree; a path never passes through a link;
+the file count and the unpacked size are bounded. Setuid, setgid and group- or
+world-write bits are dropped.
 
 The verdict, one per run:
   current    the tool's proof already prints the pinned version (a tree
