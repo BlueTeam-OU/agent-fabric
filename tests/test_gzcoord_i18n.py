@@ -154,6 +154,12 @@ def _():
             out, err = read(body)
             eq(out, "en", body)
             ok("launch-locale:" in err, f"{body}: {err!r}")
+        read('{"holder": {"locale": "ge"}}')
+        os.symlink("missing-target", rec)
+        out, err = read('{"holder": {"locale": "ge"}}')
+        eq(out, "en", "a dangling launch-locale.json is unusable, not absent")
+        ok("launch-locale:" in err, err)
+        os.unlink(rec)
         # The record wins over the older file, and a bad record is not papered over by it.
         read('{"holder": {"locale": "ge"}}')
         launch_locale.record(os.path.dirname(holder), "ru")

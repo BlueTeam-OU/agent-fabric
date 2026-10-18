@@ -11,8 +11,8 @@ whose contract is kept:
   an active locale        identities/roles/<role>/locale/<locale>/<tag>.json
                           under the fabric root, reached by the locale the
                           launcher resolved for the login (launch_locale.py;
-                          holder.json's, "en" with none or no launch record,
-                          never the login's suffix) under the bound role,
+                          holder.json's, "en" with none or no launch record
+                          and no launch-holder.json, never the login's suffix) under the bound role,
                           its tag read from that directory's locale.json —
                           `ge` is Georgian, not German
   GZCOORD_DEFAULT_LOCALE_ONLY

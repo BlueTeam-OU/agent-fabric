@@ -84,6 +84,9 @@ def read(agent: str, environ: Mapping[str, str] | None = None) -> str:
     answers until a relaunch writes the record. Never the login's name."""
     directory = state_dir(agent, environ)
     path = os.path.join(directory, FILE)
-    if os.path.exists(path):
+    if os.path.lexists(path):
+        if not os.path.exists(path):  # a dangling link: there, so a fault, and the older file does not stand in for it
+            print(f"launch-locale: {path} could not be read (FileNotFoundError); using the default locale", file=sys.stderr)
+            return DEFAULT
         return _tag_in(path, lambda doc: doc["locale"]) or DEFAULT
     return _tag_in(os.path.join(directory, HOLDER_FILE), _holder_locale) or DEFAULT
