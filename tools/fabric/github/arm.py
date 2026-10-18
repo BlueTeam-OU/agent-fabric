@@ -153,6 +153,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+import git  # noqa: E402
 import roots  # noqa: E402
 from github import arm_policy, common, landed, pr_gate, repo_policy  # noqa: E402
 # The rules' names stay importable from here, where the oracle and callers
@@ -314,7 +315,7 @@ def program(env: str, default: str) -> list[str]:
 def fabric_pr(env: str, verb: str) -> list[str]:
     """A reader that is a `fabric-pr` verb of this checkout (ADR-040 §5
     rule 7), or the env override, which stays one program."""
-    return [os.environ[env]] if os.environ.get(env) else [os.path.join(FABRIC, "bin", "fabric-pr"), verb]
+    return [os.environ[env]] if os.environ.get(env) else common.fabric_pr_verb(FABRIC, verb)
 
 
 def run_reader(head: list[str], args: list[str], timeout: int = 600) -> tuple[int, str]:
@@ -800,6 +801,15 @@ def arm(argv: list[str]) -> int:
     # when the head or the base is not in the local clone (a managed project's PR #886
     # review F2 — 0 read as "under 8" and armed).
     if row.get("commits_known") is not True:
+        try:
+            ours = landed.origin_is(repo)
+        except git.GitError:
+            ours = True   # git unaskable here: the gate's own note says why, and the fetch remedy stays
+        if not ours:
+            # The fetch remedy would fetch the wrong repository again (review F3 on #300).
+            raise Unanswered(f"pr-gate could not count #{num}'s commits: this clone's origin is not {repo}, and the"
+                             f" count is read from git — run from a clone of {repo}; the count rule is not applied"
+                             f" to a guess")
         raise Unanswered(f"pr-gate could not count #{num}'s commits (head or base not in the clone — git fetch origin,"
                          f" then retry); the count rule is not applied to a guess")
     work = row.get("work_commits")

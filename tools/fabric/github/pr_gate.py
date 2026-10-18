@@ -39,7 +39,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
-from github import arm_policy, commit_class, common, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
+from github import arm_policy, commit_class, common, landed, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
 from github.review_status.base import listed, obj  # noqa: E402
 # What was split out of this module stays importable from here: the unit
 # suite, pr_compliance and the other callers reach it as pr_gate.<name>.
@@ -119,7 +119,7 @@ Usage:
   fabric-pr gate 861 877      # these PRs, whoever opened them
   fabric-pr gate --all        # every open PR in the repository
   fabric-pr gate --json       # rows as data
-  fabric-pr gate --repo <project> 861   # another repository's PRs, from any checkout
+  fabric-pr gate --repo <project> 861   # another repository's PRs (commits counted only in its clone)
   fabric-pr gate --in-flight [--path <prefix>]...   # every job in flight
   fabric-pr gate --overlap <PR number | branch>     # what shares its paths
 
@@ -342,7 +342,7 @@ def review_reader() -> list[str]:
     program of its own, else this checkout's `fabric-pr review-status`."""
     if os.environ.get("AGENT_FABRIC_PR_REVIEW_STATUS"):
         return [os.environ["AGENT_FABRIC_PR_REVIEW_STATUS"]]
-    return [os.path.join(FABRIC, "bin", "fabric-pr"), "review-status"]
+    return common.fabric_pr_verb(FABRIC, "review-status")
 
 
 def review_of_head(reader: list[str], num: int, head: str, required: list[str], boundary_only: list[str] = (),
@@ -627,8 +627,17 @@ def run(argv: list[str]) -> int:
     # A failed fetch is said, not swallowed: the counts below are read from
     # the local clone, and a stale or missing origin makes them wrong in
     # both directions (review F2 on #886).
-    fetched = succeeds("fetch", "-q", "origin")
-    if not fetched:
+    # The counts are read from the clone's origin, so a clone of another repository than `repo` (GH_REPO, or
+    # --repo) counts nothing, or in a fork's clone counts against the wrong base (review F3 on #300).
+    try:
+        ours = landed.origin_is(repo)
+    except git.GitError:
+        ours = False
+    if not ours:
+        note(f"this clone's origin is not {repo} on github.com — commits are counted from a clone of it, so none "
+             "is counted here (commits unknown)")
+    fetched = ours and succeeds("fetch", "-q", "origin")
+    if ours and not fetched:
         note("git fetch origin failed — the base is stale, so no commit count is trusted (commits unknown)")
     reader = review_reader()
     try:
