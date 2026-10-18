@@ -401,6 +401,15 @@ def main() -> int:
         drop("prlist_fail")
         check("gh unable to list PRs: every row reads 'PR unavailable', never 'no PR'; exit 2",
               rc == 2 and "PR unavailable" in out and "  no PR  " not in out, f"rc={rc}\n{out}")
+        # The branches are the clone's origin's: from another repository's clone they would be listed as
+        # testorg/testrepo's, mostly as "no PR" (review on #300, round 2).
+        git("remote", "set-url", "origin", fork_url)
+        rcs = [run(*a) for a in (("--in-flight",), ("--overlap", "42"), ("--in-flight", "--json"))]
+        git("remote", "set-url", "origin", gh_url)
+        check("a fork's clone: --in-flight and --overlap refuse, exit 2, naming the clone, with no row",
+              all(rc == 2 and "this clone's origin is not testorg/testrepo on github.com" in out
+                  and "feat/parked" not in out and "in flight on" not in out for rc, out in rcs),
+              "\n".join(f"rc={rc}\n{out}" for rc, out in rcs))
         route(f"{sandbox}/nowhere.git")
         rc, out = run("--in-flight", "--json")
         route(origin)
