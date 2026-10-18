@@ -1441,10 +1441,14 @@ if mode == "contract2ready":
 os.write(int(args["--ready-fd"]), (json.dumps(ready) + "\n").encode())
 os.close(int(args["--ready-fd"]))
 signal.signal(signal.SIGTERM, lambda *a: (note(event="term"), sys.exit(0)))
+import socket as _socket
 if mode == "silentcontrol":
+    # Reads the ask and never answers it, and says so: the session ends only once the ask is in flight.
+    held_open = _socket.socket(fileno=int(args["--control-fd"]))   # kept: a collected socket would close the channel under the ask
+    held_open.recv(4096)
+    note(event="asked")
     while True:
         time.sleep(0.1)
-import socket as _socket
 ctl = _socket.socket(fileno=int(args["--control-fd"]))
 buf = b""
 while True:
@@ -1476,7 +1480,10 @@ u="$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway-usage.json"
 # that never answers shortens it.
 w="${FAKE_USAGE_WAIT_TENTHS:-300}"; [ -e "$AGENT_FABRIC_STATE_DIR/agents/$LOGNAME/gateway.json" ] || w=0
 for _ in $(seq 1 "$w"); do [ -s "$u" ] && break; sleep 0.1; done
+# FAKE_WAIT_FOR_ASK: leaves the moment the gateway has the ask, so what the test measures is the launcher's end from there.
+if [ -n "${FAKE_WAIT_FOR_ASK:-}" ]; then for _ in $(seq 1 600); do grep -q '"event": "asked"' "$FAKE_GW_LOG" && break; sleep 0.1; done; fi
 echo "CLAUDE-USAGE:$(cat "$u" 2>/dev/null || echo none)"
+echo "CLAUDE-ENDED:$(date +%s.%N)"
 """
             gw_log = f"{sandbox}/gateway.log"
             gw_env = {"AGENT_FABRIC_GW_BIN": f"{bin_}/fake-gateway", "FAKE_GW_LOG": gw_log,
@@ -1565,21 +1572,15 @@ echo "CLAUDE-USAGE:$(cat "$u" 2>/dev/null || echo none)"
             check("…and the file is removed with the gateway's record when the session ends",
                   not os.path.exists(f"{agent_dir}/gateway-usage.json"), os.listdir(agent_dir))
             rm(gw_log)
-            t0 = time.monotonic()
-            run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "ok"})
-            base_s = time.monotonic() - t0
-            rm(gw_log)
-            t0 = time.monotonic()
-            rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "silentcontrol", "FAKE_USAGE_WAIT_TENTHS": "10"})
-            took = time.monotonic() - t0
-            # The fake harness itself waits 1 s for a usage file a silent gateway never lets exist, and the ask's own
-            # timeout of 10 s runs beside that wait, from the relay's start: a cut ask shows as base_s + 1, a session held
-            # for it as base_s + 10 (measured with Relay.stop not closing the socket). 6 sits between them, 4-5 s of room
-            # each way for a loaded runner (the sections run side by side); the wait was 4 s when the cut ask's room
-            # was 3 s, which a loaded host used up.
+            rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "silentcontrol", "FAKE_USAGE_WAIT_TENTHS": "0", "FAKE_WAIT_FOR_ASK": "1"})
+            back = time.time() - float(next(iter(re.findall(r"CLAUDE-ENDED:(\S+)", out)), "nan"))
+            # The ask has a timeout of 10 s (gateway_usage.IO_TIMEOUT_S) from the moment the gateway has it; the fake harness ends
+            # at that moment. A session held for the ask ends ~10 s later; one cut with the session ends at once, which is only
+            # teardown. 5 s is between them, ~4 s of room each way for a loaded host, with no wall time of the launch in it.
             check("a gateway that never answers the ask does not hold the end of the session (the ask is cut with the session)",
-                  rc == 0 and took < base_s + 6 and not os.path.exists(f"{agent_dir}/gateway-usage.json"),
-                  f"rc={rc} silent={took:.1f}s normal={base_s:.1f}s\n{out[-300:]}")
+                  rc == 0 and any(r.get("event") == "asked" for r in gw_records()) and 0 <= back < 5
+                  and not os.path.exists(f"{agent_dir}/gateway-usage.json"),
+                  f"rc={rc} launcher ended {back:.1f}s after the session\n{out[-300:]}")
             check("the provider stamp stays the routing column and the transport is stamped as the gateway",
                   has(r"CLAUDE-PROVIDER:anthropic$", out) and has(r"CLAUDE-TRANSPORT:gateway$", out), out)
             check("…and recorded beside the provider, so a resume comes back through the gateway; the agent files were installed for anthropic",
