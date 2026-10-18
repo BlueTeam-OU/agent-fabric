@@ -1066,6 +1066,9 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
                                 ("a null kind", {**good_installer, "kind": None})):
                 check(f"{label}: refused", tools_install.check_pin(pin_) is not None, pin_)
 
+            check("an unknown kind is named as such, not as a stray field",
+                  "kind 'shell' is not one this installer knows" in (tools_install.check_pin({**good_installer, "kind": "shell"}) or ""))
+
             print("an end to the run ends the program")
             home = account("pa")
             tools_install.exit_on_sigterm()
