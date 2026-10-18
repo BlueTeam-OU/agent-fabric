@@ -34,8 +34,6 @@ from instance_fixtures import write_secrets_instance  # noqa: E402
 scrub_process_env()
 
 ROLE = "legal-expert"
-REVIEW = "legal-expert-ee pass-1 " + "a" * 64
-REVIEW2 = "language-culture-ge pass-2 " + "b" * 64
 
 
 def main() -> int:
@@ -163,11 +161,11 @@ def main() -> int:
             # The validator is a stand-in here, so the charter can be in another language without its gloss: what is
             # judged is the gate on the passes (a pass is over the non-English text), and the trailers it leaves.
             charter, brief = addendum("charter-addendum", "dig-charter-1", lang="ka"), addendum("brief-addendum", "dig-brief-1")
-            REVIEW = f"language-culture-ge pass-1 {hashlib.sha256(charter).hexdigest()}"
-            REVIEW2 = f"language-culture-ge pass-2 {hashlib.sha256(charter).hexdigest()}"
+            PASS1 = f"language-culture-ge pass-1 {hashlib.sha256(charter).hexdigest()}"
+            PASS2 = f"language-culture-ge pass-2 {hashlib.sha256(charter).hexdigest()}"
             rc, out, err = install("valid", "v1", {"charter-addendum.md": charter, "brief-addendum.md": brief,
                                                    "holder.json": b'{"locale":"en"}'},
-                                   "--reviewed-by", REVIEW, "--reviewed-by", REVIEW2, "--authored-by", "legal-expert-ee")
+                                   "--reviewed-by", PASS1, "--reviewed-by", PASS2, "--authored-by", "legal-expert-ee")
             check("a valid install is done and says the commit", rc == 0 and "3 file(s) committed as" in out and err == "", out + err)
             check("…each file was judged by the validator, with the role, the child's id, its name and its bytes",
                   sorted(s[:3] for s in seen) == sorted((ROLE, KID, n) for n in ("brief-addendum.md", "charter-addendum.md", "holder.json"))
@@ -182,8 +180,8 @@ def main() -> int:
                   git(parent, mirror, "log", "-1", "--format=%G?|%GP"))
             trailers = git(parent, mirror, "log", "-1", "--format=%B").strip().split("\n\n", 1)[1].splitlines()
             check("…its trailers: role, author, each review pass, the approval, each addendum's digest, in that order",
-                  trailers == [f"Addendum-Role: {ROLE}", "Authored-By: legal-expert-ee", f"Reviewed-By: {REVIEW}",
-                               f"Reviewed-By: {REVIEW2}", "Owner-Approval: ADR-060-2026-10-17",
+                  trailers == [f"Addendum-Role: {ROLE}", "Authored-By: legal-expert-ee", f"Reviewed-By: {PASS1}",
+                               f"Reviewed-By: {PASS2}", "Owner-Approval: ADR-060-2026-10-17",
                                f"Against-Digest: charter-addendum.md {dig('dig-charter-1')}", f"Against-Digest: brief-addendum.md {dig('dig-brief-1')}"],
                   repr(trailers))
             parsed = subprocess.run(
@@ -191,7 +189,7 @@ def main() -> int:
                 env=parent, capture_output=True, text=True).stdout.strip().splitlines()
             check("…and git reads them as trailers", parsed == trailers, repr(parsed))
             rc, out, err = install("same", "v1b", {"charter-addendum.md": charter, "brief-addendum.md": brief,
-                                                   "holder.json": b'{"locale":"en"}'}, "--reviewed-by", REVIEW, "--reviewed-by", REVIEW2)
+                                                   "holder.json": b'{"locale":"en"}'}, "--reviewed-by", PASS1, "--reviewed-by", PASS2)
             check("the same files again are unchanged: no commit", rc == 0 and "unchanged" in out and count() == start + 1, out + err)
 
             # ── a refused file: nothing committed, nothing left ───────────
@@ -246,7 +244,7 @@ def main() -> int:
             # ── arguments ─────────────────────────────────────────────────
             good = {"charter-addendum.md": addendum("charter-addendum", "dig-x")}
             for label, extra, needle in (("a review pass of the wrong shape", ("--reviewed-by", "x pass-1 abc"), "--reviewed-by"),
-                                         ("a review pass with a newline", ("--reviewed-by", REVIEW + "\nOwner-Approval: forged"), "--reviewed-by"),
+                                         ("a review pass with a newline", ("--reviewed-by", PASS1 + "\nOwner-Approval: forged"), "--reviewed-by"),
                                          ("an author that is not a login", ("--authored-by", "Not A Login"), "--authored-by")):
                 rc, out, err = install(label, "args-" + label[:6], good, *extra)
                 check(f"{label} is refused before anything is read", rc == 1 and needle in err and count() == n1, out + err)
@@ -463,7 +461,7 @@ def main() -> int:
                                  ("an English file's digest standing for the text", [right[0], right[1], f"language-culture-ge pass-1 {sha(ka_gloss)}",
                                                                                         f"language-culture-ge pass-2 {sha(ka_gloss)}"])):
                 rc, out, err = install("two-" + label, "two" + label[:5], two, *reviews(*lines), validate=real_validate)
-                check(f"two non-English addenda with {label} are refused", rc == 1 and ("brief-addendum.md" in err or "not of an addendum in another language" in err) and count() == n_set, out + err)
+                check(f"two non-English addenda with {label} are refused", rc == 1 and ("brief-addendum.md" in err or "not a pass by its language's reviewer" in err) and count() == n_set, out + err)
             rc, out, err = install("two-ok", "twook", two, *reviews(*right), validate=real_validate)
             check("…and each addendum with its own two passes installs (the positive control)", rc == 0 and count() == n_set + 1, out + err)
             git(parent, mirror, "reset", "-q", "--hard", "HEAD~1")
@@ -521,7 +519,13 @@ def main() -> int:
                     ("any pass on a set of holder.json alone", {"holder.json": holder}, [f"language-culture-ge pass-2 {sha(holder)}"])):
                 rc, out, err = install("r1f1-" + label, "r1f1" + label[:8], files, *reviews(*lines), validate=real_validate)
                 check(f"{label} is refused: no Reviewed-By line for what needs no review",
-                      rc == 1 and "its sha256 is not of an addendum in another language" in err and count() == n_set, out + err)
+                      rc == 1 and "not a pass by its language's reviewer over a non-English addendum" in err and count() == n_set, out + err)
+            for label, extra in (("a pass-1 over the gloss", f"language-culture-ge pass-1 {sha(ka_gloss)}"),
+                                 ("a pass by a login that is not the language's reviewer", f"legal-expert-ee pass-1 {sha(ka)}"),
+                                 ("a pass numbered pass-7 by another language's reviewer", f"language-culture-ru pass-7 {sha(ka)}")):
+                rc, out, err = install("stray-" + label, "stray" + label[:7], ka_pair, *reviews(*ge_passes, extra), validate=real_validate)
+                check(f"{label}, beside the two required passes, is refused: it would be a trailer saying what no one read",
+                      rc == 1 and "not a pass by its language's reviewer" in err and count() == n_set, out + err)
             rc, out, err = install("mixed-ok", "mixok", mixed, *reviews(*ge_passes), validate=real_validate)
             check("…and the non-English addendum with its own passes, beside an English one and holder.json, installs",
                   rc == 0 and count() == n_set + 1, out + err)
@@ -579,7 +583,7 @@ def main() -> int:
             rc, out, err = install("retfiles", "retf", good, "--retire")
             check("--retire with files is refused", rc == 1 and "empty directory" in err and count() == n3, out + err)
             rc, out, err = call(parent, "roles-put", "--agent", "kid", "--role", ROLE, "--from", empty, "--approval", "A-5",
-                                "--reviewed-by", REVIEW, "--retire")
+                                "--reviewed-by", PASS1, "--retire")
             check("a retirement records no pass: a Reviewed-By line says a text was read, and nothing is installed",
                   rc == 1 and "records no pass" in err and count() == n3, out + err)
             rc, out, err = call(parent, "roles-put", "--agent", "kid", "--role", ROLE, "--from", empty, "--approval", "A-5", "--retire")

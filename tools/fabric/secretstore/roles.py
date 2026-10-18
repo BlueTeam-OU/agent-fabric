@@ -17,7 +17,8 @@ Contract of `roles_put(child, role, src, approval, ...)`:
           addenda_check.validate_set on the files (the gloss rules among them);
           an addendum with no readable against_digest in its frontmatter; an
           addendum not in English without both review passes by language-culture-<key> (<key> the locale whose locale.json tag has the addendum's lang: ka-GE, ge),
-          each naming the sha256 of a file installed (an install-time gate: the render does not check it).
+          pass-1 naming the sha256 of the addendum, pass-2 that or its gloss's; any other Reviewed-By is refused, so a set
+          with no such addendum, a retirement included, takes none (an install-time gate: the render does not check it).
   refused under the mirror's write lock, before anything is written: a mirror
           with uncommitted changes, with no remote, with no trusted base, whose
           .agent-id is not the child's, or whose HEAD is not the remote's main
@@ -129,6 +130,7 @@ def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str], fabric: str | N
     reviews = [r.split() for r in reviewed_by]
     findings = []
     others = {}   # name -> the digests its passes may name
+    judges = []   # (reviewer login pattern, the digests each pass may name) per non-English addendum
     for name in ADDENDA:
         lang = addenda_check.frontmatter(plain[name].decode("utf-8")).get("lang", "en") if name in plain else "en"
         if lang == "en":
@@ -143,16 +145,18 @@ def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str], fabric: str | N
             continue
         who = "|".join(re.escape(k) for k in keys)
         reviewer = re.compile(rf"language-culture-(?:{who})(-[0-9]+)?")
+        judges.append((reviewer, allowed))
         for n in ("pass-1", "pass-2"):
             if not any(reviewer.fullmatch(login) and which == n and digest in allowed[n] for login, which, digest in reviews):
                 findings.append(f"{name}: not in English, so it needs --reviewed-by 'language-culture-{'|'.join(keys)} {n} <sha256 of "
                                 f"{'the addendum' if n == 'pass-1' else 'the addendum or its gloss'}>' (ADR-060 rule 9)")
-    # What a Reviewed-By line says was read: only the digests a pass over a non-English addendum may name. A set with
-    # none (English only, or a holder.json beside it) records no pass at all, and a pass over holder.json or an
-    # English text beside a non-English one is no pass over the text that needs it.
-    allowed_any = set().union(*others.values())
-    findings += [f"--reviewed-by {r[0]} {r[1]}: its sha256 is not of an addendum in another language or its English gloss"
-                 + ("" if others else " (this install has none, so it records no pass)") for r in reviews if r[2] not in allowed_any]
+    # A Reviewed-By line becomes a trailer in the parent-signed commit and says that this login read this text in this
+    # pass: so each line is a pass-1 or pass-2 by the reviewer of some non-English addendum over a digest that pass may
+    # name, and nothing else. A set with no such addendum (English only, or a holder.json beside it, or a retirement)
+    # records no pass at all.
+    findings += [f"--reviewed-by {r[0]} {r[1]}: not a pass by its language's reviewer over a non-English addendum or its English gloss"
+                 + ("" if judges else " (this install has none, so it records no pass)") for r in reviews
+                 if not any(rev.fullmatch(r[0]) and r[2] in allowed.get(r[1], ()) for rev, allowed in judges)]
     return findings
 
 
