@@ -857,6 +857,15 @@ def case_locale_file_shape() -> None:
         write(ident(fabric, "locale", "ge", "locale.json"), '{"tag": "ka-GE", "timezone": "Asia/Tbilisi"}')
         code, out = run_lint(fabric)
         assert code == 1 and "no engine block" in out, out
+        # Every IANA spelling is a timezone's shape; a path or a space is not (#294 review).
+        for tz in ("UTC", "Etc/GMT-3", "America/Port-au-Prince", "America/Argentina/Buenos_Aires"):
+            write(ident(fabric, "locale", "ge", "locale.json"), good.replace("Asia/Tbilisi", tz))
+            code, out = run_lint(fabric)
+            assert code == 0, f"{tz} refused:\n{out}"
+        for tz in ("Asia/../etc", "/Asia/Tbilisi", "Asia Tbilisi"):
+            write(ident(fabric, "locale", "ge", "locale.json"), good.replace("Asia/Tbilisi", tz))
+            code, out = run_lint(fabric)
+            assert code == 1 and "timezone" in out, f"{tz} passed:\n{out}"
         # The standing reminder is optional, and in the locale when present.
         write(ident(fabric, "locale", "ge", "locale.json"), good[:-1] + ', "reminder": " - იფიქრე ქართულად"}')
         code, out = run_lint(fabric)

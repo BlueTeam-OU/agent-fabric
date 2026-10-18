@@ -168,8 +168,10 @@ TZ and AGENT_FABRIC_SEARCH_COUNTRY: the timezone and country from
 holder.json, else from the locale.json of that locale (timezone, serpapi.gl).
 A country not known is dropped from the environment; a timezone not known
 leaves TZ as the operator's own environment has it, since TZ is not ours to
-unset, unless TZ still holds the value a previous launch stamped in
-AGENT_FABRIC_LAUNCH_TZ (a restart re-executes with the environment it set). The locale's harness text, agent files and search tools are chosen
+unset; across a restart, which re-executes with the environment the first
+launch left, TZ goes back to the operator's own value (stamped in
+AGENT_FABRIC_OPERATOR_TZ) when the stamp in AGENT_FABRIC_LAUNCH_TZ is still
+what TZ holds (holder.settle_tz). The locale's harness text, agent files and search tools are chosen
 from the locale, not from the suffix; the readers of the exports never open
 the store.
 The launcher announces nothing: whether a session is running is the
@@ -551,20 +553,18 @@ def launch(argv: list[str]) -> int:
     # suffix only while the holder has none. The timezone becomes the session's
     # TZ, the country the search server's default; the country is set or
     # dropped, because inherited from a replaced session it would name another
-    # holder's. A timezone not known leaves TZ alone: it is the operator's.
+    # holder's. A timezone not known leaves TZ alone: it is the operator's
+    # (holder.settle_tz keeps theirs apart, for a restart).
     suffix = pwd.getpwuid(os.getuid()).pw_name.rsplit("-", 1)[-1]
     loc = holder.resolve_locale(fabric_root, suffix, state_dir, bool(held))
-    # TZ the last launch set (a restart re-executes with that environment) is not the operator's.
-    stamped = env.pop(holder.LAUNCH_TZ, None)
+    holder.settle_tz(env, loc.timezone)
     for name, value in loc.exports().items():
-        if value is not None:
-            env[name] = value
-        elif name != "TZ":
+        if name == "TZ":
+            continue    # settle_tz owns it
+        if value is None:
             env.pop(name, None)
-        elif stamped is not None and env.get("TZ") == stamped:
-            env.pop("TZ")
-    if loc.timezone:
-        env[holder.LAUNCH_TZ] = loc.timezone
+        else:
+            env[name] = value
     locale_dir = roots.locale_dir("language-culture", loc.tag, engine=fabric_root, environ=env)
     prompt_flag = "--append-system-prompt-file"
     if role == "language-culture" and os.path.isfile(f"{locale_dir}/harness.md"):
