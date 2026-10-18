@@ -696,13 +696,15 @@ def run_program(argv: list[str], env: dict[str, str], cwd: str, timeout: float) 
                     pass
                 proc.wait()
         try:
-            out, _ = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            stop()
-            return None, ""
-        except BaseException:
-            stop()
-            raise
+            try:
+                out, _ = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                return None, ""
+        finally:
+            # Any way out with the program unreaped (the bound, SIGTERM, an error) ends its group; one
+            # `finally` rather than an except per way, so no signal can land between the way out and the stop.
+            if proc.returncode is None:
+                stop()
     lines = [ln.strip() for ln in out.decode("utf-8", "replace").splitlines() if ln.strip()]
     return proc.returncode, (lines[-1][:200] if lines else "")
 
@@ -818,6 +820,7 @@ def install_cargo(tool: str, entry: dict, home: str) -> dict:
     try:
         os.makedirs(cargo_home(home), mode=0o755, exist_ok=True)
         sweep_builds(cargo_home(home), tool)
+        shutil.rmtree(build, ignore_errors=True)  # a same-pid leftover of an earlier call in this process
         os.mkdir(build, 0o700)
         status, last = run_program(argv, program_env(home, [os.path.join(cargo_home(home), "bin"), "/usr/local/bin", "/usr/bin", "/bin"], build),
                                    home, bound)

@@ -1046,7 +1046,7 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             time.sleep(0.2)
             check("a cargo install past its bound is stopped with its children",
                   r["status"] == "failed" and "did not finish within 1 s" in r["reason"] and took < 20
-                  and not alive(os.path.join(home, "cargo-child.pid")) and took < 20
+                  and not alive(os.path.join(home, "cargo-child.pid"))
                   and [n for n in os.listdir(os.path.join(home, ".cargo")) if n.startswith(".build.")] == [], (r, took))
 
             r = run_tool("cargo-ndk", home, {**ndk_entry(), "proof": "cargo ndk --version"})
@@ -1057,6 +1057,12 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             os.mkdir(stale_build)
             run_tool("cargo-ndk", home, ndk_entry())
             check("the build directory of a killed run is swept", not os.path.exists(stale_build))
+
+            os.makedirs(os.path.join(home, ".cargo", f".build.cargo-ndk.{os.getpid()}"))
+            os.unlink(os.path.join(home, ".cargo", "bin", "cargo-ndk"))
+            r = run_tool("cargo-ndk", home, ndk_entry())
+            check("a leftover build directory of this pid (an earlier call in the process) does not fail the install",
+                  r["status"] == "installed", r)
 
             print("the link temporaries")
             home = account("pa")
@@ -1105,6 +1111,28 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
 
             check("an unknown kind is named as such, not as a stray field",
                   "kind 'shell' is not one this installer knows" in (tools_install.check_pin({**good_installer, "kind": "shell"}) or ""))
+
+            home = account("pa")
+            tools_install.exit_on_sigterm()
+            tools_install.RUN_TIMEOUT_S["installer"] = 1
+            saved_grace = tools_install.STOP_GRACE_S
+            tools_install.STOP_GRACE_S = 3
+            flag(home, ".fake-init-sleeps")
+            threading.Timer(2.0, os.kill, (os.getpid(), signal.SIGTERM)).start()
+            t0 = time.monotonic()
+            try:
+                run_tool("rustup", home, rustup_entry(body), serving(body))
+                stopped = False
+            except tools_install.Terminated:
+                stopped = True
+            finally:
+                signal.signal(signal.SIGTERM, signal.SIG_DFL)
+                tools_install.STOP_GRACE_S = saved_grace
+                tools_install.RUN_TIMEOUT_S.update(saved_bound)
+            took = time.monotonic() - t0
+            time.sleep(0.2)
+            check("SIGTERM during the grace wait after a timeout still ends a TERM-deaf program with KILL (its child runs 300 s)",
+                  stopped and took < 15 and not alive(os.path.join(home, "init-child.pid")), (stopped, took))
 
             print("an end to the run ends the program")
             home = account("pa")
