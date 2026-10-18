@@ -620,6 +620,222 @@ def main() -> int:
         finally:
             tools_install.urllib.request.build_opener, tools_install.MAX_ASSET_BYTES = real_opener, real_bound
 
+        print("zig — the pin the registry carries (j45)")
+        zdecl = tools_install.declarations(real, "zig")
+        check("herdr declares zig as an account tool", [pid for pid, _ in zdecl] == ["herdr"], zdecl)
+        zpin = zdecl[0][1]["install"] if zdecl else {}
+        check("the pin is the whole 0.16.0 tree from ziglang.org, by the digest ziglang.org's index.json gives",
+              tools_install.check_pin(zpin) is None and zpin.get("version") == "0.16.0" and zpin.get("whole") is True
+              and zpin.get("url") == "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
+              and zpin.get("sha256") == "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+              and zpin.get("root") == "zig-x86_64-linux-0.16.0" and zpin.get("entrypoint") == "zig" and "members" not in zpin, zpin)
+
+        print("archives — the format is the url's, and the bytes must agree")
+
+        def archive(entries: list[tuple], fmt: str = "xz") -> bytes:
+            """entries: (name, kind, payload, mode); kind f file, d directory, s symlink (payload the target),
+            h hardlink, p fifo."""
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode=f"w:{fmt}") as tar:
+                for name, kind, payload, mode in entries:
+                    info = tarfile.TarInfo(name)
+                    info.mode = mode
+                    if kind == "f":
+                        info.size = len(payload)
+                        tar.addfile(info, io.BytesIO(payload))
+                    else:
+                        info.type = {"d": tarfile.DIRTYPE, "s": tarfile.SYMTYPE, "h": tarfile.LNKTYPE, "p": tarfile.FIFOTYPE}[kind]
+                        info.linkname = payload if kind in "sh" else ""
+                        tar.addfile(info)
+            return buf.getvalue()
+
+        member_xz = archive([("faketool", "f", SCRIPT, 0o755), ("LICENSE", "f", b"x", 0o644)])
+        home = account("pa")
+        r = run(home, registry(("pa", entry(member_xz, member="faketool", url=URL + ".tar.xz"))), serving(member_xz))
+        check(".tar.xz with a member: the member is placed",
+              r["status"] == "installed" and open(os.path.join(home, ".local", "bin", "faketool"), "rb").read() == SCRIPT
+              and listing(home) == ["faketool"], (r, listing(home)))
+        member_gz = archive([("faketool", "f", SCRIPT, 0o755)], "gz")
+        for url, arc_bytes, why in ((URL + ".tgz", member_gz, "a .tgz url over gzip bytes (positive control)"),
+                                    (URL + ".tar.gz", member_gz, ".tar.gz over gzip bytes (positive control)")):
+            home = account("pa")
+            r = run(home, registry(("pa", entry(arc_bytes, member="faketool", url=url))), serving(arc_bytes))
+            check(why + ": installed", r["status"] == "installed", r)
+        for url, arc_bytes, want, why in ((URL + ".tar.gz", member_xz, "not gz data", "a .tar.gz url over xz bytes"),
+                                          (URL + ".tar.xz", member_gz, "not xz data", "a .tar.xz url over gzip bytes"),
+                                          (URL + ".tgz", member_xz, "not gz data", "a .tgz url over xz bytes")):
+            home = account("pa")
+            r = run(home, registry(("pa", entry(arc_bytes, member="faketool", url=url))), serving(arc_bytes))
+            check(f"{why}: failed naming the mismatch, nothing placed",
+                  r["status"] == "failed" and want in r["reason"] and listing(home) == [], (r, listing(home)))
+        for url in (URL, URL + ".zip", URL + ".tar", "https://example.invalid/x.tar.xz.exe", "https://example.invalid/a.tar.xz/b"):
+            home = account("pa")
+            r = run(home, registry(("pa", entry(member_xz, member="faketool", url=url))), serving(member_xz))
+            check(f"xz bytes under the url {url[-20:]!r}, which does not end .tar.xz: failed as not gz data, nothing placed",
+                  r["status"] == "failed" and "not gz data" in r["reason"] and listing(home) == [], (r, listing(home)))
+            home = account("pa")
+            r = run(home, registry(("pa", entry(member_gz, member="faketool", url=url))), serving(member_gz))
+            check(f"gzip bytes under {url[-20:]!r}: installed, as a member pin has always read (positive control)", r["status"] == "installed", r)
+        home = account("pa")
+        r = run(home, registry(("pa", entry(member_xz, member="faketool", url=URL + ".tar.xz?download=1"))), serving(member_xz))
+        check("a query string after the suffix does not hide the format (the url's path decides)", r["status"] == "installed", r)
+        truncated = member_xz[:len(member_xz) // 2]
+        home = account("pa")
+        r = run(home, registry(("pa", entry(truncated, member="faketool", url=URL + ".tar.xz"))), serving(truncated))
+        check("an xz stream cut short (its digest matches what was served): failed as unreadable, nothing placed",
+              r["status"] == "failed" and "not a readable archive" in r["reason"] and listing(home) == [], (r, listing(home)))
+
+        print("a whole-tree pin — a directory installed under its root")
+        ROOTD = "ft-1.2.3"
+        W = {"root": ROOTD, "whole": True, "entrypoint": "faketool", "url": "https://example.invalid/ft-1.2.3.tar.xz", "members": None}
+        base = [(ROOTD, "d", "", 0o755), (f"{ROOTD}/faketool", "f", SCRIPT, 0o755),
+                (f"{ROOTD}/lib/deep/er/a.txt", "f", b"a", 0o644), (f"{ROOTD}/lib/__underscore.h", "f", b"u", 0o644),
+                (f"{ROOTD}/lib/empty", "d", "", 0o755), (f"{ROOTD}/lib/alias.txt", "s", "deep/er/a.txt", 0o777),
+                (f"{ROOTD}/lib/suid", "f", b"s", 0o4755), (f"{ROOTD}/lib/wide", "f", b"w", 0o666),
+                ("elsewhere/x", "f", b"outside", 0o644), ("README", "f", b"outside", 0o644)]
+        wtree = lambda h: os.path.join(h, ".local", "lib", "agent-fabric-tools", "faketool", "1.2.3")  # noqa: E731
+
+        def wreg(body: bytes, **over: object) -> dict:
+            return registry(("pa", entry(body, **{**W, **over})))
+
+        def left(h: str) -> list[str]:
+            base_dir = os.path.join(h, ".local", "lib")
+            return sorted(os.path.relpath(os.path.join(d, n), base_dir) for d, ds, fs in os.walk(base_dir) for n in ds + fs)
+
+        whole = archive(base)
+        home = account("pa")
+        r = run(home, wreg(whole), serving(whole))
+        link = os.path.join(home, ".local", "bin", "faketool")
+        check("installed, ~/.local/bin/faketool a link to the tree's entrypoint",
+              r["status"] == "installed" and os.path.islink(link) and os.path.realpath(link) == os.path.realpath(os.path.join(wtree(home), "faketool")), (r, left(home)))
+        placed = sorted(p[len(wtree(home)) + 1:] for p in (os.path.join(d, n) for d, ds, fs in os.walk(wtree(home)) for n in ds + fs))
+        check("everything under the root is placed at its relative path, an empty directory and an underscore name too",
+              placed == ["faketool", "lib", "lib/__underscore.h", "lib/alias.txt", "lib/deep", "lib/deep/er", "lib/deep/er/a.txt",
+                         "lib/empty", "lib/suid", "lib/wide"], placed)
+        check("entries outside the root are not placed", not os.path.exists(os.path.join(wtree(home), "..", "elsewhere"))
+              and not any("elsewhere" in p or "README" in p for p in left(home)), left(home))
+        modes = {n: os.stat(os.path.join(wtree(home), n)).st_mode & 0o7777 for n in ("faketool", "lib/suid", "lib/wide", "lib/deep/er/a.txt")}
+        check("modes: execute kept, setuid and group/world write dropped",
+              modes == {"faketool": 0o755, "lib/suid": 0o755, "lib/wide": 0o644, "lib/deep/er/a.txt": 0o644}, modes)
+        check("a link inside the tree is kept, relative, and reads through",
+              os.readlink(os.path.join(wtree(home), "lib", "alias.txt")) == "deep/er/a.txt"
+              and open(os.path.join(wtree(home), "lib", "alias.txt"), "rb").read() == b"a")
+        check("the link in ~/.local/bin runs the tree's tool",
+              subprocess.run([link, "--version"], capture_output=True, text=True, timeout=30).stdout.strip() == "faketool v1.2.3")
+        again = tools_install.install("faketool", reg=wreg(whole), home=home, fetch=never)
+        check("a second run is current and fetches nothing", again["status"] == "current", again)
+        os.unlink(os.path.join(wtree(home), "faketool"))
+        # The link dangles, and a faketool earlier on PATH still proves as 1.2.3: only the missing entrypoint says not current.
+        shadow = os.path.join(home, "shadow")
+        os.makedirs(shadow)
+        with open(os.path.join(shadow, "faketool"), "wb") as fh:
+            fh.write(SCRIPT)
+        os.chmod(os.path.join(shadow, "faketool"), 0o755)
+        os.environ["PATH"] = f"{shadow}:{os.environ['PATH']}"
+        again = tools_install.install("faketool", reg=wreg(whole), home=home, fetch=serving(whole))
+        check("a tree whose entrypoint is gone is installed again, whole, with no set-aside copy",
+              again["status"] == "installed" and os.path.isfile(os.path.join(wtree(home), "faketool"))
+              and sorted(os.listdir(os.path.dirname(wtree(home)))) == ["1.2.3"], (again, left(home)))
+        gz_whole = archive(base, "gz")
+        home = account("pa")
+        r = run(home, wreg(gz_whole, url="https://example.invalid/ft-1.2.3.tgz"), serving(gz_whole))
+        check("the same tree as a .tgz installs too (the format is the url's, not the pin's kind)", r["status"] == "installed", r)
+        bad_hash = run(account("pa"), wreg(whole), serving(whole + b"x"))
+        check("a tree whose bytes are not the pinned digest: failed on the hash, nothing unpacked or placed",
+              bad_hash["status"] == "failed" and "sha256" in bad_hash["reason"], bad_hash)
+
+        print("a whole-tree pin — each refusal fails the run and leaves nothing (each has the good tree beside it)")
+        refusals = {
+            "an absolute path in the archive": (base + [("/etc/evil", "f", b"x", 0o644)], "absolute"),
+            "a '..' part under the root": (base + [(f"{ROOTD}/../escape", "f", b"x", 0o644)], "'..'"),
+            "a '..' part outside the root": (base + [("other/../escape", "f", b"x", 0o644)], "'..'"),
+            "a symlink to an absolute path": (base + [(f"{ROOTD}/lib/abs", "s", "/etc/passwd", 0o777)], "absolute path"),
+            "a symlink out of the root": (base + [(f"{ROOTD}/lib/out", "s", "../../../etc", 0o777)], "leaves the tree"),
+            # Each target alone looks inside the tree (x/a -> .. is the root; l -> x/a/../.. is the root lexically);
+            # only resolving l through x/a, which is a link, reaches the root's parent.
+            "a symlink that reaches out through another link": (base + [(f"{ROOTD}/x", "d", "", 0o755), (f"{ROOTD}/x/a", "s", "..", 0o777),
+                                                                         (f"{ROOTD}/l", "s", "x/a/../..", 0o777)], "l is a link that leaves"),
+            "a file written through a link": (base + [(f"{ROOTD}/lib/via", "s", "deep", 0o777),
+                                                      (f"{ROOTD}/lib/via/b.txt", "f", b"x", 0o644)], "passes through a link"),
+            "a hard link": (base + [(f"{ROOTD}/lib/hard", "h", f"{ROOTD}/faketool", 0o755)], "neither a file"),
+            "a fifo": (base + [(f"{ROOTD}/lib/fifo", "p", "", 0o644)], "neither a file"),
+            "a file listed twice": (base + [(f"{ROOTD}/lib/deep/er/a.txt", "f", b"again", 0o644)], "twice"),
+            "a file under a file": (base + [(f"{ROOTD}/lib/deep/er/a.txt/sub", "f", b"x", 0o644)], "under a file"),
+            "a directory over a file": (base + [(f"{ROOTD}/lib/deep/er/a.txt", "d", "", 0o755)], "over something else"),
+            "an empty path part": (base + [(f"{ROOTD}/lib//dup", "f", b"x", 0o644)], "not a clean path"),
+            "no entrypoint": ([e for e in base if e[0] != f"{ROOTD}/faketool"], "holds no"),
+        }
+        for label, (entries, want) in refusals.items():
+            bad = archive(entries)
+            home = account("pa")
+            r = run(home, wreg(bad), serving(bad))
+            check(f"{label}: failed ({want!r}), no tree, no link, no stage",
+                  r["status"] == "failed" and want in r["reason"] and left(home) == [] and listing(home) == [], (r, left(home), listing(home)))
+        for label, (entries, want) in refusals.items():
+            if label not in ("a symlink out of the root", "a file written through a link"):
+                continue
+            # The same refusal over a tree already installed leaves that install as it was.
+            home = account("pa")
+            run(home, wreg(whole), serving(whole))
+            before = left(home)
+            os.unlink(link := os.path.join(home, ".local", "bin", "faketool"))
+            bad = archive(entries)
+            r = run(home, wreg(bad), serving(bad))
+            check(f"{label}, over an installed tree: failed, and the installed tree is as it was",
+                  r["status"] == "failed" and left(home) == before and not os.path.lexists(link), (r, left(home)))
+        # An escape that would have worked is the control for the three link refusals: if the check is off, the file lands.
+        saved_links = tools_install._check_link
+        tools_install._check_link = lambda *a: None
+        try:
+            bad = archive(refusals["a symlink out of the root"][0])
+            home = account("pa")
+            r = run(home, wreg(bad), serving(bad))
+        finally:
+            tools_install._check_link = saved_links
+        check("(control) with the target check off, the final resolution still refuses a link out of the tree",
+              r["status"] == "failed" and "leaves the tree" in r["reason"] and left(home) == [], (r, left(home)))
+
+        print("a whole-tree pin — the bounds")
+        saved_entries, saved_bytes = tools_install.MAX_TREE_ENTRIES, tools_install.MAX_ASSET_BYTES
+        try:
+            tools_install.MAX_TREE_ENTRIES = len([e for e in base if e[0].startswith(ROOTD + "/")])
+            home = account("pa")
+            r = run(home, wreg(whole), serving(whole))
+            check("a tree at the entry bound installs (positive control)", r["status"] == "installed", r)
+            tools_install.MAX_TREE_ENTRIES -= 1
+            home = account("pa")
+            r = run(home, wreg(whole), serving(whole))
+            check("one entry over the bound: failed, nothing left",
+                  r["status"] == "failed" and "entries" in r["reason"] and left(home) == [], (r, left(home)))
+        finally:
+            tools_install.MAX_TREE_ENTRIES = saved_entries
+        try:
+            tools_install.MAX_ASSET_BYTES = len(SCRIPT) + 4   # the sum of the files under the root, exactly
+            home = account("pa")
+            r = run(home, wreg(whole), serving(whole))
+            check("files exactly at the size bound install (positive control)", r["status"] == "installed", r)
+            tools_install.MAX_ASSET_BYTES -= 1
+            home = account("pa")
+            r = run(home, wreg(whole), serving(whole))
+            check("files one byte past the size bound: failed, nothing left",
+                  r["status"] == "failed" and "is over" in r["reason"] and left(home) == [], (r, left(home)))
+        finally:
+            tools_install.MAX_ASSET_BYTES = saved_bytes
+
+        print("a whole-tree pin — the pin itself is checked")
+        good = {"version": "1.2.3", "url": "https://example.invalid/x.tar.xz", "sha256": "0" * 64, **{k: v for k, v in W.items() if k not in ("url", "members")}}
+        check("a whole pin as the registry would carry it is acceptable (positive control)", tools_install.check_pin(good) is None, tools_install.check_pin(good))
+        for label, pin_ in (("members and whole together", {**good, "members": ["faketool"]}),
+                            ("whole that is not true", {**good, "whole": "yes"}),
+                            ("whole: false", {**good, "whole": False}),
+                            ("no root", {k: v for k, v in good.items() if k != "root"}),
+                            ("no entrypoint", {k: v for k, v in good.items() if k != "entrypoint"}),
+                            ("an entrypoint with a '..' part", {**good, "entrypoint": "../x"}),
+                            ("an absolute entrypoint", {**good, "entrypoint": "/bin/sh"}),
+                            ("a root with a '..' part", {**good, "root": "a/../b"}),
+                            ("a member beside it", {**good, "member": "faketool"})):
+            check(f"{label}: refused", tools_install.check_pin(pin_) is not None, pin_)
+
         print("fabric-tools --install — the command")
         os.environ["PATH"] = saved_path
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "GIT_"))}

@@ -10,8 +10,12 @@ A tool in projects/registry.json with `"where": "account"` may carry
 
 `version` is what the tool's `proof` must print; `url` an https release
 asset; `sha256` the asset's digest, checked before a byte of it is
-unpacked or placed; `member`, when the asset is a .tar.gz, the one file in
-it that is the tool (absent: the asset is the tool). Nothing is fetched
+unpacked or placed; `member`, when the asset is an archive, the one file in
+it that is the tool (absent: the asset is the tool). An archive is a .tar.xz when
+the url's path ends in that, and a .tar.gz otherwise, as every member pin
+was before xz was admitted; the bytes must be the declared format's, so a
+url that names the wrong one fails the run, never a silent reread as the
+other. Nothing is fetched
 unless the registry says what it must hash to, and nothing is piped to a
 shell.
 
@@ -38,6 +42,22 @@ proof prints the version AND ~/.local/bin/<tool> resolves to the tree's
 entrypoint with every member in place: a single-file install of the same
 version is replaced, never kept as current.
 
+A tree too large to list is pinned whole: `"whole": true` stands where
+`members` stood, and everything under `root` is unpacked (Zig's compiler
+needs its lib/ directory, thousands of files, beside it).
+
+    "install": {"version": "0.16.0", "url": "…/zig-x86_64-linux-0.16.0.tar.xz",
+                "sha256": "…", "root": "zig-x86_64-linux-0.16.0",
+                "whole": true, "entrypoint": "zig"}
+
+For a whole tree (a `members` pin reads only its listed members and ignores
+every other entry), entries outside `root` are not placed. The archive is
+refused whole for an entry with an absolute path or a `..` part, and for
+anything under `root` that is not a directory, a regular file or a symlink
+whose target resolves inside the tree; a path never passes through a link;
+the file count and the unpacked size are bounded. Setuid, setgid and group- or
+world-write bits are dropped.
+
 The verdict, one per run:
   current    the tool's proof already prints the pinned version (a tree
              pin: and ~/.local/bin/<tool> resolves into its whole tree)
@@ -62,6 +82,7 @@ from __future__ import annotations
 import hashlib
 import http.client
 import io
+import lzma
 import os
 import re
 import shlex
@@ -69,7 +90,9 @@ import shutil
 import signal
 import tarfile
 import urllib.error
+import urllib.parse
 import urllib.request
+import zlib
 from typing import Callable
 
 import tools_check
@@ -83,8 +106,14 @@ MEMBER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*")
 # A tree pin's version names a directory, so it is one plain name.
 VERSION_DIR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
 PIN_FIELDS = {"version", "url", "sha256", "member"}
-TREE_FIELDS = {"root", "members", "entrypoint"}
+TREE_FIELDS = {"root", "members", "whole", "entrypoint"}
 MAX_TREE_MEMBERS = 64
+# A whole tree has no list to bound it; Zig 0.16.0 is 20,832 entries and 358 MB.
+MAX_TREE_ENTRIES = 50_000
+# The url declares the format; these bytes must open the stream, or the url lied.
+ARCHIVE_MAGIC = {"gz": b"\x1f\x8b", "xz": b"\xfd7zXZ\x00"}
+# What reading a damaged stream raises, by format; all of it is "the asset is not a readable archive".
+ARCHIVE_ERRORS = (tarfile.TarError, lzma.LZMAError, zlib.error, EOFError)
 # Where a tree pin's tools live: a directory per tool, a directory per version under it.
 TREES = os.path.join(".local", "lib", "agent-fabric-tools")
 # Held in memory whole, so it is a bound on the account's memory, not on the tool: the pinned Codex CLI is a
@@ -168,22 +197,44 @@ def check_pin(pin: object) -> str | None:
     return check_tree(pin) if is_tree(pin) else None
 
 
+def archive_format(url: str) -> str:
+    """"xz" for a url path ending .tar.xz, else "gz": the pins that predate xz name no suffix
+    consistently (a bare name, .tgz), and the magic check in open_tar fails a wrong declaration."""
+    return "xz" if urllib.parse.urlsplit(url).path.endswith(".tar.xz") else "gz"
+
+
+def open_tar(body: bytes, url: str) -> tarfile.TarFile:
+    """The asset opened as the format its url declares; ValueError when the bytes are another."""
+    fmt = archive_format(url)
+    if not body.startswith(ARCHIVE_MAGIC[fmt]):
+        raise ValueError(f"the asset is not {fmt} data, though its url names a {fmt} archive")
+    return tarfile.open(fileobj=io.BytesIO(body), mode=f"r:{fmt}")
+
+
 def is_tree(pin: dict) -> bool:
     return bool(TREE_FIELDS & set(pin))
 
 
 def check_tree(pin: dict) -> str | None:
-    """Why a tree pin (root, members, entrypoint) cannot be acted on, or None."""
-    missing = sorted(TREE_FIELDS - set(pin))
+    """Why a tree pin (root, entrypoint, and members or whole) cannot be acted on, or None."""
+    missing = sorted({"root", "entrypoint"} - set(pin))
     if missing:
         return f"the install pin's tree has no {', '.join(missing)}"
+    if ("members" in pin) == ("whole" in pin):
+        return "the install pin's tree lists its members or is whole, one of the two"
+    if "whole" in pin and pin["whole"] is not True:
+        return "the install pin's whole is not true"
     if "member" in pin:
         return "the install pin names both a member and a tree; it is one or the other"
     if not VERSION_DIR.fullmatch(pin["version"]):
         return "the install pin's version is not a plain directory name"
-    root, members, entrypoint = pin["root"], pin["members"], pin["entrypoint"]
+    root, members, entrypoint = pin["root"], pin.get("members"), pin["entrypoint"]
     if not isinstance(root, str) or not MEMBER.fullmatch(root):
         return "the install pin's root is not a relative path of plain names"
+    if "whole" in pin:
+        if not isinstance(entrypoint, str) or not MEMBER.fullmatch(entrypoint):
+            return "the install pin's entrypoint is not a relative path of plain names"
+        return None
     if (not isinstance(members, list) or not members or len(members) > MAX_TREE_MEMBERS
             or not all(isinstance(m, str) and MEMBER.fullmatch(m) for m in members)):
         return f"the install pin's members are not 1 to {MAX_TREE_MEMBERS} relative paths of plain names"
@@ -202,11 +253,11 @@ def prints_version(first_line: str, version: str) -> bool:
     return re.search(r"(?<![\w.])v?" + re.escape(version) + r"(?![\w.-])", first_line) is not None
 
 
-def unpack(body: bytes, member: str | None) -> bytes:
+def unpack(body: bytes, member: str | None, url: str) -> bytes:
     if member is None:
         return body
     try:
-        with tarfile.open(fileobj=io.BytesIO(body), mode="r:gz") as tar:
+        with open_tar(body, url) as tar:
             info = tar.getmember(member)
             if not info.isreg():
                 raise ValueError(f"{member} in the archive is not a regular file")
@@ -218,8 +269,8 @@ def unpack(body: bytes, member: str | None) -> bytes:
             return fh.read()
     except KeyError:
         raise ValueError(f"the archive holds no {member}") from None
-    except tarfile.TarError as e:
-        raise ValueError(f"the asset is not a readable .tar.gz ({e})") from None
+    except ARCHIVE_ERRORS as e:
+        raise ValueError(f"the asset is not a readable archive ({e})") from None
 
 
 class Terminated(BaseException):
@@ -291,21 +342,27 @@ def tree_dir(home: str, tool: str, version: str) -> str:
 
 
 def tree_in_place(home: str, tool: str, pin: dict) -> bool:
-    """~/.local/bin/<tool> resolves to the pinned tree's entrypoint, and every member is a file there."""
+    """~/.local/bin/<tool> resolves to the pinned tree's entrypoint, and every member is a file there
+    (a whole tree has no list: its entrypoint being a file there is all that is checked)."""
     tree = tree_dir(home, tool, pin["version"])
     link = os.path.join(home, ".local", "bin", tool)
     if os.path.realpath(link) != os.path.realpath(os.path.join(tree, pin["entrypoint"])):
         return False
+    if pin.get("whole"):  # no list to check; the tree arrived by one rename, so its entrypoint is its mark
+        return os.path.isfile(os.path.join(tree, pin["entrypoint"]))
     return all(os.path.isfile(p) and not os.path.islink(p) for p in (os.path.join(tree, m) for m in pin["members"]))
 
 
 def unpack_tree(body: bytes, pin: dict, dest: str) -> None:
     """Exactly the pin's members, from under its root, into dest at their own
     relative paths; ValueError if one is absent, not a regular file, or the
-    whole is past the size bound. Nothing else in the archive is read out."""
+    whole is past the size bound. Nothing else in the archive is read out.
+    A whole-tree pin takes everything under its root instead."""
+    if pin.get("whole"):
+        return unpack_whole(body, pin, dest)
     total = 0
     try:
-        with tarfile.open(fileobj=io.BytesIO(body), mode="r:gz") as tar:
+        with open_tar(body, pin["url"]) as tar:
             for m in pin["members"]:
                 name = f"{pin['root']}/{m}"
                 try:
@@ -329,8 +386,94 @@ def unpack_tree(body: bytes, pin: dict, dest: str) -> None:
                     os.fsync(fh.fileno())
                 # The archive's execute bit, nothing more: no setuid, no group or world write.
                 os.chmod(path, 0o755 if info.mode & 0o100 else 0o644)
-    except tarfile.TarError as e:
-        raise ValueError(f"the asset is not a readable .tar.gz ({e})") from None
+    except ARCHIVE_ERRORS as e:
+        raise ValueError(f"the asset is not a readable archive ({e})") from None
+
+
+def unpack_whole(body: bytes, pin: dict, dest: str) -> None:
+    """Everything under the pin's root into dest, ValueError at the first entry the module docstring
+    refuses. Entries are written by hand, never extractall: each parent is walked one part at a time
+    and a link in it ends the run, so no write can land outside dest however the archive orders its
+    links and files."""
+    prefix = pin["root"] + "/"
+    real_dest = os.path.realpath(dest)
+    entries = total = 0
+    links: list[str] = []
+    try:
+        with open_tar(body, pin["url"]) as tar:
+            for info in tar:
+                name = info.name
+                if name.startswith("/") or ".." in name.split("/"):
+                    raise ValueError(f"{name!r} in the archive is an absolute path or has a '..' part")
+                if not name.startswith(prefix):
+                    continue
+                parts = name[len(prefix):].split("/")
+                if any(p in ("", ".") or "\0" in p for p in parts):
+                    raise ValueError(f"{name!r} in the archive is not a clean path")
+                entries += 1
+                if entries > MAX_TREE_ENTRIES:
+                    raise ValueError(f"the tree holds over {MAX_TREE_ENTRIES} entries")
+                path = _walk(real_dest, parts[:-1], name)
+                path = os.path.join(path, parts[-1])
+                if info.isdir():
+                    if os.path.islink(path) or (os.path.lexists(path) and not os.path.isdir(path)):
+                        raise ValueError(f"{name} in the archive is a directory over something else")
+                    os.makedirs(path, mode=0o755, exist_ok=True)
+                elif info.issym():
+                    _check_link(info, real_dest, parts)
+                    os.symlink(info.linkname, path)
+                    links.append(path)
+                elif info.isreg():
+                    total += info.size
+                    if total > MAX_ASSET_BYTES:
+                        raise ValueError(f"the tree is over {MAX_ASSET_BYTES} bytes")
+                    src = tar.extractfile(info)
+                    if src is None:
+                        raise ValueError(f"{name} in the archive cannot be read")
+                    try:
+                        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    except FileExistsError:
+                        raise ValueError(f"{name} is in the archive twice") from None
+                    with os.fdopen(fd, "wb") as fh:
+                        shutil.copyfileobj(src, fh, 1 << 20)
+                        fh.flush()
+                        os.fsync(fh.fileno())
+                    os.chmod(path, 0o755 if info.mode & 0o100 else 0o644)
+                else:
+                    raise ValueError(f"{name} in the archive is neither a file, a directory nor a link")
+    except ARCHIVE_ERRORS as e:
+        raise ValueError(f"the asset is not a readable archive ({e})") from None
+    # A chain of links can lead out where each one's own target looked inside, so what they resolve to is checked last.
+    for link in links:
+        resolved = os.path.realpath(link)
+        if resolved != real_dest and not resolved.startswith(real_dest + os.sep):
+            raise ValueError(f"{os.path.relpath(link, dest)} is a link that leaves the tree")
+    if not os.path.isfile(os.path.join(dest, pin["entrypoint"])):
+        raise ValueError(f"the archive holds no {pin['root']}/{pin['entrypoint']}")
+
+
+def _walk(base: str, parts: list[str], name: str) -> str:
+    """base joined with parts, each directory made if missing; ValueError if one is a link or not a directory."""
+    cur = base
+    for p in parts:
+        cur = os.path.join(cur, p)
+        if os.path.islink(cur):
+            raise ValueError(f"{name} in the archive passes through a link")
+        if not os.path.lexists(cur):
+            os.mkdir(cur, 0o755)
+        elif not os.path.isdir(cur):
+            raise ValueError(f"{name} in the archive sits under a file")
+    return cur
+
+
+def _check_link(info: tarfile.TarInfo, real_dest: str, parts: list[str]) -> None:
+    """The link's own target, resolved from where it sits, stays inside the tree (links it passes are rechecked at the end)."""
+    target = info.linkname
+    if target.startswith("/"):
+        raise ValueError(f"{info.name} in the archive is a link to an absolute path")
+    where = os.path.normpath(os.path.join(real_dest, *parts[:-1], target))
+    if where != real_dest and not where.startswith(real_dest + os.sep):
+        raise ValueError(f"{info.name} in the archive is a link that leaves the tree")
 
 
 def install_tree(tool: str, entry: dict, body: bytes, home: str) -> dict:
@@ -456,7 +599,7 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
     if is_tree(pin):
         return install_tree(tool, entry, body, home)
     try:
-        payload = unpack(body, pin.get("member"))
+        payload = unpack(body, pin.get("member"), pin["url"])
     except ValueError as e:
         return {"status": "failed", "tool": tool, "reason": str(e)}
     bindir = os.path.join(home, ".local", "bin")
