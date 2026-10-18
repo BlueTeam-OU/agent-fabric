@@ -247,10 +247,12 @@ def case_link_pattern_is_linear_on_a_run_of_destinations() -> None:
 
     def best(reps: int) -> float:
         text, runs = "](" * reps, []
-        for _ in range(5):   # the least of five: a loaded host slows a run, never speeds one
-            t0 = time.perf_counter()
+        # CPU time, not wall time: a host at load 60 failed this on 103 of 150 wall-clock tries, none on CPU time. The least of
+        # nine: a loaded host slows a run, never speeds one.
+        for _ in range(9):
+            t0 = time.process_time()
             ac.LINK_RE.findall(text)
-            runs.append(time.perf_counter() - t0)
+            runs.append(time.process_time() - t0)
         return min(runs)
     small, large = best(2000), best(16000)
     # 8 times the input: about 8 times the time if linear, about 64 if each "](" rescans the run after it (measured on the
