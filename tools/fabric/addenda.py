@@ -138,66 +138,69 @@ def _tree_entries(body: bytes, width: int) -> list[tuple[str, str, str]]:
     return out
 
 
-def _path_oid(store: str, role: str, commit: str) -> str | None:
-    """The oid of settings/roles/<role> in `commit`, None where it has none."""
-    r = _git(store, "rev-parse", "-q", "--verify", f"{commit}:settings/roles/{role}", check=False)
-    if r.returncode == 1:
-        return None
-    if r.returncode != 0:
-        raise _refuse(role, f"the store could not be read (git exit {r.returncode})", commit)
-    return r.stdout.decode().strip()
-
-
-def _carries_through(store: str, role: str, commit: str, parents: list[str]) -> str | None:
-    """The parent whose version of the directory a merge only carried over, or
-    None when the merge is a change of it. Carried over: the result is that
-    parent's version and the other parent has not changed it since their
-    merge base (a 3-way merge that takes the side which did change). A merge
-    that gives up the other side's change, or any other shape, is a change:
-    the agent can order the parents as it likes, so both are tried."""
-    if len(parents) != 2:
-        return None
-    versions = [_path_oid(store, role, p) for p in parents]
-    here = _path_oid(store, role, commit)
-    for i, j in ((0, 1), (1, 0)):
-        if versions[i] != here:
-            continue
-        bases = _git(store, "merge-base", "--all", parents[i], parents[j], check=False).stdout.decode().split()
-        if len(bases) == 1 and _path_oid(store, role, bases[0]) == versions[j]:
-            return parents[i]
-    return None
+def _git_in(store: str, stdin: bytes, *args: str):
+    return _run(["git", "-C", store, _NOREPLACE, "-c", "core.commitGraph=false", *args], stdin=stdin, label=f"git {args[0]}")
 
 
 def _last_changer(store: str, role: str) -> tuple[str, bool] | None:
     """(commit, is a merge) of the commit that last changed
-    settings/roles/<role>/ on the line HEAD's directory came from, or None
-    if none did. `git log -1 -- path` is not that: its history simplification
-    follows the one parent of a merge that the merge agrees with, so a merge
-    that brings back an older parent-signed install is hidden behind that
-    install. --full-history lists every commit that differs from at least
-    one of its parents on the path. --parents is not asked of this walk: it
-    turns on parent rewriting, which lists a merge with fewer parents than
-    it has, so a merge's own parents are read apart, without a pathspec.
-    The first commit listed is HEAD itself when HEAD changed the directory;
-    when HEAD did not, which of several unrelated branches comes first is
-    git's order, by date, and the agent sets dates. A present directory is
-    then still compared with HEAD's own (_verified_directory); an absent one
-    has no such comparison.
-    A merge that only carried a version over is not the change: the walk
-    goes on from the parent it took the version from, not from the next
-    commit of the list, which may lie on the other side (rule 3 of ADR-060)."""
-    start = "HEAD"
-    while True:
-        r = _git(store, "rev-list", "--full-history", start, "--", f"settings/roles/{role}/")
-        listed = r.stdout.decode().split()
-        if not listed:
-            return None
-        commit = listed[0]
-        parents = _git(store, "rev-list", "--no-walk", "--parents", commit).stdout.decode().split()[1:]
-        took = _carries_through(store, role, commit, parents)
-        if took is None:
-            return commit, len(parents) > 1
-        start = took
+    settings/roles/<role>/ on the lines HEAD's version of it came down
+    from, or None if no commit did (the directory never existed there).
+    `git log -1 -- path` is not that: its history simplification follows
+    the one parent of a merge that the merge agrees with, so a merge that
+    brings back an older parent-signed install is hidden behind that
+    install. Here every ancestor is judged from its parents' answers, oldest
+    first, so no date and no order of parents the agent wrote is read:
+      a commit whose version equals its only parent's has that parent's answer;
+      a merge whose version equals one parent's, the other parent not having
+        changed it since their merge base, only carried it over: that
+        parent's answer;
+      a merge whose version equals every parent's takes their answer if they
+        agree, else it is itself the change (it chose between lines);
+      anything else, including a root with the directory, is the change.
+    (rule 3 of ADR-060)"""
+    head = _git(store, "rev-parse", "-q", "--verify", "HEAD", check=False)
+    if head.returncode == 1:
+        return None
+    if head.returncode != 0:
+        raise _refuse(role, f"the store could not be read (git exit {head.returncode})")
+    parents: dict[str, list[str]] = {}
+    order: list[str] = []
+    for line in _git(store, "rev-list", "--parents", "--topo-order", "--reverse", "HEAD").stdout.decode().splitlines():
+        commit, *ps = line.split()
+        parents[commit] = ps
+        order.append(commit)
+    spec = "".join(f"{c}:settings/roles/{role}\n" for c in order).encode()
+    version: dict[str, str | None] = {}
+    rows = _git_in(store, spec, "cat-file", "--batch-check").stdout.decode().splitlines()
+    if len(rows) != len(order):
+        raise _refuse(role, "the store answered something else than one line per commit")
+    for commit, row in zip(order, rows):
+        fields = row.split()
+        if fields[-1] == "missing":
+            version[commit] = None
+        elif len(fields) == 3 and fields[1] == "tree":
+            version[commit] = fields[0]
+        else:
+            raise _refuse(role, f"settings/roles/{role} is not a directory in a commit", commit)
+    answer: dict[str, str | None] = {}
+    for commit in order:
+        ps, here = parents[commit], version[commit]
+        same = [p for p in ps if version[p] == here]
+        if not ps:
+            answer[commit] = commit if here is not None else None
+        elif len(same) == len(ps):
+            answers = {answer[p] for p in ps}
+            answer[commit] = answers.pop() if len(answers) == 1 else commit
+        elif len(ps) == 2 and len(same) == 1:
+            took = same[0]
+            other = ps[1] if took == ps[0] else ps[0]
+            bases = _git(store, "merge-base", "--all", took, other, check=False).stdout.decode().split()
+            answer[commit] = answer[took] if len(bases) == 1 and version[bases[0]] == version[other] else commit
+        else:
+            answer[commit] = commit
+    found = answer[head.stdout.decode().strip()]
+    return (found, len(parents[found]) > 1) if found else None
 
 
 def _directory(store: str, role: str) -> str | None:

@@ -341,19 +341,13 @@ def main() -> int:
         older = parent_push({CHARTER: file(ROLE, KID, "charter-addendum", "# Older\n"), HOLDER: holder_json}, "parent: an older install")
         parent_push(files, "parent: the current install")
         check("control: the current install loads its own text", getattr(load(), "charter", None) == charter.split(b"---\n", 2)[2].decode())
-        real_git = addenda._git
-
-        def log_names_older(store, *a, **k):
-            # only the walk for the commit that last changed the directory is answered wrongly
-            if a[:1] == ("rev-list",) and a[-1] == f"settings/roles/{ROLE}/" and "HEAD" in a:
-                return real_git(store, "rev-list", "--parents", "-1", older)
-            return real_git(store, *a, **k)
-        addenda._git = log_names_older
+        real_last_changer = addenda._last_changer
+        addenda._last_changer = lambda store, role: (older, False)   # the walk answered wrongly: the tree comparison is the second line
         try:
             refused("a parent-signed commit whose directory is not HEAD's (the walk naming an older install) is refused, naming the role", load(), "not the tree HEAD has", ROLE)
         finally:
-            addenda._git = real_git
-        check("…control: git's own answer, the same store, loads", isinstance(load(), addenda.Holder))
+            addenda._last_changer = real_last_changer
+        check("…control: the real walk, the same store, loads", isinstance(load(), addenda.Holder))
 
         # a merge cannot hide a rollback behind the parent-signed install it took (full history, rule 3)
         def plumb(*args: str, stdin: bytes | None = None, **env: str) -> str:
@@ -415,6 +409,25 @@ def main() -> int:
                 load(), "removed the directory is not the parent's", deleted[:12], ROLE)
         plumb("reset", "-q", "--hard", current)
         check("…control: back on the current install, it loads", isinstance(load(), addenda.Holder))
+        # a merge that equals both its parents: the agent's date must not choose the line that is judged
+        restore = plumb("commit-tree", f"{older}^{{tree}}", "-p", current, "-m", "restore",
+                        GIT_AUTHOR_DATE="2001-01-01T00:00:00Z", GIT_COMMITTER_DATE="2001-01-01T00:00:00Z")
+        for label, order in (("agent line first", (restore, older)), ("signed line first", (older, restore))):
+            both = commit_with(f"{older}^{{tree}}", *order)
+            plumb("reset", "-q", "--hard", both)
+            refused(f"a merge of the agent's restoring commit and the older signed install, equal to both, is itself the change ({label})",
+                    load(), "not the parent's", "a merge", both[:12], ROLE)
+        plumb("reset", "-q", "--hard", current)
+        check("…control: back on the current install, it loads", isinstance(load(), addenda.Holder))
+        # a store with a repository and no commit has no directory: absent, as before
+        unborn = os.path.join(tmp, "unborn-store")
+        subprocess.run(["git", "init", "-q", unborn], env=child, check=True, capture_output=True)
+        with account(child):
+            try:
+                got_u = addenda.load("kid", ROLE, "optional", store=unborn)
+            except StoreError as e:
+                got_u = e
+        check("a store whose repository has no commit loads nothing (optional), not an error", got_u is None, repr(got_u))
         # a plain revert commit, dated before the install it undoes, is no better than a merge
         plumb("reset", "-q", "--hard", current)
         revert = plumb("commit-tree", f"{older}^{{tree}}", "-p", current, "-m", "revert",
