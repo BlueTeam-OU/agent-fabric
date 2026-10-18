@@ -5,7 +5,7 @@
 # bin/fabric-model run it); the work, its contract and every reason for it
 # are in tools/fabric/install_agent_files.py (ADR-040 §5 rule 4).
 #
-#   runtime/claude-code/install-agent-files.sh [--provider openrouter|anthropic] [--dry-run]
+#   runtime/claude-code/install-agent-files.sh [--provider openrouter|anthropic] [--locale TAG] [--dry-run]
 #
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.

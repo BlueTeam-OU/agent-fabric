@@ -71,8 +71,9 @@ MAX_CHARS = 28_000   # 20_000 until 2026-09-18 (the owner's two rules); 21_500 a
 # templates under identities/prompt/ (lint budgets them together): the
 # header carries {agent}, {host} and {role}; a role with no brief renders
 # brief-missing.md. Moved out of code on 2026-09-17 so a locale can carry
-# a translation of each (locale/<suffix>/<name>.md), rendered for the
-# login whose name ends in that locale.
+# a translation of each: once per language in identities/prompt/locale/
+# <locale>/, or in a role's own locale/<locale>/, which wins (_locale_path),
+# rendered for the holder whose locale it is (locale_of).
 HEADER_TEMPLATE = "header.md"
 BRIEF_MISSING_TEMPLATE = "brief-missing.md"
 
@@ -226,8 +227,8 @@ def build(agent: str, host: str, role: str, holder: dict | None = None) -> str:
 
 
 # THE HARNESS TEXT IN THE LOCALE. Claude Code's own system prompt is
-# English and comes before the fabric's appended prompt; a locale that
-# carries locale/<suffix>/harness.md (a translation of
+# English and comes before the fabric's appended prompt; a holder whose
+# locale (locale_of) the role carries a locale/<locale>/harness.md for (a translation of
 # runtime/claude-code/harness/en.md) is launched with the whole prompt
 # REPLACED instead — the fabric's part first, in the locale, then the
 # harness text in the locale — because the harness offers no prepend and
