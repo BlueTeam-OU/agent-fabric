@@ -16,8 +16,9 @@ Contract of `roles_put(child, role, src, approval, ...)`:
           subdirectory or whose name starts with a dot; any finding of
           addenda_check.validate_set on the files (the gloss rules among them);
           an addendum with no readable against_digest in its frontmatter; an
-          addendum not in English without both review passes by language-culture-<lang>,
-          each naming the sha256 of a file installed (an install-time gate: the render does not check it).
+          addendum not in English without both review passes by language-culture-<key> (<key> the locale whose locale.json tag has the addendum's lang: ka-GE, ge),
+          pass-1 naming the sha256 of the addendum, pass-2 that or its gloss's; any other Reviewed-By is refused, so a set
+          with no such addendum, a retirement included, takes none (an install-time gate: the render does not check it).
   refused under the mirror's write lock, before anything is written: a mirror
           with uncommitted changes, with no remote, with no trusted base, whose
           .agent-id is not the child's, or whose HEAD is not the remote's main
@@ -39,13 +40,14 @@ Contract of `roles_put(child, role, src, approval, ...)`:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
 import signal
 
 import addenda_check
-from .core import LOGIN_RE, StoreError, children_dir, git, login, own_agent_id, _run
+from .core import LOGIN_RE, StoreError, children_dir, git, login, own_agent_id, roots, _run
 from .entries import _after_commit, _branch, _remote, _require_clean
 from .keys import key_of_store
 from .lock import write_lock
@@ -87,9 +89,36 @@ def _checked_args(role: str, approval: str, reviewed_by: list[str], authored_by:
         raise StoreError(f"--authored-by {authored_by!r} is not a login; nothing written")
 
 
-def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str]) -> list[str]:
-    """Rule 9: a text in another language is read in both passes of ADR-027 §5 rule 3 by language-culture-<lang>
-    (the role's login, with an instance number if it has one). Pass one read the text alone, so it names the sha256 of
+def _locale_keys(lang: str, fabric: str | None) -> list[str]:
+    """The keys of the language-culture locales whose locale.json `tag` is in `lang`: the tag ka-GE is in ka, so ka's
+    key is ge (ADR-060 §5 rule 6).
+    A locale.json that cannot be read is a refusal naming it, never a locale that is skipped: skipping it would
+    answer "no reviewer for this language" for a reason the operator cannot see."""
+    base = os.path.join(roots.role_dir("language-culture", root=fabric), "locale")
+    keys = []
+    try:
+        names = sorted(os.listdir(base))
+    except OSError as e:
+        raise StoreError(f"the language-culture locales cannot be listed ({base}: {e.strerror}); nothing written") from None
+    for key in names:
+        path = os.path.join(base, key, "locale.json")
+        if not os.path.isdir(os.path.join(base, key)):
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                tag = json.load(fh)["tag"]
+            if not isinstance(tag, str) or not tag:
+                raise ValueError("tag is not a string")
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            raise StoreError(f"{path} has no readable tag ({e}); nothing written") from None
+        if tag.split("-")[0].lower() == lang.lower():
+            keys.append(key)
+    return keys
+
+
+def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str], fabric: str | None) -> list[str]:
+    """Rule 9: a text in another language is read in both passes of ADR-027 §5 rule 3 by language-culture-<key>
+    (the role's login, with an instance number if it has one), <key> the locale whose tag has the text's `lang`. Pass one read the text alone, so it names the sha256 of
     that addendum; pass two read it against its English gloss, so it names the sha256 of the addendum or of the gloss.
     A set with such a text records no pass over anything else: a Reviewed-By line is a statement of what was read.
     An install-time gate only: the render never sees the passes, so a commit signed without roles-put renders
@@ -98,26 +127,37 @@ def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str]) -> list[str]:
     sha = lambda name: hashlib.sha256(plain[name]).hexdigest()  # noqa: E731
     reviews = [r.split() for r in reviewed_by]
     findings = []
-    others = {}   # name -> the digests its passes may name
+    judges = []   # (reviewer login pattern, the digests each pass may name) per non-English addendum
     for name in ADDENDA:
         lang = addenda_check.frontmatter(plain[name].decode("utf-8")).get("lang", "en") if name in plain else "en"
         if lang == "en":
             continue
         gloss = name.replace(".md", ".gloss.en.md")
         allowed = {"pass-1": {sha(name)}, "pass-2": {sha(name)} | ({sha(gloss)} if gloss in plain else set())}
-        others[name] = allowed["pass-1"] | allowed["pass-2"]
-        reviewer = re.compile(rf"language-culture-{re.escape(lang)}(-[0-9]+)?")
+        keys = _locale_keys(lang, fabric)
+        if not keys:
+            findings.append(f"{name}: its lang is carried by no language-culture locale (no locale.json tag has it), "
+                            "so no reviewer can be named (ADR-060 rule 6)")
+            continue
+        who = "|".join(re.escape(k) for k in keys)
+        reviewer = re.compile(rf"language-culture-(?:{who})(-[0-9]+)?")
+        judges.append((reviewer, allowed))
         for n in ("pass-1", "pass-2"):
             if not any(reviewer.fullmatch(login) and which == n and digest in allowed[n] for login, which, digest in reviews):
-                findings.append(f"{name}: not in English, so it needs --reviewed-by 'language-culture-{lang} {n} <sha256 of "
+                findings.append(f"{name}: not in English, so it needs --reviewed-by 'language-culture-{'|'.join(keys)} {n} <sha256 of "
                                 f"{'the addendum' if n == 'pass-1' else 'the addendum or its gloss'}>' (ADR-060 rule 9)")
-    if others:
-        installed = {hashlib.sha256(raw).hexdigest() for raw in plain.values()}
-        findings += [f"--reviewed-by {r[0]} {r[1]}: its sha256 is of no file installed" for r in reviews if r[2] not in installed]
+    # A Reviewed-By line becomes a trailer in the parent-signed commit and says that this login read this text in this
+    # pass: so each line is a pass-1 or pass-2 by the reviewer of some non-English addendum over a digest that pass may
+    # name, and nothing else. A set with no such addendum (English only, or a holder.json beside it, or a retirement)
+    # records no pass at all.
+    findings += [f"--reviewed-by {r[0]} {r[1]}: not a pass by its language's reviewer over a non-English addendum or its English gloss"
+                 + ("" if judges else " (this install has none, so it records no pass)") for r in reviews
+                 if not any(rev.fullmatch(r[0]) and r[2] in allowed.get(r[1], ()) for rev, allowed in judges)]
     return findings
 
 
-def _checked_files(role: str, aid: str, files: dict[str, bytes], retire: bool, reviewed_by: list[str]) -> None:
+def _checked_files(role: str, aid: str, files: dict[str, bytes], retire: bool, reviewed_by: list[str],
+                   fabric: str | None = None) -> None:
     if retire and files:
         raise StoreError("--retire takes an empty directory: a retirement installs nothing; nothing written")
     if not retire and not files:
@@ -128,7 +168,7 @@ def _checked_files(role: str, aid: str, files: dict[str, bytes], retire: bool, r
     # are only visible together (ADR-060 rules 1 and 9).
     found += [f"{n}: {f}" for n, fs in sorted(addenda_check.validate_set(role, aid, plain).items()) for f in fs]
     if not found:
-        found += _unreviewed(plain, reviewed_by)
+        found += _unreviewed(plain, reviewed_by, fabric)
     if found:
         raise StoreError("the addenda are refused, nothing written: " + "; ".join(found))
 
@@ -199,7 +239,7 @@ def roles_put(child: str, role: str, src: str, approval: str, *, reviewed_by: li
         raise StoreError(f"{rec.get('login')} is not this account's child in identities/keys/lineage.json; "
                          "only an agent's parent installs its addenda (ADR-060); nothing written")
     files = _read_tree(src, allow_empty=True)   # _checked_files says what an empty one means
-    _checked_files(role, aid, files, retire, reviewed_by)
+    _checked_files(role, aid, files, retire, reviewed_by, fabric)
     for n in ADDENDA:   # an addendum that names no digest is refused before the mirror is looked at
         if n in files:
             against_digest(n, files[n])
