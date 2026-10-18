@@ -428,6 +428,32 @@ def main() -> int:
             except StoreError as e:
                 got_u = e
         check("a store whose repository has no commit loads nothing (optional), not an error", got_u is None, repr(got_u))
+        # what the walk answers on histories the loader must still read (the function alone: no signature is in question)
+        def walk(head_commit: str):
+            plumb("reset", "-q", "--hard", head_commit)
+            with account(child):
+                return addenda._last_changer(child_store, ROLE)
+
+        removal = commit_with(gone_tree, current)                                 # stands for the parent's removal
+        orphan = commit_with(gone_tree)                                           # a side branch that never had the directory
+        for label, order in (("removal first", (removal, orphan)), ("side first", (orphan, removal))):
+            check(f"a merge of a removal with a branch that never had the directory is not the change ({label})",
+                  walk(commit_with(gone_tree, *order)) == (removal, False))
+        p0 = commit_with(gone_tree)
+        p1, s1 = commit_with(tree_plus_file(p0, "a"), p0), commit_with(tree_plus_file(p0, "b"), p0)
+        p2, s2 = commit_with(f"{p1}^{{tree}}", p1, s1), commit_with(f"{p1}^{{tree}}", s1, p1)     # criss-cross: two merge bases below
+        install = commit_with(f"{current}^{{tree}}", p2)
+        s3 = commit_with(tree_plus_file(s2, "c"), s2)
+        check("a merge that carries an install over a criss-cross history is no change", walk(commit_with(f"{current}^{{tree}}", install, s3)) == (install, False))
+        blob = plumb("hash-object", "-w", "--stdin", stdin=b"not a directory\n")
+        roles_t = plumb("mktree", stdin=f"100644 blob {blob}\t{ROLE}\n".encode())
+        settings_t = plumb("mktree", stdin=f"040000 tree {roles_t}\troles\n".encode())
+        odd_root = plumb("mktree", stdin=f"040000 tree {settings_t}\tsettings\n".encode())
+        odd = commit_with(odd_root)
+        after_odd = commit_with(f"{current}^{{tree}}", odd)
+        check("an old commit with a file where the directory is does not refuse the role for good", walk(after_odd) == (after_odd, False))
+        plumb("reset", "-q", "--hard", current)
+
         # a plain revert commit, dated before the install it undoes, is no better than a merge
         plumb("reset", "-q", "--hard", current)
         revert = plumb("commit-tree", f"{older}^{{tree}}", "-p", current, "-m", "revert",
@@ -488,6 +514,12 @@ def main() -> int:
             fh.write(f"{tip} {before_install}\n")
         refused("a .git/info/grafts in the store is refused: it rewrites history under the ancestry check", load(role="brand-comms"), "grafts")
         os.unlink(grafts)
+        check("…control: without it the same store loads", isinstance(load(), addenda.Holder))
+        shallow = os.path.join(child_store, ".git", "shallow")
+        with open(shallow, "w") as fh:
+            fh.write(f"{tip}\n")
+        refused("a .git/shallow in the store is refused: it cuts history short under the merge-base the walk reads", load(role="brand-comms"), "shallow")
+        os.unlink(shallow)
         check("…control: without it the same store loads", isinstance(load(), addenda.Holder))
         git(child, child_store, "rm", "-r", "-q", f"settings/roles/{ROLE}")
         git(child, child_store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "agent deletes the addenda")
