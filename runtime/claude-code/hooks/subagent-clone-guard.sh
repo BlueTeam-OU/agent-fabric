@@ -61,11 +61,29 @@ case "$agent_type" in
 esac
 [[ "$cwd" != */.claude/worktrees/* ]] || exit 0           # isolated: it may write there
 
+# Why a writing class is here at all, said in every refusal it gets. Seen live
+# (2026-10-18, a code-low agent dispatched with isolation worktree): resumed by
+# SendMessage, it ran in the session clone on the session's branch, its
+# worktree gone; Claude Code does not restore a resumed subagent's isolation.
+# The fence is then right, and the review fence's own words ("The review
+# class ...") told a code-medium agent nothing (j228). Whether a resumed agent
+# whose worktree held changes gets it back was not observed.
+why() {
+  printf 'This %s subagent runs in the session clone (%s), not in a worktree of its own, so it is read-only here. A subagent resumed by SendMessage runs here: its isolation is not restored. Do not resume a writing agent: dispatch a new one with isolation worktree for the next step, or report what you would have changed.' "$agent_type" "$cwd"
+}
 case "$tool" in
   Bash)
-    printf '%s' "$input" | bash "$HERE/review-bash-guard.sh" ;;
+    out="$(printf '%s' "$input" | bash "$HERE/review-bash-guard.sh")"
+    if [[ "$agent_type" != code-review ]] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
+      out="$(printf '%s' "$out" | jq -c --arg why "$(why)" '.hookSpecificOutput.permissionDecisionReason |= $why + " The read-only fence says: " + .')"
+    fi
+    printf '%s' "$out" ;;
   Write|Edit|MultiEdit|NotebookEdit)
-    jq -nc --arg t "$tool" --arg a "$agent_type" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",
-      permissionDecisionReason:("A " + $a + " subagent running in the session clone may not use " + $t + ": only the review class runs here, and it is read-only. A writing dispatch carries isolation worktree and works in its own worktree; if this is a review, report the finding instead of editing. See CLAUDE.md - Subagents.")}}' ;;
+    if [[ "$agent_type" == code-review ]]; then
+      reason="The review class runs in the session clone and is read-only: it may not use $tool. Report the finding instead of editing. See CLAUDE.md - Subagents."
+    else
+      reason="$(why) It may not use $tool. See CLAUDE.md - Subagents."
+    fi
+    jq -nc --arg r "$reason" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}' ;;
   *) ;;                                                   # not a tool this hook is matched on
 esac

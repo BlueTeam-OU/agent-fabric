@@ -75,6 +75,23 @@ expect "Grep in the clone is allowed" allow Grep code-high "$CLONE"
 echo "clone guard: the denial says why"
 out="$(printf '{"tool_name":"Write","agent_id":"a1","agent_type":"code-high","cwd":"%s","tool_input":{}}' "$CLONE" | bash "$UNDER_TEST")"
 if grep -q "session clone" <<<"$out" && grep -q "isolation worktree" <<<"$out"; then pass "names the clone and the worktree rule"; else fail "names the clone and the worktree rule" "$out"; fi
+# reason <tool> <agent_type> [command] -> the refusal's text
+reason() {
+  jq -nc --arg t "$1" --arg a "$2" --arg c "$CLONE" --arg m "${3:-}" '{tool_name:$t,agent_id:"a1",agent_type:$a,cwd:$c,tool_input:{command:$m}}' \
+    | bash "$UNDER_TEST" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason // ""'
+}
+has() { if [[ "$2" == *"$3"* ]]; then pass "$1"; else fail "$1" "missing [$3] in [$2]"; fi; }
+# A writing class resumed by SendMessage runs here (j228): the refusal says so, not the review fence's words alone.
+r="$(reason Bash code-medium "git commit -m x")"
+has "a writing class's git refusal names its type and the clone" "$r" "This code-medium subagent runs in the session clone ($CLONE)"
+has "…says a resumed subagent loses its isolation and what to do" "$r" "dispatch a new one with isolation worktree"
+has "…and keeps the fence's own reason" "$r" "The read-only fence says: "
+r="$(reason Write code-low)"
+has "a writing class's Write refusal names its type" "$r" "This code-low subagent runs in the session clone"
+has "…and the tool" "$r" "It may not use Write."
+has "the review class keeps its own wording for Write" "$(reason Write code-review)" "The review class runs in the session clone and is read-only: it may not use Write."
+r="$(reason Bash code-review "git commit -m x")"
+if [[ "$r" != *"subagent runs in the session clone"* && "$r" == *"The review class"* ]]; then pass "the reviewer's git refusal is the fence's alone"; else fail "the reviewer's git refusal is the fence's alone" "$r"; fi
 
 echo "clone guard: a guard that cannot run asks; it never silently allows"
 # jq is the one dependency; an empty PATH removes it. The guard checks
