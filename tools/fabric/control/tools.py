@@ -231,7 +231,7 @@ def tools(directory: str | None = None, now: Callable[[], float] = lambda: time.
 # it decides nothing about which account gets what, so the Doppler CLI
 # stays off every account the registry does not name it for.
 TOOL_NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
-INSTALL_TIMEOUT_MS = 5 * 60 * 1000
+INSTALL_TIMEOUT_MS = 20 * 60 * 1000  # a cargo pin compiles a crate: its own bound is 780 s (tools_install.RUN_TIMEOUT_S)
 # The operator waits past the account's own bound, so a hung fetch is the account's verdict, not a silence.
 TOOLS_INSTALL_BUDGET_S = INSTALL_TIMEOUT_MS // 1000 + 30
 _INSTALL_STATUS = {"installed": 0, "current": 0, "skipped": 0, "failed": 1, "refused": 2}

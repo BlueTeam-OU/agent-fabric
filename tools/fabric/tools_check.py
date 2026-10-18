@@ -63,7 +63,7 @@ def bound_role() -> str | None:
         return None
 
 
-def prove(proof: str) -> tuple[str, str]:
+def prove(proof: str, env: dict[str, str] | None = None) -> tuple[str, str]:
     """('ok', first line), ('missing', why), ('timeout', why) or ('failed', why).
     A timeout is its own state: a proof that is slow under load (every account
     proving at once after a reboot) says nothing about the tool, and a session
@@ -74,7 +74,8 @@ def prove(proof: str) -> tuple[str, str]:
     except ValueError as e:
         return "failed", f"proof is not a command line ({e})"
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=PROOF_TIMEOUT_S, stdin=subprocess.DEVNULL)
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=PROOF_TIMEOUT_S, stdin=subprocess.DEVNULL,
+                           env=env)
     except FileNotFoundError:
         return "missing", f"{argv[0]} not found"
     except subprocess.TimeoutExpired:
