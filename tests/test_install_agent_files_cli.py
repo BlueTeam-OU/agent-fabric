@@ -81,10 +81,13 @@ if not os.path.isfile(INSTALL):
 IS_PY = INSTALL.endswith(".py")
 
 # The script reads its login from the password database and has no seam for
-# it, and a login without a hyphen (CI's runner, a bare account) makes the
-# suffix equal the login, which hides a script that forgets to take the
-# suffix. So every process the run starts sees this login, through a
-# sitecustomize on PYTHONPATH (SITECUSTOMIZE) that patches pwd.getpwuid.
+# it. Its locale is the one the last launch recorded for that login
+# (launch-locale.json, tools/fabric/launch_locale.py), never the login's
+# suffix (agent-fabric ADR-060 §5 rule 8): the login ends in the fixture's
+# locale so that a script reading the suffix again passes no case that has
+# no record (test_no_record_is_english_whatever_the_login). Every process
+# the run starts sees this login, through a sitecustomize on PYTHONPATH
+# (SITECUSTOMIZE) that patches pwd.getpwuid.
 LOGIN = "fixture-qq"
 SUFFIX = "qq"
 assert LOGIN.rsplit("-", 1)[-1] == SUFFIX != LOGIN
@@ -169,7 +172,7 @@ class Fixture(unittest.TestCase):
         mem = os.path.join(self.fabric, "runtime", "mcp", "fabric-memory")
         os.makedirs(mem)
         shutil.copy(os.path.join(HERE, "runtime", "mcp", "fabric-memory", "install.py"), mem)
-        for m in ("routing", "workingcopy", "layout", "install_agent_files", "fabric_writes", "roots"):
+        for m in ("routing", "workingcopy", "layout", "install_agent_files", "fabric_writes", "launch_locale", "roots"):
             shutil.copy(os.path.join(HERE, "tools", "fabric", m + ".py"), os.path.join(self.fabric, "tools", "fabric"))
         # Present from the start: the installer runs it on every role, to
         # install or to remove, and a run without it exits 2 on a bare Python error.
@@ -183,6 +186,16 @@ class Fixture(unittest.TestCase):
         self.claude_json = os.path.join(self.home, ".claude.json")
         self.settings = os.path.join(self.home, ".claude", "settings.json")
         self.bind("language-culture")
+        self.record_locale(SUFFIX)
+
+    def record_locale(self, tag: str | None) -> None:
+        """The launch record a launch leaves (launch_locale.py); None removes it."""
+        path = os.path.join(self.state, "agents", LOGIN, "launch-locale.json")
+        if tag is None:
+            if os.path.exists(path):
+                os.unlink(path)
+        else:
+            write(path, json.dumps({"locale": tag}) + "\n")
 
     def bind(self, role: str) -> None:
         write(os.path.join(self.state, "agents", LOGIN, "binding.json"),
@@ -354,6 +367,19 @@ class RoleChange(Fixture):
         out = self.run_install()
         self.assertFalse(os.path.exists(self.dest), out)
         self.assertIn(f"no worker authored for locale {SUFFIX}", out)
+
+    def test_no_record_is_english_whatever_the_login(self) -> None:
+        # Bootstrap passes no --locale: with no launch record the locale is en, even for a login named for qq.
+        # Kills: choosing the locale from the login's suffix.
+        self.record_locale(None)
+        out = self.run_install()
+        self.assertFalse(os.path.exists(self.dest), out)
+
+    def test_locale_option_wins_over_the_record(self) -> None:
+        # The launcher's --locale is this launch's answer; the record is the last one's. Kills: reading the record first.
+        self.record_locale("en")
+        out = self.run_install(f"--locale={SUFFIX}")
+        self.assertTrue(os.path.isfile(self.dest), out)
 
     def test_hand_written_worker_without_marker_survives(self) -> None:
         self.bind("backend-dev")
