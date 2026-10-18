@@ -344,16 +344,58 @@ def main() -> int:
         real_git = addenda._git
 
         def log_names_older(store, *a, **k):
-            # only the lookup of the commit that last touched the directory is answered wrongly
-            if a[:1] == ("log",) and a[-2:-1] == ("--",) and a[-1] == f"settings/roles/{ROLE}/" and "--format=%H" in a and "HEAD" in a:
-                return real_git(store, "show", "-s", "--format=%H", older)
+            # only the walk for the commit that last changed the directory is answered wrongly
+            if a[:1] == ("rev-list",) and a[-1] == f"settings/roles/{ROLE}/" and "HEAD" in a:
+                return real_git(store, "rev-list", "--parents", "-1", older)
             return real_git(store, *a, **k)
         addenda._git = log_names_older
         try:
-            refused("a parent-signed commit whose directory is not HEAD's (log naming an older install) is refused, naming the role", load(), "not the tree HEAD has", ROLE)
+            refused("a parent-signed commit whose directory is not HEAD's (the walk naming an older install) is refused, naming the role", load(), "not the tree HEAD has", ROLE)
         finally:
             addenda._git = real_git
         check("…control: git's own answer, the same store, loads", isinstance(load(), addenda.Holder))
+
+        # a merge cannot hide a rollback behind the parent-signed install it took (full history, rule 3)
+        def plumb(*args: str, stdin: bytes | None = None, **env: str) -> str:
+            p = subprocess.run(["git", "-C", child_store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                               env={**child, **env}, input=stdin, capture_output=True, check=True)
+            return p.stdout.decode().strip()
+
+        def commit_with(tree: str, *parents: str) -> str:
+            return plumb("commit-tree", tree, "-m", "merge", *[x for q in parents for x in ("-p", q)])
+
+        def tree_plus_file(commit: str, name: str) -> str:
+            blob = plumb("hash-object", "-w", "--stdin", stdin=b"unrelated\n")
+            entries = plumb("ls-tree", f"{commit}^{{tree}}")
+            return plumb("mktree", stdin=(entries + f"\n100644 blob {blob}\t{name}\n").encode())
+
+        current = plumb("rev-parse", "HEAD")
+        for label, order in (("HEAD first", (current, older)), ("older first", (older, current))):
+            m = commit_with(f"{older}^{{tree}}", *order)
+            plumb("reset", "-q", "--hard", m)
+            check(f"control: git's own `log -1` hides the merge behind the older install ({label})",
+                  plumb("log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{ROLE}/") == older)
+            refused(f"a merge that brings back an older parent-signed install is the change, and is refused, naming the merge ({label})",
+                    load(), "not the parent's", "a merge", m[:12], ROLE)
+            plumb("reset", "-q", "--hard", current)
+        # an unrelated merge: the side branch is based on the older install and changed another file only
+        side = commit_with(tree_plus_file(older, "side.txt"), older)
+        merged = commit_with(tree_plus_file(current, "side.txt"), current, side)
+        plumb("reset", "-q", "--hard", merged)
+        got_m = load()
+        check("an unrelated merge (the directory is its first parent's, the side never changed it) still loads", isinstance(got_m, addenda.Holder) and got_m.addenda_commit == current, repr(got_m))
+        merged2 = commit_with(tree_plus_file(current, "side.txt"), side, current)
+        plumb("reset", "-q", "--hard", merged2)
+        got_m2 = load()
+        check("…with the parents the other way round, the same", isinstance(got_m2, addenda.Holder) and got_m2.addenda_commit == current, repr(got_m2))
+        # a plain revert commit, dated before the install it undoes, is no better than a merge
+        plumb("reset", "-q", "--hard", current)
+        revert = plumb("commit-tree", f"{older}^{{tree}}", "-p", current, "-m", "revert",
+                       GIT_AUTHOR_DATE="2001-01-01T00:00:00Z", GIT_COMMITTER_DATE="2001-01-01T00:00:00Z")   # older than the install it undoes
+        plumb("reset", "-q", "--hard", revert)
+        refused("an agent commit that restores the older directory is the change, however old it is dated", load(), "not the parent's", revert[:12], ROLE)
+        plumb("reset", "-q", "--hard", current)
+        check("…control: back on the current install, it loads", isinstance(load(), addenda.Holder))
 
         # the agent owns its .git: other bytes under the name of a signed object are not read
         import zlib

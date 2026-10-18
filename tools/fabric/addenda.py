@@ -12,8 +12,9 @@ Contract of `load(login, role, policy=)`:
           addenda; a store whose .agent-id is not the id lineage gives the
           login; a trusted base missing or a HEAD that does not descend from
           it; a last commit on the directory whose tree for it is not the one
-          HEAD has; a last commit on the directory not signed by the parent's key
-          alone (the agent's own included); a directory holding anything
+          HEAD has; the last commit that changed the directory over the whole
+          history (a merge that took an older version counts) not signed by the
+          parent's key alone (the agent's own included); a directory holding anything
           but plain files; a set of files addendum_check.validate_set has a finding on.
           Tamper is never read as absence (rule 7).
   reads   git objects only, without replace refs or a commit-graph, those of
@@ -137,6 +138,56 @@ def _tree_entries(body: bytes, width: int) -> list[tuple[str, str, str]]:
     return out
 
 
+def _path_oid(store: str, role: str, commit: str) -> str | None:
+    """The oid of settings/roles/<role> in `commit`, None where it has none."""
+    r = _git(store, "rev-parse", "-q", "--verify", f"{commit}:settings/roles/{role}", check=False)
+    if r.returncode == 1:
+        return None
+    if r.returncode != 0:
+        raise _refuse(role, f"the store could not be read (git exit {r.returncode})", commit)
+    return r.stdout.decode().strip()
+
+
+def _carries_through(store: str, role: str, commit: str, parents: list[str]) -> bool:
+    """A merge that only carried the directory over: its result is one parent's
+    version, and the other parent has not changed it since their merge base
+    (a 3-way merge that takes the side which did change). A merge that
+    gives up the other side's change, or any other shape, is a change of the
+    directory: the agent can order the parents as it likes, so the rule is
+    symmetric."""
+    if len(parents) != 2:
+        return False
+    versions = [_path_oid(store, role, p) for p in parents]
+    here = _path_oid(store, role, commit)
+    for i, j in ((0, 1), (1, 0)):
+        if versions[i] != here:
+            continue
+        bases = _git(store, "merge-base", "--all", parents[i], parents[j], check=False).stdout.decode().split()
+        if len(bases) == 1 and _path_oid(store, role, bases[0]) == versions[j]:
+            return True
+    return False
+
+
+def _last_changer(store: str, role: str) -> tuple[str, bool] | None:
+    """(commit, is a merge) of the latest commit that changed
+    settings/roles/<role>/ over the whole history, or None if none did.
+    `git log -1 -- path` is not that: its history simplification follows
+    the one parent of a merge that the merge agrees with, so a merge that
+    brings back an older parent-signed install is hidden behind that
+    install. --full-history lists every commit not identical to all of its
+    parents (rule 3 of ADR-060). The walk starts at HEAD, so a commit is
+    listed after the commit that reaches it, whatever dates the agent gave
+    them; between branches git's order is by date, and the comparison with
+    HEAD's own directory in _verified_directory stands behind it."""
+    r = _git(store, "rev-list", "--full-history", "--parents", "HEAD", "--", f"settings/roles/{role}/")
+    for line in r.stdout.decode().splitlines():
+        commit, *parents = line.split()
+        if len(parents) > 1 and _carries_through(store, role, commit, parents):
+            continue
+        return commit, len(parents) > 1
+    return None
+
+
 def _directory(store: str, role: str) -> str | None:
     """The oid of settings/roles/<role> at HEAD; None when the store has no
     commit or no such path. A path that is not a directory, or a git that
@@ -168,9 +219,9 @@ def _verified_directory(store: str, role: str, commit: str, algo: str, head_tree
             raise _refuse(role, f"{part} is not a directory of the commit's tree", commit)
         oid = hit[0][2]
     # ADR-060 rule 3 wants the bytes the parent signed to be the bytes HEAD
-    # has. `git log -1 -- <path>` should name a commit whose version of the
-    # path is HEAD's, but that rests on git's history simplification, so the
-    # two oids are compared here instead of trusted.
+    # has. _last_changer should name a commit whose version of the path is
+    # HEAD's, but that rests on git's history walk, so the two oids are
+    # compared here instead of trusted.
     if oid != head_tree:
         raise _refuse(role, f"settings/roles/{role} in the parent-signed commit is not the tree HEAD has for it", commit)
     return _tree_entries(_object(store, role, "tree", oid, algo), width)
@@ -198,9 +249,10 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
     if head_tree is None:
         # Never there, or removed: a removal is the parent's too (rule 3), or an
         # unsigned deletion would turn any addendum into "no addenda".
-        removed = _git(store, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/", check=False).stdout.decode().strip()
-        if not removed:
+        changed = _last_changer(store, role)
+        if changed is None:
             return _absent(role, policy, "the store has no settings/roles/" + role)
+        removed, _ = changed
         aid, _ = mirrors.resolve(login, fabric=fabric)
         try:
             trust.verify_signed_by(store, removed, trust.parent_writer(aid, fabric), unknown_key="not signed by the parent's key")
@@ -215,13 +267,14 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
     if not base:
         raise _refuse(role, "the store has no trusted base (ADR-042)", head)
 
-    commit = _git(store, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/").stdout.decode().strip()
-    if not commit:
+    changed = _last_changer(store, role)
+    if changed is None:
         raise _refuse(role, "no commit touched the directory", head)
+    commit, is_merge = changed
     try:
         trust.verify_signed_by(store, commit, trust.parent_writer(aid, fabric), unknown_key="not signed by the parent's key")
     except StoreError as e:
-        raise _refuse(role, f"the last commit on the directory is not the parent's ({e})", commit) from None
+        raise _refuse(role, f"the last commit that changed the directory{' (a merge)' if is_merge else ''} is not the parent's ({e})", commit) from None
 
     algo = _algo(store)
     rows = _verified_directory(store, role, commit, algo, head_tree)
