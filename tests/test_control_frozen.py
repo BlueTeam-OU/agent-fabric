@@ -15,6 +15,8 @@ case of its own with an expected value written by hand. The reflection clause
 of the memory table is cut on the Python side (AFTER_NODE_REFLECTION; case 28's
 body cuts it before hashing). The three cases that render the tokens table were re-frozen when its `hit` column was added: those
 elements hold Python's text, which differs from the Node's by that column only.
+The tools-install rows were re-frozen when a cargo pin's build raised the account's bound (#303): the default timeout 330 -> 1230 s,
+the signed ttl_s 330 -> 600 (ACTION_TTL_MAX_S caps it); nothing else in them moved.
 Every element the Node refused (a `threw` entry) stays as the Node left it."""
 from __future__ import annotations
 
