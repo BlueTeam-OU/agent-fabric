@@ -5,7 +5,7 @@ topic: "decrypt-only-what-you-use"
 description: "code that reads a store of secrets in bulk, or decodes a decrypted value — read only the names used; a decode error's message quotes the bytes"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

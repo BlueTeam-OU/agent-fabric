@@ -5,7 +5,7 @@ topic: "owner-commands-one-line"
 description: "A command for the human owner is ONE line, ready after `!`, and I run it (or every part I can) myself first: an untried line cost a live check on 2026-10-10"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

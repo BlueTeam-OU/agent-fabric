@@ -5,7 +5,7 @@ topic: "corr-local-grep-is-ugrep"
 description: "On the coordinator's login grep is ugrep; verify a grep-based guard with /usr/bin/grep before trusting a local green"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

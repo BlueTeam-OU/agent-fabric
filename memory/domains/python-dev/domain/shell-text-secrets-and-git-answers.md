@@ -5,7 +5,7 @@ topic: "shell-text-secrets-and-git-answers"
 description: "porting a shell read or a git check — a token in a child's argv is readable in /proc; rev-parse answers false with exit 0; unknown git state is not clean"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "subagent-model-audit"
 description: "Audit what subagents actually ran on from their transcripts, never trust routing config; 2026-10-10 in my UNLAUNCHED session 32 review dispatches with model fable ran on claude-fable-5-1, not the agent file's Opus 5.5 pin (the…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

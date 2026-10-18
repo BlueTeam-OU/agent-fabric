@@ -5,7 +5,7 @@ topic: "j19-resume-state"
 description: "Where j19 (last Node in agent-fabric, PR 181) stood when paused for live check 7 on 2026-10-10: what is done, what to run, what waits"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

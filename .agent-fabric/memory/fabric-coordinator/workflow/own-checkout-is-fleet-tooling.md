@@ -5,7 +5,7 @@ topic: "own-checkout-is-fleet-tooling"
 description: "~/projects/agent-fabric is both my working copy and the fabric my login runs (fabric-ctl, hooks, the owner's Fleet Deck): a feature branch there, behind main, runs old code for everything on this login"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

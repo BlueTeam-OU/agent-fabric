@@ -5,7 +5,7 @@ topic: "feedback-caution-merges-and-force-pushes"
 description: "user asked for more caution (2026-10-10) after a merge of main put out-of-entry deletions in my own merge commit and a chained force-push was refused"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

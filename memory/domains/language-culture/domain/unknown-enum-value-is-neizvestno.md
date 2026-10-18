@@ -5,7 +5,7 @@ topic: "unknown-enum-value-is-neizvestno"
 description: ru word for a value the build does not know (status, role, model, language, kind) — «Неизвестно», not «Не распознано»
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ru"
     host: "develop-qzapp"

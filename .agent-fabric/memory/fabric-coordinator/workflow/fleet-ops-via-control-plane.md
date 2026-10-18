@@ -5,7 +5,7 @@ topic: "fleet-ops-via-control-plane"
 description: "An operation on accounts (move Claude account, sync, verify, restart) goes through signed control-plane messages, never hostexec/sudo per login — build the action if it is missing"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

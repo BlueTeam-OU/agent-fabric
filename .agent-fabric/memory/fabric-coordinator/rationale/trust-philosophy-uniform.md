@@ -5,7 +5,7 @@ topic: "trust-philosophy-uniform"
 description: "The owner's trust philosophy (2026-10-10): decide one philosophy of trust and apply it to everyone, AI agents and people alike; both make errors, which is no reason to build walls against agents; walls are ethically wrong and cost the…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

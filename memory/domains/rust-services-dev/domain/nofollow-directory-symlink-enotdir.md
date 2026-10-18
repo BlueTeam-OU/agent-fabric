@@ -5,7 +5,7 @@ topic: "nofollow-directory-symlink-enotdir"
 description: "openat(O_DIRECTORY|O_NOFOLLOW) on a symlink fails ENOTDIR on Linux, not ELOOP; classify with fstatat"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"

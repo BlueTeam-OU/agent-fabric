@@ -5,7 +5,7 @@ topic: "deleting-a-port-source-sweep"
 description: "Deleting the old implementation of a port (Wave 8 s8, #170): what breaks that a grep of paths does not find, and how the frozen oracle replaces the differential test"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "independent-tracers-share-no-cut"
 description: "A cross-check tracer that copies the first tracer's largest-component cut agrees by construction near road islands"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "domain-transit"
     host: "develop-qzapp"

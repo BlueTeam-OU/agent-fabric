@@ -5,7 +5,7 @@ topic: "review-class-leaves-run-user-scratch"
 description: "a code-review dispatch that exports trees for mutation runs cannot delete them; the session removes /run/user/<uid>/rv.*"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

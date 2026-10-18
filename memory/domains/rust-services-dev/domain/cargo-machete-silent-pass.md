@@ -5,7 +5,7 @@ topic: "cargo-machete-silent-pass"
 description: "cargo-machete 0.9.2 default mode skips dev-deps; --with-metadata reports unreadable crates clean with exit 0"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"

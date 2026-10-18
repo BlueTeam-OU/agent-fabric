@@ -5,7 +5,7 @@ topic: "wave-8-signed-bytes-and-frozen-state"
 description: "Wave 8 (j67) revised on #131 — signed bytes are Node JSON.stringify to the byte; persisted state frozen with the wire; no new wire behaviour before Node is deleted"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

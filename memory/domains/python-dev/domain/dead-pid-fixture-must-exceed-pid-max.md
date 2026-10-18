@@ -5,7 +5,7 @@ topic: "dead-pid-fixture-must-exceed-pid-max"
 description: "a test's \"dead\" pid must be 2**22 + 1 or more; 999999 or 2**22 - 5 can be live on a long-running host (pid_max 4194304)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

@@ -2,10 +2,10 @@
 role: "fabric-coordinator"
 class: workflow
 topic: "launcher-help-is-a-launch"
-description: "launch --help installs no agent files; it still passes through to claude, so read usage from the launcher source"
+description: "launch --help installs no agent files; it still passes through to claude, so read usage from source"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

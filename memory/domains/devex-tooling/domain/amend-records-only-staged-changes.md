@@ -5,7 +5,7 @@ topic: "amend-records-only-staged-changes"
 description: "git commit --amend -F - without -a re-records the message only; an edit made after the commit stays unstaged — check git status before pushing an amend"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

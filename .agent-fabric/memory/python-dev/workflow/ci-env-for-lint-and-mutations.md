@@ -5,7 +5,7 @@ topic: "ci-env-for-lint-and-mutations"
 description: "Run lint.py and mutation harnesses with AGENT_FABRIC_* stripped and a scratch TMPDIR — the session env makes lint check the main checkout and mutations leak into the account TMPDIR"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

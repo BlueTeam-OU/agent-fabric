@@ -5,7 +5,7 @@ topic: "herdr-fork-strategy"
 description: "before any work on herdr or its remotes — upstream is closed to non-contributors; we work in our fork and take upstream's work in without overturning ours"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

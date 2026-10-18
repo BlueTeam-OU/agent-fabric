@@ -5,7 +5,7 @@ topic: "serde-derive-accepts-arrays"
 description: "A derived serde struct also deserializes from a JSON array; a field probe that must only accept objects needs a map-only visitor"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"

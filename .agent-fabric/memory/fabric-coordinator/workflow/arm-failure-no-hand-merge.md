@@ -5,7 +5,7 @@ topic: "arm-failure-no-hand-merge"
 description: "When fabric-pr arm fails at gh pr merge --auto, do not merge by hand at once: on a repo with no required checks it merges instantly, before fixes the author is still pushing"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

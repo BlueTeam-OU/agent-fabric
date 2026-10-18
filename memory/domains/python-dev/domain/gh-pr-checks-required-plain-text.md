@@ -5,7 +5,7 @@ topic: "gh-pr-checks-required-plain-text"
 description: "gh pr checks with nothing to list prints one stderr line and exits 1, even with --json; two texts; gh.no_checks_reported recognises them"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

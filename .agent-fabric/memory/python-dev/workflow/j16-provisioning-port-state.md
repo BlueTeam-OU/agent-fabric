@@ -5,7 +5,7 @@ topic: "j16-provisioning-port-state"
 description: "j16 provisioning off shell — DELIVERED: #156 merged 9a731b31; what stayed shell, what is open, lessons"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"
