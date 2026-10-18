@@ -57,6 +57,18 @@ PR_PROJECT_SETTING = "AGENT_FABRIC_PR_PROJECT"
 _OWNER_NAME = re.compile(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
 
 
+def fabric_pr_verb(fabric: str, verb: str) -> list[str]:
+    """The argv head of the checkout `fabric`'s `fabric-pr <verb>`, run by a
+    verb. Under `--repo` that repository goes with it: the dispatcher drops
+    an inherited AGENT_FABRIC_PR_PROJECT when a verb is given no --repo, so
+    the nested reader would read the cwd's project for the named
+    repository's PR (review F2 on #300)."""
+    head = [os.path.join(fabric, "bin", "fabric-pr"), verb]
+    if PR_PROJECT_SETTING in os.environ and os.environ.get("GH_REPO"):
+        head += ["--repo", os.environ["GH_REPO"]]
+    return head
+
+
 class NoRepository(Exception):
     pass
 

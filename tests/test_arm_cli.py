@@ -1120,6 +1120,33 @@ def main() -> int:
                            unset=("GH_REPO",), split=True)
         check("a number the repository has not got: exit 2, the refusal names the repository it looked in",
               rc == 2 and "cannot read #7 in gzapi-org/gzapp" in err, err)
+        # The real gate, not the mock: commits are counted from git, and the InterWeave clone cannot count gzapp's
+        # (review F3 on #300). The remedy names the clone, never "git fetch origin", which fetches InterWeave again.
+        reset(); set_pr(me, "plain", ["docs/a.md"]); both_reviewed()
+        rc, out = cli("7", "--repo", "gzapp", "--basis", "b", "--dry-run", fixture_rules=False, cwd=clones["iw"],
+                      env={**by_remote, "AGENT_FABRIC_PR_GATE": ""}, unset=("GH_REPO",))
+        check("the real gate, --repo gzapp from an InterWeave clone: exit 2, the clone named as the reason, nothing armed",
+              rc == 2 and "this clone's origin is not gzapi-org/gzapp" in out and "run from a clone of gzapi-org/gzapp" in out
+              and "git fetch origin, then retry" not in out and "pr merge" not in calls(), out)
+        check("…the gate's gh calls pinned to gzapp too", gh_repos() == {"gzapi-org/gzapp"}, str(gh_repos()))
+        # A verb's nested fabric-pr verbs carry --repo on: the dispatcher drops an inherited project when given none,
+        # and the nested reader would read the cwd's project's pr-tools.json for gzapp's PR (review F2 on #300).
+        from github import common, pr_gate
+        saved = {k: os.environ.get(k) for k in ("GH_REPO", common.PR_PROJECT_SETTING, "AGENT_FABRIC_PR_GATE",
+                                               "AGENT_FABRIC_PR_REVIEW_STATUS")}
+        try:
+            for k in saved:
+                os.environ.pop(k, None)
+            plain = (arm.fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), pr_gate.review_reader())
+            os.environ.update({"GH_REPO": "gzapi-org/gzapp", common.PR_PROJECT_SETTING: "gzapp"})
+            named = (arm.fabric_pr("AGENT_FABRIC_PR_GATE", "gate"),
+                     arm.fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"), pr_gate.review_reader())
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        check("under --repo, arm's gate and review-status and the gate's review-status pass --repo on",
+              all(h[-2:] == ["--repo", "gzapi-org/gzapp"] and h[0].endswith("/bin/fabric-pr") for h in named), str(named))
+        check("…and without --repo, none is added", all("--repo" not in h for h in plain), str(plain))
         for bad, said in ((("--repo", "nosuch"), "'nosuch' is no project id"), (("--repo",), "needs <owner>/<name>"),
                           (("--repo", "a/b", "--repo", "c/d"), "given twice"), (("--repo", "a/b/c"), "is not <owner>/<name>")):
             reset()

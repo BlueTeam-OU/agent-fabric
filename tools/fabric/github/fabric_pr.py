@@ -28,6 +28,11 @@ THE CONTRACT (frozen from the bash, ADR-040 §5 rule 3)
               repository no project registers), so the PR, its head and the
               project's rules (arm.json, pr-tools.json, the settings
               repository) are that repository's, never the cwd checkout's.
+              Two exceptions are said in the help: an exported
+              AGENT_FABRIC_ARM_CONFIG still names the arm rules (an explicit
+              override wins), and commits are counted from git, so only in a
+              clone of that repository. A verb that runs another verb passes
+              --repo on (common.fabric_pr_verb).
               A value that names nothing: stderr "fabric-pr: --repo: …",
               exit 2. Without --repo, AGENT_FABRIC_PR_PROJECT is unset, so
               an inherited one never stands in for the cwd's project.
@@ -103,7 +108,8 @@ def main(argv: list[str]) -> int:
     if verb in ("help", "-h", "--help"):
         _out(sys.stdout, f"usage: fabric-pr <verb> [args…]\nverbs: {listing}\n"
                          f"--repo <owner>/<name>|<project>: {', '.join(REPO_VERBS)} act on that repository's PR,"
-                         " never the cwd checkout's\n")
+                         " never the cwd checkout's;\n  an exported AGENT_FABRIC_ARM_CONFIG still names the arm rules,"
+                         " and commits are counted only in a clone of that repository\n")
         return 0
     if verb not in VERBS:
         _out(sys.stderr, f"fabric-pr: unknown verb '{verb}'; verbs: {listing}\n")
