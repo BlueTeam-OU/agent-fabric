@@ -660,6 +660,26 @@ def main() -> int:
 
         check("status: git that cannot answer is not 'removed'", status._store_gone(os.path.join(tmp, "nowhere"), "HEAD:settings/roles/x") is False)
         check("…and a path git says is not there is", status._store_gone(child_store, "HEAD:settings/roles/no-such-role") is True)
+        # fabric-status asks the loader's walk: where a merge is the commit judged, `git log -1` names another one
+        plumb("reset", "-q", "--hard", plumb("rev-parse", "HEAD"))
+        here = plumb("rev-parse", "HEAD")
+        re_added = commit_with(f"{here}^{{tree}}", commit_with(gone_tree, here))
+        merged_st = commit_with(f"{here}^{{tree}}", here, re_added)
+        plumb("reset", "-q", "--hard", merged_st)
+        with account(child):
+            judged = addenda._last_changer(child_store, ROLE)
+        check("control: the merge of two lines that disagree on who changed the directory is the commit judged, and `git log -1` names another",
+              judged == (merged_st, True) and plumb("log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{ROLE}/") != merged_st, repr(judged))
+        env_m = {**child, "AGENT_FABRIC_LAUNCH_ROLE": ROLE, "AGENT_FABRIC_LAUNCH_STORE_SHA": merged_st, "AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT": merged_st}
+        rec, drift = status.holder_addenda(env_m)
+        check("status: right after a launch whose judged commit is a merge, the addenda are not 'changed since launch'",
+              rec["addenda_changed"] is False and drift is None, repr((rec, drift)))
+        later = commit_with(f"{older}^{{tree}}", merged_st)
+        plumb("reset", "-q", "--hard", later)
+        rec, drift = status.holder_addenda(env_m)
+        check("…and after a later change of the directory it is reported", rec["addenda_changed"] is True and drift is not None and "relaunch" in drift, repr((rec, drift)))
+        plumb("reset", "-q", "--hard", here)
+
         # the parent removes the directory: the status line says so
         stamped_now = load(login="kid-renamed")
         import shutil

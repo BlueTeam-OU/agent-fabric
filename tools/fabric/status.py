@@ -271,6 +271,20 @@ def _store_gone(store, rev):
         return False
 
 
+def _addenda_commit_now(store, role):
+    """The commit the launch would judge now, by the loader's own walk (a
+    `git log -1` names another commit when a merge is the one judged); ""
+    when no commit ever held the directory; None when the store could not be
+    read, which is unknown and not "unchanged"."""
+    import addenda
+    from secretstore.core import StoreError
+    try:
+        changed = addenda._last_changer(store, role)
+    except StoreError:
+        return None
+    return changed[0] if changed else ""
+
+
 def holder_addenda(environ):
     """(record, drift line) for the holder addenda the launch read (ADR-060
     rule 10); (None, None) when the launch stamped none, which keeps the
@@ -284,7 +298,7 @@ def holder_addenda(environ):
     store = environ.get("AGENT_FABRIC_SECRET_STORE") or os.path.join(
         environ.get("HOME") or os.path.expanduser("~"), ".local", "share", "agent-fabric", "secrets")
     head = _store_git(store, "rev-parse", "-q", "--verify", "HEAD")
-    last = _store_git(store, "log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{role}/") if role else None
+    last = _addenda_commit_now(store, role) if role else None
     record = {"store_sha": store_sha, "addenda_commit": commit,
               "store_moved": None if head is None else head != store_sha,
               "addenda_changed": None if last is None else last != commit}
