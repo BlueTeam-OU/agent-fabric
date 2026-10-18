@@ -1,6 +1,6 @@
 ---
 name: subagent-dispatch
-description: "Why every writing subagent dispatch in this repo pins `model` and `isolation: \"worktree\"`, why the REVIEW CLASS (code-review, description beginning review/re-review, fable, NO isolation) is a standing authorisation the dispatch guard enforces rather than asks about, what the PreToolUse hook cannot see (a Workflow script's agent() calls), how worktree isolation actually behaves — what an agent sees, what survives, and why collection is a copy — and the review brief (base..head, revert test, quoted hunks, pre-existing section, re-review scoped to new hunks). Load it before dispatching agents or writing a Workflow script, when an agent reports files that \"do not exist\", when a worktree or worktree-agent branch is left behind, or when tempted to merge an agent's branch."
+description: "How to dispatch a subagent here: a writing class pins `model` and `isolation: \"worktree\"`, the review class (code-review) runs on fable with no isolation, and what worktree isolation does and does not keep. Load it before dispatching agents or writing a Workflow script, when an agent reports files that \"do not exist\", when a worktree or worktree-agent branch is left behind, or when tempted to merge an agent's branch."
 ---
 
 # Why dispatch looks like this

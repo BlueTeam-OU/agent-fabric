@@ -1,6 +1,6 @@
 ---
 name: repo-lifecycle
-description: "Move a managed repository to another GitHub organisation or rename it, or import a repository as a new managed project: two ordered checklists that say who does each step (the owner's hand, fabric-coordinator, devex-tooling, the project's agents) and why the order matters. Load it whenever the owner says a repository moves, is transferred, renamed, imported, adopted or made a managed project, even if no one says 'skill'; before editing projects/registry.json, projects/clients.json or policies/auto-mode.json for a repository's name; when a clone's origin or a push names a repository that has changed (HTTP 307 on a write); and when fabric-pr arm refuses with an error naming a client's settings repository."
+description: "Move, rename or import a managed repository: ordered checklists of who does each step and why the order matters. Load it whenever the owner says a repository moves, is transferred, renamed, imported or made a managed project; before editing projects/registry.json, projects/clients.json or policies/auto-mode.json for a repository's name; when a clone's origin or a push names a renamed repository (HTTP 307 on a write); and when fabric-pr arm refuses naming a client's settings repository."
 ---
 
 # Moving and importing a repository
