@@ -22,6 +22,9 @@ HOLDER_FILE = "launch-holder.json"
 LOCALE_ENV = ("TZ", "AGENT_FABRIC_SEARCH_COUNTRY")
 # The TZ this launch set, so a restart (which re-executes with that environment) can tell it from the operator's.
 LAUNCH_TZ = "AGENT_FABRIC_LAUNCH_TZ"
+# The TZ the operator's own environment had before this launch overwrote it, so that a restart which knows no
+# timezone can put it back instead of leaving the session on UTC.
+OPERATOR_TZ = "AGENT_FABRIC_OPERATOR_TZ"
 # The one definition of a valid locale tag and country: the validator the
 # install and the render already run.
 _check = _load("fabric_addenda_check", os.path.join(HERE, "addenda_check.py"))
@@ -103,11 +106,15 @@ def _held_holder_json(state_dir: str, held: bool) -> dict | None:
     return value
 
 
+def _locale_path(fabric_root: str, tag: str) -> str:
+    return os.path.join(roots.locale_dir("language-culture", tag, engine=fabric_root, environ=os.environ), "locale.json")
+
+
 def _locale_json(fabric_root: str, tag: str) -> dict:
     """language-culture's locale.json of the tag, or {} when the fabric authored none. Its deployment values are only
     the fallback of a holder that names none. A file that is absent is no facts; one that is there and unusable stops
     the launch, because dropping its timezone silently would hide it."""
-    path = os.path.join(roots.locale_dir("language-culture", tag, engine=fabric_root, environ=os.environ), "locale.json")
+    path = _locale_path(fabric_root, tag)
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
@@ -136,9 +143,37 @@ def resolve_locale(fabric_root: str, suffix: str, state_dir: str, held: bool) ->
     serpapi = fallback.get("serpapi")
     country = search.get("country") if isinstance(search, dict) and "country" in search else \
         serpapi.get("gl") if isinstance(serpapi, dict) else None
-    if isinstance(timezone, str) and timezone and not _check._is_iana(timezone):
-        # Unlike a name nothing read, TZ sets the clock of every process of the session, and an unknown name is read as UTC without a word.
-        die(f"the holder's timezone {timezone!r} is no IANA timezone name; the launch stops.")
+    if isinstance(timezone, str) and timezone:
+        source = "holder.json" if "timezone" in (data or {}) else _locale_path(fabric_root, tag)
+        try:
+            known = _check._is_iana(timezone)
+        except RuntimeError as e:
+            # Unknown stays unknown: no tz database means the name cannot be judged, neither valid nor invalid.
+            die(f"{source} names a timezone that cannot be checked: {e}; the launch stops.")
+        if not known:
+            # Unlike a name nothing read, TZ sets the clock of every process of the session, and an unknown name is read as UTC without a word.
+            die(f"the timezone in {source} is no IANA timezone name (the rule of holder.json's `timezone`); the launch stops.")
     return Locale(tag, timezone if isinstance(timezone, str) and timezone else None,
                   country if isinstance(country, str) and country else None)
 
+
+
+def settle_tz(env: dict[str, str], timezone: str | None) -> None:
+    """Put the holder's timezone in env's TZ, keeping the operator's own TZ apart from it. A restart re-executes
+    with the environment the first launch left, so what TZ holds is the operator's only while it is not the value
+    this launch family stamped: the operator's is stamped beside (OPERATOR_TZ) and goes back when a later launch
+    knows no timezone, and is never replaced by a stamped value."""
+    stamped = env.pop(LAUNCH_TZ, None)
+    operator = env.pop(OPERATOR_TZ, None)
+    if stamped is None or env.get("TZ") != stamped:
+        operator = env.get("TZ")    # TZ is the operator's own (or was changed since): it is what to restore
+    if timezone:
+        env["TZ"] = timezone
+        env[LAUNCH_TZ] = timezone
+        if operator is not None:
+            env[OPERATOR_TZ] = operator
+    elif stamped is not None and env.get("TZ") == stamped:
+        if operator is not None:
+            env["TZ"] = operator
+        else:
+            env.pop("TZ")

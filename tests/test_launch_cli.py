@@ -63,7 +63,7 @@ done
 for v in OPENROUTER_API_KEY GH_TOKEN CLAUDE_BRIDGE_AUTH_TOKEN OPENAI_API_KEY CLAUDE_CODE_OAUTH_TOKEN DEMO_PORT_OFFSET; do
     echo "CLAUDE-HAS:$v=${!v+yes}"
 done
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_LAUNCH_TZ AGENT_FABRIC_OPERATOR_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
     echo "CLAUDE-ENV:$v=${!v:-}"
 done
 '''
@@ -623,6 +623,14 @@ def main() -> int:
             check("…and what the launching environment held is overwritten (TZ) or dropped (country), not inherited",
                   has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_SEARCH_COUNTRY=$", outlc),
                   grep("CLAUDE-ENV:(TZ|AGENT_FABRIC_SEARCH)", outlc))
+            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Europe/Rome")
+            check("…a first launch overwrites the operator's TZ and stamps theirs beside",
+                  has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_OPERATOR_TZ=Europe/Rome$", outlc)
+                  and has(r"CLAUDE-ENV:AGENT_FABRIC_LAUNCH_TZ=Asia/Tbilisi$", outlc), grep("CLAUDE-ENV:(TZ|AGENT_FABRIC_(LAUNCH|OPERATOR)_TZ)", outlc))
+            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Asia/Tbilisi", AGENT_FABRIC_LAUNCH_TZ="Asia/Tbilisi",
+                           AGENT_FABRIC_OPERATOR_TZ="Europe/Rome")
+            check("…and a restart keeps the operator's stamp, not the stamped value, as theirs",
+                  has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_OPERATOR_TZ=Europe/Rome$", outlc), outlc)
             outlc = out_of("--provider", "anthropic")
             check("…and a bare launch there: the opening after the variadic flag, behind --",
                   has(r"CLAUDE-EXECCED:.*--disallowedTools WebSearch -- Session start: arm", outlc), outlc)
@@ -666,6 +674,12 @@ def main() -> int:
                   has(r"CLAUDE-ENV:TZ=$", outlc), outlc)
             outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Operator/Zone", AGENT_FABRIC_LAUNCH_TZ="Asia/Tbilisi")
             check("…and a TZ the operator changed since is kept", has(r"CLAUDE-ENV:TZ=Operator/Zone$", outlc), outlc)
+            # A restart re-executes with the environment the first launch left: the operator's own TZ is stamped beside.
+            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Asia/Tbilisi", AGENT_FABRIC_LAUNCH_TZ="Asia/Tbilisi",
+                           AGENT_FABRIC_OPERATOR_TZ="Europe/Rome")
+            check("…and a restart that knows no timezone puts the operator's own TZ back, not UTC",
+                  has(r"CLAUDE-ENV:TZ=Europe/Rome$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_LAUNCH_TZ=$", outlc)
+                  and has(r"CLAUDE-ENV:AGENT_FABRIC_OPERATOR_TZ=$", outlc), grep("CLAUDE-ENV:(TZ|AGENT_FABRIC_(LAUNCH|OPERATOR)_TZ)", outlc))
             rm(lc)
             binding()
             out = plain
@@ -1350,7 +1364,20 @@ if spec is not None:
             locale_json("ge", "Asia/Tbilsi", "ge")
             rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"ge"}')
             check("a locale.json timezone that is no IANA name stops the launch, not a silent UTC",
-                  rc != 0 and "EXECCED" not in out and "Asia/Tbilsi" in out, out)
+                  rc != 0 and "EXECCED" not in out and "ge/locale.json" in out and "Asia/Tbilsi" not in out, out)
+            rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"ge","timezone":"Mars/Base"}')
+            check("…and one from holder.json names holder.json, never the value",
+                  rc != 0 and "EXECCED" not in out and "holder.json" in out and "Mars/Base" not in out, out)
+            # A host with no tz database cannot judge a name: a stated refusal, not a traceback.
+            checker = f"{code}/tools/fabric/addenda_check.py"
+            real_check = read(checker)
+            put(checker, real_check.replace("import zoneinfo\n", "import zoneinfo\nzoneinfo.available_timezones = lambda: set()\n", 1))
+            locale_json("ge", "Asia/Tbilisi", "ge")
+            rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"ge"}')
+            put(checker, real_check)
+            check("no tz database on the host: the launch stops saying so and naming the file, with no traceback",
+                  rc != 0 and "EXECCED" not in out and "no IANA time zone database" in out and "ge/locale.json" in out
+                  and "Traceback" not in out, out)
             locale_json("ge", "Asia/Tbilisi", "ge")
             for bad in ('{"locale":"GE"}', '{"locale":"../ge"}', '{"timezone":"Asia/Yerevan"}', '"ge"'):
                 rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER=bad)
