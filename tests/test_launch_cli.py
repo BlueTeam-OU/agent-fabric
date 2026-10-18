@@ -631,6 +631,10 @@ def main() -> int:
                            AGENT_FABRIC_OPERATOR_TZ="Europe/Rome")
             check("…and a restart keeps the operator's stamp, not the stamped value, as theirs",
                   has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_OPERATOR_TZ=Europe/Rome$", outlc), outlc)
+            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Operator/Zone", AGENT_FABRIC_LAUNCH_TZ="Asia/Tbilisi",
+                           AGENT_FABRIC_OPERATOR_TZ="Europe/Rome")
+            check("…and a TZ the operator changed since is the one stamped as theirs when the restart knows a timezone",
+                  has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_OPERATOR_TZ=Operator/Zone$", outlc), outlc)
             outlc = out_of("--provider", "anthropic")
             check("…and a bare launch there: the opening after the variadic flag, behind --",
                   has(r"CLAUDE-EXECCED:.*--disallowedTools WebSearch -- Session start: arm", outlc), outlc)

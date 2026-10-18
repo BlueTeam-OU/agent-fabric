@@ -152,7 +152,7 @@ def resolve_locale(fabric_root: str, suffix: str, state_dir: str, held: bool) ->
             die(f"{source} names a timezone that cannot be checked: {e}; the launch stops.")
         if not known:
             # Unlike a name nothing read, TZ sets the clock of every process of the session, and an unknown name is read as UTC without a word.
-            die(f"the timezone in {source} is no IANA timezone name (the rule of holder.json's `timezone`); the launch stops.")
+            die(f"the timezone in {source} is no IANA timezone name (a `timezone` there must be one); the launch stops.")
     return Locale(tag, timezone if isinstance(timezone, str) and timezone else None,
                   country if isinstance(country, str) and country else None)
 
