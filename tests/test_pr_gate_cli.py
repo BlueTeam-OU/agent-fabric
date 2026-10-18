@@ -306,6 +306,20 @@ def main() -> int:
         check("…and the reason is said: this clone's origin is not testorg/testrepo",
               "this clone's origin is not testorg/testrepo on github.com" in out and "git fetch origin failed" not in out, out)
 
+        # An alias origin names the repository only once url.<x>.insteadOf resolves it, as gh.this_repo reads it;
+        # the configured URL alone read "not testorg/testrepo" (review on #300, round 2). Asked in-process: the
+        # alias resolves to github.com itself, which a gate run would fetch from.
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        from github import landed
+        alias = f"{sandbox}/alias"
+        subprocess.run(["git", "init", "-q", alias], env=git_env(base_env), check=True, timeout=30)
+        git("remote", "add", "origin", "gh:testorg/testrepo", cwd=alias)
+        git("config", "url.git@github.com:.insteadOf", "gh:", cwd=alias)
+        check("landed.origin_is: an alias origin (gh:testorg/testrepo) is testorg/testrepo, resolved through insteadOf",
+              landed.origin_is("testorg/testrepo", alias) and not landed.origin_is("testorg/fork", alias))
+        check("…and the routed GitHub URL of this clone still is, as configured",
+              landed.origin_is("testorg/testrepo", repo))
+
         print("pr-gate --in-flight / --overlap: every branch on origin, PR or not; what shares its paths")
         # A job waiting for a merge: pushed, no PR, sharing f.txt with the PR
         # branch.
