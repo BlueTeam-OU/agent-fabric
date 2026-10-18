@@ -174,14 +174,16 @@ def _last_changer(store: str, role: str) -> tuple[str, bool] | None:
     `git log -1 -- path` is not that: its history simplification follows
     the one parent of a merge that the merge agrees with, so a merge that
     brings back an older parent-signed install is hidden behind that
-    install. --full-history lists every commit not identical to all of its
-    parents (rule 3 of ADR-060). The walk starts at HEAD, so a commit is
-    listed after the commit that reaches it, whatever dates the agent gave
-    them; between branches git's order is by date, and the comparison with
-    HEAD's own directory in _verified_directory stands behind it."""
-    r = _git(store, "rev-list", "--full-history", "--parents", "HEAD", "--", f"settings/roles/{role}/")
-    for line in r.stdout.decode().splitlines():
-        commit, *parents = line.split()
+    install. --full-history lists every commit that differs from at least
+    one of its parents on the path; --topo-order puts a commit before its
+    ancestors, so the agent's dates cannot move an older install ahead of
+    the commit that undid it. --parents is not asked of this walk: it
+    turns on parent rewriting, which lists a merge with fewer parents than
+    it has, so a merge's own parents are read apart, without a pathspec.
+    (rule 3 of ADR-060)"""
+    r = _git(store, "rev-list", "--full-history", "--topo-order", "HEAD", "--", f"settings/roles/{role}/")
+    for commit in r.stdout.decode().split():
+        parents = _git(store, "rev-list", "--no-walk", "--parents", commit).stdout.decode().split()[1:]
         if len(parents) > 1 and _carries_through(store, role, commit, parents):
             continue
         return commit, len(parents) > 1

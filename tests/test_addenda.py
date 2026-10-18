@@ -388,6 +388,23 @@ def main() -> int:
         plumb("reset", "-q", "--hard", merged2)
         got_m2 = load()
         check("…with the parents the other way round, the same", isinstance(got_m2, addenda.Holder) and got_m2.addenda_commit == current, repr(got_m2))
+        # an ordinary merge after the install, neither side touching the directory: the commit judged is still the install
+        w = commit_with(tree_plus_file(current, "w.txt"), current)
+        ordinary = commit_with(tree_plus_file(current, "w.txt"), current, w)
+        plumb("reset", "-q", "--hard", ordinary)
+        got_o = load()
+        check("a merge of a side branch cut from the install, neither side having changed the directory, still loads", isinstance(got_o, addenda.Holder) and got_o.addenda_commit == current, repr(got_o))
+        # an agent's deletion of the directory, dated before the install, then carried by a merge: not "the parent removed it"
+        idx = os.path.join(tmp, "del-index")
+        plumb("read-tree", current, GIT_INDEX_FILE=idx)
+        plumb("rm", "-r", "-q", "--cached", f"settings/roles/{ROLE}", GIT_INDEX_FILE=idx)
+        gone_tree = plumb("write-tree", GIT_INDEX_FILE=idx)
+        deletion = plumb("commit-tree", gone_tree, "-p", current, "-m", "delete",
+                         GIT_AUTHOR_DATE="2001-01-01T00:00:00Z", GIT_COMMITTER_DATE="2001-01-01T00:00:00Z")
+        hide = commit_with(gone_tree, deletion, w)
+        plumb("reset", "-q", "--hard", hide)
+        refused("an agent's deletion of the directory behind a merge is refused, not read as the parent's removal", load(), "removed the directory is not the parent's", deletion[:12], ROLE)
+        plumb("reset", "-q", "--hard", current)
         # a plain revert commit, dated before the install it undoes, is no better than a merge
         plumb("reset", "-q", "--hard", current)
         revert = plumb("commit-tree", f"{older}^{{tree}}", "-p", current, "-m", "revert",
