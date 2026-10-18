@@ -97,8 +97,13 @@ def _refuse(role: str, why: str, commit: str | None = None) -> StoreError:
 _NOREPLACE = "--no-replace-objects"
 
 
+# A git that blocks (a FIFO where the agent's .git holds a file) must not hang a launch or fabric-status.
+_GIT_TIMEOUT = 30
+
+
 def _git(store: str, *args: str, check: bool = True):
-    return git(store, _NOREPLACE, "-c", "core.commitGraph=false", *args, check=check)
+    return _run(["git", "-C", store, _NOREPLACE, "-c", "core.commitGraph=false", *args],
+                check=check, timeout=_GIT_TIMEOUT, label=f"git {args[0]}")
 
 
 def _committed_agent_id(store: str) -> str | None:
@@ -142,7 +147,8 @@ def _tree_entries(body: bytes, width: int) -> list[tuple[str, str, str]]:
 
 
 def _git_in(store: str, stdin: bytes, *args: str):
-    return _run(["git", "-C", store, _NOREPLACE, "-c", "core.commitGraph=false", *args], stdin=stdin, label=f"git {args[0]}")
+    return _run(["git", "-C", store, _NOREPLACE, "-c", "core.commitGraph=false", *args], stdin=stdin,
+                timeout=_GIT_TIMEOUT, label=f"git {args[0]}")
 
 
 def _last_changer(store: str, role: str) -> tuple[str, bool] | None:
@@ -211,7 +217,7 @@ def _last_changer(store: str, role: str) -> tuple[str, bool] | None:
             if len(answers) > 1:
                 answers.discard(None)
             answer[commit] = answers.pop() if len(answers) == 1 else commit
-    found = answer[head.stdout.decode().strip()]
+    found = answer[order[-1]]   # HEAD: --reverse puts it last, and it is the same walk that listed the rest
     return (found, len(parents[found]) > 1) if found else None
 
 

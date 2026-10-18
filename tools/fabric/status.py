@@ -298,7 +298,7 @@ def holder_addenda(environ):
     store = environ.get("AGENT_FABRIC_SECRET_STORE") or os.path.join(
         environ.get("HOME") or os.path.expanduser("~"), ".local", "share", "agent-fabric", "secrets")
     head = _store_git(store, "rev-parse", "-q", "--verify", "HEAD")
-    last = _addenda_commit_now(store, role) if role else None
+    last = _addenda_commit_now(store, role) if role and head is not None else None
     record = {"store_sha": store_sha, "addenda_commit": commit,
               "store_moved": None if head is None else head != store_sha,
               "addenda_changed": None if last is None else last != commit}

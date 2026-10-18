@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
@@ -679,6 +680,28 @@ def main() -> int:
         rec, drift = status.holder_addenda(env_m)
         check("…and after a later change of the directory it is reported", rec["addenda_changed"] is True and drift is not None and "relaunch" in drift, repr((rec, drift)))
         plumb("reset", "-q", "--hard", here)
+
+        # a git that blocks does not hang status or the launch: the walk gives up and the answer is unknown
+        fakebin = os.path.join(tmp, "fakebin")
+        os.makedirs(fakebin)
+        with open(os.path.join(fakebin, "git"), "w") as fh:
+            fh.write("#!/bin/sh\nexec sleep 30\n")
+        os.chmod(os.path.join(fakebin, "git"), 0o755)
+        real_timeout, addenda._GIT_TIMEOUT = addenda._GIT_TIMEOUT, 1
+        try:
+            with account({**child, "PATH": fakebin + os.pathsep + child["PATH"]}):
+                started = time.monotonic()
+                now_commit = status._addenda_commit_now(child_store, ROLE)
+                took_s = time.monotonic() - started
+        finally:
+            addenda._GIT_TIMEOUT = real_timeout
+        check("status: a git that blocks is unknown after the bound, not a hang", now_commit is None and took_s < 20, repr((now_commit, took_s)))
+        # an unborn HEAD is unknown for status, as it was before the walk, never 'removed at '
+        with account(child):
+            rec_u, drift_u = status.holder_addenda({**child, "AGENT_FABRIC_SECRET_STORE": unborn, "AGENT_FABRIC_LAUNCH_ROLE": ROLE,
+                                                    "AGENT_FABRIC_LAUNCH_STORE_SHA": "a" * 40, "AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT": "b" * 40})
+        check("status: a store with no commit says unknown on both fields and has no drift line", rec_u["addenda_changed"] is None
+              and rec_u["store_moved"] is None and drift_u is None, repr((rec_u, drift_u)))
 
         # the parent removes the directory: the status line says so
         stamped_now = load(login="kid-renamed")
