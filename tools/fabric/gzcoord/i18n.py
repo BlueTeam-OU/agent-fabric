@@ -113,6 +113,7 @@ def _pinned(env: dict) -> bool:
 
 
 def _locale_dir(me: dict, root: str) -> str:
+    # The state directory is the process's (os.environ), not the pin switch's `env`.
     return roots.locale_dir(me["role"], launch_locale.read(me["agent"]), root=root)
 
 

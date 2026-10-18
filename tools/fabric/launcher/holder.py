@@ -80,10 +80,6 @@ class Locale:
     timezone: str | None
     country: str | None
 
-    @property
-    def valid_tag(self) -> str | None:
-        return self.tag if _check.LOCALE_RE.fullmatch(self.tag) else None
-
     def exports(self) -> dict[str, str | None]:
         return dict(zip(LOCALE_ENV, (self.timezone, self.country)))
 

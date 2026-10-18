@@ -47,6 +47,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             the agent's state directory (binding.json,
             model-profile.local.json, restart.json); writes
             $STATE_DIR/launch-prompt.md (launch_prompt.py),
+            $STATE_DIR/launch-locale.json (launch_locale.py; for --print and
+            --help too),
             ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json (onboarding, plain
             claude and the gateway path, which also approves the local key
             there; none for --help), the agent files (install-agent-files.sh; none
@@ -630,7 +632,7 @@ def launch(argv: list[str]) -> int:
     # launch on this account has since rewritten it.
     if not asks_help(args):
         install_agent_files(fabric_root, routing_provider, state_dir, transport="gateway" if provider == "gateway" else "",
-                            locale=loc.valid_tag)
+                            locale=loc.tag)
 
     login = pwd.getpwuid(os.getuid()).pw_name
     # A plain-claude session runs only on a long-lived sign-in: a template's

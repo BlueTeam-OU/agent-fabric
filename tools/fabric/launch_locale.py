@@ -3,9 +3,10 @@
 The launcher writes it once per launch to <state dir>/launch-locale.json
 ({"locale": "<tag>"}), beside binding.json. Readers that render or search in
 the holder's locale (gzcoord's i18n, the activity op) read this file and never
-the store and never the login's name: a login's suffix is no locale. No file,
-or one that cannot be used, is the default locale, "en": a session or process
-the launcher did not start has no holder locale.
+the store and never the login's name: a login's suffix is no locale. The
+record is the locale of the login's LAST launcher run (--print and --help
+write it too, with the same answer for the same store); no file, or one that
+cannot be used, is the default locale, "en".
 
 Stdlib only, loaded by path from the launcher and imported by the readers."""
 from __future__ import annotations
