@@ -67,7 +67,7 @@ The asset (https, its sha256 checked before it runs, as for every pin) is the in
 as `rustup-init` in a directory of its own beside ~/.local/bin (the binary acts as its own name says), run
 once as `-y --no-modify-path --profile minimal --default-toolchain none`, as an argument list and never
 through a shell, with a fixed environment (HOME, PATH, CARGO_HOME and RUSTUP_HOME set to the account's
-~/.cargo and ~/.rustup, and the proxy/CA variables of the caller; nothing else of it), a 300 s bound and
+~/.cargo and ~/.rustup; nothing of the caller's, proxy and CA variables included), a 300 s bound and
 its own process group, and removed afterwards. The toolchain is not installed: it stays each project's
 rust-toolchain.toml's, fetched by rustup on first use. The account's PATH reaches a tool through
 ~/.local/bin, so the run ends by linking rustup, cargo and rustc there to the proxies under ~/.cargo/bin (a
@@ -78,7 +78,7 @@ The pin is current only when the proof prints the version AND all three links ar
 
 `cargo +<toolchain> install --locked --version =<version> <tool>`, the tool being its own crate's name, through
 ~/.cargo/bin/cargo (which an installer pin put there; without it the run fails and says so), 780 s, the
-same environment. `locked` must be true, `version` and `toolchain` three plain numbers: a bare version is a
+same environment plus a TMPDIR of the run's own under ~/.cargo, removed after it. `locked` must be true, `version` and `toolchain` three plain numbers: a bare version is a
 caret range to cargo, and a channel name floats. The proof must start `cargo +<toolchain>`, the proxy having
 no default toolchain. Nothing here hashes the crate: cargo checks it against the crates.io index and
 Cargo.lock, and this installer cannot say more than that. A cargo pin is current when the proof prints the
@@ -90,12 +90,17 @@ The verdict, one per run:
   installed  fetched, hash verified, proved from its temporary file (a
              tree: its staged tree), then moved into ~/.local/bin in one
              rename (a tree: renamed into its version's directory, then
-             ~/.local/bin/<tool> switched to a link into it)
+             ~/.local/bin/<tool> switched to a link into it). An installer
+             pin: fetched, hash verified, run, linked, proved after the
+             fact; a cargo pin: built by cargo, proved after the fact
   skipped    this account has no working copy of a project that declares
              the tool (the Doppler CLI stays off every other account: the
              owner, 2026-10-08) — nothing was looked up, fetched or written
   failed     the fetch, the hash, the unpacking or the proof said no;
-             whatever was already installed is untouched
+             whatever was already installed is untouched (but for the two
+             program-running kinds: a program that fails midway, or a link
+             that cannot be made after it ran, may have changed ~/.cargo or
+             ~/.local/bin, and a rerun completes it)
   refused    the request names no installable tool, a declaring project's
              pin cannot be acted on, or the projects that declare it
              disagree about the pin or the proof
@@ -379,7 +384,7 @@ def sweep_temporaries(bindir: str, tool: str) -> None:
     except OSError:
         return
     for name in names:
-        m = re.fullmatch(r"\." + re.escape(tool) + r"\.(\d{1,7})\.tmp", name)
+        m = re.fullmatch(r"\." + re.escape(tool) + r"\.(\d{1,7})\.(?:link\.)?tmp", name)
         if not m or not _dead(int(m.group(1))):
             continue
         path = os.path.join(bindir, name)
@@ -651,24 +656,21 @@ RUSTUP_INIT_ARGV = ("-y", "--no-modify-path", "--profile", "minimal", "--default
 RUSTUP_LINKS = ("rustup", "cargo", "rustc")
 RUN_TIMEOUT_S = {"installer": 300, "cargo": 780}
 STOP_GRACE_S = 5
-# Not secrets: where a proxied or private-CA account reaches the network. Nothing else of the caller's
-# environment (its tokens, its CARGO_*/RUSTUP_* overrides) reaches the program.
-NETWORK_ENV = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
-               "SSL_CERT_FILE", "SSL_CERT_DIR")
-
-
 def cargo_home(home: str) -> str:
     return os.path.join(home, ".cargo")
 
 
-def program_env(home: str, path: list[str]) -> dict[str, str]:
+def program_env(home: str, path: list[str], tmpdir: str | None = None) -> dict[str, str]:
     """The environment a pinned program runs in: HOME, PATH, and cargo's and rustup's homes set
     explicitly, so an account's own CARGO_HOME or RUSTUP_HOME cannot move the install somewhere
-    the links and the proof do not look."""
+    the links and the proof do not look. Nothing of the caller's is passed on: a proxy URL can carry
+    a password, and a caller's CA bundle plus a proxy could swap the crate or the toolchain that no
+    digest here covers. TMPDIR, when given, is the run's own, so a killed build leaves nothing in /tmp."""
     env = {"HOME": home, "PATH": ":".join(path), "CARGO_HOME": cargo_home(home),
            "RUSTUP_HOME": os.path.join(home, ".rustup"), "CARGO_TERM_COLOR": "never",
            "RUSTUP_INIT_SKIP_PATH_CHECK": "yes"}
-    env.update((k, os.environ[k]) for k in NETWORK_ENV if k in os.environ)
+    if tmpdir:
+        env["TMPDIR"] = tmpdir
     return env
 
 
@@ -679,19 +681,20 @@ def run_program(argv: list[str], env: dict[str, str], cwd: str, timeout: float) 
     with subprocess.Popen(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, start_new_session=True) as proc:
         def stop() -> None:
-            # KILL goes to the group even when the leader answered TERM: a build's child may not have.
-            # The group id cannot be reused while a member is left, and ESRCH says none is.
-            for sig, grace in ((signal.SIGTERM, STOP_GRACE_S), (signal.SIGKILL, None)):
+            # KILL always follows TERM, also when a second signal interrupts the grace wait: a build that
+            # ignores TERM must not outlive the run. The group id cannot be reused while a member is
+            # left, and ESRCH says none is.
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait(timeout=STOP_GRACE_S)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                pass
+            finally:
                 try:
-                    os.killpg(proc.pid, sig)
+                    os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
-                    break
-                if grace is not None:
-                    try:
-                        proc.wait(timeout=grace)
-                    except subprocess.TimeoutExpired:
-                        pass
-            proc.wait()
+                    pass
+                proc.wait()
         try:
             out, _ = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -702,6 +705,18 @@ def run_program(argv: list[str], env: dict[str, str], cwd: str, timeout: float) 
             raise
     lines = [ln.strip() for ln in out.decode("utf-8", "replace").splitlines() if ln.strip()]
     return proc.returncode, (lines[-1][:200] if lines else "")
+
+
+def sweep_builds(cargohome: str, tool: str) -> None:
+    """The build directories of cargo runs that were killed outright (SIGKILL), as sweep_temporaries."""
+    try:
+        names = os.listdir(cargohome)
+    except OSError:
+        return
+    for name in names:
+        m = re.fullmatch(r"\.build\." + re.escape(tool) + r"\.(\d{1,7})", name)
+        if m and _dead(int(m.group(1))):
+            shutil.rmtree(os.path.join(cargohome, name), ignore_errors=True)
 
 
 def program_failed(tool: str, what: str, status: int | None, last: str, bound: float) -> dict:
@@ -737,11 +752,12 @@ def link_proxies(home: str, names: tuple[str, ...]) -> str | None:
             os.symlink(os.path.join(cargo_home(home), "bin", name), tmp)
             os.replace(tmp, target)
         except OSError as e:
+            return f"{target}: {e.strerror or e}"
+        finally:
             try:
-                os.unlink(tmp)
+                os.unlink(tmp)  # still there only when the replace did not happen
             except OSError:
                 pass
-            return f"{target}: {e.strerror or e}"
     return None
 
 
@@ -755,7 +771,8 @@ def install_installer(tool: str, entry: dict, body: bytes, home: str) -> dict:
     stage = os.path.join(bindir, f".{tool}.{os.getpid()}.tmp")
     try:
         os.makedirs(bindir, mode=0o755, exist_ok=True)
-        sweep_temporaries(bindir, tool)
+        for name in {tool, *RUSTUP_LINKS}:
+            sweep_temporaries(bindir, name)
         os.mkdir(stage, 0o700)
         program = os.path.join(stage, "rustup-init")
         fd = os.open(program, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o700)
@@ -795,11 +812,19 @@ def install_cargo(tool: str, entry: dict, home: str) -> dict:
                 "reason": f"{cargo} is not there: install rustup first (fabric-ctl <login> tools-install rustup)"}
     argv = [cargo, f"+{pin['toolchain']}", "install", "--locked", "--version", f"={pin['version']}", tool]
     bound = RUN_TIMEOUT_S["cargo"]
+    # cargo builds in a temporary directory under TMPDIR and keeps it when the build fails; hundreds of MB,
+    # and a killed build never cleans it. So the build gets a directory of this run's own, removed after it.
+    build = os.path.join(cargo_home(home), f".build.{tool}.{os.getpid()}")
     try:
-        status, last = run_program(argv, program_env(home, [os.path.join(cargo_home(home), "bin"), "/usr/local/bin", "/usr/bin", "/bin"]),
+        os.makedirs(cargo_home(home), mode=0o755, exist_ok=True)
+        sweep_builds(cargo_home(home), tool)
+        os.mkdir(build, 0o700)
+        status, last = run_program(argv, program_env(home, [os.path.join(cargo_home(home), "bin"), "/usr/local/bin", "/usr/bin", "/bin"], build),
                                    home, bound)
     except OSError as e:
-        return {"status": "failed", "tool": tool, "reason": f"{cargo}: {e.strerror or e}"}
+        return {"status": "failed", "tool": tool, "reason": f"{e.filename or cargo}: {e.strerror or e}"}
+    finally:
+        shutil.rmtree(build, ignore_errors=True)
     if status != 0:
         return program_failed(tool, "cargo install", status, last, bound)
     proved, said = prove_with_links(entry, home)

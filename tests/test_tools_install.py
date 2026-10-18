@@ -845,8 +845,9 @@ rustup) echo "rustup %(ver)s (fake)" ;;
 cargo)
   if [ "$2" = install ]; then
     { printf '%%s\\n' "$0" "$@"; env | sort; } >> "$HOME/install.record"
+    echo junk > "$TMPDIR/build-junk"
     [ -e "$HOME/.fake-cargo-fails" ] && { echo "error: no space left" >&2; exit 101; }
-    [ -e "$HOME/.fake-cargo-sleeps" ] && { sleep 30 & echo $! > "$HOME/cargo-child.pid"; sleep 30; }
+    [ -e "$HOME/.fake-cargo-sleeps" ] && { sleep 300 & echo $! > "$HOME/cargo-child.pid"; sleep 30; }
     printf '#!/bin/sh\\n' > "$CARGO_HOME/bin/cargo-ndk"; chmod +x "$CARGO_HOME/bin/cargo-ndk"
   elif [ "$2" = ndk ]; then
     [ -x "$CARGO_HOME/bin/cargo-ndk" ] && echo "cargo-ndk %(nver)s" || { echo "no such command: ndk" >&2; exit 101; }
@@ -856,7 +857,7 @@ esac
         INIT = """#!/bin/sh
 { printf 'name=%%s\\n' "$(basename "$0")"; printf 'arg=%%s\\n' "$@"; env | sort; } > "$HOME/init.record"
 [ -e "$HOME/.fake-init-fails" ] && { echo "error: could not create $CARGO_HOME" >&2; exit 1; }
-[ -e "$HOME/.fake-init-sleeps" ] && { trap '' TERM; ( trap '' TERM; sleep 30 ) & echo $! > "$HOME/init-child.pid"; wait; }
+[ -e "$HOME/.fake-init-sleeps" ] && { trap '' TERM; ( trap '' TERM; sleep 300 ) & echo $! > "$HOME/init-child.pid"; wait; }
 mkdir -p "$CARGO_HOME/bin"
 cat > "$CARGO_HOME/bin/rustup" <<'PROXY_EOF'
 %(proxy)s
@@ -894,17 +895,21 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             open(os.path.join(home, name), "w").close()
 
         def alive(pid_file: str) -> bool:
+            """Whether the child a fake recorded is running; a live one is killed, so a failing run leaves none."""
             try:
-                os.kill(int(open(pid_file).read()), 0)
+                pid_ = int(open(pid_file).read())
+                os.kill(pid_, 0)
             except (OSError, ValueError):
                 return False
+            os.kill(pid_, signal.SIGKILL)
             return True
 
         body = init_body()
         # The session's own values must not reach the program: a hostile CARGO_HOME would move the install
         # where the links and the proof do not look.
         hostile = {"CARGO_HOME": "/nonexistent-hostile-cargo", "RUSTUP_HOME": "/nonexistent-hostile-rustup",
-                   "GITHUB_TOKEN": "ghp_hostile", "ANTHROPIC_API_KEY": "sk-hostile"}
+                   "GITHUB_TOKEN": "ghp_hostile", "ANTHROPIC_API_KEY": "sk-hostile",
+                   "HTTPS_PROXY": "http://user:hostile@proxy.invalid:3128", "SSL_CERT_FILE": "/tmp/hostile-ca.pem"}
         saved_env = {k: os.environ.get(k) for k in hostile}
         saved_bound = dict(tools_install.RUN_TIMEOUT_S)
         os.environ.update(hostile)
@@ -1025,6 +1030,11 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             r = run_tool("cargo-ndk", home, ndk_entry())
             os.unlink(os.path.join(home, ".fake-cargo-fails"))
             check("a failing cargo install: failed with its last line", r["status"] == "failed" and "exited 101" in r["reason"] and "no space left" in r["reason"], r)
+            cargohome = os.path.join(home, ".cargo")
+            check("...and its build directory is gone, though the program wrote into its TMPDIR",
+                  [n for n in os.listdir(cargohome) if n.startswith(".build.")] == [], os.listdir(cargohome))
+            check("...its TMPDIR was that run's own directory under ~/.cargo, not /tmp",
+                  any(x.startswith(f"TMPDIR={cargohome}/.build.cargo-ndk.") for x in record(home, "install.record")), record(home, "install.record")[-20:])
 
             tools_install.RUN_TIMEOUT_S["cargo"] = 1
             flag(home, ".fake-cargo-sleeps")
@@ -1036,11 +1046,38 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             time.sleep(0.2)
             check("a cargo install past its bound is stopped with its children",
                   r["status"] == "failed" and "did not finish within 1 s" in r["reason"] and took < 20
-                  and not alive(os.path.join(home, "cargo-child.pid")), (r, took))
+                  and not alive(os.path.join(home, "cargo-child.pid")) and took < 20
+                  and [n for n in os.listdir(os.path.join(home, ".cargo")) if n.startswith(".build.")] == [], (r, took))
 
             r = run_tool("cargo-ndk", home, {**ndk_entry(), "proof": "cargo ndk --version"})
             check("a proof that does not name the pin's toolchain is refused (the proxy has no default)",
                   r["status"] == "refused" and "cargo +1.98.1" in r["reason"], r)
+
+            stale_build = os.path.join(home, ".cargo", f".build.cargo-ndk.{2**22 + 1}")
+            os.mkdir(stale_build)
+            run_tool("cargo-ndk", home, ndk_entry())
+            check("the build directory of a killed run is swept", not os.path.exists(stale_build))
+
+            print("the link temporaries")
+            home = account("pa")
+            bindir = os.path.join(home, ".local", "bin")
+            os.makedirs(os.path.join(home, ".cargo", "bin"))
+            real_replace = tools_install.os.replace
+            def interrupted(*a: object, **kw: object) -> None:
+                raise tools_install.Terminated(143)
+            tools_install.os.replace = interrupted
+            try:
+                tools_install.link_proxies(home, ("rustup",))
+            except tools_install.Terminated:
+                pass
+            finally:
+                tools_install.os.replace = real_replace
+            check("a link interrupted between its symlink and its replace leaves no temporary", listing(home) == [], listing(home))
+            dead_link = os.path.join(bindir, f".cargo.{2**22 + 1}.link.tmp")
+            os.symlink("/nonexistent", dead_link)
+            body2 = init_body()
+            run_tool("rustup", home, rustup_entry(body2), serving(body2))
+            check("a killed run's link temporary is swept by the next", not os.path.lexists(dead_link), listing(home))
 
             print("the pins themselves are checked")
             good_installer = rustup_entry(body)["install"]
@@ -1075,6 +1112,7 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             run_tool("rustup", home, rustup_entry(body), serving(body))
             flag(home, ".fake-cargo-sleeps")
             threading.Timer(1.0, os.kill, (os.getpid(), signal.SIGTERM)).start()
+            t0 = time.monotonic()
             try:
                 run_tool("cargo-ndk", home, ndk_entry())
                 stopped = False
@@ -1083,7 +1121,8 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             finally:
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
             time.sleep(0.2)
-            check("SIGTERM to the installer ends the cargo build with it", stopped and not alive(os.path.join(home, "cargo-child.pid")), stopped)
+            check("SIGTERM to the installer ends the cargo build with it, at once (the build's leader runs 30 s, its child 300 s)",
+                  stopped and time.monotonic() - t0 < 15 and not alive(os.path.join(home, "cargo-child.pid")), (stopped, time.monotonic() - t0))
         finally:
             tools_install.subprocess.Popen = real_popen
             tools_install.RUN_TIMEOUT_S.update(saved_bound)
