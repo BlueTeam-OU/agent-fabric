@@ -49,7 +49,7 @@ from .keys import key_of_store
 from .lock import write_lock
 from .mirrors import resolve
 from .settings import _destination, _put_file, _read_blobs, _read_tree, _terminate
-from .trust import _commit, _full, _git_env, _is_ancestor, _keep_base, _no_base, trusted_base
+from .trust import _commit, _full, _git_env, _is_ancestor, _no_base, trusted_base
 
 ROLE_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 # One line, no whitespace inside a decision reference or a MESSAGE-ID; a trailer value is read by a parser.
@@ -246,8 +246,6 @@ def _put_back(mirror: str, rel: str, unmoved: bytes | None) -> None:
     try:
         target = "HEAD" if unmoved is not None else f"origin/{_branch(mirror)}"
         r = git(mirror, "reset", "-q", "--hard", target, check=False)
-        if r.returncode == 0:
-            _keep_base(mirror)
         git(mirror, "clean", "-fdxq", "--", os.path.join("settings", rel), check=False)
         if r.returncode != 0:
             raise StoreError(f"the install failed, and the mirror could not be reset ({mirror}) — reset it to its remote "

@@ -904,9 +904,11 @@ def main() -> int:
                   and cgit("config", "--local", "agent-fabric.trustedbase").stdout.strip() == unpushed
                   and "env/ORPHAN_P.gpg" in remote_names() and "env/ORPHAN_A.gpg" not in remote_names(),
                   p.stderr + p2.stderr + p3.stderr)
+            verified = subprocess.run(["git", "-C", remote, "rev-parse", "main"], env=child, capture_output=True, text=True).stdout.strip()
             p = run(child, "set", "ORPHAN_B", stdin="b")
-            check("j56: a write that rebases the unpushed commit leaves the base on a commit HEAD descends from",
-                  p.returncode == 0 and on_head(),
+            check("j56: a write that rebases the unpushed commit leaves the base on the remote's verified tip, which HEAD descends from",
+                  p.returncode == 0 and on_head()
+                  and cgit("config", "--local", "agent-fabric.trustedbase").stdout.strip() == verified,
                   p.stderr + cgit("config", "--local", "agent-fabric.trustedbase").stdout)
             check("…and the rebased write reached the remote", "env/ORPHAN_B.gpg" in remote_names() and "env/ORPHAN_A.gpg" in remote_names())
             # The owner's way out of a base that is already orphaned (hand-set, or from before this fix).

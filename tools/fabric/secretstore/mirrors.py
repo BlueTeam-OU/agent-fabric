@@ -46,7 +46,6 @@ from .trust import (
     FIRST_CONTACT_KEY,
     on_main,
     _take_verified,
-    _keep_base,
 )
 from .lock import write_lock
 from .entries import (
@@ -406,7 +405,6 @@ def put(child: str, name: str, value: bytes, store: str | None = None, fabric: s
                         why = ([l for l in r.stderr.decode(errors="replace").splitlines() if l.strip()] or [f"exit {r.returncode}"])[-1]
                         raise StoreError(f"{rec.get('login')}: {pushed}; and the mirror could not be reset to its remote "
                                          f"({store}: {why}) — reset it before the next put") from pushed
-                    _keep_base(store)
                 raise
         return {"child": rec.get("login"), "agent_id": aid, "name": name, "changed": changed}
 

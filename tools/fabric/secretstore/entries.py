@@ -145,15 +145,16 @@ def _before_write(store: str) -> None:
     # added since, each commit signed by a writer; then this store's own
     # unpushed commits go on top, signed again by their writer.
     tip = _verify_incoming(store, f"refs/remotes/origin/{branch}")
+    base = trusted_base(store)
+    held = bool(base) and git(store, "merge-base", "--is-ancestor", base, "HEAD", check=False).returncode == 0
     r = _run(["git", "-C", store, *_signing_args(), "rebase", "-q", tip], env=_git_env(), check=False)
     if r.returncode != 0:
         _run(["git", "-C", store, "rebase", "--abort"], check=False)
         raise failed(r)
     # The rebase rewrote this store's unpushed commits; a base on one of them
     # (init's first commit, a trust-base at an unpushed head) is orphaned.
-    dropped = _keep_base(store)
-    if dropped:
-        raise StoreError(f"{dropped}; nothing written")
+    if held:
+        _keep_base(store, tip)
     _taken(store, tip)
 
 
