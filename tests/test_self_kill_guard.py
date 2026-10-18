@@ -208,6 +208,26 @@ def main() -> int:
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a zero is refused wherever it stands: {cmd}", d is not None and d[0] == "deny" and "zero" in d[1], d)
     check("kill -0 <pid outside> passes", g.decision("kill -0 999999999", CLAUDE, shell=False) is None)
+    # kill -0 of one variable is a liveness probe and asks nothing (the owner, 2026-10-17); a second operand, another
+    # signal or another kill beside it still asks or denies, since bash lets a later -N replace the 0.
+    for cmd in ("s=$!; kill -0 $s", 'kill -0 "$s"', 'kill -0 -- "$s"', "kill -0 ${s}"):
+        check(f"a kill -0 probe of one variable passes: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
+              g.decision(cmd, CLAUDE, shell=False))
+    for cmd in ("kill -0 $a $b", "kill -0 $s; kill $s", "kill -9 $s", 'kill -0 "$s" 999999999'):
+        check(f"not a lone probe: it still asks: {cmd}", (g.decision(cmd, CLAUDE, shell=False) or ("",))[0] == "ask",
+              g.decision(cmd, CLAUDE, shell=False))
+    # An empty expansion glued to the tool's name is the tool to bash (review of #268, pre-existing 1-2): the zero
+    # and negative denials and the pattern reading hold for it. Kills: judging the command word as written.
+    for cmd in ('"$x"kill -9 0', "${x}kill -- -1", 'k"$x"ill 0', 'kill"$x" -9 0', 'sudo "$x"kill 0', '"$xp"kill -9 0',
+                "$HOME/bin/sh -c 'kill 0'"):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a glued expansion does not hide kill: {cmd}", d is not None and d[0] == "deny", d)
+    for cmd in ('"$x"pkill -f claude-fable', '${x}pk""ill -f claude-fable'):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a glued expansion does not hide pkill: {cmd}", d is not None and d[0] == "deny", d)
+    for cmd in ('"$x"kill -9 999999999', '"$PYTHON" t.py', "echo $skill", 'sudo -u "$x"kill 0'):
+        check(f"a glued name that kills nothing protected passes: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
+              g.decision(cmd, CLAUDE, shell=False))
     # An expansion the hook does not evaluate asks, never passes (round 4).
     many = "kill " + " ".join(str(900000000 + i) for i in range(g.MAX_PIDS + 5))
     for label, cmd in (("ANSI-C quoting", "ki$'l'l 999999999"), ("locale quoting", 'kill $"999999999"'),

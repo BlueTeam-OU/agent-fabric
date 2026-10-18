@@ -140,8 +140,10 @@ def unevaluated(command: str) -> str | None:
 
 def kills(command: str) -> bool:
     """Whether the command kills at all, read in the raw text and with its
-    quotes dropped."""
-    return bool(KILLS.search(command) or KILLS.search(unquoted(command)))
+    quotes dropped, or a command word that is a killing tool once its glued
+    expansions are empty (`k"$x"ill`, which neither text spells)."""
+    return bool(KILLS.search(command) or KILLS.search(unquoted(command))
+                or any(os.path.basename(w[0]) in {"kill", "pkill", "killall"} for w in tool_commands(command)))
 
 
 def own_claude_cmdline(proc: str = "/proc", pid: int | None = None) -> str | None:
@@ -179,14 +181,14 @@ def kill_after_prefixes(words: list[str]) -> list[str]:
     takes: set[str] = set()
     skip = False
     for i, w in enumerate(words):
-        name = os.path.basename(w)
+        names = {os.path.basename(n) for n in command_names(w)}
         if skip:
             skip = False
-        elif name in PREFIXES:
-            takes = VALUE_OPTIONS.get(name, set())
+        elif names & PREFIXES:
+            takes = set().union(*(VALUE_OPTIONS.get(n, set()) for n in names & PREFIXES))
         elif w in takes:
             skip = True
-        elif name in KILL_TOOLS or name in NESTED:
+        elif names & (KILL_TOOLS | NESTED):
             return words[i:]
     return []
 
@@ -199,6 +201,30 @@ def kill_after_prefixes(words: list[str]) -> list[str]:
 # a false deny costs a rephrase. A payload in a variable is not readable.
 NESTED = {"bash", "sh", "zsh", "dash", "ksh", "eval"}
 NESTED_DEPTH = 4
+TOOL_NAMES = KILL_TOOLS | PREFIXES | NESTED
+# An expansion whose end is unambiguous: ${…}, a lifted substitution, a special parameter.
+EXPANSION = re.compile(r"\$\{[^}]*\}|" + re.escape(SUBST) + r"\d+_|\$[0-9#?!$*@-]")
+NAME_AFTER_DOLLAR = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def command_names(word: str) -> list[str]:
+    """The tool a command word runs when its expansions are empty: bash runs `"$x"kill`, `${x}kill` and `k"$x"ill` as
+    kill when x is empty, and they passed the zero and negative denials (review of #268, pre-existing 1-2). The words
+    come quote-stripped, so `"$x"kill` reads `$xkill`, where the variable's name ended at the lost quote: every end is
+    tried, and every tool a cut names is judged (`$xpkill` is pkill or kill, as the quote stood). Over-reports (a
+    variable named skill reads as kill), and a false deny costs a rephrase. A word that names no tool any way it is cut
+    is the one name, as it was."""
+    if os.path.basename(word) in TOOL_NAMES or ("$" not in word and SUBST not in word) or len(word) > 64:
+        return [word]
+    variants = {EXPANSION.sub("", word)}
+    for _ in range(3):   # three glued variables; each cut is at most the name's length, so this stays small
+        cut = {v[:m.start()] + v[m.start() + 1 + k:] for v in variants if (m := NAME_AFTER_DOLLAR.search(v))
+               for k in range(1, len(m.group(1)) + 1)}
+        if not cut:
+            break
+        variants |= cut
+    named = sorted({os.path.basename(v) for v in variants if "$" not in v and os.path.basename(v) in TOOL_NAMES})
+    return named or [word]
 
 
 SHELLS = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
@@ -332,6 +358,21 @@ PLACEHOLDER = re.compile(re.escape(SUBST) + r"(\d+)_")
 # What a pid operand may be without being read: the pid of the job this
 # very command last started, a process the command itself owns.
 OWN_JOB = {"$!", "${!}"}
+# `kill -0 <one variable>` asks nothing (the owner, 2026-10-17: a reviewer's `kill -0 $s` and the phone remit's own
+# `s=$!; kill -0 $s` reached the owner as a question). Signal 0 is no signal; it tests that the pid exists. Only that
+# shape: bash's kill reads every leading -N as the signal, the last one winning, so with a second operand ("$a" "$b",
+# a=-9, b=-1) the probe is kill -9 -1; a single operand that expands to a signal names no pid and kills nothing. Left
+# open: an unquoted operand whose value is two words beginning with a signal ("-9 -1"), which a pid never is.
+ZERO_PROBE_VAR = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})")
+
+
+def _zero_probe(words: list[str]) -> bool:
+    """`kill -0 [--] $var`: signal 0 to the one pid a variable holds."""
+    args = words[1:]
+    if args[:1] != ["-0"]:
+        return False
+    args = args[2:] if args[1:2] == ["--"] else args[1:]
+    return len(args) == 1 and bool(ZERO_PROBE_VAR.fullmatch(args[0]))
 
 
 # The word kill as a command anywhere in the text (`/bin/kill`, `command
@@ -374,7 +415,7 @@ def kill_operands(command: str) -> tuple[list[int], list[str]]:
         return [], []
     pieces, held = lift(command), []
     for words in tool_commands(command):
-        if os.path.basename(words[0]) != "kill":
+        if os.path.basename(words[0]) != "kill" or _zero_probe(words):
             continue
         for w in words[1:]:
             m = PLACEHOLDER.fullmatch(w)
@@ -466,16 +507,18 @@ def _tool_commands(pieces: list[str], depth: int) -> list[list[str]]:
             words = words[1:]
         if not words:
             continue
-        if os.path.basename(words[0]) in PREFIXES:
+        if {os.path.basename(n) for n in command_names(words[0])} & PREFIXES:
             words = kill_after_prefixes(words)
             if not words:
                 continue
-        if os.path.basename(words[0]) in NESTED:
-            if depth < NESTED_DEPTH and len(words) > 1:
-                texts = list(dict.fromkeys([" ".join(words[1:]), *words[1:]]))
-                out += _tool_commands([drop_heredoc_bodies(t) for t in texts], depth + 1)
-        elif os.path.basename(words[0]) in KILL_TOOLS:
-            out.append(words)
+        # Each tool the command word may run is judged (command_names).
+        for name in command_names(words[0]):
+            if os.path.basename(name) in NESTED:
+                if depth < NESTED_DEPTH and len(words) > 1:
+                    texts = list(dict.fromkeys([" ".join(words[1:]), *words[1:]]))
+                    out += _tool_commands([drop_heredoc_bodies(t) for t in texts], depth + 1)
+            elif os.path.basename(name) in KILL_TOOLS:
+                out.append([name, *words[1:]])
     return out
 
 
