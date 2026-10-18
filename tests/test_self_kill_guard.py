@@ -208,14 +208,18 @@ def main() -> int:
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a zero is refused wherever it stands: {cmd}", d is not None and d[0] == "deny" and "zero" in d[1], d)
     check("kill -0 <pid outside> passes", g.decision("kill -0 999999999", CLAUDE, shell=False) is None)
-    # kill -0 of one variable is a liveness probe and asks nothing (the owner, 2026-10-17); a second operand, another
-    # signal or another kill beside it still asks or denies, since bash lets a later -N replace the 0.
-    for cmd in ("s=$!; kill -0 $s", 'kill -0 "$s"', 'kill -0 -- "$s"', "kill -0 ${s}"):
+    # A liveness probe asks nothing (the owner, 2026-10-17): kill -0 of one variable, or kill -0 -- and anything, which
+    # bash and util-linux both read as pids given signal 0. Two operands without -- still ask: -s, -n and --signal set
+    # a signal after -0 (kill -0 -sKILL -1), as both sources read.
+    for cmd in ("s=$!; kill -0 $s", 'kill -0 "$s"', 'kill -0 -- "$s"', "kill -0 ${s}", 'kill -0 -- "$a" "$b"',
+                "kill -0 -- $(cat pidfile)", "kill -0 -- -1", "kill -0 -- 0"):
         check(f"a kill -0 probe of one variable passes: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
               g.decision(cmd, CLAUDE, shell=False))
-    for cmd in ("kill -0 $a $b", "kill -0 $s; kill $s", "kill -9 $s", 'kill -0 "$s" 999999999'):
+    for cmd in ("kill -0 $a $b", "kill -0 $s; kill $s", "kill -9 $s", 'kill -0 "$s" 999999999', "kill -0 -s $s $p"):
         check(f"not a lone probe: it still asks: {cmd}", (g.decision(cmd, CLAUDE, shell=False) or ("",))[0] == "ask",
               g.decision(cmd, CLAUDE, shell=False))
+    d = g.decision("kill -- -0 $s", CLAUDE, shell=False)
+    check("-0 after -- is group 0 with SIGTERM, not a probe: refused", d is not None and d[0] == "deny", d)
     # An empty expansion glued to the tool's name is the tool to bash (review of #268, pre-existing 1-2): the zero
     # and negative denials and the pattern reading hold for it. Kills: judging the command word as written.
     for cmd in ('"$x"kill -9 0', "${x}kill -- -1", 'k"$x"ill 0', 'kill"$x" -9 0', 'sudo "$x"kill 0', '"$xp"kill -9 0',

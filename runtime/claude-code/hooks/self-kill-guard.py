@@ -358,21 +358,26 @@ PLACEHOLDER = re.compile(re.escape(SUBST) + r"(\d+)_")
 # What a pid operand may be without being read: the pid of the job this
 # very command last started, a process the command itself owns.
 OWN_JOB = {"$!", "${!}"}
-# `kill -0 <one variable>` asks nothing (the owner, 2026-10-17: a reviewer's `kill -0 $s` and the phone remit's own
-# `s=$!; kill -0 $s` reached the owner as a question). Signal 0 is no signal; it tests that the pid exists. Only that
-# shape: bash's kill reads every leading -N as the signal, the last one winning, so with a second operand ("$a" "$b",
-# a=-9, b=-1) the probe is kill -9 -1; a single operand that expands to a signal names no pid and kills nothing. Left
-# open: an unquoted operand whose value is two words beginning with a signal ("-9 -1"), which a pid never is.
+# A liveness probe sends no signal and asks nothing (the owner, 2026-10-17: a reviewer's `kill -0 $s` and the phone
+# remit's own `s=$!; kill -0 $s` reached the owner as a question). Read from the sources of both kills a command can
+# run — bash 5.3's builtin (builtins/kill.def) and util-linux 2.41's kill (misc-utils/kill.c): after the first signal
+# a later -N is a process group, not a signal, but -s SIG, -sSIG, -n NUM, -nNUM (bash) and -s, --signal, --timeout N
+# SIG (util-linux) set a signal wherever they stand, and `--` ends the options in both. So:
+#   kill -0 -- <anything>  every later word is a pid or job, given signal 0: nothing is signalled, whatever it holds;
+#   kill -0 <one $var>     at most a signal and no pid when the value is an option: no signal is sent;
+#   kill -0 $a $b          asks: with a=-sKILL, b=-1 it is kill -sKILL -1.
+# Left open: an unquoted lone variable whose value is several words ("-s 9 -1"), which a pid never is.
 ZERO_PROBE_VAR = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})")
 
 
 def _zero_probe(words: list[str]) -> bool:
-    """`kill -0 [--] $var`: signal 0 to the one pid a variable holds."""
+    """`kill -0 -- <operands>` or `kill -0 $var`: signal 0, which signals nothing."""
     args = words[1:]
     if args[:1] != ["-0"]:
         return False
-    args = args[2:] if args[1:2] == ["--"] else args[1:]
-    return len(args) == 1 and bool(ZERO_PROBE_VAR.fullmatch(args[0]))
+    if args[1:2] == ["--"]:
+        return len(args) > 2
+    return len(args) == 2 and bool(ZERO_PROBE_VAR.fullmatch(args[1]))
 
 
 # The word kill as a command anywhere in the text (`/bin/kill`, `command
@@ -435,10 +440,11 @@ def kill_groups(command: str) -> list[str]:
     command (round 3). Every 0 is refused, also one that may be a
     signal value (`kill -s 0 <pid>`): bash also reads `kill <pid> -s 0`
     as group 0, and telling the two apart is the parsing this guard
-    gave up (round 5); a false deny costs a rephrase (`kill -0 <pid>`)."""
+    gave up (round 5); a false deny costs a rephrase (`kill -0 <pid>`).
+    A liveness probe (_zero_probe) signals nothing, so its operands are none."""
     out = []
     for words in tool_commands(command):
-        if os.path.basename(words[0]) != "kill":
+        if os.path.basename(words[0]) != "kill" or _zero_probe(words):
             continue
         for i, w in enumerate(words[1:]):
             if (re.fullmatch(r"-\d+", w) and (w == "-1" or i > 0)) or re.fullmatch(r"\+?0+", w):
