@@ -250,6 +250,14 @@ def main() -> int:
                 'timeout 5 "$p""$q"k"$r""$t"ill 0'):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a kill split by expansions is read as kill: {cmd[:44]}", d is not None and d[0] == "deny", d)
+    # Review of #300, F1: the split word's operands still meet the unevaluated-expansion and held-pid asks (a brace,
+    # a backslash-newline, $$, a quoted variable), bare and behind a prefix or a nested shell, one cut or several.
+    # Kills: gating those asks on the text alone, which no split name spells.
+    for cmd in (split.replace(" -1", " -9 -1{,}"), split.replace(" -1", " -{1,2}"), split.replace(" -1", " -\\\n1"),
+                split.replace(" -1", " $$"), split.replace(" -1", ' "$x"'), "timeout 5 " + split.replace(" -1", " -9 -1{,}"),
+                "bash -c '" + split.replace(" -1", " -9 -1{,}") + "'", 'k"$p"ill -9 -1{,}', 'k"$p"ill $$', 'k"$p"ill "$x"'):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a split kill's unreadable operand asks: {cmd[:44]!r}", d is not None and d[0] == "ask", d)
     # …and a path that only happens to hold those letters, with no pid among its operands, is no false ask.
     for cmd in ('"$ROOT"/tools/skill_install.py --flag', 'k"$p"ill 999999999'):
         check(f"a kill-spelling word with nothing protected passes: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,

@@ -125,7 +125,10 @@ def unevaluated(command: str) -> str | None:
     command = drop_heredoc_bodies(command)
     # The raw text as well as the unquoted one, as kills() reads: unquoted() turns "$x"kill and ${x}kill into
     # $xkill, whose x hides the word, and bash runs either as kill when x is empty (review of #268, F1).
-    if not (KILL_TOOL_WORD.search(command) or KILL_TOOL_WORD.search(unquoted(command))):
+    # And the resolved command words: a kill whose name is split by expansions (k"$p"i"$q"l"$r"l"$t") is spelled by
+    # neither text, and its brace or backslash-newline operand must still ask (review of #300, F1).
+    if not (KILL_TOOL_WORD.search(command) or KILL_TOOL_WORD.search(unquoted(command))
+            or any(os.path.basename(w[0]) in {"kill", "pkill", "killall"} for w in tool_commands(command))):
         return None
     for mark, what in (("$'", "ANSI-C quoting $'…'"), ('$"', 'locale quoting $"…"'),
                        ("\\\n", "a backslash-newline")):
@@ -429,7 +432,10 @@ def kill_operands(command: str) -> tuple[list[int], list[str]]:
     substitution other than one plain pgrep, whose answer the ground truth
     asks list-only; `$!` is the command's own job."""
     pids = pid_candidates(command)[:MAX_PIDS]
-    if not pids and not KILL_WORD.search(unquoted(command)):
+    # The resolved words too, as pid_candidates reads them: a split kill holding `$$` names no integer (review of
+    # #300, F1).
+    if not pids and not KILL_WORD.search(unquoted(command)) \
+            and not any(os.path.basename(w[0]) == "kill" for w in tool_commands(command)):
         return [], []
     pieces, held = lift(command), []
     for words in tool_commands(command):
