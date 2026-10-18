@@ -333,6 +333,21 @@ class DecisionRecordBodyEdit(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("adr staged-check: this commit: edits the body", r.stderr)
 
+    def test_an_amended_merge_is_not_judged_against_its_first_parent(self):
+        # Review of #297, round 2, finding 2: amending a merge leaves no MERGE_HEAD; against HEAD^ it would carry the
+        # other side's edits. Kills: dropping the parent count test.
+        off = ("-c", "core.hooksPath=/dev/null")
+        self.repo.git("checkout", "-q", "-b", "side")
+        self.edit()
+        self.repo.git(*off, "commit", "-qm", "reword\n\nADR-Editorial: a word\nKind: work")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.write("src/a.txt", "more\n", append=True)
+        self.repo.git("add", "-A")
+        self.repo.git(*off, "commit", "-qm", "main moves\n\nKind: work")
+        self.repo.git(*off, "merge", "-q", "--no-ff", "-m", "Merge branch 'side'", "side")
+        r = self.run_hook_as_amend("Merge branch 'side', reworded" + KIND)
+        self.assertNotIn("adr staged-check", r.stderr)
+
     def test_a_merge_is_not_judged_again(self):
         off = ("-c", "core.hooksPath=/dev/null")
         self.repo.git("checkout", "-q", "-b", "side")

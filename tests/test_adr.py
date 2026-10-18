@@ -617,6 +617,12 @@ def case_staged_check_on_an_amend_and_with_no_base(tmp: str) -> None:
     env = {k: os.environ.pop(k) for k in ("AGENT_FABRIC_ADR_BASE", "GITHUB_BASE_REF", "GITHUB_EVENT_PATH") if k in os.environ}
     try:
         assert adr.default_range(other) is None and adr.staged_check(other, "reword\n") == [], "no base: not judged"
+        msgf = os.path.join(tmp, "MSG")
+        with open(msgf, "w", encoding="utf-8") as fh:
+            fh.write("reword\n")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "adr.py"), "--root", other, "staged-check", msgf],
+                           capture_output=True, text=True, env=git_env())
+        assert r.returncode == 0 and "no base to compare with — not enforced" in r.stderr, (r.returncode, r.stderr)   # said, never silent
     finally:
         os.environ.update(env)
 

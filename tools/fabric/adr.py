@@ -684,6 +684,10 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "staged-check":
         if not os.path.isdir(adr_dir(a.root)):
             return 0
+        if default_range(tree(a.root)) is None:
+            # Said, as range-check says it: silence is never a pass (review of #297, round 2, finding 3).
+            print("adr staged-check: no base to compare with — not enforced", file=sys.stderr)
+            return 0
         try:
             with open(a.message_file, encoding="utf-8", errors="replace") as fh:
                 message = fh.read()

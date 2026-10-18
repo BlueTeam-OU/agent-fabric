@@ -103,8 +103,13 @@ if [[ -n "$top" && -f "$top/tools/fabric/adr.py" ]] && ! git rev-parse -q --veri
     against=HEAD
     if PYTHONPATH="$FABRIC_ROOT/tools/fabric/guards" python3 -c 'import sys, commit_kind as k; sys.exit(0 if k.is_amend(k.parent_argv(sys.argv[1]) or []) else 1)' "$PPID" 2>/dev/null; then
         against=HEAD^
+        # Amending a merge is still a merge, which range-check skips: judged
+        # against its first parent it would carry the other side's edits
+        # (review of #297, round 2, finding 2).
+        [[ "$(git rev-list --parents -n 1 HEAD | wc -w)" -gt 2 ]] && against=
     fi
-    if git rev-parse -q --verify "$against^{commit}" >/dev/null && git diff --cached --name-only "$against" -- docs/adr | grep -q .; then
+    if [[ -n "$against" ]] && git rev-parse -q --verify "$against^{commit}" >/dev/null \
+            && git diff --cached --name-only "$against" -- docs/adr | grep -q .; then
         python3 "$top/tools/fabric/adr.py" --root "$top" staged-check --against "$against" "$msg" || exit 1
     fi
 fi
