@@ -47,6 +47,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             the agent's state directory (binding.json,
             model-profile.local.json, restart.json); writes
             $STATE_DIR/launch-prompt.md (launch_prompt.py),
+            $STATE_DIR/launch-locale.json (launch_locale.py; for --print and
+            --help too),
             ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json (onboarding, plain
             claude and the gateway path, which also approves the local key
             there; none for --help), the agent files (install-agent-files.sh; none
@@ -162,18 +164,21 @@ holders_specialize: required; anything unverifiable or invalid stops the
 launch with one line naming the path and the commit. What it read is
 stamped as AGENT_FABRIC_LAUNCH_STORE_SHA and _ADDENDA_COMMIT, and only then.
 THE HOLDER'S LOCALE (ADR-060 rule 8). The locale the session renders and
-searches in is holder.json's `locale`, the login's suffix only while the
-holder has no holder.json. It is exported with the deployment facts as
+searches in is holder.json's `locale`, "en" while the holder has no
+holder.json, whatever the login is called (a suffix is no locale). It is
+left in the state directory as launch-locale.json (launch_locale.py) for
+the readers that never open the store (gzcoord's i18n, the activity op), and
+exported with the deployment facts as
 TZ and AGENT_FABRIC_SEARCH_COUNTRY: the timezone and country from
-holder.json, else from the locale.json of that locale (timezone, serpapi.gl).
-A country not known is dropped from the environment; a timezone not known
+holder.json, else from the locale.json of that locale (timezone, serpapi.gl);
+a login with no holder.json has neither. A country not known is dropped from the environment; a timezone not known
 leaves TZ as the operator's own environment has it, since TZ is not ours to
 unset; across a restart, which re-executes with the environment the first
 launch left, TZ goes back to the operator's own value (stamped in
 AGENT_FABRIC_OPERATOR_TZ) when the stamp in AGENT_FABRIC_LAUNCH_TZ is still
 what TZ holds (holder.settle_tz). The locale's harness text, agent files and search tools are chosen
-from the locale, not from the suffix; the readers of the exports never open
-the store.
+from the locale, not from the login's name; the readers of the exports never
+open the store.
 The launcher announces nothing: whether a session is running is the
 control plane's to answer, from the process table (runtime/control/
 presence.mjs, docs/adr/ADR-030-presence-replaces-hello-and-goodbye.md) — HELLO/GOODBYE are retired.
@@ -549,14 +554,14 @@ def launch(argv: list[str]) -> int:
     # is the kill switch: append, as for every other login. On that branch
     # the build is stamped beside the capture's `build:`, so a build that
     # moved past it is visible — never a gate.
-    # The locale is the holder's (ADR-060 rule 8): holder.json's, the login's
-    # suffix only while the holder has none. The timezone becomes the session's
+    # The locale is the holder's (ADR-060 rule 8): holder.json's, "en" while the
+    # holder has none; the login's name never chooses it. The timezone becomes the session's
     # TZ, the country the search server's default; the country is set or
     # dropped, because inherited from a replaced session it would name another
     # holder's. A timezone not known leaves TZ alone: it is the operator's
     # (holder.settle_tz keeps theirs apart, for a restart).
-    suffix = pwd.getpwuid(os.getuid()).pw_name.rsplit("-", 1)[-1]
-    loc = holder.resolve_locale(fabric_root, suffix, state_dir, bool(held))
+    loc = holder.resolve_locale(fabric_root, state_dir, bool(held))
+    holder.launch_locale.record(state_dir, loc.tag)
     holder.settle_tz(env, loc.timezone)
     for name, value in loc.exports().items():
         if name == "TZ":
@@ -626,9 +631,8 @@ def launch(argv: list[str]) -> int:
     # the file against the same resolution and denies a review when another
     # launch on this account has since rewritten it.
     if not asks_help(args):
-        # A suffix that is no tag names no locale: the installer keeps its own fallback, as bootstrap does.
         install_agent_files(fabric_root, routing_provider, state_dir, transport="gateway" if provider == "gateway" else "",
-                            locale=loc.valid_tag)
+                            locale=loc.tag)
 
     login = pwd.getpwuid(os.getuid()).pw_name
     # A plain-claude session runs only on a long-lived sign-in: a template's

@@ -245,7 +245,19 @@ def case_enrol_i18n_and_query_follow_the_operator_root() -> None:
             fh.write('{"reminder": "from the operator"}')
         with operator(op):
             assert store_enroll.Enrol(dry=True, born_now=False, host_flag="").hosts == os.path.join(op, "runtime", "hosts", "registry.json")
-            assert i18n.locale_reminder({"role": "op-role", "agent": "agent-xx", "binding": "b"}, env={}) == "from the operator"
+            state = os.path.join(tmp, "state")
+            os.makedirs(os.path.join(state, "agents", "agent-xx"))
+            with open(os.path.join(state, "agents", "agent-xx", "launch-locale.json"), "w", encoding="utf-8") as fh:
+                fh.write('{"locale": "xx"}')    # the launcher's record names the locale; the login's suffix does not
+            saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
+            os.environ["AGENT_FABRIC_STATE_DIR"] = state
+            try:
+                assert i18n.locale_reminder({"role": "op-role", "agent": "agent-xx", "binding": "b"}, env={}) == "from the operator"
+            finally:
+                if saved is None:
+                    del os.environ["AGENT_FABRIC_STATE_DIR"]
+                else:
+                    os.environ["AGENT_FABRIC_STATE_DIR"] = saved
             import query
             query.run(["roles"])           # the operator's (empty) corpus is found
         bare = os.path.join(tmp, "bare")
