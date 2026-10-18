@@ -214,8 +214,14 @@ def command_names(word: str) -> list[str]:
     tried, and every tool a cut names is judged (`$xpkill` is pkill or kill, as the quote stood). Over-reports (a
     variable named skill reads as kill), and a false deny costs a rephrase. A word that names no tool any way it is cut
     is the one name, as it was."""
-    if os.path.basename(word) in TOOL_NAMES or ("$" not in word and SUBST not in word) or len(word) > 64:
+    if os.path.basename(word) in TOOL_NAMES or ("$" not in word and SUBST not in word):
         return [word]
+    # A tool name that ENDS the word with any expansion before it, whatever their number or length (review of #297,
+    # P-1: four glued variables, or a 64-character word, were taken as written): "$p""$q""$r""$s"kill is kill.
+    ending = {name for name in TOOL_NAMES
+              if word.endswith(name) and ("$" in word[:-len(name)] or SUBST in word[:-len(name)])}
+    if len(word) > 64:
+        return sorted(ending) or [word]
     variants = {EXPANSION.sub("", word)}
     for _ in range(3):   # three glued variables; each cut is at most the name's length, so this stays small
         cut = {v[:m.start()] + v[m.start() + 1 + k:] for v in variants if (m := NAME_AFTER_DOLLAR.search(v))
@@ -223,8 +229,8 @@ def command_names(word: str) -> list[str]:
         if not cut:
             break
         variants |= cut
-    named = sorted({os.path.basename(v) for v in variants if "$" not in v and os.path.basename(v) in TOOL_NAMES})
-    return named or [word]
+    named = {os.path.basename(v) for v in variants if "$" not in v and os.path.basename(v) in TOOL_NAMES}
+    return sorted(named | ending) or [word]
 
 
 SHELLS = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
@@ -363,21 +369,31 @@ OWN_JOB = {"$!", "${!}"}
 # run — bash 5.3's builtin (builtins/kill.def) and util-linux 2.41's kill (misc-utils/kill.c): after the first signal
 # a later -N is a process group, not a signal, but -s SIG, -sSIG, -n NUM, -nNUM (bash) and -s, --signal, --timeout N
 # SIG (util-linux) set a signal wherever they stand, and `--` ends the options in both. So:
-#   kill -0 -- <anything>  every later word is a pid or job, given signal 0: nothing is signalled, whatever it holds;
-#   kill -0 <one $var>     at most a signal and no pid when the value is an option: no signal is sent;
-#   kill -0 $a $b          asks: with a=-sKILL, b=-1 it is kill -sKILL -1.
-# Left open: an unquoted lone variable whose value is several words ("-s 9 -1"), which a pid never is.
-ZERO_PROBE_VAR = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})")
+#   kill -0 -- <anything>   every later word is a pid or job, given signal 0: nothing is signalled, xargs or not;
+#   kill -0 "$var"          one word whatever it holds: an option there leaves no pid, so no signal is sent;
+#   s=$!; kill -0 $s        unquoted, but the command's only mention of s gives it the one pid $! is;
+#   anything else asks: an unquoted variable splits (x='-s KILL -1' is kill -sKILL -1, review of #297, F1), and
+#   behind xargs the operands it appends from its input follow the variable.
+ZERO_PROBE_VAR = re.compile(r"\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})")
+XARGS_WORD = re.compile(r"(?<![\w.-])xargs(?![\w.-])")
+WORD_END = r"(?=$|[\s;&|)])"
 
 
-def _zero_probe(words: list[str]) -> bool:
-    """`kill -0 -- <operands>` or `kill -0 $var`: signal 0, which signals nothing."""
+def _zero_probe(words: list[str], command: str) -> bool:
+    """`kill -0 -- <operands>`, or `kill -0 $var` quoted or holding $!: signal 0, which signals nothing."""
     args = words[1:]
     if args[:1] != ["-0"]:
         return False
     if args[1:2] == ["--"]:
         return len(args) > 2
-    return len(args) == 2 and bool(ZERO_PROBE_VAR.fullmatch(args[1]))
+    m = ZERO_PROBE_VAR.fullmatch(args[1]) if len(args) == 2 else None
+    if not m or XARGS_WORD.search(command):
+        return False
+    name = re.escape(m.group(1) or m.group(2))
+    quoted = re.search(rf'(?<![\w.-])kill\s+-0\s+"\$(?:{name}|\{{{name}\}})"{WORD_END}', command)
+    mentions = re.findall(rf"(?<![\w$]){name}(?!\w)", command)
+    own_job = len(mentions) == 1 and re.search(rf"(?<![\w$]){name}=\$!{WORD_END}", command)
+    return bool(quoted or own_job)
 
 
 # The word kill as a command anywhere in the text (`/bin/kill`, `command
@@ -420,7 +436,7 @@ def kill_operands(command: str) -> tuple[list[int], list[str]]:
         return [], []
     pieces, held = lift(command), []
     for words in tool_commands(command):
-        if os.path.basename(words[0]) != "kill" or _zero_probe(words):
+        if os.path.basename(words[0]) != "kill" or _zero_probe(words, command):
             continue
         for w in words[1:]:
             m = PLACEHOLDER.fullmatch(w)
@@ -444,7 +460,7 @@ def kill_groups(command: str) -> list[str]:
     A liveness probe (_zero_probe) signals nothing, so its operands are none."""
     out = []
     for words in tool_commands(command):
-        if os.path.basename(words[0]) != "kill" or _zero_probe(words):
+        if os.path.basename(words[0]) != "kill" or _zero_probe(words, command):
             continue
         for i, w in enumerate(words[1:]):
             if (re.fullmatch(r"-\d+", w) and (w == "-1" or i > 0)) or re.fullmatch(r"\+?0+", w):

@@ -211,11 +211,15 @@ def main() -> int:
     # A liveness probe asks nothing (the owner, 2026-10-17): kill -0 of one variable, or kill -0 -- and anything, which
     # bash and util-linux both read as pids given signal 0. Two operands without -- still ask: -s, -n and --signal set
     # a signal after -0 (kill -0 -sKILL -1), as both sources read.
-    for cmd in ("s=$!; kill -0 $s", 'kill -0 "$s"', 'kill -0 -- "$s"', "kill -0 ${s}", 'kill -0 -- "$a" "$b"',
-                "kill -0 -- $(cat pidfile)", "kill -0 -- -1", "kill -0 -- 0"):
+    for cmd in ("s=$!; kill -0 $s", "sleep 9 & s=$!; kill -0 $s", 'kill -0 "$s"', 'kill -0 "${s}"', 'kill -0 -- "$s"',
+                'kill -0 -- "$a" "$b"', "kill -0 -- $x", "kill -0 -- $(cat pidfile)", "kill -0 -- -1", "kill -0 -- 0"):
         check(f"a kill -0 probe of one variable passes: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
               g.decision(cmd, CLAUDE, shell=False))
-    for cmd in ("kill -0 $a $b", "kill -0 $s; kill $s", "kill -9 $s", 'kill -0 "$s" 999999999', "kill -0 -s $s $p"):
+    # Review of #297, F1: an unquoted variable splits (x='-s KILL -1' is kill -sKILL -1), a second mention may set
+    # it to anything, and xargs appends operands after it. Kills: exempting a lone unquoted variable.
+    for cmd in ("kill -0 $a $b", "kill -0 $s; kill $s", "kill -9 $s", 'kill -0 "$s" 999999999', "kill -0 -s $s $p",
+                "kill -0 $s", "kill -0 ${s}", "x='-s KILL -1'; kill -0 $x", "IFS=,; x=-s,KILL,-1; kill -0 $x",
+                "x=-sKILL; echo -1 | xargs kill -0 $x", 'echo -1 | xargs kill -0 "$x"', "s=$!; s=-1; kill -0 $s"):
         check(f"not a lone probe: it still asks: {cmd}", (g.decision(cmd, CLAUDE, shell=False) or ("",))[0] == "ask",
               g.decision(cmd, CLAUDE, shell=False))
     d = g.decision("kill -- -0 $s", CLAUDE, shell=False)
@@ -226,7 +230,12 @@ def main() -> int:
                 "$HOME/bin/sh -c 'kill 0'"):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a glued expansion does not hide kill: {cmd}", d is not None and d[0] == "deny", d)
-    for cmd in ('"$x"pkill -f claude-fable', '${x}pk""ill -f claude-fable'):
+    # Review of #297, P-1: any number of glued variables, at any length, before the tool's name.
+    for cmd in ('"$p""$q""$r""$s"kill -1', 'x=1; "$p""$q""$r""$s"kill 0', '"$' + "v" * 62 + '"kill -1'):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"glued variables of any number or length do not hide kill: {cmd[:40]}", d is not None and d[0] == "deny", d)
+    for cmd in ('"$x"pkill -f claude-fable', '${x}pk""ill -f claude-fable', '"$p""$q""$r""$s"pkill -f claude-fable',
+                '"$' + "v" * 62 + '"pkill -f claude-fable'):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a glued expansion does not hide pkill: {cmd}", d is not None and d[0] == "deny", d)
     for cmd in ('"$x"kill -9 999999999', '"$PYTHON" t.py', "echo $skill", 'sudo -u "$x"kill 0'):
