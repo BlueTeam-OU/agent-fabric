@@ -405,6 +405,16 @@ def main() -> int:
         plumb("reset", "-q", "--hard", hide)
         refused("an agent's deletion of the directory behind a merge is refused, not read as the parent's removal", load(), "removed the directory is not the parent's", deletion[:12], ROLE)
         plumb("reset", "-q", "--hard", current)
+        # the walk goes on from the side a carrying merge took its version from, not from the next commit of the list
+        copy = commit_with(f"{current}^{{tree}}", older)                      # the agent's copy of the install, on the older one
+        deleted = commit_with(gone_tree, copy)                                 # …and its deletion
+        joined = commit_with(f"{current}^{{tree}}", current, copy)             # same directory as both parents: not listed
+        carried = commit_with(gone_tree, deleted, joined)                      # the deletion's version; the install lies on the other side
+        plumb("reset", "-q", "--hard", carried)
+        refused("an agent's deletion carried over a merge whose other side holds the signed install is refused, not read as the parent's removal",
+                load(), "removed the directory is not the parent's", deleted[:12], ROLE)
+        plumb("reset", "-q", "--hard", current)
+        check("…control: back on the current install, it loads", isinstance(load(), addenda.Holder))
         # a plain revert commit, dated before the install it undoes, is no better than a merge
         plumb("reset", "-q", "--hard", current)
         revert = plumb("commit-tree", f"{older}^{{tree}}", "-p", current, "-m", "revert",
