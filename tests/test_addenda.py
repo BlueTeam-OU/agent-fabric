@@ -452,6 +452,26 @@ def main() -> int:
         odd = commit_with(odd_root)
         after_odd = commit_with(f"{current}^{{tree}}", odd)
         check("an old commit with a file where the directory is does not refuse the role for good", walk(after_odd) == (after_odd, False))
+        check("a file where the directory was, since removed, leaves a store with no directory at all", walk(commit_with(gone_tree, odd)) is None)
+        s_a, s_b = commit_with(tree_plus_file(older, "s1"), older), commit_with(tree_plus_file(older, "s2"), older)
+        check("an octopus merge after the install, its sides cut from before it and untouched, is no change",
+              walk(commit_with(tree_plus_file(current, "s"), current, s_a, s_b)) == (current, False))
+        b1 = commit_with(tree_plus_file(p0, "x"), p0)
+        b2 = commit_with(f"{current}^{{tree}}", p0)
+        took = commit_with(f"{older}^{{tree}}", b1, b2)
+        other = commit_with(tree_plus_file(p0, "o"), b2, b1)                       # two merge bases: b1 shares `other`'s version, b2 does not
+        check("a merge whose merge bases do not ALL hold the other parent's version is the change", walk(commit_with(f"{older}^{{tree}}", took, other)) == (plumb("rev-parse", "HEAD"), True))
+        real_git_w = addenda._git
+        addenda._git = lambda store, *a, **k: (subprocess.CompletedProcess(a, 128, b"", b"fatal") if a[:1] == ("merge-base",) else real_git_w(store, *a, **k))
+        try:
+            try:
+                walk(commit_with(f"{older}^{{tree}}", took, other))
+                got_mb = None
+            except StoreError as e:
+                got_mb = e
+        finally:
+            addenda._git = real_git_w
+        refused("a merge-base that fails (not 'no common ancestor') is a refusal naming the exit, not a guess", got_mb, "merge-base exit 128", ROLE)
         plumb("reset", "-q", "--hard", current)
 
         # a plain revert commit, dated before the install it undoes, is no better than a merge

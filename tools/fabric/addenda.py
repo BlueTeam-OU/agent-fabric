@@ -20,10 +20,13 @@ Contract of `load(login, role, policy=)`:
   reads   git objects only, without replace refs or a commit-graph, those of
           the parent-signed last commit on the directory, each hashed against
           its name (the commit, the trees down to the directory, the blobs),
-          and .agent-id as HEAD has it; HEAD's own path is resolved by git
+          and .agent-id as HEAD has it; the history from HEAD down (every
+          commit's entry at the path, and merge-base of the merges whose
+          parents differ there) to find the commit that last changed it;
+          HEAD's own path is resolved by git
           (rev-parse, unhashed) and serves only as the comparison target: never the working tree, never env/,
           never a decryption. Besides objects it reads the store's .git/config
-          (the trusted base) and .git/info/grafts, to refuse the latter. The one gpg call is
+          (the trusted base) and .git/info/grafts and .git/shallow, to refuse those. The one gpg call is
           verify-commit in a temporary GNUPGHOME that holds the parent's
           public key alone (trust.verify_signed_by).
   writes  nothing.
@@ -180,31 +183,34 @@ def _last_changer(store: str, role: str) -> tuple[str, bool] | None:
         if fields[-1] == "missing":
             version[commit] = None
         elif len(fields) == 3:
-            # A blob or anything else there is a version of its own (HEAD's is judged by _directory);
+            # A file or link there is no directory (HEAD's own path is judged by _directory);
             # one old oddity must not refuse the role for good.
-            version[commit] = fields[0] if fields[1] == "tree" else f"{fields[1]}:{fields[0]}"
+            version[commit] = fields[0] if fields[1] == "tree" else None
         else:
             raise _refuse(role, "the store answered something else than an object per commit", commit)
+    def carried(took: str, other: str) -> bool:
+        """Every best common ancestor of the two (criss-cross merges have
+        several) holds `other`'s version: `took`'s line is where it changed."""
+        r = _git(store, "merge-base", "--all", took, other, check=False)
+        if r.returncode not in (0, 1):
+            raise _refuse(role, f"the store could not be read (git merge-base exit {r.returncode})")
+        bases = r.stdout.decode().split()
+        return bool(bases) and all(version[b] == version[other] for b in bases)
+
     answer: dict[str, str | None] = {}
     for commit in order:
         ps, here = parents[commit], version[commit]
         same = [p for p in ps if version[p] == here]
         if not ps:
             answer[commit] = commit if here is not None else None
-        elif len(same) == len(ps):
-            answers = {answer[p] for p in ps}
+        elif not same or any(not carried(t, o) for o in ps if o not in same for t in same):
+            answer[commit] = commit
+        else:
+            answers = {answer[p] for p in same}
             # A line that never had the directory (None) only says that the other line's removal is the news.
             if len(answers) > 1:
                 answers.discard(None)
             answer[commit] = answers.pop() if len(answers) == 1 else commit
-        elif len(ps) == 2 and len(same) == 1:
-            took = same[0]
-            other = ps[1] if took == ps[0] else ps[0]
-            bases = _git(store, "merge-base", "--all", took, other, check=False).stdout.decode().split()
-            # Every best common ancestor must hold the other parent's version (criss-cross merges have several).
-            answer[commit] = answer[took] if bases and all(version[b] == version[other] for b in bases) else commit
-        else:
-            answer[commit] = commit
     found = answer[head.stdout.decode().strip()]
     return (found, len(parents[found]) > 1) if found else None
 
