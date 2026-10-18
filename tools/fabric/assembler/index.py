@@ -47,6 +47,39 @@ def bound_roles_with_domain_slices(run: Run) -> set[str]:
             out.add(role)
     return out
 
+def roles_with_project_directory(run: Run) -> set[str]:
+    """Every role that has a directory under the project's memory root. A
+    role keeps its directory after its last bundle here, while a bundle of
+    another project can still write that role's domain slices into the
+    fabric — and no run of this project would rebuild the index that must
+    list them, so lint reported drift until that role drained here again.
+    `shared/` is the project's shared slices, not a role. A name that is no
+    role id is left alone: it is not ours to index."""
+    root = layout.project_memory_root(run.project)
+    if not os.path.isdir(root):
+        return set()
+    return {n for n in os.listdir(root)
+            if n != "shared" and role_id_error(n) is None and os.path.isdir(os.path.join(root, n))}
+
+
+def read_crossref_index(path: str) -> dict[str, Any]:
+    """The citation edges a role's crossref.json already holds, {} when the
+    file is absent. One that cannot be read stops the drain naming the file:
+    every role directory is re-indexed now, so a file the drain brought
+    nothing for can break it, and a traceback after slices were written
+    would leave a drain with no report."""
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            index = json.load(fh).get("index", {})
+        if not isinstance(index, dict):
+            raise ValueError("`index` is not an object")
+        return index
+    except (OSError, ValueError, AttributeError) as exc:
+        sys.exit(f"assemble: {path}: the role's crossref.json cannot be read ({exc})")
+
+
 def index_role(run: Run, role: str) -> None:
     buckets = run.per_role.get(role, {})
     proj_dir = layout.project_dir(run.project, role)
@@ -160,10 +193,8 @@ def index_role(run: Run, role: str) -> None:
     # Carried sections keep their citation edges. Rebuilding the graph from
     # this drain alone would drop every ADR, PR and migration edge belonging
     # to knowledge that is still sitting in the role base.
-    crossref_path_existing = os.path.join(proj_dir, "crossref.json")
-    if os.path.exists(crossref_path_existing):
-        with open(crossref_path_existing, encoding="utf-8") as fh:
-            old = json.load(fh).get("index", {})
+    old = read_crossref_index(os.path.join(proj_dir, "crossref.json"))
+    if old:
         for kind, values in old.items():
             for value, node in values.items():
                 # Normalized on the way IN as well, so a run also
