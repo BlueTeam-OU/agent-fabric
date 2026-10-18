@@ -492,7 +492,7 @@ def main() -> int:
             rc, out, err = install("fr", "fr", {"charter-addendum.md": fr, "charter-addendum.gloss.en.md": fr_gloss},
                                    *reviews(f"language-culture-fr pass-1 {sha(fr)}", f"language-culture-fr pass-2 {sha(fr_gloss)}"),
                                    validate=real_validate)
-            check("a lang that no locale's tag carries is refused, naming the lang and that no language-culture locale has it",
+            check("a lang that no locale's tag carries is refused without echoing the lang, saying no language-culture locale has it",
                   rc == 1 and "'fr'" not in err and "lang: fr" not in err and "no language-culture locale" in err and count() == n_set, out + err)
             broken = os.path.join(locales, "ge", "locale.json")
             kept = open(broken, "rb").read()

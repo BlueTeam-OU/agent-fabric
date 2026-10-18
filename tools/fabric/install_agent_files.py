@@ -10,7 +10,11 @@ parity oracle.
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
 
-  argv         [--provider openrouter|anthropic | --provider=P] [--dry-run]
+  argv         [--provider openrouter|anthropic | --provider=P]
+               [--locale TAG | --locale=TAG] [--dry-run]
+               (--locale: the holder's locale, which the language-culture
+               files are chosen by instead of the login's suffix; a value
+               that is no locale tag: exit 2)
                anything else: "install-agent-files: unknown argument X" on
                stderr, exit 2 (as does a --provider with no value)
   environment  AGENT_FABRIC_LAUNCH_PROVIDER (the default provider; else
@@ -417,6 +421,8 @@ def main(argv: list[str]) -> int:
             provider, i = a[len("--provider="):], i + 1
         elif a == "--locale" and i + 1 < len(argv):
             locale, i = argv[i + 1], i + 2
+        elif a.startswith("--locale="):
+            locale, i = a[len("--locale="):], i + 1
         else:
             print(f"install-agent-files: unknown argument {a}", file=sys.stderr)
             return 2

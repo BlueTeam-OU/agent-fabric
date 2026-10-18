@@ -599,6 +599,35 @@ def case_locale_brief_translates_like_the_charter() -> None:
         assert code != 0 and "translates" in out, f"a translation of a non-identity file passed:\n{out}"
 
 
+def case_a_locale_charter_needs_every_shared_piece_in_that_locale() -> None:
+    """A role whose charter is rendered in a locale needs each shared prompt
+    piece rendered there too, in the role's own locale/ or in
+    identities/prompt/locale/<locale>/, or its holder reads that section in
+    English (ADR-060 §5 rule 8); brief-missing only for a role with no brief.
+    The prompt locale folder holds the shared pieces and nothing else, and
+    lint and the render name the same pieces. Kills: dropping the coverage
+    rule, the brief skip, or the stray-file rule; a piece added to one list."""
+    import launch_prompt
+    from fabric_lint_rules import locales
+    assert locales.SHARED_PIECES == launch_prompt.SHARED_PIECES, (locales.SHARED_PIECES, launch_prompt.SHARED_PIECES)
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        write(ident(fabric, "locale", "zz", "charter.md"), _translation(_digest_of_body(ident(fabric, "charter.md"))))
+        code, out = run_lint(fabric)
+        for piece in ("header", "team", "memory", "brief-missing"):
+            assert f"locale/zz/charter.md: no zz rendering of {piece}.md" in out, (piece, out)
+        write(ident(fabric, "brief.md"), CHARTER.replace("class: charter", "class: brief"))
+        code, out = run_lint(fabric)
+        assert "no zz rendering of brief-missing.md" not in out and "no zz rendering of team.md" in out, out
+        prompt = os.path.join(fabric, "identities", "prompt", "locale")
+        shutil.copytree(os.path.join(prompt, "ge"), os.path.join(prompt, "zz"))
+        code, out = run_lint(fabric)
+        assert "no zz rendering" not in out, f"the shared zz pieces were not counted:\n{out}"
+        write(os.path.join(prompt, "zz", "notes.md"), "stray\n")
+        code, out = run_lint(fabric)
+        assert code != 0 and "identities/prompt/locale/zz/notes.md: not a shared prompt piece" in out, out
+
+
 def case_translation_lag_is_reported() -> None:
     """The English charter moves, the translation keeps the old digest:
     named as a warning, never silently served as current — and never a
@@ -2516,6 +2545,7 @@ def main() -> int:
         case_domain_bound_by_an_unseen_project_is_not_judged,
         case_locale_translation_is_a_charter_with_a_digest,
         case_translation_lag_is_reported,
+        case_a_locale_charter_needs_every_shared_piece_in_that_locale,
         case_locale_brief_translates_like_the_charter,
         case_locale_worker_shape_and_hygiene,
         case_protected_tokens_must_match,

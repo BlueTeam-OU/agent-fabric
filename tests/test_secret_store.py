@@ -883,6 +883,55 @@ def main() -> int:
             check("N2: the retry pushes what the failed push left behind", p.returncode == 0
                   and "env/RETRIED.gpg" in remote_names(), p.stdout + p.stderr)
 
+            # j56: a base left on an unpushed commit that the next write's rebase
+            # rewrites. The push is refused (the commit stays local), the owner's
+            # trust-base records that head, the parent pushes on the remote, and
+            # the agent's next write rebases onto it: the base must follow.
+            cstore = child["AGENT_FABRIC_SECRET_STORE"]
+            cgit = lambda *a: subprocess.run(["git", "-C", cstore, *a], env=child, capture_output=True, text=True)
+            on_head = lambda: cgit("merge-base", "--is-ancestor", cgit("config", "--local", "agent-fabric.trustedbase").stdout.strip(),
+                                   "HEAD").returncode == 0
+            with open(hook, "w") as fh:
+                fh.write("#!/bin/sh\nexit 1\n")
+            os.chmod(hook, 0o755)
+            p = run(child, "set", "ORPHAN_A", stdin="a")
+            os.remove(hook)
+            unpushed = cgit("rev-parse", "HEAD").stdout.strip()
+            p2 = run(child, "trust-base")
+            p3 = run(parent, "put", "kid", "ORPHAN_P", stdin="p")
+            check("j56 setup: a refused push leaves the base on a local commit the remote lacks",
+                  p.returncode == 1 and p2.returncode == 0 and p3.returncode == 0
+                  and cgit("config", "--local", "agent-fabric.trustedbase").stdout.strip() == unpushed
+                  and "env/ORPHAN_P.gpg" in remote_names() and "env/ORPHAN_A.gpg" not in remote_names(),
+                  p.stderr + p2.stderr + p3.stderr)
+            verified = subprocess.run(["git", "-C", remote, "rev-parse", "main"], env=child, capture_output=True, text=True).stdout.strip()
+            p = run(child, "set", "ORPHAN_B", stdin="b")
+            check("j56: a write that rebases the unpushed commit leaves the base on the remote's verified tip, which HEAD descends from",
+                  p.returncode == 0 and on_head()
+                  and cgit("config", "--local", "agent-fabric.trustedbase").stdout.strip() == verified,
+                  p.stderr + cgit("config", "--local", "agent-fabric.trustedbase").stdout)
+            check("…and the rebased write reached the remote", "env/ORPHAN_B.gpg" in remote_names() and "env/ORPHAN_A.gpg" in remote_names())
+            # The owner's way out of a base that is already orphaned (hand-set, or from before this fix).
+            lost = cgit("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit-tree", "-m", "orphan",
+                        cgit("rev-parse", "HEAD^{tree}").stdout.strip()).stdout.strip()
+            cgit("config", "--local", "agent-fabric.trustedbase", lost)
+            p = run(child, "trust-base")
+            check("j56: trust-base refuses an orphaned base, and says the flag", p.returncode == 1
+                  and "--replace-orphaned" in p.stderr and lost[:12] in p.stderr, p.stderr)
+            p = run(child, "trust-base", "--replace-orphaned")
+            check("…--replace-orphaned records HEAD", p.returncode == 0
+                  and cgit("config", "--local", "agent-fabric.trustedbase").stdout.strip() == cgit("rev-parse", "HEAD").stdout.strip(), p.stderr)
+            p = run(child, "trust-base", "--replace-orphaned", "HEAD~1")
+            check("…control: the flag does not let a base move back while HEAD descends from it", p.returncode == 1
+                  and "only moves forward" in p.stderr, p.stderr)
+
+            # A base already off HEAD before the write is tamper to addenda.load, not something a write repairs.
+            cgit("config", "--local", "agent-fabric.trustedbase", lost)
+            run(child, "set", "ORPHAN_C", stdin="c")
+            check("j56: …control: a base HEAD never descended from is left for the owner, not moved by a write",
+                  cgit("config", "--local", "agent-fabric.trustedbase").stdout.strip() == lost)
+            run(child, "trust-base", "--replace-orphaned")
+
             # F7: put pulls BEFORE it compares keys. Another clone pushes a
             # re-key; the parent's mirror has not pulled it yet.
             other = os.path.join(tmp, "other-clone")

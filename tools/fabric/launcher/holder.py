@@ -15,10 +15,13 @@ from dataclasses import dataclass
 from fabric_launcher.base import HERE, _load, die, helper, roots, stripped
 
 HOLDER_FILE = "launch-holder.json"
-# The exports that carry the resolved locale to every later reader of the
-# session (the prompt's locale block, the locale search server): none of them
-# opens the store.
-LOCALE_ENV = ("AGENT_FABRIC_LOCALE", "AGENT_FABRIC_TZ", "AGENT_FABRIC_SEARCH_COUNTRY")
+# What the resolved locale puts in the session's environment: TZ, which every
+# process of the session reads, and the country the locale search server reads;
+# neither reader opens the store. The tag is not exported: its one consumer
+# besides the launcher is the agent-file installer, which takes it as --locale.
+LOCALE_ENV = ("TZ", "AGENT_FABRIC_SEARCH_COUNTRY")
+# The TZ this launch set, so a restart (which re-executes with that environment) can tell it from the operator's.
+LAUNCH_TZ = "AGENT_FABRIC_LAUNCH_TZ"
 # The one definition of a valid locale tag and country: the validator the
 # install and the render already run.
 _check = _load("fabric_addenda_check", os.path.join(HERE, "addenda_check.py"))
@@ -72,10 +75,13 @@ class Locale:
     timezone: str | None
     country: str | None
 
+    @property
+    def valid_tag(self) -> str | None:
+        # A suffix that is no locale tag ("03" of python-dev-03) names no locale: not a bare number.
+        return self.tag if _check.LOCALE_RE.fullmatch(self.tag) else None
+
     def exports(self) -> dict[str, str | None]:
-        # A suffix that is no locale tag ("03" of python-dev-03) names no locale: nothing to export, not a bare number.
-        tag = self.tag if _check.LOCALE_RE.fullmatch(self.tag) else None
-        return dict(zip(LOCALE_ENV, (tag, self.timezone, self.country)))
+        return dict(zip(LOCALE_ENV, (self.timezone, self.country)))
 
 
 def _held_holder_json(state_dir: str, held: bool) -> dict | None:
@@ -130,6 +136,9 @@ def resolve_locale(fabric_root: str, suffix: str, state_dir: str, held: bool) ->
     serpapi = fallback.get("serpapi")
     country = search.get("country") if isinstance(search, dict) and "country" in search else \
         serpapi.get("gl") if isinstance(serpapi, dict) else None
+    if isinstance(timezone, str) and timezone and not _check._is_iana(timezone):
+        # Unlike a name nothing read, TZ sets the clock of every process of the session, and an unknown name is read as UTC without a word.
+        die(f"the holder's timezone {timezone!r} is no IANA timezone name; the launch stops.")
     return Locale(tag, timezone if isinstance(timezone, str) and timezone else None,
                   country if isinstance(country, str) and country else None)
 

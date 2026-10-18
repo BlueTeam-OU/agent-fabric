@@ -96,7 +96,14 @@ a handful of times a day.
    the parent's mirror at `seed-child`, the child's store at its first
    `take-bundle` while the agent is not yet on main's lineage. A store
    with no base refuses every verified operation and names the command.
-   The base only ever moves forward, to a verified commit.
+   The base only ever moves forward, to a verified commit, with two
+   exceptions, each to a commit HEAD descends from: a write whose rebase
+   of the store's unpushed commits onto the verified remote tip would
+   orphan a base HEAD descended from moves it back to the commit the two
+   still share, or to that tip when they share none, which trusts less,
+   never more; and the owner, after checking HEAD against the remote,
+   replaces a base HEAD does not descend from with `trust-base
+   --replace-orphaned`, which refuses any other base (A 2026-10-18).
 5. A refusal is a security event. `fabric-secrets status` and
    `fabric-ctl <login> keys` say it until the store is repaired, and the
    repair is the parent's or the owner's. A commit that verification
@@ -151,3 +158,4 @@ The body above reads current; each change's full note is in [history/ADR-042-ame
 | 2026-10-04 | Where writers are read; how a base is set | §5 rules 2 and 4: writers from origin/main, never the working tree; the base explicit, by a once-only migration or at first contact through the enrolment bundle |
 | 2026-10-07 | A commit verification could not judge is a stop, not a refusal | §5 rule 5: no [GNUPG:] status, the store format's signature header with PGP SIGNATURE armour: stop, nothing applied, nothing recorded; every other unverified commit refused as before |
 | 2026-10-17 | Holder addenda (ADR-060) | §5 rule 2: for settings/roles/, the parent alone, checked at launch by signer; what renders is that commit's tree |
+| 2026-10-18 | A base a rebase orphaned | §5 rule 4: a write's rebase moves a base HEAD descended from back to the commit they share; the owner replaces an orphaned base with `trust-base --replace-orphaned` |

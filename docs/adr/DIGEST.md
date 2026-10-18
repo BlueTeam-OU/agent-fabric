@@ -951,6 +951,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   enrolment bundle; a store with no base refuses (§5 rules 2, 4).
 - A 2026-10-07 — a commit gpg could not judge stops, unrecorded (§5 rule 5).
 - A 2026-10-17 — `settings/roles/` is the parent's alone, checked at launch (§5 rule 2, ADR-060).
+- A 2026-10-18 — a base a rebase orphaned moves back; `--replace-orphaned` (§5 rule 4).
 - Keywords: store, signing, signature, verify, forged entry, lineage,
   pass, bundle, take-bundle, writer, trust-base, trusted base.
 
@@ -1280,8 +1281,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - The launcher reads only the bound role's directory, from the store's
   committed HEAD, never `env/`; it refuses a wrong `.agent-id` or a HEAD
   off the trusted base (§5 rule 2).
-- Only the parent installs, in one signed commit naming author, review
-  passes and the owner's approval; any other signer refuses; what renders is that commit's tree (§5 rule 3).
+- Only the parent installs, in one signed commit naming author, passes
+  and approval; any other signer refuses; its tree renders (§5 rule 3).
 - Order: charter, its addendum, brief, its addendum; none gives today's
   bytes, except where rule 8 moves locale pieces; an addendum narrows, never repeals, at most 4 000 characters,
   with `against_digest` (§5 rules 4-6).
@@ -1293,6 +1294,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   English gloss (§5 rules 8-9).
 - A 2026-10-17 — accepted; an install's record is its signed commit's
   tree; §8 says which amendments land with which stage.
-- A 2026-10-18 — no ADR-057 amendment (§8); `lang: ka` is reviewed by the `ka-GE` locale's holder (§5 rule 6).
+- A 2026-10-18 — no ADR-057 change (§8); `lang: ka`'s reviewer holds `ka-GE` (§5 rule 6).
+- A 2026-10-18 — rule 3 judged over the whole history; a merge can be the change.
 - Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
   holder.json, locale, parent-signed, holders_specialize.
