@@ -454,7 +454,7 @@ def main() -> int:
             right = [f"language-culture-ge pass-1 {sha(ka)}", f"language-culture-ge pass-2 {sha(ka_gloss)}",
                      f"language-culture-ge pass-1 {sha(brief_ka)}", f"language-culture-ge pass-2 {sha(brief_gloss)}"]
             for label, lines in (("both passes over the charter only", right[:2]),
-                                 ("the brief's passes over the charter's files", right[:2] + [right[0].replace(sha(ka), sha(ka)), f"language-culture-ge pass-2 {sha(ka)}"]),
+                                 ("no pass over the brief or its gloss, the charter's files named again", right[:2] + [f"language-culture-ge pass-2 {sha(ka)}"]),
                                  ("an extra pass over no installed file", right + ["language-culture-ge pass-2 " + "b" * 64]),
                                  ("an English file's digest standing for the text", [right[0], right[1], f"language-culture-ge pass-1 {sha(ka_gloss)}",
                                                                                         f"language-culture-ge pass-2 {sha(ka_gloss)}"])):
