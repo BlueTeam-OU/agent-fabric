@@ -306,6 +306,20 @@ def main() -> int:
         check("…and the reason is said: this clone's origin is not testorg/testrepo",
               "this clone's origin is not testorg/testrepo on github.com" in out and "git fetch origin failed" not in out, out)
 
+        # An alias origin names the repository only once url.<x>.insteadOf resolves it, as gh.this_repo reads it;
+        # the configured URL alone read "not testorg/testrepo" (review on #300, round 2). Asked in-process: the
+        # alias resolves to github.com itself, which a gate run would fetch from.
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        from github import landed
+        alias = f"{sandbox}/alias"
+        subprocess.run(["git", "init", "-q", alias], env=git_env(base_env), check=True, timeout=30)
+        git("remote", "add", "origin", "gh:testorg/testrepo", cwd=alias)
+        git("config", "url.git@github.com:.insteadOf", "gh:", cwd=alias)
+        check("landed.origin_is: an alias origin (gh:testorg/testrepo) is testorg/testrepo, resolved through insteadOf",
+              landed.origin_is("testorg/testrepo", alias) and not landed.origin_is("testorg/fork", alias))
+        check("…and the routed GitHub URL of this clone still is, as configured",
+              landed.origin_is("testorg/testrepo", repo))
+
         print("pr-gate --in-flight / --overlap: every branch on origin, PR or not; what shares its paths")
         # A job waiting for a merge: pushed, no PR, sharing f.txt with the PR
         # branch.
@@ -387,6 +401,15 @@ def main() -> int:
         drop("prlist_fail")
         check("gh unable to list PRs: every row reads 'PR unavailable', never 'no PR'; exit 2",
               rc == 2 and "PR unavailable" in out and "  no PR  " not in out, f"rc={rc}\n{out}")
+        # The branches are the clone's origin's: from another repository's clone they would be listed as
+        # testorg/testrepo's, mostly as "no PR" (review on #300, round 2).
+        git("remote", "set-url", "origin", fork_url)
+        rcs = [run(*a) for a in (("--in-flight",), ("--overlap", "42"), ("--in-flight", "--json"))]
+        git("remote", "set-url", "origin", gh_url)
+        check("a fork's clone: --in-flight and --overlap refuse, exit 2, naming the clone, with no row",
+              all(rc == 2 and "this clone's origin is not testorg/testrepo on github.com" in out
+                  and "feat/parked" not in out and "in flight on" not in out for rc, out in rcs),
+              "\n".join(f"rc={rc}\n{out}" for rc, out in rcs))
         route(f"{sandbox}/nowhere.git")
         rc, out = run("--in-flight", "--json")
         route(origin)
