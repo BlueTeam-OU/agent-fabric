@@ -751,8 +751,10 @@ def main() -> int:
             "a '..' part outside the root": (base + [("other/../escape", "f", b"x", 0o644)], "'..'"),
             "a symlink to an absolute path": (base + [(f"{ROOTD}/lib/abs", "s", "/etc/passwd", 0o777)], "absolute path"),
             "a symlink out of the root": (base + [(f"{ROOTD}/lib/out", "s", "../../../etc", 0o777)], "leaves the tree"),
-            "a symlink that reaches out through another link": (base + [(f"{ROOTD}/lib/dot", "s", ".", 0o777),
-                                                                         (f"{ROOTD}/lib/up", "s", "dot/../../..", 0o777)], "leaves the tree"),
+            # Each target alone looks inside the tree (x/a -> .. is the root; l -> x/a/../.. is the root lexically);
+            # only resolving l through x/a, which is a link, reaches the root's parent.
+            "a symlink that reaches out through another link": (base + [(f"{ROOTD}/x", "d", "", 0o755), (f"{ROOTD}/x/a", "s", "..", 0o777),
+                                                                         (f"{ROOTD}/l", "s", "x/a/../..", 0o777)], "l is a link that leaves"),
             "a file written through a link": (base + [(f"{ROOTD}/lib/via", "s", "deep", 0o777),
                                                       (f"{ROOTD}/lib/via/b.txt", "f", b"x", 0o644)], "passes through a link"),
             "a hard link": (base + [(f"{ROOTD}/lib/hard", "h", f"{ROOTD}/faketool", 0o755)], "neither a file"),

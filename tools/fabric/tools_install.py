@@ -214,7 +214,7 @@ def is_tree(pin: dict) -> bool:
 
 
 def check_tree(pin: dict) -> str | None:
-    """Why a tree pin (root, members, entrypoint) cannot be acted on, or None."""
+    """Why a tree pin (root, entrypoint, and members or whole) cannot be acted on, or None."""
     missing = sorted({"root", "entrypoint"} - set(pin))
     if missing:
         return f"the install pin's tree has no {', '.join(missing)}"
@@ -340,7 +340,8 @@ def tree_dir(home: str, tool: str, version: str) -> str:
 
 
 def tree_in_place(home: str, tool: str, pin: dict) -> bool:
-    """~/.local/bin/<tool> resolves to the pinned tree's entrypoint, and every member is a file there."""
+    """~/.local/bin/<tool> resolves to the pinned tree's entrypoint, and every member is a file there
+    (a whole tree has no list: its entrypoint being a file there is all that is checked)."""
     tree = tree_dir(home, tool, pin["version"])
     link = os.path.join(home, ".local", "bin", tool)
     if os.path.realpath(link) != os.path.realpath(os.path.join(tree, pin["entrypoint"])):
