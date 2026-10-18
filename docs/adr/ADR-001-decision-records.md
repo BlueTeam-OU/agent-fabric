@@ -94,7 +94,9 @@ check, and nothing making ratification visible.
 4. An amendment is the triple of §2, in one commit series, with the
    rationale in the commit body. A commit that edits an ADR's body without
    an Amendments row carries an `ADR-Editorial: <why>` trailer (a typo, a
-   renumbered citation); `adr.py range-check` refuses anything else in CI.
+   renumbered citation); `adr.py range-check` refuses anything else in CI,
+   and `adr.py staged-check`, run by the `commit-msg` hook in agent-fabric
+   and its clones, refuses it in the commit being made.
 5. `index.json` and the README index table are never edited by hand;
    `tools/fabric/adr.py index --write` regenerates them, and a stale copy
    fails `adr.py check`.
@@ -155,7 +157,7 @@ Accepted: the owner armed the pull request that introduces it
 
 ## References
 
-- `tools/fabric/adr.py` — check, index, new, amend, lookup, range-check.
+- `tools/fabric/adr.py` — check, index, new, amend, lookup, range-check, staged-check.
 - `tests/test_adr.py`; `fabric-adr range-check` (`bin/fabric-adr`), which replaces `policies/check_adr_amendment.sh`.
 - gzapp's ADR-075 (documentation history model) and its
   `tools/validate_adr_index/`, the engine this one follows.
@@ -172,3 +174,4 @@ The body above reads current; each change's full note is in [history/ADR-001-ame
 | 2026-09-27 | A record reads current | §5 rule 11 added: no date in §2–§8, §1 may date an incident; rule 10 loses its dated example; §8 undated |
 | 2026-09-29 | The DIGEST is looked up, never read whole, and each entry has a word budget | §2: `fabric-adr lookup`; a 250-word entry budget in `adr.py check` |
 | 2026-10-09 | An exception to a direction covers what exists | §5 rule 12 added: a carve-out keeps the past as it is; new work follows the direction unless the exception admits it in words |
+| 2026-10-18 | The amendment rule is checked at commit time too | §5 rule 4: `adr.py staged-check`, run by the `commit-msg` hook, refuses an unrecorded body edit in the commit being made, beside CI's `range-check` |

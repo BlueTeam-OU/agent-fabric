@@ -253,6 +253,66 @@ class Trailer(Hook):
         self.assertEqual(after, "subject without a kind", "nothing is written to a refused message")
 
 
+class DecisionRecordBodyEdit(unittest.TestCase):
+    """The commit-time leg of the amendment guard (job j261): tools/fabric/adr.py staged-check, run by the repository's own copy.
+    Mutations each case fails on: the staged-check call removed (refused); the MERGE_HEAD test dropped (a merge); the repository's
+    own adr.py replaced by the fabric's (a project's records)."""
+    RECORD = "docs/adr/ADR-001-a-rule.md"
+    TEXT = ("# ADR-001 — A rule\n\n**Status:** Accepted\n\n## 1. Context\n\nThe old text.\n\n"
+            "## Amendments\n\n| Date | Amendment | Effect |\n|---|---|---|\n")
+
+    def setUp(self):
+        self.fabric = Fabric(owner_role="fabric-coordinator")
+        self.addCleanup(self.fabric.cleanup)
+        self.fabric.bind("fabric-coordinator")
+        self.repo = self.fabric.itself(files={self.RECORD: self.TEXT, "src/a.txt": "code\n"})
+        self.n = 0
+
+    def run_hook(self, text, repo=None):
+        self.n += 1
+        path = os.path.join(self.fabric.root, f"MSG{self.n}")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return self.fabric.hook("commit-msg", repo or self.repo, path)
+
+    def edit(self, repo=None, row=""):
+        repo = repo or self.repo
+        repo.write(self.RECORD, self.TEXT.replace("The old text.", "The new text.") + row)
+        repo.git("add", "-A")
+
+    def test_an_unrecorded_body_edit_is_refused_naming_the_record(self):
+        self.edit()
+        r = self.run_hook("reword" + KIND)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn(f"adr staged-check: this commit: edits the body of {self.RECORD}", r.stderr)
+
+    def test_the_editorial_trailer_or_a_new_amendments_row_records_it(self):
+        self.edit()
+        self.assertEqual(self.run_hook("reword\n\nADR-Editorial: a word, nothing decided\nKind: work").returncode, 0)
+        self.edit(row="| 2026-10-18 | a rule moved | §1 says the new text |\n")
+        r = self.run_hook("amend ADR-001" + KIND)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_project_without_the_fabrics_adr_tool_keeps_its_own_rules(self):
+        project = self.fabric.project(files={self.RECORD: self.TEXT})
+        self.edit(repo=project)
+        r = self.run_hook("reword" + KIND, repo=project)
+        self.assertNotIn("adr staged-check", r.stderr)
+
+    def test_a_merge_is_not_judged_again(self):
+        off = ("-c", "core.hooksPath=/dev/null")
+        self.repo.git("checkout", "-q", "-b", "side")
+        self.edit()
+        self.repo.git(*off, "commit", "-qm", "reword\n\nADR-Editorial: a word\nKind: work")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.write("src/a.txt", "more\n", append=True)
+        self.repo.git("add", "-A")
+        self.repo.git(*off, "commit", "-qm", "main moves\n\nKind: work")
+        self.repo.git(*off, "merge", "-q", "--no-ff", "--no-commit", "side")
+        r = self.run_hook("Merge branch 'side'" + KIND)
+        self.assertNotIn("adr staged-check", r.stderr)
+
+
 class Carveouts(unittest.TestCase):
     def setUp(self):
         self.contributors = [{"role": "python-dev", "paths": ["tools/"], "excluding": ["tools/fabric/guards/"]}]

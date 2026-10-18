@@ -107,6 +107,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   each entry is at most 250 words (§2).
 - A 2026-10-09 — an exception keeps the past; new work follows the
   direction unless the exception admits it in words (§5 rule 12).
+- A 2026-10-18 — also checked at commit time (§5 rule 4).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)
