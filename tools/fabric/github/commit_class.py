@@ -110,11 +110,11 @@ def known_repos(registry: str | None = None) -> set[str]:
 def own_names(here: str, registry: str | None = None) -> set[str]:
     """The words that name <owner/repo> itself, lower-cased: its own name,
     and the id and every remote's name of each project whose remotes
-    include it. A project is one repository under all its names — herdr's
-    remotes are agent-fabric-fleetdeck and the agent-fabric-herdr it was
-    renamed from — so "herdr#44" on a fleetdeck PR is that PR's own review;
-    read as another repository's it counted three review fixes as work on
-    fleetdeck#44 (REQUEST 01a150de)."""
+    include it. A project is one repository under all its names — its id,
+    its current name and the name it was renamed from — so "<id>#44" on a
+    PR of a repository renamed away from the id is that PR's own review;
+    read as another repository's it counted three review fixes as work
+    (REQUEST 01a150de)."""
     here = here.lower()
     names = {here.rsplit("/", 1)[-1]}
     for pid, remotes in _projects(registry).items():
@@ -136,8 +136,8 @@ def _ref(ref: str, here: str, registry: str | None = None) -> str:
     if m:
         # "repo#N" or "repo #N": another repository only when the fabric
         # registers the word and not as one of this repository's own names
-        # ("PR#53" is this repository's #53, and so is "herdr#53" on
-        # fleetdeck). An unreadable registry names none, so the number is
+        # ("PR#53" is this repository's #53, and so is "<its project id>#53").
+        # An unreadable registry names none, so the number is
         # compared — a miscount at worst, never a refusal.
         word = m.group(1).lower()
         return "x" if word not in own_names(here, registry) and word in known_repos(registry) else n
