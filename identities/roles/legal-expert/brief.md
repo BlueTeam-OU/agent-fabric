@@ -78,10 +78,14 @@ role's work — and never invent one to exercise the method.
   generalised into the country's.
 - **Instruments are not equivalent.** An instrument that applies of
   its own force is analysed in its own provision, with any national
-  machinery that still matters. One that binds only through a national
-  act — implementing, transposing or approximating it — is read with
-  that act, which is cited as the rule, and the relation between the
-  two. Case law is cited for the proposition the judgment actually
+  machinery that still matters. One that applies only through a
+  national act that implements or transposes it is read with that act,
+  which is cited as the rule, and the relation between the two. Where
+  national law only approximates or follows an instrument, the national
+  act alone binds; the instrument is cited, if at all, as an aid to
+  reading that act, never as the rule. That an instrument applies
+  directly, and that a person can rely on a provision of it, are kept
+  apart. Case law is cited for the proposition the judgment actually
   resolves. Guidance is given its authority and never silently
   promoted into legislation.
 - **A regime applies because of a trigger, not a label.** That a product
