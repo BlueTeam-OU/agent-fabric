@@ -8,11 +8,13 @@ whose contract is kept:
                           last fallback there is, and a test pointing the
                           root at a fixture names where the roles live, not
                           where the tools ship
-  an active locale        identities/roles/<role>/locale/<suffix>/<tag>.json
-                          under the fabric root, reached by the LOGIN's
-                          suffix (language-culture-ge -> ge) under the bound
-                          role, its tag read from that directory's
-                          locale.json — `ge` is Georgian, not German
+  an active locale        identities/roles/<role>/locale/<locale>/<tag>.json
+                          under the fabric root, reached by the locale the
+                          launcher resolved for the login (launch_locale.py;
+                          holder.json's, "en" with none or no launch record,
+                          never the login's suffix) under the bound role,
+                          its tag read from that directory's locale.json —
+                          `ge` is Georgian, not German
   GZCOORD_DEFAULT_LOCALE_ONLY
                           exactly "1" pins the ambient resolution to the
                           default locale (any other value is off); said once
@@ -44,6 +46,7 @@ from typing import Any, Callable
 
 from . import paths
 import roots  # noqa: E402
+import launch_locale  # noqa: E402 — tools/fabric/, on the path through paths
 from .jsvalues import string as js_string
 
 DEFAULT_LOCALE = "en-US"
@@ -89,12 +92,6 @@ def _reason(e: BaseException) -> str:
     return e.strerror if isinstance(e, OSError) and e.strerror else str(e)
 
 
-def suffix(agent: str) -> str:
-    """What follows the login's last dash (language-culture-ge -> ge);
-    tools/fabric/launch_prompt.py::_suffix."""
-    return agent[agent.rindex("-") + 1:] if "-" in agent else agent
-
-
 def locale_tag(directory: str) -> str | None:
     """The locale's BCP-47 tag from its locale.json; None when absent or
     unreadable."""
@@ -116,7 +113,7 @@ def _pinned(env: dict) -> bool:
 
 
 def _locale_dir(me: dict, root: str) -> str:
-    return roots.locale_dir(me["role"], suffix(me["agent"]), root=root)
+    return roots.locale_dir(me["role"], launch_locale.read(me["agent"]), root=root)
 
 
 # A suppressed locale is visible to its reader: a holder served English, and

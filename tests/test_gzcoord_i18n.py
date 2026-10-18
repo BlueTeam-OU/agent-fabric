@@ -26,6 +26,7 @@ from typing import Any, Callable
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from gzcoord import gzmsg, i18n, inbox  # noqa: E402
+import launch_locale  # noqa: E402
 
 MODULES = os.path.join(HERE, "tools", "fabric", "gzcoord")
 FABRIC = HERE
@@ -65,6 +66,23 @@ def scratch(prefix: str) -> str:
     return d
 
 
+# The locale a login reads is the one the launcher recorded in ITS state directory (launch_locale.py), found through
+# the process environment; the suite's own state directory keeps the real account's out of every case.
+STATE = scratch("state-")
+os.environ["AGENT_FABRIC_STATE_DIR"] = STATE
+
+
+def launched(agent: str, tag: str | None, state: str | None = None) -> None:
+    """What the launcher leaves for `agent`; tag None leaves nothing (a login it never started)."""
+    d = os.path.join(STATE if state is None else state, "agents", agent)
+    os.makedirs(d, exist_ok=True)
+    if tag is None:
+        if os.path.exists(os.path.join(d, launch_locale.FILE)):
+            os.unlink(os.path.join(d, launch_locale.FILE))
+    else:
+        launch_locale.record(d, tag)
+
+
 @case("the default dictionary is the house i18n shape: dotted slugs, non-empty strings")
 def _():
     en = i18n.default_dictionary()
@@ -75,12 +93,37 @@ def _():
         ok(v != "", f"value of {k}")
 
 
-@case("the locale a login reads is the launcher's rule: what follows the last dash")
+@case("the locale a login reads is the one the launcher recorded, never its suffix")
 def _():
-    eq(i18n.suffix("language-culture-ge"), "ge")
-    eq(i18n.suffix("language-culture-ru"), "ru")
-    eq(i18n.suffix("brand-comms-01"), "01")   # no locale/01: the default
-    eq(i18n.suffix("user"), "user")
+    root, d, me = active("{}")
+    eq(i18n.dictionary_path(me, root, {}), os.path.join(d, "ka-GE.json"))
+    # Mutation caught: reinstating the suffix (language-culture-ge -> locale/ge) turns the next three red.
+    launched("language-culture-ge", None)
+    eq(i18n.dictionary_path(me, root, {}), None, "a -ge login the launcher never started: English")
+    eq(i18n.locale_reminder(me, root, {}), "", "…and no reminder")
+    launched("language-culture-ge", "en")
+    eq(i18n.dictionary_path(me, root, {}), None, "holder.json-less launch records en: English")
+    renamed = {"agent": "renamed-holder", "role": "language-culture"}
+    launched("renamed-holder", "ge")
+    eq(i18n.dictionary_path(renamed, root, {}), os.path.join(d, "ka-GE.json"), "a login with no suffix still gets ge")
+    launched("language-culture-ge", "ge")
+
+
+@case("a launch record that is unusable reads as English and says so; a tag that is no tag is never a path")
+def _():
+    root, _d, _me = active("{}")
+    me = {"agent": "language-culture-ge", "role": "language-culture"}
+    path = os.path.join(STATE, "agents", me["agent"], launch_locale.FILE)
+    for body in ("{ not json", '{"locale": "../x"}', '{"locale": 3}', "[]"):
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import launch_locale; "
+                            "print(launch_locale.read('language-culture-ge'))", os.path.join(HERE, "tools", "fabric")],
+                           env={"AGENT_FABRIC_STATE_DIR": STATE, "PATH": os.environ.get("PATH", "")},
+                           capture_output=True, text=True, check=False, timeout=30)
+        eq(r.stdout.strip(), "en", body)
+        ok("launch-locale:" in r.stderr, f"{body}: {r.stderr!r}")
+    launched("language-culture-ge", "ge")
 
 
 def locale_root() -> str:
@@ -88,6 +131,8 @@ def locale_root() -> str:
     live ones read: a tag, and the owner's reminder in the locale (instance
     data, so a copy of the shape: the cases below read this, not the checkout's)."""
     root = scratch("locales-")
+    for s in ("ge", "ru"):
+        launched(f"language-culture-{s}", s)
     for s, tag, reminder in (("ge", "ka-GE", " - იფიქრე ქართულად"), ("ru", "ru-RU", " - Думай по-русски")):
         d = os.path.join(root, "identities", "roles", "language-culture", "locale", s)
         os.makedirs(d)
@@ -172,6 +217,7 @@ def active(body: str | None, tag: str = "ka-GE", locale: dict | None | bool = Tr
     root = scratch("locale-")
     d = os.path.join(root, "identities", "roles", "language-culture", "locale", "ge")
     os.makedirs(d)
+    launched("language-culture-ge", "ge")
     if locale is True:
         locale = {"tag": tag}
     if locale:
@@ -364,8 +410,9 @@ def live_locale() -> tuple[str, dict]:
     through the BINDING (CI's login has none)."""
     agent = pwd.getpwuid(os.geteuid()).pw_name
     root = scratch("live-locale-")
-    d = os.path.join(root, "identities", "roles", ROLE, "locale", i18n.suffix(agent))
+    d = os.path.join(root, "identities", "roles", ROLE, "locale", "ge")
     os.makedirs(d)
+    launched(agent, "ge")
     with open(os.path.join(d, "locale.json"), "w", encoding="utf-8") as fh:
         json.dump({"tag": "xx-XX", "reminder": " - ᲛᲘᲜᲘᲨᲜᲔᲑᲐ"}, fh)
     en = i18n.default_dictionary()
@@ -432,8 +479,9 @@ def live_env(values: dict) -> tuple[str, dict, dict]:
     os.makedirs(os.path.join(state, "agents", agent))
     with open(os.path.join(state, "agents", agent, "binding.json"), "w", encoding="utf-8") as fh:
         json.dump({"role": ROLE, "project": "agent-fabric"}, fh)
-    d = os.path.join(root, "identities", "roles", ROLE, "locale", i18n.suffix(agent))
+    d = os.path.join(root, "identities", "roles", ROLE, "locale", "ge")
     os.makedirs(d)
+    launched(agent, "ge", state)
     with open(os.path.join(d, "locale.json"), "w", encoding="utf-8") as fh:
         json.dump({"tag": "xx-XX", "reminder": " - ᲛᲘᲜᲘᲨᲜᲔᲑᲐ"}, fh)
     en = i18n.default_dictionary()
@@ -454,7 +502,7 @@ def _():
 @case("a locale dictionary that cannot be read falls back to English, and says so")
 def _():
     root, me, env = live_env({})
-    with open(os.path.join(root, "identities", "roles", me["role"], "locale", i18n.suffix(me["agent"]), "xx-XX.json"), "w") as fh:
+    with open(os.path.join(root, "identities", "roles", me["role"], "locale", "ge", "xx-XX.json"), "w") as fh:
         fh.write("{ not json")
     r = replay_usage({**env, "GZCOORD_DEFAULT_LOCALE_ONLY": ""})
     eq(r.returncode, 1, r.stderr)

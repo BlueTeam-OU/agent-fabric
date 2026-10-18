@@ -28,6 +28,8 @@ OPERATOR_TZ = "AGENT_FABRIC_OPERATOR_TZ"
 # The one definition of a valid locale tag and country: the validator the
 # install and the render already run.
 _check = _load("fabric_addenda_check", os.path.join(HERE, "addenda_check.py"))
+# Where the resolved locale is left for the readers that never open the store (launch_locale.py).
+launch_locale = _load("fabric_launch_locale", os.path.join(HERE, "launch_locale.py"))
 
 
 def policy(fabric_root: str, role: str) -> str:
@@ -80,7 +82,6 @@ class Locale:
 
     @property
     def valid_tag(self) -> str | None:
-        # A suffix that is no locale tag ("03" of python-dev-03) names no locale: not a bare number.
         return self.tag if _check.LOCALE_RE.fullmatch(self.tag) else None
 
     def exports(self) -> dict[str, str | None]:
@@ -91,7 +92,7 @@ def _held_holder_json(state_dir: str, held: bool) -> dict | None:
     """holder.json as the launcher's read left it in launch-holder.json; None
     when no addenda were read or the store has no holder.json. The file is the
     launcher's own, written a moment ago: one that does not parse is a fault,
-    and a locale guessed from the suffix would hide it."""
+    and a locale guessed from anything else would hide it."""
     if not held:
         return None
     path = os.path.join(state_dir, HOLDER_FILE)
@@ -127,24 +128,25 @@ def _locale_json(fabric_root: str, tag: str) -> dict:
     return doc
 
 
-def resolve_locale(fabric_root: str, suffix: str, state_dir: str, held: bool) -> Locale:
-    """The locale the session renders and searches in (ADR-060 rule 8): holder.json's locale, the login's suffix only
-    while the holder has no holder.json; its timezone and search country from holder.json, else from the locale.json
-    of that locale (serpapi.gl is the country the search answers as). Each is None when nobody names it."""
+def resolve_locale(fabric_root: str, state_dir: str, held: bool) -> Locale:
+    """The locale the session renders and searches in (ADR-060 rule 8): holder.json's locale; "en" while the holder
+    has no holder.json, whatever the login is called. Its timezone and search country come from holder.json, else from
+    the locale.json of that locale (serpapi.gl is the country the search answers as). Each is None when nobody names
+    it; with no holder.json nobody does, and en's deployment values are not put on every login that has none."""
     data = _held_holder_json(state_dir, held)
-    tag = suffix
-    if data is not None:
-        tag = data.get("locale")
-        if not (isinstance(tag, str) and _check.LOCALE_RE.fullmatch(tag)):
-            die("holder.json names no valid locale; the launch stops.")
+    if data is None:
+        return Locale(launch_locale.DEFAULT, None, None)
+    tag = data.get("locale")
+    if not (isinstance(tag, str) and _check.LOCALE_RE.fullmatch(tag)):
+        die("holder.json names no valid locale; the launch stops.")
     fallback = _locale_json(fabric_root, tag)
-    timezone = (data or {}).get("timezone", fallback.get("timezone"))
-    search = (data or {}).get("search")
+    timezone = data.get("timezone", fallback.get("timezone"))
+    search = data.get("search")
     serpapi = fallback.get("serpapi")
     country = search.get("country") if isinstance(search, dict) and "country" in search else \
         serpapi.get("gl") if isinstance(serpapi, dict) else None
     if isinstance(timezone, str) and timezone:
-        source = "holder.json" if "timezone" in (data or {}) else _locale_path(fabric_root, tag)
+        source = "holder.json" if "timezone" in data else _locale_path(fabric_root, tag)
         try:
             known = _check._is_iana(timezone)
         except RuntimeError as e:
