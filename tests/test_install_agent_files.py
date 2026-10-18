@@ -359,6 +359,19 @@ def main() -> int:
                            env=env_for(home, cfg), check=False)
         check("login 'gz-writer-ka' takes locale ka's worker", os.path.isfile(os.path.join(cfg, "agents", "locale-worker.md")), r.stdout + r.stderr)
 
+        # --locale (the holder's holder.json, agent-fabric ADR-060 §5 rule 8) wins over the suffix.
+        root, home, cfg = fixture()
+        put(root, "runtime/role.txt", "language-culture\n")
+        put(root, "identities/roles/language-culture/locale/ka/worker.md", "---\nname: locale-worker\ndescription: (agent-fabric) ka\n---\n")
+        drv = ("import sys; sys.path.insert(0, sys.argv[1]); import install_agent_files as m; "
+               "m.login = lambda: 'gz-writer-renamed'; sys.exit(m.main(sys.argv[2:]))")
+        r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "--locale", "ka"], capture_output=True,
+                           text=True, env=env_for(home, cfg), check=False)
+        check("--locale ka installs ka's worker for a login named otherwise", os.path.isfile(os.path.join(cfg, "agents", "locale-worker.md")), r.stdout + r.stderr)
+        r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "--locale", "Not A Tag"], capture_output=True,
+                           text=True, env=env_for(home, cfg), check=False)
+        check("a --locale that is no tag is a usage error", r.returncode == 2 and "not a locale tag" in r.stderr, r.stderr)
+
         # install.py's failure is the installer's, after the class files, and prints no count line.
         root, home, cfg = fixture()
         put(root, "runtime/mcp/websearch-locale/fail", "7")

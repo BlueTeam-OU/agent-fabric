@@ -102,14 +102,20 @@ NAME = "check_agent_fabric_dir_authority"
 # policies/githooks/locale-carve-out.sh's pattern, which the hooks (bash, and
 # staying bash) source; tests/test_agent_fabric_dir_authority.py reads that
 # file and fails if the two drift.
-LOCALE_PATH = re.compile(r"identities/roles/([a-z][a-z0-9-]*)/locale/([a-z][a-z0-9-]*)/[^/]+")
+LOCALE_PATH = re.compile(r"identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
+# The shared prompt pieces' translations (identities/prompt/locale/<lang>/,
+# ADR-060 stage 3) belong to no one role: every role renders them, and the
+# holder of language-culture named for <lang> writes them, as it did when
+# they lived under its own locale directory.
+PROMPT_LOCALE_ROLE = "language-culture"
 
 WORKFLOWS = ".github/workflows/"
 
 REFUSAL = """
 agent-fabric is read-only for every role but {role} — except a
 locale's translations, identities/roles/<role>/locale/<suffix>/, which
-the holder of <role> commits declaring its own role, and a contributor
+the holder of <role> commits declaring its own role (the shared prompt
+pieces' identities/prompt/locale/<suffix>/ are language-culture's), and a contributor
 role's entry in policies/authority.json (`contributors`); in a managed
 project, .agent-fabric/ (the project's distilled knowledge) is. A commit
 there is made with that role bound (bin/fabric-role bind {role},
@@ -126,17 +132,19 @@ See agent-fabric policies/AUTHORITY.md."""
 
 def locale_carve_out_role(paths: list[str]) -> tuple[str, str] | None:
     """Do these paths fall, all of them, under one locale's translations:
-    identities/roles/<role>/locale/<suffix>/? (role, suffix) when they do;
-    None for any other path, two roles, two suffixes, a path deeper than the
-    locale directory, or no path at all."""
+    identities/roles/<role>/locale/<suffix>/, or the shared prompt pieces'
+    identities/prompt/locale/<suffix>/ (language-culture's)? (role, suffix)
+    when they do; None for any other path, two roles, two suffixes, a path
+    deeper than the locale directory, or no path at all."""
     found: tuple[str, str] | None = None
     for p in paths:
         m = LOCALE_PATH.fullmatch(p)
         if not m:
             return None
+        here = (m.group(2) or PROMPT_LOCALE_ROLE, m.group(3))
         if found is None:
-            found = (m.group(1), m.group(2))
-        elif found != (m.group(1), m.group(2)):
+            found = here
+        elif found != here:
             return None
     return found
 
@@ -304,7 +312,7 @@ def run(env: dict[str, str]) -> int:
         locale = locale_carve_out_role(touched)
         if locale and declared == locale[0]:
             say(f"check_agent_fabric_dir_authority: {log1(top, c, '%h')} changes only "
-                f"identities/roles/{locale[0]}/locale/{locale[1]}/, declaring Fabric-Role: {locale[0]} "
+                f"{locale[0]}'s locale/{locale[1]}/ translations, declaring Fabric-Role: {locale[0]} "
                 "— the locale carve-out.")
             continue
         # The contributor carve-out (ADR-018 §5 rule 8), in agent-fabric

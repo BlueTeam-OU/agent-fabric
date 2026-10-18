@@ -185,7 +185,7 @@ class AgentFabricItself(PreCommit):
         self.repo.stage(f"{LOCALE}/ge/harness.md")
         r = self.run_hook(self.repo)
         self.assertEqual(r.returncode, 1)
-        self.assertEqual(r.stderr, "pre-commit: this commit changes only identities/roles/language-culture/locale/ge/,\n"
+        self.assertEqual(r.stderr, "pre-commit: this commit changes only language-culture's locale/ge/ translations,\n"
                                    "  which the holder of language-culture named for ge may commit — this session's\n"
                                    f"  binding holds language-culture on login {LOGIN}.\n")
 

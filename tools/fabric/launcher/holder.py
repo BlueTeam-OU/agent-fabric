@@ -2,17 +2,26 @@
 A part of tools/fabric/launch.py, whose docstring is the contract.
 
 The reading is addenda.py's, run as a helper like the identity and the
-prompt render: by path, under -I, its refusal one line on stderr. Here only
-the catalogue's policy for the role and the file the render takes."""
+prompt render: by path, under -I, its refusal one line on stderr. Here the
+catalogue's policy for the role, the file the render takes, and the holder's
+locale resolved from what was read (rule 8)."""
 from __future__ import annotations
 
 import json
 import os
 import sys
+from dataclasses import dataclass
 
-from fabric_launcher.base import HERE, die, helper, roots, stripped
+from fabric_launcher.base import HERE, _load, die, helper, roots, stripped
 
 HOLDER_FILE = "launch-holder.json"
+# The exports that carry the resolved locale to every later reader of the
+# session (the prompt's locale block, the locale search server): none of them
+# opens the store.
+LOCALE_ENV = ("AGENT_FABRIC_LOCALE", "AGENT_FABRIC_TZ", "AGENT_FABRIC_SEARCH_COUNTRY")
+# The one definition of a valid locale tag and country: the validator the
+# install and the render already run.
+_check = _load("fabric_addenda_check", os.path.join(HERE, "addenda_check.py"))
 
 
 def policy(fabric_root: str, role: str) -> str:
@@ -55,3 +64,72 @@ def read(fabric_root: str, agent: str, role: str, state_dir: str) -> tuple[str, 
     if len(answer) != 2:
         die("tools/fabric/addenda.py answered something else than a store sha and a commit.")
     return answer[0], answer[1]
+
+
+@dataclass(frozen=True)
+class Locale:
+    tag: str
+    timezone: str | None
+    country: str | None
+
+    def exports(self) -> dict[str, str | None]:
+        # A suffix that is no locale tag ("03" of python-dev-03) names no locale: nothing to export, not a bare number.
+        tag = self.tag if _check.LOCALE_RE.fullmatch(self.tag) else None
+        return dict(zip(LOCALE_ENV, (tag, self.timezone, self.country)))
+
+
+def _held_holder_json(state_dir: str, held: bool) -> dict | None:
+    """holder.json as the launcher's read left it in launch-holder.json; None
+    when no addenda were read or the store has no holder.json. The file is the
+    launcher's own, written a moment ago: one that does not parse is a fault,
+    and a locale guessed from the suffix would hide it."""
+    if not held:
+        return None
+    path = os.path.join(state_dir, HOLDER_FILE)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        value = doc["holder"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        die(f"{path} could not be read ({type(e).__name__}); the holder's locale is unknown, the launch stops.")
+    if value is not None and not isinstance(value, dict):
+        die(f"{path}: holder is not an object; the holder's locale is unknown, the launch stops.")
+    return value
+
+
+def _locale_json(fabric_root: str, tag: str) -> dict:
+    """language-culture's locale.json of the tag, or {} when the fabric authored none. Its deployment values are only
+    the fallback of a holder that names none. A file that is absent is no facts; one that is there and unusable stops
+    the launch, because dropping its timezone silently would hide it."""
+    path = os.path.join(roots.locale_dir("language-culture", tag, engine=fabric_root, environ=os.environ), "locale.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        die(f"{path} could not be read ({type(e).__name__}); the holder's timezone and search country are unknown, the launch stops.")
+    if not isinstance(doc, dict):
+        die(f"{path} is not an object; the holder's timezone and search country are unknown, the launch stops.")
+    return doc
+
+
+def resolve_locale(fabric_root: str, suffix: str, state_dir: str, held: bool) -> Locale:
+    """The locale the session renders and searches in (ADR-060 rule 8): holder.json's locale, the login's suffix only
+    while the holder has no holder.json; its timezone and search country from holder.json, else from the locale.json
+    of that locale (serpapi.gl is the country the search answers as). Each is None when nobody names it."""
+    data = _held_holder_json(state_dir, held)
+    tag = suffix
+    if data is not None:
+        tag = data.get("locale")
+        if not (isinstance(tag, str) and _check.LOCALE_RE.fullmatch(tag)):
+            die("holder.json names no valid locale; the launch stops.")
+    fallback = _locale_json(fabric_root, tag)
+    timezone = (data or {}).get("timezone", fallback.get("timezone"))
+    search = (data or {}).get("search")
+    serpapi = fallback.get("serpapi")
+    country = search.get("country") if isinstance(search, dict) and "country" in search else \
+        serpapi.get("gl") if isinstance(serpapi, dict) else None
+    return Locale(tag, timezone if isinstance(timezone, str) and timezone else None,
+                  country if isinstance(country, str) and country else None)
+

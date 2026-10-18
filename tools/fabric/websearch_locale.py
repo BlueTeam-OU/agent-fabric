@@ -9,7 +9,7 @@ Node was deleted.
 WHY. Claude Code's own WebSearch takes a query and two domain lists and is US-only; Anthropic's `user_location` is on
 the Messages API and the harness does not expose it. So a language-culture holder, who must search as a reader of its
 locale would, gets this server: one tool per engine the locale file configures
-(identities/roles/language-culture/locale/<suffix>/locale.json, kept by the CEO: "keep both engines"):
+(identities/roles/language-culture/locale/<locale>/locale.json, kept by the CEO: "keep both engines"):
 
   web_search         the engines in order, SerpAPI (Google's results, with `gl`, `hl` and where the file names them
                      `google_domain` and `lr` fixed from the file), then Brave when SerpAPI refused — its 250 a month
@@ -22,7 +22,11 @@ locale would, gets this server: one tool per engine the locale file configures
                      search_lang / ui_lang only where the file names them). Secret BRAVE_SEARCH_API_KEY, in one header.
 
 CONTRACT
-  env      WEBSEARCH_LOCALE_FILE (required: the locale file decides the country and language); HOME for the synced
+  env      WEBSEARCH_LOCALE_FILE (required: the locale file decides the language and, unless the next says otherwise,
+           the country); AGENT_FABRIC_SEARCH_COUNTRY, which the launcher exports from the holder (ADR-060 rule 8: the
+           deployment's country is the holder's, not the language's), replaces SerpAPI's `gl` when set; two lowercase
+           letters or the server refuses to start, never a quiet fallback to the file's. Empty or unset: the file's.
+           The store is never opened here. HOME for the synced
            secrets file (~/.config/agent-fabric/secrets.env, `export NAME=<shell word>`, first match wins), then the
            environment of the same name. Read at each call, never at start: a sync lands without a restart.
   stdin    newline-delimited JSON-RPC 2.0: initialize (the client's protocolVersion echoed, 2024-11-05 if none),
@@ -91,8 +95,9 @@ def _configured(locale: Mapping[str, Any], engine: str) -> bool:
     return block is not None and block is not False and block != 0 and block != ""
 
 
-def read_locale(file: str | None = None) -> dict[str, Any]:
-    file = os.environ.get("WEBSEARCH_LOCALE_FILE") if file is None else file
+def read_locale(file: str | None = None, environ: Mapping[str, str] | None = None) -> dict[str, Any]:
+    environ = os.environ if environ is None else environ
+    file = environ.get("WEBSEARCH_LOCALE_FILE") if file is None else file
     if not file:
         raise LocaleError("WEBSEARCH_LOCALE_FILE is not set: the locale file decides the country and language")
     try:
@@ -110,6 +115,13 @@ def read_locale(file: str | None = None) -> dict[str, Any]:
         for k in REQUIRED[e]:
             if not isinstance(block, dict) or not isinstance(block.get(k), str) or not block[k]:
                 raise LocaleError(f"locale file {file}: {e}.{k} missing")
+    country = environ.get("AGENT_FABRIC_SEARCH_COUNTRY")
+    if country:
+        # The same shape holder.json is held to (addenda_check.COUNTRY_RE); this server loads nothing of the fabric's.
+        if not re.fullmatch(r"[a-z]{2}", country):
+            raise LocaleError("AGENT_FABRIC_SEARCH_COUNTRY is not two lowercase letters")
+        if "serpapi" in engines:
+            locale["serpapi"] = {**locale["serpapi"], "gl": country}
     return locale
 
 

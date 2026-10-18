@@ -102,10 +102,12 @@ INCLUDE_RES = (
 # Every "](" opens a destination, wherever its link text began: deriving the destination from the text needed a pattern
 # in which a bracket could belong to two parts (exponential backtracking on a run of "[[]") or one that stopped at an
 # inner "[" and missed a file link nested in another link's text. The lookahead matches at each "](" on its own, so
-# captures overlap, the cost is linear, and an unclosed destination cannot swallow the link after it. A reference
+# captures overlap, and an unclosed destination cannot swallow the link after it. The destination stops at "]" as well
+# as at ")": a destination that could run on through a run of "](" would be rescanned from each of them (quadratic);
+# with the stop each position costs a constant and the whole is linear. A reference
 # definition's destination may start on the next line, and a footnote label ([^1]) is no link. Autolinks and raw
 # HTML href/src are links too.
-LINK_RE = re.compile(r"(?=\]\(\s*<?([^)\s>]*))")
+LINK_RE = re.compile(r"(?=\]\(\s*<?([^)\s>\]]*))")
 REF_DEF_RE = re.compile(r"^[ \t]{0,3}\[(?!\^)[^\]\n]+\]:\s*<?(\S+)", re.M)
 AUTOLINK_RE = re.compile(r"<([A-Za-z][A-Za-z0-9+.-]*:[^>\s]*|[./][^>\s]*)>")
 HTML_ATTR_RE = re.compile(r"\b(?:href|src)\s*=\s*[\"']?([^\"'\s>]*)", re.I)
@@ -154,7 +156,7 @@ def validate_set(role: str, aid: str, files: dict[str, bytes]) -> dict[str, list
         gloss = target.replace(".md", ".gloss.en.md")
         lang = _frontmatter(files[target].decode("utf-8"))[0]["lang"]
         if lang != "en" and gloss not in files:
-            out[target].append(f"{target}: lang is {lang!r}, so it needs its English gloss {gloss}")
+            out[target].append(f"{target}: lang is not en, so it needs its English gloss {gloss}")
         if lang == "en" and gloss in files:
             out[gloss].append(f"{gloss}: glosses an addendum that is already in English")
     return out
@@ -167,13 +169,13 @@ def _decode(name: str, raw: bytes) -> tuple[str | None, list[str]]:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as err:
         return None, [f"{name}: not valid UTF-8 (byte {err.start})"]
+    if len(text) > MAX_CHARS:
+        return text, [f"{name}: {len(text)} characters, the limit is {MAX_CHARS}"]   # no pattern runs over more than the cap
     findings = []
     if "\r" in text:
         findings.append(f"{name}: carriage return (LF line endings only)")
     if CONTROL_RE.search(text):
         findings.append(f"{name}: a control character, a line separator other than LF or a bidi override")
-    if len(text) > MAX_CHARS:
-        findings.append(f"{name}: {len(text)} characters, the limit is {MAX_CHARS}")
     return text, findings
 
 
@@ -208,7 +210,7 @@ def _frontmatter(text: str) -> tuple[dict[str, str], list[str]]:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
         if key in fields:
-            problems.append(f"frontmatter key {key} twice")
+            problems.append("a frontmatter key twice")
         fields[key] = value
     return fields, problems
 
@@ -222,16 +224,16 @@ def _markdown(role: str, aid: str, name: str, text: str) -> list[str]:
     if missing:
         findings.append(f"{name}: frontmatter lacks {', '.join(missing)}")
     if extra:
-        findings.append(f"{name}: frontmatter has keys outside {', '.join(sorted(keys))}: {', '.join(extra)}")
+        findings.append(f"{name}: frontmatter has {len(extra)} key(s) outside {', '.join(sorted(keys))}")
     want_class = name.split(".")[0]
     for key, want in (("class", want_class), ("role", role), ("agent_id", aid)):
         if key in fields and fields[key] != want:
-            findings.append(f"{name}: {key} is {fields[key]!r}, expected {want!r}")
+            findings.append(f"{name}: {key} is not the expected {want!r}")
     if "lang" in fields:
         if is_gloss and fields["lang"] != "en":
-            findings.append(f"{name}: lang of a gloss is en, not {fields['lang']!r}")
+            findings.append(f"{name}: lang of a gloss is en")
         elif not LOCALE_RE.fullmatch(fields["lang"]):
-            findings.append(f"{name}: lang {fields['lang']!r} is not a short lowercase language tag")
+            findings.append(f"{name}: lang is not a short lowercase language tag")
     for key in ("against_digest", "glosses_digest"):
         if key in fields and not DIGEST_RE.fullmatch(fields[key]):
             findings.append(f"{name}: {key} is not sha256:<64 lowercase hex digits>")
@@ -278,7 +280,7 @@ def _holder(name: str, text: str) -> list[str]:
     if "locale" not in data:
         findings.append(f"{name}: lacks locale")
     for key in sorted(data.keys() - HOLDER_KEYS):
-        findings.append(f"{name}: key {key!r} is not one of {', '.join(sorted(HOLDER_KEYS))}")
+        findings.append(f"{name}: a key outside {', '.join(sorted(HOLDER_KEYS))}")
     locale = data.get("locale")
     if "locale" in data and not (isinstance(locale, str) and LOCALE_RE.fullmatch(locale)):
         findings.append(f"{name}: locale is not a short lowercase tag")

@@ -70,6 +70,14 @@ def main() -> int:
     check("deeper than the locale directory", da.locale_carve_out_role([L + "d/a.md"]) is None)
     check("one foreign path spoils it", da.locale_carve_out_role([L + "a.md", "README.md"]) is None)
     check("a prefix of the path does not match", da.locale_carve_out_role(["x/" + L + "a.md"]) is None)
+    P = "identities/prompt/locale/ge/"
+    check("the shared prompt pieces' translations are language-culture's",
+          da.locale_carve_out_role([P + "team.md"]) == ("language-culture", "ge"))
+    check("…together with its own locale of the same suffix", da.locale_carve_out_role([P + "team.md", L + "a.md"])
+          == ("language-culture", "ge"))
+    check("…but not with another role's locale", da.locale_carve_out_role([P + "team.md", "identities/roles/x/locale/ge/a.md"]) is None)
+    check("…nor another suffix", da.locale_carve_out_role([P + "team.md", P.replace("/ge/", "/ru/") + "team.md"]) is None)
+    check("…nor the English pieces themselves", da.locale_carve_out_role(["identities/prompt/team.md"]) is None)
 
     print("declared_role reads the trailer as awk -F': *' did")
     def role(msg: str) -> str:

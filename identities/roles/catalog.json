@@ -77,9 +77,10 @@
     },
     {
       "id": "legal-expert",
-      "title": "Legal expert, one jurisdiction per holder (the login's suffix)",
+      "title": "Legal expert, one jurisdiction per holder (its addenda)",
       "short_title": "Legal Expert",
-      "group": "Legal"
+      "group": "Legal",
+      "holders_specialize": "required"
     },
     {
       "id": "p2p-network-dev",

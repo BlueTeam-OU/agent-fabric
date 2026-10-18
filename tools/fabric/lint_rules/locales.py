@@ -25,71 +25,128 @@ from .schema import validate_json
 
 
 def locale_translation_findings(role: str, role_path: str, template_schema: dict[str, Any] | None) -> list[str]:
-    """identities/roles/<role>/locale/<suffix>/<name>.md for every name in
-    LOCALE_TRANSLATIONS: a translation launch_prompt renders for a login
-    whose name ends in <suffix> in place of the English. The charter and
-    the brief are slices (schema, class, role); every translation names
-    its source and the source's digest, passes hygiene, keeps every
-    protected token, and fits its budget."""
+    """identities/roles/<role>/locale/<locale>/<name>.md for every name in
+    LOCALE_TRANSLATIONS: a translation launch_prompt renders for a holder
+    of that locale in place of the English. The charter and the brief are
+    slices (schema, class, role); every translation names its source and
+    the source's digest, passes hygiene, keeps every protected token, and
+    fits its budget."""
     out: list[str] = []
     base = os.path.join(role_path, LOCALE_DIRNAME)
     if not os.path.isdir(base):
         return out
-    for suffix in sorted(os.listdir(base)):
+    for locale in sorted(os.listdir(base)):
         for name, (source_rel, klass, budget_key, with_schema) in LOCALE_TRANSLATIONS.items():
-            path = os.path.join(base, suffix, f"{name}.md")
-            if not os.path.isfile(path):
-                continue
-            rel = f"identities/roles/{role}/{LOCALE_DIRNAME}/{suffix}/{name}.md"
-            source_rel = source_rel.replace("{role}", role)
-            lagging = False
-            # A role's charter and brief are the operator's, the prompt templates
-            # the engine's: fabric_path looks in the operator's tree first.
-            source = layout.fabric_path(source_rel)
-            with open(path, encoding="utf-8") as fh:
-                text = fh.read()
-            meta = parse_frontmatter(text)
-            if meta is None:
-                out.append(f"{rel}: no frontmatter — a translation carries its source and digest")
-                continue
-            if with_schema and template_schema:
-                out += validate_json(template_schema, meta, rel)
-            if meta.get("class") != klass:
-                out.append(f"{rel}: class {meta.get('class')!r}; a locale {name} is class {klass}")
-            if with_schema and meta.get("role") != role:
-                out.append(f"{rel}: role {meta.get('role')!r} but lives under {role}/")
-            of, digest = meta.get("translates"), meta.get("translates_digest")
-            if not of or not digest:
-                out.append(f"{rel}: no `translates` / `translates_digest` — which English source, and at what digest")
-            else:
-                if of != source_rel:
-                    out.append(f"{rel}: translates {of!r}, not {source_rel}")
-                if os.path.isfile(source):
-                    now = _source_digest(source)
-                    if digest != now:
-                        # Served, never a failed launch (launch_prompt.py): the
-                        # source has to land before its holder can re-render, so
-                        # a lag is a warning that names the file, not a finding
-                        # that reddens main until the holder's PR (2026-09-18).
-                        lagging = True
-                        WARNINGS.append(f"{rel}: translates {source_rel} at {digest}, but it is now {now} "
-                                        "— the translation lags; the holder re-renders it and its digest")
-            body = FRONTMATTER_RE.sub("", text)
-            out += hygiene_findings(rel, body)
-            if os.path.isfile(source):
-                if not lagging:   # tokens are judged against the source it translated, not one that moved under it
-                    with open(source, encoding="utf-8") as fh:
-                        out += protected_token_findings(rel, FRONTMATTER_RE.sub("", fh.read()), body)
-            else:
-                out.append(f"{rel}: its source {source_rel} does not exist")
-            divisor = NON_LATIN_CHARS_PER_TOKEN if _is_mostly_non_latin(body) else CHARS_PER_TOKEN
-            approx = int(len(body) / divisor)
-            cap = _locale_budget(budget_key)
-            if approx > cap:
-                out.append(f"{rel}: ~{approx} tokens (at {divisor} chars/token) exceeds the locale budget {cap} "
-                           "— a launch prompt pays every one of them")
+            path = os.path.join(base, locale, f"{name}.md")
+            if os.path.isfile(path):
+                out += _translation_findings(f"identities/roles/{role}/{LOCALE_DIRNAME}/{locale}/{name}.md", path,
+                                             source_rel.replace("{role}", role), klass, budget_key,
+                                             role if with_schema else None, template_schema)
     return out
 
+
+# The role-independent pieces, translated once per language for every role
+# (agent-fabric ADR-060 §5 rule 8); launch_prompt.SHARED_PIECES renders them.
+SHARED_PIECES = ("header", "team", "memory", "brief-missing")
+
+
+def shared_prompt_locale_findings() -> list[str]:
+    """identities/prompt/locale/<locale>/<piece>.md: the same checks as a
+    role's own translation of that piece; anything else in the folder is a
+    finding, since nothing renders it."""
+    out: list[str] = []
+    base = os.path.join(os.path.dirname(layout.prompt_template_path("header.md")), LOCALE_DIRNAME)
+    if not os.path.isdir(base):
+        return out
+    for locale in sorted(os.listdir(base)):
+        folder = os.path.join(base, locale)
+        for entry in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            name = entry[:-3] if entry.endswith(".md") else None
+            if name not in SHARED_PIECES:
+                out.append(f"identities/prompt/{LOCALE_DIRNAME}/{locale}/{entry}: not a shared prompt piece "
+                           f"({', '.join(SHARED_PIECES)}); nothing renders it")
+                continue
+            source_rel, klass, budget_key, _ = LOCALE_TRANSLATIONS[name]
+            out += _translation_findings(f"identities/prompt/{LOCALE_DIRNAME}/{locale}/{entry}", os.path.join(folder, entry),
+                                         source_rel, klass, budget_key, None, None)
+    return out
+
+
+def locale_coverage_findings(roles_root: str) -> list[str]:
+    """A holder whose locale is not English renders none of the fabric's
+    prompt in English (ADR-060 §5 rule 8): wherever a role's charter is
+    rendered in a locale, each shared piece must be rendered in it too,
+    in the role's own locale/ or in identities/prompt/locale/<locale>/."""
+    out: list[str] = []
+    shared = os.path.join(os.path.dirname(layout.prompt_template_path("header.md")), LOCALE_DIRNAME)
+    for role in sorted(os.listdir(roles_root)) if os.path.isdir(roles_root) else []:
+        base = os.path.join(roles_root, role, LOCALE_DIRNAME)
+        for locale in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+            if not os.path.isfile(os.path.join(base, locale, "charter.md")):
+                continue
+            for piece in SHARED_PIECES:
+                if piece == "brief-missing" and os.path.isfile(os.path.join(roles_root, role, "brief.md")):
+                    continue   # rendered only for a role with no brief
+                if not (os.path.isfile(os.path.join(base, locale, f"{piece}.md"))
+                        or os.path.isfile(os.path.join(shared, locale, f"{piece}.md"))):
+                    out.append(f"identities/roles/{role}/{LOCALE_DIRNAME}/{locale}/charter.md: no {locale} rendering of "
+                               f"{piece}.md (in the role's locale/ or identities/prompt/locale/{locale}/), so its "
+                               "holder reads that section in English")
+    return out
+
+
+def _translation_findings(rel: str, path: str, source_rel: str, klass: str, budget_key: str,
+                          role: str | None, template_schema: dict[str, Any] | None) -> list[str]:
+    """One translation's findings; `role` is set for a slice (charter, brief),
+    which also carries a schema and a role."""
+    out: list[str] = []
+    lagging = False
+    # A role's charter and brief are the operator's, the prompt templates
+    # the engine's: fabric_path looks in the operator's tree first.
+    source = layout.fabric_path(source_rel)
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    meta = parse_frontmatter(text)
+    if meta is None:
+        return [f"{rel}: no frontmatter — a translation carries its source and digest"]
+    if role is not None and template_schema:
+        out += validate_json(template_schema, meta, rel)
+    name = os.path.basename(path)[:-3]
+    if meta.get("class") != klass:
+        out.append(f"{rel}: class {meta.get('class')!r}; a locale {name} is class {klass}")
+    if role is not None and meta.get("role") != role:
+        out.append(f"{rel}: role {meta.get('role')!r} but lives under {role}/")
+    of, digest = meta.get("translates"), meta.get("translates_digest")
+    if not of or not digest:
+        out.append(f"{rel}: no `translates` / `translates_digest` — which English source, and at what digest")
+    else:
+        if of != source_rel:
+            out.append(f"{rel}: translates {of!r}, not {source_rel}")
+        if os.path.isfile(source):
+            now = _source_digest(source)
+            if digest != now:
+                # Served, never a failed launch (launch_prompt.py): the
+                # source has to land before its holder can re-render, so
+                # a lag is a warning that names the file, not a finding
+                # that reddens main until the holder's PR (2026-09-18).
+                lagging = True
+                WARNINGS.append(f"{rel}: translates {source_rel} at {digest}, but it is now {now} "
+                                "— the translation lags; the holder re-renders it and its digest")
+    body = FRONTMATTER_RE.sub("", text)
+    out += hygiene_findings(rel, body)
+    if os.path.isfile(source):
+        if not lagging:   # tokens are judged against the source it translated, not one that moved under it
+            with open(source, encoding="utf-8") as fh:
+                out += protected_token_findings(rel, FRONTMATTER_RE.sub("", fh.read()), body)
+    else:
+        out.append(f"{rel}: its source {source_rel} does not exist")
+    divisor = NON_LATIN_CHARS_PER_TOKEN if _is_mostly_non_latin(body) else CHARS_PER_TOKEN
+    approx = int(len(body) / divisor)
+    cap = _locale_budget(budget_key)
+    if approx > cap:
+        out.append(f"{rel}: ~{approx} tokens (at {divisor} chars/token) exceeds the locale budget {cap} "
+                   "— a launch prompt pays every one of them")
+    return out
 
 AGENT_FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 

@@ -170,7 +170,7 @@
       "status": "Accepted",
       "date": "2026-09-13",
       "pillar": "P3",
-      "amendments": 8
+      "amendments": 9
     },
     {
       "number": "019",
@@ -251,7 +251,7 @@
       "status": "Accepted",
       "date": "2026-09-17",
       "pillar": "P4",
-      "amendments": 3
+      "amendments": 4
     },
     {
       "number": "028",
@@ -548,7 +548,7 @@
       "status": "Accepted",
       "date": "2026-10-17",
       "pillar": "P1",
-      "amendments": 1
+      "amendments": 2
     }
   ]
 }

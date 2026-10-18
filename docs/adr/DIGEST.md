@@ -408,25 +408,25 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - Authority attaches to roles and policy files, never to logins or
   directories (§2).
-- agent-fabric, and `.agent-fabric/` in every project, is committed only
-  by a session bound to `fabric-coordinator`: the hooks fence it, CI
-  reads the `Fabric-Role:` trailer (§5 rules 1–4).
+- agent-fabric, and every project's `.agent-fabric/`, is committed only
+  by a session bound to `fabric-coordinator`; CI reads the
+  `Fabric-Role:` trailer (§5 rules 1–4).
 - Every commit carries its role as a trailer; a clean fold passes
   (§5 rules 2–3). A locale's holder commits its translations (§5 rule 5).
 - A contributor role (`authority.json` `contributors`) commits its
   entry's paths (§5 rule 8).
 - A guard is a hook, a CI check per added commit and a planted suite
-  case (§5 rule 6); a proposal is a message, or a
-  contributor's branch (§5 rule 7).
+  case (§5 rule 6); a proposal is a message or a branch (§5 rule 7).
 - Tripwires read the base's `authority.json` (§6).
 - A 2026-09-28 — the charter tripwire runs in CI.
 - A 2026-09-30 — the stores are this role's (References).
 - A 2026-10-01 — the contributor carve-out (§5 rules 7–8).
-- A 2026-10-01 — the fence's code is never in an entry (§5 rule 8).
+- A 2026-10-01 — the fence's code is in no entry (§5 rule 8).
 - A 2026-10-01 — CI runs main's guards (§5 rule 4).
 - A 2026-10-04 — a merge is judged on its own change (§5 rules 3–4).
-- A 2026-10-07 — an entry that `merges` opens its own PR (§5 rule 8).
+- A 2026-10-07 — an entry that `merges` opens its PR (§5 rule 8).
 - A 2026-10-08 — and may fold another's supply (§5 rule 8).
+- A 2026-10-18 — prompt/locale/ is language-culture's (§5 rule 5).
 - Keywords: Fabric-Role, pre-commit, commit-msg,
   locale carve-out, contributor, merges.
 
@@ -595,10 +595,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-027 — Language-and-culture specialists shape the work, not only translate it; the bridge (Accepted)
 
-- The role owns the words and what a market's culture changes, stated so
-  the surface's owner decides; it says when a language cannot carry a
-  meaning; findings in another's surface are `OBSERVATION`s with the
-  correction (§2, §5 rule 2).
+- The role owns the words and what a market's culture changes; it says
+  when a language cannot carry a meaning; findings in another's surface
+  are `OBSERVATION`s (§2, §5 rule 2).
 - One holder per locale, `language-culture-<suffix>`; the tag is
   `locale.json`'s, never inferred (`ge` is `ka-GE`) (§5 rule 1).
 - Two-pass review, target first; requests translated in, answers
@@ -611,11 +610,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   switch; lint keeps the identifiers; a lag warns and is served; only the
   holder translates (§5 rules 9–11).
 - Memory rendered under `## English` by its holder, else
-  `needs_rendering`; locale search through `websearch-locale`, SerpAPI
-  then Brave, `WebSearch` removed (§5 rules 12–13).
+  `needs_rendering`; locale search is `websearch-locale` (§5 rules 12–13).
 - A 2026-10-07 — en-US, the source, has no bridge (§2).
 - A 2026-10-16 — charters translated only for holders working in that language; language-culture reviews (§5 rule 11).
 - A 2026-10-16 — a holder may adopt language-culture's draft, read against the English, recorded (§5 rule 11).
+- A 2026-10-18 — locale from holder.json; shared pieces per language (§5 rules 1, 9).
 - Keywords: translation, worker, Georgian, Russian, ru-RU,
   system-prompt-file, notes, script, web search, carve-out, TaskStop,
   isolation.
@@ -1294,5 +1293,6 @@ its record disagree, the record wins. Look it up, never read it whole:
   English gloss (§5 rules 8-9).
 - A 2026-10-17 — accepted; an install's record is its signed commit's
   tree; §8 says which amendments land with which stage.
+- A 2026-10-18 — no ADR-057 amendment (§8); `lang: ka` is reviewed by the `ka-GE` locale's holder (§5 rule 6).
 - Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
   holder.json, locale, parent-signed, holders_specialize.

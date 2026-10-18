@@ -41,7 +41,8 @@ class Fixture:
             os.makedirs(os.path.dirname(os.path.join(self.root, rel)), exist_ok=True)
             shutil.copy2(os.path.join(ROOT, rel), os.path.join(self.root, rel))
         shutil.copytree(os.path.join(ROOT, "identities", "prompt"),
-                        os.path.join(self.root, "identities", "prompt"))
+                        os.path.join(self.root, "identities", "prompt"),
+                        ignore=shutil.ignore_patterns("locale"))   # the real translations: each case writes the ones it needs
         write(os.path.join(self.root, "identities", "roles", role, "charter.md"),
               f"---\nrole: {role}\nclass: charter\ndescription: \"x\"\ntier: 1\ndistilled_at: 2026-09-15\n---\n\n"
               f"# {role} — charter\n\nCHARTER-BODY-LINE for {role}.\n")
@@ -391,6 +392,56 @@ def case_holder_georgian_addendum_is_kept_as_written() -> None:
         assert ka in out, "the Georgian addendum was not rendered byte for byte"
 
 
+def _build_holder(f: "Fixture", agent: str, role: str, holder: dict) -> str:
+    """build() with a holder dict, as --holder-file would hand it over."""
+    code = ("import importlib.util, json, os, sys; "
+            "spec = importlib.util.spec_from_file_location('lp', sys.argv[1]); m = importlib.util.module_from_spec(spec); "
+            "spec.loader.exec_module(m); sys.stdout.write(m.build(sys.argv[2], 'h', sys.argv[3], json.loads(sys.argv[4])))")
+    r = subprocess.run([sys.executable, "-c", code, os.path.join(f.root, "tools", "fabric", "launch_prompt.py"), agent, role,
+                        json.dumps(holder)], env=f.env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
+def case_holder_locale_chooses_the_rendering_not_the_suffix() -> None:
+    """ADR-060 §5 rule 8: holder.json's locale picks locale/<locale>/ for a
+    login whose suffix is another; without one, the suffix still does."""
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Fixture(tmp, role="legal-expert", brief=False)
+        write(os.path.join(f.root, "identities", "roles", "legal-expert", "locale", "ge", "charter.md"),
+              "---\nclass: charter\nrole: legal-expert\ntranslates: identities/roles/legal-expert/charter.md\ntranslates_digest: sha256:x\n---\n\n# ქარტია\n")
+        holder = {"role": "legal-expert", "charter": None, "brief": None, "holder": {"locale": "ge"}}
+        renamed = _build_holder(f, "legal-expert-tbilisi", "legal-expert", holder)
+        assert "# ქარტია" in renamed and "CHARTER-BODY-LINE" not in renamed, "holder.json's locale did not choose the rendering"
+        by_suffix = _build_direct(f, "legal-expert-ge", "legal-expert")
+        assert "# ქარტია" in by_suffix, "without a holder the suffix no longer chooses"
+        english = _build_holder(f, "legal-expert-ge", "legal-expert", {**holder, "holder": {"locale": "en"}})
+        assert "CHARTER-BODY-LINE" in english, "a holder whose locale is en got the suffix's rendering"
+
+
+def case_shared_pieces_render_per_language_for_every_role() -> None:
+    """identities/prompt/locale/<locale>/ renders header, team, memory and
+    brief-missing for any role's holder in that language; a role's own
+    rendering of a piece wins over the shared one."""
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Fixture(tmp, role="legal-expert", brief=False)
+        shared = os.path.join(f.root, "identities", "prompt", "locale", "ge")
+        fm = lambda src: f"---\nclass: prompt-translation\ntranslates: identities/prompt/{src}.md\ntranslates_digest: sha256:x\n---\n"
+        write(os.path.join(shared, "header.md"), fm("header") + "# ვინ ხარ\n\n`{agent}` `{host}` **{role}**.\n")
+        write(os.path.join(shared, "team.md"), fm("team") + "# გუნდი\n")
+        write(os.path.join(shared, "memory.md"), fm("memory") + "# მეხსიერება\n")
+        write(os.path.join(shared, "brief-missing.md"), fm("brief-missing") + "_ბრიფი არ არის._\n")
+        text = _build_direct(f, "legal-expert-ge", "legal-expert")
+        for piece in ("# ვინ ხარ", "# გუნდი", "# მეხსიერება", "_ბრიფი არ არის._"):
+            assert piece in text, piece
+        for english in ("# Who you are", "Working with the team", "Your long-term memory"):
+            assert english not in text, f"an English section survived: {english}"
+        own = os.path.join(f.root, "identities", "roles", "legal-expert", "locale", "ge", "team.md")
+        write(own, fm("team") + "# გუნდი, იურისტისთვის\n")
+        assert "# გუნდი, იურისტისთვის" in _build_direct(f, "legal-expert-ge", "legal-expert"), "the role's own rendering lost"
+        assert "# Who you are" in _build_direct(f, "legal-expert-ru", "legal-expert"), "another locale got Georgian"
+
+
 def main() -> int:
     cases = [
         case_locale_charter_is_rendered_for_the_login_suffix,
@@ -413,7 +464,9 @@ def main() -> int:
         case_holder_digest_moves_with_the_addendum_alone,
         case_holder_file_for_another_role_or_oversized_is_refused,
         case_holder_ceiling_grows_by_the_addenda_only,
-        case_holder_georgian_addendum_is_kept_as_written]
+        case_holder_georgian_addendum_is_kept_as_written,
+        case_holder_locale_chooses_the_rendering_not_the_suffix,
+        case_shared_pieces_render_per_language_for_every_role]
     failures = 0
     for case in cases:
         try:

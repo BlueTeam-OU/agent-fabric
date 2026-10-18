@@ -82,6 +82,18 @@ class Role(unittest.TestCase):
     def test_a_path_that_is_not_a_locale_first_leaves_the_variables_empty(self):
         self.assertEqual(self.ask("src/a.py", LOCALE + "x"), (1, "", ""))
 
+    def test_the_shared_prompt_pieces_translations_are_language_cultures(self):
+        # identities/prompt/locale/<lang>/ (ADR-060 stage 3) is written by the
+        # language-culture holder named for <lang>, alone or with its own locale.
+        prompt = "identities/prompt/locale/ge/"
+        self.assertEqual(self.ask(prompt + "team.md", prompt + "memory.md"), (0, "language-culture", "ge"))
+        self.assertEqual(self.ask(prompt + "team.md", LOCALE + "charter.md"), (0, "language-culture", "ge"))
+        self.assertEqual(self.ask(prompt + "team.md", "identities/prompt/locale/ru/team.md"), (1, "", ""))
+        self.assertEqual(self.ask(prompt + "team.md", "identities/roles/legal-expert/locale/ge/charter.md"), (1, "", ""))
+        for bad in ("identities/prompt/team.md", prompt + "d/x.md", "identities/prompt/locale/Ge/x", "identities/promptx/locale/ge/x"):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.ask(bad)[0], 1)
+
 
 class Paths(unittest.TestCase):
     def setUp(self):
