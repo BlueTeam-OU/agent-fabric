@@ -368,6 +368,13 @@ def main() -> int:
         check("login 'gz-writer-x' whose launch recorded ka takes ka's worker",
               os.path.isfile(os.path.join(cfg, "agents", "locale-worker.md")), r.stdout + r.stderr)
 
+        # A session launched before launch-locale.json existed has only launch-holder.json: its worker stays.
+        put(home, ".local/state/agent-fabric/agents/gz-writer-y/launch-holder.json", json.dumps({"holder": {"locale": "ka"}}) + "\n")
+        r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "gz-writer-y"], capture_output=True,
+                           text=True, env=env_for(home, cfg), check=False)
+        check("login 'gz-writer-y' with only launch-holder.json (ka) keeps ka's worker",
+              r.returncode == 0 and os.path.isfile(os.path.join(cfg, "agents", "locale-worker.md")), r.stdout + r.stderr)
+
         # --locale (the holder's holder.json, agent-fabric ADR-060 §5 rule 8) installs its locale's worker.
         root, home, cfg = fixture()
         put(root, "runtime/role.txt", "language-culture\n")

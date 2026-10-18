@@ -126,6 +126,49 @@ def _():
     launched("language-culture-ge", "ge")
 
 
+@case("a state dir holding only launch-holder.json answers its holder.locale; a bad one is said and en")
+def _():
+    holder = os.path.join(STATE, "agents", "language-culture-ge", "launch-holder.json")
+    rec = os.path.join(STATE, "agents", "language-culture-ge", launch_locale.FILE)
+    if os.path.exists(rec):
+        os.unlink(rec)
+
+    def read(body: str | None) -> tuple[str, str]:
+        if body is None:
+            if os.path.exists(holder):
+                os.unlink(holder)
+        else:
+            with open(holder, "w", encoding="utf-8") as fh:
+                fh.write(body)
+        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import launch_locale; "
+                            "print(launch_locale.read('language-culture-ge'))", os.path.join(HERE, "tools", "fabric")],
+                           env={"AGENT_FABRIC_STATE_DIR": STATE, "PATH": os.environ.get("PATH", "")},
+                           capture_output=True, text=True, check=False, timeout=30)
+        return r.stdout.strip(), r.stderr
+
+    try:
+        eq(read('{"holder": {"locale": "ge"}}'), ("ge", ""), "launch-holder.json alone")
+        eq(read('{"holder": null}'), ("en", ""), "a launch with no holder.json")
+        eq(read(None), ("en", ""), "neither file")
+        for body in ("{ not json", '{"holder": {"locale": "../x"}}', '{"holder": {}}', '{"holder": 3}', "[]"):
+            out, err = read(body)
+            eq(out, "en", body)
+            ok("launch-locale:" in err, f"{body}: {err!r}")
+        # The record wins over the older file, and a bad record is not papered over by it.
+        read('{"holder": {"locale": "ge"}}')
+        launch_locale.record(os.path.dirname(holder), "ru")
+        eq(read('{"holder": {"locale": "ge"}}')[0], "ru", "the record beats launch-holder.json")
+        with open(rec, "w", encoding="utf-8") as fh:
+            fh.write("{ not json")
+        out, err = read('{"holder": {"locale": "ge"}}')
+        eq(out, "en", "an unusable record is en, not the holder file's locale")
+        ok("launch-locale:" in err, err)
+    finally:
+        if os.path.exists(holder):
+            os.unlink(holder)
+        launched("language-culture-ge", "ge")
+
+
 def locale_root() -> str:
     """An operator tree whose language-culture role has two locales as the
     live ones read: a tag, and the owner's reminder in the locale (instance
