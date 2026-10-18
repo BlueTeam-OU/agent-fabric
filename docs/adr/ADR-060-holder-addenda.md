@@ -63,7 +63,7 @@ The store is already the agent's private, signed, per-id repository for
 settings (ADR-038, ADR-039, ADR-042, ADR-056), so the specialization follows
 the agent through a rename and never enters the public tree. Reading from
 the committed head, not the working tree, and checking the signer of the
-last commit on the path, makes the rendered text the text the parent
+last commit that changed the path over the whole history, makes the rendered text the text the parent
 installed, and reading each file from that commit's own tree, each blob
 checked against its object name, makes it the text the parent installed. Separating `holder.json` (who this holder is: its locale, its
 deployment) from `locale/<lang>/` (what a language needs) removes the
@@ -84,7 +84,10 @@ once per language.
    lineage gives the running login, or whose `HEAD` does not descend from
    its trusted base (ADR-042).
 3. The last commit that touched `settings/roles/R/` is signed by the
-   agent's parent; the launcher verifies it with the parent's public key
+   agent's parent, "last" judged over the whole history and not along
+   the line git's log simplification follows: a merge whose version of
+   the directory is not one its parents carry over is itself the change
+   (A 2026-10-18); the launcher verifies it with the parent's public key
    alone and refuses any other signer, the agent's own included. The
    record of an install is its signed commit's tree: the launcher renders
    the files of `settings/roles/R/` as the tree of that last parent-signed
@@ -207,3 +210,4 @@ The body above reads current; each change's full note is in [history/ADR-060-ame
 |---|---|---|
 | 2026-10-17 | Accepted; the digest check is per file; sizes restated | Status Accepted; §5 rule 3's record of an install is its signed commit's tree; §4 names the digest check; §1's size restated; §8 says which amendments land with which stage |
 | 2026-10-18 | ADR-057 needs no amendment; what `lang` names | §8: the signature checker reads public data only, so a holder's private locale cannot name a signer; the stage's other amendments (ADR-018, ADR-027) are made. §5 rule 6: an addendum's `lang` is its BCP-47 language (`ka`); its reviewer is the holder of the locale whose tag has that language (`language-culture-ge`) |
+| 2026-10-18 | The last commit on the path, over the whole history | §5 rule 3, §4: a merge whose version of the directory its parents do not carry over is the change, so a merge cannot route the path to an older install |
