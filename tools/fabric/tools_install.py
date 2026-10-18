@@ -702,7 +702,8 @@ def run_program(argv: list[str], env: dict[str, str], cwd: str, timeout: float) 
                 return None, ""
         finally:
             # Any way out with the program unreaped (the bound, SIGTERM, an error) ends its group; one
-            # `finally` rather than an except per way, so no signal can land between the way out and the stop.
+            # `finally` rather than an except per way. A first SIGTERM can still land in the few bytecodes
+            # before stop() opens its own try; Python runs handlers at a call's start and this module does not mask it.
             if proc.returncode is None:
                 stop()
     lines = [ln.strip() for ln in out.decode("utf-8", "replace").splitlines() if ln.strip()]
