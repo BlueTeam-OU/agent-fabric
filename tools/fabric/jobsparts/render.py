@@ -28,6 +28,8 @@ def line(job: dict, waits: dict[str, list[str]] | None = None, stale: Stale | No
         extra = f" — on {job['blocked_on']}" + blockers_note(job, cache)
     elif job.get("artifacts"):
         extra = f" — {', '.join(job['artifacts'])}"
+    elif job.get("no_artifact"):
+        extra = f" — no artifact: {job['no_artifact']}"
     who = waiters(job, waits)
     if who and stored_priority(job) != "blocking":
         extra += f" — ranks blocking: {named(who, stale)} {'waits' if len(who) == 1 else 'wait'} on it"
@@ -52,7 +54,7 @@ def show(job: dict, cache: dict | None = None) -> str:
                                for b in bl.states_of(job, cache)) if cache is not None and bl.specs_of(job) else None),
         ("branch", job.get("branch")), ("worktree", job.get("worktree")),
         ("artifacts", ", ".join(job.get("artifacts") or []) or None),
-        ("reason", job.get("reason")), ("created", job.get("created")), ("updated", job.get("updated")),
+        ("no artifact", job.get("no_artifact")), ("reason", job.get("reason")), ("created", job.get("created")), ("updated", job.get("updated")),
     ]
     return "\n".join(f"{k + ':':<14}{v}" for k, v in rows if v)
 

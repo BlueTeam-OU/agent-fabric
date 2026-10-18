@@ -445,7 +445,19 @@ def settle(job: dict, places: list[str], session_start: float | None = None) -> 
     if state == "done":
         evidence = _landed(job, found, problems) + _reflected(job, problems)
         if not evidence and not problems:
-            problems.append(f"done needs evidence it landed: deliver {EVIDENCE_FORMS} that is merged or on the default branch")
+            reason = str(job.get("no_artifact") or "").strip()
+            if reason and job.get("artifacts"):
+                # A named artifact that did not land (a closed unmerged pull request, a sha off the default branch) raises no
+                # problem above; a reason must not paper over it.
+                problems.append(f"{', '.join(job['artifacts'])} did not land on the default branch: a reason does not stand in for an artifact the job names "
+                                f"(retract it with fabric-jobs retract {job['id']} <artifact> if it was a mistake)")
+            elif reason:
+                # Housekeeping leaves no PR, commit, branch or reply: the recorded reason is the evidence, and only for a job
+                # that names no artifact at all.
+                evidence = [f"no artifact: {job['no_artifact']}"]
+            else:
+                problems.append(f"done needs evidence it landed: deliver {EVIDENCE_FORMS} that is merged or on the default branch, "
+                                f"or record why there is none: fabric-jobs done {job['id']} --no-artifact \"<what was done>\"")
     elif state == "delivered":
         evidence = _delivered(job, found, problems)
         if not evidence and not problems:

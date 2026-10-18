@@ -359,7 +359,17 @@ def change(args) -> int:
             # No `state`: fleet.log_times reads the state of an entry as a transition, and settle dates the job's start by its last `active` one.
             job.setdefault("log", []).append({"at": now, "kind": "retract", "note": f"retracted artifact {args.artifact}"})
         elif args.cmd == "done":
-            transition(doc, job, "done")
+            why = " ".join(args.no_artifact.split()) if args.no_artifact is not None else None
+            if args.no_artifact is not None and not why:
+                raise Refused("--no-artifact needs a reason: fabric-jobs done <id> --no-artifact \"<what was done>\"")
+            if job["state"] == "done" and why:
+                # Evidence only, as `deliver` on a done job: the job stays closed, the reason is added (or replaced).
+                job["no_artifact"] = why
+                job["updated"] = identity.now_iso()
+            elif why:
+                transition(doc, job, "done", no_artifact=why)
+            else:
+                transition(doc, job, "done")
         elif args.cmd == "drop":
             transition(doc, job, "dropped", reason=" ".join(args.why.split()), note=args.why)
         return job
