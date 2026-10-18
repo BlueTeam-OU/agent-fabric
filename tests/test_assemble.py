@@ -3524,6 +3524,27 @@ def test_a_run_re_indexes_every_role_directory_the_project_holds(tmp: str) -> No
     memory_b = os.path.join(wc_b, ".agent-fabric", "memory")
     assert not os.path.exists(os.path.join(memory_b, "shared", "INDEX.md")), "shared/ is no role"
     assert os.listdir(os.path.join(memory_b, "Not A Role")) == [], "a name that is no role id is left alone"
+    report = json.loads(read(os.path.join(memory_b, "last-drain-report.json")))
+    assert report["roles"] == ["alpha"], f"a role this drain brought nothing is no role of the drain: {report['roles']}"
+
+    # A held role's unreadable crossref.json stops the drain before any write, naming the file.
+    gamma = os.path.join(memory_b, "gamma")
+    os.makedirs(gamma)
+    with open(os.path.join(gamma, "crossref.json"), "w", encoding="utf-8") as fh:
+        fh.write("{broken")
+    os.remove(os.path.join(memory_b, "last-drain-report.json"))
+    claims_c = os.path.join(tmp, "claims-c")
+    os.makedirs(claims_c)
+    with open(os.path.join(claims_c, "delta.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("delta", [{"class": "workflow", "topic": "w", "title": "W", "body": "b",
+                                    "evidence": ["h1"]}]), fh)
+    proc = subprocess.run(
+        [sys.executable, ASSEMBLE, "--claims", claims_c, "--drain", drain, "--fabric", out,
+         "--project", other, "--working-copy", wc_b, "--stamp", "2026-01-02"],
+        capture_output=True, text=True)
+    assert proc.returncode == 1 and "gamma/crossref.json" in proc.stderr and "Traceback" not in proc.stderr, proc.stderr
+    assert not os.path.exists(os.path.join(memory_b, "last-drain-report.json")) \
+        and not os.path.exists(os.path.join(memory_b, "delta")), "something was written before the refusal"
 
 
 def test_a_role_id_that_is_no_slug_is_refused_before_anything_is_written(tmp: str) -> None:

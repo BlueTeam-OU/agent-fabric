@@ -72,7 +72,7 @@ from assembler.intake import parse_args, open_layout, read_claims, screen_hygien
 from assembler.targets import plan_classes, held_files, resolve_all_targets  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
-from assembler.index import bound_roles_with_domain_slices, index_role, roles_with_project_directory  # noqa: E402
+from assembler.index import bound_roles_with_domain_slices, index_role, read_crossref_index, roles_with_project_directory  # noqa: E402
 from assembler.report import report  # noqa: E402
 
 
@@ -92,6 +92,10 @@ def main() -> int:
         return 1
     if check_collisions(run):
         return 1
+    # Refused before anything is written, as a broken taxonomy is.
+    held_roles = roles_with_project_directory(run)
+    for role in held_roles:
+        read_crossref_index(os.path.join(layout.project_dir(run.project, role), "crossref.json"))
     write_shared(run)
     # Every role that owns anything gets a project directory and an index —
     # including one whose claims all live in shared slices, which would
@@ -106,7 +110,7 @@ def main() -> int:
     # this run brought it nothing: another project's run may have written
     # its domain slices since. Not in owning_roles, which the report
     # records as the roles the drain touched.
-    for role in sorted(roles_with_project_directory(run) - set(run.owning_roles)):
+    for role in sorted(held_roles - set(run.owning_roles)):
         index_role(run, role)
     rc = report(run)
     if rc == 0 and args.flags:

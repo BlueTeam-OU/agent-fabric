@@ -62,6 +62,24 @@ def roles_with_project_directory(run: Run) -> set[str]:
             if n != "shared" and role_id_error(n) is None and os.path.isdir(os.path.join(root, n))}
 
 
+def read_crossref_index(path: str) -> dict[str, Any]:
+    """The citation edges a role's crossref.json already holds, {} when the
+    file is absent. One that cannot be read stops the drain naming the file:
+    every role directory is re-indexed now, so a file the drain brought
+    nothing for can break it, and a traceback after slices were written
+    would leave a drain with no report."""
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            index = json.load(fh).get("index", {})
+        if not isinstance(index, dict):
+            raise ValueError("`index` is not an object")
+        return index
+    except (OSError, ValueError, AttributeError) as exc:
+        sys.exit(f"assemble: {path}: the role's crossref.json cannot be read ({exc})")
+
+
 def index_role(run: Run, role: str) -> None:
     buckets = run.per_role.get(role, {})
     proj_dir = layout.project_dir(run.project, role)
@@ -175,10 +193,8 @@ def index_role(run: Run, role: str) -> None:
     # Carried sections keep their citation edges. Rebuilding the graph from
     # this drain alone would drop every ADR, PR and migration edge belonging
     # to knowledge that is still sitting in the role base.
-    crossref_path_existing = os.path.join(proj_dir, "crossref.json")
-    if os.path.exists(crossref_path_existing):
-        with open(crossref_path_existing, encoding="utf-8") as fh:
-            old = json.load(fh).get("index", {})
+    old = read_crossref_index(os.path.join(proj_dir, "crossref.json"))
+    if old:
         for kind, values in old.items():
             for value, node in values.items():
                 # Normalized on the way IN as well, so a run also
