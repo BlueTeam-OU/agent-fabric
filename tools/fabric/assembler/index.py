@@ -47,6 +47,21 @@ def bound_roles_with_domain_slices(run: Run) -> set[str]:
             out.add(role)
     return out
 
+def roles_with_project_directory(run: Run) -> set[str]:
+    """Every role that has a directory under the project's memory root. A
+    role keeps its directory after its last bundle here, while a bundle of
+    another project can still write that role's domain slices into the
+    fabric — and no run of this project would rebuild the index that must
+    list them, so lint reported drift until that role drained here again.
+    `shared/` is the project's shared slices, not a role. A name that is no
+    role id is left alone: it is not ours to index."""
+    root = layout.project_memory_root(run.project)
+    if not os.path.isdir(root):
+        return set()
+    return {n for n in os.listdir(root)
+            if n != "shared" and role_id_error(n) is None and os.path.isdir(os.path.join(root, n))}
+
+
 def index_role(run: Run, role: str) -> None:
     buckets = run.per_role.get(role, {})
     proj_dir = layout.project_dir(run.project, role)
