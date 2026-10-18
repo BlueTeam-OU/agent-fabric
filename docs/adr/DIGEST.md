@@ -951,6 +951,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   enrolment bundle; a store with no base refuses (§5 rules 2, 4).
 - A 2026-10-07 — a commit gpg could not judge stops, unrecorded (§5 rule 5).
 - A 2026-10-17 — `settings/roles/` is the parent's alone, checked at launch (§5 rule 2, ADR-060).
+- A 2026-10-18 — a base a rebase orphaned moves back; `--replace-orphaned` (§5 rule 4).
 - Keywords: store, signing, signature, verify, forged entry, lineage,
   pass, bundle, take-bundle, writer, trust-base, trusted base.
 
