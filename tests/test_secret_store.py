@@ -925,6 +925,13 @@ def main() -> int:
             check("…control: the flag does not let a base move back while HEAD descends from it", p.returncode == 1
                   and "only moves forward" in p.stderr, p.stderr)
 
+            # A base already off HEAD before the write is tamper to addenda.load, not something a write repairs.
+            cgit("config", "--local", "agent-fabric.trustedbase", lost)
+            run(child, "set", "ORPHAN_C", stdin="c")
+            check("j56: …control: a base HEAD never descended from is left for the owner, not moved by a write",
+                  cgit("config", "--local", "agent-fabric.trustedbase").stdout.strip() == lost)
+            run(child, "trust-base", "--replace-orphaned")
+
             # F7: put pulls BEFORE it compares keys. Another clone pushes a
             # re-key; the parent's mirror has not pulled it yet.
             other = os.path.join(tmp, "other-clone")
