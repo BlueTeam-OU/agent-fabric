@@ -520,7 +520,8 @@ def main() -> int:
                       rc == 1 and "not a pass by its language's reviewer over a non-English addendum" in err and count() == n_set, out + err)
             for label, extra in (("a pass-1 over the gloss", f"language-culture-ge pass-1 {sha(ka_gloss)}"),
                                  ("a pass by a login that is not the language's reviewer", f"legal-expert-ee pass-1 {sha(ka)}"),
-                                 ("a pass numbered pass-7 by another language's reviewer", f"language-culture-ru pass-7 {sha(ka)}")):
+                                 ("a pass numbered pass-7 by the right reviewer", f"language-culture-ge pass-7 {sha(ka)}"),
+                                 ("a pass-1 by another language's reviewer", f"language-culture-ru pass-1 {sha(ka)}")):
                 rc, out, err = install("stray-" + label, "stray" + label[:7], ka_pair, *reviews(*ge_passes, extra), validate=real_validate)
                 check(f"{label}, beside the two required passes, is refused: it would be a trailer saying what no one read",
                       rc == 1 and "not a pass by its language's reviewer" in err and count() == n_set, out + err)

@@ -126,7 +126,6 @@ def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str], fabric: str | N
     sha = lambda name: hashlib.sha256(plain[name]).hexdigest()  # noqa: E731
     reviews = [r.split() for r in reviewed_by]
     findings = []
-    others = {}   # name -> the digests its passes may name
     judges = []   # (reviewer login pattern, the digests each pass may name) per non-English addendum
     for name in ADDENDA:
         lang = addenda_check.frontmatter(plain[name].decode("utf-8")).get("lang", "en") if name in plain else "en"
@@ -134,7 +133,6 @@ def _unreviewed(plain: dict[str, bytes], reviewed_by: list[str], fabric: str | N
             continue
         gloss = name.replace(".md", ".gloss.en.md")
         allowed = {"pass-1": {sha(name)}, "pass-2": {sha(name)} | ({sha(gloss)} if gloss in plain else set())}
-        others[name] = allowed["pass-1"] | allowed["pass-2"]
         keys = _locale_keys(lang, fabric)
         if not keys:
             findings.append(f"{name}: its lang is carried by no language-culture locale (no locale.json tag has it), "
