@@ -341,19 +341,147 @@ def main() -> int:
         older = parent_push({CHARTER: file(ROLE, KID, "charter-addendum", "# Older\n"), HOLDER: holder_json}, "parent: an older install")
         parent_push(files, "parent: the current install")
         check("control: the current install loads its own text", getattr(load(), "charter", None) == charter.split(b"---\n", 2)[2].decode())
-        real_git = addenda._git
-
-        def log_names_older(store, *a, **k):
-            # only the lookup of the commit that last touched the directory is answered wrongly
-            if a[:1] == ("log",) and a[-2:-1] == ("--",) and a[-1] == f"settings/roles/{ROLE}/" and "--format=%H" in a and "HEAD" in a:
-                return real_git(store, "show", "-s", "--format=%H", older)
-            return real_git(store, *a, **k)
-        addenda._git = log_names_older
+        real_last_changer = addenda._last_changer
+        addenda._last_changer = lambda store, role: (older, False)   # the walk answered wrongly: the tree comparison is the second line
         try:
-            refused("a parent-signed commit whose directory is not HEAD's (log naming an older install) is refused, naming the role", load(), "not the tree HEAD has", ROLE)
+            refused("a parent-signed commit whose directory is not HEAD's (the walk naming an older install) is refused, naming the role", load(), "not the tree HEAD has", ROLE)
         finally:
-            addenda._git = real_git
-        check("…control: git's own answer, the same store, loads", isinstance(load(), addenda.Holder))
+            addenda._last_changer = real_last_changer
+        check("…control: the real walk, the same store, loads", isinstance(load(), addenda.Holder))
+
+        # a merge cannot hide a rollback behind the parent-signed install it took (full history, rule 3)
+        def plumb(*args: str, stdin: bytes | None = None, **env: str) -> str:
+            p = subprocess.run(["git", "-C", child_store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                               env={**child, **env}, input=stdin, capture_output=True, check=True)
+            return p.stdout.decode().strip()
+
+        def commit_with(tree: str, *parents: str) -> str:
+            return plumb("commit-tree", tree, "-m", "merge", *[x for q in parents for x in ("-p", q)])
+
+        def tree_plus_file(commit: str, name: str) -> str:
+            blob = plumb("hash-object", "-w", "--stdin", stdin=b"unrelated\n")
+            entries = plumb("ls-tree", f"{commit}^{{tree}}")
+            return plumb("mktree", stdin=(entries + f"\n100644 blob {blob}\t{name}\n").encode())
+
+        current = plumb("rev-parse", "HEAD")
+        for label, order in (("HEAD first", (current, older)), ("older first", (older, current))):
+            m = commit_with(f"{older}^{{tree}}", *order)
+            plumb("reset", "-q", "--hard", m)
+            check(f"control: git's own `log -1` hides the merge behind the older install ({label})",
+                  plumb("log", "-1", "--format=%H", "HEAD", "--", f"settings/roles/{ROLE}/") == older)
+            refused(f"a merge that brings back an older parent-signed install is the change, and is refused, naming the merge ({label})",
+                    load(), "not the parent's", "a merge", m[:12], ROLE)
+            plumb("reset", "-q", "--hard", current)
+        # an unrelated merge: the side branch is based on the older install and changed another file only
+        side = commit_with(tree_plus_file(older, "side.txt"), older)
+        merged = commit_with(tree_plus_file(current, "side.txt"), current, side)
+        plumb("reset", "-q", "--hard", merged)
+        got_m = load()
+        check("an unrelated merge (the directory is its first parent's, the side never changed it) still loads", isinstance(got_m, addenda.Holder) and got_m.addenda_commit == current, repr(got_m))
+        merged2 = commit_with(tree_plus_file(current, "side.txt"), side, current)
+        plumb("reset", "-q", "--hard", merged2)
+        got_m2 = load()
+        check("…with the parents the other way round, the same", isinstance(got_m2, addenda.Holder) and got_m2.addenda_commit == current, repr(got_m2))
+        # an ordinary merge after the install, neither side touching the directory: the commit judged is still the install
+        w = commit_with(tree_plus_file(current, "w.txt"), current)
+        ordinary = commit_with(tree_plus_file(current, "w.txt"), current, w)
+        plumb("reset", "-q", "--hard", ordinary)
+        got_o = load()
+        check("a merge of a side branch cut from the install, neither side having changed the directory, still loads", isinstance(got_o, addenda.Holder) and got_o.addenda_commit == current, repr(got_o))
+        # an agent's deletion of the directory, dated before the install, then carried by a merge: not "the parent removed it"
+        idx = os.path.join(tmp, "del-index")
+        plumb("read-tree", current, GIT_INDEX_FILE=idx)
+        plumb("rm", "-r", "-q", "--cached", f"settings/roles/{ROLE}", GIT_INDEX_FILE=idx)
+        gone_tree = plumb("write-tree", GIT_INDEX_FILE=idx)
+        deletion = plumb("commit-tree", gone_tree, "-p", current, "-m", "delete",
+                         GIT_AUTHOR_DATE="2001-01-01T00:00:00Z", GIT_COMMITTER_DATE="2001-01-01T00:00:00Z")
+        hide = commit_with(gone_tree, deletion, w)
+        plumb("reset", "-q", "--hard", hide)
+        refused("an agent's deletion of the directory behind a merge is refused, not read as the parent's removal", load(), "removed the directory is not the parent's", deletion[:12], ROLE)
+        plumb("reset", "-q", "--hard", current)
+        # the walk goes on from the side a carrying merge took its version from, not from the next commit of the list
+        copy = commit_with(f"{current}^{{tree}}", older)                      # the agent's copy of the install, on the older one
+        deleted = commit_with(gone_tree, copy)                                 # …and its deletion
+        joined = commit_with(f"{current}^{{tree}}", current, copy)             # same directory as both parents: not listed
+        carried = commit_with(gone_tree, deleted, joined)                      # the deletion's version; the install lies on the other side
+        plumb("reset", "-q", "--hard", carried)
+        refused("an agent's deletion carried over a merge whose other side holds the signed install is refused, not read as the parent's removal",
+                load(), "removed the directory is not the parent's", deleted[:12], ROLE)
+        plumb("reset", "-q", "--hard", current)
+        check("…control: back on the current install, it loads", isinstance(load(), addenda.Holder))
+        # a merge that equals both its parents: the agent's date must not choose the line that is judged
+        restore = plumb("commit-tree", f"{older}^{{tree}}", "-p", current, "-m", "restore",
+                        GIT_AUTHOR_DATE="2001-01-01T00:00:00Z", GIT_COMMITTER_DATE="2001-01-01T00:00:00Z")
+        for label, order in (("agent line first", (restore, older)), ("signed line first", (older, restore))):
+            both = commit_with(f"{older}^{{tree}}", *order)
+            plumb("reset", "-q", "--hard", both)
+            refused(f"a merge of the agent's restoring commit and the older signed install, equal to both, is itself the change ({label})",
+                    load(), "not the parent's", "a merge", both[:12], ROLE)
+        plumb("reset", "-q", "--hard", current)
+        check("…control: back on the current install, it loads", isinstance(load(), addenda.Holder))
+        # a store with a repository and no commit has no directory: absent, as before
+        unborn = os.path.join(tmp, "unborn-store")
+        subprocess.run(["git", "init", "-q", unborn], env=child, check=True, capture_output=True)
+        with account(child):
+            try:
+                got_u = addenda.load("kid", ROLE, "optional", store=unborn)
+            except StoreError as e:
+                got_u = e
+        check("a store whose repository has no commit loads nothing (optional), not an error", got_u is None, repr(got_u))
+        # what the walk answers on histories the loader must still read (the function alone: no signature is in question)
+        def walk(head_commit: str):
+            plumb("reset", "-q", "--hard", head_commit)
+            with account(child):
+                return addenda._last_changer(child_store, ROLE)
+
+        removal = commit_with(gone_tree, current)                                 # stands for the parent's removal
+        orphan = commit_with(gone_tree)                                           # a side branch that never had the directory
+        for label, order in (("removal first", (removal, orphan)), ("side first", (orphan, removal))):
+            check(f"a merge of a removal with a branch that never had the directory is not the change ({label})",
+                  walk(commit_with(gone_tree, *order)) == (removal, False))
+        p0 = commit_with(gone_tree)
+        p1, s1 = commit_with(tree_plus_file(p0, "a"), p0), commit_with(tree_plus_file(p0, "b"), p0)
+        p2, s2 = commit_with(f"{p1}^{{tree}}", p1, s1), commit_with(f"{p1}^{{tree}}", s1, p1)     # criss-cross: two merge bases below
+        install = commit_with(f"{current}^{{tree}}", p2)
+        s3 = commit_with(tree_plus_file(s2, "c"), s2)
+        check("a merge that carries an install over a criss-cross history is no change", walk(commit_with(f"{current}^{{tree}}", install, s3)) == (install, False))
+        blob = plumb("hash-object", "-w", "--stdin", stdin=b"not a directory\n")
+        roles_t = plumb("mktree", stdin=f"100644 blob {blob}\t{ROLE}\n".encode())
+        settings_t = plumb("mktree", stdin=f"040000 tree {roles_t}\troles\n".encode())
+        odd_root = plumb("mktree", stdin=f"040000 tree {settings_t}\tsettings\n".encode())
+        odd = commit_with(odd_root)
+        after_odd = commit_with(f"{current}^{{tree}}", odd)
+        check("an old commit with a file where the directory is does not refuse the role for good", walk(after_odd) == (after_odd, False))
+        check("a file where the directory was, since removed, leaves a store with no directory at all", walk(commit_with(gone_tree, odd)) is None)
+        s_a, s_b = commit_with(tree_plus_file(older, "s1"), older), commit_with(tree_plus_file(older, "s2"), older)
+        check("an octopus merge after the install, its sides cut from before it and untouched, is no change",
+              walk(commit_with(tree_plus_file(current, "s"), current, s_a, s_b)) == (current, False))
+        b1 = commit_with(tree_plus_file(p0, "x"), p0)
+        b2 = commit_with(f"{current}^{{tree}}", p0)
+        took = commit_with(f"{older}^{{tree}}", b1, b2)
+        other = commit_with(tree_plus_file(p0, "o"), b2, b1)                       # two merge bases: b1 shares `other`'s version, b2 does not
+        check("a merge whose merge bases do not ALL hold the other parent's version is the change", walk(commit_with(f"{older}^{{tree}}", took, other)) == (plumb("rev-parse", "HEAD"), True))
+        real_git_w = addenda._git
+        addenda._git = lambda store, *a, **k: (subprocess.CompletedProcess(a, 128, b"", b"fatal") if a[:1] == ("merge-base",) else real_git_w(store, *a, **k))
+        try:
+            try:
+                walk(commit_with(f"{older}^{{tree}}", took, other))
+                got_mb = None
+            except StoreError as e:
+                got_mb = e
+        finally:
+            addenda._git = real_git_w
+        refused("a merge-base that fails (not 'no common ancestor') is a refusal naming the exit, not a guess", got_mb, "merge-base exit 128", ROLE)
+        plumb("reset", "-q", "--hard", current)
+
+        # a plain revert commit, dated before the install it undoes, is no better than a merge
+        plumb("reset", "-q", "--hard", current)
+        revert = plumb("commit-tree", f"{older}^{{tree}}", "-p", current, "-m", "revert",
+                       GIT_AUTHOR_DATE="2001-01-01T00:00:00Z", GIT_COMMITTER_DATE="2001-01-01T00:00:00Z")   # older than the install it undoes
+        plumb("reset", "-q", "--hard", revert)
+        refused("an agent commit that restores the older directory is the change, however old it is dated", load(), "not the parent's", revert[:12], ROLE)
+        plumb("reset", "-q", "--hard", current)
+        check("…control: back on the current install, it loads", isinstance(load(), addenda.Holder))
 
         # the agent owns its .git: other bytes under the name of a signed object are not read
         import zlib
@@ -406,6 +534,12 @@ def main() -> int:
             fh.write(f"{tip} {before_install}\n")
         refused("a .git/info/grafts in the store is refused: it rewrites history under the ancestry check", load(role="brand-comms"), "grafts")
         os.unlink(grafts)
+        check("…control: without it the same store loads", isinstance(load(), addenda.Holder))
+        shallow = os.path.join(child_store, ".git", "shallow")
+        with open(shallow, "w") as fh:
+            fh.write(f"{tip}\n")
+        refused("a .git/shallow in the store is refused: it cuts history short under the merge-base the walk reads", load(role="brand-comms"), "shallow")
+        os.unlink(shallow)
         check("…control: without it the same store loads", isinstance(load(), addenda.Holder))
         git(child, child_store, "rm", "-r", "-q", f"settings/roles/{ROLE}")
         git(child, child_store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "agent deletes the addenda")
