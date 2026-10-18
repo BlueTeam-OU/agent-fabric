@@ -175,17 +175,20 @@ def _last_changer(store: str, role: str) -> tuple[str, bool] | None:
     follows the one parent of a merge that the merge agrees with, so a merge
     that brings back an older parent-signed install is hidden behind that
     install. --full-history lists every commit that differs from at least
-    one of its parents on the path; --topo-order puts a commit before its
-    ancestors, so the agent's dates cannot move an older install ahead of
-    the commit that undid it. --parents is not asked of this walk: it
+    one of its parents on the path. --parents is not asked of this walk: it
     turns on parent rewriting, which lists a merge with fewer parents than
     it has, so a merge's own parents are read apart, without a pathspec.
+    The first commit listed is HEAD itself when HEAD changed the directory;
+    when HEAD did not, which of several unrelated branches comes first is
+    git's order, by date, and the agent sets dates. A present directory is
+    then still compared with HEAD's own (_verified_directory); an absent one
+    has no such comparison.
     A merge that only carried a version over is not the change: the walk
     goes on from the parent it took the version from, not from the next
     commit of the list, which may lie on the other side (rule 3 of ADR-060)."""
     start = "HEAD"
     while True:
-        r = _git(store, "rev-list", "--full-history", "--topo-order", start, "--", f"settings/roles/{role}/")
+        r = _git(store, "rev-list", "--full-history", start, "--", f"settings/roles/{role}/")
         listed = r.stdout.decode().split()
         if not listed:
             return None
