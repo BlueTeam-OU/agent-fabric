@@ -24,6 +24,7 @@ to `grep -qE` (an existing trailer in another case); `contributor=$?` dropped (c
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import unittest
 
@@ -298,6 +299,39 @@ class DecisionRecordBodyEdit(unittest.TestCase):
         self.edit(repo=project)
         r = self.run_hook("reword" + KIND, repo=project)
         self.assertNotIn("adr staged-check", r.stderr)
+
+    def run_hook_as_amend(self, text):
+        """The hook with a parent whose argv is `git -c … commit --amend`, as git's own is when it amends: the hook
+        tells an amend from its parent's argv (commit_kind.is_amend), and a real commit would run pre-commit too."""
+        self.n += 1
+        path = os.path.join(self.fabric.root, f"MSG{self.n}")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        hook = os.path.join(self.fabric.hooks, "commit-msg")
+        return subprocess.run(["bash", "-c", 'exec -a git bash -c "$0" "$@"', '"$2" "$3"; exit $?', "commit", "--amend", hook, path],
+                              cwd=self.repo.path, capture_output=True, text=True, timeout=120, env=self.fabric.env())
+
+    def commit_quietly(self, message):
+        self.repo.git("-c", "core.hooksPath=/dev/null", "commit", "-qm", message)
+
+    def test_an_amend_is_judged_against_the_commit_it_replaces(self):
+        # Review of #297, F2: an amend replaces HEAD, so its parent is HEAD^. Kills: judging an amend against HEAD.
+        row = "| 2026-10-18 | a rule moved | §1 says the new text |\n"
+        self.edit(row=row)
+        self.commit_quietly("amend ADR-001" + KIND)
+        self.repo.write(self.RECORD, self.TEXT.replace("The old text.", "The newer text.") + row)
+        self.repo.git("add", "-A")
+        self.assertEqual(self.run_hook("amend ADR-001" + KIND).returncode, 1, "as a new commit on HEAD the row is not new")
+        r = self.run_hook_as_amend("amend ADR-001" + KIND)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_an_amend_that_drops_the_trailer_is_refused(self):
+        # Kills: running staged-check only when the index differs from HEAD (a message-only amend).
+        self.edit()
+        self.commit_quietly("reword\n\nADR-Editorial: a word\nKind: work")
+        r = self.run_hook_as_amend("reword" + KIND)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("adr staged-check: this commit: edits the body", r.stderr)
 
     def test_a_merge_is_not_judged_again(self):
         off = ("-c", "core.hooksPath=/dev/null")

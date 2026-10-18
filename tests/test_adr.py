@@ -597,6 +597,30 @@ def case_staged_check_judges_the_commit_being_made(tmp: str) -> None:
     assert r.returncode == 1 and "adr staged-check: this commit: edits the body" in r.stderr and not r.stdout, (r.returncode, r.stderr)
 
 
+def case_staged_check_on_an_amend_and_with_no_base(tmp: str) -> None:
+    # Review of #297, F2: an amend's parent is HEAD^; F3: with no base, range-check enforces nothing, and nor does this.
+    # Kills: comparing an amend with HEAD, and judging when no base resolves.
+    root = fixture(tmp)
+    commit_base(root)
+    amend(root)
+    edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="amend ADR-001")
+    edit(root, ONE, "Cheaper, yet it keeps", "Cheaper, still it keeps")
+    git(root, "add", "-A")
+    assert len(adr.staged_check(root, "amend ADR-001\n")) == 1, "against HEAD the row is no longer new"
+    assert adr.staged_check(root, "amend ADR-001\n", against="HEAD^") == [], "against HEAD^ the amend adds the row"
+    other = fixture(os.path.join(tmp, "nobase"))
+    git(other, "init", "-q", "-b", "trunk"); git(other, "config", "core.hooksPath", "/dev/null")
+    git(other, "add", "-A"); git(other, "commit", "-q", msg="base")
+    edit(other, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(other, "add", "-A")
+    env = {k: os.environ.pop(k) for k in ("AGENT_FABRIC_ADR_BASE", "GITHUB_BASE_REF", "GITHUB_EVENT_PATH") if k in os.environ}
+    try:
+        assert adr.default_range(other) is None and adr.staged_check(other, "reword\n") == [], "no base: not judged"
+    finally:
+        os.environ.update(env)
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

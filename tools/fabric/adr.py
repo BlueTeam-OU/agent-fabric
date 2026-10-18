@@ -532,23 +532,27 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
     return findings
 
 
-def staged_check(root: str, message: str) -> list[str]:
+def staged_check(root: str, message: str, against: str = "HEAD") -> list[str]:
     """range_check's judgment of the commit being made: the index against
-    HEAD, excused by the `ADR-Editorial:` trailer of the message being
+    its parent, excused by the `ADR-Editorial:` trailer of the message being
     written. The commit-time leg of the guard (the commit-msg hook), beside
     CI's range-check and the suite's: an unrecorded body edit once reached
-    CI twice in a day (b01a6130, 9266b09a, 2026-10-16). A record is the
-    branch's own draft when its number is absent from the base CI would
-    compare with (default_range), and with no base from HEAD. A first
+    CI twice in a day (b01a6130, 9266b09a, 2026-10-16). The parent is HEAD,
+    or HEAD^ for an amend, which replaces HEAD (`against`; review of #297,
+    F2). A record is the branch's own draft when its number is absent from
+    the base CI would compare with (default_range); with no base, range-check
+    enforces nothing and neither does this (review of #297, F3). A first
     commit has nothing to compare with and is not judged."""
     git = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=True).stdout  # noqa: E731
-    if subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q", "HEAD^{commit}"], capture_output=True).returncode:
+    if subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q", f"{against}^{{commit}}"], capture_output=True).returncode:
         return []
     found = default_range(root)
-    at_base = _records_at(root, found[0] if found else "HEAD")
+    if found is None:
+        return []
+    at_base = _records_at(root, found[0])
     body = "\n".join(ln for ln in message.split("\n") if not ln.startswith("#"))
-    entries = [ln.split("\t") for ln in git("diff-index", "--cached", "--name-status", "-M", "HEAD").splitlines()]
-    return _judge("this commit", entries, lambda p: git("show", f"HEAD:{p}"), lambda p: git("show", f":{p}"),
+    entries = [ln.split("\t") for ln in git("diff-index", "--cached", "--name-status", "-M", against).splitlines()]
+    return _judge("this commit", entries, lambda p: git("show", f"{against}:{p}"), lambda p: git("show", f":{p}"),
                   bool(EDITORIAL_RE.search(body)), at_base)
 
 
@@ -658,7 +662,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("amend"); p.add_argument("number"); p.add_argument("title"); p.add_argument("--date", required=True)
     p = sub.add_parser("lookup"); p.add_argument("words", nargs="*")
     p = sub.add_parser("range-check"); p.add_argument("base", nargs="?"); p.add_argument("head", nargs="?")
-    p = sub.add_parser("staged-check"); p.add_argument("message_file")
+    p = sub.add_parser("staged-check"); p.add_argument("message_file"); p.add_argument("--against", default="HEAD")
     a = ap.parse_args(argv)
     if a.cmd == "check":
         f = check(a.root)
@@ -683,7 +687,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             with open(a.message_file, encoding="utf-8", errors="replace") as fh:
                 message = fh.read()
-            f = staged_check(tree(a.root), message)
+            f = staged_check(tree(a.root), message, a.against)
         except (OSError, subprocess.CalledProcessError) as e:
             print(f"adr staged-check: could not read the commit being made ({type(e).__name__}); not judged", file=sys.stderr)
             return 0
