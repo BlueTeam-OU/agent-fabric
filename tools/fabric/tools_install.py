@@ -731,10 +731,6 @@ def program_failed(tool: str, what: str, status: int | None, last: str, bound: f
 def prove_with_links(entry: dict, home: str) -> tuple[str, str]:
     """The tool's own proof, with ~/.local/bin first on PATH: how the account reaches what was installed."""
     env = program_env(home, [os.path.join(home, ".local", "bin"), "/usr/local/bin", "/usr/bin", "/bin"])
-    # A proof that names a toolchain the account lacks would make rustup download it, and the proof's
-    # 15 s bound would kill that halfway: a toolchain directory with no manifest, which then fails the
-    # install itself (found on the first live run). Off, the proof just says the tool is absent.
-    env["RUSTUP_AUTO_INSTALL"] = "0"
     return tools_check.prove(entry["proof"], env=env)
 
 

@@ -73,9 +73,13 @@ def prove(proof: str, env: dict[str, str] | None = None) -> tuple[str, str]:
         argv = shlex.split(proof)
     except ValueError as e:
         return "failed", f"proof is not a command line ({e})"
+    # A proof that names a toolchain the account lacks (`cargo +1.98.1 ndk --version`) would make rustup
+    # download it, and the bound below would kill that halfway: a toolchain directory with no manifest, which
+    # then fails the install itself (found on the first live run of a cargo pin). Off, the proof just fails.
+    run_env = {**(os.environ if env is None else env), "RUSTUP_AUTO_INSTALL": "0"}
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=PROOF_TIMEOUT_S, stdin=subprocess.DEVNULL,
-                           env=env)
+                           env=run_env)
     except FileNotFoundError:
         return "missing", f"{argv[0]} not found"
     except subprocess.TimeoutExpired:

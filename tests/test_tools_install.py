@@ -1072,6 +1072,13 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             check("a leftover build directory of this pid (an earlier call in the process) does not fail the install",
                   r["status"] == "installed", r)
 
+            print("a proof never lets rustup download a toolchain")
+            check("tools_check.prove runs every proof with RUSTUP_AUTO_INSTALL=0, the caller's own environment or one given",
+                  tools_check.prove("sh -c 'echo $RUSTUP_AUTO_INSTALL'") == ("ok", "0")
+                  and tools_check.prove("sh -c 'echo $RUSTUP_AUTO_INSTALL'", env={"PATH": "/usr/bin:/bin"}) == ("ok", "0")
+                  and tools_check.prove("sh -c 'echo $RUSTUP_AUTO_INSTALL'", env={"PATH": "/usr/bin:/bin", "RUSTUP_AUTO_INSTALL": "1"}) == ("ok", "0"),
+                  tools_check.prove("sh -c 'echo $RUSTUP_AUTO_INSTALL'"))
+
             print("the link temporaries")
             home = account("pa")
             bindir = os.path.join(home, ".local", "bin")
