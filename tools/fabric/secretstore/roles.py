@@ -90,7 +90,8 @@ def _checked_args(role: str, approval: str, reviewed_by: list[str], authored_by:
 
 
 def _locale_keys(lang: str, fabric: str | None) -> list[str]:
-    """The language-culture locales whose locale.json `tag` is in `lang` (ka-GE has ka: key ge), ADR-060 §5 rule 6.
+    """The keys of the language-culture locales whose locale.json `tag` is in `lang`: the tag ka-GE is in ka, so ka's
+    key is ge (ADR-060 §5 rule 6).
     A locale.json that cannot be read is a refusal naming it, never a locale that is skipped: skipping it would
     answer "no reviewer for this language" for a reason the operator cannot see."""
     base = os.path.join(roots.role_dir("language-culture", root=fabric), "locale")
