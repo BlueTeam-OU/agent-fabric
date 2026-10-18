@@ -13,14 +13,17 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
   argv         [--provider openrouter|anthropic | --provider=P]
                [--locale TAG | --locale=TAG] [--dry-run]
                (--locale: the holder's locale, which the language-culture
-               files are chosen by instead of the login's suffix; a value
-               that is no locale tag: exit 2)
+               files are chosen by; without it, the locale the last launch
+               recorded, else en, never the login's name; a value that is
+               no locale tag: exit 2)
                anything else: "install-agent-files: unknown argument X" on
                stderr, exit 2 (as does a --provider with no value)
   environment  AGENT_FABRIC_LAUNCH_PROVIDER (the default provider; else
                the provider this account last launched on, from
                <state>/agents/<login>/launch-provider.json, which the
-               launcher writes; else anthropic), CLAUDE_CONFIG_DIR (else ~/.claude for the agent
+               launcher writes; else anthropic), the locale with no --locale
+               from <state>/agents/<login>/launch-locale.json (launch_locale.py,
+               which the launcher writes), CLAUDE_CONFIG_DIR (else ~/.claude for the agent
                files and the user settings; else $HOME for .claude.json),
                HOME. AGENT_FABRIC_ROOT is SET for the children, to this
                checkout (the module's own location), never read.
@@ -296,8 +299,8 @@ class Installer:
         # The locale worker: the language-culture role's subagent, one inert tool, whose
         # system prompt is the locale's language (docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md).
         # Installed as ~/.claude/agents/locale-worker.md on a login of that role
-        # whose name ends in a locale the fabric authored
-        # (identities/roles/language-culture/locale/<locale>/worker.md); removed —
+        # whose locale (--locale, else the last launch's record) the fabric
+        # authored a worker for (identities/roles/language-culture/locale/<locale>/worker.md); removed —
         # by the `agent-fabric` marker in its description, as blind-reviewer.md
         # below — from any other login, and from one whose locale has no worker,
         # so a rebind never serves another locale's worker. No per-provider pin:
