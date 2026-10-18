@@ -160,11 +160,36 @@ def _set_base(store: str, commit: str) -> None:
     git(store, "config", TRUST_KEY, commit)
 
 
-def trust_base(commit: str | None = None, store: str | None = None) -> dict:
+def _keep_base(store: str, verified_tip: str) -> None:
+    """Called by a write whose rebase of its unpushed commits onto the verified
+    remote tip orphaned a base that HEAD descended from before it (init's
+    first commit, a trust-base at an unpushed head). A base left there
+    would stop every later launch: addenda.load refuses a HEAD that does
+    not descend from it. The base goes back to the commit it and HEAD still
+    share, which only trusts less: _verify_incoming excludes all of HEAD
+    already, so nothing is lost by it. With no commit in common (an unrelated
+    root rebased onto the remote's history) it goes to verified_tip, whose
+    whole history _verify_incoming has just checked. Never called to repair
+    a HEAD that was already off its base before the write: that stays the
+    tamper refusal addenda.load makes (ADR-060 rule 7)."""
+    base = trusted_base(store)
+    if not base or _is_ancestor(store, base, "HEAD"):
+        return
+    common = git(store, "merge-base", base, "HEAD", check=False)
+    _set_base(store, common.stdout.decode().strip() if common.returncode == 0 and common.stdout.strip() else verified_tip)
+
+
+_BASE_REMEDY = "fabric-secrets store trust-base --replace-orphaned [--store DIR]"
+
+
+def trust_base(commit: str | None = None, store: str | None = None, *, replace_orphaned: bool = False) -> dict:
     """The store's trusted base: the commit up to which its history is taken
     unsigned (ADR-042 rule 4). Set once — the migration — and only ever
     moved forward: a base that is not a descendant of the one recorded is
-    refused, never a way to trust more of the past."""
+    refused, never a way to trust more of the past. replace_orphaned: the
+    one exception, for a recorded base that HEAD does not descend from (a
+    commit a reset or rebase orphaned, so nothing "forward" of it exists):
+    the owner has checked HEAD against the remote and records it."""
     store = store or store_dir()
     key_of_store(store)
     # Read, checked and written under the store's lock: a write's fetch
@@ -175,8 +200,11 @@ def trust_base(commit: str | None = None, store: str | None = None) -> dict:
         if not _is_ancestor(store, new, "HEAD"):
             raise StoreError(f"{new[:12]} is not in this store's history; a base is a commit the store already holds")
         old = trusted_base(store)
-        if old and not _is_ancestor(store, old, new):
-            raise StoreError(f"the trusted base is {old[:12]}; {new[:12]} does not follow it, and a base only moves forward")
+        orphaned = bool(old) and not _is_ancestor(store, old, "HEAD")
+        if old and not _is_ancestor(store, old, new) and not (replace_orphaned and orphaned):
+            raise StoreError(f"the trusted base is {old[:12]}; {new[:12]} does not follow it, and a base only moves forward"
+                             + (f" — but HEAD {_full(store, 'HEAD')[:12]} does not descend from that base either: after checking HEAD against the remote, "
+                                f"{_BASE_REMEDY}" if orphaned else ""))
         _set_base(store, new)
         return {"store": store, "trusted_base": new, "was": old}
 

@@ -8,7 +8,7 @@ import sys
 
 from .core import NAME_RE, UID_DOMAIN, StoreError, login, AGENT_ID_RE, own_agent_id, store_dir, _run, gpg, git
 from .keys import fingerprints, key_of_store, _ensure_use_subkeys, uid_of, _signing_args
-from .trust import _git_env, _commit, trusted_base, _full, _set_base, _verify_incoming, _taken
+from .trust import _git_env, _commit, trusted_base, _full, _set_base, _verify_incoming, _taken, _keep_base
 from .lock import write_lock, require_write_lock, lock_wait_s
 
 
@@ -145,10 +145,16 @@ def _before_write(store: str) -> None:
     # added since, each commit signed by a writer; then this store's own
     # unpushed commits go on top, signed again by their writer.
     tip = _verify_incoming(store, f"refs/remotes/origin/{branch}")
+    base = trusted_base(store)
+    held = bool(base) and git(store, "merge-base", "--is-ancestor", base, "HEAD", check=False).returncode == 0
     r = _run(["git", "-C", store, *_signing_args(), "rebase", "-q", tip], env=_git_env(), check=False)
     if r.returncode != 0:
         _run(["git", "-C", store, "rebase", "--abort"], check=False)
         raise failed(r)
+    # The rebase rewrote this store's unpushed commits; a base on one of them
+    # (init's first commit, a trust-base at an unpushed head) is orphaned.
+    if held:
+        _keep_base(store, tip)
     _taken(store, tip)
 
 
