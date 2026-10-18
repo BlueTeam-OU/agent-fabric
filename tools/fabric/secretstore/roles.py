@@ -89,14 +89,11 @@ def _checked_args(role: str, approval: str, reviewed_by: list[str], authored_by:
         raise StoreError(f"--authored-by {authored_by!r} is not a login; nothing written")
 
 
-LOCALES_REL = os.path.join("identities", "roles", "language-culture", "locale")
-
-
 def _locale_keys(lang: str, fabric: str | None) -> list[str]:
     """The language-culture locales whose locale.json `tag` is in `lang` (ka-GE has ka: key ge), ADR-060 §5 rule 6.
     A locale.json that cannot be read is a refusal naming it, never a locale that is skipped: skipping it would
     answer "no reviewer for this language" for a reason the operator cannot see."""
-    base = os.path.join(fabric or roots.operator_root(), LOCALES_REL)
+    base = os.path.join(roots.role_dir("language-culture", root=fabric), "locale")
     keys = []
     try:
         names = sorted(os.listdir(base))

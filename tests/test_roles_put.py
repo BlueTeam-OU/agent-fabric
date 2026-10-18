@@ -49,13 +49,11 @@ def main() -> int:
         fabric = os.path.join(tmp, "fabric")
         os.makedirs(os.path.join(fabric, "identities", "keys"))
         write_secrets_instance(fabric)
-        # The fixture fabric holds the locales' real tags (read from this checkout, not a map kept here), in the real shape.
-        real_locales = os.path.join(ROOT, "identities", "roles", "language-culture", "locale")
+        # A fixture fabric with the locales' shape: one directory per language-culture locale, its locale.json tag a
+        # BCP-47 tag (ge is Georgian, so ka-GE: the reviewer of `ka` is language-culture-ge, ADR-060 section 5 rule 6).
         locales = os.path.join(fabric, "identities", "roles", "language-culture", "locale")
-        for key in sorted(os.listdir(real_locales)):
+        for key, tag in (("en", "en-US"), ("ge", "ka-GE"), ("ru", "ru-RU")):
             os.makedirs(os.path.join(locales, key))
-            with open(os.path.join(real_locales, key, "locale.json"), encoding="utf-8") as fh:
-                tag = json.load(fh)["tag"]
             with open(os.path.join(locales, key, "locale.json"), "w", encoding="utf-8") as fh:
                 json.dump({"tag": tag}, fh)
 
