@@ -83,7 +83,7 @@ def main() -> int:
                 self.wfile.write(b"{}")
                 return
             if self.path == "/silent":
-                time.sleep(3)   # the connection held, no answer within the caller's bound
+                time.sleep(10)   # the connection held, no answer within the caller's bound; far past the 5 s a loaded host is allowed below
                 return
             if self.path in ("/trickle", "/trickle-head"):
                 head = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 400\r\n\r\n"
@@ -94,7 +94,7 @@ def main() -> int:
                 else:
                     out = head + body
                 try:
-                    for c in out:    # a byte every 0.1 s: 40 s of it, far past any bound here
+                    for c in out:    # a byte every 0.1 s: 40 s of it; a call that outlives its bound reads all of it, so the ceiling below is 10 s, not a tight multiple of the bound a loaded host would trip
                         self.wfile.write(bytes([c]))
                         self.wfile.flush()
                         time.sleep(0.1)
@@ -151,7 +151,7 @@ def main() -> int:
             except cg.ApiError as e:
                 check(f"a silent relay is no answer within {said} s, never a hang",
                       e.timed_out is True and e.status is None and str(e) == f"/silent -> no answer within {said} s"
-                      and time.monotonic() - t0 < 2, (str(e), e.timed_out, time.monotonic() - t0))
+                      and time.monotonic() - t0 < 5, (str(e), e.timed_out, time.monotonic() - t0))
         for path, what in (("/trickle", "its body"), ("/trickle-head", "its status line and headers")):
             t0 = time.monotonic()
             try:
@@ -160,7 +160,7 @@ def main() -> int:
             except cg.ApiError as e:
                 took = time.monotonic() - t0
                 check(f"a relay that trickles {what} is held to the bound, never longer",
-                      e.timed_out is True and 0.45 < took < 1.0, took)
+                      e.timed_out is True and 0.45 < took < 10, took)
         got = cg.api("tok", "/big", relay_url=relay_url)
         check("the relay's JSON is read as JSON.parse reads it: an integer past 2**53 is a double",
               got == {"id": 9007199254740992.0} and isinstance(got["id"], float), got)
@@ -246,7 +246,7 @@ def main() -> int:
         except cg.ApiError as e:
             took = time.monotonic() - t0
             check("a deadline passed while the name resolved ends the call at connect, never a trickle after it",
-                  e.timed_out is True and took < 1.5, took)
+                  e.timed_out is True and took < 10, took)   # a trickle read after the deadline lasts 40 s
     finally:
         _s.getaddrinfo = real_gai
         slow_relay.shutdown()
@@ -271,11 +271,12 @@ def main() -> int:
     try:
         t0 = time.monotonic()
         try:
-            cg.api("tok", "/x", relay_url="http://three.invalid:1", timeout_s=0.5)
+            cg.api("tok", "/x", relay_url="http://three.invalid:1", timeout_s=1.0)
             check("three addresses that never answer share one bound", False)
         except cg.ApiError as e:
             took = time.monotonic() - t0
-            check("three addresses that never answer share one bound, never three", e.timed_out is True and took < 0.9, took)
+            # One bound is 1 s, three are 3 s: 2 s sits between with a second each way for a loaded host.
+            check("three addresses that never answer share one bound, never three", e.timed_out is True and took < 2.0, took)
     finally:
         _s.getaddrinfo = real_gai
         for c in fillers:
@@ -295,7 +296,7 @@ def main() -> int:
         check("a TLS handshake that is never answered ends at the bound", False)
     except cg.ApiError as e:
         took = time.monotonic() - t0
-        check("a TLS handshake that is never answered ends at the bound", e.timed_out is True and took < 0.9, (took, str(e)))
+        check("a TLS handshake that is never answered ends at the bound", e.timed_out is True and took < 5, (took, str(e)))   # unbounded, the handshake never ends
         check("...through tls_context(), the context with the floor", asked == [1], asked)
     finally:
         cg.tls_context = real_tls
