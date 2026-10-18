@@ -232,7 +232,11 @@ LOCALE_ENGINES = {
 # (ka-GE), not German — so the dictionary that suffix reads is found by
 # data and never by reading the directory name (communication/gzcoord/
 # i18n/README.md).
-LOCALE_FILE_RE = {"timezone": re.compile(r"^[A-Za-z_]+/[A-Za-z_]+(/[A-Za-z_]+)?$"),
+# The timezone's shape admits every IANA spelling (UTC, Etc/GMT-3,
+# America/Port-au-Prince); whether the name exists is the launcher's check
+# (addenda_check._is_iana, against the host's tz database), which lint
+# cannot make for every host.
+LOCALE_FILE_RE = {"timezone": re.compile(r"^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+){0,2}$"),
                   "tag": re.compile(r"^[a-z]{2,3}-[A-Z]{2}$")}
 
 
