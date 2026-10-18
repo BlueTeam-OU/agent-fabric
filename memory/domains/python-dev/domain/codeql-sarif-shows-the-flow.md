@@ -5,7 +5,7 @@ topic: "codeql-sarif-shows-the-flow"
 description: a CodeQL alert you cannot explain — fetch the analysis SARIF; its codeFlows name the exact source (often a name heuristic on a constant)
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

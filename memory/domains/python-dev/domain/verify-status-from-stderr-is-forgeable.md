@@ -5,7 +5,7 @@ topic: "verify-status-from-stderr-is-forgeable"
 description: "parsing [GNUPG:] lines from git verify-commit --raw stderr — git's own error quotes the signature header; gate on exit 0"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

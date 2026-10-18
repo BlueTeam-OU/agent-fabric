@@ -4,7 +4,7 @@ class: threads
 description: "Gateway Stage 6 — who does steps 4-7, the agreed API of gateway-protocol-openai-responses, and the usage-op contract decision"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

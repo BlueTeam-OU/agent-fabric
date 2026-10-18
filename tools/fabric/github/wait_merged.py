@@ -25,6 +25,7 @@ Usage:
   fabric-pr wait-merged <pr-number> [options]
 
 Options:
+  --repo <owner/name|project>  the PR's repository, not the cwd checkout's
   --interval <duration>  between checks (default 30; the API is rate
                          limited and merges take minutes, not seconds)
   --timeout <duration>   give up after this long (default 2400 = 40m)

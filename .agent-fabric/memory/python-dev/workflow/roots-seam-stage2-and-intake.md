@@ -5,7 +5,7 @@ topic: "roots-seam-stage2-and-intake"
 description: "j6/j7/j11 (roots-seam tests on fixtures, bare command hints, REQUEST intake) — MERGED as #136; what it left and how it was run"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

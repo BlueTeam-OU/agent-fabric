@@ -5,13 +5,14 @@ topic: "forge-port-oracle-runs"
 description: "How to run a managed project's bash test as the oracle for a forge-script port into agent-fabric, with no clone of that project on this login"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 3920ce3e764aa65b
   - a7e2303ad8dd8111
 ---
 
@@ -38,6 +39,19 @@ A fast clock through BASH_ENV does not reach Python: devex-tooling ruled
 the Python test patches its own clock in process. Plant oracle mutations
 too: the wait-merged oracle never pinned the checks-failure reset — a
 mutation survived it and needed a Python case. See [[forge-port-queue]].
+
+**Oracle cases that cannot cross into Python (seen on pr-compliance, wait-merged, guards-wired):**
+a bash test's seams reach only a bash script: a BASH_ENV clock, a stub sourced from
+`$AGENT_FABRIC_ROOT/...`, a stub logging what the classifier was told, per-script env
+names (CHECKS_DIR, GH_REPO_OWNER). Before coding, list each oracle assertion that tests the
+test's own seam, not the script; put the list to the contract's owner with a proposal per case
+(retire it and pin the fact by patching in process, or add one named env seam the forwarder sets).
+Never add a clock or stub seam to production code unasked. A forwarder that finds the fabric
+through AGENT_FABRIC_ROOT breaks when the oracle points that at its sandbox.
+**Why:** the oracle runs unchanged is the parity proof; a case that can only fail on the
+test's seam proves nothing and blocks the port until ruled.
+**How to apply:** run the pristine oracle through the scratch forwarder first; the cases that
+fail for seam reasons are the list, the rest must pass unchanged.
 
 *References: forge-port-queue*
 

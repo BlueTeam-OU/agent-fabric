@@ -3,7 +3,7 @@ role: "rust-services-dev"
 class: index
 description: "What rust-services-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 ---
 
 # rust-services-dev — knowledge index
@@ -31,9 +31,18 @@ control plane checked out beside it.
 - [`memory/domains/rust-services-dev/domain/hyper-cancellation-and-head-deadline.md`](memory/domains/rust-services-dev/domain/hyper-cancellation-and-head-deadline.md) — What hyper 1.x itself does on body drop and idle connections, and how gateway tests separate it from the gateway's own guards
 - [`memory/domains/rust-services-dev/domain/hyper-client-closes-finished-sized-body.md`](memory/domains/rust-services-dev/domain/hyper-client-closes-finished-sized-body.md) — A test proving the gateway closed an upstream connection must leave that response's body unfinished — hyper's client closes a fully-received sized body itself
 - [`memory/domains/rust-services-dev/domain/nofollow-directory-symlink-enotdir.md`](memory/domains/rust-services-dev/domain/nofollow-directory-symlink-enotdir.md) — openat(O_DIRECTORY|O_NOFOLLOW) on a symlink fails ENOTDIR on Linux, not ELOOP; classify with fstatat
+- [`memory/domains/rust-services-dev/domain/pipefail-head-sigpipe.md`](memory/domains/rust-services-dev/domain/pipefail-head-sigpipe.md) — `cmd | head -1` under set -o pipefail fails intermittently and silently; use sed's q instead
 - [`memory/domains/rust-services-dev/domain/serde-derive-accepts-arrays.md`](memory/domains/rust-services-dev/domain/serde-derive-accepts-arrays.md) — A derived serde struct also deserializes from a JSON array; a field probe that must only accept objects needs a map-only visitor
 - [`memory/domains/rust-services-dev/domain/serde-tagged-unit-variant-ignores-unknown.md`](memory/domains/rust-services-dev/domain/serde-tagged-unit-variant-ignores-unknown.md) — serde internally tagged enum unit variant accepts unknown keys despite deny_unknown_fields; use an empty struct variant
+- [`memory/domains/rust-services-dev/domain/spike-fact-is-its-configuration.md`](memory/domains/rust-services-dev/domain/spike-fact-is-its-configuration.md) — a spike's wire observation describes the client configuration it ran; check it in the configuration the gateway serves and commit it to the record before a contract relies on it
 - [`memory/domains/rust-services-dev/domain/tracing-set-default-misses-events.md`](memory/domains/rust-services-dev/domain/tracing-set-default-misses-events.md) — a thread-scoped tracing subscriber in a unit test misses events when other tests hit the same callsite; log tests need their own binary
+- [`memory/domains/rust-services-dev/domain/validator-shares-runtime-construction.md`](memory/domains/rust-services-dev/domain/validator-shares-runtime-construction.md) — a validator that copies the runtime's acceptance rule as a pattern drifts both ways; validate by calling the constructor the runtime uses
+
+## workflow
+
+- [`.agent-fabric/memory/rust-services-dev/workflow/agent-repo-commit.md`](.agent-fabric/memory/rust-services-dev/workflow/agent-repo-commit.md) — how my persona/settings reach my own fabric-agent-<id> repository — never by hand
+- [`.agent-fabric/memory/rust-services-dev/workflow/disk-hygiene.md`](.agent-fabric/memory/rust-services-dev/workflow/disk-hygiene.md) — clean a finished job's worktree target/ when the job ends; the fleet's disks fill up
+- [`.agent-fabric/memory/rust-services-dev/workflow/housekeeping-is-not-a-job.md`](.agent-fabric/memory/rust-services-dev/workflow/housekeeping-is-not-a-job.md) — an asked-for cleanup with no PR, commit or reply goes in the active job's note, never as its own job
 
 ## threads
 

@@ -23,7 +23,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
                <state>/agents/<login>/launch-provider.json, which the
                launcher writes; else anthropic), the locale with no --locale
                from <state>/agents/<login>/launch-locale.json (launch_locale.py,
-               which the launcher writes), CLAUDE_CONFIG_DIR (else ~/.claude for the agent
+               which the launcher writes), else launch-holder.json's
+               holder.locale for a session that predates it, CLAUDE_CONFIG_DIR (else ~/.claude for the agent
                files and the user settings; else $HOME for .claude.json),
                HOME. AGENT_FABRIC_ROOT is SET for the children, to this
                checkout (the module's own location), never read.

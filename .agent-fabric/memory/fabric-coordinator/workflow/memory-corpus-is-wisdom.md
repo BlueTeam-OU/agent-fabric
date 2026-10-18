@@ -5,7 +5,7 @@ topic: "memory-corpus-is-wisdom"
 description: "The owner's framing of the curated memory corpus (2026-10-10): wisdom, not memory; happened facts live in git, PRs, ADRs, job logs and GZCoord; superseded knowledge is the slice's git history"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

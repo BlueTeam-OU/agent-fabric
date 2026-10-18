@@ -5,7 +5,7 @@ topic: "suite-snapshots-git-config"
 description: "tests/run.sh fails if the live clone's git config changes mid-run — no worktree/branch with upstream in that clone while the suite runs"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

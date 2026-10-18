@@ -28,23 +28,71 @@ def read_body() -> str | None:
 def project_config_path(setting: str, filename: str, subdir: str | None = "gh") -> str:
     """The file the environment variable `setting` names, else
     projects/<id>/integration/[<subdir>/]<filename> for the project the
-    current working copy belongs to, else "" (the caller says which tool
-    found no project). Unlike cli_root.project_config the file need not
+    current working copy belongs to (or that AGENT_FABRIC_PR_PROJECT
+    names), else "" (the caller says which tool found no project). Unlike cli_root.project_config the file need not
     exist: the caller names a missing one in its own words."""
     explicit = os.environ.get(setting, "")
     if explicit:
         return explicit
-    top = local.toplevel()
-    if not top:
-        return ""
-    try:
-        import workingcopy
-        pid = workingcopy.resolve(top).get("project")
-    except (Exception, SystemExit):   # a marker naming nothing the registry knows exits
-        pid = None
+    # Set, even empty, it is the project of the repository `fabric-pr --repo`
+    # named: empty is a repository no project registers, which has no rules,
+    # and is never given the cwd's.
+    if PR_PROJECT_SETTING in os.environ:
+        pid = os.environ[PR_PROJECT_SETTING]
+    else:
+        top = local.toplevel()
+        if not top:
+            return ""
+        try:
+            import workingcopy
+            pid = workingcopy.resolve(top).get("project")
+        except (Exception, SystemExit):   # a marker naming nothing the registry knows exits
+            pid = None
     if not pid:
         return ""
     return roots.project_integration(pid, subdir, filename) if subdir else roots.project_integration(pid, filename)
+
+
+PR_PROJECT_SETTING = "AGENT_FABRIC_PR_PROJECT"
+_OWNER_NAME = re.compile(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
+
+
+def fabric_pr_verb(fabric: str, verb: str) -> list[str]:
+    """The argv head of the checkout `fabric`'s `fabric-pr <verb>`, run by a
+    verb. Under `--repo` that repository goes with it: the dispatcher drops
+    an inherited AGENT_FABRIC_PR_PROJECT when a verb is given no --repo, so
+    the nested reader would read the cwd's project for the named
+    repository's PR (review F2 on #300)."""
+    head = [os.path.join(fabric, "bin", "fabric-pr"), verb]
+    if PR_PROJECT_SETTING in os.environ and os.environ.get("GH_REPO"):
+        head += ["--repo", os.environ["GH_REPO"]]
+    return head
+
+
+class NoRepository(Exception):
+    pass
+
+
+def resolve_repository(value: str) -> tuple[str, str]:
+    """(owner/name, project id or "") for what `fabric-pr --repo` was given:
+    an owner/name, matched to a project as arm_policy matches it (the
+    registry's canonical remotes), or a project id or repository name
+    (pr_counts.resolve_name, case-insensitive, an ambiguous name refused).
+    An owner/name no project registers is that repository with no project."""
+    import workingcopy
+    from github import pr_counts
+    if "/" in value:
+        if not _OWNER_NAME.fullmatch(value):
+            raise NoRepository(f"{value!r} is not <owner>/<name> or a project id")
+        try:
+            registry = workingcopy.load_registry()
+        except (OSError, ValueError) as e:
+            raise NoRepository(f"projects/registry.json cannot be read ({type(e).__name__}: {e})") from None
+        return value, workingcopy.project_for_remote(f"https://github.com/{value}", registry) or ""
+    try:
+        return pr_counts.resolve_name(value, pr_counts.registry_projects())
+    except pr_counts.Unreadable as e:
+        raise NoRepository(str(e)) from None
 
 
 PR_TOOLS_SETTING = "AGENT_FABRIC_PR_TOOLS_CONFIG"

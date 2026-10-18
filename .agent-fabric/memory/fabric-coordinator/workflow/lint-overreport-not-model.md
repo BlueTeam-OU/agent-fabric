@@ -5,7 +5,7 @@ topic: "lint-overreport-not-model"
 description: "A guard lint whose fix is always safe should over-report on the language's static scoping, not model runtime order — #143's $ rule took four review rounds learning this"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

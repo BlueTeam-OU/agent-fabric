@@ -5,7 +5,7 @@ topic: "nudge-idle-agent-by-message"
 description: An agent that seems idle is nudged by me with a GZCoord message first — never handed to the owner to type into its terminal
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

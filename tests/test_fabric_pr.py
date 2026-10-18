@@ -69,7 +69,10 @@ def main() -> int:
         check("--help after a verb goes to the module", r.stdout == "module=pr_gate.py argv=['--help']\n", r.stdout)
 
         print("fabric-pr — the verb list")
-        listing = f"usage: fabric-pr <verb> [args…]\nverbs: {LIST}\n"
+        listing = (f"usage: fabric-pr <verb> [args…]\nverbs: {LIST}\n--repo <owner>/<name>|<project>: gate, review-status,"
+                   " post-review, arm, wait-merged act on that repository's PR, never the cwd checkout's;\n"
+                   "  an exported AGENT_FABRIC_ARM_CONFIG still names the arm rules, and commits are counted only in a"
+                   " clone of that repository\n")
         for argv in ([], ["help"], ["--help"]):
             r = run([pr, *argv])
             check(f"{argv or 'no verb'} lists the verbs, exit 0", (r.stdout, r.stderr, r.returncode) == (listing, "", 0),
@@ -105,6 +108,25 @@ def main() -> int:
         r = run([pr, "gate"], {"AGENT_FABRIC_ROOT": "/elsewhere"})
         check("the environment reaches the module as it was (AGENT_FABRIC_ROOT is not set for it)",
               r.stdout.startswith("module=pr_gate.py"), r.stdout)
+
+        print("fabric-pr — --repo is the dispatcher's, for the one-repository verbs only")
+        r = run([pr, "sessions", "--repo", "x"])
+        check("a verb that takes no --repo gets it in its argv, untouched",
+              r.stdout == "module=pr_sessions.py argv=['--repo', 'x']\n", (r.stdout, r.stderr))
+        r = run([pr, "gate", "7", "--", "--repo", "x"])
+        check("after --, --repo is the module's argv", r.stdout == "module=pr_gate.py argv=['7', '--', '--repo', 'x']\n",
+              (r.stdout, r.stderr))
+        r = run([pr, "gate", "--repo"])
+        check("--repo with no value: exit 2, said, the module never run",
+              (r.stdout, r.returncode) == ("", 2) and r.stderr.startswith("fabric-pr: --repo: needs"), (r.stdout, r.stderr))
+        envprint = ('import os\nprint(repr(os.environ.get("AGENT_FABRIC_PR_PROJECT")))\n')
+        with open(f"{fake}/tools/fabric/github/pr_gate.py", "w") as fh:
+            fh.write(envprint)
+        r = run([pr, "gate", "7"], {"AGENT_FABRIC_PR_PROJECT": "inherited"})
+        check("without --repo an inherited AGENT_FABRIC_PR_PROJECT is dropped (the cwd's project stands)",
+              r.stdout == "None\n", (r.stdout, r.stderr))
+        with open(f"{fake}/tools/fabric/github/pr_gate.py", "w") as fh:
+            fh.write(FAKE)
 
         print("fabric-query — reaches its module")
         r = run([f"{fake}/bin/fabric-query", "adr", "ADR-054", "x y"], {"FAKE_RC": "3"})

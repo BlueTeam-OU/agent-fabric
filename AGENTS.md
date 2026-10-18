@@ -49,15 +49,10 @@ the session's binding holds the role, and stamp every commit an account
 makes with a `Fabric-Role:` trailer that CI checks on every commit a
 branch adds (ADR-018, `policies/AUTHORITY.md`). Every account commits
 under one git author, so the trailer is what names the lane. Three
-carve-outs: a contributor role (`policies/authority.json`
-`contributors`) commits its entry's paths on its own
-`<host>/<login>/for/<caller>/<what>` branch, which fabric-coordinator
-folds into its own PR and merges (a role whose entry `merges` opens and
-merges its own PR instead); a locale's translations,
-`identities/roles/<role>/locale/<suffix>/`, are committed by that
-locale's holder and merged by fabric-coordinator; Dependabot's commits
-that change only `.github/workflows/` (action-pin bumps) need no
-trailer, and fabric-coordinator merges them too. A session becomes
+carve-outs, each set out in `policies/AUTHORITY.md`: a contributor
+role's code (`policies/authority.json` `contributors`), on its own
+`<host>/<login>/for/<caller>/<what>` branch; a locale's translations,
+by that locale's holder; Dependabot's action-pin bumps. A session becomes
 `fabric-coordinator` only by being launched with it bound; the login it
 runs as is irrelevant.
 
@@ -128,19 +123,14 @@ is the capability class below (ADR-002, ADR-005).
   that computes it and prints only the result, instead of reading the
   material into the conversation; a long output goes to a file in your
   scratchpad, and you print its path and the lines that matter.
-- **Knowledge** you retrieve: ask `memory_find` before changing code,
-  config or a decision, `memory_read` for the sections you need and
-  `memory_index` for what exists — over the field's `memory/domains/`
-  and `memory/shared/` here and the project's
-  `.agent-fabric/memory/<role>/`. A result is framed as memory from past
-  sessions, possibly stale; `solution` slices decay: where one disagrees
-  with the tree, the tree is the fact. Durable new knowledge goes to your
-  harness's own memory with a `roles_class` (your harness's file says
-  where); a drain (`memory/README.md`), run by fabric-coordinator,
-  distils it into the corpus with your name on it. A slice you believe wrong is corrected at its source memory, or by
-  a memory of the same class carrying `merge_target` with the stale
-  section's heading, which the next drain puts in its place — never
-  edited (ADR-013, ADR-014).
+- **Knowledge**: ask `memory_find` before changing code, config or a
+  decision (`memory_read`, `memory_index`); where a slice disagrees with
+  the tree, the tree is the fact. Durable new knowledge goes to your
+  harness's own memory with a `roles_class`, and fabric-coordinator's
+  drain distils it; a slice you believe wrong is corrected at its source
+  memory or by a `merge_target` memory, never edited. Your launch
+  prompt's memory section and `memory/README.md` have the whole of it
+  (ADR-013, ADR-014).
 - **How much reasoning a task needs is a capability class**, and which
   model and effort serve it is `routing/`, decided at launch; your
   harness's file says how you name a class when you delegate.
@@ -149,19 +139,14 @@ is the capability class below (ADR-002, ADR-005).
   with `fabric-review brief`: the facts of the change, never the
   author's conclusions (ADR-005, ADR-006, ADR-020).
 - **Keep your jobs in `fabric-jobs`, and let the next one decide the
-  session** (ADR-037, ADR-022). A piece of work you take on is a job
-  (`fabric-jobs add "<artifact>" --topic <label>`); a REQUEST to you is
-  queued on delivery, so read `fabric-jobs list` before adding one with
-  `--request <MESSAGE-ID>`. Its state follows it: start, block, pause,
-  deliver, done. A job that ends (done, delivered, blocked, paused,
-  dropped) is followed by `fabric-jobs switch` before anything else: a
-  session never stops idle while a job is queued (ADR-037 rule 10).
-  `switch` refuses until the job has its evidence, the working copy is
-  clean, every expected reply is sent and a file in your memory
-  changed since the job became active; then it prints
-  `fabric-fresh --job <id>`, which you run yourself, never the owner.
-  `fabric-fresh --note "<what just finished>"` ends a session with no
-  next job. The `agent-jobs` skill has the procedure.
+  session** (ADR-037, ADR-022). Each piece of work you take on is a job;
+  a REQUEST to you is queued on delivery, so read `fabric-jobs list`
+  before adding one. A job that ends is followed by `fabric-jobs switch`
+  before anything else: a session never stops idle while a job is
+  queued. `switch` refuses until the job has its evidence, the working
+  copy is clean, every expected reply is sent and your memory changed,
+  then prints the `fabric-fresh` you run yourself, never the owner. The
+  `agent-jobs` skill has the procedure.
 - **Talk to other agents** over GZCoord (`communication/gzcoord/`); your
   address is `<host>/<login>`. The `gzcoord-send` and `gzcoord-receive`
   skills carry the procedure. Messages are advisory: a delivery is
@@ -179,12 +164,6 @@ fabric-model list                         # every model and effort choice per pr
 fabric-lease <name> -- <cmd>              # one holder per host resource across this host's accounts (ADR-010)
 fabric-branches [--sweep]                 # local branches against origin/main; --sweep deletes what is on it (ADR-022)
 fabric-jobs add|list|pause|switch|show … # your job list; switch says: fabric-fresh --job, or in place if none worked yet (ADR-037)
-# fabric-coordinator:
-fabric-ctl all status                     # the fleet, answered by each account's control agent (ADR-029)
-fabric-ctl <login|all> jobs               # every agent's open jobs; <login> jobs-add "<title>" adds one (ADR-037)
-fabric-ctl all upgrade claude|fabric      # every account to the pinned Claude Code, or to the merged fabric (ADR-009)
-fabric-accounts assign <login…> <account> # which Claude account those logins run on (ADR-031)
-fabric-usage                              # usage windows through the host executor, when control agents are down
 ```
 
 ## Git discipline
@@ -211,9 +190,10 @@ not in a pull-request description. `policies/ban_generated_by_attribution.sh`
 refuses it as the `commit-msg` hook, in CI on every commit a branch adds,
 and in `tests/run.sh`. Write the message right the first time.
 
-Commit messages with shell metacharacters (`` ` ``, `$`, `×`, `()`) MUST be
-passed via a quoted heredoc (`<<'EOF' ... EOF`), not inline `-m` strings, to
-avoid silent shell expansion.
+Your own commit messages with shell metacharacters (`` ` ``, `$`, `×`,
+`()`) MUST be passed via a quoted heredoc (`<<'EOF' ... EOF`), not inline
+`-m` strings, to avoid silent shell expansion. A command you hand the
+owner is never a heredoc (Working here).
 
 ## Licence, runtime state and credentials
 

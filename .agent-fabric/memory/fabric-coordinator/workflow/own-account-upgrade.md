@@ -5,7 +5,7 @@ topic: "own-account-upgrade"
 description: "How the coordinator's own account gets the merged fabric — upgrade all refuses it off main; my agentd runs whatever this checkout has checked out"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

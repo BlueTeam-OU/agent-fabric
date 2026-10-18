@@ -5,7 +5,7 @@ topic: "make-recursive-line-runs-under-dry-run"
 description: "a recipe line that references $(MAKE) RUNS under make -n — a callback string carrying $(MAKE) made `make -n tiles-publish` publish a real vintage"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

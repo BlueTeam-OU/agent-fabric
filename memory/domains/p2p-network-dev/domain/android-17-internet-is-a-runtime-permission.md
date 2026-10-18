@@ -5,7 +5,7 @@ topic: "android-17-internet-is-a-runtime-permission"
 description: "On Android 17 (API 37) INTERNET is a runtime permission (prot=dangerous|instant); a fresh install holds none and every socket() answers EPERM; libp2p-core TransportError::Other displays EMPTY"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

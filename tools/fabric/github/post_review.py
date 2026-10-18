@@ -70,6 +70,7 @@ and this is how that review reaches the PR and the gate.
 
 Usage:
   fabric-pr post-review <pr> [options]   # body on stdin
+  fabric-pr post-review --repo <owner/name|project> <pr> …   # another repository's PR
 
   # The review class's report, as it arrives: it opens with the brief's
   # agent-fabric-dispatch v1 block, which names the head it read.
@@ -412,7 +413,7 @@ def run(argv: list[str], stdin) -> int:
     try:
         meta = gh.pr_view(int(pr), ["number", "state", "headRefName", "headRefOid"])
     except (gh.GhError, ValueError):
-        die(f"could not read PR #{pr}.")
+        die(f"could not read PR #{pr} in {repo} (--repo names another repository).")
     # FAILS CLOSED, and this is what makes the lane guard true: a payload
     # missing the branch read as "names no session" in the bash, and the
     # guard took the POSTING path.

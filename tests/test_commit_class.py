@@ -13,6 +13,7 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from github import commit_class as cc  # noqa: E402
+from instance_fixtures import write_operator_projects  # noqa: E402 — tests/, the script's own directory
 
 
 def main() -> int:
@@ -30,6 +31,7 @@ def main() -> int:
         check("known_repos: each project id and each remote's name, lower-cased",
               cc.known_repos(reg) == {"gzapp", "interweave"}, cc.known_repos(reg))
         check("known_repos: an unreadable registry names none", cc.known_repos(os.path.join(tmp, "none.json")) == set())
+        own_names(check, tmp)
     check("_ref: owner/repo#N of this repository is N", cc._ref("gzapi-org/agent-fabric#53", "gzapi-org/agent-fabric") == "53")
     check("_ref: owner/repo#N of another is x", cc._ref("gzapi-org/gzapp#53", "gzapi-org/agent-fabric") == "x")
     check("_ref: 'PR #918' is this repository's", cc._ref("PR #918", "gzapi-org/agent-fabric") == "918")
@@ -70,6 +72,39 @@ def main() -> int:
     check("answers_of: a block with prose in it declares nothing", a("s\n\nAnswers: F1\nnot a trailer") == "")
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
+
+
+def own_names(check, tmp: str) -> None:
+    """A project is one repository under all its names (REQUEST 01a150de):
+    herdr's remotes are agent-fabric-fleetdeck and the agent-fabric-herdr
+    it was renamed from, so "herdr#44" on fleetdeck#44 is that PR's own
+    review. classify reads the registry through AGENT_FABRIC_OPERATOR, as
+    every caller does; a fixture, never the checkout's."""
+    here = "BlueTeam-OU/agent-fabric-fleetdeck"
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    os.environ["AGENT_FABRIC_OPERATOR"] = write_operator_projects(os.path.join(tmp, "operator"), {
+        "herdr": ["git@github.com:BlueTeam-OU/agent-fabric-fleetdeck.git", "https://github.com/BlueTeam-OU/agent-fabric-herdr"],
+        "gzapp": ["git@github.com:gzapi-org/gzapp.git"]})
+    try:
+        def fleetdeck(answers: str) -> str:
+            return cc.classify("a", "the pane keeps its focus", answers, "44", here, "review-fix")
+        check("own_names: the repository's own name, its project's id and every remote's name",
+              cc.own_names(here) == {"agent-fabric-fleetdeck", "agent-fabric-herdr", "herdr"}, cc.own_names(here))
+        check("own_names: a repository no project holds is named by its own name only",
+              cc.own_names("other-org/elsewhere") == {"elsewhere"}, cc.own_names("other-org/elsewhere"))
+        check("classify: 'Answers: herdr#44' on fleetdeck#44 is the PR's own review fix (the project id)",
+              fleetdeck("herdr#44 review round 2 F1") == "fix")
+        check("classify: 'Answers: agent-fabric-herdr#44' there, the old name, is too",
+              fleetdeck("agent-fabric-herdr#44 F1") == "fix")
+        check("classify: 'Answers: gzapp#44' there names another project's PR: work",
+              fleetdeck("gzapp#44 F1") == "work")
+        check("classify: 'Answers: herdr#43' there answers another PR of this repository: work",
+              fleetdeck("herdr#43 F1") == "work")
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
 
 
 # A fake gh on PATH: `gh pr view <n> --json … --repo <r>` prints

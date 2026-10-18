@@ -5,7 +5,7 @@ topic: "role-env-strips-git-vars"
 description: "a test's role env built from os.environ must drop inherited GIT_*; prove with GIT_DIR at a decoy repo and a hostile GIT_CONFIG_GLOBAL"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

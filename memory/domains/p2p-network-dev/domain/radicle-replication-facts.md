@@ -5,7 +5,7 @@ topic: "radicle-replication-facts"
 description: "Radicle 1.10.3 replication and reachability facts measured in radicle-spike (lag, clone timeout, NAT, netns)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

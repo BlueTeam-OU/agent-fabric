@@ -5,7 +5,7 @@ topic: "request-needs-a-job"
 description: "A REQUEST becomes a job on the addressee's list by its inbox intake (2026-10-10); read their list after the send, jobs-add only if no job appeared"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

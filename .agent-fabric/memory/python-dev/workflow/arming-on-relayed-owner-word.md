@@ -5,7 +5,7 @@ topic: "arming-on-relayed-owner-word"
 description: "PRs under eight work commits are armed by python-dev-03 on the owner's word as fabric-coordinator relays it; the basis text and the counts format the Stop hook demands"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

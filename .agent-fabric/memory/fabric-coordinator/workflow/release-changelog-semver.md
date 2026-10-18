@@ -5,7 +5,7 @@ topic: "release-changelog-semver"
 description: "The owner (2026-10-10): released software we ship (first the gateway) follows Keep a Changelog 1.1.0 and Semantic Versioning 2.0.0, with the public API declared and tag = Cargo/--version = CHANGELOG section"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

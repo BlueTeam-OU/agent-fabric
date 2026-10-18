@@ -5,7 +5,7 @@ topic: "review-before-suite-and-numeric-guards"
 description: "ordering a delivery's checks (review, then the full suite) and guarding numbers parsed from JSON or argv in Python"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

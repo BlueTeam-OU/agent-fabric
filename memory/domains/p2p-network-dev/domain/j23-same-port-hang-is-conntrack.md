@@ -5,7 +5,7 @@ topic: "j23-same-port-hang-is-conntrack"
 description: "The ~10 s first dial back to a peer restarted on its old port is a SYN dropped before TCP (conntrack CLOSE 10 s), not TIME-WAIT; both ends dial from their listen ports (PortUse::Reuse)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -2,10 +2,10 @@
 role: "fabric-coordinator"
 class: domain
 topic: "software-factory-loops-graphs-harnesses"
-description: "Ivo Kund's \"software factory\" (2026-09-11) — planning and execution loops, a dependency graph, a harness, an outer loop; what it claims and where the fabric already matches"
+description: "the \"software factory\" article (2026-09-11) — planning and execution loops, a dependency graph, a harness, an outer loop; what it claims and where the fabric already matches"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -15,7 +15,7 @@ derived_from:
   - 363690827d46bc58
 ---
 
-## Ivo Kund's "software factory" (2026-09-11) — planning and execution loops, a dependency graph, a harness, an outer loop; what it claims and where the fabric already matches
+## the "software factory" article (2026-09-11) — planning and execution loops, a dependency graph, a harness, an outer loop; what it claims and where the fabric already matches
 
 Source: https://www.ivokund.com/loops-graphs-harnesses-getting-quality-out-of-a-software-factory/
 (part 2; part 1 is about alignment). Read 2026-10-09 at the owner's request; external

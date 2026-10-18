@@ -11,7 +11,8 @@ per command and outcome, through bin/fabric-pr with the mocks on PATH: usage
 refusal, --help, a refusal (exit 1, stderr, no gh write), a question gh could
 not answer (exit 2), GH_REPO, the arming and the dry run, a PR merged on the
 arming, a waiver read by the relay and fabric-ctl programs, an arm.json read
-from disk and rules found from the clone's remote. Plain script: prints
+from disk, rules found from the clone's remote, and --repo arming one
+repository's PR from a clone of another. Plain script: prints
 ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
@@ -175,6 +176,10 @@ sys.exit(test_arm_cli.serve({name!r}))
 
 def serve(name: str) -> int:
     """The mock `name` as a program on PATH: what the CLI layer runs."""
+    if name == "gh":
+        # The repository each gh call was pinned to: what `fabric-pr --repo` sets, asserted beside the call.
+        with open(os.path.join(os.environ["MOCK_STATE"], "gh_repos"), "a") as fh:
+            fh.write(os.environ.get("GH_REPO", "") + "\n")
     rc, out, err = MOCKS[name](os.environ["MOCK_STATE"], sys.argv[1:], sys.stdin.read() if name == "gh" else "")
     sys.stdout.write(out)
     sys.stderr.write(err + ("\n" if err else ""))
@@ -223,7 +228,7 @@ def main() -> int:
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
                       "mergefail", "inbase", "unasked",
-                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc"):
+                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "0" if reviewed else "1")
@@ -258,10 +263,11 @@ def main() -> int:
             return e
 
         def cli(*args: str, fixture_rules: bool = True, env: dict | None = None, cwd: str = sandbox,
-                split: bool = False) -> tuple:
+                split: bool = False, unset: tuple[str, ...] = ()) -> tuple:
             """bin/fabric-pr arm as a process, the mocks on its PATH: (exit, stdout and stderr), or with `split`
-            (exit, stdout, stderr)."""
-            r = subprocess.run([SHIM, "arm", *args], env=environment(fixture_rules, env), stdout=subprocess.PIPE,
+            (exit, stdout, stderr); `unset` names variables the process does not get."""
+            e = {k: v for k, v in environment(fixture_rules, env).items() if k not in unset}
+            r = subprocess.run([SHIM, "arm", *args], env=e, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE if split else subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                text=True, timeout=120, cwd=cwd)
             return (r.returncode, r.stdout, r.stderr) if split else (r.returncode, r.stdout)
@@ -1050,9 +1056,16 @@ def main() -> int:
         iw_remote = "git@github.com:fixture-org/interweave.git"
         # A registered project with no arm.json of its own: found, then refused, never judged by another's rules.
         bare_remote = "git@github.com:fixture-org/bare.git"
+        # gzapp, the repository the mocks serve, registered with its client's settings repository (which has no
+        # file for it, so the fleet policy): the PR `--repo gzapp` arms from another project's clone.
         with open(f"{operator}/projects/registry.json", "w") as fh:
-            json.dump({"projects": {"interweave": {"remotes": [iw_remote]}, "bare": {"remotes": [bare_remote]}}}, fh)
+            json.dump({"projects": {"interweave": {"remotes": [iw_remote]}, "bare": {"remotes": [bare_remote]},
+                                    "gzapp": {"remotes": ["git@github.com:gzapi-org/gzapp.git"], "client": "gz"}}}, fh)
+        with open(f"{operator}/projects/clients.json", "w") as fh:
+            json.dump({"clients": {"gz": {"settings_repo": "gzapi-org/agent-fabric-settings"}}}, fh)
         shutil.copy(IW_CONFIG, f"{operator}/projects/interweave/integration/gh/arm.json")
+        os.makedirs(f"{operator}/projects/gzapp/integration/gh")
+        shutil.copy(GZAPP_CONFIG, f"{operator}/projects/gzapp/integration/gh/arm.json")
         os.makedirs(f"{operator}/identities/roles")
         shutil.copy(os.path.join(FIXTURES, "gzcoord-operator", "identities", "roles", "catalog.json"), f"{operator}/identities/roles/catalog.json")
         by_remote = {"AGENT_FABRIC_OPERATOR": operator}
@@ -1075,6 +1088,71 @@ def main() -> int:
         check("a clone of a registered project with no arm.json: exit 2, the file named, nothing armed",
               rc == 2 and "declares no arm.json" in out and "projects/bare/integration/gh/arm.json" in out
               and "pr merge" not in calls(), out)
+
+        # j146: `--repo` arms a PR of one repository from a checkout of another. GH_REPO is unset, so nothing but
+        # --repo names gzapp; the cwd is an InterWeave clone, whose rules would judge the transport path a boundary.
+        def gh_repos() -> set[str]:
+            p = f"{state}/gh_repos"
+            return set(open(p).read().splitlines()) if os.path.exists(p) else set()
+
+        print("arm (CLI): --repo, from a checkout of another repository")
+        for flag in (("--repo", "gzapp"), ("--repo=gzapi-org/gzapp",)):
+            reset(); set_pr(me, "plain", ["crates/transport/libp2p/src/dialing.rs"]); set_gate(9); both_reviewed()
+            rc, out = cli("7", *flag, "--basis", "b", "--dry-run", fixture_rules=False, cwd=clones["iw"], env=by_remote,
+                          unset=("GH_REPO",))
+            check(f"{' '.join(flag)} from an InterWeave clone: the dry run arms gzapp's #7, by gzapp's rules",
+                  rc == 0 and "DRY RUN" in out and "pr merge" not in calls() and "pr comment" not in calls(), out + calls())
+            check("…every gh call pinned to gzapp, never the clone's origin", gh_repos() == {"gzapi-org/gzapp"}, str(gh_repos()))
+            check("…and gzapp's client's settings repository asked for its policy",
+                  "api repos/gzapi-org/agent-fabric-settings/contents/" in calls(), calls())
+        reset(reviewed=False); set_pr(me, "plain", mig); set_gate(9)
+        rc, out = cli("7", "--repo", "gzapp", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote,
+                      unset=("GH_REPO",))
+        check("…a migration, a boundary in gzapp's arm.json (not InterWeave's), unreviewed: refused, nothing armed",
+              rc == 1 and "no review-class review" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = cli("7", "--repo", "nobody/unregistered", "--basis", "b", fixture_rules=False, cwd=clones["iw"],
+                      env=by_remote, unset=("GH_REPO",))
+        check("an owner/name no project registers: no project, never the clone's: exit 2, nothing armed",
+              rc == 2 and "no project found" in out and "pr merge" not in calls(), out)
+        reset(); put("viewfail", "")
+        rc, out, err = cli("7", "--repo", "gzapp", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote,
+                           unset=("GH_REPO",), split=True)
+        check("a number the repository has not got: exit 2, the refusal names the repository it looked in",
+              rc == 2 and "cannot read #7 in gzapi-org/gzapp" in err, err)
+        # The real gate, not the mock: commits are counted from git, and the InterWeave clone cannot count gzapp's
+        # (review F3 on #300). The remedy names the clone, never "git fetch origin", which fetches InterWeave again.
+        reset(); set_pr(me, "plain", ["docs/a.md"]); both_reviewed()
+        rc, out = cli("7", "--repo", "gzapp", "--basis", "b", "--dry-run", fixture_rules=False, cwd=clones["iw"],
+                      env={**by_remote, "AGENT_FABRIC_PR_GATE": ""}, unset=("GH_REPO",))
+        check("the real gate, --repo gzapp from an InterWeave clone: exit 2, the clone named as the reason, nothing armed",
+              rc == 2 and "this clone's origin is not gzapi-org/gzapp" in out and "run from a clone of gzapi-org/gzapp" in out
+              and "git fetch origin, then retry" not in out and "pr merge" not in calls(), out)
+        check("…the gate's gh calls pinned to gzapp too", gh_repos() == {"gzapi-org/gzapp"}, str(gh_repos()))
+        # A verb's nested fabric-pr verbs carry --repo on: the dispatcher drops an inherited project when given none,
+        # and the nested reader would read the cwd's project's pr-tools.json for gzapp's PR (review F2 on #300).
+        from github import common, pr_gate
+        saved = {k: os.environ.get(k) for k in ("GH_REPO", common.PR_PROJECT_SETTING, "AGENT_FABRIC_PR_GATE",
+                                               "AGENT_FABRIC_PR_REVIEW_STATUS")}
+        try:
+            for k in saved:
+                os.environ.pop(k, None)
+            plain = (arm.fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), pr_gate.review_reader())
+            os.environ.update({"GH_REPO": "gzapi-org/gzapp", common.PR_PROJECT_SETTING: "gzapp"})
+            named = (arm.fabric_pr("AGENT_FABRIC_PR_GATE", "gate"),
+                     arm.fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"), pr_gate.review_reader())
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        check("under --repo, arm's gate and review-status and the gate's review-status pass --repo on",
+              all(h[-2:] == ["--repo", "gzapi-org/gzapp"] and h[0].endswith("/bin/fabric-pr") for h in named), str(named))
+        check("…and without --repo, none is added", all("--repo" not in h for h in plain), str(plain))
+        for bad, said in ((("--repo", "nosuch"), "'nosuch' is no project id"), (("--repo",), "needs <owner>/<name>"),
+                          (("--repo", "a/b", "--repo", "c/d"), "given twice"), (("--repo", "a/b/c"), "is not <owner>/<name>")):
+            reset()
+            rc, out, err = cli("7", *bad, "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote, split=True)
+            check(f"{' '.join(bad)}: exit 2, said by fabric-pr, gh never run",
+                  rc == 2 and err.startswith("fabric-pr: --repo: ") and said in err and calls() == "", err)
 
     print("test_arm_cli: " + ("OK" if not fails else f"FAILED — {fails}"))
     return 1 if fails else 0

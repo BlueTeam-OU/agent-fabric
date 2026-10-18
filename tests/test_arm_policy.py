@@ -671,6 +671,7 @@ class PrGateRun(unittest.TestCase):
             es.enter_context(mock.patch.object(pr_gate.gh, "run", return_value=json.dumps(pr)))
             es.enter_context(mock.patch.object(pr_gate, "session_prefix", return_value="h/me"))
             es.enter_context(mock.patch.object(pr_gate, "succeeds", return_value=True))
+            es.enter_context(mock.patch.object(pr_gate.landed, "origin_is", return_value=True))
             es.enter_context(mock.patch.object(pr_gate, "review_reader", return_value=None))
             es.enter_context(mock.patch.object(pr_gate, "count_commits", return_value=commits))
             es.enter_context(mock.patch.object(pr_gate, "gate_state", return_value=st))

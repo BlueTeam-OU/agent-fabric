@@ -5,7 +5,7 @@ topic: "commands-for-the-owner-bare-names"
 description: "A command given to the owner (or in a person-facing hint) is the bare PATH name, never bin/<cmd>"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"
