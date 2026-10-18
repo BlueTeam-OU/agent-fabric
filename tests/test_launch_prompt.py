@@ -162,13 +162,20 @@ def case_oversized_prompt_is_refused() -> None:
         assert r.returncode == 1 and "exceeds" in r.stderr, r.stderr
 
 
-def _build_launch_direct(f: "Fixture", agent: str, role: str, cwd: str) -> tuple[str, bool]:
+def _locale_holder(role: str, locale: str | None) -> dict | None:
+    """The holder dict the launcher hands over for a holder.json naming only
+    a locale; None (no holder.json) when no locale is given."""
+    return None if locale is None else {"role": role, "charter": None, "brief": None, "holder": {"locale": locale}}
+
+
+def _build_launch_direct(f: "Fixture", agent: str, role: str, cwd: str, locale: str | None = None) -> tuple[str, bool]:
     """build_launch() with an explicit agent and cwd, inside the fixture."""
     code = ("import importlib.util, os, sys, json; "
             "spec = importlib.util.spec_from_file_location('lp', sys.argv[1]); m = importlib.util.module_from_spec(spec); "
-            "spec.loader.exec_module(m); t, r = m.build_launch(sys.argv[2], 'h', sys.argv[3], sys.argv[4]); sys.stdout.write(json.dumps([t, r]))")
-    r = subprocess.run([sys.executable, "-c", code, os.path.join(f.root, "tools", "fabric", "launch_prompt.py"), agent, role, cwd],
-                       env=f.env, capture_output=True, text=True)
+            "spec.loader.exec_module(m); t, r = m.build_launch(sys.argv[2], 'h', sys.argv[3], sys.argv[4], json.loads(sys.argv[5])); "
+            "sys.stdout.write(json.dumps([t, r]))")
+    r = subprocess.run([sys.executable, "-c", code, os.path.join(f.root, "tools", "fabric", "launch_prompt.py"), agent, role, cwd,
+                        json.dumps(_locale_holder(role, locale))], env=f.env, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     text, replace = json.loads(r.stdout)
     return text, replace
@@ -187,15 +194,15 @@ def case_every_piece_comes_from_the_locale_when_it_carries_one() -> None:
         write(os.path.join(loc, "brief-missing.md"), fm("brief-missing") + "_ბრიფი ჯერ არ არის._\n")
         write(os.path.join(loc, "team.md"), fm("team") + "# გუნდი\n\nროლი {role} გუნდში.\n")
         write(os.path.join(loc, "memory.md"), fm("memory") + "# მეხსიერება\n\n{role}-ის მეხსიერება.\n")
-        text = _build_direct(f, "language-culture-ge", "language-culture")
+        text = _build_direct(f, "language-culture-ge", "language-culture", locale="ge")
         assert text.startswith("# ვინ ხარ\n\nშენ ხარ აგენტი `language-culture-ge` ჰოსტზე `h`, როლი **language-culture**."), text[:200]
         for piece in ("_ბრიფი ჯერ არ არის._", "# გუნდი\n\nროლი language-culture გუნდში.", "# მეხსიერება\n\nlanguage-culture-ის მეხსიერება."):
             assert piece in text, piece
         assert "# Who you are" not in text and "Working with the team" not in text, "no English piece survives where the locale has one"
         assert text.index("# გუნდი") < text.index("# მეხსიერება"), "the shared sections keep their order"
-        ru = _build_direct(f, "language-culture-ru", "language-culture")
+        ru = _build_direct(f, "language-culture-ru", "language-culture", locale="ru")
         assert ru.startswith("# Who you are") and "# გუნდი" not in ru, "another suffix renders the English"
-        launched, replace = _build_launch_direct(f, "language-culture-ge", "language-culture", tmp)
+        launched, replace = _build_launch_direct(f, "language-culture-ge", "language-culture", tmp, locale="ge")
         assert launched == text and replace is False, "no harness translation: build()'s bytes, append"
 
 
@@ -211,56 +218,58 @@ def case_harness_translation_is_appended_last_and_replaces() -> None:
         write(os.path.join(loc, "harness.md"), "---\nclass: harness-translation\ntranslates: runtime/claude-code/harness/en.md\ntranslates_digest: sha256:x\n---\n"
                                               "შენ ხარ Claude Code.\n\n# მეხსიერება\n\nშენი მეხსიერება არის `{memory_dir}`.\n")
         cwd = os.path.join(tmp, "launch.dir"); os.makedirs(cwd)
-        text, replace = _build_launch_direct(f, "language-culture-ge", "language-culture", cwd)
+        text, replace = _build_launch_direct(f, "language-culture-ge", "language-culture", cwd, locale="ge")
         assert replace is True
-        fabric_part = _build_direct(f, "language-culture-ge", "language-culture")
+        fabric_part = _build_direct(f, "language-culture-ge", "language-culture", locale="ge")
         assert text.startswith(fabric_part), "the fabric's part first"
         tail = text[len(fabric_part):]
         assert tail.startswith("\nშენ ხარ Claude Code.") and "{memory_dir}" not in tail, tail[:120]
         expected_dir = os.path.expanduser("~/.claude/projects/" + re.sub(r"[^A-Za-z0-9]", "-", cwd) + "/memory")
         assert f"`{expected_dir}`" in tail, tail
-        other, _ = _build_launch_direct(f, "language-culture-ge", "language-culture", tmp)
+        other, _ = _build_launch_direct(f, "language-culture-ge", "language-culture", tmp, locale="ge")
         assert other != text and "launch-dir" in text, "the memory directory follows the launch cwd, nothing else does"
-        # --print renders for the real login (its suffix), so the locale is named after it.
-        mine = os.path.join(f.root, "identities", "roles", "language-culture", "locale", LOGIN.rsplit("-", 1)[-1])
-        if os.path.realpath(mine) != os.path.realpath(loc):   # on a login ending in -ge the two are one directory (the ge holder, 2026-09-17)
-            shutil.copytree(loc, mine, dirs_exist_ok=True)
+        # --print renders for the real login; the locale is its holder.json's, handed over as the launcher does.
+        held = os.path.join(tmp, "holder.json")
+        write(held, json.dumps(_locale_holder("language-culture", "ge")))
         f.bind("language-culture")
-        r = f.run("--print")
+        r = f.run("--print", "--holder-file", held)
         assert r.returncode == 0 and "replace: yes" in r.stderr and "შენ ხარ Claude Code." in r.stdout, r.stderr
         f2 = Fixture(tmp + "/2", role="backend-dev")
         r2 = f2.run("--print")
         assert r2.returncode == 0 and "replace: no" in r2.stderr and "Claude Code" not in r2.stdout, r2.stderr
 
 
-def _build_direct(f: "Fixture", agent: str, role: str) -> str:
+def _build_direct(f: "Fixture", agent: str, role: str, locale: str | None = None) -> str:
     """build() called with an explicit agent (identity.current_agent() has
-    no override), inside the fixture's environment."""
-    code = ("import importlib.util, os, sys; "
+    no override), inside the fixture's environment; `locale` is the
+    holder.json locale, none when not given."""
+    code = ("import importlib.util, json, os, sys; "
             "spec = importlib.util.spec_from_file_location('lp', sys.argv[1]); m = importlib.util.module_from_spec(spec); "
-            "spec.loader.exec_module(m); sys.stdout.write(m.build(sys.argv[2], 'h', sys.argv[3]))")
-    r = subprocess.run([sys.executable, "-c", code, os.path.join(f.root, "tools", "fabric", "launch_prompt.py"), agent, role],
-                       env=f.env, capture_output=True, text=True)
+            "spec.loader.exec_module(m); sys.stdout.write(m.build(sys.argv[2], 'h', sys.argv[3], json.loads(sys.argv[4])))")
+    r = subprocess.run([sys.executable, "-c", code, os.path.join(f.root, "tools", "fabric", "launch_prompt.py"), agent, role,
+                        json.dumps(_locale_holder(role, locale))], env=f.env, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     return r.stdout
 
 
-def case_locale_charter_is_rendered_for_the_login_suffix() -> None:
-    """language-culture-ge reads locale/ge/charter.md; a login with no
-    translation reads the English; both renders are byte-stable. Kills:
-    always reading charter.md."""
+def case_locale_charter_is_rendered_for_the_holder_locale() -> None:
+    """A holder whose holder.json says ge reads locale/ge/charter.md; the
+    same login with no holder.json reads the English, whatever its name
+    ends in; both renders are byte-stable. Kills: always reading
+    charter.md, and choosing the locale from the login's suffix."""
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp, role="language-culture", brief=False)
         write(os.path.join(f.root, "identities", "roles", "language-culture", "locale", "ge", "charter.md"),
               "---\nrole: language-culture\nclass: charter\ndescription: \"x\"\ntier: 1\ndistilled_at: 2026-09-17\n"
               "translates: identities/roles/language-culture/charter.md\ntranslates_digest: sha256:" + "0" * 64 + "\n---\n\n"
               "# language-culture — წესდება\n\nGEORGIAN-BODY-LINE ქართულად.\n")
-        ge = _build_direct(f, "language-culture-ge", "language-culture")
+        holder = {"role": "language-culture", "charter": None, "brief": None, "holder": {"locale": "ge"}}
+        ge = _build_holder(f, "language-culture-ge", "language-culture", holder)
         assert "GEORGIAN-BODY-LINE" in ge and "CHARTER-BODY-LINE" not in ge, ge
         assert "translates_digest" not in ge, "the translation's frontmatter leaked into the prompt"
-        ru = _build_direct(f, "language-culture-ru", "language-culture")
-        assert "CHARTER-BODY-LINE" in ru and "GEORGIAN-BODY-LINE" not in ru, ru
-        assert _build_direct(f, "language-culture-ge", "language-culture") == ge, "not byte-stable"
+        bare = _build_direct(f, "language-culture-ge", "language-culture")
+        assert "CHARTER-BODY-LINE" in bare and "GEORGIAN-BODY-LINE" not in bare, "the login's suffix chose the locale"
+        assert _build_holder(f, "language-culture-ge", "language-culture", holder) == ge, "not byte-stable"
 
 
 def case_locale_render_has_a_wider_ceiling() -> None:
@@ -276,7 +285,7 @@ def case_locale_render_has_a_wider_ceiling() -> None:
         assert r.returncode == 1 and "exceeds" in r.stderr, "the English render lost its ceiling"
         write(os.path.join(f.root, "identities", "roles", "language-culture", "charter.md"), head + "# c\n\nshort\n")
         write(os.path.join(f.root, "identities", "roles", "language-culture", "locale", "ge", "charter.md"), head + "# c\n\n" + pad)
-        assert "ქართული ხაზი" in _build_direct(f, "language-culture-ge", "language-culture")
+        assert "ქართული ხაზი" in _build_direct(f, "language-culture-ge", "language-culture", locale="ge")
 
 
 def case_every_catalogue_role_renders_under_the_ceiling() -> None:
@@ -405,7 +414,7 @@ def _build_holder(f: "Fixture", agent: str, role: str, holder: dict) -> str:
 
 def case_holder_locale_chooses_the_rendering_not_the_suffix() -> None:
     """ADR-060 §5 rule 8: holder.json's locale picks locale/<locale>/ for a
-    login whose suffix is another; without one, the suffix still does."""
+    login whose suffix is another; without one, English, never the suffix."""
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp, role="legal-expert", brief=False)
         write(os.path.join(f.root, "identities", "roles", "legal-expert", "locale", "ge", "charter.md"),
@@ -414,7 +423,7 @@ def case_holder_locale_chooses_the_rendering_not_the_suffix() -> None:
         renamed = _build_holder(f, "legal-expert-tbilisi", "legal-expert", holder)
         assert "# ქარტია" in renamed and "CHARTER-BODY-LINE" not in renamed, "holder.json's locale did not choose the rendering"
         by_suffix = _build_direct(f, "legal-expert-ge", "legal-expert")
-        assert "# ქარტია" in by_suffix, "without a holder the suffix no longer chooses"
+        assert "# ქარტია" not in by_suffix and "CHARTER-BODY-LINE" in by_suffix, "without a holder the suffix chose the locale"
         english = _build_holder(f, "legal-expert-ge", "legal-expert", {**holder, "holder": {"locale": "en"}})
         assert "CHARTER-BODY-LINE" in english, "a holder whose locale is en got the suffix's rendering"
 
@@ -431,20 +440,20 @@ def case_shared_pieces_render_per_language_for_every_role() -> None:
         write(os.path.join(shared, "team.md"), fm("team") + "# გუნდი\n")
         write(os.path.join(shared, "memory.md"), fm("memory") + "# მეხსიერება\n")
         write(os.path.join(shared, "brief-missing.md"), fm("brief-missing") + "_ბრიფი არ არის._\n")
-        text = _build_direct(f, "legal-expert-ge", "legal-expert")
+        text = _build_direct(f, "legal-expert-ge", "legal-expert", locale="ge")
         for piece in ("# ვინ ხარ", "# გუნდი", "# მეხსიერება", "_ბრიფი არ არის._"):
             assert piece in text, piece
         for english in ("# Who you are", "Working with the team", "Your long-term memory"):
             assert english not in text, f"an English section survived: {english}"
         own = os.path.join(f.root, "identities", "roles", "legal-expert", "locale", "ge", "team.md")
         write(own, fm("team") + "# გუნდი, იურისტისთვის\n")
-        assert "# გუნდი, იურისტისთვის" in _build_direct(f, "legal-expert-ge", "legal-expert"), "the role's own rendering lost"
-        assert "# Who you are" in _build_direct(f, "legal-expert-ru", "legal-expert"), "another locale got Georgian"
+        assert "# გუნდი, იურისტისთვის" in _build_direct(f, "legal-expert-ge", "legal-expert", locale="ge"), "the role's own rendering lost"
+        assert "# Who you are" in _build_direct(f, "legal-expert-ru", "legal-expert", locale="ru"), "another locale got Georgian"
 
 
 def main() -> int:
     cases = [
-        case_locale_charter_is_rendered_for_the_login_suffix,
+        case_locale_charter_is_rendered_for_the_holder_locale,
         case_every_piece_comes_from_the_locale_when_it_carries_one,
         case_harness_translation_is_appended_last_and_replaces,
         case_locale_render_has_a_wider_ceiling,
