@@ -1367,7 +1367,7 @@ if spec is not None:
                   rc != 0 and "EXECCED" not in out and "ge/locale.json" in out and "Asia/Tbilsi" not in out, out)
             rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"ge","timezone":"Mars/Base"}')
             check("…and one from holder.json names holder.json, never the value",
-                  rc != 0 and "EXECCED" not in out and "holder.json" in out and "Mars/Base" not in out, out)
+                  rc != 0 and "EXECCED" not in out and "the timezone in holder.json is no IANA" in out and "Mars/Base" not in out, out)
             # A host with no tz database cannot judge a name: a stated refusal, not a traceback.
             checker = f"{code}/tools/fabric/addenda_check.py"
             real_check = read(checker)
