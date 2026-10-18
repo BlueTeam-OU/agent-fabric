@@ -1446,7 +1446,7 @@ if mode == "silentcontrol":
     # Reads the ask and never answers it, and says so: the session ends only once the ask is in flight.
     held_open = _socket.socket(fileno=int(args["--control-fd"]))   # kept: a collected socket would close the channel under the ask
     held_open.recv(4096)
-    note(event="asked")
+    note(event="asked", at=time.time())
     while True:
         time.sleep(0.1)
 ctl = _socket.socket(fileno=int(args["--control-fd"]))
@@ -1573,14 +1573,19 @@ echo "CLAUDE-ENDED:$(date +%s.%N)"
                   not os.path.exists(f"{agent_dir}/gateway-usage.json"), os.listdir(agent_dir))
             rm(gw_log)
             rc, out = run("--provider", "gateway", plant={**gw_env, "FAKE_GW_MODE": "silentcontrol", "FAKE_USAGE_WAIT_TENTHS": "0", "FAKE_WAIT_FOR_ASK": "1"})
-            back = time.time() - float(next(iter(re.findall(r"CLAUDE-ENDED:(\S+)", out)), "nan"))
+            ended = float(next(iter(re.findall(r"CLAUDE-ENDED:(\S+)", out)), "nan"))
+            back = time.time() - ended
+            asked_at = next((r.get("at") for r in gw_records() if r.get("event") == "asked"), None)
+            # The ask's 10 s run from its send; a harness that took more than 5 s to get from there to its end would let a held
+            # session look cut, so such a host fails the case loudly instead of passing the defect.
+            lag = ended - asked_at if asked_at else float("nan")
             # The ask has a timeout of 10 s (gateway_usage.IO_TIMEOUT_S) from the moment the gateway has it; the fake harness ends
             # at that moment. A session held for the ask ends ~10 s later; one cut with the session ends at once, which is only
             # teardown. 5 s is between them, ~4 s of room each way for a loaded host, with no wall time of the launch in it.
             check("a gateway that never answers the ask does not hold the end of the session (the ask is cut with the session)",
-                  rc == 0 and any(r.get("event") == "asked" for r in gw_records()) and 0 <= back < 5
+                  rc == 0 and any(r.get("event") == "asked" for r in gw_records()) and 0 <= lag < 5 and 0 <= back < 5
                   and not os.path.exists(f"{agent_dir}/gateway-usage.json"),
-                  f"rc={rc} launcher ended {back:.1f}s after the session\n{out[-300:]}")
+                  f"rc={rc} launcher ended {back:.1f}s after the session, which ended {lag:.1f}s after the ask\n{out[-300:]}")
             check("the provider stamp stays the routing column and the transport is stamped as the gateway",
                   has(r"CLAUDE-PROVIDER:anthropic$", out) and has(r"CLAUDE-TRANSPORT:gateway$", out), out)
             check("…and recorded beside the provider, so a resume comes back through the gateway; the agent files were installed for anthropic",

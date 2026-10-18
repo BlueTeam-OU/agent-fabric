@@ -94,7 +94,7 @@ def main() -> int:
                 else:
                     out = head + body
                 try:
-                    for c in out:    # a byte every 0.1 s: 40 s of it; a call that outlives its bound reads all of it, so the ceiling below is 10 s, not a tight multiple of the bound a loaded host would trip
+                    for c in out:    # a byte every 0.1 s: 40 s of it, so only the call's own deadline ends it early
                         self.wfile.write(bytes([c]))
                         self.wfile.flush()
                         time.sleep(0.1)
@@ -160,7 +160,7 @@ def main() -> int:
             except cg.ApiError as e:
                 took = time.monotonic() - t0
                 check(f"a relay that trickles {what} is held to the bound, never longer",
-                      e.timed_out is True and 0.45 < took < 10, took)
+                      e.timed_out is True and 0.45 < took < 1.5, took)   # the bound 0.5 s + 1 s for a loaded host: a deadline 3 times late fails
         got = cg.api("tok", "/big", relay_url=relay_url)
         check("the relay's JSON is read as JSON.parse reads it: an integer past 2**53 is a double",
               got == {"id": 9007199254740992.0} and isinstance(got["id"], float), got)
