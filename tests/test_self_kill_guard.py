@@ -238,11 +238,22 @@ def main() -> int:
                 '"$' + "v" * 62 + '"pkill -f claude-fable'):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a glued expansion does not hide pkill: {cmd}", d is not None and d[0] == "deny", d)
-    # Review of #297, P-1 (round 2): a cut inside the name past the bounded reduction, or in a long word, cannot be read,
-    # so it asks. Kills: taking such a word as written.
-    for cmd in ('"$p""$q""$r""$s"kil"$t"l -1', '"$p""$q"k"$r""$s"ill 0', 'k"$p"i"$q"l"$r"l"$s" -1', 'k"$' + "v" * 67 + '"ill -1'):
+    # Review of #297, P-1 (rounds 2 and 3): a word whose expansions no cut resolves but whose letters still spell kill
+    # is read as kill, wherever a command word is resolved — bare, after a prefix's options, inside bash -c or eval —
+    # so its operands meet the zero and negative denials. Kills: taking such a word as written, or reading it only as a
+    # bare command word.
+    split = 'k"$p"i"$q"l"$r"l"$t" -1'
+    for cmd in ('"$p""$q""$r""$s"kil"$t"l -1', '"$p""$q"k"$r""$s"ill 0', split, 'k"$' + "v" * 67 + '"ill -1',
+                "timeout 5 " + split, "nice -n 5 " + split, "sudo -u root " + split, "env -u X " + split,
+                "env A=1 " + split, "xargs -n1 " + split, "exec -a foo " + split, "stdbuf -o0 " + split,
+                "sudo timeout 5 " + split, "bash -c '" + split + "'", "eval '" + split + "'",
+                'timeout 5 "$p""$q"k"$r""$t"ill 0'):
         d = g.decision(cmd, CLAUDE, shell=False)
-        check(f"a kill split by expansions asks: {cmd[:40]}", d is not None and d[0] == "ask", d)
+        check(f"a kill split by expansions is read as kill: {cmd[:44]}", d is not None and d[0] == "deny", d)
+    # …and a path that only happens to hold those letters, with no pid among its operands, is no false ask.
+    for cmd in ('"$ROOT"/tools/skill_install.py --flag', 'k"$p"ill 999999999'):
+        check(f"a kill-spelling word with nothing protected passes: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
+              g.decision(cmd, CLAUDE, shell=False))
     for cmd in ('"$x"kill -9 999999999', '"$PYTHON" t.py', "echo $skill", 'sudo -u "$x"kill 0'):
         check(f"a glued name that kills nothing protected passes: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
               g.decision(cmd, CLAUDE, shell=False))

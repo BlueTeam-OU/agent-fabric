@@ -123,8 +123,6 @@ def unevaluated(command: str) -> str | None:
     `os.kill`, a `self_kill` file name or a Python dict's braces no longer
     ask (two sessions stopped on it, 2026-10-15)."""
     command = drop_heredoc_bodies(command)
-    if glued_kill_word(command):   # before the word test below: its letters are split, so neither text spells kill
-        return "a command word built from expansions that may spell kill"
     # The raw text as well as the unquoted one, as kills() reads: unquoted() turns "$x"kill and ${x}kill into
     # $xkill, whose x hides the word, and bash runs either as kill when x is empty (review of #268, F1).
     if not (KILL_TOOL_WORD.search(command) or KILL_TOOL_WORD.search(unquoted(command))):
@@ -143,33 +141,16 @@ def unevaluated(command: str) -> str | None:
 def kills(command: str) -> bool:
     """Whether the command kills at all, read in the raw text and with its
     quotes dropped, or a command word that is a killing tool once its glued
-    expansions are empty (`k"$x"ill`, which neither text spells), or one
-    built from expansions that still spells one (glued_kill_word)."""
+    expansions are empty (`k"$x"ill`, which neither text spells), or that
+    still spells kill when no cut resolves it (command_names)."""
     return bool(KILLS.search(command) or KILLS.search(unquoted(command))
-                or any(os.path.basename(w[0]) in {"kill", "pkill", "killall"} for w in tool_commands(command))
-                or glued_kill_word(command))
+                or any(os.path.basename(w[0]) in {"kill", "pkill", "killall"} for w in tool_commands(command)))
 
 
 def _spells(name: str, word: str) -> bool:
     """Whether `name`'s letters stand in `word` in order, whatever is between them."""
     rest = iter(word)
     return all(c in rest for c in name)
-
-
-def glued_kill_word(command: str) -> str | None:
-    """A command word holding an expansion that command_names could not resolve, whose letters still spell kill in
-    order: `"$p""$q"k"$r""$s"ill`, a cut inside the name past the bounded reduction or the length cap (review of #297,
-    P-1). It is asked about rather than read: an ask costs a rephrase, a pass could be kill -1. Only the command word,
-    and the word after a prefix, never an argument (echo "$skill")."""
-    for words in (seg for piece in lift(command) for seg in segments(piece)):
-        while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
-            words = words[1:]
-        heads = [w for i, w in enumerate(words) if i == 0 or os.path.basename(words[i - 1]) in PREFIXES]
-        for w in heads:
-            if ("$" in w or SUBST in w) and _spells("kill", w) \
-                    and not {os.path.basename(n) for n in command_names(w)} & TOOL_NAMES:
-                return w
-    return None
 
 
 def own_claude_cmdline(proc: str = "/proc", pid: int | None = None) -> str | None:
@@ -247,7 +228,7 @@ def command_names(word: str) -> list[str]:
     ending = {name for name in TOOL_NAMES
               if word.endswith(name) and ("$" in word[:-len(name)] or SUBST in word[:-len(name)])}
     if len(word) > 64:
-        return sorted(ending) or [word]
+        return sorted(ending) or (["kill"] if _spells("kill", word) else [word])
     variants = {EXPANSION.sub("", word)}
     for _ in range(3):   # three glued variables; each cut is at most the name's length, so this stays small
         cut = {v[:m.start()] + v[m.start() + 1 + k:] for v in variants if (m := NAME_AFTER_DOLLAR.search(v))
@@ -256,7 +237,13 @@ def command_names(word: str) -> list[str]:
             break
         variants |= cut
     named = {os.path.basename(v) for v in variants if "$" not in v and os.path.basename(v) in TOOL_NAMES}
-    return sorted(named | ending) or [word]
+    if named or ending:
+        return sorted(named | ending)
+    # A word with an expansion that no cut resolves, whose letters still spell kill in order ("$p""$q"k"$r""$s"ill,
+    # past the bounded reduction or the length cap), is read as kill (review of #297, P-1, rounds 2 and 3). Here, not
+    # in a separate scan, because every path resolves its command word through this function: the bare word, the word
+    # after a prefix's options, a nested shell's payload. Its operands then meet the zero, negative and pid checks.
+    return ["kill"] if _spells("kill", word) else [word]
 
 
 SHELLS = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
