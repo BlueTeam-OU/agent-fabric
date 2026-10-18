@@ -132,8 +132,9 @@ class Guard(unittest.TestCase):
         reason = out["permissionDecisionReason"]
         self.assertIn("session clone", reason)
         self.assertIn("isolation worktree", reason)
-        self.assertIn("A code-high subagent", reason)                                                  # NEW
-        self.assertIn("may not use Write", reason)                                                     # NEW
+        self.assertIn("This code-high subagent runs in the session clone", reason)
+        self.assertIn("may not use Write", reason)
+        self.assertIn("resumed by SendMessage", reason)                                                # j228: why it is here
 
     def test_a_guard_that_cannot_run_asks_it_never_silently_allows(self):
         tools = os.path.join(self.tmp, "tools")

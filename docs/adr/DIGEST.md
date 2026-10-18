@@ -87,26 +87,27 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-001 — Decision records (Accepted)
 
 - Decisions live in `docs/adr/` on gzapp's engine: numbered records,
-  amendment in place with a history note, supersession with a point map;
-  the index is generated (§2).
+  amended in place with a history note, superseded with a point map; a
+  generated index (§2).
 - fabric-coordinator writes; the owner accepts, and `Accepted` needs a
-  `Ratified:` line naming where the owner's word is; merging ratifies
-  already-practised records, and a new record only when the PR says arming
-  ratifies it and the owner arms it so (§5 rules 1–2).
+  `Ratified:` line naming where the owner's word is; merging ratifies a
+  practised record, a new one only when the PR says so and the owner arms
+  it (§5 rules 1–2).
 - An ADR body edit needs an Amendments row or an `ADR-Editorial:` trailer
   (§5 rule 4); from outside, cite "agent-fabric ADR-NNN" (§5 rule 6).
 - Live checks are immutable evidence (§5 rule 8); `sources/` keeps the
-  verbatim texts a record paraphrases, never edited (§5 rule 9).
+  verbatim texts records paraphrase (§5 rule 9).
 - A 2026-09-27 — a source's edit, rename or removal is refused whatever
   the commit's trailers (§5 rule 9).
-- A 2026-09-27 — no inline attribution: who decided and when are the
-  header's and the history's (§5 rule 10).
+- A 2026-09-27 — no inline attribution: who and when are the header's
+  and the history's (§5 rule 10).
 - A 2026-09-27 — a record reads current: no date in §2 to §8; §1 may date an
   incident (§5 rule 11).
 - A 2026-09-29 — the DIGEST is looked up (`fabric-adr lookup`), never read whole;
   each entry is at most 250 words (§2).
 - A 2026-10-09 — an exception keeps the past; new work follows the
   direction unless the exception admits it in words (§5 rule 12).
+- A 2026-10-18 — also checked at commit time (§5 rule 4).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)
@@ -595,11 +596,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-027 — Language-and-culture specialists shape the work, not only translate it; the bridge (Accepted)
 
-- The role owns the words and what a market's culture changes; it says
-  when a language cannot carry a meaning; findings in another's surface
-  are `OBSERVATION`s (§2, §5 rule 2).
+- The role owns the words and what a market's culture changes, and says
+  when a language cannot carry a meaning (§2, §5 rule 2).
 - One holder per locale, `language-culture-<suffix>`; the tag is
-  `locale.json`'s, never inferred (`ge` is `ka-GE`) (§5 rule 1).
+  `locale.json`'s (`ge` is `ka-GE`) (§5 rule 1).
 - Two-pass review, target first; requests translated in, answers
   rendered, the fleet gets English (§5 rules 3–4); notes in the locale,
   counted only (§5 rule 5).
@@ -611,10 +611,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   holder translates (§5 rules 9–11).
 - Memory rendered under `## English` by its holder, else
   `needs_rendering`; locale search is `websearch-locale` (§5 rules 12–13).
-- A 2026-10-07 — en-US, the source, has no bridge (§2).
-- A 2026-10-16 — charters translated only for holders working in that language; language-culture reviews (§5 rule 11).
-- A 2026-10-16 — a holder may adopt language-culture's draft, read against the English, recorded (§5 rule 11).
+- A 2026-10-07 — en-US, the source, has no bridge.
+- A 2026-10-16 — a charter is translated only for a holder using it (§5 rule 11).
+- A 2026-10-16 — a holder may adopt language-culture's draft (§5 rule 11).
 - A 2026-10-18 — locale from holder.json; shared pieces per language (§5 rules 1, 9).
+- A 2026-10-18 — the suffix names what is authored, not rendered (§5 rules 1, 6).
 - Keywords: translation, worker, Georgian, Russian, ru-RU,
   system-prompt-file, notes, script, web search, carve-out, TaskStop,
   isolation.
@@ -1288,13 +1289,13 @@ its record disagree, the record wins. Look it up, never read it whole:
   with `against_digest` (§5 rules 4-6).
 - `holders_specialize: required` refuses a launch without valid addenda;
   tamper is never absence (§5 rule 7).
-- `holder.json` chooses the locale, not the login's suffix; header, team
+- `holder.json` chooses the locale, English without one, never the suffix; header, team
   and memory are translated once per language, so a non-English holder
   renders no English; a locale addendum gets the two passes and an
   English gloss (§5 rules 8-9).
-- A 2026-10-17 — accepted; an install's record is its signed commit's
-  tree; §8 says which amendments land with which stage.
+- A 2026-10-17 — accepted; an install's record is its signed commit's tree.
 - A 2026-10-18 — no ADR-057 change (§8); `lang: ka`'s reviewer holds `ka-GE` (§5 rule 6).
-- A 2026-10-18 — rule 3 judged over the whole history; a merge can be the change.
+- A 2026-10-18 — rule 3 over the whole history; a merge can be the change.
+- A 2026-10-18 — no suffix fallback (§5 rule 8).
 - Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
   holder.json, locale, parent-signed, holders_specialize.

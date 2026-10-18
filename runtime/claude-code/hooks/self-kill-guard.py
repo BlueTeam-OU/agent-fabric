@@ -123,6 +123,8 @@ def unevaluated(command: str) -> str | None:
     `os.kill`, a `self_kill` file name or a Python dict's braces no longer
     ask (two sessions stopped on it, 2026-10-15)."""
     command = drop_heredoc_bodies(command)
+    if glued_kill_word(command):   # before the word test below: its letters are split, so neither text spells kill
+        return "a command word built from expansions that may spell kill"
     # The raw text as well as the unquoted one, as kills() reads: unquoted() turns "$x"kill and ${x}kill into
     # $xkill, whose x hides the word, and bash runs either as kill when x is empty (review of #268, F1).
     if not (KILL_TOOL_WORD.search(command) or KILL_TOOL_WORD.search(unquoted(command))):
@@ -140,8 +142,34 @@ def unevaluated(command: str) -> str | None:
 
 def kills(command: str) -> bool:
     """Whether the command kills at all, read in the raw text and with its
-    quotes dropped."""
-    return bool(KILLS.search(command) or KILLS.search(unquoted(command)))
+    quotes dropped, or a command word that is a killing tool once its glued
+    expansions are empty (`k"$x"ill`, which neither text spells), or one
+    built from expansions that still spells one (glued_kill_word)."""
+    return bool(KILLS.search(command) or KILLS.search(unquoted(command))
+                or any(os.path.basename(w[0]) in {"kill", "pkill", "killall"} for w in tool_commands(command))
+                or glued_kill_word(command))
+
+
+def _spells(name: str, word: str) -> bool:
+    """Whether `name`'s letters stand in `word` in order, whatever is between them."""
+    rest = iter(word)
+    return all(c in rest for c in name)
+
+
+def glued_kill_word(command: str) -> str | None:
+    """A command word holding an expansion that command_names could not resolve, whose letters still spell kill in
+    order: `"$p""$q"k"$r""$s"ill`, a cut inside the name past the bounded reduction or the length cap (review of #297,
+    P-1). It is asked about rather than read: an ask costs a rephrase, a pass could be kill -1. Only the command word,
+    and the word after a prefix, never an argument (echo "$skill")."""
+    for words in (seg for piece in lift(command) for seg in segments(piece)):
+        while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+            words = words[1:]
+        heads = [w for i, w in enumerate(words) if i == 0 or os.path.basename(words[i - 1]) in PREFIXES]
+        for w in heads:
+            if ("$" in w or SUBST in w) and _spells("kill", w) \
+                    and not {os.path.basename(n) for n in command_names(w)} & TOOL_NAMES:
+                return w
+    return None
 
 
 def own_claude_cmdline(proc: str = "/proc", pid: int | None = None) -> str | None:
@@ -179,14 +207,14 @@ def kill_after_prefixes(words: list[str]) -> list[str]:
     takes: set[str] = set()
     skip = False
     for i, w in enumerate(words):
-        name = os.path.basename(w)
+        names = {os.path.basename(n) for n in command_names(w)}
         if skip:
             skip = False
-        elif name in PREFIXES:
-            takes = VALUE_OPTIONS.get(name, set())
+        elif names & PREFIXES:
+            takes = set().union(*(VALUE_OPTIONS.get(n, set()) for n in names & PREFIXES))
         elif w in takes:
             skip = True
-        elif name in KILL_TOOLS or name in NESTED:
+        elif names & (KILL_TOOLS | NESTED):
             return words[i:]
     return []
 
@@ -199,6 +227,36 @@ def kill_after_prefixes(words: list[str]) -> list[str]:
 # a false deny costs a rephrase. A payload in a variable is not readable.
 NESTED = {"bash", "sh", "zsh", "dash", "ksh", "eval"}
 NESTED_DEPTH = 4
+TOOL_NAMES = KILL_TOOLS | PREFIXES | NESTED
+# An expansion whose end is unambiguous: ${…}, a lifted substitution, a special parameter.
+EXPANSION = re.compile(r"\$\{[^}]*\}|" + re.escape(SUBST) + r"\d+_|\$[0-9#?!$*@-]")
+NAME_AFTER_DOLLAR = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def command_names(word: str) -> list[str]:
+    """The tool a command word runs when its expansions are empty: bash runs `"$x"kill`, `${x}kill` and `k"$x"ill` as
+    kill when x is empty, and they passed the zero and negative denials (review of #268, pre-existing 1-2). The words
+    come quote-stripped, so `"$x"kill` reads `$xkill`, where the variable's name ended at the lost quote: every end is
+    tried, and every tool a cut names is judged (`$xpkill` is pkill or kill, as the quote stood). Over-reports (a
+    variable named skill reads as kill), and a false deny costs a rephrase. A word that names no tool any way it is cut
+    is the one name, as it was."""
+    if os.path.basename(word) in TOOL_NAMES or ("$" not in word and SUBST not in word):
+        return [word]
+    # A tool name that ENDS the word with any expansion before it, whatever their number or length (review of #297,
+    # P-1: four glued variables, or a 64-character word, were taken as written): "$p""$q""$r""$s"kill is kill.
+    ending = {name for name in TOOL_NAMES
+              if word.endswith(name) and ("$" in word[:-len(name)] or SUBST in word[:-len(name)])}
+    if len(word) > 64:
+        return sorted(ending) or [word]
+    variants = {EXPANSION.sub("", word)}
+    for _ in range(3):   # three glued variables; each cut is at most the name's length, so this stays small
+        cut = {v[:m.start()] + v[m.start() + 1 + k:] for v in variants if (m := NAME_AFTER_DOLLAR.search(v))
+               for k in range(1, len(m.group(1)) + 1)}
+        if not cut:
+            break
+        variants |= cut
+    named = {os.path.basename(v) for v in variants if "$" not in v and os.path.basename(v) in TOOL_NAMES}
+    return sorted(named | ending) or [word]
 
 
 SHELLS = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
@@ -332,6 +390,20 @@ PLACEHOLDER = re.compile(re.escape(SUBST) + r"(\d+)_")
 # What a pid operand may be without being read: the pid of the job this
 # very command last started, a process the command itself owns.
 OWN_JOB = {"$!", "${!}"}
+# A liveness probe sends no signal and asks nothing (the owner, 2026-10-17: a reviewer's `kill -0 $s` and the phone
+# remit's own `s=$!; kill -0 $s` reached the owner as a question). Read from the sources of both kills a command can
+# run — bash 5.3's builtin (builtins/kill.def) and util-linux 2.41's kill (misc-utils/kill.c): after the first signal
+# a later -N is a process group, not a signal, but -s SIG, -sSIG, -n NUM, -nNUM (bash) and -s, --signal, --timeout N
+# SIG (util-linux) set a signal wherever they stand, and `--` ends the options in both. So `kill -0 -- <anything>` is
+# the probe: every later word is a pid or job given signal 0, whatever a variable holds, xargs or not. Nothing else
+# is: an unquoted variable splits (x='-s KILL -1' makes kill -0 $x a kill -sKILL -1), and the words this guard reads
+# have lost their quotes, so a "$x" cannot be told from a $x here. Judging that from the command's text was tried
+# twice and passed a SIGKILL to -1 both times (review of #297, F1 in rounds 1 and 2): write the probe with --.
+
+
+def _zero_probe(words: list[str]) -> bool:
+    """`kill -0 -- <operands>`: signal 0, which signals nothing."""
+    return words[1:3] == ["-0", "--"] and len(words) > 3
 
 
 # The word kill as a command anywhere in the text (`/bin/kill`, `command
@@ -374,7 +446,7 @@ def kill_operands(command: str) -> tuple[list[int], list[str]]:
         return [], []
     pieces, held = lift(command), []
     for words in tool_commands(command):
-        if os.path.basename(words[0]) != "kill":
+        if os.path.basename(words[0]) != "kill" or _zero_probe(words):
             continue
         for w in words[1:]:
             m = PLACEHOLDER.fullmatch(w)
@@ -394,10 +466,11 @@ def kill_groups(command: str) -> list[str]:
     command (round 3). Every 0 is refused, also one that may be a
     signal value (`kill -s 0 <pid>`): bash also reads `kill <pid> -s 0`
     as group 0, and telling the two apart is the parsing this guard
-    gave up (round 5); a false deny costs a rephrase (`kill -0 <pid>`)."""
+    gave up (round 5); a false deny costs a rephrase (`kill -0 <pid>`).
+    A liveness probe (_zero_probe) signals nothing, so its operands are none."""
     out = []
     for words in tool_commands(command):
-        if os.path.basename(words[0]) != "kill":
+        if os.path.basename(words[0]) != "kill" or _zero_probe(words):
             continue
         for i, w in enumerate(words[1:]):
             if (re.fullmatch(r"-\d+", w) and (w == "-1" or i > 0)) or re.fullmatch(r"\+?0+", w):
@@ -466,16 +539,18 @@ def _tool_commands(pieces: list[str], depth: int) -> list[list[str]]:
             words = words[1:]
         if not words:
             continue
-        if os.path.basename(words[0]) in PREFIXES:
+        if {os.path.basename(n) for n in command_names(words[0])} & PREFIXES:
             words = kill_after_prefixes(words)
             if not words:
                 continue
-        if os.path.basename(words[0]) in NESTED:
-            if depth < NESTED_DEPTH and len(words) > 1:
-                texts = list(dict.fromkeys([" ".join(words[1:]), *words[1:]]))
-                out += _tool_commands([drop_heredoc_bodies(t) for t in texts], depth + 1)
-        elif os.path.basename(words[0]) in KILL_TOOLS:
-            out.append(words)
+        # Each tool the command word may run is judged (command_names).
+        for name in command_names(words[0]):
+            if os.path.basename(name) in NESTED:
+                if depth < NESTED_DEPTH and len(words) > 1:
+                    texts = list(dict.fromkeys([" ".join(words[1:]), *words[1:]]))
+                    out += _tool_commands([drop_heredoc_bodies(t) for t in texts], depth + 1)
+            elif os.path.basename(name) in KILL_TOOLS:
+                out.append([name, *words[1:]])
     return out
 
 

@@ -23,7 +23,8 @@ that one leaves to convention made checkable (agent-fabric ADR-001):
   owner's word reaches an artifact, or the decision is not binding;
 - the pillars are read from ADR-000's §5 table, never restated here;
 - a commit that edits an ADR's body adds an amendment row or says why not
-  (`ADR-Editorial:` trailer) — `range-check`, the CI tripwire;
+  (`ADR-Editorial:` trailer) — `range-check`, the CI tripwire, and
+  `staged-check`, the same judgment of the commit being made, at commit time;
 - `Evidence:` paths resolve; `Superseded` carries a point map to an ADR
   that exists; DIGEST titles, statuses and amendment dates match.
 
@@ -519,55 +520,93 @@ def cmd_lookup(root: str | None, words: list[str]) -> list[str]:
 # the base are judged.
 def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
     git = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=True).stdout  # noqa: E731
+    at_base = _records_at(root, base)
     findings = []
-    # A record is the branch's own draft when its NUMBER is absent from the
-    # base — by number, not path, so a rename in one commit and a body edit
-    # in the next is still judged (re-review of #50, finding 4).
-    # A base with no docs/adr/ at all (the branch that introduces the
-    # records) has no records: every one in the branch is new.
-    listed = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", f"{base}:{ADR_DIR}"], capture_output=True, text=True)
-    at_base = {m.group(1) for f in listed.stdout.split() if (m := FILE_RE.fullmatch(f))} if listed.returncode == 0 else set()
     for sha in git("rev-list", "--reverse", "--no-merges", f"{base}..{head}").split():
         # The trailer excuses a record's body edit only; a source is checked
         # whatever the message says (review of #51).
-        editorial = bool(re.search(r"^ADR-Editorial:\s*\S", git("log", "-1", "--format=%B", sha), re.M))
+        editorial = bool(EDITORIAL_RE.search(git("log", "-1", "--format=%B", sha)))
         entries = [ln.split("\t") for ln in git("diff-tree", "--no-commit-id", "--name-status", "-r", "-M", sha).splitlines()]
-        # A rename below -M's similarity threshold arrives as a delete and an
-        # add of the same record number: pair them, and judge the pair like
-        # a rename (re-review of #50).
-        deleted = {m.group(1): e[1] for e in entries if e[0][:1] == "D" and len(e) == 2
-                   and os.path.dirname(e[1]) == ADR_DIR and (m := FILE_RE.fullmatch(os.path.basename(e[1])))}
-        for parts in entries:
-            kind = parts[0][:1]
-            if kind == "M" and len(parts) == 2:
-                old, new_path = parts[1], parts[1]
-            elif kind == "R" and len(parts) == 3:
-                old, new_path = parts[1], parts[2]
-            elif kind == "A" and len(parts) == 2 and os.path.dirname(parts[1]) == ADR_DIR and (m := FILE_RE.fullmatch(os.path.basename(parts[1]))) and m.group(1) in deleted:
-                old, new_path = deleted[m.group(1)], parts[1]
-            elif kind == "D" and len(parts) == 2 and parts[1].startswith(f"{ADR_DIR}/sources/"):
-                findings.append(f"{sha[:8]}: deletes {parts[1]}, a verbatim source, which is never removed")
-                continue
-            else:
-                continue
-            # A source is kept verbatim: any change to one is a finding
-            # (agent-fabric ADR-001 §5 rule 9).
-            if new_path.startswith(f"{ADR_DIR}/sources/") or old.startswith(f"{ADR_DIR}/sources/"):
-                findings.append(f"{sha[:8]}: edits {old}, a verbatim source, which is never edited")
-                continue
-            m = FILE_RE.fullmatch(os.path.basename(new_path))
-            if os.path.dirname(new_path) != ADR_DIR or not m or m.group(1) not in at_base:
-                continue
-            before = git("show", f"{sha}^:{old}")
-            after = git("show", f"{sha}:{new_path}")
-            b_lines, a_lines = before.split("\n"), after.split("\n")
-            b_first = next((i for i, ln in enumerate(b_lines) if ln.startswith("## ")), len(b_lines))
-            a_first = next((i for i, ln in enumerate(a_lines) if ln.startswith("## ")), len(a_lines))
-            body_changed = b_lines[b_first:] != a_lines[a_first:]
-            rows_before = set(amendment_rows(before))
-            row_added = bool(set(amendment_rows(after)) - rows_before)
-            if body_changed and not row_added and not editorial:
-                findings.append(f"{sha[:8]}: edits the body of {new_path} with no new Amendments row and no 'ADR-Editorial:' trailer")
+        findings += _judge(sha[:8], entries, lambda p, s=sha: git("show", f"{s}^:{p}"),
+                           lambda p, s=sha: git("show", f"{s}:{p}"), editorial, at_base)
+    return findings
+
+
+def staged_check(root: str, message: str, against: str = "HEAD") -> list[str]:
+    """range_check's judgment of the commit being made: the index against
+    its parent, excused by the `ADR-Editorial:` trailer of the message being
+    written. The commit-time leg of the guard (the commit-msg hook), beside
+    CI's range-check and the suite's: an unrecorded body edit once reached
+    CI twice in a day (b01a6130, 9266b09a, 2026-10-16). The parent is HEAD,
+    or HEAD^ for an amend, which replaces HEAD (`against`; review of #297,
+    F2). A record is the branch's own draft when its number is absent from
+    the base CI would compare with (default_range); with no base, range-check
+    enforces nothing and neither does this (review of #297, F3). A first
+    commit has nothing to compare with and is not judged."""
+    git = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=True).stdout  # noqa: E731
+    if subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q", f"{against}^{{commit}}"], capture_output=True).returncode:
+        return []
+    found = default_range(root)
+    if found is None:
+        return []
+    at_base = _records_at(root, found[0])
+    body = "\n".join(ln for ln in message.split("\n") if not ln.startswith("#"))
+    entries = [ln.split("\t") for ln in git("diff-index", "--cached", "--name-status", "-M", against).splitlines()]
+    return _judge("this commit", entries, lambda p: git("show", f"{against}:{p}"), lambda p: git("show", f":{p}"),
+                  bool(EDITORIAL_RE.search(body)), at_base)
+
+
+EDITORIAL_RE = re.compile(r"^ADR-Editorial:\s*\S", re.M)
+
+
+def _records_at(root: str, base: str) -> set[str]:
+    """The record numbers present at `base`. A record is the branch's own
+    draft when its NUMBER is absent from the base — by number, not path, so
+    a rename in one commit and a body edit in the next is still judged
+    (re-review of #50, finding 4). A base with no docs/adr/ at all (the
+    branch that introduces the records) has no records: every one in the
+    branch is new."""
+    listed = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", f"{base}:{ADR_DIR}"], capture_output=True, text=True)
+    return {m.group(1) for f in listed.stdout.split() if (m := FILE_RE.fullmatch(f))} if listed.returncode == 0 else set()
+
+
+def _judge(label: str, entries: list[list[str]], before_of, after_of, editorial: bool, at_base: set[str]) -> list[str]:
+    """The findings of one change, given its --name-status entries and how to read a path before and after it."""
+    findings = []
+    # A rename below -M's similarity threshold arrives as a delete and an
+    # add of the same record number: pair them, and judge the pair like
+    # a rename (re-review of #50).
+    deleted = {m.group(1): e[1] for e in entries if e[0][:1] == "D" and len(e) == 2
+               and os.path.dirname(e[1]) == ADR_DIR and (m := FILE_RE.fullmatch(os.path.basename(e[1])))}
+    for parts in entries:
+        kind = parts[0][:1]
+        if kind == "M" and len(parts) == 2:
+            old, new_path = parts[1], parts[1]
+        elif kind == "R" and len(parts) == 3:
+            old, new_path = parts[1], parts[2]
+        elif kind == "A" and len(parts) == 2 and os.path.dirname(parts[1]) == ADR_DIR and (m := FILE_RE.fullmatch(os.path.basename(parts[1]))) and m.group(1) in deleted:
+            old, new_path = deleted[m.group(1)], parts[1]
+        elif kind == "D" and len(parts) == 2 and parts[1].startswith(f"{ADR_DIR}/sources/"):
+            findings.append(f"{label}: deletes {parts[1]}, a verbatim source, which is never removed")
+            continue
+        else:
+            continue
+        # A source is kept verbatim: any change to one is a finding
+        # (agent-fabric ADR-001 §5 rule 9).
+        if new_path.startswith(f"{ADR_DIR}/sources/") or old.startswith(f"{ADR_DIR}/sources/"):
+            findings.append(f"{label}: edits {old}, a verbatim source, which is never edited")
+            continue
+        m = FILE_RE.fullmatch(os.path.basename(new_path))
+        if os.path.dirname(new_path) != ADR_DIR or not m or m.group(1) not in at_base:
+            continue
+        before, after = before_of(old), after_of(new_path)
+        b_lines, a_lines = before.split("\n"), after.split("\n")
+        b_first = next((i for i, ln in enumerate(b_lines) if ln.startswith("## ")), len(b_lines))
+        a_first = next((i for i, ln in enumerate(a_lines) if ln.startswith("## ")), len(a_lines))
+        body_changed = b_lines[b_first:] != a_lines[a_first:]
+        row_added = bool(set(amendment_rows(after)) - set(amendment_rows(before)))
+        if body_changed and not row_added and not editorial:
+            findings.append(f"{label}: edits the body of {new_path} with no new Amendments row and no 'ADR-Editorial:' trailer")
     return findings
 
 
@@ -623,6 +662,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("amend"); p.add_argument("number"); p.add_argument("title"); p.add_argument("--date", required=True)
     p = sub.add_parser("lookup"); p.add_argument("words", nargs="*")
     p = sub.add_parser("range-check"); p.add_argument("base", nargs="?"); p.add_argument("head", nargs="?")
+    p = sub.add_parser("staged-check"); p.add_argument("message_file"); p.add_argument("--against", default="HEAD")
     a = ap.parse_args(argv)
     if a.cmd == "check":
         f = check(a.root)
@@ -641,6 +681,23 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "lookup":
         hits = cmd_lookup(a.root, a.words)
         print("\n\n".join(hits) if hits else "adr: no DIGEST entry mentions all of that"); return 0 if hits else 1
+    if a.cmd == "staged-check":
+        if not os.path.isdir(adr_dir(a.root)):
+            return 0
+        if default_range(tree(a.root)) is None:
+            # Said, as range-check says it: silence is never a pass (review of #297, round 2, finding 3).
+            print("adr staged-check: no base to compare with — not enforced", file=sys.stderr)
+            return 0
+        try:
+            with open(a.message_file, encoding="utf-8", errors="replace") as fh:
+                message = fh.read()
+            f = staged_check(tree(a.root), message, a.against)
+        except (OSError, subprocess.CalledProcessError) as e:
+            print(f"adr staged-check: could not read the commit being made ({type(e).__name__}); not judged", file=sys.stderr)
+            return 0
+        for x in f:
+            print(f"adr staged-check: {x} — add the row (python3 tools/fabric/adr.py amend …) or the trailer", file=sys.stderr)
+        return 1 if f else 0
     if a.cmd == "range-check":
         if a.base is None:
             if not os.path.isdir(adr_dir(a.root)):

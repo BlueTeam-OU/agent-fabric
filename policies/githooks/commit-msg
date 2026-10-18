@@ -88,6 +88,32 @@ fi
 # that runs this hook, its parent.
 python3 "$FABRIC_ROOT/tools/fabric/guards/commit_kind.py" "$msg" "$PPID" || exit 1
 
+# A decision record's body edit is recorded in the commit that makes it: a new
+# Amendments row, or an `ADR-Editorial:` trailer (agent-fabric ADR-001). CI's
+# range-check and the suite's are the other two legs; this one stops it at the
+# keyboard, where two unrecorded edits went past on 2026-10-16 (b01a6130,
+# 9266b09a). Judged by the repository's OWN tools/fabric/adr.py, so only
+# agent-fabric and its clones: a project's records keep their project's rules.
+# Not a merge, which range-check skips too: what it brings was judged where it
+# was made. An amend replaces HEAD, so it is judged against HEAD^, and also
+# when only its message changes (a dropped ADR-Editorial: trailer; review of
+# #297, F2); git's own argv says which, as commit_kind.py reads it.
+top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -n "$top" && -f "$top/tools/fabric/adr.py" ]] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+    against=HEAD
+    if PYTHONPATH="$FABRIC_ROOT/tools/fabric/guards" python3 -c 'import sys, commit_kind as k; sys.exit(0 if k.is_amend(k.parent_argv(sys.argv[1]) or []) else 1)' "$PPID" 2>/dev/null; then
+        against=HEAD^
+        # Amending a merge is still a merge, which range-check skips: judged
+        # against its first parent it would carry the other side's edits
+        # (review of #297, round 2, finding 2).
+        [[ "$(git rev-list --parents -n 1 HEAD | wc -w)" -gt 2 ]] && against=
+    fi
+    if [[ -n "$against" ]] && git rev-parse -q --verify "$against^{commit}" >/dev/null \
+            && git diff --cached --name-only "$against" -- docs/adr | grep -q .; then
+        python3 "$top/tools/fabric/adr.py" --root "$top" staged-check --against "$against" "$msg" || exit 1
+    fi
+fi
+
 # EVERY commit declares the role the account held when it was made — not
 # only a guarded one. Every account commits under one git author, so the
 # author line says nothing about the lane; the branch name says it once,

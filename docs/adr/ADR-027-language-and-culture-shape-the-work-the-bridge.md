@@ -130,11 +130,12 @@ re-captured, and a holder who writes every answer twice.
 ## 5. Binding Rules
 
 1. A holder of `language-culture` is a login named `language-culture-<suffix>`;
-   its locale is `identities/roles/language-culture/locale/<suffix>/`, and
-   the locale's BCP-47 tag is that directory's `locale.json` `tag` — never
-   inferred from the suffix. A holder whose store carries a `holder.json`
-   names its locale there, and that locale wins over the login's suffix,
-   for every reader the launcher feeds (ADR-060 §5 rule 8) (A 2026-10-18).
+   the locale it authors is `identities/roles/language-culture/locale/<suffix>/`,
+   and the locale's BCP-47 tag is that directory's `locale.json` `tag` — never
+   inferred from the suffix. The locale its session renders and searches in
+   is the one its `holder.json` names, English for a holder with none, never
+   read from the login, for every reader the launcher feeds (ADR-060 §5
+   rule 8) (A 2026-10-18).
 2. The role reports what a market's culture changes in a product so the
    surface's owner can decide, and says when a language cannot carry a
    meaning as written. A language finding in another role's surface is an
@@ -160,8 +161,8 @@ re-captured, and a holder who writes every answer twice.
    the `agent-fabric` marker, a model, and exactly `tools: TaskStop`
    (`tools/fabric/lint.py` holds the shape). `install-agent-files.sh`
    installs it as `~/.claude/agents/locale-worker.md` only on a login
-   bound to `language-culture` whose locale (rule 1: the launcher's
-   `--locale`, else the suffix) has a `worker.md`, and removes
+   bound to `language-culture` whose locale (rule 1: the locale the
+   launcher resolved) has a `worker.md`, and removes
    a copy carrying the marker from any other login. It carries no routed
    model pin and no routed effort: it is not a capability class.
 7. The dispatch guard admits a `locale-worker` dispatch only with a model
@@ -316,3 +317,4 @@ The body above reads current; each change's full note is in [history/ADR-027-ame
 | 2026-10-16 | A charter is translated for a holder who works in that language | §5 rule 11: only a holder whose work is in the locale's language gets its charter translated; the role's locale holder writes it, language-culture-<suffix> reviews it |
 | 2026-10-16 | A holder may adopt language-culture's draft | §5 rule 11: the holder may start from `language-culture-<suffix>`'s draft and is the author of what it commits; it reads the whole text against the English, both passes still run, and the last commit before the pull request names the draft and the reading |
 | 2026-10-18 | The holder's locale, and the shared pieces once per language | §5 rules 1, 6, 9, 13: the locale is holder.json's, else the suffix; the shared prompt pieces' renderings live in identities/prompt/locale/<suffix>/; a charter rendered in a locale needs every shared piece rendered there (ADR-060) |
+| 2026-10-18 | The suffix names what a holder authors, not what it renders | §5 rules 1, 6: a session's locale is its `holder.json`'s, English without one; the login's suffix still names the locale its holder authors |

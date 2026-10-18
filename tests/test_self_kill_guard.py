@@ -208,6 +208,44 @@ def main() -> int:
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a zero is refused wherever it stands: {cmd}", d is not None and d[0] == "deny" and "zero" in d[1], d)
     check("kill -0 <pid outside> passes", g.decision("kill -0 999999999", CLAUDE, shell=False) is None)
+    # A liveness probe asks nothing (the owner, 2026-10-17) when it is written kill -0 --: bash and util-linux both
+    # read every later word as a pid given signal 0. Nothing else is a probe: the words this guard reads have lost
+    # their quotes, and judging a bare variable from the command's text passed a SIGKILL to -1 twice (review of #297,
+    # F1 in rounds 1 and 2). Kills: exempting any form but -0 --.
+    for cmd in ('kill -0 -- "$s"', 'kill -0 -- "$a" "$b"', "kill -0 -- $x", "kill -0 -- $(cat pidfile)", "kill -0 -- -1",
+                "kill -0 -- 0", "x='-s KILL -1'; kill -0 -- $x", "kill -0 $!"):
+        check(f"a kill -0 -- probe passes: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
+              g.decision(cmd, CLAUDE, shell=False))
+    for cmd in ("kill -0 $a $b", "kill -0 $s; kill $s", "kill -9 $s", 'kill -0 "$s" 999999999', "kill -0 -s $s $p",
+                "kill -0 $s", "kill -0 ${s}", 'kill -0 "$s"', "s=$!; kill -0 $s", "x='-s KILL -1'; kill -0 $x",
+                "IFS=,; x=-s,KILL,-1; kill -0 $x", "x=-sKILL; echo -1 | xargs kill -0 $x", 'echo -1 | xargs kill -0 "$x"',
+                """x='-s KILL -1'; kill -0 "$x"; kill -0 $x""", 'y=$(printf x); declare "$y=-sKILL -1"; true s=$!; kill -0 $s'):
+        check(f"not a probe written with --: it asks: {cmd}", (g.decision(cmd, CLAUDE, shell=False) or ("",))[0] == "ask",
+              g.decision(cmd, CLAUDE, shell=False))
+    d = g.decision("kill -- -0 $s", CLAUDE, shell=False)
+    check("-0 after -- is group 0 with SIGTERM, not a probe: refused", d is not None and d[0] == "deny", d)
+    # An empty expansion glued to the tool's name is the tool to bash (review of #268, pre-existing 1-2): the zero
+    # and negative denials and the pattern reading hold for it. Kills: judging the command word as written.
+    for cmd in ('"$x"kill -9 0', "${x}kill -- -1", 'k"$x"ill 0', 'kill"$x" -9 0', 'sudo "$x"kill 0', '"$xp"kill -9 0',
+                "$HOME/bin/sh -c 'kill 0'"):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a glued expansion does not hide kill: {cmd}", d is not None and d[0] == "deny", d)
+    # Review of #297, P-1: any number of glued variables, at any length, before the tool's name.
+    for cmd in ('"$p""$q""$r""$s"kill -1', 'x=1; "$p""$q""$r""$s"kill 0', '"$' + "v" * 62 + '"kill -1'):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"glued variables of any number or length do not hide kill: {cmd[:40]}", d is not None and d[0] == "deny", d)
+    for cmd in ('"$x"pkill -f claude-fable', '${x}pk""ill -f claude-fable', '"$p""$q""$r""$s"pkill -f claude-fable',
+                '"$' + "v" * 62 + '"pkill -f claude-fable'):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a glued expansion does not hide pkill: {cmd}", d is not None and d[0] == "deny", d)
+    # Review of #297, P-1 (round 2): a cut inside the name past the bounded reduction, or in a long word, cannot be read,
+    # so it asks. Kills: taking such a word as written.
+    for cmd in ('"$p""$q""$r""$s"kil"$t"l -1', '"$p""$q"k"$r""$s"ill 0', 'k"$p"i"$q"l"$r"l"$s" -1', 'k"$' + "v" * 67 + '"ill -1'):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a kill split by expansions asks: {cmd[:40]}", d is not None and d[0] == "ask", d)
+    for cmd in ('"$x"kill -9 999999999', '"$PYTHON" t.py', "echo $skill", 'sudo -u "$x"kill 0'):
+        check(f"a glued name that kills nothing protected passes: {cmd}", g.decision(cmd, CLAUDE, shell=False) is None,
+              g.decision(cmd, CLAUDE, shell=False))
     # An expansion the hook does not evaluate asks, never passes (round 4).
     many = "kill " + " ".join(str(900000000 + i) for i in range(g.MAX_PIDS + 5))
     for label, cmd in (("ANSI-C quoting", "ki$'l'l 999999999"), ("locale quoting", 'kill $"999999999"'),

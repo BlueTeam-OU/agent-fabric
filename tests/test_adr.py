@@ -565,6 +565,68 @@ def case_a_source_is_never_removed(tmp: str) -> None:
         assert len(f) == 1 and "never edited" in f[0], f
 
 
+def case_staged_check_judges_the_commit_being_made(tmp: str) -> None:
+    # The commit-time leg (job j261): the index against HEAD, excused only by the message being written.
+    # Kills: judging HEAD's own commit instead of the index, reading a commented-out trailer, and judging a first commit.
+    root = fixture(tmp)
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "core.hooksPath", "/dev/null")
+    assert adr.staged_check(root, "first\n") == [], "a repository with no HEAD has nothing to compare with"
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="base")
+    assert adr.staged_check(root, "nothing staged\n") == []
+    edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "add", "-A")
+    f = adr.staged_check(root, "reword\n")
+    assert len(f) == 1 and f[0].startswith("this commit: edits the body of docs/adr/ADR-001") and "no new Amendments row" in f[0], f
+    assert adr.staged_check(root, "reword\n\nADR-Editorial: a word, nothing decided\n") == [], "the trailer excuses it"
+    assert len(adr.staged_check(root, "reword\n# ADR-Editorial: a word\n")) == 1, "a comment line is no trailer"
+    git(root, "commit", "-q", msg="reword\n\nADR-Editorial: a word")
+    assert adr.staged_check(root, "after\n") == [], "the edit is committed; nothing is staged"
+    amend(root)
+    edit(root, ONE, "Cheaper, yet it keeps", "Cheaper, still it keeps")
+    git(root, "add", "-A")
+    assert adr.staged_check(root, "amend ADR-001\n") == [], "a new Amendments row records the body edit"
+    tool = os.path.join(ROOT, "tools", "fabric", "adr.py")
+    msgf = os.path.join(tmp, "MSG")
+    with open(msgf, "w", encoding="utf-8") as fh:
+        fh.write("reword\n")
+    git(root, "commit", "-q", msg="amended")
+    edit(root, ONE, "Cheaper, still it keeps", "Cheaper, and it keeps")
+    git(root, "add", "-A")
+    r = subprocess.run([sys.executable, tool, "--root", root, "staged-check", msgf], capture_output=True, text=True, env=git_env())
+    assert r.returncode == 1 and "adr staged-check: this commit: edits the body" in r.stderr and not r.stdout, (r.returncode, r.stderr)
+
+
+def case_staged_check_on_an_amend_and_with_no_base(tmp: str) -> None:
+    # Review of #297, F2: an amend's parent is HEAD^; F3: with no base, range-check enforces nothing, and nor does this.
+    # Kills: comparing an amend with HEAD, and judging when no base resolves.
+    root = fixture(tmp)
+    commit_base(root)
+    amend(root)
+    edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="amend ADR-001")
+    edit(root, ONE, "Cheaper, yet it keeps", "Cheaper, still it keeps")
+    git(root, "add", "-A")
+    assert len(adr.staged_check(root, "amend ADR-001\n")) == 1, "against HEAD the row is no longer new"
+    assert adr.staged_check(root, "amend ADR-001\n", against="HEAD^") == [], "against HEAD^ the amend adds the row"
+    other = fixture(os.path.join(tmp, "nobase"))
+    git(other, "init", "-q", "-b", "trunk"); git(other, "config", "core.hooksPath", "/dev/null")
+    git(other, "add", "-A"); git(other, "commit", "-q", msg="base")
+    edit(other, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(other, "add", "-A")
+    env = {k: os.environ.pop(k) for k in ("AGENT_FABRIC_ADR_BASE", "GITHUB_BASE_REF", "GITHUB_EVENT_PATH") if k in os.environ}
+    try:
+        assert adr.default_range(other) is None and adr.staged_check(other, "reword\n") == [], "no base: not judged"
+        msgf = os.path.join(tmp, "MSG")
+        with open(msgf, "w", encoding="utf-8") as fh:
+            fh.write("reword\n")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "adr.py"), "--root", other, "staged-check", msgf],
+                           capture_output=True, text=True, env=git_env())
+        assert r.returncode == 0 and "no base to compare with — not enforced" in r.stderr, (r.returncode, r.stderr)   # said, never silent
+    finally:
+        os.environ.update(env)
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

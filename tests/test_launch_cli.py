@@ -200,7 +200,7 @@ def main() -> int:
             # install-agent-files.sh is a shim for its module, which imports
             # fabric_writes (ADR-040 §5 rule 5).
             for f in ("routing.py", "workingcopy.py", "jobs.py", "layout.py", "launch_prompt.py",
-                      "install_agent_files.py", "fabric_writes.py", "roots.py", "git.py", "gh.py"):   # git.py and gh.py: jobsparts/vcs.py loads them
+                      "install_agent_files.py", "fabric_writes.py", "launch_locale.py", "roots.py", "git.py", "gh.py"):   # git.py and gh.py: jobsparts/vcs.py loads them
                 shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fabric}/tools/fabric/")
             shutil.copytree(f"{ROOT}/tools/fabric/jobsparts", f"{fabric}/tools/fabric/jobsparts", ignore=shutil.ignore_patterns("__pycache__"))   # jobs.py's parts
             # The role's system prompt: the assembler, the shared sections and
@@ -608,31 +608,47 @@ def main() -> int:
             check("…and none when AGENT_FABRIC_NO_OPENING is set", "Session start: arm" not in out, out)
             # A language-culture login whose locale has a search: the harness's
             # WebSearch is removed at exec.
-            suffix = LOGIN.rsplit("-", 1)[-1]
+            # The locale is en: no holder.json names another, and the login's name chooses none (ADR-060 rule 8). The
+            # checks that need a timezone run from a tree whose addenda stand-in writes a holder.json (group 7's).
+            suffix = "en"
             lc = f"{fabric}/identities/roles/language-culture"
             shutil.copytree(f"{fabric}/identities/roles/backend-dev", lc)   # a charter to render
             put(f"{lc}/locale/{suffix}/locale.json", '{"timezone":"Asia/Tbilisi","brave":{"country":"ALL","tool_description":"ძიება"}}')
             binding("language-culture")
+            code = f"{sandbox}/code4"
+            rm(code)
+            shutil.copytree(f"{ROOT}/tools/fabric", f"{code}/tools/fabric", ignore=shutil.ignore_patterns("__pycache__"))
+            os.makedirs(f"{code}/runtime/openrouter")
+            shutil.copy2(LAUNCHER, f"{code}/runtime/openrouter/launch")
+            put(f"{code}/tools/fabric/addenda.py", """import json, os, sys
+out = sys.argv[sys.argv.index("--out") + 1]
+with open(out, "w", encoding="utf-8") as fh:
+    json.dump({"role": "language-culture", "agent_id": "a", "charter": None, "brief": None,
+               "holder": {"locale": "en", "timezone": "Asia/Tbilisi"}, "against": {},
+               "store_sha": "a" * 40, "addenda_commit": "b" * 40}, fh)
+print("a" * 40, "b" * 40)
+""", 0o644)
+            tree4 = f"{code}/runtime/openrouter/launch"
             outlc = out_of("--provider", "anthropic", "--", "--version")
             check("a language-culture login with a locale search execs claude without WebSearch — the variadic flag last, "
                   "after the caller's arguments", has(r"CLAUDE-EXECCED:.*--version --disallowedTools WebSearch$", outlc), outlc)
-            check("…with no holder.json the timezone is the locale file's, as the session's TZ, and no search country is named",
-                  has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_SEARCH_COUNTRY=$", outlc),
+            check("…with no holder.json no timezone and no search country are named, though en's file carries one",
+                  has(r"CLAUDE-ENV:TZ=$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_SEARCH_COUNTRY=$", outlc),
                   grep("CLAUDE-ENV:(TZ|AGENT_FABRIC_SEARCH)", outlc))
-            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Europe/Stale", AGENT_FABRIC_SEARCH_COUNTRY="zz")
+            outlc = out_of("--provider", "anthropic", "--", "--version", launcher=tree4, TZ="Europe/Stale", AGENT_FABRIC_SEARCH_COUNTRY="zz")
             check("…and what the launching environment held is overwritten (TZ) or dropped (country), not inherited",
                   has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_SEARCH_COUNTRY=$", outlc),
                   grep("CLAUDE-ENV:(TZ|AGENT_FABRIC_SEARCH)", outlc))
-            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Europe/Rome")
+            outlc = out_of("--provider", "anthropic", "--", "--version", launcher=tree4, TZ="Europe/Rome")
             check("…a first launch overwrites the operator's TZ and stamps theirs beside",
                   has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_OPERATOR_TZ=Europe/Rome$", outlc)
                   and has(r"CLAUDE-ENV:AGENT_FABRIC_LAUNCH_TZ=Asia/Tbilisi$", outlc), grep("CLAUDE-ENV:(TZ|AGENT_FABRIC_(LAUNCH|OPERATOR)_TZ)", outlc))
-            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Asia/Tbilisi", AGENT_FABRIC_LAUNCH_TZ="Asia/Tbilisi",
-                           AGENT_FABRIC_OPERATOR_TZ="Europe/Rome")
+            outlc = out_of("--provider", "anthropic", "--", "--version", launcher=tree4, TZ="Asia/Tbilisi",
+                           AGENT_FABRIC_LAUNCH_TZ="Asia/Tbilisi", AGENT_FABRIC_OPERATOR_TZ="Europe/Rome")
             check("…and a restart keeps the operator's stamp, not the stamped value, as theirs",
                   has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_OPERATOR_TZ=Europe/Rome$", outlc), outlc)
-            outlc = out_of("--provider", "anthropic", "--", "--version", TZ="Operator/Zone", AGENT_FABRIC_LAUNCH_TZ="Asia/Tbilisi",
-                           AGENT_FABRIC_OPERATOR_TZ="Europe/Rome")
+            outlc = out_of("--provider", "anthropic", "--", "--version", launcher=tree4, TZ="Operator/Zone",
+                           AGENT_FABRIC_LAUNCH_TZ="Asia/Tbilisi", AGENT_FABRIC_OPERATOR_TZ="Europe/Rome")
             check("…and a TZ the operator changed since is the one stamped as theirs when the restart knows a timezone",
                   has(r"CLAUDE-ENV:TZ=Asia/Tbilisi$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_OPERATOR_TZ=Operator/Zone$", outlc), outlc)
             outlc = out_of("--provider", "anthropic")
@@ -648,8 +664,14 @@ def main() -> int:
                   has(r"CLAUDE-ENV:AGENT_FABRIC_LAUNCH_CLAUDE_VERSION=$", outlc), grep("CLAUDE_VERSION", outlc))
             # The locale carries the harness text: the whole prompt is replaced,
             # the build stamped, on both providers.
-            put(f"{lc}/locale/{suffix}/harness.md", "---\nclass: harness-translation\ntranslates: runtime/claude-code/harness/en.md\n"
+            harness = ("---\nclass: harness-translation\ntranslates: runtime/claude-code/harness/en.md\n"
                 "translates_digest: sha256:x\n---\nშენ ხარ Claude Code. მეხსიერება: `{memory_dir}`.\n")
+            put(f"{lc}/locale/{suffix}/harness.md", harness)
+            # launch_prompt.py renders the harness text by the login's suffix until it takes the launcher's answer
+            # (launch_locale.py); the launcher chooses the replacement from the locale it resolved.
+            login_suffix = LOGIN.rsplit("-", 1)[-1]
+            if login_suffix != suffix:
+                put(f"{lc}/locale/{login_suffix}/harness.md", harness)
             outlc = out_of("--provider", "anthropic", "--", "--version")
             check("a locale with the harness text execs claude with the whole prompt replaced",
                   has(rf"CLAUDE-EXECCED:.*--system-prompt-file {re.escape(prompt_file)}", outlc)
@@ -684,7 +706,7 @@ def main() -> int:
             check("…and a restart that knows no timezone puts the operator's own TZ back, not UTC",
                   has(r"CLAUDE-ENV:TZ=Europe/Rome$", outlc) and has(r"CLAUDE-ENV:AGENT_FABRIC_LAUNCH_TZ=$", outlc)
                   and has(r"CLAUDE-ENV:AGENT_FABRIC_OPERATOR_TZ=$", outlc), grep("CLAUDE-ENV:(TZ|AGENT_FABRIC_(LAUNCH|OPERATOR)_TZ)", outlc))
-            rm(lc)
+            rm(lc, code)
             binding()
             out = plain
             check("tab-title writer off on plain claude too", "CLAUDE-ENV:CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1" in out, out)
@@ -1284,7 +1306,7 @@ def main() -> int:
                   rc != 0 and "addenda" in out and "backend-dev" in out and "EXECCED" not in out, out)
             check("…and nothing is read as absence: no holder file is left", not os.path.exists(f"{agent_dir}/launch-holder.json"))
             rm(store)
-            print("launch: the holder's locale (ADR-060 rule 8) — holder.json first, the suffix only while it has none")
+            print("launch: the holder's locale (ADR-060 rule 8) — holder.json first, en while it has none, never the suffix")
             # addenda.py is test_addenda.py's (the signed store); here only what the launcher does with the Holder
             # it writes, so the tree runs a stand-in that writes the Holder of addenda.py's docstring from FAKE_HOLDER.
             put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
@@ -1323,16 +1345,23 @@ if spec is not None:
             def exports(out: str) -> tuple[str, str]:
                 return tuple((re.search(rf"^CLAUDE-ENV:{v}=(.*)$", out, re.M) or [None, "<absent>"])[1]
                              for v in ("TZ", "AGENT_FABRIC_SEARCH_COUNTRY"))
-            sfx = suffix if re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", suffix) else ""
+
+            def recorded() -> str:
+                return read(f"{agent_dir}/launch-locale.json").strip()
+            # Mutation caught: resolving the locale from the login's suffix (Europe/Paris, sx, the decoy above) turns
+            # the next four checks red.
             out = held(None)
-            check("no addenda at all: the suffix's locale, its file's facts, WebSearch removed",
-                  exports(out) == ("Europe/Paris", "sx") and "--disallowedTools WebSearch" in out, out)
+            check("no addenda at all: English, none of its file's facts put on the login, the harness's search still removed",
+                  exports(out) == ("", "") and "--disallowedTools WebSearch" in out, out)
+            check("…and the launch records en for the readers that never open the store", recorded() == '{"locale": "en"}', recorded())
             out = held("none")
-            check("addenda but no holder.json: the same — the suffix is the fallback",
-                  exports(out) == ("Europe/Paris", "sx") and "--disallowedTools WebSearch" in out, out)
+            check("addenda but no holder.json: the same — the login's suffix chooses nothing",
+                  exports(out) == ("", "") and "--disallowedTools WebSearch" in out, out)
+            check("…recorded as en", recorded() == '{"locale": "en"}', recorded())
             out = held('{"locale":"ge","timezone":"Asia/Yerevan","search":{"country":"am"}}')
             check("holder.json present: its locale, timezone and country win over the suffix and the locale file",
                   exports(out) == ("Asia/Yerevan", "am"), out)
+            check("…and the launch records ge, the same answer for a login with no suffix", recorded() == '{"locale": "ge"}', recorded())
             out = held('{"locale":"ge"}')
             check("…one that names only a locale takes the deployment facts from that locale's file",
                   exports(out) == ("Asia/Tbilisi", "ge"), out)
@@ -1351,10 +1380,10 @@ if spec is not None:
                 rm(spylog)
                 held(spec, SPY_LOG=spylog)
                 return read(spylog).strip() if os.path.exists(spylog) else "<not run>"
-            check("the installer gets --locale from holder.json, not the suffix",
+            check("the installer gets --locale from holder.json",
                   installed_with('{"locale":"ge"}') == "--provider anthropic --locale ge", installed_with('{"locale":"ge"}'))
-            check("…with no holder.json the suffix, when it is a locale tag; otherwise no --locale (the installer's own fallback)",
-                  installed_with(None) == ("--provider anthropic" + (f" --locale {suffix}" if sfx else "")), installed_with(None))
+            check("…with no holder.json en, whatever the suffix is",
+                  installed_with(None) == "--provider anthropic --locale en", installed_with(None))
             put(spy, real, 0o755)
             put(f"{lc}/locale/en/harness.md", "x\n")
             out = held('{"locale":"en"}')

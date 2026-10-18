@@ -24,6 +24,7 @@ to `grep -qE` (an existing trailer in another case); `contributor=$?` dropped (c
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import unittest
 
@@ -251,6 +252,114 @@ class Trailer(Hook):
         self.assertEqual(r.returncode, 1)
         self.assertIn("Kind: work", r.stderr)
         self.assertEqual(after, "subject without a kind", "nothing is written to a refused message")
+
+
+class DecisionRecordBodyEdit(unittest.TestCase):
+    """The commit-time leg of the amendment guard (job j261): tools/fabric/adr.py staged-check, run by the repository's own copy.
+    Mutations each case fails on: the staged-check call removed (refused); the MERGE_HEAD test dropped (a merge); the repository's
+    own adr.py replaced by the fabric's (a project's records)."""
+    RECORD = "docs/adr/ADR-001-a-rule.md"
+    TEXT = ("# ADR-001 — A rule\n\n**Status:** Accepted\n\n## 1. Context\n\nThe old text.\n\n"
+            "## Amendments\n\n| Date | Amendment | Effect |\n|---|---|---|\n")
+
+    def setUp(self):
+        self.fabric = Fabric(owner_role="fabric-coordinator")
+        self.addCleanup(self.fabric.cleanup)
+        self.fabric.bind("fabric-coordinator")
+        self.repo = self.fabric.itself(files={self.RECORD: self.TEXT, "src/a.txt": "code\n"})
+        self.n = 0
+
+    def run_hook(self, text, repo=None):
+        self.n += 1
+        path = os.path.join(self.fabric.root, f"MSG{self.n}")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return self.fabric.hook("commit-msg", repo or self.repo, path)
+
+    def edit(self, repo=None, row=""):
+        repo = repo or self.repo
+        repo.write(self.RECORD, self.TEXT.replace("The old text.", "The new text.") + row)
+        repo.git("add", "-A")
+
+    def test_an_unrecorded_body_edit_is_refused_naming_the_record(self):
+        self.edit()
+        r = self.run_hook("reword" + KIND)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn(f"adr staged-check: this commit: edits the body of {self.RECORD}", r.stderr)
+
+    def test_the_editorial_trailer_or_a_new_amendments_row_records_it(self):
+        self.edit()
+        self.assertEqual(self.run_hook("reword\n\nADR-Editorial: a word, nothing decided\nKind: work").returncode, 0)
+        self.edit(row="| 2026-10-18 | a rule moved | §1 says the new text |\n")
+        r = self.run_hook("amend ADR-001" + KIND)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_project_without_the_fabrics_adr_tool_keeps_its_own_rules(self):
+        project = self.fabric.project(files={self.RECORD: self.TEXT})
+        self.edit(repo=project)
+        r = self.run_hook("reword" + KIND, repo=project)
+        self.assertNotIn("adr staged-check", r.stderr)
+
+    def run_hook_as_amend(self, text):
+        """The hook with a parent whose argv is `git -c … commit --amend`, as git's own is when it amends: the hook
+        tells an amend from its parent's argv (commit_kind.is_amend), and a real commit would run pre-commit too."""
+        self.n += 1
+        path = os.path.join(self.fabric.root, f"MSG{self.n}")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        hook = os.path.join(self.fabric.hooks, "commit-msg")
+        return subprocess.run(["bash", "-c", 'exec -a git bash -c "$0" "$@"', '"$2" "$3"; exit $?', "commit", "--amend", hook, path],
+                              cwd=self.repo.path, capture_output=True, text=True, timeout=120, env=self.fabric.env())
+
+    def commit_quietly(self, message):
+        self.repo.git("-c", "core.hooksPath=/dev/null", "commit", "-qm", message)
+
+    def test_an_amend_is_judged_against_the_commit_it_replaces(self):
+        # Review of #297, F2: an amend replaces HEAD, so its parent is HEAD^. Kills: judging an amend against HEAD.
+        row = "| 2026-10-18 | a rule moved | §1 says the new text |\n"
+        self.edit(row=row)
+        self.commit_quietly("amend ADR-001" + KIND)
+        self.repo.write(self.RECORD, self.TEXT.replace("The old text.", "The newer text.") + row)
+        self.repo.git("add", "-A")
+        self.assertEqual(self.run_hook("amend ADR-001" + KIND).returncode, 1, "as a new commit on HEAD the row is not new")
+        r = self.run_hook_as_amend("amend ADR-001" + KIND)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_an_amend_that_drops_the_trailer_is_refused(self):
+        # Kills: running staged-check only when the index differs from HEAD (a message-only amend).
+        self.edit()
+        self.commit_quietly("reword\n\nADR-Editorial: a word\nKind: work")
+        r = self.run_hook_as_amend("reword" + KIND)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("adr staged-check: this commit: edits the body", r.stderr)
+
+    def test_an_amended_merge_is_not_judged_against_its_first_parent(self):
+        # Review of #297, round 2, finding 2: amending a merge leaves no MERGE_HEAD; against HEAD^ it would carry the
+        # other side's edits. Kills: dropping the parent count test.
+        off = ("-c", "core.hooksPath=/dev/null")
+        self.repo.git("checkout", "-q", "-b", "side")
+        self.edit()
+        self.repo.git(*off, "commit", "-qm", "reword\n\nADR-Editorial: a word\nKind: work")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.write("src/a.txt", "more\n", append=True)
+        self.repo.git("add", "-A")
+        self.repo.git(*off, "commit", "-qm", "main moves\n\nKind: work")
+        self.repo.git(*off, "merge", "-q", "--no-ff", "-m", "Merge branch 'side'", "side")
+        r = self.run_hook_as_amend("Merge branch 'side', reworded" + KIND)
+        self.assertNotIn("adr staged-check", r.stderr)
+
+    def test_a_merge_is_not_judged_again(self):
+        off = ("-c", "core.hooksPath=/dev/null")
+        self.repo.git("checkout", "-q", "-b", "side")
+        self.edit()
+        self.repo.git(*off, "commit", "-qm", "reword\n\nADR-Editorial: a word\nKind: work")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.write("src/a.txt", "more\n", append=True)
+        self.repo.git("add", "-A")
+        self.repo.git(*off, "commit", "-qm", "main moves\n\nKind: work")
+        self.repo.git(*off, "merge", "-q", "--no-ff", "--no-commit", "side")
+        r = self.run_hook("Merge branch 'side'" + KIND)
+        self.assertNotIn("adr staged-check", r.stderr)
 
 
 class Carveouts(unittest.TestCase):
