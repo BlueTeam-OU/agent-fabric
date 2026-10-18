@@ -23,7 +23,7 @@
     fabric-secrets store child-bundle LOGIN|ID   the parent's mirror of a child, armored
     fabric-secrets store refresh-mirror LOGIN|ID the parent's mirror of a child, brought up to its remote
                                                  by the verified fetch (ADR-042)
-    fabric-secrets store trust-base [COMMIT] [--store DIR]
+    fabric-secrets store trust-base [COMMIT] [--store DIR] [--replace-orphaned]
                                                  the commit up to which the store's history is
                                                  trusted unsigned (ADR-042; the migration, once)
     fabric-secrets store names [--json]          the entries, by name
@@ -74,7 +74,8 @@ identities/keys/ stand at the fabric checkout's origin/main. pull, the
 write paths' fetch, take-bundle, seed-child, child-bundle, refresh-mirror
 and push's fast-forward verify every commit beyond the store's trusted
 base (agent-fabric.trustedbase in its .git/config, set by `trust-base` or
-a new store's init, moved forward by each verified fetch). A refusal names
+a new store's init, moved forward by each verified fetch and moved back to the
+commit it still shares with HEAD when a write's rebase or reset orphans it). A refusal names
 the commit and why, applies nothing, and is kept beside the store for
 `fabric-secrets status` and `fabric-ctl keys` until a verified fetch
 succeeds. One stop is no refusal: a commit whose object carries a PGP
@@ -340,6 +341,8 @@ def main(argv: list[str] | None = None) -> int:
     tb = sub.add_parser("trust-base", help="the commit up to which this store's history is trusted unsigned (ADR-042)")
     tb.add_argument("commit", nargs="?")
     tb.add_argument("--store", help="a store other than this agent's own (a child's mirror)")
+    tb.add_argument("--replace-orphaned", action="store_true",
+                    help="replace a recorded base that HEAD does not descend from, after checking HEAD against the remote")
     sub.add_parser("export-key")
     sub.add_parser("push")
     sub.add_parser("bundle", help="this store, armored, for its parent (a new account's first contact)")
@@ -433,7 +436,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "refresh-mirror":
             print(f"mirror up to date: {refresh_mirror(args.login)}")
         elif args.cmd == "trust-base":
-            r = trust_base(args.commit, args.store)
+            r = trust_base(args.commit, args.store, replace_orphaned=args.replace_orphaned)
             print(f"trusted base: {r['trusted_base']}" + (f" (was {r['was']})" if r["was"] and r["was"] != r["trusted_base"] else ""))
         elif args.cmd == "push":
             store = store_dir()

@@ -187,7 +187,10 @@ def load(login: str, role: str, policy: str = "optional", *, store: str | None =
     base = trust.trusted_base(store)
     if base and _git(store, "rev-parse", "-q", "--verify", "HEAD", check=False).returncode == 0 \
             and not _descends(store, base):
-        raise _refuse(role, "the store's HEAD does not descend from its trusted base")
+        raise _refuse(role, f"the store's HEAD {_git(store, 'rev-parse', 'HEAD').stdout.decode().strip()[:12]} does not descend "
+                            f"from its trusted base {base[:12]}; the owner, after checking HEAD against the remote "
+                            "(git fetch; HEAD equals origin/main), records it again: "
+                            "fabric-secrets store trust-base --replace-orphaned")
     if _directory(store, role) is None:
         # Never there, or removed: a removal is the parent's too (rule 3), or an
         # unsigned deletion would turn any addendum into "no addenda".

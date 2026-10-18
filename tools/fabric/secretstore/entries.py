@@ -8,7 +8,7 @@ import sys
 
 from .core import NAME_RE, UID_DOMAIN, StoreError, login, AGENT_ID_RE, own_agent_id, store_dir, _run, gpg, git
 from .keys import fingerprints, key_of_store, _ensure_use_subkeys, uid_of, _signing_args
-from .trust import _git_env, _commit, trusted_base, _full, _set_base, _verify_incoming, _taken
+from .trust import _git_env, _commit, trusted_base, _full, _set_base, _verify_incoming, _taken, _keep_base
 from .lock import write_lock, require_write_lock, lock_wait_s
 
 
@@ -149,6 +149,11 @@ def _before_write(store: str) -> None:
     if r.returncode != 0:
         _run(["git", "-C", store, "rebase", "--abort"], check=False)
         raise failed(r)
+    # The rebase rewrote this store's unpushed commits; a base on one of them
+    # (init's first commit, a trust-base at an unpushed head) is orphaned.
+    dropped = _keep_base(store)
+    if dropped:
+        raise StoreError(f"{dropped}; nothing written")
     _taken(store, tip)
 
 

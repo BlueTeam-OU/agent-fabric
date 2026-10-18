@@ -262,7 +262,7 @@ def main() -> int:
         base = git(child, child_store, "config", "--local", "--get", trust.TRUST_KEY).stdout.strip()
         unrelated = git(child, child_store, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit-tree", "-m", "orphan", git(child, child_store, "rev-parse", "HEAD^{tree}").stdout.strip()).stdout.strip()
         git(child, child_store, "config", trust.TRUST_KEY, unrelated)
-        refused("a HEAD that does not descend from the trusted base is refused", load(), "descend", "trusted base")
+        refused("a HEAD that does not descend from the trusted base is refused", load(), "descend", "trusted base", "HEAD ", unrelated[:12], "trust-base --replace-orphaned")
         git(child, child_store, "config", "--unset", trust.TRUST_KEY)
         refused("a store with no trusted base is refused", load(), "trusted base")
         git(child, child_store, "config", trust.TRUST_KEY, base)
@@ -376,7 +376,7 @@ def main() -> int:
         tip = git(child, child_store, "rev-parse", "HEAD").stdout.strip()
         git(child, child_store, "reset", "-q", "--hard", before_install)
         refused("a HEAD that no longer descends from the base is refused even where the directory is gone",
-                load(), "descend", "trusted base")
+                load(), "descend", "trusted base", "HEAD ", "trust-base --replace-orphaned")
         git(child, child_store, "reset", "-q", "--hard", tip)
         check("…control: HEAD back, it loads", isinstance(load(), addenda.Holder))
 
