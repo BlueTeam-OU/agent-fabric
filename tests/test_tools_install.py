@@ -850,6 +850,7 @@ cargo)
     [ -e "$HOME/.fake-cargo-sleeps" ] && { sleep 300 & echo $! > "$HOME/cargo-child.pid"; sleep 30; }
     printf '#!/bin/sh\\n' > "$CARGO_HOME/bin/cargo-ndk"; chmod +x "$CARGO_HOME/bin/cargo-ndk"
   elif [ "$2" = ndk ]; then
+    [ "$RUSTUP_AUTO_INSTALL" = 0 ] || echo "$RUSTUP_AUTO_INSTALL" > "$HOME/proof-would-download-toolchain"
     [ -x "$CARGO_HOME/bin/cargo-ndk" ] && echo "cargo-ndk %(nver)s" || { echo "no such command: ndk" >&2; exit 101; }
   fi ;;
 esac
@@ -895,11 +896,15 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             open(os.path.join(home, name), "w").close()
 
         def alive(pid_file: str) -> bool:
-            """Whether the child a fake recorded is running; a live one is killed, so a failing run leaves none."""
+            """Whether the child a fake recorded is running; a live one is killed, so a failing run leaves none.
+            A zombie is dead: in a container whose pid 1 does not reap, a killed grandchild stays one, and kill -0 says yes."""
             try:
                 pid_ = int(open(pid_file).read())
-                os.kill(pid_, 0)
-            except (OSError, ValueError):
+                with open(f"/proc/{pid_}/stat", encoding="ascii", errors="replace") as fh:
+                    state = fh.read().rsplit(")", 1)[1].split()[0]
+            except (OSError, ValueError, IndexError):
+                return False
+            if state == "Z":
                 return False
             os.kill(pid_, signal.SIGKILL)
             return True
@@ -1020,6 +1025,9 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             again = run_tool("cargo-ndk", home, ndk_entry())
             check("a second run is current (the proof decides) and installs nothing",
                   again["status"] == "current" and len(record(home, "install.record")) == n_before, again)
+            check("no proof ran with rustup's auto-install on, and the install itself did not turn it off",
+                  not os.path.exists(os.path.join(home, "proof-would-download-toolchain"))
+                  and not any(x == "RUSTUP_AUTO_INSTALL=0" for x in record(home, "install.record")), record(home, "install.record")[-12:])
             os.unlink(os.path.join(home, ".cargo", "bin", "cargo-ndk"))
             gone = run_tool("cargo-ndk", home, ndk_entry())
             check("with the tool gone the proof fails and the install runs again (the proof is not decorative)",
