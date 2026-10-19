@@ -6,6 +6,7 @@ import functools
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 from typing import Any
 import roots
@@ -153,6 +154,44 @@ def retrieval_summary(memory_use: dict[str, Any]) -> dict[str, dict[str, Any]]:
         row["zero_hit_share"] = round(row["zero_hit_finds"] / finds, 3) if finds else None
         row["read_through"] = round(row["finds_followed_by_read"] / finds, 3) if finds else None
     return dict(sorted(out.items()))
+
+
+def fabric_commit() -> str | None:
+    """The agent-fabric commit the indexes were built against, or None when it cannot be asked: a message that said
+    a plausible commit would be worse than one that says unknown."""
+    try:
+        done = subprocess.run(["git", "-C", layout.FABRIC_ROOT, "rev-parse", "HEAD"], capture_output=True, text=True,
+                              timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    sha = done.stdout.strip()
+    return sha if done.returncode == 0 and sha else None
+
+
+def commit_message(report: dict[str, Any], built_against: str | None) -> str:
+    """The commit body for a project's drain, from the report alone: a line the report gives no reason for is not
+    written, so a drain with no collisions and nothing held back names neither (a review of 2026-10-18: one hand-written
+    message was said of seven different drains). A collision decision carrying a `rule` was the same-agent rule's,
+    not the owner's; only the owner's file is said to be the owner's."""
+    files = report.get("files") or []
+    slices = [f for f in files if f.endswith(".md") and os.path.basename(f) != "INDEX.md"]
+    roles = report.get("roles") or []
+    lines = [f"{report.get('project')}: memory drain {report.get('stamp')}", "",
+             f"Files written: {len(files)}, of which {len(slices)} are slices.",
+             f"Roles indexed: {len(roles)}" + (f" ({', '.join(roles)})" if roles else "") + "."]
+    decisions = report.get("collision_decisions") or []
+    if decisions:
+        owner = sum(1 for d in decisions if isinstance(d, dict) and not d.get("rule"))
+        lines.append(f"Collision decisions: {len(decisions)}, {owner} decided by the owner (--collision-decisions), "
+                     f"{len(decisions) - owner} by the same-agent rule.")
+    held = report.get("held_back") or []
+    if held:
+        lines.append(f"Held back: {len(held)} ({', '.join(held)}).")
+    oversized = report.get("oversized_claims") or []
+    if oversized:
+        lines.append(f"Oversized claims: {len(oversized)}, written whole; lint fails until the memory is split.")
+    lines.append(f"Indexes built against agent-fabric {built_against or 'unknown (its commit could not be read)'}.")
+    return "\n".join(lines) + "\n"
 
 
 def report(run: Run) -> int:
@@ -382,4 +421,7 @@ def report(run: Run) -> int:
             print(f"  {problem}", file=sys.stderr)
     if run.problems or run.rejected_hygiene:
         return 1
+    if run.args.commit_message:
+        with open(run.args.commit_message, "w", encoding="utf-8") as fh:
+            fh.write(commit_message(report, fabric_commit()))
     return 0

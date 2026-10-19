@@ -38,6 +38,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--reads-state", default=None, metavar="FILE",
                     help="where the drain keeps when each section was last read (ADR-050 rule 8); "
                          "default: memory-drain-reads.json in this login's agent state directory")
+    ap.add_argument("--commit-message", default=None, metavar="FILE",
+                    help="write the commit body for this project's drain to FILE, built only from the drain report "
+                         "(not written when the run fails); commit with -F")
     ap.add_argument("--flags", action="store_true",
                     help="after the drain, route the sections a check or a reader flagged to the agents that own them "
                          "(ADR-050 rules 3 and 6; tools/fabric/memory_flagrun.py): a dry run that prints the plan")

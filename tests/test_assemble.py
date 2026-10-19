@@ -888,6 +888,60 @@ def test_a_collision_stops_the_drain_until_the_owner_decides(tmp: str) -> None:
                                               "agent": "unresolved", "observed_at": "2026-09-18"}], report["collision_decisions"]
 
 
+def test_commit_message_comes_from_the_report_alone(tmp: str) -> None:
+    """gzapp.decks #29 F2: one hand-written commit message was said of seven drains. A clean drain's body names neither
+    collisions nor a hold-back; one with them names their counts, and the owner only for the decisions the owner's
+    file made."""
+    one = {"class": "domain", "topic": "one", "title": "Same title", "evidence": ["h1"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {**one, "body": "The first claim.", "observed_at": "2026-08-30"},
+        {**one, "body": "A genuinely different second claim.", "observed_at": "2026-09-18"},
+        {"class": "domain", "topic": "two", "title": "Other", "body": "b", "evidence": ["h2"]},
+    ])})
+    clean_drain, clean_claims, clean_out = build(os.path.join(tmp, "clean"), {"beta": claims("beta", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}])})
+    msg = os.path.join(tmp, "msg.txt")
+    proc = run_assemble(clean_drain, clean_claims, clean_out, "--commit-message", msg)
+    assert proc.returncode == 0, proc.stderr
+    clean = read(msg)
+    assert clean.startswith("demo: memory drain 2026-01-01\n"), clean
+    assert "Roles indexed: 1 (beta)." in clean and "Files written: " in clean, clean
+    assert re.search(r"Indexes built against agent-fabric (\w{40}|unknown)", clean), clean
+    for word in ("ollision", "Held back", "Oversized", "owner"):
+        assert word not in clean, f"{word!r} said of a drain that had none: {clean}"
+
+    proc = run_assemble(drain, claims_dir, out, "--commit-message", msg,
+                        *keep_both(tmp, "alpha/domain:one#Same title"), "--hold",
+                        _hold_file(tmp, ["alpha/domain:two"]))
+    assert proc.returncode == 0, proc.stderr
+    said = read(msg)
+    assert "Collision decisions: 1, 1 decided by the owner (--collision-decisions), 0 by the same-agent rule." in said, said
+    assert "Held back: 1 (alpha/domain:two)." in said, said
+
+
+def _hold_file(tmp: str, keys: list[str]) -> str:
+    path = os.path.join(tmp, "hold.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(keys, fh)
+    return path
+
+
+def test_a_failed_drain_writes_no_commit_message(tmp: str) -> None:
+    """A drain that exits 1 after its report (a claim hygiene rejects) leaves nothing to commit, so a message from
+    it would describe a drain that did not land. The control: the same drain without the rejected claim writes one."""
+    good = {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}
+    bad = {"class": "domain", "topic": "two", "title": "U", "body": "Quindi questo sono senza molto.", "evidence": ["h2"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [good, bad])})
+    msg = os.path.join(tmp, "msg.txt")
+    proc = run_assemble(drain, claims_dir, out, "--commit-message", msg)
+    assert proc.returncode == 1 and "REJECTED" in proc.stderr, proc.stderr
+    assert not os.path.exists(msg), "a failed drain wrote a commit message"
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [good]), fh)
+    assert run_assemble(drain, claims_dir, out, "--commit-message", msg).returncode == 0
+    assert os.path.exists(msg), "the control drain wrote none"
+
+
 def test_the_owner_supersedes_or_drops_a_colliding_claim(tmp: str) -> None:
     """Against a section already in the corpus: supersede makes the incoming
     text replace it (merge_target applied on the owner's word, siblings
@@ -2466,8 +2520,11 @@ def test_a_retitled_memory_replaces_its_own_old_section(tmp: str) -> None:
                "body": "Merged on 2026-09-24.", "evidence": ["a3"], "observed_at": "2026-09-24"}
     set_claims(claims_dir, "alpha", [retitle])
     tracker = dom(out, "alpha", "domain", "tracker.md")
-    proc = run_assemble(drain, claims_dir, out)
+    msg = os.path.join(tmp, "msg.txt")
+    proc = run_assemble(drain, claims_dir, out, "--commit-message", msg)
     assert proc.returncode == 0, proc.stderr
+    # The same-agent rule decided it, so the body does not credit the owner.
+    assert "Collision decisions: 1, 0 decided by the owner (--collision-decisions), 1 by the same-agent rule." in read(msg), read(msg)
     assert "SUPERSEDED, same agent" in proc.stderr and "alpha/domain:tracker#Issue 851 is merged  (dev-01)" in proc.stderr, proc.stderr
     report = json.loads(read(report_path(out)))
     assert any(d.get("rule") == "same-agent" and d["decision"] == "supersede"
@@ -3742,6 +3799,8 @@ def main() -> int:
         test_merge_target_strengthens_instead_of_appending,
         test_a_collision_stops_the_drain_until_the_owner_decides,
         test_the_owner_supersedes_or_drops_a_colliding_claim,
+        test_commit_message_comes_from_the_report_alone,
+        test_a_failed_drain_writes_no_commit_message,
         test_collision_is_reported_on_every_run,
         test_collision_survives_a_drain_with_an_empty_delta,
         test_authored_headings_are_not_mistaken_for_collisions,
