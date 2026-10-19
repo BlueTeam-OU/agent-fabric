@@ -48,7 +48,9 @@ who may give the word: the owner, whose word ("arm <n>") goes in your
 basis as "the owner's word", or the repository's arming authority
 (`commits.below_min_authority`, `commits.boundary_authority`), whose
 holder sends you `AUTHORIZES: <owner/repo>#<n>@<head>` that you pass
-with --authorization, or arms it from a session bound to that role.
+with --authorization, or arms it from a session bound to that role
+(`fabric-pr arm <n> --any-owner --basis "<role>'s word"`, since the PR is
+another session's).
 Ask the one it names, after the review; an authority vouches only for
 the head it names. Unless the dry-run says the owner arms it by their
 own hand. Never without the gate. Any PR status you state carries its counts ("PR <n> is
