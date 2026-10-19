@@ -94,7 +94,8 @@ def _projects(registry: str | None = None) -> dict[str, set[str]]:
     for pid, p in (reg.get("projects") or reg).items():
         if not isinstance(p, dict):
             continue
-        projects[pid.lower()] = {"/".join(re.split(r"[/:]", re.sub(r"\.git$", "", r))[-2:]).lower()
+        # A trailing slash would make the last segment empty and the name "<repo>/" (review on #300, round 2).
+        projects[pid.lower()] = {"/".join(re.split(r"[/:]", re.sub(r"\.git$", "", r.strip().rstrip("/")))[-2:]).lower()
                                  for r in p.get("remotes") or []}
     return projects
 

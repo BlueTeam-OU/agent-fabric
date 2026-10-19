@@ -109,7 +109,7 @@ def main(argv: list[str]) -> int:
         _out(sys.stdout, f"usage: fabric-pr <verb> [args…]\nverbs: {listing}\n"
                          f"--repo <owner>/<name>|<project>: {', '.join(REPO_VERBS)} act on that repository's PR,"
                          " never the cwd checkout's;\n  an exported AGENT_FABRIC_ARM_CONFIG still names the arm rules,"
-                         " and commits are counted only in a clone of that repository\n")
+                         " and commits are counted,\n  and branches in flight listed, only in a clone of that repository\n")
         return 0
     if verb not in VERBS:
         _out(sys.stderr, f"fabric-pr: unknown verb '{verb}'; verbs: {listing}\n")

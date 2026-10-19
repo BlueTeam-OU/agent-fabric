@@ -84,12 +84,14 @@ def own_names(check, tmp: str) -> None:
     saved = os.environ.get("AGENT_FABRIC_OPERATOR")
     os.environ["AGENT_FABRIC_OPERATOR"] = write_operator_projects(os.path.join(tmp, "operator"), {
         "herdr": ["git@github.com:BlueTeam-OU/agent-fabric-fleetdeck.git", "https://github.com/BlueTeam-OU/agent-fabric-herdr"],
-        "gzapp": ["git@github.com:gzapi-org/gzapp.git"]})
+        "gzapp": ["git@github.com:gzapi-org/gzapp.git"], "slash-id": ["https://github.com/other-org/slashed/"]})
     try:
         def fleetdeck(answers: str) -> str:
             return cc.classify("a", "the pane keeps its focus", answers, "44", here, "review-fix")
         check("own_names: the repository's own name, its project's id and every remote's name",
               cc.own_names(here) == {"agent-fabric-fleetdeck", "agent-fabric-herdr", "herdr"}, cc.own_names(here))
+        check("own_names: a remote with a trailing slash names its repository, not '<repo>/' (review on #300)",
+              cc.own_names("other-org/slashed") == {"slashed", "slash-id"}, cc.own_names("other-org/slashed"))
         check("own_names: a repository no project holds is named by its own name only",
               cc.own_names("other-org/elsewhere") == {"elsewhere"}, cc.own_names("other-org/elsewhere"))
         check("classify: 'Answers: herdr#44' on fleetdeck#44 is the PR's own review fix (the project id)",

@@ -20,7 +20,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             the 500-PR cap, a refusal
   exit      0 listed; 2 gh, git or the repository could not be read, a
             usage error (--in-flight/--overlap: also a failed fetch or an
-            unreadable PR list, said first)
+            unreadable PR list, said first, or a clone whose origin is not
+            the repository, refused before any row)
 
 The review is asked of pr-review-status as a PROGRAM, by path, and read
 from its --json (blind.rows, per engine, as fabric-pr arm reads it): the
@@ -119,7 +120,8 @@ Usage:
   fabric-pr gate 861 877      # these PRs, whoever opened them
   fabric-pr gate --all        # every open PR in the repository
   fabric-pr gate --json       # rows as data
-  fabric-pr gate --repo <project> 861   # another repository's PRs (commits counted only in its clone)
+  fabric-pr gate --repo <project> 861   # another repository's PRs (commits counted only in its clone;
+                                        #   --in-flight/--overlap refuse outside one, exit 2)
   fabric-pr gate --in-flight [--path <prefix>]...   # every job in flight
   fabric-pr gate --overlap <PR number | branch>     # what shares its paths
 
