@@ -26,8 +26,8 @@ security-boundary change under boundary_min in the owner's place (arm.py --autho
 role); the review gate still applies. commits.below_min_authority (a role slug; absent: none) is the same for a PR under
 its minimum that is no boundary change: the owner's word, said by a holder of that role. commits.authority_own_prs
 (true or false; absent: false) is whether an authority may arm a PR of its own authorship: false refuses it, the owner's
-word staying the only one there (gzapp, InterWeave: architect-cto's own PRs stay the owner's); true lets the session
-holding the role arm its own (the fabric's repositories, where fabric-coordinator arms most of what it opens).
+word staying the only one there; true lets the session holding the role arm its own, for a repository whose authority
+is also the role that opens most of its PRs.
 
 commits.boundary_min. A security-boundary change not waived is judged against max(commits.min, commits.boundary_min):
 the owner's word it needs under that many work commits is about the security boundary, not about the count of
