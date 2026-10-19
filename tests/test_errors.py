@@ -170,6 +170,16 @@ def main() -> int:
     check("a level line with more than the word for none is unparsed, not a clean review", f == [] and un, (f, un))
     f, un = errors.parse_review("P2: none of the callers check the result")
     check("a line that only begins with the word for none is a finding in another shape", f == [] and un, (f, un))
+    for clean in ("P1: none. P2: none.", "None at P1, P2 or P3.", "No findings: P1 none, P2 none, P3 none.",
+                  "No findings (P1, P2, P3 empty)."):
+        f, un = errors.parse_review(clean)
+        check(f"a clean review in prose parses as zero findings: {clean!r}", f == [] and not un, (f, un))
+    f, un = errors.parse_review("P1 and P2 at the boundary or P3.")
+    check("connectives and level tokens alone are no statement of absence", un, (f, un))
+    f, un = errors.parse_review("P1 or P2.")
+    check("…nor are bare levels", un, (f, un))
+    f, un = errors.parse_review("P1: none. P2 the lock is wrong at the boundary.")
+    check("a clean clause beside a finding clause is still unparsed", un, (f, un))
     f, un = errors.parse_review("P1: none\n- P2 \u2014 no findings\nP3: 0")
     check("lines that are only a level and none parse as zero findings", f == [] and not un, (f, un))
     ev = [e for e in run(pr(), runs={"c1": [cr("static", "failure", "2026-10-01T01:00:00Z"), cr("static", "success", "2026-10-01T02:00:00Z"),
@@ -177,6 +187,7 @@ def main() -> int:
     check("red, green, red on one sha is red, not flaky", ev[0]["red"] == ["static"] and ev[0]["flaky"] == [], ev)
     check("needed_jobs: a block list of three keeps all three; a comment on a name is unknown",
           errors.needed_jobs("jobs:\n  a:\n    x: 1\n  b:\n    x: 1\n  c:\n    x: 1\n  z-ok:\n    needs:\n      - a\n      - b\n      - c\n", {"z-ok"}) == {"a", "b", "c"}
+          and errors.needed_jobs("jobs:\n  a:\n    x: 1\n  b:\n    x: 1\n  z-ok:\n    needs:\n      - a\n      # b is slow\n\n      - b\n", {"z-ok"}) == {"a", "b"}
           and errors.needed_jobs("jobs:\n  a:\n    name: Alpha # the a job\n  z-ok:\n    needs: [a]\n", {"z-ok"}) is None, "")
 
     # --- the period: the default 7 days with a 14-day window still has a denominator for reverts and fixes
@@ -197,6 +208,18 @@ def main() -> int:
     t = errors.tally(errors.events_of("o/r", old_pr, [], lambda r, s: [cr("static", "failure")], NOW, 7, 14, HOSTS, NEEDED))
     check("a PR of the closed-window period alone gives reverts and fixes a denominator and no review or head",
           t["prs_merged"] == 0 and t["prs_in_closed_period"] == 1 and t["reviews"]["given"] == 0 and t["red_checks"]["heads"] == 0, t)
+    ev = errors.events_of("o/r", pr(merged=at(10)), [when(5, "Revert", "This reverts commit " + "a" * 40 + ".")], lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED)
+    check("a PR between the period and the closed period (10 days ago, defaults) gives no event, so no empty actor row", ev == [], ev)
+    two = pr(number=400, merged=at(16), commits=[commit("a" * 40), commit("b" * 40, parents=("a" * 40,))])
+    ev = errors.events_of("o/r", two, [when(10, "Revert", "This reverts commit " + "a" * 40 + ".\n\nThis reverts commit " + "b" * 40 + ".")],
+                          lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED)
+    t = errors.tally(ev)
+    check("two reverted commits of one PR are one revert of that PR: the count never exceeds its denominator",
+          t["reverts"]["count"] == 1 and t["reverts"]["of_prs_with_closed_window"] == 1, t["reverts"])
+    rvs = [review("**F1 (P2, x)** a\n**F2 (P3, y)** b", "c1")] + [review("- P2 the lock is wrong", "c1")] * 4
+    t = errors.tally(errors.events_of("o/r", pr(reviews=rvs), [], lambda r, s: [], NOW, 30, 14, HOSTS, NEEDED))
+    check("findings per review leaves the unparsed reviews out of its denominator (5 reviews, 4 unparsed: no rate under 5)",
+          t["reviews"]["given"] == 5 and t["reviews"]["unparsed"] == 4 and t["reviews"]["findings_per_review"] is None, t["reviews"])
     check("PRs outside both spans are not read at all", errors.events_of("o/r", pr(merged=at(40)), [], lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED) == [])
 
     # --- merged_prs keeps the REST subject whole beside gh's cut headline
@@ -298,6 +321,8 @@ def main() -> int:
     check("both PR and commit reads start DAYS+WINDOW days back, not DAYS",
           len(sinces) == 2 and all(dt.timedelta(days=43, hours=23) < dt.datetime.now(dt.timezone.utc) - x < dt.timedelta(days=44, hours=1)
                                    for x in sinces[:1]) and dt.timedelta(days=20, hours=23) < dt.datetime.now(dt.timezone.utc) - sinces[1] < dt.timedelta(days=21, hours=1), sinces)
+    check("the text header dates the PRs that reverts and fixes are counted on", "whose windows have closed" in out.getvalue()
+          and "counted on the PRs merged" in out.getvalue(), out.getvalue()[:400])
     check("main text says what is not read and shows no rate under 5", rc2 == 0 and "judged-not-real findings: not read" in out.getvalue()
           and "no rate (<5)" in out.getvalue(), out.getvalue())
     check("a bad --days is exit 2 and a line", rc3 == 2 and "at least 1" in err.getvalue(), err.getvalue())

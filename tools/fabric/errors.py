@@ -26,8 +26,8 @@ total, per actor, per actor class (person or agent) and per role:
    be counted (none does in agent-fabric). A head is a
    commit of the PR on which such a run ran to a conclusion (checks run on
    push). A repository with no such aggregate is not read for red checks, and
-   says so. A named check that failed and later succeeded on the same
-   sha is *flaky*: the check's, counted apart and not the actor's.
+   says so. A named check that failed and whose last run on the same
+   sha passed is *flaky*: the check's, counted apart and not the actor's.
 3. **reverts** (git's own revert line naming a commit of the PR, as
    results.reverted_shas matches it) and **fixes forward** (a later commit
    the classifier calls a fix naming the PR) per PR merged, inside the window.
@@ -76,9 +76,11 @@ MIN_DENOMINATOR = 5                                  # ADR-061 §5 rule 4
 RED = {"failure", "timed_out"}
 FINDING = re.compile(r"\*\*F(\d+) \(P([123])\b")
 LEVEL_LINE = re.compile(r"\bP[123]\b")
-# A line that is only a level and the word for none ("P1: none", "- P2 — no findings"). A line that has more
-# in it and happens to contain "no" or "0" is a finding in another shape, not an absence.
-NO_FINDING = re.compile(r"\W*P[123]\W*(?:none|no findings?|nothing|0)\W*", re.I)
+# A clause that only says a level is empty ("P1: none", "None at P1, P2 or P3.", "No findings (P1, P2, P3 empty)"):
+# once the level tokens are taken out, every word left is one of these. A clause with any other word in it
+# ("P2: none of the callers check the result", "returns no error") is a finding in another shape, not an absence.
+ABSENCE_WORDS = {"none", "no", "nothing", "finding", "findings", "empty", "0", "at", "or", "and"}
+CLAUSE = re.compile(r"[.;\n]")
 LABEL = re.compile(r"[A-Z]{1,2}-?[0-9]+(?:-[0-9]+)?")
 FOLD = re.compile(r"^Merge (?:remote-tracking )?branch '(?:origin/)?([^'/\s]+)/([^'/\s]+)/for/[^'\s]+'")
 UNATTRIBUTED = "unattributed"
@@ -116,7 +118,7 @@ def needed_jobs(workflow: str, aggregates: set[str]) -> set[str] | None:
     agg = next((j for j in jobs if j in aggregates), None)
     if agg is None:
         return None
-    body = "\n".join(jobs[agg])
+    body = "\n".join(l for l in jobs[agg] if l.strip() and not l.lstrip().startswith("#"))
     m = re.search(r"^    needs:[ \t]*(\[[^\]]*\]|(?:\n      - .*)+|\S.*)$", body, re.M)
     if not m:
         return None
@@ -180,13 +182,18 @@ def role_of(commit: dict) -> tuple[str, str]:
     return ("agent", role) if role else ("person", "-")
 
 
+def absence(clause: str) -> bool:
+    words = [w.lower() for w in re.findall(r"[A-Za-z0-9]+", LEVEL_LINE.sub(" ", clause))]
+    return bool(words) and all(w in ABSENCE_WORDS for w in words) and any(w not in ("at", "or", "and") for w in words)
+
+
 def parse_review(body: str) -> tuple[list[tuple[str, str]], bool]:
     """((label, level) findings, unparsed): unparsed when no finding parsed yet a line names a level without
     saying there is none."""
     found: dict[str, str] = {}
     for m in FINDING.finditer(body):
         found.setdefault(f"F{m.group(1)}", f"P{m.group(2)}")
-    unparsed = not found and any(LEVEL_LINE.search(l) and not NO_FINDING.fullmatch(l) for l in body.splitlines())
+    unparsed = not found and any(LEVEL_LINE.search(c) and not absence(c) for c in CLAUSE.split(body))
     return list(found.items()), unparsed
 
 
@@ -243,7 +250,9 @@ def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, 
     closed = now >= merged + dt.timedelta(days=window)
     period, cperiod = in_period(pr, now, days), in_closed_period(pr, now, days, window)
     base = {**base, "period": period, "cperiod": cperiod}
-    ev = [{**base, "kind": "pr", "closed": closed}] if period or cperiod else []
+    if not (period or cperiod):
+        return []
+    ev = [{**base, "kind": "pr", "closed": closed}]
     if not period:
         # Only reverts and fixes forward are read for a PR that is in the closed period alone.
         return ev + reverts_and_fixes(pr, later, merged, window, closed, base, who, by_sha)
@@ -278,7 +287,10 @@ def reverts_and_fixes(pr: dict, later: list[dict], merged: dt.datetime, window: 
                       who, by_sha: dict) -> list[dict]:
     inside = [c for c in later if merged < c["when"] <= merged + dt.timedelta(days=window)]
     own = set(by_sha) | {(pr.get("mergeCommit") or {}).get("oid")}
-    ev = [{**base, **who(sha), "kind": "revert", "closed": closed} for sha in sorted(results.reverted_shas(own, inside))]
+    # A revert is counted per PR (and per actor, when a fold's contributor and the integrator both had commits
+    # reverted), not per commit: the denominator is PRs merged.
+    reverted = {(w["actor"], w["class"], w["role"]): w for w in (who(sha) for sha in sorted(results.reverted_shas(own, inside)))}
+    ev = [{**base, **w, "kind": "revert", "closed": closed} for w in reverted.values()]
     return ev + [{**base, "kind": "fix", "closed": closed} for _ in results.fixes_forward(pr["number"], inside, repo=base["repo"])]
 
 
@@ -315,7 +327,7 @@ def tally(events: list[dict]) -> dict:
     return {"prs_merged": len(prs), "prs_in_closed_period": closed,
             "reviews": {"given": len(reviews), "unparsed": sum(1 for e in reviews if e["unparsed"]),
                         "findings": {k: findings[k] for k in sorted(findings)}, "findings_total": nfind,
-                        "findings_per_review": rate(nfind, len(reviews)),
+                        "findings_per_review": rate(nfind, len(reviews) - sum(1 for e in reviews if e["unparsed"])),
                         "on_a_commit_not_in_the_pr": sum(1 for e in events if e["kind"] == "review_elsewhere")},
             "red_checks": {"unread_no_aggregate": sum(1 for e in events if e["kind"] == "checks_unread"),
                            "heads": len(heads), "heads_red": red_heads, "rate": rate(red_heads, len(heads)),
@@ -337,7 +349,7 @@ def report(events: list[dict]) -> dict:
 
 
 def render(rep: dict, doc: dict) -> str:
-    lines = [f"fabric-errors: PRs merged in the last {doc['days']} days (reverts and fixes: {doc['window']}-day window); "
+    lines = [f"fabric-errors: PRs merged in the last {doc['days']} days (reverts and fixes: {doc['window']}-day window, counted on the PRs merged {doc['closed_period'][0][:10]}..{doc['closed_period'][1][:10]}, whose windows have closed); "
              f"attribution: head ref, a fold's contributor; class: Fabric-Role trailer. "
              f"Counts for the rules, never a target, a ranking or a score (ADR-061, Proposed).",
              f"judged-not-real findings: not read (no parseable judgement); signature attribution: not read"]
