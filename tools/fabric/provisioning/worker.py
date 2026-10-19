@@ -125,11 +125,12 @@ class Worker:
         """The command as the account, in a LOGIN shell (its profile: what its installers put on PATH). The PATH is
         re-asserted INSIDE the shell: Debian's /etc/profile assigns PATH outright for a non-root login, so what env
         -i set would be gone by the time the command runs (found by the Debian smoke container, which then downloaded
-the real claude in place of the test's fake).
+        the real claude in place of the test's fake).
 
-        `login_shell=False` only for a command no profile can change the answer of: `test`, `readlink` on a path.
-        Everything that runs a tool (git, claude, ori, installers) keeps the profile, so a read and the write beside
-        it see one environment; each login shell costs about 25 execs of /etc/profile.d."""
+        `login_shell=False` where no profile can change the answer — `test` and `readlink` on a path — and in the two
+        calls that predate this rule: the vendor download (its stdout becomes the installer's script) and
+        launch_record.py. Everything else that runs a tool (git, claude, ori, installers) keeps the profile, so a read
+        and the write beside it see one environment; each login shell costs about 25 execs of /etc/profile.d."""
         p = f"/usr/local/bin:/usr/bin:/bin:{self.home}/.local/bin"
         script = 'export PATH="$AGENT_FABRIC_PATH:$PATH"; cd "${AGENT_FABRIC_CWD:-$HOME}" && exec "$@"'
         env = [f"HOME={self.home}", f"PATH={p}", f"AGENT_FABRIC_PATH={p}"]
