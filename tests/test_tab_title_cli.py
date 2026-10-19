@@ -22,13 +22,12 @@ empty) exits 0; the source holds no raw control bytes. Added in batch 7: the
 exact bytes (ESC ] 0 ; title BEL, one key, nothing on stderr); a cwd inside a
 subdirectory; a cwd that is no directory falls back to $PWD; a repository
 with no commit; a cwd that was removed under the hook: exit 0, nothing; no git: exit 0 and nothing (with the positive control; it was no jq in the bash
-script's days, a tool the module no longer uses).
+script's days, a tool the module no longer uses); the forwarder without the pin: exit 0, nothing.
 
 Mutations, each failing here: --git-common-dir replaced by --show-toplevel
 (the linked-worktree case); the prefix strip removed (the two prefix cases);
-the strip applied to every host prefix (the other-clone case); `exit 0`
-removed from the end (the no-jq case, git present, which the bash script alone failed; its differential run
-was made against the bash at f6a7174e, before b4c984a9 made that path a forwarder, and is in PR 318); the `[ -d "$dir" ]` fallback removed
+the strip applied to every host prefix (the other-clone case); a non-zero exit when there is no title
+(the no-git case); the `[ -d "$dir" ]` fallback removed
 (the bad-cwd case); the module's `current_directory` fallback replaced by os.getcwd() (the removed-directory case).
 
 Exit codes: 0 all assertions passed, 1 one or more failed."""
