@@ -117,24 +117,29 @@ def runs_left(base: str) -> list[str]:
     return [n for n in os.listdir(os.path.join(os.path.dirname(base), "runtime")) if n.startswith("af-t.")]
 
 
-def end_run(p: subprocess.Popen) -> None:
-    """Ends a run whose case cannot go on. A run that leads its own session is a group of its own and is KILLed whole; one that
-    shares this test's group is asked to stop (TERM), and ends its own tree and removes its directory."""
+def end_run(p: subprocess.Popen, own_group: bool) -> None:
+    """Ends a run whose case cannot go on. A run started as a session leader (`own_group`) is a group of its own and is KILLed
+    whole, also when its leader has already exited: the group id stays its own while any member lives, so no pid is probed.
+    One that shares this test's group is asked to stop (TERM) while it runs, and ends its own tree and removes its directory."""
     try:
-        if os.getpgid(p.pid) == p.pid:
+        if own_group:
             os.killpg(p.pid, signal.SIGKILL)
-        else:
+        elif p.returncode is None:
             p.terminate()
     except OSError:
         pass
+    # Bounded: an orphan that holds the run's pipe would otherwise hold this call too.
     try:
         p.communicate(timeout=30)
     except subprocess.TimeoutExpired:
         p.kill()
-        p.communicate()
+        try:
+            p.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
 
 
-def wait_until(p: subprocess.Popen, ready, what: str, timeout: float = 120.0) -> bool:
+def wait_until(p: subprocess.Popen, ready, what: str, timeout: float = 120.0, own_group: bool = False) -> bool:
     """Polls `ready` until it holds, with the run `p` still alive. A case that signals a run must signal it in the state the
     case describes, so the wait has no ceiling a loaded machine reaches (10 s once passed with no suite started: the signal
     then went to a run that had nothing to show, exit 129 and no output). When the state is not reached, because the run
@@ -149,7 +154,7 @@ def wait_until(p: subprocess.Popen, ready, what: str, timeout: float = 120.0) ->
         else:
             time.sleep(0.1)
             continue
-        end_run(p)
+        end_run(p, own_group)
         check(f"precondition: {why}", False)
         return False
     return True
@@ -363,16 +368,19 @@ def main() -> int:
                                         start_new_session=new_session)
                 poll_until(lambda: os.path.exists(childpid) and open(childpid).read().strip() != "", 30.0)
                 child = int(open(childpid).read())
-                results.append((wait_until(hung, lambda: False, "its suites started", timeout=1.0), list(seen), hung.poll()))
+                results.append((wait_until(hung, lambda: False, "its suites started", timeout=1.0, own_group=new_session), list(seen), hung.poll()))
                 seen[:] = []
                 # Not "alive": a killed child stays a zombie until its parent is reaped.
                 dead = poll_until(lambda: not os.path.exists(f"/proc/{child}")
                                   or open(f"/proc/{child}/stat").read().rsplit(")", 1)[1].split()[0] == "Z", 10.0)
                 results[-1] += (dead if new_session else True,)
+                if not new_session:
+                    os.kill(child, signal.SIGKILL)     # the shell was only asked to stop; its child holds this file's stdout
                 os.unlink(childpid)
             alive = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL)
             ok_state = wait_until(alive, lambda: True, "its suites started")
             seen_ok, seen[:] = list(seen), []
+            left_running = alive.poll() is None
             alive.kill()
             alive.wait()
         finally:
@@ -389,7 +397,7 @@ def main() -> int:
               all(r is False and len(sn) == 1 and sn[0][0] == "precondition: its suites started did not happen within 1 s"
                   and rc is not None and child_gone for r, sn, rc, child_gone in results), results)
         # Positive control: the same helper, with the state reached, says nothing and leaves the run alone.
-        check("a state that is reached: True, nothing reported, the run left running", ok_state is True and seen_ok == [], (ok_state, seen_ok))
+        check("a state that is reached: True, nothing reported, the run left running", ok_state is True and seen_ok == [] and left_running, (ok_state, seen_ok, left_running))
 
         print("a run that is signalled ends, and its directory goes with it")
         write(os.path.join(sandbox, "slowbin", "shellcheck"), "#!/usr/bin/env bash\nsleep 60 &\necho $! > \"$GRANDCHILD\"\nsleep 60\n", 0o755)
@@ -458,7 +466,7 @@ def main() -> int:
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True, start_new_session=True,
                                  env=env(base, STARTED=started))
-            if not wait_until(p, lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started"):
+            if not wait_until(p, lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started", own_group=True):
                 continue
             time.sleep(0.5)
             os.killpg(p.pid, sig)
@@ -530,7 +538,7 @@ def main() -> int:
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "static"], cwd=base, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, start_new_session=True,
                              env=env(base, PATH=f"{sandbox}/slowbin:{os.environ.get('PATH', '')}", GRANDCHILD=grandchild))
-        if wait_until(p, lambda: os.path.exists(grandchild) and runs_left(base), "KILL: the run made its directory and the suite its grandchild"):
+        if wait_until(p, lambda: os.path.exists(grandchild) and runs_left(base), "KILL: the run made its directory and the suite its grandchild", own_group=True):
             made = bool(runs_left(base))
             os.killpg(p.pid, signal.SIGKILL)       # a group KILL: no cleanup runs, the suite's processes die with it
             p.wait(timeout=20)
