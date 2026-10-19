@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""runtime/provisioning/new-agent.sh refuses what the fabric does not
+"""tools/fabric/new_agent.py refuses what the fabric does not
 know, its dry run names every step without touching the host, and the
 REAL sequence — against fakes for sudo, useradd, getent, id, curl (the
-vendor installers), ssh-keyscan, git clone, store-enroll.sh and
+vendor installers), ssh-keyscan, git clone, store_enroll.py and
 fabric-secrets provision, in a sandbox — stops where a step fails, names
 it, runs nothing after it, and converges on the re-run (review,
 2026-09-16). Root, the stores and the network are what the fakes stand in
@@ -241,7 +241,7 @@ def main() -> int:
         # The role the cases ask for, and the registry's projects; the remotes are the fixture's.
         put(f"{fab}/identities/roles/backend-dev/charter.md", "# backend-dev\n")
         write_json(f"{fab}/projects/registry.json", SECRETS_REGISTRY)
-        for f in ("new-agent.sh", "new-agent-worker.sh", "github-host-keys"):
+        for f in ("new-agent-worker.sh", "github-host-keys"):
             shutil.copy2(f"{HERE}/{f}", f"{fab}/runtime/provisioning/")
         shutil.copytree(f"{ROOT}/runtime/hostexec", f"{fab}/runtime/hostexec", symlinks=True)
         shutil.copytree(f"{HERE}/platform", f"{fab}/runtime/provisioning/platform", symlinks=True)
@@ -249,7 +249,7 @@ def main() -> int:
         # hostexec and the worker are shims for their modules (ADR-040 §5 rule 5).
         # launch_record.py (j125) records the first launch's provider with the launcher's own writer
         # (launch_provider_record.py) in the account's state directory (fabric_writes).
-        for f in ("new_agent.py", "roots.py", "hostexec.py", "hostworker.py", "fabric_writes.py", "launch_provider_record.py"):
+        for f in ("new_agent.py", "pin_entry.py", "roots.py", "hostexec.py", "hostworker.py", "fabric_writes.py", "launch_provider_record.py"):
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fab}/tools/fabric/")
         shutil.copytree(f"{ROOT}/tools/fabric/provisioning", f"{fab}/tools/fabric/provisioning", ignore=shutil.ignore_patterns("__pycache__"))
         put(f"{sandbox}/home/.local/bin/claude", "#!/bin/sh\necho fake\n", 0o755)
@@ -262,7 +262,8 @@ def main() -> int:
             "placement": {"placed-elsewhere": "far-host", "human-here": local, "human-far": "far-host"},
             "kinds": {"human-here": "human", "human-far": "human"}}))
         base["AGENT_FABRIC_HOSTS_REGISTRY"] = hosts
-        shim = f"{fab}/runtime/provisioning/new-agent.sh"
+        base["AGENT_FABRIC_PYTHON"] = sys.executable
+        shim = f"{fab}/tools/fabric/new_agent.py"
 
         # The operator's gh is the fake whatever PATH a case gives: never the real one, which would ask GitHub.
         ghbin = f"{sandbox}/ghbin"
@@ -273,7 +274,7 @@ def main() -> int:
             env = {**base, "HOME": f"{sandbox}/home", **extra}
             if "PATH" not in extra:
                 env["PATH"] = f"{ghbin}:{env.get('PATH', '/usr/bin:/bin')}"
-            r = subprocess.run(["bash", shim, *argv], env=env,
+            r = subprocess.run([sys.executable, shim, *argv], env=env,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
             return r.returncode, r.stdout
 
@@ -308,7 +309,7 @@ def main() -> int:
             ok("exits 0", rc == 0, f"rc={rc}\n{out}")
             for step in ("useradd", "chmod 700", "mkdir -p", "curl -fsSL https://claude.ai/install.sh | bash -s -- ",
                          "curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash", "append GitHub's published host keys",
-                         "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'", "store-enroll.sh zz-fixture-login --host",
+                         "git clone -q 'https://github.com/BlueTeam-OU/agent-fabric.git'", "store_enroll.py zz-fixture-login --host",
                          " --role backend-dev --born-now;",
                          "provision identity, share, issue-key openrouter and openai",
                          "git clone -q 'git@github.com:fixture-org/gzapp.git'", "bootstrap.sh", "fabric-role bind 'backend-dev'"):
@@ -406,7 +407,7 @@ def main() -> int:
         # each must. useradd makes a sandbox home; getent answers for it;
         # curl "installs" claude and ori from a fixture; git clones from a
         # local bare repository (AGENT_FABRIC_CLONE_URL and a registry
-        # pointing at it); a fake store-enroll.sh and a fake fabric-secrets
+        # pointing at it); a fake store_enroll.py and a fake fabric-secrets
         # record their calls, and the fake provision keeps the names a store
         # holds in $SEQ/enrolled. A fault file names one command the fakes
         # must fail.
@@ -471,7 +472,7 @@ def main() -> int:
             put(f"{bin_}/{name}", filled(text), 0o755)
         put(f"{seq}/farbin/hostname", '#!/usr/bin/env bash\n[[ "$1" == -s ]] && { echo far-host; exit 0; }; '
             'exec /usr/bin/hostname "$@"\n', 0o755)
-        put(f"{fab}/runtime/provisioning/secrets/store-enroll.sh", filled(STORE_ENROLL), 0o755)
+        put(f"{fab}/tools/fabric/store_enroll.py", filled(STORE_ENROLL), 0o755)
         put(f"{fab}/runtime/provisioning/secrets/fabric-secrets", filled(PROVISION), 0o755)
         put(f"{seq}/tools/secret_store.py", filled(SECRET_STORE), 0o755)
         shutil.copy2(f"{seq}/tools/secret_store.py", f"{fab}/tools/fabric/")
@@ -487,7 +488,7 @@ def main() -> int:
                    "AGENT_FABRIC_LOGINCTL": f"{bin_}/loginctl", "AGENT_FABRIC_LEASES": f"{sandbox}/persist/leases",
                    "AGENT_FABRIC_TMPFILES_D": f"{sandbox}/persist/tmpfiles.d"}
             argv = with_account(args, ("--claude-account", "acct-one"))
-            r = subprocess.run(["bash", shim, *argv, *h], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            r = subprocess.run([sys.executable, shim, *argv, *h], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True, timeout=600)
             return r.returncode, r.stdout
 
@@ -561,7 +562,7 @@ def main() -> int:
                 reset_seq()
                 rcns, outns = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
                 ok("no parent store: stopped at step 5, named, nothing after it",
-                   rcns == 1 and "store-enroll.sh --self first" in outns and not has(r"^store-enroll", read(calls))
+                   rcns == 1 and "store_enroll.py --self first" in outns and not has(r"^store-enroll", read(calls))
                    and not os.path.isdir(f"{h}/projects/demo"), outns)
                 shutil.copy2(f"{seq}/tools/secret_store.py", f"{fab}/tools/fabric/")
                 for slug, said in (("no-such", "'no-such' is not a template in this store"),

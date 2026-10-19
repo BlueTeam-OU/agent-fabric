@@ -2,8 +2,8 @@
 """tools/fabric/store_enroll.py — give an account its own key and its own
 encrypted store (agent-fabric ADR-038), run by its PARENT, the
 fabric-coordinator login that provisioned it (ADR-040 Wave 5;
-runtime/provisioning/secrets/store-enroll.sh is its shim, and new-agent.sh
-and the README keep that path).
+runtime/provisioning/secrets/store-enroll.sh, a shim for one release,
+says so and runs this; new_agent.py calls this module).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   argv      <login>... [--host <id> | --host=<id>] [--role <slug> | --role=<slug>]
@@ -40,12 +40,19 @@ between them: only a public key and ciphertext do.
 """
 from __future__ import annotations
 
-import json
 import os
+import sys
+
+# Before any import that needs the pin: the modules are the entry (rule 7).
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+    import pin_entry  # noqa: E402
+    pin_entry.ensure(os.path.realpath(__file__), "store-enroll")
+
+import json
 import pwd
 import re
 import subprocess
-import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -64,19 +71,18 @@ STDERR_FD = 2
 AGENT_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
 HELP = """\
-runtime/provisioning/secrets/store-enroll.sh — give an account its own
+tools/fabric/store_enroll.py — give an account its own
 key and its own encrypted store (agent-fabric ADR-038). Run by its
 PARENT, the fabric-coordinator login that provisioned it, from the
 parent's own checkout.
 
-  store-enroll.sh <login>... [--host <id>] [--role <slug>] [--born-now] [--dry-run]
-  store-enroll.sh --self                    the parent's own key and store,
-                                            recorded as the root of the chain
-  store-enroll.sh --describe <login> [--role <slug>]
-                                            rewrite only the repository's description
-                                            (a role or host that changed)
-  store-enroll.sh --rename <old> <new>      a login renamed: its lineage entry's
-                                            login and its repository's description
+  python3 tools/fabric/store_enroll.py <login>... [--host <id>] [--role <slug>] [--born-now] [--dry-run]
+  python3 tools/fabric/store_enroll.py --self
+      the parent's own key and store, recorded as the root of the chain
+  python3 tools/fabric/store_enroll.py --describe <login> [--role <slug>]
+      rewrite only the repository's description (a role or host that changed)
+  python3 tools/fabric/store_enroll.py --rename <old> <new>
+      a login renamed: its lineage entry's login and its repository's description
 
 Commands take logins; each resolves the login to the agent's id first,
 and what is stored (repository, files, folders) is named by that id
@@ -88,7 +94,7 @@ For each login, idempotently:
      the login, else the one its own store already holds (a run that
      stopped before certification), else minted here — a UUIDv7 whose time is the account's
      birth: its home directory's creation time, or with --born-now (a
-     new account, new-agent.sh) this moment;
+     new account, new_agent.py) this moment;
   1. the private repository <org>/fabric-agent-<id> exists (the
      parent's gh; AGENT_FABRIC_SECRETS_ORG, default the fabric's own org);
   2. AS THE ACCOUNT, on the host it is placed on (runtime/hosts/registry.json,
@@ -288,7 +294,7 @@ class Enrol:
 
     def enrol(self, logins: list[str]) -> int:
         if store("export-key", capture=True, quiet=True)[0] != 0:
-            die("this login has no store yet: store-enroll.sh --self first (the parent certifies with its own key)")
+            die("this login has no store yet: python3 tools/fabric/store_enroll.py --self first (the parent certifies with its own key)")
         fail = 0
         for login in logins:
             fail |= not self.enrol_one(login)

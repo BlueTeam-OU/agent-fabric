@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/store_enroll.py's internals; the behaviour is
 tests/test_store_enroll_cli.py's, run against
-the store-enroll.sh shim (ADR-040 §5 rule 5). What is here is what that
+the store_enroll.py entry (ADR-040 §5 rule 5). What is here is what that
 suite does not reach: the usage paths, an unreadable hosts registry, a
 step that hangs, either side of the bundle pipeline failing, a dry run,
 and the store tool's exit codes as the enrolment reads them. A fake store
@@ -21,7 +21,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import store_enroll as se  # noqa: E402
 
-SHIM = os.path.join(HERE, "runtime", "provisioning", "secrets", "store-enroll.sh")
+SHIM = os.path.join(HERE, "tools", "fabric", "store_enroll.py")
 
 
 def clean_env(**extra) -> dict:
@@ -41,7 +41,7 @@ def main() -> int:
         fails += not good
 
     def shim(*args: str, **env) -> subprocess.CompletedProcess:
-        return subprocess.run(["bash", SHIM, *args], capture_output=True, text=True, timeout=60,
+        return subprocess.run([sys.executable, SHIM, *args], capture_output=True, text=True, timeout=60,
                               env=clean_env(AGENT_FABRIC_PYTHON=sys.executable, **env))
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -263,10 +263,25 @@ sys.exit(0)
             os.environ.update(saved_env)
 
         print("the shim")
-        r = subprocess.run(["bash", SHIM, "--help"], capture_output=True, text=True, timeout=30,
+        r = subprocess.run([sys.executable, SHIM, "--help"], capture_output=True, text=True, timeout=30,
                            env=clean_env(AGENT_FABRIC_PYTHON=f"{tmp}/no-python"))
         check("no pinned interpreter: exit 127, one line", r.returncode == 127 and r.stderr.count("\n") == 1
               and "python_pin.py install" in r.stderr)
+
+        # The module is the entry: run by another interpreter it execs the pin with -I and the same argv.
+        wrap = put(f"{tmp}/pin/python", f"#!/bin/sh\necho \"$@\" > {tmp}/pin/argv\nexit 7\n", 0o755)
+        r = subprocess.run([sys.executable, SHIM, "--help", "x y"], capture_output=True, text=True, timeout=30,
+                           env=clean_env(AGENT_FABRIC_PYTHON=wrap))
+        check("run by another interpreter: it execs the pin with -I, the script and the same argv",
+              r.returncode == 7 and open(f"{tmp}/pin/argv").read() == f"-I {os.path.realpath(SHIM)} --help x y\n")
+        r = subprocess.run([sys.executable, SHIM, "--help"], capture_output=True, text=True, timeout=30,
+                           env=clean_env(AGENT_FABRIC_PYTHON=sys.executable))
+        check("the pin being the running interpreter: no exec, the help", r.returncode == 0 and 'give an account its own' in r.stdout)
+        r = subprocess.run(["bash", os.path.join(HERE, "runtime", "provisioning", "secrets", "store-enroll.sh"), "--help"], capture_output=True, text=True, timeout=30,
+                           env=clean_env(AGENT_FABRIC_PYTHON=sys.executable))
+        check("the retired shim: stderr names the command that replaces it, then the module runs",
+              r.returncode == 0 and "store-enroll.sh is retired" in r.stderr and "python3 " in r.stderr
+              and "store_enroll.py" in r.stderr and 'give an account its own' in r.stdout)
 
     print("test_store_enroll.py: OK" if not fails else f"test_store_enroll.py: {fails} FAILED")
     return 1 if fails else 0

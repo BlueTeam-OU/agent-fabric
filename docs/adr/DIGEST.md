@@ -899,13 +899,13 @@ its record disagree, the record wins. Look it up, never read it whole:
   `ports` only shrinks (§5 rule 2).
 - A port freezes the contract, keeps the path, tests against the old
   script (§5 rules 3–5).
-- GitHub and git go through `gh.py`, `git.py` (§5 rule 6).
+- GitHub and git via `gh.py`, `git.py` (§5 rule 6).
 - A 2026-10-01 — oracle stays (§5 rule 5).
 - A 2026-10-01 — one pinned Python per host (§5 rule 1).
 - A 2026-10-01 — fixtures copy their modules (§5 rule 5).
-- A 2026-10-04 — Wave 7: GZCoord's tools to Python (§7).
+- A 2026-10-04 — Wave 7: GZCoord's tools (§7).
 - A 2026-10-08 — bare command names; shims retire (§5 rule 7).
-- A 2026-10-09 — Wave 8: control plane to Python; no new Node (§5 rule 8).
+- A 2026-10-09 — Wave 8: control plane; no new Node (§5 rule 8).
 - A 2026-10-09 — 3.13+ (§5 rule 1).
 - A 2026-10-11 — Wave 9: the rest of the bash, ten batches;
   projects port when changed (§5 rules 1, 2, 9, §7).
@@ -913,8 +913,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-14 — Wave 8 done (§5 rule 8, §7).
 - A 2026-10-19 — Wave 10, our .mjs (§5 r10).
 - A 2026-10-19 — .js may join (§5 r10).
-- Keywords: Python, bash, Node, mjs, port, allowlist, shim, wave, 160
-  lines, bare command, forwarder.
+- A 2026-10-19 — provisioning modules (§5 r7).
+- Keywords: Python, bash, Node, mjs, port, allowlist, shim, wave,
+  bare command, forwarder.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 

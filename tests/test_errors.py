@@ -44,8 +44,8 @@ def run(p, later=(), runs=None):
     return errors.events_of("o/r", p, list(later), lambda repo, sha: runs.get(sha, []), NOW, 30, 14, HOSTS, NEEDED)
 
 
-def cr(name, conclusion, at="2026-10-01T01:00:00Z"):
-    return {"name": name, "conclusion": conclusion, "completed_at": at, "id": 1}
+def cr(name, conclusion, at="2026-10-01T01:00:00Z", workflow=errors.WORKFLOW):
+    return {"name": name, "conclusion": conclusion, "completed_at": at, "id": 1, "workflow_path": workflow}
 
 
 def main() -> int:
@@ -195,6 +195,23 @@ def main() -> int:
                     "## P2 findings\n\n1. The lock is never released on the error path.", "Finding (P2). The lock is not released."):
         f, un = errors.parse_review(heading)
         check(f"a level heading is no statement of absence: {heading[:30]!r}", un, (f, un))
+    for clean in ("## P1\nNone\n## P2\nNone", "**P1**\nNone.\n**P2**\nNone\n**P3**\nNone", "P1\n\nnone"):
+        f, un = errors.parse_review(clean)
+        check(f"a level heading with None on the next line is a review with no findings: {clean[:22]!r}", f == [] and not un, (f, un))
+    for hidden in ("## P1\nThe caller ignores the result", "## P1", "## P1\n## P2\nNone", "## No P1 findings\n- the caller ignores the result",
+                   "**No findings at P1:**\nthe lock is held across await"):
+        f, un = errors.parse_review(hidden)
+        check(f"a heading is no clean level when a finding follows it or nothing does: {hidden[:30]!r}", f == [] and un, (f, un))
+    for clean in ("## No P1 findings\n---\n", "**No P1 findings.**", "**P1: none.**\n**P2: none.**\n**P3: none.**", "**P1** none\n**P2** none\n**P3** none\nOverall fine.",
+                  "## P1 findings\nNone."):
+        f, un = errors.parse_review(clean)
+        check(f"a bold denial, a bold label with its value, and a 'findings' heading are clean: {clean[:24]!r}", f == [] and not un, (f, un))
+    for hidden in ("## P1\nNone\n- the caller ignores the result", "## P1 findings\nNone\nThe lock is not released",
+                   "## No P1 findings\n- \u547c\u3073\u51fa\u3057\u5074\u304c\u7d50\u679c\u3092\u7121\u8996\u3057\u3066\u3044\u308b"):
+        f, un = errors.parse_review(hidden)
+        check(f"a heading and its None do not hide a finding under them: {hidden[:24]!r}", f == [] and un, (f, un))
+    f, un = errors.parse_review("## No P1 findings\n\n## P2: none\n\nP3: none")
+    check("…and a denying heading followed only by denials stays clean", f == [] and not un, (f, un))
     f, un = errors.parse_review("P1 or P2.")
     check("…nor are bare levels", un, (f, un))
     f, un = errors.parse_review("P1: none. P2 the lock is wrong at the boundary.")
@@ -279,20 +296,54 @@ def main() -> int:
           c0["subject"] == "Merge branch 'x/y/for/z/w' into v" and c0["parentShas"] == ["p1", "p2"] and c0["parents"] == 2
           and c1["subject"] == "plain", got)
 
+    # --- GitHub's commit list of a PR ends at 250: a PR that long, or one whose commits the list lacks, is cut
+    saved = (errors.results.gh.pr_list, errors.results.gh.pr_view, errors.results.gh.api)
+    def read_with(rest_rows, gh_commits):
+        errors.results.gh.pr_list = lambda *a, **k: [{"number": 7}]
+        errors.results.gh.pr_view = lambda *a, **k: {"number": 7, "mergedAt": "2026-10-01T10:00:00Z",
+                                                      "commits": [{"oid": o} for o in gh_commits]}
+        errors.results.gh.api = lambda *a, **k: rest_rows
+        return errors.results.merged_prs("o/r", dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))[0]
+    row = lambda i: {"sha": f"s{i}", "parents": [{"sha": f"s{i - 1}"}], "commit": {"message": "x"}}  # noqa: E731
+    try:
+        whole = read_with([row(i) for i in range(3)], ["s0", "s1", "s2"])
+        at_cap = read_with([row(i) for i in range(errors.results.REST_COMMITS_CAP)], ["s0"])
+        lacking = read_with([row(0)], ["s0", "s1"])
+    finally:
+        errors.results.gh.pr_list, errors.results.gh.pr_view, errors.results.gh.api = saved
+    check("merged_prs: a whole list is not cut; 250 rows, or a commit the list lacks, is",
+          not whole["cut"] and at_cap["cut"] and lacking["cut"], (whole["cut"], at_cap["cut"], lacking["cut"]))
+    old_cut = errors.tally(errors.events_of("o/r", {**pr(merged="2026-09-20T10:00:00Z"), "cut": True}, [], lambda r, s_: [], NOW, 30, 14, HOSTS, NEEDED))
+    check("a cut PR in the closed-window period alone is counted apart too: its reverts and fixes are partial",
+          old_cut["prs_cut"] == 1, old_cut["prs_cut"])
+    cut_pr = {**pr(), "cut": True}
+    t = errors.tally(run(cut_pr))
+    check("a cut PR is counted apart, and the report says its counts are partial",
+          t["prs_cut"] == 1 and errors.tally(run(pr()))["prs_cut"] == 0
+          and "READ IN PART" in errors.render(errors.report(run(cut_pr)), {"days": 30, "window": 14, "closed_period": ["2026-09-01", "2026-10-01"]}),
+          t["prs_cut"])
+
     # --- check-run reads: a transient failure is retried, a refusal is not, and the last failure is raised
     calls = []
     def flaky_api(n_bad, transient):
-        def api(*a, **k):
+        def api(path, **k):
+            if "/actions/runs" in path:
+                return [{"id": 99, "path": errors.WORKFLOW}, {"id": 98, "path": ".github/workflows/other.yml"}]
             calls.append(1)
             if len(calls) <= n_bad:
                 raise errors.gh.GhError("gh api", "x", transient=transient)
-            return [cr("static", "success")]
+            return [{"name": "static", "conclusion": "success", "completed_at": "2026-10-01T01:00:00Z", "id": 1,
+                     "details_url": "https://github.com/o/r/actions/runs/99/job/5"},
+                    {"name": "static", "conclusion": "failure", "id": 2, "details_url": "https://github.com/o/r/actions/runs/98/job/6"},
+                    {"name": "static", "conclusion": "failure", "id": 3, "details_url": "https://example.test/ci/7"}]
         return api
     saved_api, saved_sleep = errors.gh.api, errors.time.sleep
     errors.time.sleep = lambda s: None
     try:
         errors.gh.api = flaky_api(2, True)
-        ok = errors.check_runs("o/r", "s") == [cr("static", "success")] and len(calls) == 3
+        got_runs = errors.check_runs("o/r", "s")
+        ok = [(r["id"], r["workflow_path"]) for r in got_runs] == [(1, errors.WORKFLOW), (2, ".github/workflows/other.yml"), (3, None)] \
+            and len(calls) == 3
         calls.clear()
         errors.gh.api = flaky_api(3, True)
         try:
@@ -311,6 +362,14 @@ def main() -> int:
         errors.gh.api, errors.time.sleep = saved_api, saved_sleep
     check("a transient read failure is retried twice, then raised", ok and third, (ok, third))
     check("a refusal is raised at once, not retried", refused)
+
+    # --- a same-named job of another workflow, or of none the reader can name, is not the needed job
+    ev = [e for e in run(pr(), runs={"c1": [cr("static", "failure", workflow=".github/workflows/other.yml"), cr("lint", "failure", workflow=None)],
+                                     "c2": [cr("static", "failure")]}) if e["kind"] == "head"]
+    check("red checks are matched by workflow and job: only the aggregate's workflow counts",
+          len(ev) == 1 and ev[0]["red"] == ["static"], ev)
+    check("…and a head whose only red run is another workflow's is not a head at all",
+          not [e for e in run(pr(), runs={"c1": [cr("static", "failure", workflow=".github/workflows/other.yml")]}) if e["kind"] == "head"])
 
     # --- the workflow read: base64 from the contents API; a 404 is "no aggregate", any other failure is raised
     import base64
@@ -342,7 +401,8 @@ def main() -> int:
     sinces = []
     errors.results.main_commits = lambda repo, since: sinces.append(since) or []
     errors.results.merged_prs = lambda repo, since, extra=(): [pr(merged="2026-10-25T00:00:00Z")]
-    errors.gh.api = lambda *a, **k: [cr("static", "failure")]
+    errors.gh.api = lambda path, **k: ([{"id": 5, "path": errors.WORKFLOW}] if "/actions/runs" in path else
+                                       [{**cr("static", "failure"), "details_url": "https://github.com/o/r/actions/runs/5/job/1"}])
     try:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
