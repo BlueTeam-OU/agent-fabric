@@ -15,17 +15,20 @@ Contract, frozen from run.sh:
            every line this file prints under its own name says `tests/run.sh:` instead — CI and every reader of the last
            line see what they saw — and the variable does not reach the suites.
   exit     0 every suite passed; 1 some failed (the count is on the last line, and `FAILED_SUITES=<n>` is the python
-           runner's); 2 an invocation error; 128+signal when stopped by INT/TERM/HUP (130, 143, 129).
+           runner's); 2 an invocation error; 75 a full run's wait for the lease ended with it still held (fabric-lease's
+           EX_TEMPFAIL); 128+signal when stopped by INT/TERM/HUP (130, 143, 129).
 
 One full local run at a time per host (j298). Thirty accounts running `tests/run.sh` at once loaded a 10-core host to ~90
 and turned timing-sensitive suites red that pass alone, so a red full run stopped meaning a defect. A full run (section
-`all`) therefore re-executes itself under `fabric-lease full-suite --wait`, the fabric's host lease (ADR-010): a second
-run waits, fabric-lease saying on stderr who holds it and since when. The lease is held by the wrapper that is this
-process's parent-in-place (execve, same pid), released by the kernel however the run ends, and the wrapper forwards
-INT/TERM/HUP to the run, whose own handling below is unchanged. Not taken: a section run (a quick check is never blocked),
-CI (GITHUB_ACTIONS set: a hosted runner is not a fleet host and has no lease directory), a host with no working
-fabric-lease (probed with `--who`; said on stderr, then the run goes on unleased), and AGENT_FABRIC_SUITE_LEASE=0 (a person
-who knowingly runs anyway).
+`all`) therefore holds `full-suite`, the fabric's host lease (ADR-010): the same file and flock fabric-lease takes,
+through lease.py's own functions, so the two exclude each other. A second run waits, saying on stderr who holds it. The
+lock is this process's own, not a wrapper's: a wrapper runs its command in a process group of its own, so a KILL to the
+caller's group (timeout -s KILL, a harness) ended the wrapper alone and freed the lease while every suite ran on (review
+of #323, F1). Held here, the lease ends with the run and nothing else, the kernel releasing it however the run ends; the
+descriptor is not inherited, so no suite outlives the run holding it. Not taken: a section run (a quick check is never
+blocked), CI (GITHUB_ACTIONS set: a hosted runner is not a fleet host and has no lease directory), a host with no lease
+directory or an unopenable lease file (said on stderr, then the run goes on unleased), and AGENT_FABRIC_SUITE_LEASE=0 (a
+person who knowingly runs anyway).
 
 A test run leaves behind nothing it did not find (the owner, 2026-09-19). The run owns its temporary directory: a fresh
 one under short_dir, exported as TMPDIR so every suite — mktemp, Node's os.tmpdir(), Python's tempfile — writes there and
@@ -56,9 +59,8 @@ TERM_GRACE_S = 5.0
 KILL_WAIT_S = 10.0
 LEASE_NAME = "full-suite"
 LEASE_OFF_VARIABLE = "AGENT_FABRIC_SUITE_LEASE"
-# Set on the re-executed run so it does not take the lease again; removed from the suites' environment.
-LEASE_HELD_VARIABLE = "AGENT_FABRIC_SUITE_LEASE_HELD"
-# A full run takes minutes, and a queue of them can be long; a wait that ends is fabric-lease's `reason=timeout` (75).
+LEASE_LABEL = "tests-run"
+# A full run takes minutes, and a queue of them can be long; a wait that ends is exit 75, fabric-lease's for a timeout.
 LEASE_WAIT_S = 7200
 # The directory a watcher removes once the run is gone without cleanup (a KILL to the run's group).
 WATCHER = ("import os, shutil, sys, time\n"
@@ -110,7 +112,6 @@ def run_environment(environ: dict[str, str], scratch: str) -> dict[str, str]:
     env = dict(environ)
     env["TMPDIR"] = scratch
     env.pop(RUNNER_VARIABLE, None)
-    env.pop(LEASE_HELD_VARIABLE, None)
     # A suite that block-buffers its stdout shows nothing in a CI log until it ends (the 2026-10-11 audit could not
     # time a case from one).
     env["PYTHONUNBUFFERED"] = "1"
@@ -270,22 +271,48 @@ def leak_report(directory: str, before: list[str]) -> bool:
     return True
 
 
-def lease_command(what: str, environ: dict[str, str]) -> list[str] | None:
-    """The argv to re-execute this run under the full-suite lease, or None when it takes none (see the header)."""
-    if what != "all" or environ.get(LEASE_HELD_VARIABLE) or environ.get("GITHUB_ACTIONS") \
-            or environ.get(LEASE_OFF_VARIABLE) == "0":
+class LeaseTimeout(Exception):
+    pass
+
+
+def take_lease(what: str, environ: dict[str, str]) -> int | None:
+    """The held full-suite lease's descriptor, or None when the run takes none (see the header); LeaseTimeout when the
+    wait ends with another holder still on it."""
+    if what != "all" or environ.get("GITHUB_ACTIONS") or environ.get(LEASE_OFF_VARIABLE) == "0":
         return None
-    tool = shutil.which("fabric-lease", path=environ.get("PATH"))
-    if tool is None:
+    fabric = os.path.join(ROOT, "tools", "fabric")
+    if fabric not in sys.path:
+        sys.path.insert(0, fabric)
+    try:
+        import lease
+    except ImportError as e:
+        no_lease(str(e))
         return None
-    # A lease the host cannot give (no pinned python, no lease directory) must not fail the run: --who exits 0 or 1 when
-    # the tool works at all.
-    probe = subprocess.run([tool, LEASE_NAME, "--who"], env=environ, capture_output=True, text=True, stdin=subprocess.DEVNULL, check=False)
-    if probe.returncode not in (0, 1):
-        print(f"{PROG}: no host lease ({probe.stderr.strip().splitlines()[-1:] or probe.returncode}); running without it",
-              file=sys.stderr, flush=True)
+    leases = environ.get("AGENT_FABRIC_LEASES") or lease.DEFAULT_LEASES
+    path = os.path.join(leases, LEASE_NAME)
+    if not os.path.isdir(leases):
+        no_lease(f"no lease directory at {leases}")
         return None
-    return [tool, LEASE_NAME, "--wait", str(LEASE_WAIT_S), "--label", "tests-run", "--", PY, os.path.abspath(__file__)]
+    try:
+        fd = lease.open_lease(path)
+    except OSError as e:
+        no_lease(f"cannot open {path}: {e.strerror}")
+        return None
+    # fabric-lease's own two steps: a bounded second that outlives any --who probe's shared hold, then the real wait.
+    if not lease.lock_exclusive(fd, lease.FAIL_FAST_S):
+        print(f"{PROG}: {LEASE_NAME} is held by {lease.holder(path)} — waiting up to {LEASE_WAIT_S}s", file=sys.stderr,
+              flush=True)
+        if not lease.lock_exclusive(fd, LEASE_WAIT_S):
+            print(f"{PROG}: {LEASE_NAME} still held by {lease.holder(path)} after {LEASE_WAIT_S}s", file=sys.stderr,
+                  flush=True)
+            os.close(fd)
+            raise LeaseTimeout
+    lease.record(path, LEASE_NAME, LEASE_LABEL)
+    return fd
+
+
+def no_lease(why: str) -> None:
+    print(f"{PROG}: no host lease ({why}); running without it", file=sys.stderr, flush=True)
 
 
 def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -> int:
@@ -297,13 +324,10 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
     if len(args) > 1 or what not in SECTIONS:
         print(f"{PROG}: no section '{' '.join(args)}' (all, static, python, bash)", file=sys.stderr)
         return 2
-    leased = lease_command(what, environ)
-    if leased is not None:
-        sys.stdout.flush()
-        os.execve(leased[0], leased + args, {**environ, LEASE_HELD_VARIABLE: "1"})
     scratch = tempfile.mkdtemp(prefix="af-t.", dir=short_dir(environ))
     env = run_environment(environ, scratch)
     watcher = None
+    held = None
     previous = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
     failed = 0
     try:
@@ -311,6 +335,8 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
             raise Signalled(signum)
         for s in previous:
             signal.signal(s, stop)
+        # After the handlers: a signal during the wait is the run's own ending, 128+N, with its directory removed.
+        held = take_lease(what, environ)
         # KILL cannot be trapped, and a group KILL (timeout -s KILL, a harness killing by group) ends the suites with
         # this process but runs no cleanup. A watcher in its own session, so that group KILL misses it, removes the
         # directory once this process is gone; cleanup stops it on every other ending.
@@ -338,6 +364,8 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         return 0
     except Signalled as s:
         return 128 + int(s.args[0])
+    except LeaseTimeout:
+        return 75
     finally:
         # Cleanup must not be interrupted by a second signal. Every suite's tree was ended by invoke() as the signal
         # passed through it; the watcher is the only other child, and is killed below.
@@ -347,6 +375,9 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         if watcher is not None:
             watcher.kill()
             watcher.wait()
+        # Last, once every suite is ended: the next run may start the moment it is released.
+        if held is not None:
+            os.close(held)
         for sig, handler in previous.items():
             signal.signal(sig, handler)
 

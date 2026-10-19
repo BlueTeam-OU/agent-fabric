@@ -15,12 +15,13 @@ several pins in one file counted and numbered in the script's order; a key whose
 by prefix (ANTHROPIC_) or by name, lower case and a bare ANTHROPIC not matched; `env: null` clean; the file chosen by
 AGENT_FABRIC_SETTINGS_FILE, else REPO_ROOT/.claude/settings.json, else <git toplevel>/.claude/settings.json, else
 <cwd>/.claude/settings.json, in that order; a directory where the file should be reads as absent; the pinned Python missing is
-exit 127 on stderr, but only once the file exists; a top-level JSON array is not an object (today: a traceback, exit 1).
+exit 127 on stderr, asked by the forwarder before the file is read (ADR-040 §5 rule 5's fourth departure, A 2026-10-19), so
+also when there is no file; a top-level JSON array is not an object (today: a traceback, exit 1).
 
 Mutations each case fails on (one per behaviour; planted on the script as formatted): dropping "effortLevel" from the refused
 keys (pin shapes); dropping the `startswith("ANTHROPIC_")` test (env prefix); printing the report on stderr (report shape);
-reading REPO_ROOT before AGENT_FABRIC_SETTINGS_FILE (file order); `exit 0` on unreadable JSON (broken JSON); checking the pinned
-Python before the file exists (python only when the file exists).
+reading REPO_ROOT before AGENT_FABRIC_SETTINGS_FILE (file order); `exit 0` on unreadable JSON (broken JSON); a forwarder that
+reads the file before it asks for the pinned Python (the python before the file).
 
 The environment is built from scratch: PATH, HOME, LANG and the one documented test hook AGENT_FABRIC_PYTHON (the fleet's pinned
 Python is /usr/local/bin/fabric-python by default; a host or CI runner without it points the guard at the interpreter running

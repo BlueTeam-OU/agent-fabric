@@ -14,6 +14,9 @@ full `tests/run.sh` failed timing-sensitive suites that pass alone
 test_roots_readers, test_fabric_lease_cli) for every account that ran
 one, so a red full run had stopped meaning a defect. A full local run
 now takes `full-suite` and waits for it (`--wait`, against rule 10's
-fail-fast default, on purpose: a queued run is the point), and the
-lease ends with the run, the wrapper holding it at the run's pid. CI,
+fail-fast default, on purpose: a queued run is the point). The run
+holds the lock in its own process, through lease.py's functions, not
+under the fabric-lease wrapper: the wrapper runs its command in a
+process group of its own, so a KILL to the caller's group would end
+the wrapper and free the lease while the suites ran on. CI,
 partial runs and the opt-out are untouched.

@@ -52,12 +52,17 @@ def write(path: str, text: str, mode: int = 0o644) -> None:
     os.chmod(path, mode)
 
 
-def tree(base: str, files: dict[str, str] | None = None, scripts: dict[str, str] | None = None) -> str:
+def tree(base: str, files: dict[str, str] | None = None, scripts: dict[str, str] | None = None, lease: bool = False) -> str:
     """A git tree holding the runner, the static checks, the python suites' runner, quiet stand-ins for the corpus lint
-    and the routing check, and `files` (tests/test_*.py fakes, or anything) and `scripts` (executable)."""
+    and the routing check, and `files` (tests/test_*.py fakes, or anything) and `scripts` (executable); with `lease`,
+    tools/fabric/lease.py, which a full run imports to take its lease (kept out of the others: the static cases count
+    and lint what a tree holds)."""
     os.makedirs(os.path.join(base, "tests"))
     for name in ("run.py", "static.py", "run_python_suites.py"):
         shutil.copy(os.path.join(TESTS, name), os.path.join(base, "tests", name))
+    if lease:
+        os.makedirs(os.path.join(base, "tools", "fabric"))
+        shutil.copy(os.path.join(ROOT, "tools", "fabric", "lease.py"), os.path.join(base, "tools", "fabric", "lease.py"))
     write(os.path.join(base, "tools/fabric/lint.py"), "pass\n")
     write(os.path.join(base, "tools/fabric/routing.py"), "pass\n")
     write(os.path.join(base, "runtime/provisioning/github-host-keys.fingerprints"), "")
@@ -80,8 +85,8 @@ def env(base: str, **extra: str) -> dict[str, str]:
          "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
          "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid", "PYTHONDONTWRITEBYTECODE": "1",
          "AGENT_FABRIC_TEST_JOBS": "2",
-         # A fleet account has fabric-lease on its PATH: without this every full run these cases make would queue for
-         # the REAL full-suite lease behind the fleet. The lease cases below turn it back on.
+         # Without this every full run these cases make would queue for the host's REAL full-suite lease behind the
+         # fleet. The lease cases below turn it back on, each in a lease directory of its own.
          "AGENT_FABRIC_SUITE_LEASE": "0", RUN_TOKEN_VARIABLE: RUN_TOKEN}
     e.update(extra)
     return e
@@ -663,8 +668,8 @@ def main() -> int:
 
         print("a full run takes the host's full-suite lease (j298); a partial run, CI and the opt-out do not")
         leasebin = os.path.join(sandbox, "leasebin")
-        # The real lease.py behind a PATH shim: the real flock semantics, and no dependence on the host having the
-        # fleet's pinned python (bin/fabric-lease), which CI has not.
+        # The real lease.py behind a PATH shim, for the other holder and the probes: the real flock semantics, and no
+        # dependence on the host having the fleet's pinned python (bin/fabric-lease), which CI has not.
         write(os.path.join(leasebin, "fabric-lease"),
               f"#!{sys.executable}\nimport sys\nsys.path.insert(0, {os.path.join(ROOT, 'tools', 'fabric')!r})\n"
               "import lease\nsys.exit(lease.main())\n", 0o755)
@@ -696,23 +701,23 @@ def main() -> int:
 
         # held while the run goes on, free after a FAILING one
         leases, extra = lease_world()
-        base = fresh()
+        base = fresh(lease=True)
         seen = os.path.join(sandbox, "seen-during")
         write(os.path.join(base, "tests/test_probe.py"), suite(
             "import subprocess\n"
-            f"open({seen!r}, 'w').write(subprocess.run(['fabric-lease', 'full-suite', '--who'], capture_output=True, text=True).stdout"
-            " + os.environ.get('AGENT_FABRIC_SUITE_LEASE_HELD', 'no-marker'))\nsys.exit(3)\n"))
+            f"open({seen!r}, 'w').write(subprocess.run(['fabric-lease', 'full-suite', '--who'], capture_output=True, text=True).stdout)"
+            "\nsys.exit(3)\n"))
         r = run(base, **extra)
         during = open(seen).read() if os.path.exists(seen) else ""
-        check("a full run holds the lease while its suites run (catches: a run that never takes it) and the re-execution marker does not reach them",
-              during.startswith("held: ") and "(tests-run)" in during and during.endswith("no-marker"), (during, r.stderr))
+        check("a full run holds the lease while its suites run, recorded as tests-run (catches: a run that never takes it)",
+              during.startswith("held: ") and "(tests-run)" in during, (during, r.stderr))
         check("the lease is free after a failing run (catches: a lease that outlives a failure)",
               r.returncode == 1 and who(leases).startswith("free:"), (r.returncode, who(leases)))
 
         # a second full run waits for the first, and says who holds it
         leases, extra = lease_world()
         holder_proc = hold(leases)
-        base = fresh(files={"tests/test_mark.py": marker_suite("ran-second")})
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-second")})
         second = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py")], cwd=base, env=env(base, **extra),
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL)
         time.sleep(3)
@@ -733,7 +738,7 @@ def main() -> int:
         # TERM releases
         leases, extra = lease_world()
         flag = os.path.join(sandbox, "slow-started")
-        base = fresh(files={"tests/test_slow.py": suite(f"import time\nopen({flag!r}, 'w').close()\ntime.sleep(60)\n")})
+        base = fresh(lease=True, files={"tests/test_slow.py": suite(f"import time\nopen({flag!r}, 'w').close()\ntime.sleep(60)\n")})
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "all"], cwd=base, env=env(base, **extra),
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
         for _ in range(300):
@@ -750,14 +755,71 @@ def main() -> int:
         check("a TERMed full run was holding the lease, exits 143, and leaves it free (catches: a lease that outlives the signal)",
               was_held and code == 143 and who(leases).startswith("free:"), (was_held, code, who(leases)))
 
+        # a group KILL: the lease goes with the run, and only with it (review of #323, F1: under a wrapper that ran the
+        # run in a group of its own, the KILL ended the wrapper, freed the lease, and the suites ran on unleased)
+        leases, extra = lease_world()
+        flag = os.path.join(sandbox, "killed-suite-pid")
+        base = fresh(lease=True, files={"tests/test_slow.py": suite(f"import time\nopen({flag!r}, 'w').write(str(os.getpid()))\n"
+                                                        "time.sleep(60)\n")})
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "all"], cwd=base, env=env(base, **extra),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                             start_new_session=True)
+        for _ in range(300):
+            if os.path.exists(flag) and open(flag).read() and who(leases).startswith("held:"):
+                break
+            time.sleep(0.1)
+        was_held = who(leases).startswith("held:")
+        suite_pid = int(open(flag).read() or 0) if os.path.exists(flag) else 0
+        os.killpg(p.pid, signal.SIGKILL)
+        p.wait()
+        for _ in range(100):
+            if not ours(b"test_slow.py"):
+                break
+            time.sleep(0.1)
+        left = ours(b"test_slow.py")
+        free = who(leases).startswith("free:")
+        for pid in left:
+            os.kill(pid, signal.SIGKILL)
+        check("a group KILL of a full run ends its suites and frees the lease with them, never before (catches: the lease "
+              "held by a process outside the caller's group)",
+              was_held and suite_pid > 0 and not left and free, (was_held, suite_pid, left, free))
+
+        # a wait that ends with the lease still held is 75, fabric-lease's EX_TEMPFAIL
+        leases, extra = lease_world()
+        holder_proc = hold(leases)
+        waited_s, runner.LEASE_WAIT_S = runner.LEASE_WAIT_S, 1
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as said:
+                runner.take_lease("all", {"AGENT_FABRIC_LEASES": leases})
+            outcome = "taken"
+        except runner.LeaseTimeout:
+            outcome = "timeout"
+        finally:
+            runner.LEASE_WAIT_S = waited_s
+        holder_proc.terminate()
+        holder_proc.wait()
+        check("a wait that ends with another holder still on the lease raises LeaseTimeout, having said who holds it "
+              "(catches: a run that goes on unleased after its wait)",
+              outcome == "timeout" and "still held by" in said.getvalue() and "(other)" in said.getvalue(),
+              (outcome, said.getvalue()))
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-after-timeout")})
+        rc = subprocess.run([sys.executable, "-c", "import sys\nsys.path.insert(0, 'tests')\nimport run\n"
+                             "def late(what, environ):\n    raise run.LeaseTimeout\nrun.take_lease = late\n"
+                             "sys.exit(run.main(['all']))\n"], cwd=base, env=env(base, **extra), capture_output=True,
+                            text=True, timeout=120)
+        check("…and main() exits 75 for it, running no suite and leaving no directory",
+              rc.returncode == 75 and not os.path.exists(os.path.join(sandbox, "ran-after-timeout")) and not runs_left(base),
+              (rc.returncode, rc.stderr))
+
         # not taken, though another holds it
         leases, extra = lease_world()
         holder_proc = hold(leases)
         for label, args, more in (("a partial run (python)", ["python"], {}),
                                   ("a run in CI (GITHUB_ACTIONS set)", [], {"GITHUB_ACTIONS": "true"}),
                                   ("a run with AGENT_FABRIC_SUITE_LEASE=0", [], {"AGENT_FABRIC_SUITE_LEASE": "0"}),
-                                  ("a run on a host with no fabric-lease", [], {"PATH": "/usr/bin:/bin"})):
-            base = fresh(files={"tests/test_mark.py": marker_suite("ran-unleased")})
+                                  ("a run on a host with no lease directory", [],
+                                   {"AGENT_FABRIC_LEASES": os.path.join(sandbox, "no-such-leases")})):
+            base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-unleased")})
             if os.path.exists(os.path.join(sandbox, "ran-unleased")):
                 os.remove(os.path.join(sandbox, "ran-unleased"))
             try:
@@ -772,10 +834,11 @@ def main() -> int:
 
         # a lease the host cannot give
         leases, extra = lease_world()
-        write(os.path.join(sandbox, "brokenbin", "fabric-lease"), "#!/bin/sh\necho broken >&2\nexit 127\n", 0o755)
-        base = fresh(files={"tests/test_mark.py": marker_suite("ran-broken")})
-        r = run(base, **{**extra, "PATH": f"{sandbox}/brokenbin:/usr/bin:/bin"})
-        check("a fabric-lease that cannot work is said on stderr and the run goes on unleased (catches: a run failed by a missing lease)",
+        write(os.path.join(leases, "full-suite"), "", 0)     # made by hand, unreadable: the lock cannot be taken on it
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-broken")})
+        r = run(base, **extra)
+        check("a lease file that cannot be opened is said on stderr and the run goes on unleased (catches: a run failed by "
+              "a lease the host cannot give)",
               os.path.exists(os.path.join(sandbox, "ran-broken")) and "no host lease" in r.stderr, (r.returncode, r.stderr))
 
     print(f"\ntest_run: {'OK' if not fails else f'{fails} FAILED'}")

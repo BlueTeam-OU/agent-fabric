@@ -268,6 +268,23 @@ def record(path: str, name: str, label: str) -> None:
         pass
 
 
+def open_lease(path: str) -> int:
+    """The lease file's descriptor, the file made when absent; OSError when it
+    cannot be opened. Shared with tests/run.py, which holds full-suite itself."""
+    # 0666 so a later holder, another login, can record itself; a file that
+    # exists with tighter modes (made by hand) still locks, and the record is
+    # best effort. The lock is taken on a READ-ONLY descriptor (see record()).
+    if not os.path.exists(path):
+        old = os.umask(0)
+        try:
+            os.close(os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o666))
+        except OSError:
+            pass
+        finally:
+            os.umask(old)
+    return os.open(path, os.O_RDONLY)
+
+
 class _Alarm(Exception):
     pass
 
@@ -498,19 +515,8 @@ def run(argv: list[str]) -> int:
         refuse(2, "nodir", f"no lease directory at {leases} — it is made at boot by the fabric's "
                "provisioning; ask the host's operator (fabric-coordinator) to run fabric-host <host> persist")
     path = os.path.join(leases, a.name)
-    # 0666 so a later holder, another login, can record itself; a file that
-    # exists with tighter modes (made by hand) still locks, and the record is
-    # best effort. The lock is taken on a READ-ONLY descriptor (see record()).
-    if not os.path.exists(path):
-        old = os.umask(0)
-        try:
-            os.close(os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o666))
-        except OSError:
-            pass
-        finally:
-            os.umask(old)
     try:
-        fd = os.open(path, os.O_RDONLY)
+        fd = open_lease(path)
     except OSError:
         refuse(2, "unopenable", f"cannot open {path}")
         return 2  # refuse raises; for the reader of the types

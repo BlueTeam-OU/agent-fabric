@@ -106,8 +106,8 @@ commits.below_min_authority for any other PR (each a role slug, absent: none). T
 author's unless commits.authority_own_prs is true (default false; the fabric's own repositories): (a) the
 --authorization above, from a holder of that role; (b) this session holding the role by its binding (fabric-whoami,
 never a message's ROLE line), with the basis "<role>'s word" — the phrase is the claim and the binding is the check,
-as "the owner's word" is the owner's claim — and with --any-owner, since the PR is another session's (gate 2). The
-review gate, the open threads and the green checks stand either way;
+as "the owner's word" is the owner's claim — and with --any-owner when the PR is another session's (gate 2), always
+where authority_own_prs is false. The review gate, the open threads and the green checks stand either way;
 commits.below_min "refuse" is not lifted by either. A refusal names the role, the holders running now and the basis.
 
 WHAT THIS DOES NOT PROVE: the relay does not authenticate a sender

@@ -50,8 +50,9 @@ may give the word: the owner, whose word ("arm <n>") goes in your basis as
 holder sends you a DECISION or REPLY whose metadata, beside `TO:`, carries
 `AUTHORIZES: <owner/repo>#<n>@<head>` (arm reads the header, never the
 body), whose message id you pass with --authorization, or arms it from a
-session bound to that role (`fabric-pr arm <n> --any-owner --basis
-"<role>'s word"`, since the PR is another session's). Ask the one it
+session bound to that role (`fabric-pr arm <n> --basis "<role>'s word"`,
+with `--any-owner` when the PR is another session's, always where
+`authority_own_prs` is false). Ask the one it
 names, after the review; an authority vouches only for the head it names.
 Unless the dry-run says the owner arms it by their own hand. Never without
 the gate. Any PR status you state carries its counts ("PR <n> is unarmed:

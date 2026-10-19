@@ -113,7 +113,8 @@ that killed the host without privilege and without anything going stale.
    in any project, with `--label <job>`; `--need-mem` is checked under the
    lease. A name is a resource, not a job. `full-suite` is the host's
    CPU and timing headroom for a full local test run: `tests/run.py`
-   takes it with `--wait` for a run of every section, and a partial run,
+   holds it in its own process (the same flock), waiting for it, for a
+   run of every section, and a partial run,
    CI and `AGENT_FABRIC_SUITE_LEASE=0` skip it (A 2026-10-19).
 10. `fabric-lease` fails fast by default (exit 75); every refusal ends with
     `fabric-lease: reason=<r>` on stderr, a contract pinned by

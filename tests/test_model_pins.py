@@ -64,7 +64,7 @@ class PinsOf(unittest.TestCase):
 
 class NotAnObject(unittest.TestCase):
     def test_a_json_array_is_one_line_on_stderr_and_exit_1(self):
-        # mutation: the isinstance(dict) check dropped (a list has no "in" for keys and would trace back)
+        # mutation: the isinstance(dict) check dropped (a list answers "in", but its `d.get("env")` traces back)
         with tempfile.TemporaryDirectory() as d:
             f = os.path.join(d, "settings.json")
             with open(f, "w", encoding="utf-8") as fh:
