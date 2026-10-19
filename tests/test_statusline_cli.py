@@ -7,7 +7,7 @@ its replacement. gh is a mock on PATH (it records its arguments), the cache
 lives under the case's XDG_CACHE_HOME, every case runs the real script
 against a throwaway git repository.
 
-Every case of runtime/claude-code/hooks/test_statusline.sh:
+Every case of runtime/claude-code/hooks/test_statusline.sh, now deleted (Wave 9 batch 7):
   1 inside a repository with no pull request: `🔀 N/A` before the folder,
   then the branch; 2 a fork clone asks about origin's repository, never
   upstream's; 3 an open pull request: `🔀 #386`; 4 a merged one: `✅ #386`;

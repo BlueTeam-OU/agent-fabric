@@ -7,7 +7,7 @@ $PLAN_HOLD_HOOK aims the same test at its replacement. The reader side
 (gzcoord-inbox --held) is tests/test_gzcoord_protocol.py and
 tests/test_session_commands.py.
 
-Every case of runtime/claude-code/hooks/test_plan-hold.sh:
+Every case of runtime/claude-code/hooks/test_plan-hold.sh, now deleted (Wave 9 batch 7):
   1 a default-mode tool call is silent; 2 no marker outside plan mode; 3 a
   plan-mode tool call is silent; 4 the marker appears on a plan-mode event;
   5 it names the harness pid, its /proc start time and the session; 6 the
