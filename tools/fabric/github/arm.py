@@ -89,22 +89,25 @@ word does not lift; the merge method is the policy's; a repository with no requi
 repository whatever its policy lists, is armed only with every check on the head green, except a direct
 repository whose policy names no required check and whose head has no check at all, which merges on its review.
 
-AUTHORIZATION (commits.boundary_authority, a role slug the policy may name): a security-boundary change under its
-minimum arms without the owner's word on `--authorization <MESSAGE-ID|seq>`: a DECISION or REPLY sent TO this session
+AUTHORIZATION (the policy's authority role: commits.boundary_authority for a security-boundary change,
+commits.below_min_authority for any other PR — THE WORD OF A ROLE UNDER THE MINIMUM below): a PR under its minimum
+arms without the owner's word on `--authorization <MESSAGE-ID|seq>`: a DECISION or REPLY sent TO this session
 (never a broadcast or a role address), from another login whose presence (fabric-ctl, never the ROLE line) reports
 that role, carrying
         AUTHORIZES: <owner>/<repo>#<n>@<head sha, 8 or more hex>
 for this repository, PR and current head. The same checks and exit codes as a waiver; unlike a waiver it drops no
-gate: the head's review and the open threads are judged first, whatever it says, and a policy with no
-boundary_authority refuses it. The comment records who authorized it and the message. arm.json's waiver_role
-stays the waiver's.
+gate: the head's review and the open threads are judged first, whatever it says. A policy with no boundary_authority
+refuses it for a security-boundary change; one with no below_min_authority does not read it for any other PR, which
+then needs the owner's word. The comment records who authorized it and the message. arm.json's waiver_role stays the
+waiver's.
 THE WORD OF A ROLE UNDER THE MINIMUM (the owner, 2026-10-19). A PR under its minimum arms without the owner's word on
 the word of the policy's authority role: commits.boundary_authority for a security-boundary change,
 commits.below_min_authority for any other PR (each a role slug, absent: none). Two ways, neither the PR's own
 author's unless commits.authority_own_prs is true (default false; the fabric's own repositories): (a) the
 --authorization above, from a holder of that role; (b) this session holding the role by its binding (fabric-whoami,
 never a message's ROLE line), with the basis "<role>'s word" — the phrase is the claim and the binding is the check,
-as "the owner's word" is the owner's claim. The review gate, the open threads and the green checks stand either way;
+as "the owner's word" is the owner's claim — and with --any-owner, since the PR is another session's (gate 2). The
+review gate, the open threads and the green checks stand either way;
 commits.below_min "refuse" is not lifted by either. A refusal names the role, the holders running now and the basis.
 
 WHAT THIS DOES NOT PROVE: the relay does not authenticate a sender
@@ -186,7 +189,9 @@ What it refuses, in order, and why:
   2. another session's PR — the head branch's <host>/<login> prefix
      is not this session's (the lane rule: never arm, retarget or
      merge a PR you did not open; --any-owner overrides, for the
-     owner's own hand);
+     owner's own hand, or for a holder of the policy's authority role
+     arming on its own word — way (b) of THE WORD OF A ROLE UNDER THE
+     MINIMUM above);
   3. a body that names an AWAITING-SUPPLY with no range line for that
      login — supply asked for and not folded (fabric-pr owed-supply lists
      these; the caller arms never with its own REQUEST unanswered);
@@ -479,7 +484,11 @@ def lift_hint(authority: str | None, key: str, repo: str, num: str, head: str, s
     if not authority_known(authority):
         return f"the policy names the {key} {authority!r}, which is not a role of identities/roles/catalog.json: {OWNER_WORD}"
     ask = ask_a_holder(authority, "AUTHORIZES", repo, num, head, "--authorization", (session.split("/")[-1], *(() if own_prs else (author,))))
-    return f"{ask}; or, in a session that holds {authority}, --basis \"{authority}'s word\"; or {OWNER_WORD}"
+    # A holder arming on its own word arms another session's PR, which gate 2 refuses without --any-owner; only where
+    # authority_own_prs lets the author hold the role can that PR be the holder's own.
+    flag = f"--basis \"{authority}'s word\" (and --any-owner, on a PR not its own)" if own_prs \
+        else f"--any-owner --basis \"{authority}'s word\""
+    return f"{ask}; or, in a session that holds {authority}, {flag}; or {OWNER_WORD}"
 
 
 def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: str, refuse, *, word: str, field: str,
@@ -742,7 +751,8 @@ def arm(argv: list[str]) -> int:
     if not branch.startswith(f"{session}/"):
         if not any_owner:
             raise refuse(f"its branch {branch} is not this session's ({session}/…): never arm another session's PR"
-                         " (--any-owner for the owner's own hand)")
+                         " (--any-owner for the owner's own hand, or for a holder of the policy's authority role arming on"
+                         " its word)")
         say(f"arming another session's PR on --any-owner ({branch})")
 
     # 3. AWAITING-SUPPLY with no range line
@@ -940,8 +950,8 @@ def arm(argv: list[str]) -> int:
         # the session's binding, never taken as said.
         claimed = bool(authority) and re.search(rf"(?<![\w-]){re.escape(authority)}(?:'|’)s word", basis, re.I) is not None
         if authorization and not authority and not boundary_unwaived:
-            say(f"the authorization {authorization} is not read: an authorization stands in only for a security-boundary change,"
-                f" and this one needs the owner's word")
+            say(f"the authorization {authorization} is not read: {repo}'s arming policy names no below_min_authority, so an"
+                f" authorization stands in only for a security-boundary change, and this one needs the owner's word")
         elif authorization or claimed:
             if not authority:
                 raise refuse(f"{repo}'s arming policy names no {authority_key}: only the owner's word arms a security-boundary"
