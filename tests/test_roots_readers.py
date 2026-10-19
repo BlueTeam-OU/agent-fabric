@@ -164,7 +164,8 @@ def case_layout_places_memory_roles_and_registry_in_the_operator() -> None:
 
 # No timeout on the git and lint children below: a lint takes ~25 s alone and several minutes on a host at load 100, so
 # any wall budget the test picks either fails a slow run that is still healthy or is longer than the suite runner's own
-# (run_python_suites.SUITE_TIMEOUT_S), which ends a hung suite with everything it started and says so.
+# (run_python_suites.SUITE_TIMEOUT_S), which ends a hung suite with everything it started and says so. main() flushes each
+# case's line so that the runner's output, cut off by that kill, still shows the last case that passed.
 def case_lint_reads_catalogue_and_authority_from_the_operator() -> None:
     import lint
     with tempfile.TemporaryDirectory() as tmp:
@@ -335,10 +336,10 @@ def main() -> int:
     for case in cases:
         try:
             case()
-            print(f"  ok   {case.__name__}")
+            print(f"  ok   {case.__name__}", flush=True)
         except AssertionError as exc:
             failures += 1
-            print(f"  FAIL {case.__name__}: {exc}")
+            print(f"  FAIL {case.__name__}: {exc}", flush=True)
     print(f"\n{len(cases) - failures}/{len(cases)} passed")
     return 1 if failures else 0
 
