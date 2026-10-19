@@ -1710,6 +1710,27 @@ def test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drai
     assert gone == {"U"}, gone
 
 
+def test_a_flat_file_that_moves_into_the_directory_keeps_its_untouched_sections_writers(tmp: str) -> None:
+    """The flat `workflow.md` moves to `workflow/first.md` when the class splits. The report merge keeps a writer only
+    while its path exists, so a writer recorded under the old path was dropped and a stale-hard flag on the untouched
+    section routed to no one (a drain's review, 2026-10-18): the move re-keys it."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "workflow", "topic": "first", "title": "First", "body": "one", "evidence": ["h1"], "observed_at": "2026-09-18"}])})
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"content_hash": "h1", "agent": "python-dev-03", "host": "hostA"}) + "\n")
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert list(json.loads(read(report_path(out)))["section_writers"]) == [".agent-fabric/memory/alpha/workflow.md#First"]
+    drain, claims_dir, _ = build(os.path.join(tmp, "two"), {"alpha": claims("alpha", [
+        {"class": "workflow", "topic": "second", "title": "Second", "body": "two", "evidence": ["h2"]},
+        {"class": "workflow", "topic": "third", "title": "Third", "body": "three", "evidence": ["h3"]}])})
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-02-02").returncode == 0
+    assert os.path.exists(proj(out, "alpha", "workflow", "first.md")) and not os.path.exists(proj(out, "alpha", "workflow.md"))
+    report = json.loads(read(report_path(out)))
+    assert report["section_writers"] == {".agent-fabric/memory/alpha/workflow/first.md#First":
+                                         {"agent": "python-dev-03", "host": "hostA", "observed": "2026-09-18"}}, report["section_writers"]
+    assert "section_moves" not in report, "a hand-off to the merge, not a record"
+
+
 def alpha_slices(out: str) -> dict[str, str]:
     """alpha's slice files, relative to its project directory, without the generated indexes."""
     base = proj(out, "alpha")
@@ -3772,6 +3793,7 @@ def main() -> int:
         test_a_banned_term_in_title_or_topic_is_redacted_too_and_a_person_becomes_the_role,
         test_an_overlong_description_is_clipped_everywhere_it_appears,
         test_a_flat_class_file_moves_into_the_directory_when_the_class_splits,
+        test_a_flat_file_that_moves_into_the_directory_keeps_its_untouched_sections_writers,
         test_an_oversized_single_claim_is_written_whole_and_reported,
         test_drain_report_carries_the_watermark_forward,
         test_the_drain_report_lists_the_memory_marks_and_call_counts,
