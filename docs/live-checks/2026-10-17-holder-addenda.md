@@ -44,6 +44,18 @@ addenda after language-culture-ge's two passes), and stage 5 can remove the
 jurisdiction and English-holder text from the shared charters and briefs once
 every holder that needs it has its addenda installed.
 
+**Georgian holder, read back 2026-10-19 ~04:40Z.** legal-expert-ge's
+session (launched 2026-10-18 05:42Z) reports `addenda  store f82a566fe919
+addenda commit f82a566fe919; the store has moved past the launch`, and no
+prompt-drift line. The newer store commit is a working-state backup;
+`git diff f82a566 HEAD -- settings/roles/legal-expert/` is empty, so it
+renders the addenda the store holds. Its launch prompt carries the
+charter addendum at line 90 and the brief addendum at line 327, both
+Georgian headings. With it, every holder the plan named has its addenda
+read back from a live session. The "moved past the launch" note on a
+store change that leaves the addenda alone reads like drift and is not;
+its wording is python-dev-01's request 01a15277.
+
 Not shown here: a refusal on a real store (an agent-signed commit, a stale
 mirror at launch). The suites cover those on throwaway stores; the first real
 one, if it happens, is read back here.
