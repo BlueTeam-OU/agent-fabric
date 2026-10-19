@@ -276,7 +276,7 @@ def main() -> int:
         r = line_of(text, cwd=plain)
         t.check(f"{label}: the bracket reads {bracket!r}, exit 0", r.rc == 0 and r.out.startswith(bracket), f"{r.rc} {r.out!r} {r.err[-200:]!r}")
     r, gone = h.run_in_removed_directory(ENTRY, "{}", environment(), T)
-    t.check("started in a directory that was removed: the line is drawn from $PWD, exit 0", r.rc == 0 and r.out.endswith("📁 gone"), f"{r.rc} {r.out!r} {r.err[-200:]!r}")
+    t.check("started in a directory that was removed: the line is drawn from $PWD, exit 0", r.rc == 0 and r.out.endswith("📁 gone") and (r.err == "" or not ENTRY.endswith(".py")), f"{r.rc} {r.out!r} {r.err[-200:]!r}")
 
     if ENTRY.endswith(".py"):
         t.group("a module run as its forwarder runs it (python -I)")

@@ -27,7 +27,8 @@ script's days, a tool the module no longer uses).
 Mutations, each failing here: --git-common-dir replaced by --show-toplevel
 (the linked-worktree case); the prefix strip removed (the two prefix cases);
 the strip applied to every host prefix (the other-clone case); `exit 0`
-removed from the end (the no-jq case, git present, which the bash script alone fails); the `[ -d "$dir" ]` fallback removed
+removed from the end (the no-jq case, git present, which the bash script alone failed; its differential run
+was made against the bash at f6a7174e, before b4c984a9 made that path a forwarder, and is in PR 318); the `[ -d "$dir" ]` fallback removed
 (the bad-cwd case); the module's `current_directory` fallback replaced by os.getcwd() (the removed-directory case).
 
 Exit codes: 0 all assertions passed, 1 one or more failed."""
@@ -191,13 +192,7 @@ def main() -> int:
         os.symlink(shutil.which(name) or sys.exit(f"test: {name} is required"), f"{bare}/{name}")
     p = subprocess.run([HOOK], input=json.dumps({"cwd": repo}).encode(), env={**clean_env(), "PATH": bare}, capture_output=True, timeout=60)
     check("without git: exit 0 and nothing on stdout (a failing hook errors on every Bash call)", p.returncode == 0 and p.stdout == b"" and p.stderr == b"", f"rc={p.returncode} out={p.stdout!r} err={p.stderr!r}")
-    # The bash script needs jq for its last step and must still exit 0 without it (a missing jq would otherwise exit
-    # 127 on every Bash call); the module has no such step and emits its title.
     os.symlink(shutil.which("git") or sys.exit("test: git is required"), f"{bare}/git")
-    os.unlink(f"{bare}/jq")
-    p = subprocess.run([HOOK], input=json.dumps({"cwd": repo}).encode(), env={**clean_env(), "PATH": bare}, capture_output=True, timeout=60)
-    check("without jq (git present): exit 0, and nothing but a title on stdout", p.returncode == 0 and p.stdout in (b"", run_hook(repo)[1].encode()), f"rc={p.returncode} out={p.stdout!r}")
-    os.symlink(shutil.which("jq") or sys.exit("test: jq is required"), f"{bare}/jq")
     p = subprocess.run([HOOK], input=json.dumps({"cwd": repo}).encode(), env={**clean_env(), "PATH": bare}, capture_output=True, timeout=60)
     check("…and the same payload with git on that PATH emits (the control)", p.returncode == 0 and p.stdout != b"", f"rc={p.returncode} out={p.stdout!r}")
 
@@ -207,7 +202,8 @@ def main() -> int:
               p.returncode == 0 and p.stdout.decode() == run_hook(repo)[1] and p.stdout != b"" and p.stderr == b"", f"rc={p.returncode} out={p.stdout!r} err={p.stderr!r}")
 
     removed, _ = hook_harness.run_in_removed_directory(HOOK, "{}", clean_env(), T)
-    check("started in a directory that no longer exists, with no cwd in the payload: exit 0, no title", removed.rc == 0 and removed.out == "", f"rc={removed.rc} out={removed.out!r} err={removed.err!r}")
+    check("started in a directory that no longer exists, with no cwd in the payload: exit 0, no title, and (a module) nothing on stderr",
+          removed.rc == 0 and removed.out == "" and (removed.err == "" or not HOOK.endswith(".py")), f"rc={removed.rc} out={removed.out!r} err={removed.err!r}")
     # Outside a repo there is no title to set, and saying so with an empty body
     # is how a hook declines: any stdout here would be parsed as a directive.
     rc, out = hook('{"cwd":"/"}')
