@@ -15,7 +15,7 @@ The bash oracle tests/test_leak-check.sh, case for case (each is a method here):
                                               XDG_RUNTIME_DIR; TERM to the group ends it within fifteen seconds; exit 143; the directory
                                               is gone; no "suite(s) FAILED" line
   group_kill_leaves_no_directory_or_process   "a run killed by a group KILL leaves no directory and no process": the watcher removes
-                                              the directory; no process of the group still runs (a zombie is dead, only unreaped)
+                                              the directory; no process of the run's tree, taken by parent links before the signal, still runs (a zombie is dead, only unreaped)
   term_then_kill_during_the_wait              "a group KILL during cleanup's wait, with a suite that ignores TERM, leaves no directory"
 Cases the bash test does not carry: the stand-in tool blocks the run until the test signals it, so every signal lands on a run
 that has its directory and a live suite (a missing directory fails the case by name, before the signal). That made-directory assertion
@@ -23,7 +23,7 @@ is the positive control of the three "gone" assertions, which are otherwise true
 
 Mutations each case fails on (one per behaviour; planted on tests/run.py as formatted): dropping `env["TMPDIR"] = scratch` (TMPDIR);
 returning 1 instead of `128 + signum` from `except Signalled` (exit 143); removing the `shutil.rmtree(scratch ...)` in `finally`
-(TERM); killing the watcher at once after it starts (group KILL, and TERM then KILL); naming the runner tests/run.py instead of reading the variable (forwards by its name).
+(TERM); killing the watcher at once after it starts (group KILL, and TERM then KILL); starting a suite with start_new_session=True in invoke() (group KILL, and TERM then KILL: a group KILL no longer reaches it); naming the runner tests/run.py instead of reading the variable (forwards by its name).
 
 The environment is built from scratch: PATH (the stand-in first), HOME, LANG, XDG_RUNTIME_DIR of the case's own; no
 AGENT_FABRIC_*, GITHUB_* or CLAUDE_* variable of the session reaches the run."""
@@ -33,6 +33,7 @@ import glob
 import os
 import shutil
 import signal
+import sys
 import subprocess
 import tempfile
 import time
@@ -40,25 +41,44 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENTRY = os.environ.get("LEAK_CHECK_ENTRY") or os.path.join(ROOT, "tests", "run.sh")
-BLOCKING = "#!/usr/bin/env bash\ntouch \"$STARTED\"\nsleep 30\n"
+BLOCKING = "#!/usr/bin/env bash\nprintf '%s' \"$$\" > \"$STARTED\"\nsleep 30\n"
 # the TERM-deaf suite: cleanup is still waiting when the KILL comes, so only the watcher can remove the directory
-DEAF = "#!/usr/bin/env bash\ntrap '' TERM\ntouch \"$STARTED\"\nsleep 30\n"
+DEAF = "#!/usr/bin/env bash\ntrap '' TERM\nprintf '%s' \"$$\" > \"$STARTED\"\nsleep 30\n"
 RECORDING = "#!/usr/bin/env bash\nprintf '%s' \"$TMPDIR\" > \"$STARTED\"\nsleep 30\n"
 
 
-def alive_in_group(pgid: int) -> list[str]:
-    """Processes of the group that still run; a zombie is dead, only not yet reaped, and a container with no init as PID 1 never reaps."""
-    found = []
+def stat_fields(pid: int) -> list[str] | None:
+    """State, ppid and pgrp of a process, None once it is gone. The comm field may hold spaces and parentheses: cut at the last one."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    return text[text.rindex(")") + 2:].split()
+
+
+def tree_of(root: int) -> list[int]:
+    """The run and everything below it, by parent links. A suite a run started outside its process group is still in this list,
+    which the group alone (what a group KILL reaches) would not show."""
+    parent = {}
     for stat in glob.glob("/proc/[0-9]*/stat"):
-        try:
-            with open(stat, encoding="utf-8", errors="replace") as fh:
-                text = fh.read()
-        except OSError:
-            continue
-        fields = text[text.rindex(")") + 2:].split()
-        if int(fields[2]) == pgid and fields[0] != "Z":
-            found.append(text.split()[0])
-    return found
+        pid = int(stat.split("/")[2])
+        fields = stat_fields(pid)
+        if fields:
+            parent[pid] = int(fields[1])
+    found, grew = {root}, True
+    while grew:
+        grew = False
+        for pid, ppid in parent.items():
+            if ppid in found and pid not in found:
+                found.add(pid)
+                grew = True
+    return sorted(found)
+
+
+def alive(pids: list[int]) -> list[int]:
+    """Those that still run; a zombie is dead, only not yet reaped, and a container with no init as PID 1 never reaps."""
+    return [p for p in pids if (f := stat_fields(p)) and f[0] != "Z"]
 
 
 class RunLeaves(unittest.TestCase):
@@ -69,6 +89,7 @@ class RunLeaves(unittest.TestCase):
         os.mkdir(self.runtmp)
         self.started = os.path.join(self.tmp, "started")
         self.groups: list[int] = []
+        self.tree: list[int] = []
         self.addCleanup(self.reap_groups)
 
     def reap_groups(self):
@@ -77,9 +98,15 @@ class RunLeaves(unittest.TestCase):
                 os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+        for pid in alive(self.tree):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
     def env(self, bindir=None) -> dict:
-        path = (bindir + ":" if bindir else "") + "/usr/bin:/bin"
+        # the interpreter running this test comes after the stand-in: run.sh's `python3` is then the host's, as CI's, not /usr/bin's
+        path = (bindir + ":" if bindir else "") + os.path.dirname(sys.executable) + ":/usr/bin:/bin"
         return {"PATH": path, "HOME": self.tmp, "LANG": "C.UTF-8", "XDG_RUNTIME_DIR": self.runtmp,
                 "PYTHONDONTWRITEBYTECODE": "1", "STARTED": self.started}
 
@@ -119,7 +146,10 @@ class RunLeaves(unittest.TestCase):
     def started_run(self, body: str) -> subprocess.Popen:
         """A run blocked in the static section's tool, with its directory made: the state every signal case needs."""
         proc = self.start(self.stand_in(body))
-        self.assertTrue(self.wait_for(lambda: os.path.exists(self.started)), "the stand-in tool never started\n" + self.output())
+        self.assertTrue(self.wait_for(lambda: os.path.exists(self.started) and os.path.getsize(self.started) > 0),
+                        "the stand-in tool never started\n" + self.output())
+        # taken before the signal: the pids are what must be gone after it, wherever the run put its suites
+        self.tree = tree_of(proc.pid)
         self.assertTrue(self.made_dirs(), "the run made no af-t.* under XDG_RUNTIME_DIR: " + repr(os.listdir(self.runtmp)))
         return proc
 
@@ -165,7 +195,9 @@ class RunLeaves(unittest.TestCase):
         proc.wait()
         # KILL runs no trap: the directory goes by the watcher the run started
         self.assertTrue(self.wait_for(lambda: not os.listdir(self.runtmp), 10), repr(os.listdir(self.runtmp)))
-        self.assertEqual(alive_in_group(proc.pid), [])
+        # the watcher exits after it has removed the directory, so the tree is polled, not read once
+        self.wait_for(lambda: not alive(self.tree), 10)
+        self.assertEqual(alive(self.tree), [])
 
     def test_term_then_kill_during_the_wait(self):
         proc = self.started_run(DEAF)
@@ -174,7 +206,9 @@ class RunLeaves(unittest.TestCase):
         os.killpg(proc.pid, signal.SIGKILL)
         proc.wait()
         self.assertTrue(self.wait_for(lambda: not os.listdir(self.runtmp), 10), repr(os.listdir(self.runtmp)))
-        self.assertEqual(alive_in_group(proc.pid), [])
+        # the watcher exits after it has removed the directory, so the tree is polled, not read once
+        self.wait_for(lambda: not alive(self.tree), 10)
+        self.assertEqual(alive(self.tree), [])
 
 
 if __name__ == "__main__":
