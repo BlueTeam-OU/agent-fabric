@@ -156,6 +156,12 @@ def main() -> int:
               and "projects/scratch.proj/integration/gh/arm.json" in r.stdout
               and "taxonomy.json" in r.stdout and "fabric-ref" in r.stdout
               and tree_state(base) == before and os.listdir(wc) == [], r.stdout[-400:] + r.stderr)
+        check("dry run: the first line names the tree the paths are relative to",
+              r.stdout.splitlines()[0].endswith(f"relative to {os.path.realpath(base)}:") or r.stdout.splitlines()[0].endswith(f"relative to {base}:"),
+              r.stdout[:200])
+        check("dry run: no working copy for the sibling found, so every remit is marked a stub and stderr says how to fix it",
+              r.stdout.count("[stub remit]") == 2 and "stub remits for: python-dev, devex-tooling" in r.stderr
+              and "was not found: pass --like-working-copy" in r.stderr, r.stdout[-300:] + r.stderr)
         check("dry run: a registry diff with the new entry and the date in its note",
               '+    "scratch.proj": {' in r.stdout and '+      "note": "imported 20' in r.stdout)
 
@@ -317,6 +323,9 @@ def main() -> int:
         got = open(os.path.join(wcopy, ".agent-fabric", "roles", "python-dev.md"), encoding="utf-8").read()
         check("a remit the sibling has is copied with only its frontmatter project set (the body is the sibling's)",
               r.returncode == 0 and got == body.replace("project: interweave\n", "project: scratch.proj\n"), got)
+        check("only the role the sibling lacks is marked and named; the copied one is not",
+              r.stdout.count("[stub remit]") == 1 and "stub remits for: devex-tooling (" in r.stderr
+              and "has none of them" in r.stderr and "python-dev," not in r.stderr, r.stdout[-300:] + r.stderr)
         stub = open(os.path.join(wcopy, ".agent-fabric", "roles", "devex-tooling.md"), encoding="utf-8").read()
         check("a role the sibling lacks is a stub", "agent: fabric-coordinator" in stub and "not written yet" in stub.lower())
 
