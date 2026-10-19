@@ -198,14 +198,18 @@ def main() -> int:
               rc == 0 and out_.getvalue() == f"{live}: red, listed — j99\n", (rc, out_.getvalue()))
         rc, so, se = main_with(f"{live} j99\n", fixture)
         check("main: a listed file the run was not asked to run is not checked: exit 0", rc == 0 and so == f"{fixture}: ok\n", (rc, so, se))
+        # A file that exists outside the tree, so only the containment test can refuse it, not the isfile one.
+        outside = os.path.join(marks, "outside.py")
+        write(marks, "outside.py", "")
         for label, listing, needle in (
                 ("a line with no job or reason", f"{live}\n", "no job or reason"),
                 ("a path listed twice", f"{live} j1\n{live} j2\n", "listed twice"),
                 ("a path that is no file in the tree", "tests/test_gone.py j1\n", "skip.txt:1: not a file"),
                 ("a tab-separated line is split at the tab, not read as a path", f"{live}\tj1\n{live}\tj2\n", "listed twice"),
-                ("a path outside the tree", "../marks/grandchild j1\n", "../marks/grandchild")):
+                ("a path outside the tree", "../marks/outside.py j1\n", "../marks/outside.py")):
             rc, so, se = main_with(listing, fixture)
             check(f"main: {label} is exit 2, said, nothing run", rc == 2 and needle in se and so == "", (rc, so, se))
+        os.remove(outside)
         saved_red, stripped_run.KNOWN_RED = stripped_run.KNOWN_RED, {live: "reads the registry on purpose"}
         try:
             rc, so, se = main_with(f"{live} j1\n", fixture)
