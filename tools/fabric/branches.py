@@ -3,8 +3,11 @@
 bin/fabric-branches is its shim).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
-  argv      [--sweep | --json | -h | --help]; only the first argument is read,
-            an empty one is none, and what follows it is ignored. --json is
+  argv      [--sweep [--all | --worktrees] | --json | -h | --help]; only the first argument
+            is read (and `--all` or `--worktrees` as the second of `--sweep`), an empty one
+            is none, and what else follows is ignored. `--sweep --worktrees` deletes no
+            branch: the worktrees and the session scratch only (what `fabric-jobs switch`
+            runs, since a queued job's branch may sit at the default branch's tip). --json is
             the control agent's read (`fabric-ctl <login> branches`): one JSON
             object on stdout, no fetch, nothing changed
   env       AGENT_FABRIC_BRANCHES_KEEP (absolute worktree paths, one per line,
@@ -30,6 +33,23 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
 Nothing is deleted from a remote, ever; a sweep deletes local branches and
 worktrees only, and only what a fresh count and a fresh status still call
 safe at the moment of deletion.
+
+What a sweep removes, and why (the owner, 2026-10-19: pushed drains, job checkouts and review-head
+checkouts piled up, 39 and 530 MB on one login in a day):
+  - a linked worktree that is clean (no changes, no untracked file) and whose HEAD is reachable from a
+    remote-tracking ref, attached or detached: its commits live on the remote, so removing the directory loses
+    nothing. Before this it also had to be on the default branch. Ignored files keep it, except Python
+    bytecode (`__pycache__/`, `*.pyc`), which any run regenerates; a lock keeps it; so does the worktree the
+    sweep runs in and any the caller names in use. The branch checked out in it is not touched;
+  - with `--sweep --all`, that over every working copy of this login in the projects directory (the
+    directories beside this one that have a `.git` directory of their own), each with its own fetch. One that
+    cannot be fetched, or refuses, is named and skipped, never guessed: the rest are swept and the status is 1;
+  - an ended Claude Code session's scratch under this login's claude-tmp cache ($TMPDIR/claude-<uid>/…/<session
+    id>), unless a live process of this login runs that session (CLAUDE_CODE_SESSION_ID in its environment,
+    judged live by plan_hold's rule for its own markers). If a process of this login cannot be read, no session
+    is called ended. Never another login's path, never a symlink.
+What a sweep keeps it says with the reason (changes, commits on no remote, ignored files, lock, this one, in use,
+live session); what it removes, with its size.
 
 What differs from the bash, on purpose — every one a place where bash read a
 failed git call as an answer, which for a command that deletes is the one
@@ -62,6 +82,8 @@ import importlib.util
 import json
 import os
 import re
+import shutil
+import stat
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -77,6 +99,8 @@ ADR-022).
 
   fabric-branches            report every local branch and worktree
   fabric-branches --sweep    report, then delete what shows 0
+  fabric-branches --sweep --all   the same in every working copy of this login
+                             beside this one
   fabric-branches --json     the same counts as one JSON object, without
                              fetching (what the control agent reads)
 
@@ -88,8 +112,11 @@ move it, and a stale one makes merged work look unmerged. 0 means
 everything on the branch is already on the default branch, so deleting
 it loses nothing. --sweep deletes exactly those, re-counted at
 deletion, and removes a worktree only when it has no changes, no
-ignored files and no lock, its commit is on the default branch, and it
-is not the one this runs in. Anything with commits off it is reported
+ignored files (Python bytecode excepted) and no lock, its commit is on a
+remote (the default branch, or a pushed branch), and it is not the one
+this runs in; it also removes the scratch of this login's ended Claude
+Code sessions. What it keeps it says, with the reason; what it removes,
+with its size. Anything with commits off it is reported
 with its commits and its pull request, and kept: it is work still owed,
 or the person's decision. The current branch and the default branch are
 never touched.
@@ -297,10 +324,28 @@ def keep_paths() -> set[str]:
     return {p for p in os.environ.get("AGENT_FABRIC_BRANCHES_KEEP", "").split("\n") if p}
 
 
+def is_bytecode(path: str) -> bool:
+    """An ignored path that is Python bytecode: any run regenerates it, so it never keeps a worktree
+    (a `__pycache__/` directory is listed as one path, with its trailing slash)."""
+    name = path.rstrip("/").rsplit("/", 1)[-1]
+    return name == "__pycache__" or name.endswith(".pyc")
+
+
+def unpushed(head: str) -> str:
+    """How many commits of `head` are on no remote-tracking ref, or `?` when git cannot say, which is never 0:
+    a worktree is removable when all its commits live on a remote."""
+    try:
+        r = git.run(".", "rev-list", "--count", head, "--not", "--remotes", check=False)
+    except git.GitError:
+        return "?"
+    n = r.stdout.strip()
+    return n if r.returncode == 0 and re.fullmatch(r"[0-9]+", n) else "?"
+
+
 def worktree_state(wt: dict, base: str, top: str) -> tuple[str, str]:
     """(commits not on base, why it is kept or "") for a linked worktree: kept whatever its count when it has
-    changes, ignored files (a .env, a build) that removal deletes, a lock (someone is using it), when it is the
-    one this runs in, or when the caller names it in use."""
+    changes, ignored files other than bytecode (a .env, a build) that removal deletes, commits on no remote, a
+    lock (someone is using it), when it is the one this runs in, or when the caller names it in use."""
     path = wt["path"]
     changes = status_lines(path)
     ignored = status_lines(path, "--ignored")
@@ -311,9 +356,12 @@ def worktree_state(wt: dict, base: str, top: str) -> tuple[str, str]:
     else:
         if changes:
             why = f"{len(changes)} uncommitted change(s)"
-        n_ignored = sum(1 for l in ignored if l.startswith("!!"))
+        n_ignored = sum(1 for l in ignored if l.startswith("!!") and not is_bytecode(l[3:]))
         if n_ignored:
             why = f"{why + ', ' if why else ''}{n_ignored} ignored path(s)"
+    loose = unpushed(wt["head"])
+    if loose != "0":
+        why = f"{why + ', ' if why else ''}{'commits on no remote unreadable' if loose == '?' else f'{loose} commit(s) on no remote'}"
     if wt["locked"]:
         why = f"{why + ', ' if why else ''}locked"
     if path == top:
@@ -321,6 +369,113 @@ def worktree_state(wt: dict, base: str, top: str) -> tuple[str, str]:
     if path in keep_paths():
         why = f"{why + ', ' if why else ''}in use"
     return n, why
+
+
+def tree_bytes(path: str) -> int:
+    """The bytes a directory holds, links counted as themselves and never followed."""
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(path, onerror=lambda _e: None):
+        for name in dirnames + filenames:
+            try:
+                total += os.lstat(os.path.join(dirpath, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def human(n: int) -> str:
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{n} B"
+
+
+SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def live_sessions() -> set[str] | None:
+    """The session ids a live process of this login runs (CLAUDE_CODE_SESSION_ID in its environment; the children
+    of a session inherit it), or None when a process of this login cannot be read, which is unknown, never none:
+    no session is then called ended. A process is live by plan_hold's rule for its markers - it answers as this
+    login and is the one that started when /proc says."""
+    import plan_hold
+    found: set[str] = set()
+    uid = os.geteuid()
+    try:
+        pids = [n for n in os.listdir("/proc") if n.isdigit()]
+    except OSError:
+        return None
+    for pid in pids:
+        try:
+            if os.stat(f"/proc/{pid}").st_uid != uid:
+                continue
+            with open(f"/proc/{pid}/environ", "rb") as fh:
+                env = fh.read()
+        except (FileNotFoundError, ProcessLookupError):
+            continue                      # gone between the listing and the read
+        except OSError:
+            return None
+        for entry in env.split(b"\0"):
+            if entry.startswith(b"CLAUDE_CODE_SESSION_ID="):
+                sid = entry.split(b"=", 1)[1].decode("ascii", "replace")
+                if plan_hold.alive(pid, plan_hold.start_of(pid)):
+                    found.add(sid)
+    return found
+
+
+def claude_tmp_root() -> str:
+    """This login's claude-tmp cache: the harness writes its per-session scratch under $TMPDIR/claude-<uid>. The
+    variable is the launcher's (the account's own TMPDIR), so no other login's directory is ever named."""
+    return os.path.join(os.environ.get("TMPDIR") or "/tmp", f"claude-{os.geteuid()}")
+
+
+def session_dirs(root: str) -> list[str]:
+    """The `<session id>` directories under the cache: at its top, or one level down (the harness groups them by
+    project). Only a real directory of this login whose name is a session id; a link or another login's is skipped."""
+    out: list[str] = []
+    uid = os.geteuid()
+
+    def mine(path: str) -> bool:
+        try:
+            info = os.lstat(path)
+        except OSError:
+            return False
+        return stat.S_ISDIR(info.st_mode) and info.st_uid == uid
+    if not mine(root):
+        return out
+    for top in sorted(os.listdir(root)):
+        path = os.path.join(root, top)
+        if not mine(path):
+            continue
+        if SESSION_ID.fullmatch(top):
+            out.append(path)
+            continue
+        for name in sorted(os.listdir(path)):
+            inner = os.path.join(path, name)
+            if SESSION_ID.fullmatch(name) and mine(inner):
+                out.append(inner)
+    return out
+
+
+def sweep_sessions() -> None:
+    """Remove the scratch of this login's ended sessions, and say what is removed (with its size) and what is
+    kept (with why). A scratch directory is removed whole, never through a link."""
+    root = claude_tmp_root()
+    live = live_sessions()
+    mine = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    for path in session_dirs(root):
+        sid = os.path.basename(path)
+        if live is None:
+            echo(f"kept session scratch {path} — a process of this login cannot be read: no session is called ended")
+        elif sid in live or sid == mine:
+            echo(f"kept session scratch {path} — live session")
+        else:
+            size = tree_bytes(path)
+            shutil.rmtree(path, ignore_errors=True)
+            echo(f"removed session scratch {path} ({human(size)})" if not os.path.lexists(path)
+                 else f"kept session scratch {path} — could not be removed")
 
 
 def last_sweep(top: str) -> str | None:
@@ -404,13 +559,66 @@ def sweep_one(b: str, checked_out: set[str], base: str) -> str:
     return f"deleted {b} ({sha})"
 
 
-def run(argv: list[str]) -> int:
+def git_top() -> str:
+    try:
+        top = git.toplevel(".")
+    except git.GitError:
+        top = None
+    if not top:
+        raise Refused("not in a git working copy")
+    return top
+
+
+def working_copies(top: str) -> list[str]:
+    """Every working copy of this login in the projects directory (the one above this checkout): a directory of
+    its own `.git` (a linked worktree has a `.git` file, and is swept through its main copy) that this login owns."""
+    workspace = os.path.dirname(os.path.realpath(top))
+    found = []
+    for name in sorted(os.listdir(workspace)):
+        path = os.path.join(workspace, name)
+        try:
+            if os.path.isdir(os.path.join(path, ".git")) and not os.path.islink(path) and os.stat(path).st_uid == os.geteuid():
+                found.append(path)
+        except OSError:
+            continue
+    return found
+
+
+def sweep_all(top: str) -> int:
+    """`--sweep` in every working copy, each with its own fetch. One that refuses (no fetch, changes, no default
+    branch) is named and skipped, and the rest are swept: the status is 1 when any was skipped."""
+    skipped: list[str] = []
+    for copy in working_copies(top):
+        echo()
+        echo(f"== {copy}")
+        try:
+            os.chdir(copy)
+            rc = run(["--sweep"], scratch=False)
+        except (Refused, git.GitError) as e:
+            say(str(e))
+            rc = 2
+        if rc != 0:
+            skipped.append(f"{copy} (exit {rc})")
+    echo()
+    echo("session scratch:")
+    sweep_sessions()
+    if skipped:
+        echo(f"skipped, not swept or not recorded: {', '.join(skipped)}")
+        return 1
+    return 0
+
+
+def run(argv: list[str], scratch: bool = True) -> int:
     first = argv[0] if argv else ""
     sweep = False
+    branches = True
     if first == "":
         pass
     elif first == "--sweep":
         sweep = True
+        if len(argv) > 1 and argv[1] == "--all":
+            return sweep_all(git_top())
+        branches = not (len(argv) > 1 and argv[1] == "--worktrees")
     elif first == "--json":
         pass
     elif first in ("-h", "--help"):
@@ -491,7 +699,7 @@ def run(argv: list[str]) -> int:
         wt_count += 1
         n, why = worktree_state(wt, base, top)
         echo(f"  {n:<3} {path}  {wt['branch'] or '(detached)'}  {why or 'clean'}")
-        if n == "0" and not why:
+        if not why:
             wt_remove.append(path)
     if not wt_count:
         echo("  (none besides the main one)")
@@ -555,8 +763,11 @@ def run(argv: list[str]) -> int:
     echo()
     for p in wt_remove:
         removed = False
-        clean = status_lines(p, "--ignored")
-        if clean is not None and not clean:
+        # Counted again now: a worktree that changed since the report is kept, with what changed.
+        fresh = [w for w in worktrees() if w["path"] == p]
+        why = worktree_state(fresh[0], base, top)[1] if fresh else "gone"
+        size = tree_bytes(p) if not why else 0
+        if not why:
             try:
                 rm = git.run(".", "worktree", "remove", p, check=False, timeout=REMOVE_TIMEOUT_S)
                 removed = rm.returncode == 0
@@ -565,7 +776,14 @@ def run(argv: list[str]) -> int:
                     print(rm.stderr, end="", file=sys.stderr, flush=True)
             except git.GitError as e:
                 say(str(e))
-        echo(f"removed worktree {p}" if removed else f"KEPT worktree {p}")
+        # The line the control agent parses (control/branches_op.py REMOVED_WORKTREE) stays as it was; the size follows.
+        if removed:
+            echo(f"removed worktree {p}")
+            echo(f"  freed {human(size)}")
+        else:
+            echo(f"KEPT worktree {p}")
+            if why:
+                echo(f"  because {why}")
     pr_ = git.run(".", "worktree", "prune", check=False)
     if pr_.stderr:
         sys.stdout.flush()
@@ -577,10 +795,14 @@ def run(argv: list[str]) -> int:
     except Refused as e:
         say(f"{e}: no branch was deleted")
         return 2
-    for b in zero:
+    for b in zero if branches else []:
         echo(sweep_one(b, checked_out, base))
     if kept:
         echo(f"kept, with commits off {default}: {' '.join(kept)} — work still owed, or the person's decision")
+    if scratch:
+        echo()
+        echo("session scratch:")
+        sweep_sessions()
 
     rc = 0
     try:
