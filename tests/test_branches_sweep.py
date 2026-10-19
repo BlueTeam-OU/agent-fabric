@@ -355,6 +355,20 @@ class Sweep(unittest.TestCase):
         self.assertNotIn(ENDED, out, "a link is not a session directory: not removed, not even named")
         self.assertTrue(os.path.isdir(os.path.join(root, "not-a-session-id", "x")))
 
+    def test_every_suite_that_runs_a_sweep_names_a_configuration_directory_of_its_own(self):
+        """The sweep removes the ended sessions' scratch under $TMPDIR that the harness's registry (under CLAUDE_CONFIG_DIR, else
+        HOME) does not list: a suite that runs it on the real ones removes this login's real scratch. Each names its own."""
+        missing = []
+        for name in sorted(os.listdir(os.path.join(ROOT, "tests"))):
+            path = os.path.join(ROOT, "tests", name)
+            if not name.endswith(".py") or name == os.path.basename(__file__):
+                continue
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            if '"--sweep"' in text and "claude-config" not in text:
+                missing.append(name)
+        self.assertEqual(missing, [], "these run a sweep with this login's own registry and cache")
+
     def test_another_logins_cache_is_not_named(self):
         self.registry()                                   # a registry that lists no live session: the scratch is judged
         other = os.path.join(self.tmp, f"claude-{UID + 1}", "-proj", ENDED)

@@ -235,7 +235,9 @@ def test_hook_says_when_the_branch_sweep_is_due(tmp: str) -> None:
     to the session; a sweep by bin/fabric-branches records the working copy
     under the same name the hook reads, and silences it."""
     state = os.path.join(tmp, "state"); os.makedirs(os.path.join(state, "agents", id_un()))
-    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
+    # CLAUDE_CONFIG_DIR names no directory: the sweep removes the ended sessions' scratch under $TMPDIR that the harness's registry
+    # there does not list, and with none it keeps all, so this suite never touches the real login's cache.
+    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state, "CLAUDE_CONFIG_DIR": "/nonexistent/claude-config"}
     g = lambda cwd, *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *a],
                                       cwd=cwd, check=True, capture_output=True, env=git_env())
     origin = os.path.join(tmp, "origin.git"); g(tmp, "init", "-q", "--bare", "-b", "main", origin)

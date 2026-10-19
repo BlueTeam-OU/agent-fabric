@@ -976,6 +976,15 @@ def main() -> int:
         check("a worktree with a commit on no remote is kept, and the switch says why and goes on",
               rc == 0 and os.path.isdir(left) and "1 commit(s) on no remote" in out, out + err)
 
+        said = sys.modules["fabric_jobs"].leave_sweep.after_leaving(os.path.join(tmp, "not-a-checkout"), None)
+        check("a sweep that cannot start is said once, in the line that says it did not finish, and the switch goes on",
+              said == ["sweep skipped: no working copy of the job is a directory"], said)
+        os.makedirs(os.path.join(tmp, "not-a-checkout"), exist_ok=True)
+        said = sys.modules["fabric_jobs"].leave_sweep.after_leaving(os.path.join(tmp, "not-a-checkout"), None)
+        check("a sweep that fails is said once, in the line that says it did not finish, naming the line that ended it",
+              sum("not in a git working copy" in l for l in said) == 1 and said[-1].startswith("sweep of ")
+              and "did not finish (exit 2): fabric-branches: not in a git working copy" in said[-1], said)
+
         w = World()
         j1, left = left_behind(w, push=True)
         w.add("second thing")
