@@ -187,7 +187,7 @@ has no Python binding, and the coordinator accepted the exemption. Each port goe
 project's taxonomy, as a request from the coordinator. Rule 10 added,
 §7's Wave 10 table, §8.
 
-### Amendment 2026-10-19 — Wave 10: build-glyphs exempt; validate.js's two tests stay with it
+### Amendment 2026-10-19 — Wave 10: build-glyphs exempt; validate.js joins the wave
 
 §7's Wave 10 table. The holder of both rows, devex-tooling, checked them
 before porting (REPLY 01a15310, 2026-10-19), and the coordinator read the
@@ -204,6 +204,16 @@ files at gzapp's origin/HEAD:
   `deprecated-refs.mjs`; `inline.test.mjs` and `success-body.test.mjs`
   import `inlineExternalRefs`, `MAX_REF_CHAIN`, `checkDocument` and
   `undescribedSuccessBodies` from `validate.js`, a `.js` script that rule
-  10 leaves under rule 9. Ported alone they would need a Node bridge, a
-  second harness for code still in Node. They stay `.mjs` beside
-  `validate.js` and move with it under rule 9.
+  10 left under rule 9. Ported alone they would need a Node bridge, a
+  second harness for code still in Node. The holder offered two
+  options: keep them beside `validate.js` under rule 9, or port
+  `validate.js` (660 lines) now with them.
+- The owner chose the second, and widened rule 10 with it: a `.js`
+  or `.cjs` script of ours may join the wave, and one that is to be
+  updated or fixed is ported instead of being changed in Node (in the
+  coordinator's session, 2026-10-19). `validate.js` and its two tests
+  are ported; the old script is the oracle on the four real documents.
+  Its check 4 runs `@seriousme/openapi-schema-validator`; which Python
+  validator replaces it (jsonschema with the OAS 3.1 meta-schema, or
+  openapi-spec-validator) is the holder's choice, and a difference the
+  oracle shows is reported, not hidden.
