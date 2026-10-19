@@ -2,10 +2,11 @@
 """The oracle for runtime/langid/install.sh: the language detector's venv for
 this account — made once, then left; a stale fastText model removed; a dry run
 that writes nothing; a host that cannot install the package a said failure
-(exit 1), not a crash. It is runtime/langid/test_install.sh, case for case,
-driven through ONE constant, INSTALL (default runtime/langid/install.sh;
-$LANGID_INSTALL names another entry), so the same file runs against the bash
-today and against a port's shim later (ADR-040 §5 rule 5).
+(exit 1), not a crash. It was runtime/langid/test_install.sh, case for case,
+and ran unchanged against the bash before the port to
+tools/fabric/langid_install.py (ADR-040 §5 rule 5). It is driven through ONE
+constant, INSTALL (default runtime/langid/install.sh, now the forwarder;
+$LANGID_INSTALL names another entry, e.g. the module itself).
 
 Nothing it runs reaches this account: HOME, the target directory
 (AGENT_FABRIC_LANGID_DIR) and TMPDIR are under one mkdtemp; the package
@@ -21,7 +22,7 @@ The bash test's cases, each a test method here:
   test_dry_run_writes_nothing                     ("would create", nothing installed)
   test_package_that_cannot_be_installed_is_said_exit_1  ("could not install", exit 1)
 
-Added where a refactor could break the contract and the bash test is silent:
+Added where a refactor could break the contract and the old bash test was silent:
   test_dry_run_names_the_stale_model_and_keeps_it, test_dry_run_exit_status_zero,
   test_pip_command_gets_the_package_as_its_last_argument,
   test_pip_that_succeeds_but_leaves_no_pycld2_is_said_exit_1,
@@ -174,6 +175,33 @@ class Langid(unittest.TestCase):
         self.assertEqual(p.returncode, 1, out)
         self.assertIn("python3 -m venv failed; the language section stays unavailable", out)
         self.assertFalse(os.path.exists(self.installed))
+
+    def failing_venv(self) -> str:
+        """A python3 whose `-m venv` leaves a half-made venv (bin/python only) behind and fails."""
+        fakebin = os.path.join(self.sandbox, "fakebin")
+        os.makedirs(fakebin)
+        real = shutil.which("python3")
+        self.script(os.path.join(fakebin, "python3"),
+                    f'#!/bin/sh\nif [ "$1 $2" = "-m venv" ]; then mkdir -p "$3/bin"; : > "$3/bin/half"; exit 1; fi\nexec "{real}" "$@"\n')
+        return f"{fakebin}{os.pathsep}{self.path}"
+
+    def test_venv_failure_removes_the_half_made_venv_it_began(self) -> None:
+        # The positive control of the next test: the same failure over a venv that was not there.
+        p = self.run_install(path=self.failing_venv())
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "venv")))
+
+    def test_venv_failure_keeps_a_directory_that_was_there_and_says_it(self) -> None:
+        keep = os.path.join(self.dir, "venv", "mine")
+        os.makedirs(os.path.dirname(keep))
+        with open(keep, "w", encoding="utf-8") as fh:
+            fh.write("kept")
+        p = self.run_install(path=self.failing_venv())
+        out = p.stdout + p.stderr
+        self.assertEqual(p.returncode, 1, out)
+        self.assertIn("python3 -m venv failed; the language section stays unavailable", out)
+        with open(keep, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "kept")
 
     def test_target_directory_is_private(self) -> None:
         self.fakevenv()

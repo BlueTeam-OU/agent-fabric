@@ -1,4 +1,4 @@
-"""tools/fabric/provisioning/surname.py — `new-agent.sh --surname <Surname>`: provisioning
+"""tools/fabric/provisioning/surname.py — `new_agent.py --surname <Surname>`: provisioning
 claims the agent's surname (agent-fabric ADR-056 §5 rule 4, A 2026-10-15); the agent
 still chooses its first name in its first session (rule 5), so the claim is written
 {surname, first_name: null} — null is "not chosen yet", never a name.

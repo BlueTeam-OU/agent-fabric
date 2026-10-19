@@ -58,7 +58,7 @@ whose target resolves inside the tree; a path never passes through a link;
 the file count and the unpacked size are bounded. Setuid, setgid and group- or
 world-write bits are dropped.
 
-Two pins run a program instead of placing a file, and say so in `kind`.
+Three pins run a program instead of placing a file, and say so in `kind`.
 
     "install": {"kind": "installer", "version": "1.29.1", "url": "https://static.rust-lang.org/…/rustup-init",
                 "sha256": "…"}
@@ -84,6 +84,16 @@ no default toolchain. Nothing here hashes the crate: cargo checks it against the
 Cargo.lock, and this installer cannot say more than that. A cargo pin is current when the proof prints the
 pinned version.
 
+    "install": {"kind": "rustup-target", "toolchain": "1.98.1", "target": "aarch64-linux-android"}
+
+`rustup target add <target> --toolchain <toolchain>` through ~/.cargo/bin/rustup (which an installer pin put
+there; without it the run fails and names the rustup tool), 780 s, the environment of a cargo pin. The std of
+a cross target is a component of a toolchain, not a program, so the tool has no version of its own: the pin
+names the toolchain (three plain numbers) and the target (a plain triple, matched by a pattern, never a
+shell word or an option). The proof must be `rustup target list --installed --toolchain <toolchain>`, and
+the pin is current only when the target is one of its output's lines; a command that exits 0 without it
+(the toolchain is there, the target is not) is absent, and fabric-tools reports the same.
+
 The verdict, one per run:
   current    the tool's proof already prints the pinned version (a tree
              pin: and ~/.local/bin/<tool> resolves into its whole tree)
@@ -92,12 +102,13 @@ The verdict, one per run:
              rename (a tree: renamed into its version's directory, then
              ~/.local/bin/<tool> switched to a link into it). An installer
              pin: fetched, hash verified, run, linked, proved after the
-             fact; a cargo pin: built by cargo, proved after the fact
+             fact; a cargo pin: built by cargo, proved after the fact; a
+             rustup-target pin: added by rustup, proved after the fact
   skipped    this account has no working copy of a project that declares
              the tool (the Doppler CLI stays off every other account: the
              owner, 2026-10-08) — nothing was looked up, fetched or written
   failed     the fetch, the hash, the unpacking or the proof said no;
-             whatever was already installed is untouched (but for the two
+             whatever was already installed is untouched (but for the
              program-running kinds: a program that fails midway, or a link
              that cannot be made after it ran, may have changed ~/.cargo or
              ~/.local/bin, and a rerun completes it)
@@ -140,6 +151,10 @@ VERSION_DIR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
 PIN_FIELDS = {"version", "url", "sha256", "member"}
 INSTALLER_FIELDS = {"kind", "version", "url", "sha256"}
 CARGO_FIELDS = {"kind", "version", "locked", "toolchain"}
+TARGET_FIELDS = {"kind", "toolchain", "target"}
+# A target triple as rustup lists them (aarch64-linux-android, armv7-linux-androideabi, x86_64-unknown-linux-gnu): lowercase
+# words joined by single hyphens, three to five of them, the first a letter. No option can start with one, no shell word fits.
+TARGET_TRIPLE = re.compile(r"[a-z][a-z0-9_]*(-[a-z0-9_]+){2,4}")
 # Cargo reads a bare "4.1" as ^4.1 and an operator-led string as a range; only three plain numbers name one release.
 PLAIN_VERSION = re.compile(r"\d{1,6}\.\d{1,6}\.\d{1,6}")
 TREE_FIELDS = {"root", "members", "whole", "entrypoint"}
@@ -223,6 +238,8 @@ def check_pin(pin: object) -> str | None:
         return check_installer(pin)
     if kind == "cargo":
         return check_cargo(pin)
+    if kind == "rustup-target":
+        return check_target(pin)
     if "kind" in pin:
         return f"the install pin's kind {kind!r} is not one this installer knows"
     bad = check_asset(pin)
@@ -274,6 +291,29 @@ def check_cargo(pin: dict) -> str | None:
         if not isinstance(value, str) or not PLAIN_VERSION.fullmatch(value):
             return f"the cargo pin's {field} is not three dot-separated numbers (a channel name floats)"
     return None
+
+
+def check_target(pin: dict) -> str | None:
+    """A rustup-target pin: one target's std for one pinned toolchain; nothing else of the argv is the registry's."""
+    extra = sorted(set(pin) - TARGET_FIELDS)
+    if extra:
+        return f"the rustup-target pin has fields this installer does not know: {', '.join(extra)}"
+    toolchain, target = pin.get("toolchain"), pin.get("target")
+    if not isinstance(toolchain, str) or not PLAIN_VERSION.fullmatch(toolchain):
+        return "the rustup-target pin's toolchain is not three dot-separated numbers (a channel name floats)"
+    if not isinstance(target, str) or not TARGET_TRIPLE.fullmatch(target):
+        return "the rustup-target pin's target is not a plain target triple"
+    return None
+
+
+def target_proof(pin: dict) -> str:
+    return f"rustup target list --installed --toolchain {pin['toolchain']}"
+
+
+def target_listed(listing: str, target: str) -> bool:
+    """Whether `rustup target list --installed` printed this target as a line of its own: a whole line, so
+    that x86_64-linux-android is not found in x86_64-linux-androideabi."""
+    return target in (ln.strip() for ln in listing.splitlines())
 
 
 def archive_format(url: str) -> str:
@@ -654,7 +694,7 @@ RUSTUP_INIT_ARGV = ("-y", "--no-modify-path", "--profile", "minimal", "--default
 # toolchain is reached when no default is set, and a link to the proxy runs whatever toolchain a
 # project's rust-toolchain.toml names.
 RUSTUP_LINKS = ("rustup", "cargo", "rustc")
-RUN_TIMEOUT_S = {"installer": 300, "cargo": 780}
+RUN_TIMEOUT_S = {"installer": 300, "cargo": 780, "rustup-target": 780}
 STOP_GRACE_S = 5
 def cargo_home(home: str) -> str:
     return os.path.join(home, ".cargo")
@@ -838,6 +878,40 @@ def install_cargo(tool: str, entry: dict, home: str) -> dict:
     return {"status": "installed", "tool": tool, "version": pin["version"], "path": os.path.join(cargo_home(home), "bin", tool)}
 
 
+def target_proves(pin: dict, home: str) -> tuple[str, str]:
+    """('ok', what it found) when the target is installed for the toolchain, else (status, why)."""
+    env = program_env(home, [os.path.join(cargo_home(home), "bin"), os.path.join(home, ".local", "bin"), "/usr/local/bin", "/usr/bin", "/bin"])
+    status, said, listing = tools_check.prove_output(target_proof(pin), env=env)
+    if status != "ok":
+        return status, said
+    if not target_listed(listing, pin["target"]):
+        return "missing", f"{pin['target']} is not installed for toolchain {pin['toolchain']}"
+    return "ok", f"{pin['target']} for {pin['toolchain']}"
+
+
+def install_target(tool: str, entry: dict, home: str) -> dict:
+    """A rustup-target pin: `rustup target add <target> --toolchain <toolchain>` through the rustup under
+    ~/.cargo/bin, which must be there already. Proved by the list, not by the add's exit status."""
+    pin = entry["install"]
+    rustup = os.path.join(cargo_home(home), "bin", "rustup")
+    if not os.access(rustup, os.X_OK):
+        return {"status": "failed", "tool": tool,
+                "reason": f"{rustup} is not there: install rustup first (fabric-ctl <login> tools-install rustup)"}
+    argv = [rustup, "target", "add", pin["target"], "--toolchain", pin["toolchain"]]
+    bound = RUN_TIMEOUT_S["rustup-target"]
+    try:
+        status, last = run_program(argv, program_env(home, [os.path.join(cargo_home(home), "bin"), "/usr/local/bin", "/usr/bin", "/bin"]),
+                                   home, bound)
+    except OSError as e:
+        return {"status": "failed", "tool": tool, "reason": f"{e.filename or rustup}: {e.strerror or e}"}
+    if status != 0:
+        return program_failed(tool, "rustup target add", status, last, bound)
+    proved, said = target_proves(pin, home)
+    if proved != "ok":
+        return {"status": "failed", "tool": tool, "reason": f"the target is not there after rustup target add: {said}"}
+    return {"status": "installed", "tool": tool}
+
+
 def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
             fetch: Fetch = fetch_https) -> dict:
     if not TOOL_NAME.fullmatch(tool or ""):
@@ -859,8 +933,17 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
                 "reason": f"{', '.join(pid for pid, _ in wanted)} pin different installs or proofs of it"}
     entry = wanted[0][1]
     pin = entry["install"]
-    version = pin["version"]
     kind = pin.get("kind")
+    if kind == "rustup-target":
+        # No version of its own: the tool is a component of the pinned toolchain, and the list is the proof.
+        if entry["proof"] != target_proof(pin):
+            return {"status": "refused", "tool": tool,
+                    "reason": f"{wanted[0][0]}: the proof is not {target_proof(pin)!r}, the list the pin is proved by"}
+        status, found = target_proves(pin, home)
+        if status == "ok":
+            return {"status": "current", "tool": tool, "found": found}
+        return install_target(tool, entry, home)
+    version = pin["version"]
     if kind == "cargo" and entry["proof"].split()[:2] != ["cargo", f"+{pin['toolchain']}"]:
         # A proof that does not name the pin's toolchain runs the proxy with no default and can never pass.
         return {"status": "refused", "tool": tool,

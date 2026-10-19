@@ -2,7 +2,8 @@
 """tools/fabric/new_agent.py — give a role its own account on a host:
 everything the control plane can do without a person at a terminal, in
 order, idempotently, then the short list of what only a person can do
-(ADR-040 Wave 5; runtime/provisioning/new-agent.sh is its shim). Run by a
+(ADR-040 Wave 5; runtime/provisioning/new-agent.sh, a shim for one
+release, says so and runs this). Run by a
 fabric-coordinator holder from its own login; the account steps go through
 the host half, runtime/provisioning/new-agent-worker.sh, and the secrets
 step is the coordinator's as the account's parent (ADR-038).
@@ -123,11 +124,18 @@ names, and refuses those even when named); a guess at a port offset.
 """
 from __future__ import annotations
 
-import json
 import os
+import sys
+
+# Before any import that needs the pin: the modules are the entry (rule 7).
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+    import pin_entry  # noqa: E402
+    pin_entry.ensure(os.path.realpath(__file__), "new-agent")
+
+import json
 import pwd
 import signal
-import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -248,7 +256,7 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
         die(f"{login} is not placed as a human: add \"{login}\": \"<host>\" to placement and \"{login}\": \"human\" to "
             "kinds in runtime/hosts/registry.json, merged, first — its clone reads its kind there (ADR-044); nothing made")
     if not human and kind == "human":
-        die(f"{login} is a human login (runtime/hosts/registry.json kinds): new-agent.sh {login} --human; an agent's "
+        die(f"{login} is a human login (runtime/hosts/registry.json kinds): new_agent.py {login} --human; an agent's "
             "pieces are never made for it (ADR-044 rule 5)")
     local_host = next((h for h, e in (reg.get("hosts") or {}).items() if isinstance(e, dict) and e.get("ssh") is None), "")
     if placed and host and placed != host:
@@ -292,11 +300,11 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     # key and id already made, and provision leaves a name the store holds
     # alone (a key is minted once; a second run must not mint again).
     if dry and human:
-        say(f"would: store-enroll.sh {login} --host {host} --born-now; provision identity, and share "
+        say(f"would: store_enroll.py {login} --host {host} --born-now; provision identity, and share "
             f"{HUMAN_SHARED} only (a human: no other name, no issued key); its store to {login} as a bundle; "
             f"fabric-secrets sync --no-pull as {login}; its inbox cursor to the newest message")
     elif dry:
-        say(f"would: store-enroll.sh {login} --host {host} --role {role} --born-now; provision identity, share, issue-key openrouter "
+        say(f"would: store_enroll.py {login} --host {host} --role {role} --born-now; provision identity, share, issue-key openrouter "
             f"and openai (each once); its store to {login} as a bundle; fabric-secrets sync --no-pull as {login}; its "
             "inbox cursor to the newest message")
         say(f"would: fabric-secrets store assign {slug} {login} (token {fp}), before the bundle" if slug else

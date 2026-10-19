@@ -177,7 +177,7 @@ def _sheet_text() -> str:
     if not aid:
         # The restore line names identities/keys/<id>.asc; without an id it
         # would name a file that is never written.
-        raise StoreError("this store has no agent id yet (store-enroll.sh): the sheet names the key by it")
+        raise StoreError("this store has no agent id yet (store_enroll.py): the sheet names the key by it")
     return (f"agent-fabric — the key of agent {aid} (login {login()} when written)\nfingerprint {fpr}\n\n"
             "Restore: paperkey --pubring <the committed identities/keys/"
             f"{aid}.asc> --secrets <this sheet> | gpg --import\n\n{sheet}\n{revocation}")

@@ -141,3 +141,14 @@ ADR-052 (accepted by the owner on 2026-10-12, who asked for the controller in `a
 ### Amendment 2026-10-18 — tools-install runs installer and cargo pins
 
 p2p-network-dev-02's Android build needed rustup and cargo-ndk in its own account, and a session never installs a tool by hand; the registry had no pin for either. python-dev-01's #303 (j132) adds two pin kinds to `tools/fabric/tools_install.py`: an `installer` pin, whose asset is hash-checked and then run once with fixed arguments, never through a shell (rustup-init, which leaves the toolchain to each project's `rust-toolchain.toml`), and a `cargo` pin, built with `--locked` and an exact version on a pinned toolchain, which cargo checks against the crates.io index and Cargo.lock; nothing in the fabric hashes the crate, and the row says so. A crate build takes minutes on a loaded account, so the account's bound goes from 300 s to 1200 s and `fabric-ctl`'s wait from 330 s to 1230 s. Decided by the records' holder on python-dev-01's OBSERVATION `01a150eb-e6cf-7e22-ae73-0a62ac85305c`.
+
+### Amendment 2026-10-19 — tools-install runs rustup-target pins
+
+§2 table, the `tools-install` row. InterWeave's Android build needs the
+aarch64-linux-android std of the pinned toolchain on each Rust account,
+and no pin could declare it: p2p-network-dev-02 added it by hand
+(devex-tooling's OBSERVATION 01a1538e). A `rustup-target` pin names a
+toolchain and a target, each matched by pattern, never a shell word; it
+is added through the rustup the `installer` kind linked, and proved by
+`rustup target list --installed --toolchain <toolchain>`. Built by
+python-dev-01 (#317); the op's budget needed no change.
