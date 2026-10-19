@@ -25,9 +25,11 @@ CONTRACT:
             then one of "  =  <venv> (<pkg>)" present and importing,
             "  +  <venv> (would create and install <pkg>)" on a dry run,
             "  +  <venv> (<pkg>)" installed, or "  !  <venv>: …" failed.
-  stderr    nothing of its own; the children's output is discarded.
+  stderr    nothing of its own but the interrupt line; the children's output
+            is discarded.
   exit      0 done, present or dry run; 1 a said failure (venv, install,
-            import check, an unusable target). Never a traceback.
+            import check, an unusable target); 130 interrupted, the child
+            killed with its group. Never a traceback.
   files     on the install branch the target directory is created, or
             chmod'ed, to 0700; a venv already importing pycld2 leaves it as
             it is; a dry run creates and removes nothing.
@@ -66,11 +68,15 @@ def quiet(argv: list[str], timeout: int) -> bool:
         return False
     try:
         return proc.wait(timeout=timeout) == 0
-    except subprocess.TimeoutExpired:
+    except BaseException as exc:
+        # An interrupt reaches only the foreground group, and the child left it:
+        # without this kill, Ctrl-C would strand a pip still building into the venv.
         with contextlib.suppress(OSError):
             os.killpg(proc.pid, signal.SIGKILL)
         proc.wait()
-        return False
+        if isinstance(exc, subprocess.TimeoutExpired):
+            return False
+        raise
 
 
 def has_detector(venv_python: str) -> bool:
@@ -136,5 +142,13 @@ def run(argv: list[str]) -> int:
     return rc
 
 
+def main(argv: list[str]) -> int:
+    try:
+        return run(argv)
+    except KeyboardInterrupt:
+        print("  !  interrupted; the language section stays as it was", file=sys.stderr)
+        return 130
+
+
 if __name__ == "__main__":
-    sys.exit(run(sys.argv[1:]))
+    sys.exit(main(sys.argv[1:]))
