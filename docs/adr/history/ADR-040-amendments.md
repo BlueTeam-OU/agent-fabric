@@ -162,3 +162,20 @@ hold a Python helper to Node's own answers (`tests/test_control_js.py`).
 §7's Wave 8 bullets stay as the record of how the cutover was run, with
 a closing bullet; §8 states Waves 0 to 8 done and Wave 9 in progress, as
 batch 1 (#200) and later batches have landed.
+
+### Amendment 2026-10-19 — Wave 10: the managed projects' Node scripts move to Python
+
+The owner asked, in the coordinator's session on 2026-10-19, for a plan
+to move every remaining `.mjs` to Python, and then: "yes write adr
+amendment and dispatch jobs to migrate the remaining". Rule 9 had kept
+projects out of port waves, porting a script only when it next changed;
+for Node this record now runs one wave. Measured on each project's
+default branch that day: gzapp 7 files (1,696 lines), gzapp.decks 8
+(1,092), herdr 3 (482), blueteam.ee 1 (109), plus `astro.config.mjs` in
+blueteam.ee and gzapi.ge, a framework's own configuration and so exempt.
+Two scripts import a Node library with no obvious Python counterpart
+(gzapp's glyph builder, fontnik; gzapp.decks' `doc.mjs`, puppeteer):
+their holders decide port or exemption, and an exemption is added to
+§7's table with why. Each port goes to the holder of its path in the
+project's taxonomy, as a request from the coordinator. Rule 10 added,
+§7's Wave 10 table, §8.
