@@ -175,7 +175,9 @@ default branch that day: gzapp 7 files (1,696 lines), gzapp.decks 8
 and gzapi.ge, a framework's own configuration and so exempt. herdr's
 three docs scripts came from its upstream (herdrdev/herdr, 8a6d6973):
 the owner, asked, ruled that only the JavaScript we wrote is ported,
-never a fork's upstream code, and the herdr port (#47) was closed.
+never a fork's upstream code, and the herdr port (#47) was closed. The owner added
+that a project's TypeScript apps (gzapp's) are application code, not
+scripts, and are never migrated.
 Two scripts import a Node library with no obvious Python counterpart
 (gzapp's glyph builder, fontnik; gzapp.decks' `doc.mjs`, puppeteer):
 their holders decide port or exemption, and an exemption is added to

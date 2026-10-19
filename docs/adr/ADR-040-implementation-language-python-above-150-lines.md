@@ -206,7 +206,10 @@ serve as the parity oracle for each port, unchanged.
    (A 2026-10-19). A `.mjs` file a project runs as a script, written
    by us, is ported, and none is added; one a fork took from the
    upstream it tracks stays the upstream's and is never ported (it
-   would only make the fork diverge); a `.js` or `.cjs` script stays under rule 9,
+   would only make the fork diverge), and a project's application
+   code (a TypeScript or JavaScript app, its packages and its build)
+   is the product, in the language the product chose, never a script
+   to port; a `.js` or `.cjs` script stays under rule 9,
    ported when it next changes. Exempt, and named in the wave's
    inventory with why: a framework's own configuration it loads itself
    (`astro.config.mjs`), and a script that works inside a Node library's
