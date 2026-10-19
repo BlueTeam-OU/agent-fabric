@@ -142,8 +142,14 @@ def settle_tmpdir(env: dict, *, now: float | None = None, login: str | None = No
     through every restart. Another login's path, or any other value, is
     still the account's own."""
     if login is None:
-        login = pwd.getpwuid(os.geteuid()).pw_name
-    if env.get("TMPDIR") == legacy_tmpdir(login):
+        # An account the passwd database cannot name keeps its TMPDIR as it
+        # is, as before this check existed: the lookup is no reason to fail
+        # a launch.
+        try:
+            login = pwd.getpwuid(os.geteuid()).pw_name
+        except KeyError:
+            login = ""
+    if login and env.get("TMPDIR") == legacy_tmpdir(login):
         del env["TMPDIR"]
     if env.get("TMPDIR"):
         make_tmpdir(env["TMPDIR"], ours=False)

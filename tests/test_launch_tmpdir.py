@@ -170,6 +170,17 @@ class TmpdirTest(unittest.TestCase):
         session.settle_tmpdir(env)
         self.assertEqual(env["TMPDIR"], session.default_tmpdir(env))
 
+    def test_a_login_the_passwd_database_cannot_name_keeps_the_tmpdir(self):
+        own = os.path.join(self.sandbox, "own")
+        env = {"HOME": self.home, "TMPDIR": own}
+        real = session.pwd.getpwuid
+        session.pwd.getpwuid = lambda uid: (_ for _ in ()).throw(KeyError(uid))
+        try:
+            session.settle_tmpdir(env)
+        finally:
+            session.pwd.getpwuid = real
+        self.assertEqual(env["TMPDIR"], own)
+
 
 if __name__ == "__main__":
     unittest.main()
