@@ -2,8 +2,8 @@
 """tests/run.py and tests/static.py through their command lines, in scratch trees with fake suites: the section argument,
 the run's own TMPDIR and environment, the leak report, the count of failed suites, the exit codes, the end of a run that
 is signalled (TERM: exit 143 and nothing left; KILL: the watcher removes the directory), and the static checks'
-findings. The oracle for the port of tests/run.sh and tests/static.sh is the contract their headers state and the
-bash test tests/test_leak-check.sh (its run.sh cases, run against a forwarder). Plain script: ok/FAIL, exit 1 on any
+findings. The oracle for the port of tests/run.sh and tests/static.sh is the contract their headers state and
+tests/test_leak_check.py (its run.sh cases, run against a forwarder; the bash test of the same cases is gone). Plain script: ok/FAIL, exit 1 on any
 failure."""
 from __future__ import annotations
 
