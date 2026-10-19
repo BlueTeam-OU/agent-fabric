@@ -49,8 +49,9 @@ login commits with and without a role.
 A revert's row is the actor, class and role of the commit that was reverted (a
 fold's contributor; a commit with or without a role; a revert of the merge commit
 is the head ref's login with the head commit's class and role), so the
-denominator of the reverts and fixes forward of a row is the PRs of the period
-in which that row had a commit, never only the PRs it owns: its count is always
+denominator of the reverts and fixes forward of a row is the PRs of the
+closed-window period in which that row had a commit or which it owns, never
+only the PRs it owns: its count is always
 drawn from its denominator, and a rate cannot exceed 1.
 
 EVERY count carries its denominator; below 5 denominators there is no rate.
@@ -262,7 +263,10 @@ def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, 
     if not (period or cperiod):
         return []
     ev = [{**base, "kind": "pr", "closed": closed}]
-    # Every row that had a commit in this PR is in the denominator of its reverts and fixes forward.
+    # Every row that had a commit in this PR is in the denominator of its reverts and fixes forward, and so is the
+    # head ref's own row: fixes forward and a revert of the merge commit are attributed to it even when the head
+    # commit is not among the commits read (then its class and role are "person" and "-"), and a count must
+    # never stand in a row whose denominator lacks the PR.
     rows = {(owner, pr_class, pr_role)} | {(w["actor"], w["class"], w["role"]) for w in (who(c["oid"]) for c in commits)}
     ev += [{**base, "actor": a_, "class": c_, "role": r_, "kind": "pr_part", "closed": closed} for a_, c_, r_ in sorted(rows)]
     if not period:

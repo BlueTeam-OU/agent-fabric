@@ -146,6 +146,10 @@ def main() -> int:
           rep["by_actor"]["carol"]["reverts"]["count"] == 1 and rep["by_actor"]["carol"]["reverts"]["of_prs_with_closed_window"] == 1
           and rep["by_actor"]["alice"]["reverts"]["of_prs_with_closed_window"] == 1 and rep["by_actor"]["alice"]["reverts"]["count"] == 0,
           {k: v["reverts"] for k, v in rep["by_actor"].items()})
+    check("the class and role rows of the reverted commit have the same denominator: web-dev 1 of 1, agent 1 of 1",
+          rep["by_role"]["web-dev"]["reverts"]["count"] == 1 and rep["by_role"]["web-dev"]["reverts"]["of_prs_with_closed_window"] == 1
+          and rep["by_class"]["agent"]["reverts"]["count"] == 1 and rep["by_class"]["agent"]["reverts"]["of_prs_with_closed_window"] == 1,
+          {k: v["reverts"] for k, v in rep["by_role"].items()})
     check("…and the PR is owned by alice alone",
           rep["by_actor"]["carol"]["prs_merged"] == 0 and rep["by_actor"]["alice"]["prs_merged"] == 1
           and rep["by_actor"]["carol"]["prs_in_closed_period"] == 0 and rep["by_actor"]["alice"]["prs_in_closed_period"] == 1, "")
@@ -252,6 +256,10 @@ def main() -> int:
     t = errors.tally(errors.events_of("o/r", pr(reviews=rvs), [], lambda r, s: [], NOW, 30, 14, HOSTS, NEEDED))
     check("findings per review leaves the unparsed reviews out of its denominator (5 reviews, 4 unparsed: no rate under 5)",
           t["reviews"]["given"] == 5 and t["reviews"]["unparsed"] == 4 and t["reviews"]["findings_per_review"] is None, t["reviews"])
+    orphan = dict(pr(number=600, merged=at(16)), headRefOid="d" * 40)
+    t = errors.report(errors.events_of("o/r", orphan, [when(10, "review fix #600 F1", "Answers: F1")], lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED))["total"]
+    check("a head commit not among the commits read: the fix forward is still beside its row's denominator",
+          t["by_class"]["person"]["fixes"]["count"] == 1 and t["by_class"]["person"]["fixes"]["of_prs_with_closed_window"] == 1, t["by_class"])
     check("PRs outside both spans are not read at all", errors.events_of("o/r", pr(merged=at(40)), [], lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED) == [])
 
     # --- merged_prs keeps the REST subject whole beside gh's cut headline
