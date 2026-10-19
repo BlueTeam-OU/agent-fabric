@@ -55,6 +55,8 @@
         "advice_over": {"type": "integer", "minimum": 1, "description": "Work commits above which the gate advises splitting the PR."},
         "boundary_min": {"type": "integer", "minimum": 1, "description": "Work commits a security-boundary PR needs without the owner's word, judged as max(min, boundary_min); a repository may raise the fleet's value, never lower it."},
         "boundary_authority": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "The role whose holder may authorize arming a security-boundary PR under boundary_min in the owner's place, by a message to the PR's author naming the PR and its head; the review gate still applies. Absent: only the owner's word."},
+        "below_min_authority": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "The role whose holder may give the word for a PR under commits.min in the owner's place: by arming it in a session bound to that role, or by an AUTHORIZES message to the arming session. Absent: only the owner's word."},
+        "authority_own_prs": {"type": "boolean", "description": "Whether a holder of boundary_authority or below_min_authority may arm its own PR that way (true for the fabric's own repositories, where fabric-coordinator arms its PRs; false keeps an authority's own PR the owner's). Absent: false."},
         "below_min": {"enum": ["owner-word", "refuse"], "description": "A PR under the minimum: arm on the owner's word, or refuse."},
         "roles": {
           "type": "object",
