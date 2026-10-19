@@ -250,8 +250,8 @@ it as a cited case instead of a fresh decision.
 (`model-switch-guard.sh`, `pipe-status-guard.sh`,
 `subagent-clone-guard.sh`) to modules beside them, run on the pinned
 interpreter; each `.sh` stays the path settings register, a forwarder
-that fails closed (the model-switch guard asks, the other two deny)
-when the pin or its module is missing. So `model-switch-guard.sh` is
+that fails closed with an ask when the pin or its module is missing
+or the run fails. So `model-switch-guard.sh` is
 no longer among the hooks that keep the host's `python3`. Their bash
 tests are retired for the Python oracles of #320, which ran unchanged
 against both.

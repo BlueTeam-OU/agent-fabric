@@ -88,6 +88,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)  # `python -I` leaves this directory off
+sys.dont_write_bytecode = True   # hook_jq beside it leaves no __pycache__ in the tree (review of #329, F7)
 import hook_jq  # noqa: E402
 
 TYPES = ("code-low", "code-medium", "code-high", "code-plan", "code-review", "general-purpose", "claude", "Explore", "Plan")
@@ -112,8 +113,9 @@ def joined(value) -> list:
 
 
 def read_r(line: str, names: int) -> list[str]:
-    """bash's `read -r a b … z` of one line under the default IFS."""
-    rest = line.lstrip(IFS)
+    """bash's `read -r a b … z` of one line under the default IFS. `read` drops NUL bytes, so a field jq printed as
+    "code-low\0" is read as code-low and decided as such (review of #329, F1: kept, it fell outside TYPES and allowed)."""
+    rest = line.replace("\0", "").lstrip(IFS)
     out = []
     for _ in range(names - 1):
         end = 0

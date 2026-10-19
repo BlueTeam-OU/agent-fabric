@@ -68,6 +68,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 # Under `python -I` the script's directory is not on sys.path; the jq reading is a sibling.
 sys.path.insert(0, HERE)
+sys.dont_write_bytecode = True   # hook_jq beside it leaves no __pycache__ in the tree (review of #329, F7)
 import hook_jq  # noqa: E402
 
 EVENT = "PreModelSwitch"

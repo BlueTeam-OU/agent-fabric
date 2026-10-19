@@ -49,7 +49,7 @@ def category_of(transcript: str) -> str:
             for line in fh:
                 if FALLBACK_TOKEN in line:
                     last = line
-    except OSError:
+    except (OSError, ValueError):   # ValueError: a path with a NUL, which read -r dropped (review of #329, F3)
         return ""
     try:
         doc = json.loads(last)
@@ -121,8 +121,13 @@ def handle(raw: bytes) -> None:
 
 def main() -> int:
     raw = sys.stdin.buffer.read()
-    if raw.strip():
-        handle(raw)
+    # The contract is exit 0 and nothing on stderr, whatever the input: an input the note cannot use is no note, never a
+    # traceback (review of #329, F3: a transcript path with a NUL raised ValueError out of open()).
+    try:
+        if raw.strip():
+            handle(raw)
+    except Exception:  # noqa: BLE001
+        return 0
     return 0
 
 

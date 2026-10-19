@@ -246,7 +246,8 @@ What it refuses, in order, and why:
      "owner's word" — or, where the policy names commits.below_min_authority,
      that role's (THE WORD OF A ROLE UNDER THE MINIMUM above) — EXCEPT a class the project's arm.json lets arm at
      the gate (none, in a project that declares none; a class arms at its own
-     minimum, one for the older form, and under it only on the owner's word), STATED in the PR body
+     minimum, one for the older form, and under it only on the owner's word or the role commits.below_min_authority
+     names), STATED in the PR body
      ("Class: <class>") and confirmed by the changed files; a stated
      class the files contradict is refused, not trusted. A
      security-boundary change under 8 needs the owner's word whatever

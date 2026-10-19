@@ -7,4 +7,5 @@
 py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
 # The probe never stops a provisioning run, so a missing pin is said on stderr and the exit is 0.
 [[ -x "$py" ]] || { echo "host-check gzapp: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 0; }
-exec "$py" -I "${BASH_SOURCE[0]%/*}/host_check.py" "$@"
+here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+exec "$py" -I "$here/host_check.py" "$@"

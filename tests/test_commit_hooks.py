@@ -21,6 +21,9 @@ from __future__ import annotations
 import os
 import stat
 import sys
+
+# No bytecode in the tree: the modules imported below would leave __pycache__ beside them (review of #329, F7).
+sys.dont_write_bytecode = True
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -94,6 +97,12 @@ class Module(Hooks):
 
 
 class Direct(unittest.TestCase):
+    def test_a_unicode_space_does_not_hide_an_attribution(self):
+        # mutation: an ASCII-only whitespace class, which admitted an em-spaced trailer and footer the bash refused (#329 F2)
+        self.assertTrue(ch._banned_attribution("x\n\n\u2003Co-authored-by: a <a@b>\n"))
+        self.assertTrue(ch._banned_attribution("x\n\nGenerated with\u2003[Claude Code](https://x)\n"))
+        self.assertFalse(ch._banned_attribution("x\n\nKind: work\n"))
+
     def test_a_locale_path_is_the_whole_path(self):
         ok = "identities/roles/language-culture/locale/ge/a.md"
         self.assertEqual(ch.locale_role([ok]), ("language-culture", "ge"))

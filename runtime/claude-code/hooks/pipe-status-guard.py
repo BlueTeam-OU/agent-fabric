@@ -61,6 +61,7 @@ import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # `python -I` leaves this directory off
+sys.dont_write_bytecode = True   # hook_jq beside it leaves no __pycache__ in the tree (review of #329, F7)
 import hook_jq  # noqa: E402
 
 FILTERS = ("tail", "head", "grep", "sed", "cut", "wc", "awk", "sort", "uniq", "tee")   # no one a prefix of another

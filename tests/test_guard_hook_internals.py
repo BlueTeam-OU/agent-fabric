@@ -21,6 +21,9 @@ import os
 import random
 import re
 import sys
+
+# No bytecode in the tree: the modules imported below would leave __pycache__ beside them (review of #329, F7).
+sys.dont_write_bytecode = True
 import time
 import unittest
 
@@ -129,6 +132,10 @@ class CloneRead(unittest.TestCase):
         self.assertEqual(SCG.read_r("a1 code-low Write /c d  e ", 4), ["a1", "code-low", "Write", "/c d  e"])
         self.assertEqual(SCG.read_r("  a\tb  ", 4), ["a", "b", "", ""])
         self.assertEqual(SCG.read_r("a b c d", 4), ["a", "b", "c", "d"])
+
+    def test_read_r_drops_nul_bytes_as_bash_read_does(self):
+        # mutation: the NUL kept, so "code-low\0" falls outside TYPES and a write in the clone is allowed (#329 F1)
+        self.assertEqual(SCG.read_r("a\0 code-low\0 Write\0 /c\0", 4), ["a", "code-low", "Write", "/c"])
 
     def test_the_join_fails_on_a_container_and_spells_a_scalar(self):
         self.assertEqual(SCG.joined({"agent_id": 5, "agent_type": True, "tool_name": None, "cwd": ""}), ["5 true - -"])

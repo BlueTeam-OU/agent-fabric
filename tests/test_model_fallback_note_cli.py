@@ -131,6 +131,10 @@ def main() -> int:
     t.check("nothing but the marker is left in the directory", sorted(os.listdir(DIR)) == [f"{PID}.json"], str(os.listdir(DIR)))
     ctx = note_of(fire(payload(transcript_path="/nonexistent")))
     t.check("without a transcript the category is unnamed", "as the category the safeguard flagged" in ctx, ctx)
+    r = fire(payload(transcript_path=CYBER + "\u0000x"))
+    t.check("a transcript path with a NUL is no transcript: the note, exit 0, nothing on stderr (catches: open()'s ValueError "
+            "escaping, #329 F3)", r.rc == 0 and r.err == "" and "as the category the safeguard flagged" in note_of(r),
+            (r.rc, r.err, r.out))
 
     t.group("the topic follows the category the transcript names")
     for category, want in (("biosecurity", "a biology or biosecurity issue"), ("cyber_harm", "a cybersecurity issue"), ("weapons", "a weapons issue")):

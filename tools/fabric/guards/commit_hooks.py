@@ -56,9 +56,12 @@ DEFAULT_OWNER = "fabric-coordinator"
 # The carve-out's pattern, verbatim what tools/fabric/guards/agent_fabric_dir_authority.py (CI's tripwire) holds too;
 # tests/test_agent_fabric_dir_authority.py fails if the two drift.
 LOCALE_PATH = re.compile(r"identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
-TRAILER_RE = re.compile(r"^[ \t\r\f\v]*(Co-authored-by|Claude-Session):", re.I)
-FOOTER_RE = re.compile(r"Generated with[ \t\n\r\f\v]+\[Claude Code|claude\.ai/code/session_", re.I)
-FABRIC_ROLE_RE = re.compile(r"^[ \t\r\f\v]*Fabric-Role:", re.I)
+# grep's [[:space:]] in a UTF-8 locale takes Unicode spaces too (an em space), so these take any whitespace but the
+# line break, as CI's ban_generated_by_attribution.py does: an ASCII-only class admitted " Co-authored-by:" spaced with
+# an em space at the keyboard while CI refused it (review of #329, F2).
+TRAILER_RE = re.compile(r"^[^\S\n]*(Co-authored-by|Claude-Session):", re.I)
+FOOTER_RE = re.compile(r"Generated with\s+\[Claude Code|claude\.ai/code/session_", re.I)
+FABRIC_ROLE_RE = re.compile(r"^[^\S\n]*Fabric-Role:", re.I)
 HEX_TREE = re.compile(r"[0-9a-f]{40,64}")
 ADR_CHECK_TIMEOUT_S = 600
 SHORT_TIMEOUT_S = 30
