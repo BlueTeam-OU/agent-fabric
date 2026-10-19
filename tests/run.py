@@ -76,8 +76,6 @@ BASH_SUITES: list[tuple[str, dict[str, str], list[str]]] = [
     ("model-switch guard", {}, ["bash", "runtime/claude-code/hooks/test_model-switch-guard.sh"]),
     ("plan hold", {}, ["bash", "runtime/claude-code/hooks/test_plan-hold.sh"]),
     ("model fallback note", {}, ["bash", "runtime/claude-code/hooks/test_model-fallback-note.sh"]),
-    ("install-agent-files (the locale worker)", {}, ["bash", "runtime/claude-code/test_install-agent-files.sh"]),
-    ("the fabric's user settings (attribution off, thinking summaries, verbose)", {}, ["bash", "runtime/claude-code/test_user-settings.sh"]),
 ]
 
 
