@@ -257,7 +257,7 @@ Each agent's secrets are its own store, `BlueTeam-OU/fabric-agent-<id>`
 (its agent id, ADR-039), encrypted to its key alone (ADR-038): the login writes and reads it; its parent,
 the `fabric-coordinator` login that provisioned it, may add an entry
 (`fabric-secrets store put`) and certifies its key, and reads nothing.
-Making a key and store (`store-enroll.sh`), certifying keys
+Making a key and store (`tools/fabric/store_enroll.py`), certifying keys
 (`identities/keys/`), and the Claude-account templates in the
 coordinator's store are `fabric-coordinator`'s, and so is filling a
 child's store (`fabric-secrets provision`: identity, the shared names,

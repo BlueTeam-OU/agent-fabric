@@ -269,7 +269,10 @@ def tools_line(project: str | None, state_dir: str, now: float | None = None) ->
                       for r in missing)
     stale = f"; the report is {int(age // 86400)} days old" if age > TOOLS_STALE_S else ""
     return [f"agent-fabric: {project} needs tools this account lacks: {names}{stale}. `fabric-tools` checks them again; "
-            f"a host tool is the owner's to install, an account tool is said to the owner, never installed by a session."]
+            # An account installs its own pinned tools (ADR-051 §5 rule 2, `fabric-tools --install`); the line once
+            # said "never installed by a session", and a session read it as a ban and waited a day for the owner.
+            f"a host tool is the owner's to install; an account tool with an install pin in projects/registry.json "
+            f"is installed by this account, `fabric-tools --install <name>`, and one without a pin is said to the owner."]
 
 
 def cleared_jobs(doc: dict) -> list[str]:

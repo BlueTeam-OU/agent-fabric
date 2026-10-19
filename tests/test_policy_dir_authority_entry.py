@@ -4,7 +4,7 @@ change `.agent-fabric/` (or, in agent-fabric itself, anything) without the ownin
 ADR-040 rule 5). The entry point is ONE constant, ENTRY (override with DIR_AUTHORITY_ENTRY), run as a command from the scratch
 repository, so this file runs unchanged against the bash forwarder today and against its Python port later.
 
-policies/test_check_agent_fabric_dir_authority.sh, case for case (the number is its assertion order; each is a method here):
+policies/test_check_agent_fabric_dir_authority.sh (deleted, Wave 9 batch 3), case for case (the number is its assertion order; each is a method here):
   01 a code change passes, trailer or not                         02 no trailer: refused              03 the refusal names the missing trailer
   04 ... and lists the commit with what it declared               05 ... and says the login is not the question
   06 ... and gives the slice correction (merge_target), not a raise

@@ -99,7 +99,15 @@ def main() -> int:
 
     print("disarm-on-push: what it runs on and may do")
     text = open(WORKFLOW).read()
-    check("on a pull request's synchronize only", re.search(r"pull_request:\n\s+types: \[synchronize\]", text) is not None)
+    # pull_request_target runs main's copy of the workflow, so a PR that breaks this file cannot leave its own arming
+    # in place; mutation: the trigger back to `pull_request:` fails the first check.
+    check("on a pull request's synchronize only, by main's copy (pull_request_target)",
+          re.search(r"\n  pull_request_target:\n\s+types: \[synchronize\]", text) is not None
+          and re.search(r"\n  pull_request:\n", text) is None)
+    # Under pull_request_target the token can write; running the head's code with it would be a stranger's code with
+    # write access. Mutation: an actions/checkout step (or any `uses:`) added fails this.
+    check("checks nothing out and uses no action: nothing of the pull request runs",
+          re.search(r"^\s*-?\s*uses:", text, re.M) is None and "actions/checkout" not in text)
     perms = re.search(r"\npermissions:\n((?:  .*\n)+)", text)
     check("pull-requests: write and contents: write (disabling auto-merge needs both), nothing else",
           perms is not None and sorted(perms.group(1).split()) == sorted(["contents:", "write", "pull-requests:", "write"]),

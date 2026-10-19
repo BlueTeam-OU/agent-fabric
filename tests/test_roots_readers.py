@@ -162,6 +162,10 @@ def case_layout_places_memory_roles_and_registry_in_the_operator() -> None:
             assert "opproj" not in layout.project_ids()
 
 
+# No timeout on the git and lint children below: a lint takes ~25 s alone and several minutes on a host at load 100, so
+# any wall budget the test picks either fails a slow run that is still healthy or is longer than the suite runner's own
+# (run_python_suites.SUITE_TIMEOUT_S), which ends a hung suite with everything it started and says so. main() flushes each
+# case's line so that the runner's output, cut off by that kill, still shows the last case that passed.
 def case_lint_reads_catalogue_and_authority_from_the_operator() -> None:
     import lint
     with tempfile.TemporaryDirectory() as tmp:
@@ -204,14 +208,14 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
         # A whole checkout, not a few directories: the staleness pass (ADR-050 rule 2) judges the paths and anchors a
         # slice cites in the tree the corpus lies in, and an operator tree is that — a clone, with its history.
         git_env = {**{k: v for k, v in base.items() if not k.startswith("GIT_")}, "GIT_CONFIG_GLOBAL": os.devnull}
-        git = lambda *argv, **kw: subprocess.run(["git", *argv], check=True, timeout=300, env=git_env, **kw)  # noqa: E731
+        git = lambda *argv, **kw: subprocess.run(["git", *argv], check=True, env=git_env, **kw)  # noqa: E731
         git("clone", "-q", "--local", "--no-hardlinks", ROOT, tmp)
         # The checkout as it is, uncommitted edits and new files included: a run before the commit must say what CI says.
-        diff = subprocess.run(["git", "-C", ROOT, "diff", "HEAD", "--binary"], check=True, timeout=300, env=git_env,
+        diff = subprocess.run(["git", "-C", ROOT, "diff", "HEAD", "--binary"], check=True, env=git_env,
                               capture_output=True).stdout
         if diff:
             git("-C", tmp, "apply", "--whitespace=nowarn", input=diff)
-        untracked = subprocess.run(["git", "-C", ROOT, "ls-files", "-o", "--exclude-standard", "-z"], check=True, timeout=300,
+        untracked = subprocess.run(["git", "-C", ROOT, "ls-files", "-o", "--exclude-standard", "-z"], check=True,
                                    env=git_env, capture_output=True).stdout.decode("utf-8", "surrogateescape").split("\0")
         for rel in filter(None, untracked):
             os.makedirs(os.path.dirname(os.path.join(tmp, rel)), exist_ok=True)
@@ -224,7 +228,7 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
             done = []
             try:
                 for proc in procs:
-                    out, err = proc.communicate(timeout=300)
+                    out, err = proc.communicate()
                     done.append(subprocess.CompletedProcess(proc.args, proc.returncode, out, err))
             finally:
                 for proc in procs:
@@ -317,7 +321,7 @@ def case_lint_reads_role_files_only_the_operator_holds() -> None:
     with tempfile.TemporaryDirectory() as engine:
         os.makedirs(os.path.join(engine, "identities"))
         r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "lint.py"), "--fabric", engine,
-                            "--no-siblings"], capture_output=True, text=True, timeout=300,
+                            "--no-siblings"], capture_output=True, text=True,
                            env={**base, "AGENT_FABRIC_OPERATOR": ROOT})
         out = r.stdout + r.stderr
         assert "Traceback" not in out, out[-1500:]
@@ -332,10 +336,10 @@ def main() -> int:
     for case in cases:
         try:
             case()
-            print(f"  ok   {case.__name__}")
+            print(f"  ok   {case.__name__}", flush=True)
         except AssertionError as exc:
             failures += 1
-            print(f"  FAIL {case.__name__}: {exc}")
+            print(f"  FAIL {case.__name__}: {exc}", flush=True)
     print(f"\n{len(cases) - failures}/{len(cases)} passed")
     return 1 if failures else 0
 

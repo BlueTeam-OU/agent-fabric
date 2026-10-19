@@ -32,7 +32,22 @@ CHILD = textwrap.dedent('''\
             with open(os.path.join(scratch, "kid"), "w") as fh:
                 fh.write(str(kid.pid))
             time.sleep(300)
-    time.sleep({nap!r} if group < 2 else 0)
+    if {mode!r} == "pair" and group < 2:
+        # Held by what it waits for, not by a clock: both of the pair must have started before either leaves (a slow
+        # start under load cannot read as "not at once"), and the hold ends early if a third group starts, which is
+        # the case that should fail.
+        def started():
+            with open(os.path.join(scratch, "starts")) as fh:
+                return [line.split()[0] for line in fh]
+        while not {{"0", "1"}} <= set(started()):
+            time.sleep(0.02)
+        hold = time.monotonic() + {nap!r}
+        while len(started()) < 3 and time.monotonic() < hold:
+            time.sleep(0.02)
+    else:
+        time.sleep({nap!r} if group < 2 else 0)
+    with open(os.path.join(scratch, "ends"), "a") as fh:
+        fh.write(f"{{group}} {{time.monotonic()}}\\n")
     print(f"group {{group}}: output")
     sys.exit(1 if (group == 1 and {mode!r} == "fail") else 0)
 ''')
@@ -67,7 +82,8 @@ def run(mode: str, ngroups: int, order: tuple[int, ...], timeout_s: int = 60, na
                 alive = bool(kid) and "sleep" in fh.read()
         except OSError:
             alive = False
-        return rc, out.getvalue(), "|".join([starts, ",".join(left), str(alive), kid])
+        ends = open(os.path.join(scratch, "ends"), encoding="utf-8").read() if os.path.exists(os.path.join(scratch, "ends")) else ""
+        return rc, out.getvalue(), "|".join([starts, ",".join(left), str(alive), kid, ends])
 
 
 def main() -> int:
@@ -89,16 +105,20 @@ def main() -> int:
           rc == 1 and "group 2: output" in out and "t: FAILED — 1 group(s)" in out, out)
     started = time.monotonic()
     rc, out, state = run("overrun", 3, (0, 1, 2), timeout_s=6)
-    _starts, left, alive, kid = state.split("|")
+    _starts, left, alive, kid, _ends = state.split("|")
     check("a group that overruns fails the run, said with its limit", rc == 1 and "group 0: FAILED — it did not finish in 6 s" in out, out)
     check("…after it had made its sandbox and started its sleeper (else the two checks below prove nothing)", kid != "", state)
     check("…its sandbox is removed (it was told to stop, not killed)", left == "", state)
     check("…and the process it started is gone with its process group", alive == "False", state)
     check("…without waiting out the 300 s it slept, or the grace for a child that ignores the stop", time.monotonic() - started < 25)
-    rc, out, state = run("ok", 3, (0, 1, 2), jobs="16", cpus=2, nap=1.0)
-    stamps = sorted(float(line.split()[1]) for line in state.split("|")[0].splitlines())
-    check("an override of 16 on 2 cores runs two groups at once: the third starts after the first pair", len(stamps) == 3
-          and stamps[2] - stamps[0] >= 0.9 and stamps[1] - stamps[0] < 0.9, state)
+    rc, out, state = run("pair", 3, (0, 1, 2), jobs="16", cpus=2, nap=1.0)
+    starts, _left, _alive, _kid, ends = state.split("|")
+    start = {int(l.split()[0]): float(l.split()[1]) for l in starts.splitlines()}
+    end = {int(l.split()[0]): float(l.split()[1]) for l in ends.splitlines()}
+    # Ordered by the children's own stamps, not by how far apart they are: the pair overlapped (each started before
+    # either ended) and the third started only once one of them had ended.
+    check("an override of 16 on 2 cores runs two groups at once: the third starts after the first pair",
+          rc == 0 and len(start) == 3 and len(end) == 3 and max(start[0], start[1]) < min(end[0], end[1]) <= start[2], state)
     rc, out, state = run("ok", 3, (0, 1, 2), jobs="1", cpus=8, nap=0.5)
     stamps = sorted(float(line.split()[1]) for line in state.split("|")[0].splitlines())
     check("an override of 1 runs them one after another", len(stamps) == 3 and stamps[1] - stamps[0] >= 0.4, state)

@@ -274,6 +274,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Deferred by the owner (2026-09-26): a shared Android SDK/Gradle cache,
   until a second Flutter login needs it (§7).
 - A 2026-09-30 — the coordinator keeps its own store and fills each child's, not Doppler (§2, §5 rule 1).
+- A 2026-10-19 — `full-suite`: one full local test run at a time (§5 rule 9).
 - Keywords: host, placement, hostexec, fabric-host, ssh, provisioning,
   new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM.
 
@@ -434,26 +435,25 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
 - Every change reaches `main` through a PR (§2, §5 rule 1, §6).
-- One open PR per agent and repository; next work is another commit;
-  two exceptions (§5 rule 2).
-- Work commits exclude review fixes, by each commit's `Kind:` trailer
-  (§5 rule 3); 8 or more arm at the gate, under 8 ask the owner (§5
-  rule 4).
+- One open PR per agent and repository, two exceptions (§5 rule 2).
+- Work commits exclude review fixes, by `Kind:` (§5 rule 3); 8 or more
+  arm at the gate, under 8 the owner's or the policy's authority's word
+  (§5 rule 4).
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, with no open P1/P2 (§5
   rules 5–6).
 - No machine attribution (§5 rule 7). GitHub settings: §6.
 - A 2026-10-04 — `main`'s ruleset (§5 rule 6).
-- A 2026-10-05 — the ruleset requires `ci-ok` alone (§5 rule 6).
-- A 2026-10-05 — 8+ work commits arm on the gate alone (§5 rule 4).
+- A 2026-10-05 — the ruleset requires `ci-ok` (§5 rule 6).
+- A 2026-10-05 — 8+ arm on the gate alone (§5 rule 4).
 - A 2026-10-06 — one open PR at a time (§5 rule 2).
 - A 2026-10-08 — every commit declares its `Kind:` (§5 rule 3).
 - A 2026-10-08 — a folded PR's review fixes are fixes (§5 rule 3).
 - A 2026-10-09 — results.py reads a fold (§5 rule 3).
-- A 2026-10-09 — a push after the arming disarms it (§5 rule 5).
-- A 2026-10-10 — arm.json `direct`: fast-forward main, fenced by
-  pre-push (§5 rule 1).
+- A 2026-10-09 — a push disarms (§5 rule 5).
+- A 2026-10-10 — arm.json `direct`, fenced by pre-push (§5 rule 1).
 - A 2026-10-11 — pre-push refuses unsigned commits (§5 rule 1).
-- Keywords: Answers, Kind, fold, pr-gate, ruleset, direct, pre-push.
+- A 2026-10-19 — an authority's word (§5 rule 4).
+- Keywords: Answers, Kind, fold, pr-gate, ruleset, direct, authority.
 
 ### ADR-020 — The review class is the review (Accepted)
 
@@ -657,7 +657,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-30 — rule 14 withdrawn (§5 rule 5).
 - A 2026-10-06 — local, local-prune (§5 rule 15).
 - A 2026-10-07 — session state (rule 16).
-- A 2026-10-07 — selftest (§5 rule 17).
+- A 2026-10-07 — secrets-selftest (rule 17).
 - A 2026-10-08 — resumable state (§5 rule 16).
 - A 2026-10-08 — public ops (§5 rule 4).
 - A 2026-10-09 — forged claims (§5 rule 4).
@@ -893,27 +893,28 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
 - Every fabric script is Python, stdlib only, on the pinned
-  `fabric-python`; bash only as the pre-Python list and forwarders
-  (12 code lines, no case or loop), hooks and bin/ too (§5 r1).
+  `fabric-python`; bash only pre-Python or as a forwarder (12 code
+  lines, no case or loop) (§5 r1).
 - Lint refuses a bash file on neither the list nor the forwarder shape;
   `ports` only shrinks (§5 rule 2).
 - A port freezes the contract, keeps the path, tests against the old
-  script (§5 rules 3–5).
+  (§5 rules 3–5).
 - GitHub and git via `gh.py`, `git.py` (§5 rule 6).
 - A 2026-10-01 — oracle stays (§5 rule 5).
-- A 2026-10-01 — one pinned Python per host (§5 rule 1).
+- A 2026-10-01 — one pin per host (§5 rule 1).
 - A 2026-10-01 — fixtures copy their modules (§5 rule 5).
 - A 2026-10-04 — Wave 7: GZCoord's tools (§7).
 - A 2026-10-08 — bare command names; shims retire (§5 rule 7).
 - A 2026-10-09 — Wave 8: control plane; no new Node (§5 rule 8).
 - A 2026-10-09 — 3.13+ (§5 rule 1).
-- A 2026-10-11 — Wave 9: the rest of the bash, ten batches;
-  projects port when changed (§5 rules 1, 2, 9, §7).
+- A 2026-10-11 — Wave 9: the rest of the bash; projects port when
+  changed (§5 rules 1, 2, 9, §7).
 - A 2026-10-13 — the interim line limit is 160 (§7).
-- A 2026-10-14 — Wave 8 done (§5 rule 8, §7).
+- A 2026-10-14 — Wave 8 done (§7).
 - A 2026-10-19 — Wave 10, our .mjs (§5 r10).
 - A 2026-10-19 — .js may join (§5 r10).
 - A 2026-10-19 — provisioning modules (§5 r7).
+- A 2026-10-19 — pin before any input (§5 r5).
 - Keywords: Python, bash, Node, mjs, port, allowlist, shim, wave,
   bare command, forwarder.
 

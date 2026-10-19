@@ -1038,7 +1038,8 @@ class ArmRun(unittest.TestCase):
         rc, out = self.run_arm(claude_only({"commits": {"min": 8, "boundary_authority": "architect-cto"}}), 3,
                                extra=(*self.AUTH, "--dry-run"))
         self.assertIn("arms only on the owner's word", str(rc))
-        self.assertIn("an authorization stands in only for a security-boundary change, and this one needs the owner's word", out)
+        self.assertIn("names no below_min_authority, so an authorization stands in only for a security-boundary change, and this one needs the"
+                      " owner's word", out)
         self.assertNotIn("no authorization is needed", out)
 
     def test_the_pull_requests_own_author_cannot_authorize_it(self):
@@ -1457,7 +1458,8 @@ class ArmRun(unittest.TestCase):
         policy = claude_only({"commits": {"min": 8, "boundary_authority": "architect-cto"}})
         rc, out = self.run_arm(policy, 3, extra=(*self.AUTH, "--dry-run"), replay=grant(), presence=presence_of())
         self.assertTrue(str(rc).startswith("refused"), rc)
-        self.assertIn("is not read: an authorization stands in only for a security-boundary change", out)
+        self.assertIn("is not read: O/R's arming policy names no below_min_authority, so an authorization stands in only for a"
+                      " security-boundary change", out)
         self.assertEqual(self.reads, [])
 
     def test_a_below_min_authority_authorization_is_refused_as_the_boundary_one_is(self):
@@ -1482,6 +1484,18 @@ class ArmRun(unittest.TestCase):
             self.assertEqual([r[0] for r in self.reads], ["whoami"], label)
             self.assertEqual(self.reads[0][1], ["--json"])
         self.assertIn("Boundary count gate lifted by me", out)
+
+    def test_a_holder_arming_on_its_word_without_any_owner_is_refused_at_the_lane_gate_which_names_the_flag_for_it(self):
+        rc, _ = self.below(basis="architect-cto's word", extra=("--dry-run",), whoami=whoami_of(), branch="h/dev/feat/x")
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertIn("never arm another session's PR (--any-owner for the owner's own hand, or for a holder of the policy's"
+                      " authority role arming on its word)", str(rc))
+
+    def test_the_hint_to_a_holder_carries_any_owner_and_where_it_may_be_the_holders_own_pr_says_when(self):
+        text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",))
+        self.assertIn("in a session that holds architect-cto, --any-owner --basis \"architect-cto's word\"; or", text)
+        text = self.refusal(claude_only({"commits": {**self.BM, "authority_own_prs": True}}), files=("docs/a.md",))
+        self.assertIn("in a session that holds architect-cto, --basis \"architect-cto's word\" (and --any-owner, on a PR not its own); or", text)
 
     def test_a_policy_with_only_boundary_authority_lets_its_holder_arm_a_boundary_change_by_the_binding_and_nothing_else(self):
         policy = claude_only({"commits": {"min": 8, "boundary_authority": "architect-cto"}})
