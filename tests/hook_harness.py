@@ -71,6 +71,13 @@ def run(program: str, stdin: str, environment: dict[str, str], cwd: str | None =
     return Result(p.returncode, p.stdout.decode("utf-8", "surrogateescape"), p.stderr.decode("utf-8", "surrogateescape"))
 
 
+def run_isolated(program: str, stdin: str, environment: dict[str, str], cwd: str | None = None) -> Result:
+    """A module the way its forwarder runs it: `python -I <module>`, which leaves the module's own directory off
+    sys.path, so a sibling import that does not find its siblings fails here and not only in the installed hook."""
+    p = subprocess.run([sys.executable, "-I", program], input=stdin.encode(), env=environment, cwd=cwd, capture_output=True, timeout=TIMEOUT_S)
+    return Result(p.returncode, p.stdout.decode("utf-8", "surrogateescape"), p.stderr.decode("utf-8", "surrogateescape"))
+
+
 def tool_dir(dest: str, names: list[str]) -> str:
     """A directory holding links to exactly `names`, found on the real PATH: a PATH of it is a machine that lacks every other tool."""
     os.makedirs(dest, exist_ok=True)

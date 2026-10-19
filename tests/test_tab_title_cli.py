@@ -195,6 +195,11 @@ def main() -> int:
     p = subprocess.run([HOOK], input=json.dumps({"cwd": repo}).encode(), env={**clean_env(), "PATH": bare}, capture_output=True, timeout=60)
     check("…and the same payload with git on that PATH emits (the control)", p.returncode == 0 and p.stdout != b"", f"rc={p.returncode} out={p.stdout!r}")
 
+    if HOOK.endswith(".py"):
+        p = subprocess.run([sys.executable, "-I", HOOK], input=json.dumps({"cwd": repo}).encode(), env=clean_env(), capture_output=True, timeout=60)
+        check("a module run as its forwarder runs it (python -I) finds its siblings and sets the same title",
+              p.returncode == 0 and p.stdout.decode() == run_hook(repo)[1] and p.stdout != b"" and p.stderr == b"", f"rc={p.returncode} out={p.stdout!r} err={p.stderr!r}")
+
     # Outside a repo there is no title to set, and saying so with an empty body
     # is how a hook declines: any stdout here would be parsed as a directive.
     rc, out = hook('{"cwd":"/"}')

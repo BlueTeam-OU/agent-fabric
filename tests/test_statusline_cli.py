@@ -244,6 +244,13 @@ def main() -> int:
     r = line_of(session(repo, session_id="s-2", context_window={"used_percentage": 7}), AGENT_FABRIC_STATE_DIR=blocker)
     t.check("a sampler that cannot write never fails the line", r.rc == 0 and r.err == "" and r.out.endswith("📁 clone 🌿 main"), f"{r.rc} {r.out!r} {r.err!r}")
 
+    if ENTRY.endswith(".py"):
+        t.group("a module run as its forwarder runs it (python -I)")
+        reset()
+        plain_run = line_of(session(repo))
+        isolated = h.run_isolated(ENTRY, json.dumps(session(repo)), environment())
+        t.check("under -I the module finds its siblings and draws the same line", isolated.rc == 0 and isolated.out == plain_run.out and isolated.err == "" and isolated.out != "", f"{isolated.rc} {isolated.out!r} {isolated.err!r}")
+
     t.group("a thin payload")
     r = line_of("{}", cwd=plain)
     t.check("no model, no workspace: the model reads Claude and the folder is $PWD", r.rc == 0 and r.out == f"[Claude] {who} 📁 projects", f"{r.rc} {r.out!r}")

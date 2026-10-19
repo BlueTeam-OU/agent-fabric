@@ -47,8 +47,12 @@ import subprocess
 import sys
 import time
 
-import git
-import hook_common
+HERE = os.path.dirname(os.path.realpath(__file__))
+# The forwarders run this file under `python -I`, which leaves its own directory off sys.path; first, so that
+# `git` is this directory's and not an installed package of that name.
+sys.path.insert(0, HERE)
+import git  # noqa: E402
+import hook_common  # noqa: E402
 
 CONTEXT_SAMPLE = os.path.join(hook_common.ROOT, "runtime", "claude-code", "hooks", "context-sample.py")
 CONTEXT_TIMEOUT_S = 2

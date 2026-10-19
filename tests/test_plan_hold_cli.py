@@ -226,6 +226,11 @@ def main() -> int:
         silent(f"CLAUDE_PID {bad!r} is silent", fire("PreToolUse", "plan", pid=bad))
     t.check("CLAUDE_PID that is no positive integer writes nothing", not os.path.isdir(DIR) or os.listdir(DIR) == [], str(os.listdir(DIR) if os.path.isdir(DIR) else ""))
 
+    if ENTRY.endswith(".py"):
+        shutil.rmtree(DIR, ignore_errors=True)
+        silent("a module run as its forwarder runs it (python -I) is silent", h.run_isolated(ENTRY, payload("PreToolUse", "plan"), environment()))
+        t.check("…and holds", held())
+
     t.group("SessionEnd clears the session's own marker")
     fire("PreToolUse", "plan")
     t.check("held", held())
