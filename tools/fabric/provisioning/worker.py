@@ -437,14 +437,8 @@ def point_origin_at_registry(w: Worker, pid: str, remote: str) -> None:
     if not remote:
         return
     repo = os.path.join(w.home, "projects", pid)
-    # Both keys in one read; the last value of a key is what `--get` answers.
-    got = w.as_login(["git", "-C", repo, "config", "--get-regexp", r"^remote\.origin\.(url|pushurl)$"],
-                     stderr=subprocess.DEVNULL, login_shell=False)
-    seen: dict[str, str] = {}
-    for line in (got.stdout or "").split("\n") if got.returncode == 0 else []:
-        key, _, value = line.partition(" ")
-        seen[key] = value
-    have = seen.get("remote.origin.url", "")
+    got = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.url"], stderr=subprocess.DEVNULL, login_shell=False)
+    have = (got.stdout or "").strip("\n") if got.returncode == 0 else ""
     if not have:
         w.say(f"6. {pid}: origin not readable; left as it is")
         return
@@ -455,7 +449,9 @@ def point_origin_at_registry(w: Worker, pid: str, remote: str) -> None:
             w.say(f"6. {pid}: origin set to {remote}")
     # set-url leaves a pushurl of its own alone, so pushes would still go there: said, not rewritten (a hand-made
     # setting is the person's).
-    pushurl = seen.get("remote.origin.pushurl", "")
+    push = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.pushurl"], stderr=subprocess.DEVNULL,
+                      login_shell=False)
+    pushurl = (push.stdout or "").strip("\n") if push.returncode == 0 else ""
     if pushurl and pushurl != remote:
         w.say(f"6. {pid}: warning: origin has its own push URL {pushurl}; pushes still go there")
 
