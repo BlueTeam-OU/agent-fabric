@@ -220,7 +220,9 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
     if not ID_RE.fullmatch(args.id) or ".." in args.id:
         raise Refused(f"--id {args.id!r}: a lowercase letter, then lowercase letters, digits, '.' or '-', "
                       "ending in a letter or digit, no '..'")
-    for flag, value in (("--default-branch", args.default_branch), ("--license", args.license), ("--title", args.title)):
+    for flag, value in (("--default-branch", args.default_branch), ("--license", args.license), ("--title", args.title),
+                        # An unset shell variable arrives as "": truthiness below would read it as "flag absent".
+                        ("--working-copy", args.working_copy), ("--like-working-copy", args.like_working_copy)):
         if value is not None and not value.strip():
             raise Refused(f"{flag} is empty")
     if not args.remote:

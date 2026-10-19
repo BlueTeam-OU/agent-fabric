@@ -335,6 +335,11 @@ def main() -> int:
                 [*base_args, "--working-copy", wc, "--like-working-copy", os.path.join(scratch, "no-such-dir")],
                 "--like-working-copy " + os.path.join(scratch, "no-such-dir") + ": not a directory")
 
+        for flag in ("--working-copy", "--like-working-copy"):
+            refuses(f"an empty {flag} is refused, not read as absent", tree_l,
+                    [*base_args, "--working-copy", wc, flag, ""] if flag == "--like-working-copy" else [*base_args, flag, ""],
+                    f"{flag} is empty")
+
         # --- a write that fails part-way names what it made ---------------------
         tree = os.path.join(scratch, "tree-fail")
         shutil.copytree(base, tree, symlinks=True)
