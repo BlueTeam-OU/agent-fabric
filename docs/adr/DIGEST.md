@@ -900,16 +900,17 @@ its record disagree, the record wins. Look it up, never read it whole:
 - GitHub and git go through `gh.py`, `git.py` (§5 rule 6).
 - A 2026-10-01 — the oracle stays (§5 rule 5).
 - A 2026-10-01 — one pinned Python per host (§5 rule 1).
-- A 2026-10-01 — a fixture copies its scripts' modules (§5 rule 5).
+- A 2026-10-01 — fixtures copy their modules (§5 rule 5).
 - A 2026-10-04 — Wave 7: GZCoord's tools to Python (§7).
-- A 2026-10-08 — commands by bare name; shims retire (§5 rule 7).
+- A 2026-10-08 — bare command names; shims retire (§5 rule 7).
 - A 2026-10-09 — Wave 8: control plane to Python; no new Node (§5 rule 8).
 - A 2026-10-09 — valid on 3.13+ (§5 rule 1).
-- A 2026-10-11 — Wave 9: the rest of the bash to Python in ten
-  batches; projects port when changed (§5 rules 1, 2, 9, §7).
+- A 2026-10-11 — Wave 9: the rest of the bash, ten batches;
+  projects port when changed (§5 rules 1, 2, 9, §7).
 - A 2026-10-13 — the interim line limit is 160 (§7).
 - A 2026-10-14 — Wave 8 done (§5 rule 8, §7).
 - A 2026-10-19 — Wave 10, project .mjs (§5 r10).
+- A 2026-10-19 — build-glyphs exempt (§7).
 - Keywords: Python, bash, Node, mjs, port, allowlist, shim, wave, 160
   lines, bare command, forwarder.
 

@@ -359,9 +359,9 @@ pull request per project and holder, under that project's arming rules.
 
 | project | what | files | lines | holder | note |
 |---|---|---|---|---|---|
-| gzapp | `tools/validate_api_surface/` and its three tests | 4 | 941 | devex-tooling | YAML: the project's own dependency, not the fabric's standard-library rule |
+| gzapp | `tools/validate_api_surface/deprecated-refs.mjs` and its test | 2 | 941 | devex-tooling | YAML: the project's own dependency, not the fabric's standard-library rule. `inline.test.mjs` and `success-body.test.mjs` test `validate.js`, a `.js` script under rule 9, and move with it |
 | gzapp | `tools/one-shot/split_adr_amendments.mjs` | 1 | 327 | devex-tooling | deleted, not ported: it ran once |
-| gzapp | `tools/build_glyphs/build-glyphs.mjs` | 1 | 271 | devex-tooling | exempt if fontnik has no Python path; the holder says |
+| gzapp | `tools/build_glyphs/build-glyphs.mjs` | 1 | 271 | devex-tooling | exempt: fontnik and `@mapbox/glyph-pbf-composite` are native Node addons with no Python binding, and `check` compares the committed glyph ranges byte for byte with a fresh render, which a Python rasteriser would not reproduce (its holder's finding) |
 | gzapp | `apps/admin_web/scripts/import-table.mjs` | 1 | 157 | web-dev | exempt: it walks the AST of the project's pinned TypeScript compiler, which has no Python binding; a re-implementation missed real imports (its holder's proposal) |
 | gzapp.decks | `scripts/*.mjs` | 8 | 1,092 | brand-comms | `doc.mjs` drives puppeteer: exempt or ported to the fleet's browser, the holder says |
 | blueteam.ee | `deploy/check-dist.mjs` | 1 | 109 | edge-hosting | the taxonomy's note gives it the deploy; its paths are empty |
@@ -403,3 +403,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-13 | the interim line limit is 160 | §7 |
 | 2026-10-14 | Wave 8 is done: no fabric command runs Node | §5 rule 8, §7, §8: the Node control plane, locale search server, shims and Node suites are gone (#170, #174, #181); Node stays only as a test oracle; new wire behaviour is no longer held back |
 | 2026-10-19 | Wave 10: the managed projects' Node scripts move to Python | §5 rule 10, §7, §8: the owner's request; 16 `.mjs` scripts of their own: four ports, one deletion, one exemption, one decision with its holder; a fork's upstream code never ported; framework configuration and a Node-API-bound script exempt, named |
+| 2026-10-19 | Wave 10: build-glyphs exempt; validate.js's two tests stay with it | §7's Wave 10 table: `build-glyphs.mjs` exempt; `inline.test.mjs` and `success-body.test.mjs` stay `.mjs` beside `validate.js` under rule 9 |
