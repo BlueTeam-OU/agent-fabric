@@ -891,8 +891,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
 - Every fabric script is Python, stdlib only, on the pinned
-  `fabric-python`; bash stays only as the pre-Python list and
-  forwarders (12 code lines, no case or loop) (§5 rule 1).
+  `fabric-python`; bash only as the pre-Python list and forwarders
+  (12 code lines, no case or loop), hooks and bin/ too (§5 r1).
 - Lint refuses a bash file on neither the list nor the forwarder shape;
   `ports` only shrinks (§5 rule 2).
 - A port freezes the contract, keeps the path, tests against the old
@@ -909,8 +909,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   batches; projects port when changed (§5 rules 1, 2, 9, §7).
 - A 2026-10-13 — the interim line limit is 160 (§7).
 - A 2026-10-14 — Wave 8 done (§5 rule 8, §7).
-- A 2026-10-19 — Wave 10: projects' Node scripts to Python (§5 rule 10, §7).
-- Keywords: Python, bash, Node, mjs, port, allowlist, shim, wave, forwarder.
+- A 2026-10-19 — Wave 10, project .mjs (§5 r10).
+- Keywords: Python, bash, Node, mjs, port, allowlist, shim, wave, 160
+  lines, bare command, forwarder.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 

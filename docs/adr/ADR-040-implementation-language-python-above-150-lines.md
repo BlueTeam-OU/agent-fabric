@@ -203,11 +203,13 @@ serve as the parity oracle for each port, unchanged.
    to `fabric-pr`) stay forwarders until rule 7 retires them.
 10. A managed project's own Node scripts move to Python in Wave 10
    (§7), the one port wave a project has; the owner asked for it
-   (A 2026-10-19). A `.mjs`, `.cjs` or `.js` file a project runs as a
-   script is ported, and none is added. Exempt, and named in the wave's
+   (A 2026-10-19). A `.mjs` file a project runs as a script is ported,
+   and none is added; a `.js` or `.cjs` script stays under rule 9,
+   ported when it next changes. Exempt, and named in the wave's
    inventory with why: a framework's own configuration it loads itself
    (`astro.config.mjs`), and a script that works inside a Node library's
-   API with no Python counterpart (a native font compositor). An
+   API with no Python counterpart (gzapp's `import-table.mjs`, bound to
+   the pinned TypeScript compiler). An
    exemption a holder finds is proposed to the coordinator and added to
    the inventory, never assumed. A port follows rules 3 to 5: the
    contract frozen, the command kept, the old script the oracle. Rule
@@ -346,7 +348,7 @@ line rule is what lint enforces: 160 lines (A 2026-10-13).
 
 Wave 10 ports the managed projects' Node scripts. When it was set the
 projects held 19 `.mjs` scripts, 3,379 lines, beside the
-two framework configurations; the fabric itself has none since Wave 8.
+framework configurations; the fabric itself has none since Wave 8.
 Each port is the holder's of the path in its project's taxonomy, one
 pull request per project and holder, under that project's arming rules.
 
@@ -358,7 +360,7 @@ pull request per project and holder, under that project's arming rules.
 | gzapp | `apps/admin_web/scripts/import-table.mjs` | 1 | 157 | web-dev | exempt: it walks the AST of the project's pinned TypeScript compiler, which has no Python binding; a re-implementation missed real imports (its holder's proposal) |
 | gzapp.decks | `scripts/*.mjs` | 8 | 1,092 | brand-comms | `doc.mjs` drives puppeteer: exempt or ported to the fleet's browser, the holder says |
 | herdr | `scripts/docs/*.mjs` | 3 | 482 | rust-ui-dev | |
-| blueteam.ee | `deploy/check-dist.mjs` | 1 | 109 | edge-hosting | |
+| blueteam.ee | `deploy/check-dist.mjs` | 1 | 109 | edge-hosting | the taxonomy's note gives it the deploy; its paths are empty |
 
 `astro.config.mjs` in blueteam.ee and gzapi.ge is exempt (rule 10).
 
@@ -393,6 +395,6 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-09 | Wave 8: the control plane moves to Python | §5 waves: the control plane (`runtime/control/`) is built beside in Python, wire frozen, Ed25519 through openssl, cut over once; Wave 7's carve-out of the control plane withdrawn; rule 8 added: no new fabric code in Node |
 | 2026-10-09 | Valid on 3.13 and newer; CI's Python legs halved | §2 and §5 rule 1: the floor is 3.13, the pin and the oldest supported system python3; CI runs the Python suites on 3.13 and 3.14 |
 | 2026-10-11 | Wave 9: the rest of the bash moves to Python | §2, §5 rules 1, 2, 4, 5, 7 and 9, §7: Python bar the pre-Python list and the forwarder; the 150-line rule goes; 37 files in ten batches; managed projects advised |
-| 2026-10-19 | Wave 10: the managed projects' Node scripts move to Python | §5 rule 10, §7, §8: the owner's request; 19 `.mjs` scripts in seven ports by their holders; framework configuration and a Node-API-bound script exempt, named |
 | 2026-10-13 | the interim line limit is 160 | §7 |
 | 2026-10-14 | Wave 8 is done: no fabric command runs Node | §5 rule 8, §7, §8: the Node control plane, locale search server, shims and Node suites are gone (#170, #174, #181); Node stays only as a test oracle; new wire behaviour is no longer held back |
+| 2026-10-19 | Wave 10: the managed projects' Node scripts move to Python | §5 rule 10, §7, §8: the owner's request; 19 `.mjs` scripts: five ports, one deletion, one exemption, one decision with its holder; framework configuration and a Node-API-bound script exempt, named |
