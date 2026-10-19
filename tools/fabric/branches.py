@@ -348,7 +348,7 @@ def worktree_state(wt: dict, base: str, top: str) -> tuple[str, str]:
     lock (someone is using it), when it is the one this runs in, or when the caller names it in use."""
     path = wt["path"]
     changes = status_lines(path)
-    ignored = status_lines(path, "--ignored")
+    ignored = status_lines(path, "--ignored", "-uall")   # each file: a package directory holding only bytecode is one `!! pkg/` without it
     n = ahead(wt["head"], base)
     why = ""
     if changes is None or ignored is None:
@@ -375,7 +375,8 @@ def tree_bytes(path: str) -> int:
     """The bytes a directory holds, links counted as themselves and never followed."""
     total = 0
     for dirpath, dirnames, filenames in os.walk(path, onerror=lambda _e: None):
-        for name in dirnames + filenames:
+        # Files and links only: a directory's own size is the filesystem's block, not what is freed.
+        for name in filenames + [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]:
             try:
                 total += os.lstat(os.path.join(dirpath, name)).st_size
             except OSError:
@@ -416,6 +417,16 @@ def live_sessions() -> set[str] | None:
         except (FileNotFoundError, ProcessLookupError):
             continue                      # gone between the listing and the read
         except OSError:
+            # Not dumpable (systemd --user, sshd-session): readable only by root. It is no Claude Code session unless its
+            # command line says it might be, or cannot be read either: then nothing is known, and nothing is called ended.
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                    if b"claude" not in fh.read().lower():
+                        continue
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            except OSError:
+                pass
             return None
         for entry in env.split(b"\0"):
             if entry.startswith(b"CLAUDE_CODE_SESSION_ID="):

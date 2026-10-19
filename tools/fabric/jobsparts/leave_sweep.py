@@ -34,7 +34,12 @@ def after_leaving(working_copy: str | None, here: str | None) -> list[str]:
                            capture_output=True, text=True, errors="replace", timeout=TIMEOUT_S, check=False)
     except (OSError, subprocess.TimeoutExpired) as e:
         return [f"sweep skipped in {where}: {type(e).__name__}: {e}"]
-    said = [l for l in r.stdout.splitlines() if l.startswith(SAID)]
+    lines = r.stdout.splitlines()
+    # The worktrees block names what is kept and why on its own lines (a removed one is "clean" there and said again below).
+    block = lines[lines.index("worktrees:") + 1:] if "worktrees:" in lines else []
+    block = block[:block.index("")] if "" in block else block
+    kept = [l for l in block if l.startswith("  ") and not l.endswith("  clean") and "(none besides" not in l]
+    said = kept + [l for l in lines if l.startswith(SAID)]
     if r.returncode != 0:
         err = next((l for l in r.stderr.splitlines() if l.strip()), f"exit {r.returncode}")
         said.append(f"sweep of {where} did not finish (exit {r.returncode}): {err}")
