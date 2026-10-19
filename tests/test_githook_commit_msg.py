@@ -14,13 +14,13 @@ file untouched when refused, the check running before everything else); the refu
 naming the held role and the owner; the owner role READ from authority.json and defaulting to fabric-coordinator when the file is missing or
 unreadable; the typed-trailer mismatch message and "the last trailer wins"; the Fabric-Role trailer written after Kind:, not doubled, not
 written when no role is held, not written over an existing one in any case (an indented one folds into the previous trailer's value in git, so the Kind rule refuses it first); the locale carve-out's login test; the contributor carve-out's
-three outcomes; a missing argument.
+three outcomes; a missing argument; a hook reached through a symlink finds the fabric from its real path.
 
 Mutations each case fails on (planted on the hook as formatted): `grep -v '^#'` to `cat` (comment lines); `TRAILER_RE` anchored without the
 leading whitespace (indented trailer); `tr '\n\r' '  '` to `tr -d '\n\r'` (a footer split over lines); reading the owner role from a constant
 (authority.json); the comparison `"$typed" != "$role"` to `!=` on lower-case (mismatch); the `git interpret-trailers --in-place` call replaced by `true` (the trailer is written); `grep -qiE`
 to `grep -qE` (an existing trailer in another case); `contributor=$?` dropped (contributor carve-out); the banned check moved after the guard
-(order)."""
+(order); the inner `readlink -f` dropped from `FABRIC_ROOT=` (a hook reached through a symlink)."""
 from __future__ import annotations
 
 import os

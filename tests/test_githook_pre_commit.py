@@ -13,12 +13,19 @@ defaulting to fabric-coordinator when the file is missing or unreadable; the ref
 paths, then "... (N paths)") and its binding line ("(no role bound)" when none); the label "agent-fabric itself" and the placeholder path of
 an empty commit there; the locale carve-out's own refusal text (role, suffix, login named) and the login test (a suffix matched by the end of
 the login or by the whole login); the contributor carve-out's three exits (0 admits in silence, 1 refuses with the module's reason and not the
-generic block, anything else falls to the generic refusal) and that it exists in agent-fabric itself only.
+generic block, anything else falls to the generic refusal) and that it exists in agent-fabric itself only; a hook reached through a link
+finds the fabric from its real path (Linked); the decision-records leg in agent-fabric itself (DecisionRecords: judged before the role,
+only when docs/adr/ is staged, on the staged tree, a moved record counted, its scratch tree removed, a project's own records left alone).
+test_githooks_cli.py holds the leg's end-to-end cases; DecisionRecords adds the ones that need the hook run alone.
 
 Mutations each case fails on (planted on the hook as formatted): `(( ${#staged[@]} )) || exit 0` removed (silence); the owner role
 read from a constant (authority.json); `:0:8` to `:0:3` (the staged list); `held` forced to the owner (the binding line and every
 refusal); the `what` label swapped (itself); the locale test's `*-"$locale_suffix"` dropped (login test); `case $?` mapping 1 to the
-generic refusal (contributor refusals); the carve-out run in managed projects too (agent-fabric itself only)."""
+generic refusal (contributor refusals); the carve-out run in managed projects too (agent-fabric itself only); the inner `readlink -f`
+dropped from `FABRIC_ROOT=` (Linked); the records leg's condition set to `&& false` / `&& true` (DecisionRecords: inconsistent refused /
+unstaged not checked), made to wait for the owner role (whoever is bound), `--diff-filter=AM` added (moved record), `checkout-index`
+replaced by a copy of the working tree (staged tree), either `rm -rf "$adr_tree"` dropped (scratch tree), the toplevel test inverted
+(managed project)."""
 from __future__ import annotations
 
 import json
@@ -304,6 +311,9 @@ class DecisionRecords(PreCommit):
         self.assertEqual(self.run_hook().returncode, 0)
 
     def test_a_commit_that_stages_no_record_is_not_checked(self):
+        # HEAD already holds inconsistent records, so a check run on this commit would refuse it: a passing check is silent.
+        self.repo.stage("docs/adr/index.json", "not the generated index\n")
+        self.repo.git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "records gone stale")
         self.repo.stage("src/b.txt")
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook()
