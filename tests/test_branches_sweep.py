@@ -250,19 +250,24 @@ class Sweep(unittest.TestCase):
         self.git(other, "checkout", "-q", "-b", "elsewhere", "origin/main")
         self.git(other, "commit", "-q", "--allow-empty", "-m", "different")
         self.git(other, "push", "-q", "-f", "origin", "elsewhere:moved")        # the name is still there, the commit is not
+        self.git(other, "push", "-q", "origin", "elsewhere:elsewhere")
+        self.git(self.wc, "fetch", "-q", "origin", "elsewhere:refs/remotes/origin/elsewhere")
+        self.git(other, "push", "-q", "origin", "elsewhere:main")             # the default moves after the fetch: its old tip is still proven
         cwd = os.getcwd()
         os.chdir(self.wc)
         try:
             refs = branches.remote_refs("refs/remotes/origin/main")
         finally:
             os.chdir(cwd)
-        self.assertIn("refs/remotes/origin/main", refs)
+        self.assertIn("refs/remotes/origin/main", refs, "the base was fetched a moment ago; a push to it since does not unprove it")
+        self.assertIn("refs/remotes/origin/elsewhere", refs, "ls-remote answered: a ref that is the same commit on both sides counts")
         self.assertNotIn("refs/remotes/origin/moved", refs, "the remote's branch of that name is another commit now")
 
     def test_an_unlistable_registry_is_said_for_the_worktrees_too(self):
         self.worktree("w", pushed=True)
         rc, out, err = self.sweep()
         self.assertIn("known to be in use only through AGENT_FABRIC_BRANCHES_KEEP", err)
+        self.assertIn(os.path.join(self.cfg, "sessions"), err, "it names the directory it looked in")
 
     def test_all_from_a_linked_worktree_keeps_that_worktree(self):
         here = self.worktree("here", pushed=True)

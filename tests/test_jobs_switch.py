@@ -965,6 +965,8 @@ def main() -> int:
         check("the worktree the left job leaves, clean and on the remote, is removed, said, with its size",
               rc == 0 and not os.path.exists(left) and f"removed worktree {left}" in out and "freed" in out, out + err)
         check("…no branch is deleted: a queued job's branch may sit at the default branch's tip", "queued-at-tip" in branches_of(w), branches_of(w))
+        check("…and what the command said of itself on stderr (no session registry here) reaches the person though it exited 0",
+              "fabric-branches: the sessions of this login cannot be listed" in out, out + err)
         check("…and the next job's own worktree is made after the sweep, and stays", os.path.isdir(w.job(j2)["worktree"]) and w.job(j2)["worktree"] != left, out + err)
 
         w = World()

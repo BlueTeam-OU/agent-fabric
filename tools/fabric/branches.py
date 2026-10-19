@@ -356,7 +356,8 @@ def remote_refs(base: str) -> list[str] | None:
     # By name and by sha: a branch force-pushed since the fetch is no longer the commit the local ref holds.
     live = {f"refs/remotes/origin/{l.split(chr(9), 1)[1][len('refs/heads/'):]} {l.split(chr(9), 1)[0]}" for l in lines_of(r.stdout)
             if chr(9) in l and l.split(chr(9), 1)[1].startswith("refs/heads/")}
-    return sorted(l.split(" ", 1)[0] for l in lines_of(have.stdout) if l in live)
+    # `base` always counts: it was fetched a moment ago, and a push to it since is not a reason to call its old tip unpushed.
+    return sorted({l.split(" ", 1)[0] for l in lines_of(have.stdout) if l in live} | {base})
 
 
 def unpushed(head: str, refs: list[str] | None = None) -> str:
@@ -429,6 +430,11 @@ def human(n: int) -> str:
 SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
+def sessions_dir() -> str:
+    """Where the harness of this login registers its sessions: under its configuration directory."""
+    return os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude"), "sessions")
+
+
 def live_sessions(registry: str | None = None) -> tuple[set[str], list[str]] | None:
     """(the ids of the sessions a live harness of this login runs, the directories they stand in), or None when that is not
     known: no registry, a file of it that cannot be read or understood. Unknown is never none; no session is then called ended.
@@ -436,7 +442,7 @@ def live_sessions(registry: str | None = None) -> tuple[set[str], list[str]] | N
     plan_hold's rule for its markers - the pid answers as this login and started when procStart says. The harness's own
     environment does not carry the id (only its children's does), so a scan of /proc would miss an idle session."""
     import plan_hold
-    directory = registry or os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude"), "sessions")
+    directory = registry or sessions_dir()
     try:
         names = sorted(n for n in os.listdir(directory) if n.endswith(".json"))
     except OSError:
@@ -725,7 +731,7 @@ def run(argv: list[str], scratch: bool = True) -> int:
     registry = live_sessions()
     LIVE_CWDS[:] = registry[1] if registry is not None else []
     if registry is None:
-        say("the sessions of this login cannot be listed (~/.claude/sessions): a worktree a live session stands in is "
+        say(f"the sessions of this login cannot be listed ({sessions_dir()}): a worktree a live session stands in is "
             "known to be in use only through AGENT_FABRIC_BRANCHES_KEEP")
 
     identity = load_identity()

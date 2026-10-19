@@ -40,6 +40,8 @@ def after_leaving(working_copy: str | None, here: str | None) -> list[str]:
     block = block[:block.index("")] if "" in block else block
     kept = [l for l in block if l.startswith("  ") and not l.endswith("  clean") and "(none besides" not in l]
     said = kept + [l for l in lines if l.startswith(SAID)]
+    # What the command said about itself on stderr (a registry it could not read) reaches the person even when it exits 0.
+    said += [l for l in r.stderr.splitlines() if l.startswith("fabric-branches: ")]
     if r.returncode != 0:
         err = next((l for l in r.stderr.splitlines() if l.strip()), f"exit {r.returncode}")
         said.append(f"sweep of {where} did not finish (exit {r.returncode}): {err}")
