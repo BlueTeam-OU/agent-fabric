@@ -240,6 +240,30 @@ class Sweep(unittest.TestCase):
         self.assertTrue(os.path.isdir(wt), out)
         self.assertIn("1 commit(s) on no remote", out)
 
+    def test_a_branch_force_pushed_since_the_fetch_is_no_proof(self):
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        import branches
+        self.worktree("moved", pushed=True)
+        self.git(self.wc, "fetch", "-q", "origin")
+        other = os.path.join(self.t, "other")
+        subprocess.run(["git", "clone", "-q", self.origin, other], env=self.env(), check=True, stderr=subprocess.DEVNULL)
+        self.git(other, "checkout", "-q", "-b", "elsewhere", "origin/main")
+        self.git(other, "commit", "-q", "--allow-empty", "-m", "different")
+        self.git(other, "push", "-q", "-f", "origin", "elsewhere:moved")        # the name is still there, the commit is not
+        cwd = os.getcwd()
+        os.chdir(self.wc)
+        try:
+            refs = branches.remote_refs("refs/remotes/origin/main")
+        finally:
+            os.chdir(cwd)
+        self.assertIn("refs/remotes/origin/main", refs)
+        self.assertNotIn("refs/remotes/origin/moved", refs, "the remote's branch of that name is another commit now")
+
+    def test_an_unlistable_registry_is_said_for_the_worktrees_too(self):
+        self.worktree("w", pushed=True)
+        rc, out, err = self.sweep()
+        self.assertIn("known to be in use only through AGENT_FABRIC_BRANCHES_KEEP", err)
+
     def test_all_from_a_linked_worktree_keeps_that_worktree(self):
         here = self.worktree("here", pushed=True)
         rc, out, err = self.sweep("--all", cwd=here)

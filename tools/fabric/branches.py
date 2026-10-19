@@ -48,7 +48,8 @@ checkouts piled up, 39 and 530 MB on one login in a day):
   - an ended Claude Code session's scratch under this login's claude-tmp cache ($TMPDIR/claude-<uid>/…/<session
     id>), unless the harness of this login's registry (~/.claude/sessions/<pid>.json) names it for a harness
     that is live by plan_hold's rule for its own markers, or it is the session running the command. A registry that
-    cannot be read or understood calls no session ended. A worktree a live session stands in is in use. Never
+    cannot be read or understood calls no session ended, and is said: the worktrees a live session stands in are then known
+    only through AGENT_FABRIC_BRANCHES_KEEP. A worktree a live session stands in is in use otherwise. Never
     another login's path, never a symlink.
 What a sweep keeps it says with the reason (changes, commits on no remote, ignored files, lock, this one, in use,
 live session); what it removes, with its size.
@@ -347,14 +348,15 @@ def remote_refs(base: str) -> list[str] | None:
     not touch the network and counts as the plain report always did."""
     try:
         r = git.run(".", "ls-remote", "--heads", "origin", check=False, timeout=FETCH_TIMEOUT_S)
-        have = git.run(".", "for-each-ref", "--format=%(refname)", "refs/remotes/origin/", check=False)
+        have = git.run(".", "for-each-ref", "--format=%(refname) %(objectname)", "refs/remotes/origin/", check=False)
     except git.GitError:
         return [base]
     if r.returncode != 0 or have.returncode != 0:
         return [base]
-    live = {f"refs/remotes/origin/{l.split(chr(9), 1)[1][len('refs/heads/'):]}" for l in lines_of(r.stdout)
+    # By name and by sha: a branch force-pushed since the fetch is no longer the commit the local ref holds.
+    live = {f"refs/remotes/origin/{l.split(chr(9), 1)[1][len('refs/heads/'):]} {l.split(chr(9), 1)[0]}" for l in lines_of(r.stdout)
             if chr(9) in l and l.split(chr(9), 1)[1].startswith("refs/heads/")}
-    return sorted(ref for ref in lines_of(have.stdout) if ref in live)
+    return sorted(l.split(" ", 1)[0] for l in lines_of(have.stdout) if l in live)
 
 
 def unpushed(head: str, refs: list[str] | None = None) -> str:
@@ -722,6 +724,9 @@ def run(argv: list[str], scratch: bool = True) -> int:
     refs = remote_refs(f"refs/remotes/{base}")
     registry = live_sessions()
     LIVE_CWDS[:] = registry[1] if registry is not None else []
+    if registry is None:
+        say("the sessions of this login cannot be listed (~/.claude/sessions): a worktree a live session stands in is "
+            "known to be in use only through AGENT_FABRIC_BRANCHES_KEEP")
 
     identity = load_identity()
     host, login = identity.current_host(), identity.current_agent()

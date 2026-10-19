@@ -171,6 +171,8 @@ def _report_one(name: str, copy: str, procs: list[dict] | None, root: str, run: 
         merged = sum(1 for b in branches if b["ahead"] == 0)
         unknown = sum(1 for b in branches if b["ahead"] is None) + sum(1 for w in wts if w["ahead"] is None)
         used = set(in_use(procs, [os.path.realpath(w["path"]) for w in wts])) if procs is not None else set()
+        # Counted from --json, which does not ask the remote: a commit held only by the ref of a branch the host deleted is
+        # counted as on the remote here, and kept by the sweep, which does ask.
         removable = (sum(1 for w in wts if not w["kept_because"] and os.path.realpath(w["path"]) not in used)
                      if procs is not None else None)
         fetched = d["fetched_at"]
