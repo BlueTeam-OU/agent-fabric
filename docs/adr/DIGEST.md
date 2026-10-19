@@ -643,11 +643,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Each account's agentd answers on `fabric:control`; a request made
-  while it is down is lost (§2, §5 rules 1–2).
-- A closed op set; no request field reaches a shell; actions carry the
-  operator's fresh Ed25519 signature, newer than the last (§5 rules 3–5).
-- Replies carry no secret; a gap is named; silence or a failure exits 1
+- Each account's agentd answers on `fabric:control`; a request while
+  it is down is lost (§2, §5 rules 1–2).
+- A closed op set; no request field reaches a shell; actions carry a
+  fresh Ed25519 operator signature, newer than the last (§5 rules 3–5).
+- Replies carry no secret; a gap is named; silence or failure exits 1
   (§5 rules 6–9).
 - A 2026-09-27 — actions beside reads (§5 rule 12).
 - A 2026-09-27 — each op's answer budget (§5 rule 12).
@@ -656,16 +656,17 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-30 — rule 14 withdrawn (§5 rule 5).
 - A 2026-10-06 — local, local-prune (§5 rule 15).
 - A 2026-10-07 — session state (rule 16).
-- A 2026-10-07 — secrets-selftest (§5 rule 17).
+- A 2026-10-07 — selftest (§5 rule 17).
 - A 2026-10-08 — resumable state (§5 rule 16).
-- A 2026-10-08 — three public ops (§5 rule 4).
-- A 2026-10-09 — forged claims seen (§5 rule 4).
+- A 2026-10-08 — public ops (§5 rule 4).
+- A 2026-10-09 — forged claims (§5 rule 4).
 - A 2026-10-09 — Scope: runtime/control/.
 - A 2026-10-09 — `tools-install` (§5 rules 3, 12).
-- A 2026-10-09 — views' closed-job read (§2).
+- A 2026-10-09 — closed-job read (§2).
 - A 2026-10-10 — gateway ops (§2, §5 rules 3, 12).
 - A 2026-10-12 — switch controller (§2).
 - A 2026-10-18 — installer, cargo pins (§2, rule 12).
+- A 2026-10-19 — rustup-target pins (§2).
 - Keywords: agentd, fabric-ctl, ops, keys, keygen, operator_key, usage,
   tokens, herdr, resume, gateway, switch.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
