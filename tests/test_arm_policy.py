@@ -755,6 +755,11 @@ def fleet_of(*rows):
                         for login, role, online in rows)
 
 
+def whoami_of(role="architect-cto", address="h/me"):
+    """`fabric-whoami --json` as (rc, text); a session bound to no role carries none."""
+    return 0, json.dumps({"address": address, "agent": address.split("/")[1], **({"role": role} if role else {})})
+
+
 def silent(login: str) -> str:
     """A row `fabric-ctl all presence --json` prints for an account that did not answer."""
     return json.dumps({"account": login, "host": "h", "status": "no answer", "presence": None})
@@ -770,7 +775,8 @@ class ArmRun(unittest.TestCase):
 
     def run_arm(self, policy, work, files=("docs/a.md",), basis="reviewed", body="", boundary_re=r"^policies/", classes=None,
                 load_error=None, extra=(), load_fn=None, drift=(), drift_error=None, role_trailers=None, checks="green", live=None,
-                replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x"):
+                replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x",
+                whoami=None):
         pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "headRefOid": self.HEAD, "body": body, "title": "t"}
         gate = [{"commits_known": True, "work_commits": work, "checks": checks}]
         review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}] if reviewed else []}, "unresolved_threads": unresolved}
@@ -784,6 +790,9 @@ class ArmRun(unittest.TestCase):
             if "gzcoord-inbox" in what:
                 reads.append(("replay", list(args)))
                 return replay if replay is not None else (1, "")
+            if "fabric-whoami" in what:
+                reads.append(("whoami", list(args)))
+                return whoami if whoami is not None else (1, "")
             if "fabric-ctl" in what:
                 reads.append(("fleet" if args[:1] == ["all"] else "presence", list(args)))
                 if args[:1] == ["all"]:
@@ -1366,6 +1375,149 @@ class ArmRun(unittest.TestCase):
         with mock.patch.object(arm.gh, "api", side_effect=gh.GhError("x", "boom")):
             with self.assertRaises(arm.Unanswered):
                 arm.author_role("O/R", "7")
+
+    # ── the word under the minimum from a role (commits.below_min_authority; the owner, 2026-10-19) ──
+    BM = {"min": 8, "below_min_authority": "architect-cto"}
+
+    def below(self, policy_extra=None, work=3, **kw):
+        policy = claude_only({"commits": {**self.BM, **(policy_extra or {})}})
+        kw.setdefault("files", ("docs/a.md",))
+        return self.run_arm(policy, work, **kw)
+
+    def test_below_min_authority_is_a_role_slug_absent_by_default(self):
+        self.assertNotIn("below_min_authority", arm_policy.default()["commits"])
+        self.assertEqual(arm_policy.validate({"commits": {"below_min_authority": "architect-cto"}})["commits"]["below_min_authority"], "architect-cto")
+        for bad in ("Architect", "", 3, None, ["architect-cto"]):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
+                arm_policy.validate({"commits": {"below_min_authority": bad}})
+
+    def test_authority_own_prs_is_a_boolean_absent_by_default(self):
+        self.assertNotIn("authority_own_prs", arm_policy.default()["commits"])
+        for good in (True, False):
+            self.assertIs(arm_policy.validate({"commits": {"authority_own_prs": good}})["commits"]["authority_own_prs"], good)
+        for bad in ("true", 1, 0, None):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
+                arm_policy.validate({"commits": {"authority_own_prs": bad}})
+
+    def test_an_authorization_from_the_below_min_authority_arms_a_pr_under_the_minimum(self):
+        rc, out = self.below(extra=(*self.AUTH, "--dry-run"), replay=grant(), presence=presence_of())
+        self.assertEqual(rc, 0, out)
+        self.assertIn("count gate AUTHORIZED by arch, architect-cto (01a12-grant), in the owner's place", out)
+        self.assertIn("count rule: 3 work commits — under 8, authorized in the owner's place", out)
+        self.assertIn(" Count gate authorized by arch, architect-cto (01a12-grant).", out)
+        self.assertNotIn("Boundary count gate", out)
+
+    def test_the_below_min_authority_does_not_lift_a_security_boundary_change(self):
+        rc, _ = self.below(files=self.BOUNDARY, extra=(*self.AUTH, "--dry-run"), replay=grant(), presence=presence_of())
+        self.assertIn("names no boundary_authority", str(rc))
+        self.assertTrue(str(rc).startswith("refused"), rc)
+
+    def test_a_boundary_authority_does_not_lift_a_plain_pr_under_the_minimum(self):
+        policy = claude_only({"commits": {"min": 8, "boundary_authority": "architect-cto"}})
+        rc, out = self.run_arm(policy, 3, extra=(*self.AUTH, "--dry-run"), replay=grant(), presence=presence_of())
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertIn("is not read: an authorization stands in only for a security-boundary change", out)
+        self.assertEqual(self.reads, [])
+
+    def test_a_below_min_authority_authorization_is_refused_as_the_boundary_one_is(self):
+        for label, kw, words in (
+                ("another role", {"presence": presence_of(role="web-dev")}, "who holds web-dev, not architect-cto"),
+                ("a stale head", {"replay": grant(target="O/R#7@0123456789ab")}, "head 0123456789ab"),
+                ("a broadcast", {"replay": grant(to="")}, "a broadcast or a role address"),
+                ("the arming login itself", {"replay": grant(sender="h/me")}, "the login arming"),
+                ("the pull request's author", {"replay": grant(sender="h/arch"), "branch": "h/arch/feat/x"}, "the pull request's own author")):
+            kw.setdefault("replay", grant())
+            kw.setdefault("presence", presence_of())
+            rc, _ = self.below(extra=("--any-owner", *self.AUTH, "--dry-run"), **kw)
+            self.assertTrue(str(rc).startswith("refused"), (label, rc))
+            self.assertIn(words, str(rc), label)
+
+    def test_a_session_holding_the_authority_role_arms_on_its_word_by_its_binding(self):
+        for label, kw in (("a plain PR", {}), ("a boundary change", {"files": self.BOUNDARY, "policy_extra": {"boundary_authority": "architect-cto"}})):
+            rc, out = self.below(basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x", **kw)
+            self.assertEqual(rc, 0, (label, out))
+            self.assertIn("count gate lifted by me, who holds architect-cto by its binding, in the owner's place", out)
+            self.assertIn("lifted by me, holding architect-cto by its binding.", out)
+            self.assertEqual([r[0] for r in self.reads], ["whoami"], label)
+            self.assertEqual(self.reads[0][1], ["--json"])
+        self.assertIn("Boundary count gate lifted by me", out)
+
+    def test_the_binding_is_what_counts_not_the_basis_or_a_message(self):
+        for label, who in (("another role", whoami_of(role="web-dev")), ("no role", whoami_of(role=None))):
+            rc, _ = self.below(basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=who, branch="h/dev/feat/x")
+            self.assertTrue(str(rc).startswith("refused"), (label, rc))
+            self.assertIn(f"this session holds {'web-dev' if who is not None and 'web-dev' in who[1] else 'no role'} by its binding, not architect-cto", str(rc))
+            self.assertIn("ask an architect-cto holder", str(rc))
+        for label, who in (("unreadable", (1, "")), ("not json", (0, "x")), ("another address", whoami_of(address="h/other"))):
+            rc, _ = self.below(basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=who, branch="h/dev/feat/x")
+            self.assertTrue(str(rc).startswith("unanswered"), (label, rc))
+
+    def test_the_basis_must_say_the_authoritys_word_and_not_another_roles(self):
+        for basis in ("reviewed", "web-dev's word", "not-architect-cto's word", "architect-cto asked"):
+            rc, _ = self.below(basis=basis, extra=("--dry-run",), whoami=whoami_of())
+            self.assertTrue(str(rc).startswith("refused"), (basis, rc))
+            self.assertEqual([r for r in self.reads if r[0] == "whoami"], [], basis)
+        rc, out = self.below(basis="Architect-CTO’s word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x")
+        self.assertEqual(rc, 0, out)
+
+    def test_an_authority_never_arms_its_own_pr_unless_the_policy_says_so(self):
+        for basis, extra, kw in (("architect-cto's word", ("--dry-run",), {"whoami": whoami_of()}),
+                                 ("reviewed", (*self.AUTH, "--any-owner", "--dry-run"), {"replay": grant(sender="h/arch"), "presence": presence_of()})):
+            branch = "h/me/feat/x" if "--any-owner" not in extra else "h/arch/feat/x"
+            rc, _ = self.below(basis=basis, extra=extra, branch=branch, **kw)
+            self.assertTrue(str(rc).startswith("refused"), (basis, rc))
+            self.assertIn("own author", str(rc))
+            rc, out = self.below({"authority_own_prs": True}, basis=basis, extra=extra, branch=branch, **kw)
+            self.assertEqual(rc, 0, (basis, out))
+        # the boundary path keeps the same constant
+        rc, _ = self.below({"boundary_authority": "architect-cto"}, basis="architect-cto's word", files=self.BOUNDARY, extra=("--dry-run",), whoami=whoami_of())
+        self.assertIn("own author", str(rc))
+        rc, out = self.below({"boundary_authority": "architect-cto", "authority_own_prs": True}, basis="architect-cto's word", files=self.BOUNDARY,
+                             extra=("--dry-run",), whoami=whoami_of())
+        self.assertEqual(rc, 0, out)
+
+    def test_authority_own_prs_does_not_let_the_arming_login_send_itself_the_authorization(self):
+        rc, _ = self.below({"authority_own_prs": True}, extra=(*self.AUTH, "--dry-run"), replay=grant(sender="h/me"), presence=presence_of())
+        self.assertIn("the login arming", str(rc))
+
+    def test_a_branch_not_named_for_its_author_is_refused_unless_own_prs_makes_the_author_moot(self):
+        rc, _ = self.below(basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="fix-x")
+        self.assertIn("the pull request's author cannot be told from its branch", str(rc))
+        rc, out = self.below({"authority_own_prs": True}, basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="fix-x")
+        self.assertEqual(rc, 0, out)
+
+    def test_the_refusal_names_the_authority_its_running_holder_and_the_basis_before_the_owner(self):
+        text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",), fleet=fleet_of(("arch1", "architect-cto", True), ("dev", "web-dev", True)))
+        self.assertIn("ask an architect-cto holder with a session running now (arch1)", text)
+        self.assertIn(f"`AUTHORIZES: O/R#7@{self.HEAD[:8]}`", text)
+        self.assertIn("--basis \"architect-cto's word\"", text)
+        self.assertLess(text.index("architect-cto's word"), text.index("ask the owner"))
+        text = self.refusal(claude_only({"commits": {**self.BM, "classes": {"big": {"paths": r"^docs/", "min": 10}}}}), files=("docs/a.md",),
+                            body="Class: big", work=9, classes={"big": r"^docs/"},
+                            fleet=fleet_of(("arch1", "architect-cto", True)))
+        self.assertIn("ask an architect-cto holder", text)
+
+    def test_the_authority_is_not_offered_when_the_catalogue_does_not_hold_it(self):
+        text = self.refusal(claude_only({"commits": {"min": 8, "below_min_authority": "no-such-role"}}), files=("docs/a.md",))
+        self.assertIn("the policy names the below_min_authority 'no-such-role', which is not a role of identities/roles/catalog.json", text)
+        rc, _ = self.below({"below_min_authority": "no-such-role"}, basis="no-such-role's word", extra=("--dry-run",), whoami=whoami_of(role="no-such-role"))
+        self.assertTrue(str(rc).startswith("unanswered"), rc)
+
+    def test_the_owners_word_still_arms_and_the_authority_is_not_read(self):
+        rc, out = self.below(basis="the owner's word", extra=(*self.AUTH, "--dry-run"))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.reads, [])
+
+    def test_below_min_refuse_is_not_lifted_by_the_below_min_authority(self):
+        rc, _ = self.below({"below_min": "refuse"}, basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x")
+        self.assertIn("refuses below the minimum", str(rc))
+
+    def test_the_review_gate_stands_under_the_binding_word_on_a_boundary_change(self):
+        for kw in ({"unresolved": 1}, {"reviewed": False}):
+            rc, _ = self.below({"boundary_authority": "architect-cto"}, basis="architect-cto's word", files=self.BOUNDARY, extra=("--dry-run",),
+                               whoami=whoami_of(), branch="h/dev/feat/x", **kw)
+            self.assertTrue(str(rc).startswith("refused"), (kw, rc))
+            self.assertEqual(self.reads, [])
 
 
 if __name__ == "__main__":
