@@ -32,6 +32,8 @@ Mutations, each failing here: the source test `== "auto"` dropped (cases
 (last-line case); the chmod removed (loose mode);
 the symlink check removed (symlinked directory); `[[ "$pid" =~ ... ]]`
 removed (bad CLAUDE_PID); the sweep deleting live markers (live kept).
+Departed from the bash oracle: its last case (no jq: silent, nothing written) pinned a dependency the port does
+not have, so it now asserts the note is given without jq, and a case for the missing pin is added.
 
 Exit codes: 0 all assertions passed, 1 one or more failed."""
 from __future__ import annotations
@@ -210,11 +212,15 @@ def main() -> int:
     for label, text in (("malformed", "not json"), ("empty", ""), ("an empty object", "{}")):
         r = fire(text)
         t.check(f"{label} input is silent", r.rc == 0 and r.out == "", f"{r.rc} {r.out!r} {r.err!r}")
-    bare = h.tool_dir(os.path.join(T, "bare"), ["bash", "cat", "env"])
+    # The shell script was silent without jq, a dependency it had and the port does not: the forwarder needs only these.
+    bare = h.tool_dir(os.path.join(T, "bare"), ["bash", "dirname", "readlink"])
     clear()
     r = h.run(ENTRY, payload(), {**environment(), "PATH": bare})
-    t.check("without jq: silent, exit 0, nothing written", r.rc == 0 and r.out == "" and not os.path.isdir(DIR), f"{r.rc} {r.out!r}")
-    t.check("…and the same payload with jq speaks (the control)", "flagged your last request" in note_of(fire(payload())))
+    t.check("without jq the note is still given and the marker written (jq is no dependency)",
+            r.rc == 0 and "flagged your last request" in note_of(r) and marker() is not None, f"{r.rc} {r.out!r} {r.err!r}")
+    r = h.run(ENTRY, payload(), {**environment(), "AGENT_FABRIC_PYTHON": os.path.join(T, "no-such-python")})
+    t.check("without the fleet's pinned Python: exit 0, nothing on stdout, the install command on stderr",
+            r.rc == 0 and r.out == "" and "python_pin.py install" in r.err, f"{r.rc} {r.out!r} {r.err!r}")
     return t.finish()
 
 

@@ -86,7 +86,6 @@ BASH_SUITES: list[tuple[str, dict[str, str], list[str]]] = [
     ("signatures (this branch)", {"AGENT_FABRIC_SIGNATURES_BASE": "origin/main"}, [PY, "tools/fabric/guards/ban_unsigned_commits.py"]),
     ("decision-record amendments (this branch)", {"AGENT_FABRIC_ADR_BASE": "origin/main"}, [PY, "tools/fabric/adr.py", "range-check"]),
     ("leak check (what a run left behind)", {}, ["bash", "tests/test_leak-check.sh"]),
-    ("model fallback note", {}, ["bash", "runtime/claude-code/hooks/test_model-fallback-note.sh"]),
 ]
 
 

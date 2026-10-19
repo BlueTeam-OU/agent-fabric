@@ -161,6 +161,36 @@ def main() -> int:
             if label.startswith("runs"):
                 check("…and its output is shown indented", "   hello-from-check" in err.getvalue(), err.getvalue())
 
+    print("finish: a project's Python probe is run with the pin, ahead of its script")
+    with tempfile.TemporaryDirectory() as root:
+        hc = f"{root}/projects/demo/integration/provisioning"
+        os.makedirs(hc)
+        for name in ("host_check.py", "host-check.sh"):
+            with open(f"{hc}/{name}", "w") as fh:
+                fh.write("#!/bin/sh\nexit 0\n")
+            os.chmod(f"{hc}/{name}", 0o755)
+        ran: list = []
+
+        def fake_probe(argv, **kw):
+            if argv[:1] == ["getent"]:
+                return subprocess.CompletedProcess(argv, 2, stdout="", stderr="")
+            if argv[:1] in (["bash"], [worker.PY]):
+                ran.append(list(argv))
+                return subprocess.CompletedProcess(argv, 0, stdout="line-from-probe\n", stderr="")
+            raise Reached
+        w = make_worker("--clone", "demo=git@h:o/demo.git", "--project", "demo", root=root)
+        w.a.phase = "finish"
+        err = io.StringIO()
+        with mock.patch.object(subprocess, "run", fake_probe), redirect_stderr(err):
+            try:
+                worker.finish(w)
+            except Reached:
+                pass
+        # Mutation: the script preferred over host_check.py leaves ran as [["bash", ...]].
+        check("host_check.py beside host-check.sh: only the pinned Python runs, on the .py",
+              ran != [] and all(r == [worker.PY, "-I", f"{hc}/host_check.py"] for r in ran), str(ran))
+        check("…and its output is shown indented", "   line-from-probe" in err.getvalue(), err.getvalue())
+
     print("finish: a clone that is already there is pointed at its registry remote")
     ssh = "git@github.com:BlueTeam-OU/agent-fabric.git"
     https = "https://github.com/BlueTeam-OU/agent-fabric.git"
