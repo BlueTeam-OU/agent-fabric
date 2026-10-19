@@ -186,3 +186,34 @@ its holder showed it walks the pinned TypeScript compiler's AST, which
 has no Python binding, and the coordinator accepted the exemption. Each port goes to the holder of its path in the
 project's taxonomy, as a request from the coordinator. Rule 10 added,
 §7's Wave 10 table, §8.
+
+### Amendment 2026-10-19 — Wave 10: build-glyphs exempt; validate.js joins the wave
+
+§7's Wave 10 table. The holder of both rows, devex-tooling, checked them
+before porting (REPLY 01a15310, 2026-10-19), and the coordinator read the
+files at gzapp's origin/HEAD:
+
+- `tools/build_glyphs/build-glyphs.mjs` imports `fontnik` (FreeType and
+  an SDF distance field, a native addon) and `@mapbox/glyph-pbf-composite`;
+  PyPI has a binding for neither. Its `check` byte-compares the 256
+  committed glyph ranges with a fresh render, so a Python rasteriser would
+  change every range and need the Georgian labels checked again by eye, to
+  change the language of a 271-line build script. The row's condition
+  ("exempt if fontnik has no Python path") is met: exempt.
+- The row said "its three tests". Only `deprecated-refs.test.mjs` tests
+  `deprecated-refs.mjs`; `inline.test.mjs` and `success-body.test.mjs`
+  import `inlineExternalRefs`, `MAX_REF_CHAIN`, `checkDocument` and
+  `undescribedSuccessBodies` from `validate.js`, a `.js` script that rule
+  10 left under rule 9. Ported alone they would need a Node bridge, a
+  second harness for code still in Node. The holder offered two
+  options: keep them beside `validate.js` under rule 9, or port
+  `validate.js` (660 lines) now with them.
+- The owner chose the second, and widened rule 10 with it: a `.js`
+  or `.cjs` script of ours may join the wave, and one that is to be
+  updated or fixed is ported instead of being changed in Node (in the
+  coordinator's session, 2026-10-19). `validate.js` and its two tests
+  are ported; the old script is the oracle on the four real documents.
+  Its check 4 runs `@seriousme/openapi-schema-validator`; which Python
+  validator replaces it (jsonschema with the OAS 3.1 meta-schema, or
+  openapi-spec-validator) is the holder's choice, and a difference the
+  oracle shows is reported, not hidden.
