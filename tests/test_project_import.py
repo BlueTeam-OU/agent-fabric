@@ -201,6 +201,21 @@ def main() -> int:
         shutil.rmtree(os.path.join(base, "projects", "scratch.proj"))
 
         badwc = os.path.join(scratch, "badwc")
+        outside = os.path.join(scratch, "outside")
+        os.makedirs(os.path.join(outside, "integration"))
+        held = os.path.join(base, "projects", "scratch.proj")
+        os.symlink(outside, held)
+        refuses("refuses a symlinked projects/<id>", base, base_args + ["--write"], "is not a registered project")
+        check("  ...and nothing went through the link", os.listdir(os.path.join(outside, "integration")) == [])
+        os.unlink(held)
+        os.makedirs(held)
+        os.symlink(os.path.join(scratch, "outside"), os.path.join(held, "integration"))
+        refuses("refuses a symlinked projects/<id>/integration", base, base_args + ["--write"], "is not a registered project")
+        check("  ...and nothing went through that link either", os.listdir(os.path.join(outside, "integration")) == []
+              and sorted(os.listdir(outside)) == ["integration"])
+        os.unlink(os.path.join(held, "integration"))
+        os.rmdir(held)
+
         os.makedirs(os.path.join(badwc, ".agent-fabric", "roles"))
         open(os.path.join(badwc, ".agent-fabric", "roles", "python-dev.md"), "wb").write(b"---\nproject: x\n---\n\xff\xfe\n")
         refuses("refuses a sibling remit that is not UTF-8, with no traceback", base,
