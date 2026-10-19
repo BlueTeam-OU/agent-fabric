@@ -212,9 +212,12 @@ class PinnedPython(Guard):
         self.assertEqual((r.returncode, r.stdout), (127, ""))
         self.assertIn("the fleet's pinned Python is not installed at /nonexistent/fabric-python", r.stderr)
 
-    def test_the_python_is_asked_for_only_once_the_file_exists(self):
+    def test_the_forwarder_asks_for_the_python_before_it_reads_the_file(self):
+        # The bash ran Python only when a settings file was there, so no file and no pin exited 0. The forwarder checks
+        # the pin before the module reads anything: ADR-040 §5 rule 5's fourth departure (A 2026-10-19) makes this 127.
         r = self.run_guard(AGENT_FABRIC_SETTINGS_FILE=os.path.join(self.tmp, "absent"), AGENT_FABRIC_PYTHON="/nonexistent/fabric-python")
-        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.returncode, 127, r.stderr)
+        self.assertIn("python_pin.py install", r.stderr)
 
 
 if __name__ == "__main__":

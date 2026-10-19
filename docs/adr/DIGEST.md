@@ -892,27 +892,28 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
 - Every fabric script is Python, stdlib only, on the pinned
-  `fabric-python`; bash only as the pre-Python list and forwarders
-  (12 code lines, no case or loop), hooks and bin/ too (§5 r1).
+  `fabric-python`; bash only pre-Python or as a forwarder (12 code
+  lines, no case or loop) (§5 r1).
 - Lint refuses a bash file on neither the list nor the forwarder shape;
   `ports` only shrinks (§5 rule 2).
 - A port freezes the contract, keeps the path, tests against the old
-  script (§5 rules 3–5).
+  (§5 rules 3–5).
 - GitHub and git via `gh.py`, `git.py` (§5 rule 6).
 - A 2026-10-01 — oracle stays (§5 rule 5).
-- A 2026-10-01 — one pinned Python per host (§5 rule 1).
+- A 2026-10-01 — one pin per host (§5 rule 1).
 - A 2026-10-01 — fixtures copy their modules (§5 rule 5).
 - A 2026-10-04 — Wave 7: GZCoord's tools (§7).
 - A 2026-10-08 — bare command names; shims retire (§5 rule 7).
 - A 2026-10-09 — Wave 8: control plane; no new Node (§5 rule 8).
 - A 2026-10-09 — 3.13+ (§5 rule 1).
-- A 2026-10-11 — Wave 9: the rest of the bash, ten batches;
-  projects port when changed (§5 rules 1, 2, 9, §7).
+- A 2026-10-11 — Wave 9: the rest of the bash; projects port when
+  changed (§5 rules 1, 2, 9, §7).
 - A 2026-10-13 — the interim line limit is 160 (§7).
-- A 2026-10-14 — Wave 8 done (§5 rule 8, §7).
+- A 2026-10-14 — Wave 8 done (§7).
 - A 2026-10-19 — Wave 10, our .mjs (§5 r10).
 - A 2026-10-19 — .js may join (§5 r10).
 - A 2026-10-19 — provisioning modules (§5 r7).
+- A 2026-10-19 — pin before any input (§5 r5).
 - Keywords: Python, bash, Node, mjs, port, allowlist, shim, wave,
   bare command, forwarder.
 
