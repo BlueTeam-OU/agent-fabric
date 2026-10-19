@@ -114,8 +114,14 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
 1. **Owner:** say which repository, which client (an existing entry in
    `projects/clients.json`; a new client is a decision of its own), which
    roles work there and its visibility; create or transfer it on GitHub.
-2. **fabric-coordinator**, `projects/registry.json`, one new entry copied
-   from a sibling: `client`, `title`, `remotes` (ssh then https),
+   Steps 2 to 4 start from one command, run from this repository:
+   `fabric-project import --id ID --like SIBLING --client CLIENT --remote
+   SSH --remote HTTPS --default-branch B --license SPDX --role ROLE …`
+   prints the plan; `--write` writes the files (never commits, never
+   overwrites). What it leaves to you is in each step below and in the
+   lines it lists as still naming the sibling.
+2. **fabric-coordinator**, `projects/registry.json`, one new entry
+   (`fabric-project import` copies the sibling's keys, empty `tools`): `client`, `title`, `remotes` (ssh then https),
    `default_branch`, `taxonomy` (`.agent-fabric/taxonomy.json`), `memory`
    (`.agent-fabric/memory`), `integration` (`projects/<id>/integration`),
    `license`, `tools` (each with `proof`, `where`, `why`; `roles` to limit
@@ -130,13 +136,18 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    floor and its reasons), `gh/guards.json`, `gh/collisions.json`,
    `gzcoord/config.json`, `gzcoord/CLAUDE.snippet.md`, `gzcoord/CLAUDE.md`.
    `gh/compliance.json`, `gh/trial.json` and `pr-tools.json` exist only
-   where the project uses those `fabric-pr` verbs. Written by hand.
+   where the project uses those `fabric-pr` verbs (`--with-compliance`,
+   `--with-trial`, `--with-pr-tools`). The import copies the sibling's
+   files with its id replaced; the boundary paths and the prose are
+   checked by hand.
 4. **fabric-coordinator**, in the project's working copy, by a PR there
    (only fabric-coordinator commits under `.agent-fabric/`):
    `taxonomy.json` (shape: `projects/schemas/taxonomy.schema.json`),
-   `roles/<role>.md` remits for the roles that work there (copy one from
-   a sibling; charters are never copied), `memory/` (a drain fills it),
-   `fabric-ref` (one line, a full commit id of this repository, ADR-011).
+   `roles/<role>.md` remits for the roles that work there (the import
+   copies the sibling's, or writes a stub for a role it lacks; charters
+   are never copied), `memory/` (a drain fills it), `fabric-ref` (one
+   line, a full commit id of this repository, ADR-011). The import
+   writes the taxonomy with an empty rule per role, to be filled.
 5. **devex-tooling:** one PR in the client's `settings_repo`. It validates
    against its pinned agent-fabric commit (`AGENT_FABRIC_REF` in
    `.github/workflows/validate.yml`; `tools/validate_policies.py` reads
@@ -169,6 +180,6 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    unreadable). Then message the
    roles that work there.
 
-Not automated yet: the entry, the integration directory and the
-`.agent-fabric/` files (by hand from a sibling), the CI workflow, and
-applying the arming policy to GitHub.
+Not automated yet: the CI workflow, and applying the arming policy to
+GitHub. The entry, the integration directory and the `.agent-fabric/`
+files are scaffolded by `fabric-project import` and finished by hand.
