@@ -9,7 +9,6 @@ no sibling to import from and it says so and passes. The pure pieces (the id
 replacement, the remote key) are exact cases that need no tree."""
 from __future__ import annotations
 
-import filecmp
 import json
 import os
 import shutil
