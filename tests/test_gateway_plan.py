@@ -13,10 +13,13 @@ import os
 import stat
 import subprocess
 import sys
+import shutil
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+sys.path.insert(0, os.path.join(HERE, "tests"))
+import instance_fixtures  # noqa: E402
 import gateway_plan as gp  # noqa: E402
 import gateway_token  # noqa: E402
 import routing  # noqa: E402
@@ -258,7 +261,7 @@ def main() -> int:
               and os.listdir(t) == ["plan.json"])
         # A minimal PATH, not the session's: ~/.local/bin holds the real gateway binary on an account
         # where gateway-install ran, and "no binary on PATH" must not depend on that.
-        env = {"PATH": "/usr/bin:/bin", "HOME": t}
+        env = {"PATH": "/usr/bin:/bin", "HOME": t, "AGENT_FABRIC_OPERATOR": os.environ["AGENT_FABRIC_OPERATOR"]}
         r = subprocess.run([sys.executable, "-I", TOOL, "--login", ME, "--role", "python-dev"], env=env, capture_output=True, text=True, timeout=60)
         check("the command prints the plan on stdout", r.returncode == 0 and r.stdout.encode() == gp.build(ME, "python-dev").bytes, r.stderr)
         out = os.path.join(t, "o.json")
@@ -293,5 +296,33 @@ def main() -> int:
     return 1 if fails else 0
 
 
+def run_with_operator() -> int:
+    """routing/profiles.json and routing/policies are the operator's (ADR-045 rule 3): the plan is built from the
+    fixture copy of them, the engine's own routing files from the checkout, never from the operator's live data."""
+    with tempfile.TemporaryDirectory() as tmp:
+        operator = os.path.join(tmp, "operator")
+        routing_dir = os.path.join(operator, "routing")
+        shutil.copytree(os.path.join(HERE, "routing"), routing_dir,
+                        ignore=shutil.ignore_patterns(*instance_fixtures.ROUTING_OPERATOR_IGNORE))
+        instance_fixtures.write_routing_overlay(routing_dir)
+        # The fixture profile has no roles; the case "a role changes what routing resolves" needs python-dev to name a
+        # session model other than the defaults'.
+        profiles_path = os.path.join(routing_dir, "profiles.json")
+        with open(profiles_path, encoding="utf-8") as fh:
+            profiles = json.load(fh)
+        profiles["roles"] = {"python-dev": {"providers": {"anthropic": {"session": "claude-sonnet-5-5"}}}}
+        with open(profiles_path, "w", encoding="utf-8") as fh:
+            json.dump(profiles, fh)
+        saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+        os.environ["AGENT_FABRIC_OPERATOR"] = operator
+        try:
+            return main()
+        finally:
+            if saved is None:
+                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+            else:
+                os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_with_operator())
