@@ -1454,7 +1454,8 @@ class ArmRun(unittest.TestCase):
 
     def test_the_basis_must_say_the_authoritys_word_and_not_another_roles(self):
         for basis in ("reviewed", "web-dev's word", "not-architect-cto's word", "architect-cto asked"):
-            rc, _ = self.below(basis=basis, extra=("--dry-run",), whoami=whoami_of())
+            # not the author's own session, so only the phrase can be what refuses
+            rc, _ = self.below(basis=basis, extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x")
             self.assertTrue(str(rc).startswith("refused"), (basis, rc))
             self.assertEqual([r for r in self.reads if r[0] == "whoami"], [], basis)
         rc, out = self.below(basis="Architect-CTO’s word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x")
@@ -1496,6 +1497,14 @@ class ArmRun(unittest.TestCase):
                             body="Class: big", work=9, classes={"big": r"^docs/"},
                             fleet=fleet_of(("arch1", "architect-cto", True)))
         self.assertIn("ask an architect-cto holder", text)
+
+    def test_an_author_who_may_arm_its_own_pr_is_named_as_a_holder_to_ask_and_one_who_may_not_is_not(self):
+        fleet = fleet_of(("arch", "architect-cto", True), ("arch2", "architect-cto", True))
+        text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",), branch="h/arch/feat/x", extra=("--any-owner",), fleet=fleet)
+        self.assertIn("session running now (arch2)", text)
+        text = self.refusal(claude_only({"commits": {**self.BM, "authority_own_prs": True}}), files=("docs/a.md",), branch="h/arch/feat/x",
+                            extra=("--any-owner",), fleet=fleet)
+        self.assertIn("session running now (arch, arch2)", text)
 
     def test_the_authority_is_not_offered_when_the_catalogue_does_not_hold_it(self):
         text = self.refusal(claude_only({"commits": {"min": 8, "below_min_authority": "no-such-role"}}), files=("docs/a.md",))
