@@ -128,8 +128,9 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    sibling.
 2. **fabric-coordinator**, `projects/registry.json`, one new entry
    (the import takes the sibling's keys in its order; `title` is the
-   sibling's unless `--title`; `tools`, `agent_env` and `plain_env`
-   empty; `note` is `imported <date>`; `moved_from` never copied):
+   sibling's unless `--title`; `tools` empty, and `agent_env` and
+   `plain_env` too where the sibling has them; `note` is `imported
+   <date>`; `moved_from` never copied):
    `client`, `title`, `remotes` (ssh then https),
    `default_branch`, `taxonomy` (`.agent-fabric/taxonomy.json`), `memory`
    (`.agent-fabric/memory`), `integration` (`projects/<id>/integration`),
@@ -147,8 +148,9 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    `gh/compliance.json`, `gh/trial.json` and `pr-tools.json` exist only
    where the project uses those `fabric-pr` verbs (`--with-compliance`,
    `--with-trial`, `--with-pr-tools`). The import copies the sibling's
-   files with its id replaced; the boundary paths and the prose are
-   checked by hand.
+   files with its id replaced, values included: `boundary.paths`,
+   `exempt`, `waiver_role`, the commit floor and its reasons, and the
+   prose are checked by hand against the new project.
 4. **fabric-coordinator**, in the project's working copy, by a PR there
    (only fabric-coordinator commits under `.agent-fabric/`):
    `taxonomy.json` (shape: `projects/schemas/taxonomy.schema.json`),
