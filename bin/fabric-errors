@@ -1,0 +1,11 @@
+#!/usr/local/bin/fabric-python
+"""fabric-errors — errors per actor and per kind (ADR-061, Proposed), from
+any directory. A thin entry point to tools/fabric/errors.py, run by its real
+path."""
+import os
+import runpy
+import sys
+
+TOOL = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "tools", "fabric", "errors.py")
+sys.argv[0] = TOOL
+runpy.run_path(TOOL, run_name="__main__")
