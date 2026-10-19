@@ -166,8 +166,9 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    `roles/<role>.md` remits for the roles that work there (the import
    copies the sibling's, from `--like-working-copy` or the sibling's
    clone beside the checkout; it writes a stub for a role that clone
-   lacks, and for every role when no clone is found, which only the
-   sizes in the plan show; charters are never copied), `memory/` (a
+   lacks, and for every role when no clone is found; each stub is
+   marked `[stub remit]` in the plan and named with its reason on
+   stderr; charters are never copied), `memory/` (a
    drain fills it), `fabric-ref` (one line, a full commit id of this
    repository, ADR-011; the import writes origin/main as last fetched).
    The import writes the taxonomy with an empty rule per role, to be
