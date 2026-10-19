@@ -210,7 +210,7 @@ and let it through, with the folding account's role as its trailer like
 any commit. The CI tripwire judges merge commits the same way. What a
 conflict resolution or a hand edit changes in a merge, including keeping
 one side's guarded tree where the other moved it, is the merge's own
-change and is judged like any other (`policies/githooks/guarded-change.sh`,
+change and is judged like any other (`tools/fabric/guards/commit_hooks.py`,
 `tools/fabric/guards/agent_fabric_dir_authority.py`).
 
 ## What the tripwire can and cannot do
