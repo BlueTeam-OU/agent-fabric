@@ -288,6 +288,30 @@ def main() -> int:
           c0["subject"] == "Merge branch 'x/y/for/z/w' into v" and c0["parentShas"] == ["p1", "p2"] and c0["parents"] == 2
           and c1["subject"] == "plain", got)
 
+    # --- GitHub's commit list of a PR ends at 250: a PR that long, or one whose commits the list lacks, is cut
+    saved = (errors.results.gh.pr_list, errors.results.gh.pr_view, errors.results.gh.api)
+    def read_with(rest_rows, gh_commits):
+        errors.results.gh.pr_list = lambda *a, **k: [{"number": 7}]
+        errors.results.gh.pr_view = lambda *a, **k: {"number": 7, "mergedAt": "2026-10-01T10:00:00Z",
+                                                      "commits": [{"oid": o} for o in gh_commits]}
+        errors.results.gh.api = lambda *a, **k: rest_rows
+        return errors.results.merged_prs("o/r", dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))[0]
+    row = lambda i: {"sha": f"s{i}", "parents": [{"sha": f"s{i - 1}"}], "commit": {"message": "x"}}  # noqa: E731
+    try:
+        whole = read_with([row(i) for i in range(3)], ["s0", "s1", "s2"])
+        at_cap = read_with([row(i) for i in range(errors.results.REST_COMMITS_CAP)], ["s0"])
+        lacking = read_with([row(0)], ["s0", "s1"])
+    finally:
+        errors.results.gh.pr_list, errors.results.gh.pr_view, errors.results.gh.api = saved
+    check("merged_prs: a whole list is not cut; 250 rows, or a commit the list lacks, is",
+          not whole["cut"] and at_cap["cut"] and lacking["cut"], (whole["cut"], at_cap["cut"], lacking["cut"]))
+    cut_pr = {**pr(), "cut": True}
+    t = errors.tally(run(cut_pr))
+    check("a cut PR is counted apart, and the report says its counts are partial",
+          t["prs_cut"] == 1 and errors.tally(run(pr()))["prs_cut"] == 0
+          and "READ IN PART" in errors.render(errors.report(run(cut_pr)), {"days": 30, "window": 14, "closed_period": ["2026-09-01", "2026-10-01"]}),
+          t["prs_cut"])
+
     # --- check-run reads: a transient failure is retried, a refusal is not, and the last failure is raised
     calls = []
     def flaky_api(n_bad, transient):

@@ -295,6 +295,8 @@ def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, 
     if not (period or cperiod):
         return []
     ev = [{**base, "kind": "pr", "closed": closed}]
+    if pr.get("cut"):
+        ev.append({**base, "kind": "cut"})
     # Every row that had a commit in this PR is in the denominator of its reverts and fixes forward, and so is the
     # head ref's own row: fixes forward and a revert of the merge commit are attributed to it even when the head
     # commit is not among the commits read (then its class and role are "person" and "-"), and a count must
@@ -379,6 +381,7 @@ def tally(events: list[dict]) -> dict:
                         "findings": {k: findings[k] for k in sorted(findings)}, "findings_total": nfind,
                         "findings_per_review": rate(nfind, len(reviews) - sum(1 for e in reviews if e["unparsed"])),
                         "on_a_commit_not_in_the_pr": sum(1 for e in events if e["kind"] == "review_elsewhere")},
+            "prs_cut": len({(e["repo"], e["pr"]) for e in events if e["kind"] == "cut" and e["period"]}),
             "red_checks": {"unread_no_aggregate": sum(1 for e in events if e["kind"] == "checks_unread"),
                            "heads": len(heads), "heads_red": red_heads, "rate": rate(red_heads, len(heads)),
                            "by_check": {k: red_by[k] for k in sorted(red_by)},
@@ -410,6 +413,7 @@ def render(rep: dict, doc: dict) -> str:
         pct = lambda x: "no rate (<5)" if x is None else f"rate {x}"  # noqa: E731
         return (f"  {name}: PRs {t['prs_merged']} ({t['prs_in_closed_period']} in the closed-window period); "
                 f"findings in {r['given']} reviews ({r['unparsed']} unparsed): {fnd}; "
+                f"{'%d PR(s) READ IN PART (GitHub lists at most 250 commits of a PR), their counts are partial; ' % t['prs_cut'] if t['prs_cut'] else ''}"
                 f"red heads {c['heads_red']}/{c['heads']} {pct(c['rate'])}, by check {c['by_check'] or '-'}, flaky {c['flaky_not_the_actors'] or '-'}"
                 f"{'; red checks NOT READ for %d PRs (no aggregate in %s)' % (c['unread_no_aggregate'], WORKFLOW) if c['unread_no_aggregate'] else ''}; "
                 f"reverts {t['reverts']['count']}/{t['reverts']['of_prs_with_closed_window']} {pct(t['reverts']['rate'])} "

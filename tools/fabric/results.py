@@ -126,6 +126,9 @@ def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=c
             "work": work, "fix": fix, "supervision": supervision}
 
 
+REST_COMMITS_CAP = 250
+
+
 def merged_prs(repo: str, since: dt.datetime, extra_fields: tuple = ()) -> list[dict]:
     # The numbers first, then each PR alone: GitHub refuses one query over
     # 500,000 possible nodes, which fifty PRs with their commits, reviews
@@ -141,6 +144,9 @@ def merged_prs(repo: str, since: dt.datetime, extra_fields: tuple = ()) -> list[
         rest = gh.api(f"repos/{repo}/pulls/{p['number']}/commits?per_page=100", paginate=True)
         parents = {c["sha"]: [x.get("sha") for x in c.get("parents") or []] for c in rest}
         messages = {c["sha"]: ((c.get("commit") or {}).get("message") or "").split("\n", 1)[0] for c in rest}
+        # GitHub's commit list of a PR ends at 250 commits however it is paged, and gives no sign of it: a list that
+        # long, or a commit of gh's list missing from it, is a PR read in part, said apart and never counted whole.
+        pr["cut"] = len(rest) >= REST_COMMITS_CAP or any(c["oid"] not in parents for c in pr.get("commits") or [])
         for c in pr.get("commits") or []:
             c["parents"] = len(parents.get(c["oid"], [None]))
             c["parentShas"] = parents.get(c["oid"], [])
