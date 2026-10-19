@@ -46,6 +46,12 @@ its count. CLASS: *agent* when the commit carries a `Fabric-Role:` trailer
 it; *person* when it carries none. A login is not a class: the operator's own
 login commits with and without a role.
 
+A revert's row is the actor and class of the commit that was reverted (a fold's
+contributor, a commit with or without a role), while the denominator, the
+PRs merged, is the head ref's: an actor or class row that was reverted but
+owned no PR of the period shows its count beside a denominator of 0, and no
+rate. Nothing is moved to the owner to make the row tidy.
+
 EVERY count carries its denominator; below 5 denominators there is no rate.
 No combined score, no ranking, no sort by count (ADR-061 §5 rule 6): actors
 are listed in name order. Every number is information for the rules, never a
