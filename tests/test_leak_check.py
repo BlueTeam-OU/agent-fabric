@@ -12,7 +12,7 @@ The bash oracle tests/test_leak-check.sh, case for case (each is a method here):
   run_exports_its_own_tmpdir                  "the run exports its own TMPDIR": a stand-in shellcheck, the static section's tool, writes
                                               the TMPDIR it was given; it is a directory af-t.* made under XDG_RUNTIME_DIR
   term_ends_the_run_with_its_directory        "a run killed by a signal ENDS, and its directory goes with it": the run made af-t.* under
-                                              XDG_RUNTIME_DIR; TERM to the group ends it within fifteen seconds; exit 143; the directory
+                                              XDG_RUNTIME_DIR; TERM to the group ends it within END_S (a ceiling against a suite that sleeps 120 s); exit 143; the directory
                                               is gone; no "suite(s) FAILED" line
   group_kill_leaves_no_directory_or_process   "a run killed by a group KILL leaves no directory and no process": the watcher removes
                                               the directory; no process of the run's tree, taken by parent links before the signal, still runs (a zombie is dead, only unreaped)
@@ -52,7 +52,10 @@ READY_S = 120.0
 END_S = 60.0
 BLOCKING = "#!/usr/bin/env bash\nprintf '%s' \"$$\" > \"$STARTED\"\nsleep 120\n"
 # the TERM-deaf suite: cleanup is still waiting when the KILL comes, so only the watcher can remove the directory
-DEAF = "#!/usr/bin/env bash\ntrap '' TERM\nprintf '%s' \"$$\" > \"$STARTED\"\nsleep 120\n"
+# It writes "$STARTED.term" when it is TERMed and stays: the case waits for that file, so the KILL lands while cleanup waits on it, never
+# on a timer. Its child ignores TERM (a handler is not inherited, an ignore is) and `wait` returns on the trap, so it loops.
+DEAF = ("#!/usr/bin/env bash\ntrap 'printf x > \"$STARTED.term\"' TERM\nprintf '%s' \"$$\" > \"$STARTED\"\n"
+        "(trap '' TERM; exec sleep 120) &\nchild=$!\nwhile kill -0 $child 2>/dev/null; do wait $child; done\n")
 RECORDING = "#!/usr/bin/env bash\nprintf '%s' \"$TMPDIR\" > \"$STARTED\"\nsleep 120\n"
 
 
@@ -250,7 +253,8 @@ class RunLeaves(unittest.TestCase):
     def test_term_then_kill_during_the_wait(self):
         proc = self.started_run(DEAF)
         os.kill(proc.pid, signal.SIGTERM)
-        time.sleep(1)
+        # cleanup has TERMed the suite and is now waiting out its grace on it: the state the KILL is meant to land in
+        self.await_state(proc, lambda: os.path.exists(self.started + ".term"), "cleanup TERMed the suite that ignores it")
         os.killpg(proc.pid, signal.SIGKILL)
         proc.wait()
         self.assertTrue(self.wait_for(lambda: not os.listdir(self.runtmp), END_S), repr(os.listdir(self.runtmp)))
