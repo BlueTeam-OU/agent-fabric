@@ -34,7 +34,8 @@ CLAUDE_PID, else the hook's parent (this process); a CLAUDE_PID that is no
 positive integer writes nothing; the default directory is
 $HOME/.cache/agent-fabric/hold; a null agent_id is the session itself, a
 non-empty one a subagent; SessionEnd of another session leaves a live
-sibling's marker; no jq: silent exit 0, nothing written (with the control).
+sibling's marker; a hold directory that cannot be made: silent exit 0, nothing written (with the control;
+it was `no jq` for the bash script, whose one missing tool the module does not use).
 
 Mutations, each failing here: the `agent_id` early exit removed (10); `-L`
 check removed (21); the sweep's `alive` accepting any pid (16, 18, 19, 20);
@@ -238,12 +239,15 @@ def main() -> int:
     for label, text in (("malformed", "not json"), ("empty", ""), ("an event-less object", "{}")):
         silent(f"{label} input is silent", h.run(ENTRY, text, environment()))
     t.check("and writes nothing", not held())
-    bare = h.tool_dir(os.path.join(T, "bare"), ["bash", "cat", "env"])
+    # The bash script's one missing tool was jq (silent exit 0, nothing written); the module has no tool to miss, so
+    # the same promise is pinned for the failure both have: a hold directory that cannot be made.
     shutil.rmtree(DIR, ignore_errors=True)
-    r = h.run(ENTRY, payload("PreToolUse", "plan"), {**environment(), "PATH": bare})
-    t.check("without jq: silent, exit 0, nothing written", r.rc == 0 and r.out == "" and not os.path.isdir(DIR), f"{r.rc} {r.out!r}")
+    blocker = os.path.join(T, "blocker")
+    write(blocker, "a file where a directory must go")
+    r = h.run(ENTRY, payload("PreToolUse", "plan"), environment(AGENT_FABRIC_HOLD_DIR=os.path.join(blocker, "hold")))
+    t.check("a hold directory that cannot be made: silent, exit 0, nothing written", r.rc == 0 and r.out == "" and r.err == "" and not os.path.isdir(DIR), f"{r.rc} {r.out!r} {r.err!r}")
     fire("PreToolUse", "plan")
-    t.check("…and the same payload with jq holds (the control)", held())
+    t.check("…and the same payload with a usable directory holds (the control)", held())
     return t.finish()
 
 

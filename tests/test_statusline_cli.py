@@ -29,14 +29,15 @@ state all); the cache is per branch and an unknown is not cached; no PR
 asked about on a detached HEAD or outside a repository; a payload with
 no workspace falls back to $PWD and an empty one to the model "Claude";
 the agent is the login and the host the short hostname; no `gh` on PATH:
-`#?`.
+`#?`; the session JSON reaches context-sample.py (the share is kept), and one
+that cannot write never fails the line.
 
 Mutations, each failing here: GH_REPO ignored (the GH_REPO case); "none"
 shown as `#?` (case 1); gh failure cached (the unknown-is-not-cached case);
 the open-first sort removed (case 5); `🔗` replaced by `🌿` (case 9); the
 version dropped from the bracket (case 14); a trailing newline added (the
 whole-line case); the closed icon changed (closed case); the $PWD fallback
-changed (thin payload).
+changed (thin payload); the sampler not fed the payload (the context case).
 
 Exit codes: 0 all assertions passed, 1 one or more failed."""
 from __future__ import annotations
@@ -225,6 +226,22 @@ def main() -> int:
     t.check("no effort block in the JSON: version · model, and no level is invented", line_of(session(repo, version="1.2.3")).out.startswith("[1.2.3 · M] 👤 "))
     t.check("neither version nor effort sent: the model alone", line_of(session(repo)).out.startswith("[M] 👤 "))
     t.check("an effort block with no level shows none", line_of(session(repo, effort={})).out.startswith("[M] 👤 "))
+
+    t.group("the context share kept for the control agent (context-sample.py)")
+    state = os.path.join(T, "state")
+    sampled = os.path.join(state, "agents", agent, "session-context.json")
+    r = line_of(session(repo, session_id="s-1", context_window={"used_percentage": 42}), AGENT_FABRIC_STATE_DIR=state)
+    try:
+        with open(sampled, encoding="utf-8") as fh:
+            kept = json.load(fh)["sessions"]["s-1"]["pct"]
+    except (OSError, ValueError, KeyError):
+        kept = None
+    t.check("the session JSON reaches the sampler: the share is kept under the session id", kept == 42, f"{kept!r}")
+    t.check("…and the line is the same as without it", r.out.endswith("📁 clone 🌿 main") and r.err == "" and r.rc == 0, f"{r.rc} {r.out!r} {r.err!r}")
+    blocker = os.path.join(T, "state-blocker")
+    open(blocker, "w").close()
+    r = line_of(session(repo, session_id="s-2", context_window={"used_percentage": 7}), AGENT_FABRIC_STATE_DIR=blocker)
+    t.check("a sampler that cannot write never fails the line", r.rc == 0 and r.err == "" and r.out.endswith("📁 clone 🌿 main"), f"{r.rc} {r.out!r} {r.err!r}")
 
     t.group("a thin payload")
     r = line_of("{}", cwd=plain)
