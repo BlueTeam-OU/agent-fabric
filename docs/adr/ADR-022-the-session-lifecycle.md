@@ -200,8 +200,8 @@ the hold is now a stub pointing here.
 - `runtime/openrouter/launch` (THE WATCH STARTS WITH THE SESSION),
   `tests/test_launch_cli.py`.
 - `runtime/claude-code/hooks/session-start.py` (`WATCH_MISSING`),
-  `tests/test_session_start.py`; `runtime/claude-code/hooks/plan-hold.sh`,
-  `runtime/claude-code/hooks/test_plan-hold.sh`;
+  `tests/test_session_start.py`; `runtime/claude-code/hooks/plan-hold.sh`
+  (`tools/fabric/plan_hold.py`), `tests/test_plan_hold_cli.py`;
   `runtime/claude-code/workspace/settings.json`.
 - `tools/fabric/gzcoord/inbox.py` (`holdStatus`),
   `tools/fabric/gzcoord/send.py`, `communication/gzcoord/tests/`.
