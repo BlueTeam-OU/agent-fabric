@@ -1531,6 +1531,24 @@ def test_a_projects_own_name_in_a_corrected_heading_does_not_end_its_entry(tmp: 
     assert entry["heading"] == "Springfield deploy notes" and "applied correction" not in proc.stderr, (entry, proc.stderr)
 
 
+def test_a_case_sensitive_name_pattern_leaves_the_terminal_term_it_once_redacted(tmp: str) -> None:
+    """gzapp's "external project name" entry for dcs matched with the i flag and redacted the VT term DCS in "C1 CSI
+    breaking into strings/DCS/intermediates" (a drain's review, 2026-10-18). The entry is now case-sensitive ([Dd]cs):
+    the term survives, the project's own spellings are still withheld (the positive control). The pattern is stated
+    here, as the project's file states it, so this pins the assembler's reading of it, not the file."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "Parser", "evidence": ["h1"],
+         "body": "C1 CSI breaking into strings/DCS/intermediates, unlike the dcs project and Dcs rules."}])})
+    os.makedirs(os.path.join(working_copy(out), ".agent-fabric"), exist_ok=True)
+    with open(os.path.join(working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+        json.dump({"patterns": [{"pattern": "(?<![A-Za-z0-9-])[Dd]cs(?![A-Za-z0-9-])", "label": "external project name"}]}, fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    text = "".join(alpha_slices(out).values())
+    assert "strings/DCS/intermediates" in text, text
+    assert "the [redacted] project and [redacted] rules" in text, text
+
+
 def test_a_correction_of_a_section_in_another_budget_part_is_listed(tmp: str) -> None:
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "domain", "topic": "grow", "title": "Big", "body": "y " * 850, "evidence": ["h1"]},
@@ -3794,6 +3812,7 @@ def main() -> int:
         test_an_overlong_description_is_clipped_everywhere_it_appears,
         test_a_flat_class_file_moves_into_the_directory_when_the_class_splits,
         test_a_flat_file_that_moves_into_the_directory_keeps_its_untouched_sections_writers,
+        test_a_case_sensitive_name_pattern_leaves_the_terminal_term_it_once_redacted,
         test_an_oversized_single_claim_is_written_whole_and_reported,
         test_drain_report_carries_the_watermark_forward,
         test_the_drain_report_lists_the_memory_marks_and_call_counts,
