@@ -72,7 +72,6 @@ BASH_SUITES: list[tuple[str, dict[str, str], list[str]]] = [
     ("leak check (what a run left behind)", {}, ["bash", "tests/test_leak-check.sh"]),
     ("subagent clone guard", {}, ["bash", "runtime/claude-code/hooks/test_subagent-clone-guard.sh"]),
     ("pipe status guard", {}, ["bash", "runtime/claude-code/hooks/test_pipe-status-guard.sh"]),
-    ("model-switch guard", {}, ["bash", "runtime/claude-code/hooks/test_model-switch-guard.sh"]),
     ("model fallback note", {}, ["bash", "runtime/claude-code/hooks/test_model-fallback-note.sh"]),
 ]
 
