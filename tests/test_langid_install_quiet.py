@@ -25,11 +25,13 @@ import langid_install  # noqa: E402
 
 
 def alive(pid: int) -> bool:
+    """Running, not merely present: a killed orphan stays a zombie until its
+    parent reaps it, and a CI container's pid 1 never does (kill -0 then lies)."""
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            return fh.read().rpartition(")")[2].split()[0] != "Z"
+    except OSError:
         return False
-    return True
 
 
 class Quiet(unittest.TestCase):
