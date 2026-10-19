@@ -127,7 +127,7 @@ def main() -> int:
 
     # A rustup-target pin: the proof exits 0 for a toolchain that lacks the target, so the list's lines decide.
     with tempfile.TemporaryDirectory(prefix="test_tools_check.") as home:
-        bindir = os.path.join(home, "bin")
+        bindir = os.path.join(home, ".cargo", "bin")
         os.makedirs(bindir)
         fake = os.path.join(bindir, "rustup")
         with open(fake, "w") as fh:
@@ -140,7 +140,8 @@ def main() -> int:
                                                  "proof": "rustup target list --installed --toolchain 1.98.1",
                                                  "version": "any", "why": "w", "where": "account", "install": tpin}]}}}
         saved_path, saved_home = os.environ.get("PATH", ""), os.environ.get("HOME")
-        os.environ["PATH"], os.environ["HOME"] = f"{bindir}:{saved_path}", home
+        # The check runs the list as --install does, from the account's ~/.cargo/bin: the session's PATH has no rustup.
+        os.environ["PATH"], os.environ["HOME"] = "/usr/bin:/bin", home
         try:
             row = tc.check(["demo"], None, treg, home=home)[0]
             check("a target pin whose list exits 0 without the target (a decoy name is listed): missing, said",
@@ -157,6 +158,19 @@ def main() -> int:
                                                     "install": {**tpin, "target": "x;y"}}]}}}
             row = tc.check(["demo"], None, bad, home=home)[0]
             check("...a pin naming no plain target proves nothing, though the list exits 0", row["status"] == "failed", row)
+            open(os.path.join(home, ".has-target"), "w").close()
+            stale = {"projects": {"demo": {"tools": [{**treg["projects"]["demo"]["tools"][0],
+                                                      "proof": "rustup target list --installed --toolchain 1.97.0"}]}}}
+            row = tc.check(["demo"], None, stale, home=home)[0]
+            check("...a proof naming another toolchain is failed, as --install refuses it, though it lists the target",
+                  row["status"] == "failed" and "1.98.1" in row["found"], row)
+            other = os.path.join(home, "other")
+            os.makedirs(other)
+            os.rename(fake, os.path.join(other, "rustup"))
+            os.environ["PATH"] = f"{other}:/usr/bin:/bin"
+            row = tc.check(["demo"], None, treg, home=home)[0]
+            check("...no rustup under the account's ~/.cargo/bin is missing even when the session's PATH has one",
+                  row["status"] == "missing", row)
         finally:
             os.environ["PATH"] = saved_path
             if saved_home is None:

@@ -104,18 +104,20 @@ def is_target_pin(tool: dict) -> bool:
     return tool.get("where") == "account" and isinstance(pin, dict) and pin.get("kind") == "rustup-target"
 
 
-def target_verdict(pin: dict, found: str, listing: str) -> tuple[str, str]:
-    """A rustup-target tool is there when its target is a line of the proof's output (`rustup target list
-    --installed --toolchain <t>`): the command exits 0 for a toolchain with no such target, so the exit
-    status alone would report an account that cannot build as complete. A pin that names no plain target
-    proves nothing, so it is not "ok" either."""
+def target_verdict(tool: dict, home: str) -> tuple[str, str]:
+    """A rustup-target tool is there when its target is a line of `rustup target list --installed --toolchain
+    <t>`: that command exits 0 for a toolchain with no such target, so the exit status alone would report an
+    account that cannot build as complete. The list is run by tools_install.target_proves, as --install runs it
+    (the account's own rustup and homes), so the check and the install cannot disagree about one account; a
+    registry proof that is not that list, or a pin that names no plain target, proves nothing and is not "ok"."""
     import tools_install  # here, not at the top: tools_install imports this module
+    pin = tool["install"]
     bad = tools_install.check_pin(pin)
     if bad:
         return "failed", bad
-    if tools_install.target_listed(listing, pin["target"]):
-        return "ok", f"{pin['target']} for {pin['toolchain']}"
-    return "missing", f"{pin['target']} is not installed for toolchain {pin['toolchain']}"
+    if tool.get("proof") != tools_install.target_proof(pin):
+        return "failed", f"the proof is not {tools_install.target_proof(pin)!r}, the list the pin is proved by"
+    return tools_install.target_proves(pin, home)
 
 
 def tree_incomplete(tool: dict, home: str) -> bool:
@@ -139,9 +141,11 @@ def check(projects: list[str], role: str | None, reg: dict, home: str | None = N
             roles = tool.get("roles")
             if roles and role not in roles:
                 continue
-            status, found, listing = prove_output(tool["proof"])
-            if status == "ok" and is_target_pin(tool):
-                status, found = target_verdict(tool["install"], found, listing)
+            if is_target_pin(tool):
+                # The same proof, run the same way, as --install's: not the registry's proof in the caller's environment.
+                status, found = target_verdict(tool, home)
+            else:
+                status, found = prove(tool["proof"])
             if status == "ok" and tree_incomplete(tool, home):
                 status = "incomplete"
                 found = (f"{found} — ~/.local/bin/{tool['name']} is not the pinned tree; "
