@@ -37,17 +37,19 @@ safe at the moment of deletion.
 What a sweep removes, and why (the owner, 2026-10-19: pushed drains, job checkouts and review-head
 checkouts piled up, 39 and 530 MB on one login in a day):
   - a linked worktree that is clean (no changes, no untracked file) and whose HEAD is reachable from a
-    remote-tracking ref, attached or detached: its commits live on the remote, so removing the directory loses
-    nothing. Before this it also had to be on the default branch. Ignored files keep it, except Python
+    remote-tracking ref of a branch the remote still has (`git ls-remote`: a fetch without --prune keeps the ref
+    of a branch the host deleted, and that is no proof), attached or detached: its commits live on the remote, so
+    removing the directory loses nothing. Before this it also had to be on the default branch. Ignored files keep it, except Python
     bytecode (`__pycache__/`, `*.pyc`), which any run regenerates; a lock keeps it; so does the worktree the
     sweep runs in and any the caller names in use. The branch checked out in it is not touched;
   - with `--sweep --all`, that over every working copy of this login in the projects directory (the
     directories beside this one that have a `.git` directory of their own), each with its own fetch. One that
     cannot be fetched, or refuses, is named and skipped, never guessed: the rest are swept and the status is 1;
   - an ended Claude Code session's scratch under this login's claude-tmp cache ($TMPDIR/claude-<uid>/…/<session
-    id>), unless a live process of this login runs that session (CLAUDE_CODE_SESSION_ID in its environment,
-    judged live by plan_hold's rule for its own markers). If a process of this login cannot be read, no session
-    is called ended. Never another login's path, never a symlink.
+    id>), unless the harness of this login's registry (~/.claude/sessions/<pid>.json) names it for a harness
+    that is live by plan_hold's rule for its own markers, or it is the session running the command. A registry that
+    cannot be read or understood calls no session ended. A worktree a live session stands in is in use. Never
+    another login's path, never a symlink.
 What a sweep keeps it says with the reason (changes, commits on no remote, ignored files, lock, this one, in use,
 live session); what it removes, with its size.
 
@@ -101,6 +103,8 @@ ADR-022).
   fabric-branches --sweep    report, then delete what shows 0
   fabric-branches --sweep --all   the same in every working copy of this login
                              beside this one
+  fabric-branches --sweep --worktrees   the worktrees and the sessions' scratch only:
+                             no branch is deleted (what fabric-jobs switch runs)
   fabric-branches --json     the same counts as one JSON object, without
                              fetching (what the control agent reads)
 
@@ -318,6 +322,11 @@ def record_sweep(top: str) -> None:
         identity.atomic_write(path, json.dumps(doc, indent=2, sort_keys=True) + "\n")
 
 
+# The directories live Claude Code sessions of this login stand in (their registry's cwd), filled by a sweep: a worktree one of
+# them is in is in use, whichever session runs the sweep.
+LIVE_CWDS: list[str] = []
+
+
 def keep_paths() -> set[str]:
     """Worktrees the caller says a live process stands in (AGENT_FABRIC_BRANCHES_KEEP, one absolute path per
     line): removing one would pull the directory from under that process."""
@@ -331,18 +340,40 @@ def is_bytecode(path: str) -> bool:
     return name == "__pycache__" or name.endswith(".pyc")
 
 
-def unpushed(head: str) -> str:
-    """How many commits of `head` are on no remote-tracking ref, or `?` when git cannot say, which is never 0:
-    a worktree is removable when all its commits live on a remote."""
+def remote_refs(base: str) -> list[str] | None:
+    """The remote-tracking refs of origin that the remote still has: `git ls-remote` against the local copies, because a
+    fetch without --prune leaves the ref of a branch the host deleted, and a commit held only by that ref is not on the
+    remote. When the remote cannot be asked, only `base` (just fetched, so proven) counts. None in `--json`, which does
+    not touch the network and counts as the plain report always did."""
     try:
-        r = git.run(".", "rev-list", "--count", head, "--not", "--remotes", check=False)
+        r = git.run(".", "ls-remote", "--heads", "origin", check=False, timeout=FETCH_TIMEOUT_S)
+        have = git.run(".", "for-each-ref", "--format=%(refname)", "refs/remotes/origin/", check=False)
+    except git.GitError:
+        return [base]
+    if r.returncode != 0 or have.returncode != 0:
+        return [base]
+    live = {f"refs/remotes/origin/{l.split(chr(9), 1)[1][len('refs/heads/'):]}" for l in lines_of(r.stdout)
+            if chr(9) in l and l.split(chr(9), 1)[1].startswith("refs/heads/")}
+    return sorted(ref for ref in lines_of(have.stdout) if ref in live)
+
+
+def unpushed(head: str, refs: list[str] | None = None) -> str:
+    """How many commits of `head` are on none of `refs` (the remote's branches, remote_refs), or `?` when git cannot say,
+    which is never 0: a worktree is removable when all its commits live on the remote. With no list, any remote-tracking
+    ref counts (the report that does not fetch)."""
+    try:
+        if refs is None:
+            r = git.run(".", "rev-list", "--count", head, "--not", "--remotes", check=False)
+        else:
+            r = git.run(".", "rev-list", "--count", "--stdin", check=False,
+                        input=f"{head}\n" + "".join(f"^{ref}\n" for ref in refs))
     except git.GitError:
         return "?"
     n = r.stdout.strip()
     return n if r.returncode == 0 and re.fullmatch(r"[0-9]+", n) else "?"
 
 
-def worktree_state(wt: dict, base: str, top: str) -> tuple[str, str]:
+def worktree_state(wt: dict, base: str, top: str, refs: list[str] | None = None) -> tuple[str, str]:
     """(commits not on base, why it is kept or "") for a linked worktree: kept whatever its count when it has
     changes, ignored files other than bytecode (a .env, a build) that removal deletes, commits on no remote, a
     lock (someone is using it), when it is the one this runs in, or when the caller names it in use."""
@@ -359,14 +390,14 @@ def worktree_state(wt: dict, base: str, top: str) -> tuple[str, str]:
         n_ignored = sum(1 for l in ignored if l.startswith("!!") and not is_bytecode(l[3:]))
         if n_ignored:
             why = f"{why + ', ' if why else ''}{n_ignored} ignored path(s)"
-    loose = unpushed(wt["head"])
+    loose = unpushed(wt["head"], refs)
     if loose != "0":
         why = f"{why + ', ' if why else ''}{'commits on no remote unreadable' if loose == '?' else f'{loose} commit(s) on no remote'}"
     if wt["locked"]:
         why = f"{why + ', ' if why else ''}locked"
     if path == top:
         why = f"{why + ', ' if why else ''}this one"
-    if path in keep_paths():
+    if path in keep_paths() or any(c == path or c.startswith(path + "/") for c in LIVE_CWDS):
         why = f"{why + ', ' if why else ''}in use"
     return n, why
 
@@ -396,44 +427,36 @@ def human(n: int) -> str:
 SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
-def live_sessions(proc: str = "/proc") -> set[str] | None:
-    """The session ids a live process of this login runs (CLAUDE_CODE_SESSION_ID in its environment; the children
-    of a session inherit it), or None when a process of this login cannot be read, which is unknown, never none:
-    no session is then called ended. A process is live by plan_hold's rule for its markers - it answers as this
-    login and is the one that started when /proc says."""
+def live_sessions(registry: str | None = None) -> tuple[set[str], list[str]] | None:
+    """(the ids of the sessions a live harness of this login runs, the directories they stand in), or None when that is not
+    known: no registry, a file of it that cannot be read or understood. Unknown is never none; no session is then called ended.
+    The harness writes ~/.claude/sessions/<pid>.json (pid, sessionId, procStart, cwd) for each session it runs; it is live by
+    plan_hold's rule for its markers - the pid answers as this login and started when procStart says. The harness's own
+    environment does not carry the id (only its children's does), so a scan of /proc would miss an idle session."""
     import plan_hold
-    found: set[str] = set()
-    uid = os.geteuid()
+    directory = registry or os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude"), "sessions")
     try:
-        pids = [n for n in os.listdir(proc) if n.isdigit()]
+        names = sorted(n for n in os.listdir(directory) if n.endswith(".json"))
     except OSError:
         return None
-    for pid in pids:
+    ids: set[str] = set()
+    cwds: list[str] = []
+    for name in names:
         try:
-            if os.stat(f"{proc}/{pid}").st_uid != uid:
-                continue
-            with open(f"{proc}/{pid}/environ", "rb") as fh:
-                env = fh.read()
-        except (FileNotFoundError, ProcessLookupError):
-            continue                      # gone between the listing and the read
-        except OSError:
-            # Not dumpable (systemd --user, sshd-session): readable only by root. It is no Claude Code session unless its
-            # command line says it might be, or cannot be read either: then nothing is known, and nothing is called ended.
-            try:
-                with open(f"{proc}/{pid}/cmdline", "rb") as fh:
-                    if b"claude" not in fh.read().lower():
-                        continue
-            except (FileNotFoundError, ProcessLookupError):
-                continue
-            except OSError:
-                pass
+            with open(os.path.join(directory, name), encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except FileNotFoundError:
+            continue                      # the harness ended between the listing and the read
+        except (OSError, ValueError):
             return None
-        for entry in env.split(b"\0"):
-            if entry.startswith(b"CLAUDE_CODE_SESSION_ID="):
-                sid = entry.split(b"=", 1)[1].decode("ascii", "replace")
-                if proc != "/proc" or plan_hold.alive(pid, plan_hold.start_of(pid)):
-                    found.add(sid)
-    return found
+        pid, sid = (doc.get("pid"), doc.get("sessionId")) if isinstance(doc, dict) else (None, None)
+        if not isinstance(pid, int) or not isinstance(sid, str):
+            return None
+        if plan_hold.alive(str(pid), str(doc.get("procStart") or "")):
+            ids.add(sid)
+            if isinstance(doc.get("cwd"), str):
+                cwds.append(doc["cwd"])
+    return ids, cwds
 
 
 def claude_tmp_root() -> str:
@@ -474,12 +497,16 @@ def sweep_sessions() -> None:
     """Remove the scratch of this login's ended sessions, and say what is removed (with its size) and what is
     kept (with why). A scratch directory is removed whole, never through a link."""
     root = claude_tmp_root()
-    live = live_sessions()
-    for path in session_dirs(root):
+    # Listed first: a session that starts after the listing has no directory in it, and one that started before is live below.
+    found = session_dirs(root)
+    registry = live_sessions()
+    live = registry[0] if registry is not None else None
+    mine = os.environ.get("CLAUDE_CODE_SESSION_ID", "")     # the session running this command, whatever the registry says
+    for path in found:
         sid = os.path.basename(path)
         if live is None:
-            echo(f"kept session scratch {path} — a process of this login cannot be read: no session is called ended")
-        elif sid in live:
+            echo(f"kept session scratch {path} — the sessions of this login cannot be listed: no session is called ended")
+        elif sid in live or sid == mine:
             echo(f"kept session scratch {path} — live session")
         else:
             size = tree_bytes(path)
@@ -598,6 +625,9 @@ def sweep_all(top: str) -> int:
     """`--sweep` in every working copy, each with its own fetch. One that refuses (no fetch, changes, no default
     branch) is named and skipped, and the rest are swept: the status is 1 when any was skipped."""
     skipped: list[str] = []
+    # Run from a linked worktree, the sweep of its main copy would not know it is the one standing here.
+    here = [top, os.path.realpath(top)]
+    os.environ["AGENT_FABRIC_BRANCHES_KEEP"] = "\n".join([*here, os.environ.get("AGENT_FABRIC_BRANCHES_KEEP", "")])
     for copy in working_copies(top):
         echo()
         echo(f"== {copy}")
@@ -628,6 +658,9 @@ def run(argv: list[str], scratch: bool = True) -> int:
         sweep = True
         if len(argv) > 1 and argv[1] == "--all":
             return sweep_all(git_top())
+        if len(argv) > 1 and argv[1] not in ("--worktrees",):
+            say(f"unknown argument '{argv[1]}' (--sweep takes --all or --worktrees)")
+            return 2
         branches = not (len(argv) > 1 and argv[1] == "--worktrees")
     elif first == "--json":
         pass
@@ -686,6 +719,9 @@ def run(argv: list[str], scratch: bool = True) -> int:
     if git.run(".", "rev-parse", "-q", "--verify", base, check=False).returncode != 0:
         say(f"no {base} here")
         return 2
+    refs = remote_refs(f"refs/remotes/{base}")
+    registry = live_sessions()
+    LIVE_CWDS[:] = registry[1] if registry is not None else []
 
     identity = load_identity()
     host, login = identity.current_host(), identity.current_agent()
@@ -707,7 +743,7 @@ def run(argv: list[str], scratch: bool = True) -> int:
         if path == main_wt:
             continue
         wt_count += 1
-        n, why = worktree_state(wt, base, top)
+        n, why = worktree_state(wt, base, top, refs)
         echo(f"  {n:<3} {path}  {wt['branch'] or '(detached)'}  {why or 'clean'}")
         if not why:
             wt_remove.append(path)
@@ -775,7 +811,7 @@ def run(argv: list[str], scratch: bool = True) -> int:
         removed = False
         # Counted again now: a worktree that changed since the report is kept, with what changed.
         fresh = [w for w in worktrees() if w["path"] == p]
-        why = worktree_state(fresh[0], base, top)[1] if fresh else "gone"
+        why = worktree_state(fresh[0], base, top, refs)[1] if fresh else "gone"
         size = tree_bytes(p) if not why else 0
         if not why:
             try:

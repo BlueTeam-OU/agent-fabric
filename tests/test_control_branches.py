@@ -132,6 +132,16 @@ class Read(Scratch):
         r = self.row(self.read(), "alpha")
         self.assertEqual((r["worktrees"], r["removable_worktrees"]), (1, 0), "an untracked file keeps it")
 
+    def test_a_clean_worktree_with_commits_on_the_remote_is_removable_as_the_sweep_now_removes_it(self):
+        alpha = self.clone("alpha")
+        pushed = os.path.join(self.dir, "wt-pushed")
+        self.git(alpha, "worktree", "add", "-q", pushed, "-b", "pushed", "main")
+        self.git(pushed, "commit", "-q", "--allow-empty", "-m", "pushed work")
+        self.git(pushed, "push", "-q", "origin", "pushed:pushed")
+        self.git(pushed, "fetch", "-q", "origin")
+        r = self.row(self.read(), "alpha")
+        self.assertEqual((r["worktrees"], r["removable_worktrees"]), (1, 1), "not on the default branch, but on the remote")
+
     def test_a_worktree_a_process_stands_in_is_not_counted_removable(self):
         alpha = self.clone("alpha")
         merged = os.path.join(self.dir, "wt-merged")

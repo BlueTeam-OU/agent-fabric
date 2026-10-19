@@ -171,7 +171,7 @@ def _report_one(name: str, copy: str, procs: list[dict] | None, root: str, run: 
         merged = sum(1 for b in branches if b["ahead"] == 0)
         unknown = sum(1 for b in branches if b["ahead"] is None) + sum(1 for w in wts if w["ahead"] is None)
         used = set(in_use(procs, [os.path.realpath(w["path"]) for w in wts])) if procs is not None else set()
-        removable = (sum(1 for w in wts if w["ahead"] == 0 and not w["kept_because"] and os.path.realpath(w["path"]) not in used)
+        removable = (sum(1 for w in wts if not w["kept_because"] and os.path.realpath(w["path"]) not in used)
                      if procs is not None else None)
         fetched = d["fetched_at"]
         return {"working_copy": name, "status": "ok", "default": _name(d["default"]), "dirty": d["dirty"] > 0,

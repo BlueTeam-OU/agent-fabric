@@ -23,6 +23,7 @@ The environment is built from scratch: PATH (a fake gh first, so no case reaches
 AGENT_FABRIC_*, GITHUB_* or CLAUDE_* variable of the session reaches the command (the session id of the live case is planted)."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -52,6 +53,7 @@ class Sweep(unittest.TestCase):
         os.chmod(os.path.join(self.bin, "gh"), 0o755)
         self.tmp = os.path.join(self.t, "tmp")          # TMPDIR: the claude-tmp cache is under it
         os.makedirs(self.tmp)
+        self.cfg = os.path.join(self.t, "claude-config")   # CLAUDE_CONFIG_DIR: the harness's registry of its sessions is under it
         self.procs: list[subprocess.Popen] = []
         self.addCleanup(self.stop)
         self.origin = os.path.join(self.t, "origin.git")
@@ -65,7 +67,7 @@ class Sweep(unittest.TestCase):
     def env(self, **extra) -> dict:
         env = {"PATH": f"{self.bin}:/usr/bin:/bin", "HOME": self.t, "LANG": "C.UTF-8", "TMPDIR": self.tmp,
                "AGENT_FABRIC_STATE_DIR": os.path.join(self.t, "state"), "GH_REPO": "o/r", "GIT_CONFIG_GLOBAL": os.devnull,
-               "PYTHONDONTWRITEBYTECODE": "1"}
+               "PYTHONDONTWRITEBYTECODE": "1", "CLAUDE_CONFIG_DIR": self.cfg}
         env.update(extra)
         return env
 
@@ -209,13 +211,47 @@ class Sweep(unittest.TestCase):
         self.git(broken, "remote", "set-url", "origin", os.path.join(self.t, "nowhere.git"))
         mine = self.worktree("mine", pushed=True)
         theirs = self.worktree("theirs", pushed=True, wc=other)
-        stuck = self.worktree("stuck", pushed=True, wc=broken) if False else None
         rc, out, err = self.sweep("--all")
         self.assertEqual(rc, 1, out + err)
         self.assertFalse(os.path.exists(mine) or os.path.exists(theirs), out)
         self.assertIn(f"skipped, not swept or not recorded: {broken} (exit 2)", out)
         self.assertIn("git fetch origin failed", err)
-        self.assertIsNone(stuck)
+
+    def registry(self, *entries) -> None:
+        """The harness's registry: sessions/<pid>.json, (session id, pid, cwd) each, procStart as /proc says it."""
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        import plan_hold
+        directory = os.path.join(self.cfg, "sessions")
+        os.makedirs(directory, exist_ok=True)
+        for sid, pid, cwd in entries:
+            with open(os.path.join(directory, f"{pid}.json"), "w", encoding="utf-8") as fh:
+                json.dump({"pid": pid, "sessionId": sid, "cwd": cwd, "procStart": plan_hold.start_of(str(pid))}, fh)
+
+    def harness(self) -> int:
+        """A process that runs for the test, whose environment carries no session id: the harness's own does not either."""
+        p = subprocess.Popen(["sleep", "300"], env=self.env())
+        self.procs.append(p)
+        return p.pid
+
+    def test_a_branch_the_remote_no_longer_has_is_no_proof(self):
+        wt = self.worktree("gone-upstream", pushed=True, detach=True)
+        subprocess.run(["git", "-C", self.origin, "branch", "-q", "-D", "gone-upstream"], env=self.env(), check=True)
+        rc, out, err = self.sweep()        # the fetch does not prune: refs/remotes/origin/gone-upstream is still here
+        self.assertIn("refs/remotes/origin/gone-upstream", self.git(self.wc, "for-each-ref", "refs/remotes/origin/gone-upstream"))
+        self.assertTrue(os.path.isdir(wt), out)
+        self.assertIn("1 commit(s) on no remote", out)
+
+    def test_all_from_a_linked_worktree_keeps_that_worktree(self):
+        here = self.worktree("here", pushed=True)
+        rc, out, err = self.sweep("--all", cwd=here)
+        self.assertTrue(os.path.isdir(here), out)
+
+    def test_a_misspelled_second_argument_is_refused(self):
+        self.git(self.wc, "branch", "at-tip", "main")
+        rc, out, err = self.sweep("--worktree")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("unknown argument '--worktree'", err)
+        self.assertIn("at-tip", self.git(self.wc, "branch", "--list", "at-tip"), "nothing was deleted")
 
     def sessions(self, *names) -> list[str]:
         root = os.path.join(self.tmp, f"claude-{UID}", "-proj")
@@ -230,55 +266,56 @@ class Sweep(unittest.TestCase):
 
     def test_an_ended_session_goes(self):
         (d,) = self.sessions(ENDED)
+        self.registry()
         rc, out, err = self.sweep()
         self.assertFalse(os.path.exists(d), out)
         self.assertRegex(out, rf"removed session scratch {d} \(2\.0 KB\)")
 
     def test_a_live_session_stays(self):
         ended, live = self.sessions(ENDED, LIVE)
-        self.procs.append(subprocess.Popen(["sleep", "300"], env=self.env(CLAUDE_CODE_SESSION_ID=LIVE)))
+        self.registry((LIVE, self.harness(), self.t))
         rc, out, err = self.sweep()
         self.assertTrue(os.path.isdir(live) and not os.path.exists(ended), out)
         self.assertIn(f"kept session scratch {live} — live session", out)
 
+    def test_a_registry_entry_of_a_dead_harness_is_no_session(self):
+        (d,) = self.sessions(ENDED)
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        self.registry((ENDED, gone.pid, self.t))
+        rc, out, err = self.sweep()
+        self.assertFalse(os.path.exists(d), out)
+
     def test_own_session_stays(self):
         (d,) = self.sessions(ENDED)
+        self.registry()
         rc, out, err = self.sweep(CLAUDE_CODE_SESSION_ID=ENDED)
         self.assertTrue(os.path.isdir(d), out)
 
-    def test_unreadable_process_keeps_all(self):
-        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
-        import branches
+    def test_no_registry_or_one_that_cannot_be_read_keeps_all(self):
         (d,) = self.sessions(ENDED)
-        saved_env, saved_live = dict(os.environ), branches.live_sessions
-        os.environ["TMPDIR"] = self.tmp
-        branches.live_sessions = lambda: None
-        try:
-            branches.sweep_sessions()
-        finally:
-            branches.live_sessions = saved_live
-            os.environ.clear()
-            os.environ.update(saved_env)
-        self.assertTrue(os.path.isdir(d), "a process that cannot be read is unknown, never 'no session'")
+        rc, out, err = self.sweep()                       # no sessions/ at all
+        self.assertTrue(os.path.isdir(d), out)
+        self.assertIn("cannot be listed", out)
+        os.makedirs(os.path.join(self.cfg, "sessions"))
+        with open(os.path.join(self.cfg, "sessions", "1.json"), "w", encoding="utf-8") as fh:
+            fh.write("{broken")
+        rc, out, err = self.sweep()
+        self.assertTrue(os.path.isdir(d), "a file the harness wrote that cannot be understood is unknown, never none")
+        with open(os.path.join(self.cfg, "sessions", "1.json"), "w", encoding="utf-8") as fh:
+            fh.write('{"pid": "x"}')
+        rc, out, err = self.sweep()
+        self.assertTrue(os.path.isdir(d), "...and so is one without a pid and a session id")
 
-    def test_a_process_that_cannot_be_read_is_unknown_unless_it_is_no_session(self):
-        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
-        import branches
-        fake = os.path.join(self.t, "proc")
-        for pid, cmdline in (("101", b"claude\0--resume"), ("102", b"sshd-session: me")):
-            os.makedirs(os.path.join(fake, pid))
-            with open(os.path.join(fake, pid, "environ"), "wb") as fh:
-                fh.write(f"CLAUDE_CODE_SESSION_ID={LIVE}\0".encode())
-            with open(os.path.join(fake, pid, "cmdline"), "wb") as fh:
-                fh.write(cmdline)
-            os.chmod(os.path.join(fake, pid, "environ"), 0)
-        self.assertIsNone(branches.live_sessions(fake), "claude's own environment unreadable: nothing is known")
-        shutil.rmtree(os.path.join(fake, "101"))
-        self.assertEqual(branches.live_sessions(fake), set(), "a daemon that is not a session is no reason to keep everything")
-        os.chmod(os.path.join(fake, "102", "environ"), 0o644)
-        self.assertEqual(branches.live_sessions(fake), {LIVE}, "and a readable one names its session")
+    def test_a_worktree_a_live_session_stands_in_is_in_use(self):
+        wt = self.worktree("occupied", pushed=True)
+        self.registry((LIVE, self.harness(), wt))
+        rc, out, err = self.sweep()
+        self.assertTrue(os.path.isdir(wt), out)
+        self.assertIn("in use", out)
 
     def test_a_link_and_other_names_are_not_followed(self):
+        self.registry()                                   # a registry that lists no live session: the scratch is judged
         outside = os.path.join(self.t, "precious")
         os.makedirs(outside)
         open(os.path.join(outside, "f"), "w", encoding="utf-8").close()
@@ -291,6 +328,7 @@ class Sweep(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(root, "not-a-session-id", "x")))
 
     def test_another_logins_cache_is_not_named(self):
+        self.registry()                                   # a registry that lists no live session: the scratch is judged
         other = os.path.join(self.tmp, f"claude-{UID + 1}", "-proj", ENDED)
         os.makedirs(other)
         rc, out, err = self.sweep()
