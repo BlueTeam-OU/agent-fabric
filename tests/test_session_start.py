@@ -763,6 +763,7 @@ def test_hook_says_missing_tools(tmp: str) -> None:
     assert len(line) == 1 and "pnpm (missing, needs 11.6.0, account)" in line[0], line
     assert "doppler" not in line[0] and "git" not in line[0] and "cargo" not in line[0], line
     assert "days old" not in line[0], line
+    assert "`fabric-tools --install <name>`" in line[0] and "never installed by a session" not in line[0], line
     old = os.stat(path).st_mtime - 3 * 86400
     os.utime(path, (old, old))
     assert "the report is 3 days old" in hook.tools_line("gzapp", state)[0]
