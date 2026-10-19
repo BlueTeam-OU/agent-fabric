@@ -1,44 +1,12 @@
 #!/usr/bin/env bash
 # bin/fabric-review — brief a blind review: render the facts of one change
-# into the prompt a code-review dispatch carries.
-#
-#   fabric-review brief  REQUEST[.yaml|.json|-] [--allow-rationale]   the brief, to stdout; a pinned range
-#                                       also checks its head out, detached (ADR-020)
-#   fabric-review check  REQUEST                                        validate only, say what it is
-#   fabric-review lenses                                                 the lens vocabulary
-#   fabric-review save PR ROUND [--repo NAME] < report                  keep a round's report; remove its head worktree
-#   fabric-review next REQUEST (--report F | --pr PR) [--head REV] [--keep-lenses]
-#                                       the re-review's request, derived and rendered
-#                                       (tools/fabric/review_rounds.py)
-#   fabric-review --engine codex PR REQUEST [--gateway chatgpt] [--model M] [--timeout MIN] [--no-post]
-#                                       the second engine: Codex reviews the PR's head
-#                                       one-shot and posts, through a gateway of its own
-#                                       (tools/fabric/review_codex.py, agent-fabric ADR-053)
-#
-# Then dispatch, exactly as the guard requires (it never reads the prompt):
-#
-#   Agent(subagent_type: "code-review", model: "fable",
-#         description: "Review <what>" (or "Re-review <what>"),
-#         prompt: <the rendered brief, verbatim>)      — and NO isolation
-#
-# A request names WHAT must be true (mode, repository, range, objective,
-# requirements, invariants, compatibility, threat model, scope, out of
-# scope, lenses; previous_findings on a re-review) and never how the
-# change makes it true: a verdict-shaped sentence refuses the render,
-# named. tools/fabric/review_brief.py; runtime/claude-code/review/README.md.
+# into the prompt a code-review dispatch carries. A forwarder: the verbs and
+# the usage are tools/fabric/review_cli.py (ADR-040 §5 rule 1);
+# `fabric-review --help` prints the usage.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-export AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$ROOT}"
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
 py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
 [[ -x "$py" ]] || { echo "fabric-review: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
-case "${1:-}" in
-    brief) shift; exec "$py" "$ROOT/tools/fabric/review_brief.py" render "$@" ;;
-    check|lenses) exec "$py" "$ROOT/tools/fabric/review_brief.py" "$@" ;;
-    save|next) exec "$py" "$ROOT/tools/fabric/review_rounds.py" "$@" ;;
-    --engine) shift; exec "$py" "$ROOT/tools/fabric/review_codex.py" "$@" ;;
-    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    "") sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
-    *) echo "fabric-review: unknown command $1 (brief | check | lenses | save | next | --engine)" >&2; exit 2 ;;
-esac
+exec "$py" "$ROOT/tools/fabric/review_cli.py" "$@"

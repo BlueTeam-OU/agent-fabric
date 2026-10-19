@@ -59,7 +59,9 @@ integrated by the role that owns the concern; a supplier delivers commits
 or a `for/` branch to the caller and opens no PR. While your PR is open,
 the next piece of work is another commit on it. A PR is armed by its
 work-commit count against the minimum `fabric-pr arm --dry-run` prints,
-below it only on the owner's word, and never without the review gate.
+below it only on the owner's word or on the word of the role the
+dry-run names as the repository's arming authority, and never without
+the review gate.
 Any PR status you state carries its counts ("#215 is unarmed: 6 work, 2
 fix, minimum 8"). The `pull-requests` skill has the whole procedure:
 load it before you open, supply, fold, add to or arm a PR.

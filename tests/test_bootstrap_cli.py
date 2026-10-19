@@ -34,6 +34,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tests"))
+import section_groups  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import strip_instance  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
@@ -1161,8 +1162,19 @@ def failures() -> None:
           and any("python3 -m venv failed" in ln for ln in r.lines), r)
 
 
+# The cases are independent (each makes its own account under the scratch root), so they run as GROUPS, each in a process of
+# its own with its own scratch fabric: the same cases, the wall time of the longest group. Balanced by what each costs on a
+# loaded host (every case is a run of the script, and `failures` and `relay` are the long ones).
+GROUPS = ((failures,), (relay, user_manager), (first_run, record_current, journal, store_trust_base),
+          (arguments, existing_files, no_config_dir, local_bin_override, dry_run, fabric_worktree))
+
+
 def main() -> int:
     global T
+    if len(sys.argv) < 3 or sys.argv[1] != "--group":
+        return section_groups.drive(__file__, "test_bootstrap_cli", len(GROUPS), (0, 1, 2, 3), "BOOTSTRAP_CLI_JOBS", 1500)
+    selected = int(sys.argv[2])
+    section_groups.child_setup()
     T = os.path.realpath(tempfile.mkdtemp(prefix="test_bootstrap_cli."))
     try:
         if os.path.realpath(T).startswith(os.path.realpath(REAL_HOME) + "/projects/"):
@@ -1173,8 +1185,7 @@ def main() -> int:
         for name in ("systemctl", "loginctl", "curl", "ss", "pgrep", "claude", "pip", "uv"):
             if shutil.which(name, path=f"{T}/fakebin:{T}/sysbin") != f"{T}/fakebin/{name}":
                 sys.exit(f"test: refusing to run: {name} on the test PATH is not the fake")
-        for case in (first_run, dry_run, record_current, journal, store_trust_base, arguments, existing_files, no_config_dir, local_bin_override,
-                     user_manager, relay, failures, fabric_worktree):
+        for case in GROUPS[selected]:
             # A file the script did not write, or a line it did not print,
             # can raise in the case's own reading: that is a failure of the
             # script, counted, and the other cases still run.
@@ -1191,11 +1202,8 @@ def main() -> int:
                 except OSError:
                     pass
         shutil.rmtree(T, ignore_errors=True)
-    if fails:
-        print(f"test_bootstrap_cli: {fails} FAILED")
-        return 1
-    print("test_bootstrap_cli: all passed")
-    return 0
+    print(f"group {selected}: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
+    return 1 if fails else 0
 
 
 if __name__ == "__main__":

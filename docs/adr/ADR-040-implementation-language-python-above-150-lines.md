@@ -159,10 +159,11 @@ serve as the parity oracle for each port, unchanged.
    (A 2026-10-01); and a fixture that copies the scripts it runs copies
    their modules beside them, adding files and changing no assertion
    (A 2026-10-01). A fourth: a forwarder checks the pin before the module
-   reads its verb, so a case that gives an unknown verb on a host
-   without the pin expects the forwarder's 127 and its install line,
-   not the bash original's usage error; the case says so and cites this
-   rule (A 2026-10-11). The same pull request deletes the bash implementation,
+   reads anything (its verb, its files, its environment), so a case run
+   on a host without the pin expects the forwarder's 127 and its install
+   line, not what the bash original did before it needed Python (a usage
+   error, or a clean exit when there was nothing to check); the case
+   says so and cites this rule (A 2026-10-19). The same pull request deletes the bash implementation,
    adds Python tests for the internals and removes the entry from the
    allowlist.
 6. GitHub and git are called through `tools/fabric/gh.py` and
@@ -411,3 +412,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-19 | Wave 10: the managed projects' Node scripts move to Python | §5 rule 10, §7, §8: the owner's request; 16 `.mjs` scripts of their own: four ports, one deletion, one exemption, one decision with its holder; a fork's upstream code never ported; framework configuration and a Node-API-bound script exempt, named |
 | 2026-10-19 | Wave 10: build-glyphs exempt; validate.js joins the wave | §5 rule 10: a `.js` script of ours may join the wave, and one to be updated or fixed is ported instead; §7's Wave 10 table: `build-glyphs.mjs` exempt, `validate.js` and its two tests ported |
 | 2026-10-19 | the provisioning entries are their modules | §5 rules 1 and 7: `new_agent.py` and `store_enroll.py` are the entries, re-exec under the pin or print its install command; `new-agent.sh` and `store-enroll.sh` retire by the shim steps |
+| 2026-10-19 | a forwarder checks the pin before the module reads anything | §5 rule 5: the fourth departure covers any input the bash read before it needed Python, not only a verb |

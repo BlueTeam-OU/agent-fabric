@@ -78,8 +78,8 @@ def fp(token: str) -> str:
 # process of its own with its own sandbox: the cases are the same, the wall time is the longest group's. A group is the
 # sections that share state: the upgrade/restart ones share the `runa` helper and the session list of the one before.
 # Slowest first, so the pool is not left waiting on the long one.
-NGROUPS = 10
-SLOWEST_FIRST = (4, 8, 6, 1, 7, 9, 0, 2, 3, 5)
+NGROUPS = 12
+SLOWEST_FIRST = (10, 8, 6, 7, 5, 1, 4, 11, 9, 0, 2, 3)
 
 
 def drive() -> int:
@@ -562,6 +562,10 @@ def main() -> int:
             out = out_of("--provider", "anthropic", "--version", ANTHROPIC_DEFAULT_OPUS_MODEL="claude-parent-leftover")
             check("…and an alias export inherited from a parent session is cleared, not passed on",
                   has(r"CLAUDE-ENV:ANTHROPIC_DEFAULT_OPUS_MODEL=$", out), grep("OPUS", out))
+        if _want(10):
+            # the middle of the effort section, from its fifth fabric (it starts with a fresh fabric, as every part of it does): its own group, so the wall time is not group 4's whole
+            print("launch: the session's effort, continued — plain claude's exec, environment and pins")
+            put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
             mkfabric()
             out = out_of("--provider=anthropic", "--version")
             check("execs plain claude with the native session model and the role's prompt file",
@@ -809,6 +813,10 @@ print("a" * 40, "b" * 40)
             check("…including beside a non-broker base URL", "CLAUDE-CRED:ANTHROPIC_API_KEY=sk-ant" in out, grep("CLAUDE-CRED", out))
             check("provider stamped", "CLAUDE-ENV:AGENT_FABRIC_LAUNCH_PROVIDER=anthropic" in out, out)
             check("profile stamped on vanilla too", f"CLAUDE-ENV:AGENT_FABRIC_LAUNCH_PROFILE=backend-dev/{LOGIN}" in out, out)
+        if _want(11):
+            # the rest of the effort section, from its sixth fabric: its own group, so the wall time is not group 4's whole
+            print("launch: the session's effort, continued — the last cases")
+            put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
             mkfabric()
             rm(f"{agent_dir}/binding.json")
             rc, out = run("--provider", "anthropic", "--print")

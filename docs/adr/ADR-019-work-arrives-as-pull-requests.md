@@ -140,7 +140,14 @@ not on a pipe's exit status.
 4. Eight or more work commits: arm once the gate is met, without the
    owner's word, a security-boundary change and over sixteen too
    (A 2026-10-05). Under eight: ask the
-   owner, who arms. Sixteen is the size a batch is opened at; a PR over
+   owner, who arms, or the role the repository's arming policy names in
+   their place: `commits.below_min_authority` for a PR under the
+   minimum, `commits.boundary_authority` for a security-boundary change
+   under `boundary_min`. That holder gives its word by an `AUTHORIZES`
+   message to the arming session naming the PR and its head, or by
+   arming from a session bound to the role, and on its own PR only where
+   `commits.authority_own_prs` is true; the review gate binds every word
+   alike (A 2026-10-19). Sixteen is the size a batch is opened at; a PR over
    it is armed on the gate all the same, and the count is advice for the
    next batch.
 5. The gate is `fabric-pr gate`'s verdict for the PR, read
@@ -250,3 +257,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-09 | A push after the arming takes auto-merge off | §5 rule 5: an arming holds for its head; `.github/workflows/disarm-on-push.yml` takes auto-merge off an arming older than a push and comments |
 | 2026-10-10 | Brand repositories commit straight to main | §5 rule 1: a project's arm.json `direct` names the roles that push to the default branch and the `pr_paths` that still need a pull request; policies/githooks/pre-push enforces it |
 | 2026-10-11 | pre-push also checks signatures in every project | §5 rule 1: the hook refuses a push that adds an unsigned commit in any project; without `direct` it applies no other rule |
+| 2026-10-19 | an arming authority's word beside the owner's | §5 rule 4: below the minimum or at the boundary, the role the repository's arming policy names may give the word, by AUTHORIZES or its own bound session; the review gate unchanged |

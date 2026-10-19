@@ -1,6 +1,6 @@
 ---
 name: pull-requests
-description: "How a change reaches main as a pull request in the fabric's projects: one change has one owner and the roles it needs supply it (commits or a for/ branch, never their own PR), the integrator folds unrebased and opens the one PR, fold then the full suite then one blind review then arm, a PR armed by its work-commit count against the repository's minimum (fabric-pr arm --dry-run) and below it only on the owner's word, and one open PR per agent and repository with the next piece of work as another commit on it. Load it before you open, supply, fold, add to or arm a pull request, or state a PR's status."
+description: "How a change reaches main as a pull request in the fabric's projects: one change has one owner and the roles it needs supply it (commits or a for/ branch, never their own PR), the integrator folds unrebased and opens the one PR, fold then the full suite then one blind review then arm, a PR armed by its work-commit count against the repository's minimum (fabric-pr arm --dry-run) and below it only on the owner's word or its arming authority's, and one open PR per agent and repository with the next piece of work as another commit on it. Load it before you open, supply, fold, add to or arm a pull request, or state a PR's status."
 ---
 
 # Pull requests
@@ -42,11 +42,21 @@ arm — all on that head; a new supply starts again at the fold.
 **A code PR is armed by its work-commit count** (review fixes excluded)
 against the repository's minimum, which `fabric-pr arm --dry-run` prints —
 never a number from memory. At it or above, arm once the review gate is
-met (a posted review of the head, no open P1/P2). Below it, ask the
-owner: their word ("arm <n>") goes in your basis as "the owner's word",
-unless the dry-run says the owner arms it by their own hand. Never
-without the gate. Any PR status you state carries its counts ("PR <n> is
-unarmed: 6 work, 2 fix, minimum 8").
+met (a posted review of the head, no open P1/P2). Below it, or for a
+security-boundary change under the boundary minimum, the dry-run names who
+may give the word: the owner, whose word ("arm <n>") goes in your basis as
+"the owner's word", or the repository's arming authority
+(`commits.below_min_authority`, `commits.boundary_authority`), whose
+holder sends you a DECISION or REPLY whose metadata, beside `TO:`, carries
+`AUTHORIZES: <owner/repo>#<n>@<head>` (arm reads the header, never the
+body), whose message id you pass with --authorization, or arms it from a
+session bound to that role (`fabric-pr arm <n> --basis "<role>'s word"`,
+with `--any-owner` when the PR is another session's, always where
+`authority_own_prs` is false). Ask the one it
+names, after the review; an authority vouches only for the head it names.
+Unless the dry-run says the owner arms it by their own hand. Never without
+the gate. Any PR status you state carries its counts ("PR <n> is unarmed:
+6 work, 2 fix, minimum 8").
 
 ## One open pull request
 
