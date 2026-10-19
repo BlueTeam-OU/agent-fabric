@@ -63,14 +63,22 @@ DEFAULT_TTL_S = 120
 ORIGIN = r"([^@/:]+@github\.com:|(https|ssh|git)://([^@/]+@)?github\.com/)([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)/?"
 
 
+UNPARSABLE = object()
+
+
 def field(payload: object, *path: str, default: str = "") -> str:
-    """The string at `path` in the payload, or `default` when it is absent, null or not a string (jq's `// default`;
-    an empty string is a value, as in jq)."""
+    """jq's `-r '.a.b // default'` over the payload: `default` for an absent, null or false value, "" where jq
+    would fail (a key looked up in a list or a string), the text of a number or true as jq prints it. An empty
+    string is a value."""
     for key in path:
-        if not isinstance(payload, dict):
+        if payload is None:
             return default
+        if not isinstance(payload, dict):
+            return ""
         payload = payload.get(key)
-    return payload if isinstance(payload, str) else default
+    if payload is None or payload is False:
+        return default
+    return payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def sample_context(raw: bytes) -> None:
@@ -167,10 +175,10 @@ def line(raw: bytes) -> str:
     try:
         payload = json.loads(raw)
     except ValueError:
-        payload = None
-    directory = field(payload, "workspace", "current_dir") or os.getcwd()
-    # A payload that is no JSON at all leaves the model empty, as jq's failure did; one that merely lacks it is "Claude".
-    model = field(payload, "model", "display_name", default="" if payload is None else "Claude")
+        payload = UNPARSABLE
+    directory = field(payload, "workspace", "current_dir") or hook_common.current_directory()
+    # A payload jq cannot read leaves the model empty, as its failure did; one that merely lacks it is "Claude".
+    model = field(payload, "model", "display_name", default="" if payload is UNPARSABLE else "Claude")
     harness = model
     if version := field(payload, "version"):
         harness = f"{version} · {harness}"
@@ -192,7 +200,13 @@ def line(raw: bytes) -> str:
 def main() -> int:
     raw = sys.stdin.buffer.read()
     sample_context(raw)
-    sys.stdout.buffer.write(line(raw).encode("utf-8", "surrogateescape"))
+    text = line(raw)
+    try:
+        out = text.encode("utf-8", "surrogateescape")
+    except UnicodeEncodeError:
+        # A lone surrogate the payload spelled as an escape (a high surrogate) is no path byte; jq refused such JSON, the line is drawn.
+        out = text.encode("utf-8", "replace")
+    sys.stdout.buffer.write(out)
     sys.stdout.buffer.flush()
     return 0
 

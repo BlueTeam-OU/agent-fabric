@@ -78,6 +78,16 @@ def run_isolated(program: str, stdin: str, environment: dict[str, str], cwd: str
     return Result(p.returncode, p.stdout.decode("utf-8", "surrogateescape"), p.stderr.decode("utf-8", "surrogateescape"))
 
 
+def run_in_removed_directory(program: str, stdin: str, environment: dict[str, str], parent: str) -> tuple[Result, str]:
+    """The program started in a directory that was removed after it became the cwd, with $PWD still naming it: what
+    a hook sees when the session deleted the directory it was launched in. Returns the result and that path."""
+    gone = os.path.join(parent, "gone")
+    launcher = "import os, sys; os.mkdir(sys.argv[1]); os.chdir(sys.argv[1]); os.rmdir(sys.argv[1]); os.execv(sys.argv[2], [sys.argv[2]])"
+    p = subprocess.run([sys.executable, "-c", launcher, gone, program], input=stdin.encode(), env={**environment, "PWD": gone},
+                       capture_output=True, timeout=TIMEOUT_S)
+    return Result(p.returncode, p.stdout.decode("utf-8", "surrogateescape"), p.stderr.decode("utf-8", "surrogateescape")), gone
+
+
 def tool_dir(dest: str, names: list[str]) -> str:
     """A directory holding links to exactly `names`, found on the real PATH: a PATH of it is a machine that lacks every other tool."""
     os.makedirs(dest, exist_ok=True)

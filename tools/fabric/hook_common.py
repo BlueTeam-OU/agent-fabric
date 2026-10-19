@@ -26,3 +26,12 @@ def agent_name() -> str:
 def short_host() -> str:
     """`hostname -s`: the node name up to its first dot."""
     return os.uname().nodename.split(".")[0]
+
+
+def current_directory() -> str:
+    """The process's directory, else $PWD, else "": a hook started in a directory that has since been removed
+    still runs, as the shell hooks' `$PWD` did, and then finds no repository."""
+    try:
+        return os.getcwd()
+    except OSError:
+        return os.environ.get("PWD", "")

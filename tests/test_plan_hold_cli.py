@@ -250,7 +250,10 @@ def main() -> int:
     blocker = os.path.join(T, "blocker")
     write(blocker, "a file where a directory must go")
     r = h.run(ENTRY, payload("PreToolUse", "plan"), environment(AGENT_FABRIC_HOLD_DIR=os.path.join(blocker, "hold")))
-    t.check("a hold directory that cannot be made: silent, exit 0, nothing written", r.rc == 0 and r.out == "" and r.err == "" and not os.path.isdir(DIR), f"{r.rc} {r.out!r} {r.err!r}")
+    fallback = os.path.join(HOME, ".cache", "agent-fabric", "hold")
+    t.check("a hold directory that cannot be made: silent, exit 0, nothing written there or in a fallback",
+            r.rc == 0 and r.out == "" and r.err == "" and os.path.isfile(blocker) and not os.path.exists(fallback) and not os.path.isdir(DIR),
+            f"{r.rc} {r.out!r} {r.err!r}")
     fire("PreToolUse", "plan")
     t.check("…and the same payload with a usable directory holds (the control)", held())
     return t.finish()

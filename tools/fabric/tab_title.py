@@ -67,7 +67,7 @@ def session_directory(raw: bytes) -> str:
     except ValueError:
         payload = None
     cwd = payload.get("cwd") if isinstance(payload, dict) else None
-    return cwd if isinstance(cwd, str) and os.path.isdir(cwd) else os.getcwd()
+    return cwd if isinstance(cwd, str) and os.path.isdir(cwd) else hook_common.current_directory()
 
 
 def main_worktree(directory: str) -> str:

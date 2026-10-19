@@ -37,7 +37,9 @@ shown as `#?` (case 1); gh failure cached (the unknown-is-not-cached case);
 the open-first sort removed (case 5); `🔗` replaced by `🌿` (case 9); the
 version dropped from the bracket (case 14); a trailing newline added (the
 whole-line case); the closed icon changed (closed case); the $PWD fallback
-changed (thin payload); the sampler not fed the payload (the context case).
+changed (thin payload); the sampler not fed the payload (the context case); the sampler's output or
+status let through, or its 2 s bound removed (the misbehaving-sampler cases); the removed-cwd fallback
+replaced by os.getcwd() (the removed-directory case); a non-object payload read as an object (the jq cases).
 
 Exit codes: 0 all assertions passed, 1 one or more failed."""
 from __future__ import annotations
@@ -48,6 +50,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 
 import hook_harness as h
 
@@ -243,6 +246,37 @@ def main() -> int:
     open(blocker, "w").close()
     r = line_of(session(repo, session_id="s-2", context_window={"used_percentage": 7}), AGENT_FABRIC_STATE_DIR=blocker)
     t.check("a sampler that cannot write never fails the line", r.rc == 0 and r.err == "" and r.out.endswith("📁 clone 🌿 main"), f"{r.rc} {r.out!r} {r.err!r}")
+
+    t.group("a sampler that misbehaves, in a copy of the tree (the sampler's path is fixed beside the hook)")
+    fake = os.path.join(T, "fake-tree")
+    hooks_dir = os.path.join(fake, "runtime", "claude-code", "hooks")
+    modules = os.path.join(fake, "tools", "fabric")
+    os.makedirs(hooks_dir)
+    os.makedirs(modules)
+    for name in ("statusline.py", "hook_common.py", "git.py"):
+        shutil.copy(os.path.join(h.ROOT, "tools", "fabric", name), modules)
+    shutil.copy(os.path.join(h.HOOKS, "statusline.sh"), hooks_dir)
+    sampler = os.path.join(hooks_dir, "context-sample.py")
+    drawn = os.path.join(modules if ENTRY.endswith(".py") else hooks_dir, os.path.basename(ENTRY))
+    sampler_source = {"noisy": "import sys\nprint('stdout noise')\nprint('stderr noise', file=sys.stderr)\nsys.exit(3)\n",
+                      "slow": "import time\ntime.sleep(30)\n"}
+    for kind, source in sampler_source.items():
+        with open(sampler, "w", encoding="utf-8") as fh:
+            fh.write(source)
+        began = time.monotonic()
+        r = h.run(drawn, json.dumps(session(repo)), environment(), cwd=repo)
+        t.check(f"a {kind} sampler changes nothing on stdout or stderr and not the exit status, within seconds",
+                r.rc == 0 and r.err == "" and r.out.startswith("[M] ") and "noise" not in r.out and time.monotonic() - began < 15, f"{r.rc} {r.out!r} {r.err!r}")
+
+    t.group("payloads jq reads differently from a plain object")
+    for label, text, bracket in (("null", "null", "[Claude] "), ("a list", "[]", "[] "), ("a string", '"x"', "[] "), ("not JSON", "garbage", "[] "),
+                                 ("a numeric version", '{"version": 2, "model": {"display_name": "M"}}', "[2 · M] "),
+                                 ("an empty model name", '{"model": {"display_name": ""}}', "[] "),
+                                 ("a lone surrogate in the model name", '{"model": {"display_name": "\\ud800"}}', "[?] ")):
+        r = line_of(text, cwd=plain)
+        t.check(f"{label}: the bracket reads {bracket!r}, exit 0", r.rc == 0 and r.out.startswith(bracket), f"{r.rc} {r.out!r} {r.err[-200:]!r}")
+    r, gone = h.run_in_removed_directory(ENTRY, "{}", environment(), T)
+    t.check("started in a directory that was removed: the line is drawn from $PWD, exit 0", r.rc == 0 and r.out.endswith("📁 gone"), f"{r.rc} {r.out!r} {r.err[-200:]!r}")
 
     if ENTRY.endswith(".py"):
         t.group("a module run as its forwarder runs it (python -I)")
