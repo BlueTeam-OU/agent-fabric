@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/install_agent_files.py's internals; the behaviour is
-runtime/claude-code/test_install-agent-files.sh's, run against the shim
-(ADR-040 §5 rule 5). What that oracle cannot reach is here, against a fixture
+tests/test_install_agent_files_cli.py's, run against the shim (ADR-040 §5
+rule 5). What that oracle cannot reach is here, against a fixture
 fabric root whose routing.py, identity.py and MCP install.py are stubs that
 record how they were called: the pin and effort placement, a model line that
 appears twice, the provider reaching routing, the user configuration paths,

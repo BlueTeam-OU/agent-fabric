@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The oracle for runtime/claude-code/install-agent-files.sh: what it installs
 into an account's ~/.claude, removes, leaves alone and prints, with its exit
-status. It is runtime/claude-code/test_install-agent-files.sh, case for case,
+status. It was runtime/claude-code/test_install-agent-files.sh, case for case,
+(the bash test is gone, Wave 9 batch 8),
 driven through ONE constant, INSTALL (default
 runtime/claude-code/install-agent-files.sh; $INSTALL_AGENT_FILES names
 another), so the same file runs against the bash today and against its Python

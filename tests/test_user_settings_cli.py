@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The oracle for runtime/claude-code/user-settings.py: the fabric's keys in a
 login's Claude Code user settings — what it writes, keeps, replaces and
-refuses, the one line it prints, and its exit status. It is
-runtime/claude-code/test_user-settings.sh, case for case, driven through ONE
+refuses, the one line it prints, and its exit status. It was
+runtime/claude-code/test_user-settings.sh, case for case (the bash test is
+gone, Wave 9 batch 8), driven through ONE
 constant, USER_SETTINGS (default runtime/claude-code/user-settings.py;
 $USER_SETTINGS names another entry), so the same file runs against the
 script today and against a port's shim later (ADR-040 §5 rule 5). The auto

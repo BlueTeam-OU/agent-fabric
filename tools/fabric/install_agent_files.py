@@ -5,8 +5,8 @@ capability-class agent files,
 from runtime/claude-code/agents/, with the routed pin and effort applied —
 and, on a language-culture login, the locale worker (below). Ported from
 runtime/claude-code/install-agent-files.sh (ADR-040 §5), which is now its
-shim; its bash test, runtime/claude-code/test_install-agent-files.sh, is the
-parity oracle.
+shim; tests/test_install_agent_files_cli.py is the parity oracle (its bash
+predecessor is gone, Wave 9 batch 8).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
 
