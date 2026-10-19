@@ -391,9 +391,7 @@ def main() -> int:
         finally:
             g.listed, g.GROUND_TRUTH_BUDGET_S = widened, budget
         check("the ground truth stops within its budget, across killall's names", took < 1.5, took)
-        # selects() hands its bound to the process it starts: a pgrep that
-        # hangs is killed at the timeout, never waited on (#70, tenth re-review).
-        g.listed = real_listed   # these cases pin the bounds the hook ships
+        # These cases pin the bounds the hook ships, with the real listed().
         # The shipped bounds, which every other case widens: ground_truth
         # under the real budget hands pgrep at most 2 s, and the budget
         # stays under the harness's 5 s hook timeout.
@@ -407,6 +405,8 @@ def main() -> int:
         check("the hook ships a 3 s ground-truth budget under the harness's 5 s",
               real_budget == 3.0, real_budget)
         check("…and hands each pgrep at most 2 s of it", len(got) == 1 and 0 < got[0] <= 2.0, got)
+        # selects() hands its bound to the process it starts: a pgrep that
+        # hangs is killed at the timeout, never waited on (#70, tenth re-review).
         real_run, seen = g.subprocess.run, []
 
         def recording(argv, **kw):
@@ -572,8 +572,8 @@ def main() -> int:
         os.makedirs(os.path.join(flags, "sh"))
         py, sh = os.path.join(flags, INBOX), os.path.join(flags, "sh", INBOX)
         with open(py, "w") as fh:
-            # Ends when the test closes its end of the pipe: `setsid` forks
-            # the watch off, and a kill of the Popen child would leave it.
+            # Ends when the test closes its end of the pipe: `timeout` forks
+            # the watch off as a child, and a kill of the Popen child would leave it.
             fh.write(f"#!{sys.executable}\nimport sys\nsys.stdin.read()\n")
         os.chmod(py, 0o755)
         with open(sh, "w") as fh:

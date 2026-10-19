@@ -86,12 +86,12 @@ def main() -> int:
 
         def hold(*args: str, **env: str) -> subprocess.Popen:
             """A holder in the background, its output in holder.out, waited
-            for until it prints `started` (five seconds at most)."""
+            for until it prints `started` (a minute at most)."""
             with open(holder_out, "w") as out:
                 p = subprocess.Popen(["bash", CMD, *args], env=clean_env(AGENT_FABRIC_LEASES=d, **env),
                                      stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
             holders.append(p)
-            for _ in range(50):
+            for _ in range(600):   # up to 60 s: a caller signals the holder once it is up
                 if "started" in read(holder_out):
                     break
                 time.sleep(0.1)
@@ -191,6 +191,9 @@ def main() -> int:
             # it needs, the probes to end, and pins only that a burst never
             # leaves a caller unable to run; the one-second window itself is
             # pinned by the next case, which a caller with no window fails.
+            # Not pinned by any case: that a probe's own hold is short (lease.py
+            # --who, flock to exit). It is the lifetime of a process, and
+            # bounding it needs a seam in the code under test, not a test.
             rc, out, err = lease("backend-test", "--wait", "120", "--", "echo", "got-through", merged=False)
             for p in probes:
                 p.wait()
@@ -200,13 +203,15 @@ def main() -> int:
             # a shared lock, starts the caller, and lets go the moment the
             # caller is queued behind it (a blocked FLOCK in /proc/locks, on
             # this file's inode), so the caller must wait the hold out inside
-            # its second, whatever the load.
+            # its second; what remains is the test's own wake-up latency, not a
+            # process start.
             with open(f"{d}/backend-test") as observer:
                 fcntl.flock(observer, fcntl.LOCK_SH)
                 inode = os.fstat(observer.fileno()).st_ino
                 caller = subprocess.Popen(["bash", CMD, "backend-test", "--", "echo", "got-through"],
                                           env=clean_env(AGENT_FABRIC_LEASES=d), stdout=subprocess.PIPE,
                                           stderr=subprocess.STDOUT, text=True)
+                holders.append(caller)
                 queued, give_up = False, time.monotonic() + 60
                 while not queued and caller.poll() is None and time.monotonic() < give_up:
                     queued = any("->" in ln and "FLOCK" in ln and f":{inode} " in ln
