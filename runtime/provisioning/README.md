@@ -23,7 +23,7 @@ directory it stands in identifies context, never identity.
 ## The steps, per account
 
 **One command does all of it** (fabric-coordinator, from its own login).
-It has two halves: the orchestrator, `new-agent.sh`, runs where the
+It has two halves: the orchestrator, `new_agent.py`, runs where the
 coordinator is and keeps what only the coordinator holds — the
 registries, its own store (the account's parent, ADR-038), the API keys; the host half,
 `new-agent-worker.sh`, runs on the host the account lives on
@@ -41,11 +41,11 @@ What a project needs beyond that is the project's to say —
 for each `--project`:
 
 ```sh
-runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--surname <Surname>] [--no-signing-key] [--dry-run]
-runtime/provisioning/new-agent.sh <login> --human [--host <id>] [--dry-run]   # a person's login (ADR-044)
-runtime/provisioning/new-agent.sh <login> <role> --claude-account <slug> --project <id> --project <id>
-runtime/provisioning/new-agent.sh <login> <role> --claude-account <slug> --host <host-id> --project <id>   # on another host
-runtime/provisioning/new-agent.sh <login> <role> --no-claude-account --project <id>   # the broker path only
+python3 tools/fabric/new_agent.py <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--surname <Surname>] [--no-signing-key] [--dry-run]
+python3 tools/fabric/new_agent.py <login> --human [--host <id>] [--dry-run]   # a person's login (ADR-044)
+python3 tools/fabric/new_agent.py <login> <role> --claude-account <slug> --project <id> --project <id>
+python3 tools/fabric/new_agent.py <login> <role> --claude-account <slug> --host <host-id> --project <id>   # on another host
+python3 tools/fabric/new_agent.py <login> <role> --no-claude-account --project <id>   # the broker path only
 ```
 
 The Claude account it starts on is a template in the coordinator's store
@@ -92,7 +92,7 @@ fails the script, nothing is copied from another account); GitHub's host key in
 public; the account has no key yet) — or, when the account already has
 one, that clone fast-forwarded to `origin/main`, and refused when it is
 off `main`; its key and store —
-`store-enroll.sh <login> --born-now`, made on its host and certified by
+`python3 tools/fabric/store_enroll.py <login> --born-now`, made on its host and certified by
 the coordinator — filled by the coordinator as its parent
 (`fabric-secrets provision identity`, `share`, then `issue-key
 openrouter` and `issue-key openai` **once each**: a key of the account's
@@ -120,7 +120,7 @@ as its last step, 11 — the coordinator's gpg exports the key its git
 config signs with, the account's imports it on a pipe, pinentry asks the
 passphrase, the ownertrust is set and a test signature as the account
 proves it; without a terminal, or with `--no-signing-key`, the closing
-names `runtime/provisioning/new-agent.sh --signing-key-only <login>`, which
+names `python3 tools/fabric/new_agent.py --signing-key-only <login>`, which
 runs step 11 alone for the existing account at a terminal later, and the
 two gpg lines as the fallback), `~/.claude/.credentials.json` for the
 plain-claude path (a credential copy a classifier refuses an agent), and
@@ -131,7 +131,7 @@ toolchain, and a `fill-from` that copied the coordinator's admin keys.
 
 A **human login** (agent-fabric ADR-044) — a person's, such as the one
 Fleet Deck runs on — is placed with `kinds` `human` in
-`runtime/hosts/registry.json` (merged) **before** `new-agent.sh <login>
+`runtime/hosts/registry.json` (merged) **before** `python3 tools/fabric/new_agent.py <login>
 --human`: the kind decides what `fabric-secrets status` requires of it,
 and its clone reads it there. The run makes the account, its fabric
 clone, its key and store with its identity and `CLAUDE_BRIDGE_AUTH_TOKEN`
@@ -160,7 +160,7 @@ What the steps are, when done by hand:
    session's system prompt. A different role later is a rebind here and a
    relaunch.
 4. **Enrol the identity's secrets** (fabric-coordinator, from its own
-   login): `runtime/provisioning/secrets/store-enroll.sh <login>`, then
+   login): `python3 tools/fabric/store_enroll.py <login>`, then
    `fabric-secrets provision` — see "Secrets" below. After it,
    `OPENROUTER_API_KEY`, `GH_TOKEN`,
    `OPENAI_API_KEY` and the GZCoord token are in
@@ -211,7 +211,7 @@ tools read:
   `--no-pull` applies the copy as it is, once, right after `store
   take-bundle`; `status` reports presence, modes and ages — neither
   prints a value.
-- `secrets/store-enroll.sh <login> [--host <id>] [--role <slug>] [--born-now]`
+- `python3 tools/fabric/store_enroll.py <login> [--host <id>] [--role <slug>] [--born-now]`
   (coordinator): the account's id, its private repository, its key and
   store made on its host, the certification, the mirror. With
   `--born-now` (a new account, with no GitHub key yet) its first commit

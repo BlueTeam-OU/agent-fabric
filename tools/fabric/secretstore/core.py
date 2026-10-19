@@ -21,7 +21,7 @@ NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 
 class NotInLineage(StoreError):
     """No agent with that login or id: the one answer that lets a parent
-    mint an id (store-enroll.sh). An unreadable lineage is not this."""
+    mint an id (store_enroll.py). An unreadable lineage is not this."""
 
 
 def login() -> str:

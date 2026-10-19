@@ -621,6 +621,8 @@ def main() -> int:
         check("status: an unchanged store adds no note, an unreadable one says so",
               status.store_note({"store_moved": False, "addenda_changed": False}) == ""
               and status.store_note({"store_moved": None, "addenda_changed": None}) == "; the store could not be read now")
+        check("status: a moved store whose addenda could not be compared says only that it moved (unknown is not 'unchanged')",
+              status.store_note({"store_moved": True, "addenda_changed": None}) == "; the store has moved past the launch")
         rec, drift = status.holder_addenda({**stamped, "AGENT_FABRIC_SECRET_STORE": os.path.join(tmp, "nowhere")})
         check("status: a store that cannot be read is unknown, never 'unchanged', and not drift",
               rec["store_moved"] is None and rec["addenda_changed"] is None and drift is None, repr((rec, drift)))

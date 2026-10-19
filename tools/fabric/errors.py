@@ -21,9 +21,10 @@ total, per actor, per actor class (person or agent) and per role:
    review: in agent-fabric the jobs `ci-ok` lists in .github/workflows/ci.yml
    on the default branch), a matrix job by its "name (legs)" runs; never the
    aggregate itself, which counts them again, never a cancelled run and never
-   a run of another workflow (pr-counts, stripped-nightly): by the run's name
-   only, so a check of another workflow that shares a needed job's name would
-   be counted (none does in agent-fabric). A head is a
+   a run of another workflow (pr-counts, stripped-nightly): by workflow and
+   job, the run's workflow being the one its Actions run belongs to, so a job
+   of another workflow that shares a needed job's name is not counted, nor is
+   a check run that belongs to no Actions run. A head is a
    commit of the PR on which such a run ran to a conclusion (checks run on
    push). A repository with no such aggregate is not read for red checks, and
    says so. A named check that failed and whose last run on the same
@@ -91,6 +92,7 @@ ABSENCE_WORDS = {"none", "no", "nothing", "finding", "findings", "empty", "0", "
 # "P2 findings:" names a level and states nothing; an absence needs a word that denies.
 NEGATIONS = {"none", "no", "nothing", "empty", "0"}
 CLAUSE = re.compile(r"[.;\n]")
+MARKUP_ONLY = re.compile(r"[\s*_#>`~|=-]*")
 LABEL = re.compile(r"[A-Z]{1,2}-?[0-9]+(?:-[0-9]+)?")
 FOLD = re.compile(r"^Merge (?:remote-tracking )?branch '(?:origin/)?([^'/\s]+)/([^'/\s]+)/for/[^'\s]+'")
 UNATTRIBUTED = "unattributed"
@@ -192,9 +194,46 @@ def role_of(commit: dict) -> tuple[str, str]:
     return ("agent", role) if role else ("person", "-")
 
 
+def words_of(clause: str) -> list[str]:
+    return [w.lower() for w in re.findall(r"[A-Za-z0-9]+", LEVEL_LINE.sub(" ", clause))]
+
+
 def absence(clause: str) -> bool:
-    words = [w.lower() for w in re.findall(r"[A-Za-z0-9]+", LEVEL_LINE.sub(" ", clause))]
+    words = words_of(clause)
     return bool(words) and all(w in ABSENCE_WORDS for w in words) and any(w in NEGATIONS for w in words)
+
+
+def is_heading(clause: str) -> bool:
+    """A clause that is a section's title: a `#` heading, a clause wholly in bold (CLAUSE cuts a period inside the
+    bold, so an unclosed one counts), or one ending in a colon. `**P3** none` is a label with its value, not a title."""
+    return bool(re.match(r"\s*#", clause) or re.fullmatch(r"\s*\*\*[^*]*(?:\*\*)?\s*", clause)) or clause.rstrip().endswith(":")
+
+
+def hides_finding(clauses: list[str]) -> bool:
+    """Whether a section's clauses (up to the next level or `#` heading) hold something that is not a denial."""
+    for later in clauses:
+        if LEVEL_LINE.search(later) or later.startswith("#"):
+            break
+        # Only markup left over by CLAUSE (the `**` of a bold cut at its period, a rule) is no clause; text in
+        # another script has no word for words_of, and is no denial either.
+        if not MARKUP_ONLY.fullmatch(later) and not absence(later):
+            return True
+    return False
+
+
+def level_unparsed(clauses: list[str], i: int) -> bool:
+    """Whether the level clause at `i` leaves what the review says unknown. A level with no other word (or only
+    "findings") is a heading and says what its next clause says; a heading that denies findings ("## No P1
+    findings") speaks for its whole section, so a clause of the section that is not itself a denial is a finding
+    it would hide, whichever of the two forms the heading takes."""
+    clause = clauses[i]
+    words = words_of(clause)
+    if set(words) <= {"finding", "findings"}:
+        nxt = clauses[i + 1] if i + 1 < len(clauses) else ""
+        return not absence(nxt) or bool(LEVEL_LINE.search(nxt)) or hides_finding(clauses[i + 2:])
+    if not absence(clause):
+        return True
+    return is_heading(clause) and hides_finding(clauses[i + 1:])
 
 
 def parse_review(body: str) -> tuple[list[tuple[str, str]], bool]:
@@ -203,7 +242,8 @@ def parse_review(body: str) -> tuple[list[tuple[str, str]], bool]:
     found: dict[str, str] = {}
     for m in FINDING.finditer(body):
         found.setdefault(f"F{m.group(1)}", f"P{m.group(2)}")
-    unparsed = not found and any(LEVEL_LINE.search(c) and not absence(c) for c in CLAUSE.split(body))
+    clauses = [c.strip() for c in CLAUSE.split(body) if c.strip()]
+    unparsed = not found and any(LEVEL_LINE.search(c) and level_unparsed(clauses, i) for i, c in enumerate(clauses))
     return list(found.items()), unparsed
 
 
@@ -211,7 +251,9 @@ def check_verdict(runs: list[dict], needed: set[str]) -> tuple[bool, list[str], 
     """(counted, red names, flaky names) for one sha's check runs of the needed jobs."""
     by_name: dict[str, list[dict]] = {}
     for r in runs:
-        if not counted_run(r.get("name") or "", needed) or not r.get("conclusion") or r["conclusion"] == "cancelled":
+        # The name alone is not the job: a same-named job of another workflow is not the aggregate's dependency.
+        if r.get("workflow_path") != WORKFLOW or not counted_run(r.get("name") or "", needed) \
+                or not r.get("conclusion") or r["conclusion"] == "cancelled":
             continue
         by_name.setdefault(r["name"], []).append(r)
     red, flaky = [], []
@@ -263,6 +305,8 @@ def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, 
     if not (period or cperiod):
         return []
     ev = [{**base, "kind": "pr", "closed": closed}]
+    if pr.get("cut"):
+        ev.append({**base, "kind": "cut"})
     # Every row that had a commit in this PR is in the denominator of its reverts and fixes forward, and so is the
     # head ref's own row: fixes forward and a revert of the merge commit are attributed to it even when the head
     # commit is not among the commits read (then its class and role are "person" and "-"), and a count must
@@ -347,6 +391,7 @@ def tally(events: list[dict]) -> dict:
                         "findings": {k: findings[k] for k in sorted(findings)}, "findings_total": nfind,
                         "findings_per_review": rate(nfind, len(reviews) - sum(1 for e in reviews if e["unparsed"])),
                         "on_a_commit_not_in_the_pr": sum(1 for e in events if e["kind"] == "review_elsewhere")},
+            "prs_cut": len({(e["repo"], e["pr"]) for e in events if e["kind"] == "cut"}),
             "red_checks": {"unread_no_aggregate": sum(1 for e in events if e["kind"] == "checks_unread"),
                            "heads": len(heads), "heads_red": red_heads, "rate": rate(red_heads, len(heads)),
                            "by_check": {k: red_by[k] for k in sorted(red_by)},
@@ -378,6 +423,7 @@ def render(rep: dict, doc: dict) -> str:
         pct = lambda x: "no rate (<5)" if x is None else f"rate {x}"  # noqa: E731
         return (f"  {name}: PRs {t['prs_merged']} ({t['prs_in_closed_period']} in the closed-window period); "
                 f"findings in {r['given']} reviews ({r['unparsed']} unparsed): {fnd}; "
+                f"{'%d PR(s) READ IN PART (GitHub lists at most 250 commits of a PR), their counts are partial; ' % t['prs_cut'] if t['prs_cut'] else ''}"
                 f"red heads {c['heads_red']}/{c['heads']} {pct(c['rate'])}, by check {c['by_check'] or '-'}, flaky {c['flaky_not_the_actors'] or '-'}"
                 f"{'; red checks NOT READ for %d PRs (no aggregate in %s)' % (c['unread_no_aggregate'], WORKFLOW) if c['unread_no_aggregate'] else ''}; "
                 f"reverts {t['reverts']['count']}/{t['reverts']['of_prs_with_closed_window']} {pct(t['reverts']['rate'])} "
@@ -398,17 +444,29 @@ WORKERS = 8                                          # one gh call per commit: t
 RETRIES = 2
 
 
+RUN_OF_JOB = re.compile(r"/actions/runs/(\d+)(?:/|$)")
+
+
 def check_runs(repo: str, sha: str) -> list[dict]:
-    """A sha's check runs. A read that failed in a way a retry could help (gh.GhError.transient) is retried; any
-    other failure, or the last one, is raised: a head whose checks are unread is never counted green."""
+    """A sha's check runs, each with the path of the workflow that ran it (`workflow_path`; None for a run that
+    is no job of a workflow run, whose workflow is then unknown). A read that failed in a way a retry could help
+    (gh.GhError.transient) is retried; any other failure, or the last one, is raised: a head whose checks are
+    unread is never counted green."""
     for attempt in range(RETRIES + 1):
         try:
-            return gh.api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True, items_key="check_runs")
+            runs = gh.api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True, items_key="check_runs")
+            wf = gh.api(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100", paginate=True, items_key="workflow_runs")
+            break
         except gh.GhError as e:
             if not e.transient or attempt == RETRIES:
                 raise
             time.sleep(2 ** attempt)
-    raise AssertionError("unreachable")
+    path_of = {str(w["id"]): w.get("path") for w in wf}
+    out = []
+    for r in runs:
+        m = RUN_OF_JOB.search(r.get("details_url") or "")
+        out.append({**r, "workflow_path": path_of.get(m.group(1)) if m else None})
+    return out
 
 
 def read_needed(repo: str, aggregates: set[str]) -> set[str] | None:

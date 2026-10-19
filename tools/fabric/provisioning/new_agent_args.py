@@ -22,10 +22,10 @@ SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 FINGERPRINT = re.compile(r"[0-9a-f]{12}")
 
 
-USAGE = ("usage: new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] "
+USAGE = ("usage: python3 tools/fabric/new_agent.py <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] "
          "[--project <id>]... [--claude VERSION|stable|latest] [--surname <Surname>] [--no-signing-key] [--dry-run]\n"
-         "       new-agent.sh <login> --human [--host <id>] [--dry-run]\n"
-         "       new-agent.sh --signing-key-only <login>\n")
+         "       python3 tools/fabric/new_agent.py <login> --human [--host <id>] [--dry-run]\n"
+         "       python3 tools/fabric/new_agent.py --signing-key-only <login>\n")
 
 
 # A surname as identities/personas/surnames.json spells one: letters, with a space, hyphen or apostrophe inside
@@ -38,22 +38,22 @@ NO_ACCOUNT_CHOICE = ("new-agent: name the Claude account it starts on: --claude-
 
 
 HELP = """\
-runtime/provisioning/new-agent.sh — give a role its own account on this
+tools/fabric/new_agent.py — give a role its own account on this
 host: everything the control plane can do without a person at a
 terminal, in order, idempotently, then the short list of what only a
 person can do. Run by a fabric-coordinator holder from its own login
 (the account steps go through sudo; the secrets step is the
 coordinator's as the account's parent, ADR-038).
 
-  runtime/provisioning/new-agent.sh <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--surname <Surname>] [--no-signing-key] [--dry-run]
-  runtime/provisioning/new-agent.sh <login> --human [--host <id>] [--dry-run]
-  runtime/provisioning/new-agent.sh --signing-key-only <login>
+  python3 tools/fabric/new_agent.py <login> <role> (--claude-account <slug> | --no-claude-account) [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--surname <Surname>] [--no-signing-key] [--dry-run]
+  python3 tools/fabric/new_agent.py <login> --human [--host <id>] [--dry-run]
+  python3 tools/fabric/new_agent.py --signing-key-only <login>
 
-  new-agent.sh <login> <role> --claude-account <slug> --project <id> --project <id>
-  new-agent.sh <login> <role> --claude-account <slug> --host <host-id> --project <id>      # on another host
-  new-agent.sh <login> <role> --no-claude-account --project <id>   # the broker path only
-  new-agent.sh <login> <role> --claude-account <slug> --surname Huber   # its surname claimed now
-  new-agent.sh <login> --human     # a person's login (ADR-044): placed with kinds "human" first
+  python3 tools/fabric/new_agent.py <login> <role> --claude-account <slug> --project <id> --project <id>
+  python3 tools/fabric/new_agent.py <login> <role> --claude-account <slug> --host <host-id> --project <id>      # on another host
+  python3 tools/fabric/new_agent.py <login> <role> --no-claude-account --project <id>   # the broker path only
+  python3 tools/fabric/new_agent.py <login> <role> --claude-account <slug> --surname Huber   # its surname claimed now
+  python3 tools/fabric/new_agent.py <login> --human     # a person's login (ADR-044): placed with kinds "human" first
 
 --surname claims the agent's surname (ADR-056 rule 4): on
 identities/personas/surnames.json and unclaimed, checked before anything
@@ -68,7 +68,7 @@ On a terminal, an agent's last step imports the fleet's signing key
 --no-signing-key, the closing names the command that runs that step
 alone, later, at a terminal:
 
-  runtime/provisioning/new-agent.sh --signing-key-only <login>
+  python3 tools/fabric/new_agent.py --signing-key-only <login>
 
 step 11 and nothing else, for an account that exists, on the host the
 registry places it; refused without a terminal, and for a human. The
@@ -197,7 +197,7 @@ def parse(argv: list[str]) -> dict:
         i += 1
     if o["human"]:
         if o["role"]:
-            raise Exit(2, f"new-agent: a human login has no role (ADR-044): new-agent.sh {o['login']} --human")
+            raise Exit(2, f"new-agent: a human login has no role (ADR-044): python3 tools/fabric/new_agent.py {o['login']} --human")
         if o["claude-account"] is not None or o["no-claude-account"] or o["claude"] or o["projects"] or o["surname"] is not None:
             raise Exit(2, "new-agent: --human takes --host and --dry-run only: a human has no Claude account, no claude "
                           "no project clones and no persona surname (ADR-044, ADR-056)")

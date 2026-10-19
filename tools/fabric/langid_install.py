@@ -130,12 +130,14 @@ def run(argv: list[str]) -> int:
         executable = os.path.isfile(venv_python) and os.access(venv_python, os.X_OK)
         made = False
         if not executable:
-            # venv writes bin/python before bin/pip: a half-made one would pass the
-            # `executable` test on the next run and fail there for the wrong reason.
+            # A directory that was there before is not ours to delete when `venv` fails over it; only the
+            # half-made one this run began is: venv writes bin/python before bin/pip, so a half-made one would
+            # pass the `executable` test on the next run and fail there for the wrong reason.
+            existed = os.path.lexists(venv)
             try:
                 made = quiet(["python3", "-m", "venv", venv], VENV_TIMEOUT_S)
             finally:
-                if not made:
+                if not made and not existed:
                     shutil.rmtree(venv, ignore_errors=True)
         if not executable and not made:
             say(f"  !  {venv}: python3 -m venv failed; the language section stays unavailable")

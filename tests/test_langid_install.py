@@ -176,6 +176,33 @@ class Langid(unittest.TestCase):
         self.assertIn("python3 -m venv failed; the language section stays unavailable", out)
         self.assertFalse(os.path.exists(self.installed))
 
+    def failing_venv(self) -> str:
+        """A python3 whose `-m venv` leaves a half-made venv (bin/python only) behind and fails."""
+        fakebin = os.path.join(self.sandbox, "fakebin")
+        os.makedirs(fakebin)
+        real = shutil.which("python3")
+        self.script(os.path.join(fakebin, "python3"),
+                    f'#!/bin/sh\nif [ "$1 $2" = "-m venv" ]; then mkdir -p "$3/bin"; : > "$3/bin/half"; exit 1; fi\nexec "{real}" "$@"\n')
+        return f"{fakebin}{os.pathsep}{self.path}"
+
+    def test_venv_failure_removes_the_half_made_venv_it_began(self) -> None:
+        # The positive control of the next test: the same failure over a venv that was not there.
+        p = self.run_install(path=self.failing_venv())
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "venv")))
+
+    def test_venv_failure_keeps_a_directory_that_was_there_and_says_it(self) -> None:
+        keep = os.path.join(self.dir, "venv", "mine")
+        os.makedirs(os.path.dirname(keep))
+        with open(keep, "w", encoding="utf-8") as fh:
+            fh.write("kept")
+        p = self.run_install(path=self.failing_venv())
+        out = p.stdout + p.stderr
+        self.assertEqual(p.returncode, 1, out)
+        self.assertIn("python3 -m venv failed; the language section stays unavailable", out)
+        with open(keep, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "kept")
+
     def test_target_directory_is_private(self) -> None:
         self.fakevenv()
         os.chmod(self.dir, 0o755)

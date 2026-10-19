@@ -302,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("init")
     i.add_argument("--remote")
-    i.add_argument("--agent-id", help="the id the parent minted at enrolment (store-enroll.sh)")
+    i.add_argument("--agent-id", help="the id the parent minted at enrolment (store_enroll.py)")
     managed_help = ("a name the fabric manages, on purpose — intent, not a fence: the rotation recipe "
                     "(runtime/provisioning/README.md) and fabric-ctl keygen pass it")
     s = sub.add_parser("set")

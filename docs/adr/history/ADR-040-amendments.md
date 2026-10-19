@@ -217,3 +217,17 @@ files at gzapp's origin/HEAD:
   validator replaces it (jsonschema with the OAS 3.1 meta-schema, or
   openapi-spec-validator) is the holder's choice, and a difference the
   oracle shows is reported, not hidden.
+
+### Amendment 2026-10-19 — the provisioning entries are their modules
+
+§5 rules 1 and 7. The owner asked devex-tooling to propose retiring
+`runtime/provisioning/new-agent.sh`, a 16-line forwarder whose only work
+beyond the exec was printing the pin's install command (REQUEST
+01a15372); `store-enroll.sh` had the same shape. The coordinator took it
+for both: the hint moves into the module, which re-execs itself under
+the pin when it is present and prints the install command and exits 127
+when it is not, so the provisioning a person runs has no shell in front
+of it. A `bin/` command was not chosen, since every `bin/` entry is
+itself a bash forwarder. python-dev-03 built it (#315); the old paths
+say on stderr what replaces them for one release and are then deleted,
+as rule 7's shim steps say.
