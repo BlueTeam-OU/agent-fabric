@@ -117,6 +117,11 @@ def main() -> int:
     finally:
         shutil.rmtree(unit, ignore_errors=True)
 
+    live = os.path.join(HERE, "projects", "registry.json")
+    if not os.path.exists(live) or LIKE not in json.load(open(live, encoding="utf-8")).get("projects", {}):
+        print(f"  skip: {LIKE} is not registered here (a stripped copy); the tree cases need the operator's registry")
+        return 1 if fails else 0
+
     scratch = tempfile.mkdtemp(prefix="test_project_import.")
     try:
         env = clean_env(scratch)
