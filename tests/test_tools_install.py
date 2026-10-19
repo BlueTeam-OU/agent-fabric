@@ -836,6 +836,347 @@ def main() -> int:
                             ("a member beside it", {**good, "member": "faketool"})):
             check(f"{label}: refused", tools_install.check_pin(pin_) is not None, pin_)
 
+        print("program-running pins — rustup's installer and a cargo install")
+        # The fakes are real programs run by the real code: the installer dispatches on its own name
+        # (rustup-init installs, anything else is a proxy), as rustup does.
+        PROXY = """#!/bin/sh
+case "$(basename "$0")" in
+rustup) echo "rustup %(ver)s (fake)" ;;
+cargo)
+  if [ "$2" = install ]; then
+    { printf '%%s\\n' "$0" "$@"; env | sort; } >> "$HOME/install.record"
+    echo junk > "$TMPDIR/build-junk"
+    [ -e "$HOME/.fake-cargo-fails" ] && { echo "error: no space left" >&2; exit 101; }
+    [ -e "$HOME/.fake-cargo-sleeps" ] && { sleep 300 & echo $! > "$HOME/cargo-child.pid"; sleep 30; }
+    printf '#!/bin/sh\\n' > "$CARGO_HOME/bin/cargo-ndk"; chmod +x "$CARGO_HOME/bin/cargo-ndk"
+  elif [ "$2" = ndk ]; then
+    [ "$RUSTUP_AUTO_INSTALL" = 0 ] || echo "$RUSTUP_AUTO_INSTALL" > "$HOME/proof-would-download-toolchain"
+    [ -x "$CARGO_HOME/bin/cargo-ndk" ] && echo "cargo-ndk %(nver)s" || { echo "no such command: ndk" >&2; exit 101; }
+  fi ;;
+esac
+"""
+        INIT = """#!/bin/sh
+{ printf 'name=%%s\\n' "$(basename "$0")"; printf 'arg=%%s\\n' "$@"; env | sort; } > "$HOME/init.record"
+[ -e "$HOME/.fake-init-fails" ] && { echo "error: could not create $CARGO_HOME" >&2; exit 1; }
+[ -e "$HOME/.fake-init-sleeps" ] && { trap '' TERM; ( trap '' TERM; sleep 300 ) & echo $! > "$HOME/init-child.pid"; wait; }
+mkdir -p "$CARGO_HOME/bin"
+cat > "$CARGO_HOME/bin/rustup" <<'PROXY_EOF'
+%(proxy)s
+PROXY_EOF
+chmod +x "$CARGO_HOME/bin/rustup"
+ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
+"""
+
+        def init_body(ver: str = "1.29.1") -> bytes:
+            proxy = PROXY % {"ver": ver, "nver": "4.1.2"}
+            return (INIT % {"proxy": proxy.rstrip("\n").replace("%%", "%")}).encode()
+
+        RURL = "https://example.invalid/rustup-init"
+        NDK = {"kind": "cargo", "version": "4.1.2", "locked": True, "toolchain": "1.98.1"}
+
+        def rustup_entry(body: bytes) -> dict:
+            return {"name": "rustup", "proof": "rustup --version", "version": "per toolchain file", "why": "t", "where": "account",
+                    "install": {"kind": "installer", "version": "1.29.1", "url": RURL, "sha256": sha(body)}}
+
+        def ndk_entry(**over: object) -> dict:
+            pin_ = {**NDK, **over}
+            return {"name": "cargo-ndk", "proof": "cargo +1.98.1 ndk --version", "why": "t", "where": "account",
+                    "install": {k: v for k, v in pin_.items() if v is not None}}
+
+        def run_tool(tool: str, home: str, e: dict, fetch=never) -> dict:
+            return tools_install.install(tool, reg=registry(("pa", e)), home=home, fetch=fetch)
+
+        def record(home: str, name: str) -> list[str]:
+            try:
+                return open(os.path.join(home, name), encoding="utf-8").read().splitlines()
+            except OSError:
+                return []
+
+        def flag(home: str, name: str) -> None:
+            open(os.path.join(home, name), "w").close()
+
+        def alive(pid_file: str) -> bool:
+            """Whether the child a fake recorded is running; a live one is killed, so a failing run leaves none.
+            A zombie is dead: in a container whose pid 1 does not reap, a killed grandchild stays one, and kill -0 says yes."""
+            try:
+                pid_ = int(open(pid_file).read())
+                with open(f"/proc/{pid_}/stat", encoding="ascii", errors="replace") as fh:
+                    state = fh.read().rsplit(")", 1)[1].split()[0]
+            except (OSError, ValueError, IndexError):
+                return False
+            if state == "Z":
+                return False
+            os.kill(pid_, signal.SIGKILL)
+            return True
+
+        body = init_body()
+        # The session's own values must not reach the program: a hostile CARGO_HOME would move the install
+        # where the links and the proof do not look.
+        hostile = {"CARGO_HOME": "/nonexistent-hostile-cargo", "RUSTUP_HOME": "/nonexistent-hostile-rustup",
+                   "GITHUB_TOKEN": "ghp_hostile", "ANTHROPIC_API_KEY": "sk-hostile",
+                   "HTTPS_PROXY": "http://user:hostile@proxy.invalid:3128", "SSL_CERT_FILE": "/tmp/hostile-ca.pem"}
+        saved_env = {k: os.environ.get(k) for k in hostile}
+        saved_bound = dict(tools_install.RUN_TIMEOUT_S)
+        os.environ.update(hostile)
+        calls: list[tuple] = []
+        real_popen = tools_install.subprocess.Popen
+
+        class SpyPopen(real_popen):  # type: ignore[misc, valid-type]
+            def __init__(self, *a: object, **kw: object) -> None:
+                calls.append((a, kw))
+                super().__init__(*a, **kw)
+
+        tools_install.subprocess.Popen = SpyPopen
+        try:
+            home = account("pa")
+            r = run_tool("rustup", home, rustup_entry(body), serving(body))
+            check("rustup: installed, naming version and path",
+                  (r["status"], r.get("version"), r.get("path")) == ("installed", "1.29.1", os.path.join(home, ".local", "bin", "rustup")), r)
+            rec = record(home, "init.record")
+            check("the installer ran as rustup-init with exactly the fixed argv",
+                  rec[0] == "name=rustup-init" and [x for x in rec if x.startswith("arg=")]
+                  == ["arg=" + a for a in tools_install.RUSTUP_INIT_ARGV], rec[:9])
+            check("...argv is the module's: -y --no-modify-path --profile minimal --default-toolchain none",
+                  tools_install.RUSTUP_INIT_ARGV == ("-y", "--no-modify-path", "--profile", "minimal", "--default-toolchain", "none"))
+            ran = [c for c in calls if os.path.basename(c[0][0][0]) == "rustup-init"]
+            check("...never through a shell: an argument list, no shell=True",
+                  len(ran) == 1 and isinstance(ran[0][0][0], list) and not ran[0][1].get("shell"), ran)
+            check("the program's CARGO_HOME and RUSTUP_HOME are the account's, not the session's",
+                  f"CARGO_HOME={home}/.cargo" in rec and f"RUSTUP_HOME={home}/.rustup" in rec and f"HOME={home}" in rec, rec)
+            check("...and the session's token and key did not reach it", not any("hostile" in x for x in rec), rec)
+            check("rustup, cargo and rustc are links into ~/.cargo/bin in ~/.local/bin, and nothing else is left there",
+                  listing(home) == ["cargo", "rustc", "rustup"]
+                  and all(os.readlink(os.path.join(home, ".local", "bin", n)) == os.path.join(home, ".cargo", "bin", n) for n in tools_install.RUSTUP_LINKS),
+                  listing(home))
+            check("the proof reaches rustup through those links", subprocess.run(
+                [os.path.join(home, ".local", "bin", "rustup"), "--version"], capture_output=True, text=True, timeout=30).stdout.startswith("rustup 1.29.1"))
+            again = run_tool("rustup", home, rustup_entry(body))
+            check("a second run is current and fetches and runs nothing (the fetch is `never`)",
+                  again["status"] == "current" and len([c for c in calls if os.path.basename(c[0][0][0]) == "rustup-init"]) == 1, again)
+            os.unlink(os.path.join(home, ".local", "bin", "cargo"))
+            half = run_tool("rustup", home, rustup_entry(body), serving(body))
+            check("with a proxy link missing, rustup answering is not current: the install runs and completes the links",
+                  half["status"] == "installed" and tools_install.links_in_place(home), half)
+
+            home = account("pa")
+            r = run_tool("rustup", home, rustup_entry(body), serving(body + b"#"))
+            check("a digest mismatch runs nothing and places nothing",
+                  r["status"] == "failed" and "sha256" in r["reason"] and record(home, "init.record") == [] and listing(home) == [], (r, listing(home)))
+
+            home = account("pa")
+            flag(home, ".fake-init-fails")
+            r = run_tool("rustup", home, rustup_entry(body), serving(body))
+            check("an installer that exits non-zero: failed with its last line, no link, no staging",
+                  r["status"] == "failed" and "exited 1" in r["reason"] and "could not create" in r["reason"] and listing(home) == [], (r, listing(home)))
+
+            home = account("pa")
+            bad = init_body("1.0.0")
+            r = run_tool("rustup", home, rustup_entry(bad), serving(bad))
+            check("an installer whose result proves as another version: failed, naming both",
+                  r["status"] == "failed" and "not 1.29.1" in r["reason"], r)
+
+            home = account("pa")
+            foreign = os.path.join(home, ".local", "bin", "cargo")
+            with open(foreign, "w") as fh:
+                fh.write("#!/bin/sh\necho mine\n")
+            r = run_tool("rustup", home, rustup_entry(body), serving(body))
+            check("a file at ~/.local/bin/cargo that is not a link is refused, and left as it was",
+                  r["status"] == "failed" and "not a link" in r["reason"] and open(foreign).read().endswith("mine\n"), r)
+            os.unlink(foreign)
+            r = run_tool("rustup", home, rustup_entry(body), serving(body))
+            check("...and with it gone the same install goes through (positive control)", r["status"] == "installed" and tools_install.links_in_place(home), r)
+
+            home = account("pa")
+            tools_install.RUN_TIMEOUT_S["installer"] = 1
+            flag(home, ".fake-init-sleeps")
+            t0 = time.monotonic()
+            r = run_tool("rustup", home, rustup_entry(body), serving(body))
+            took = time.monotonic() - t0
+            tools_install.RUN_TIMEOUT_S.update(saved_bound)
+            time.sleep(0.2)
+            check("an installer past its bound (and deaf to SIGTERM) is stopped, with what it started, and the verdict says so",
+                  r["status"] == "failed" and "did not finish within 1 s" in r["reason"] and took < 20
+                  and not alive(os.path.join(home, "init-child.pid")) and listing(home) == [], (r, took, listing(home)))
+
+            home = account("pa")
+            bindir = os.path.join(home, ".local", "bin")
+            stale, live = os.path.join(bindir, f".rustup.{2**22 + 1}.tmp"), os.path.join(bindir, f".rustup.{os.getppid()}.tmp")
+            for d in (stale, live):
+                os.mkdir(d)
+            run_tool("rustup", home, rustup_entry(body), serving(body))
+            check("the staging directory of a killed run is swept; a live pid's is left",
+                  not os.path.exists(stale) and os.path.isdir(live), listing(home))
+            os.rmdir(live)
+
+            print("cargo pin — cargo install of the tool's crate")
+            home = account("pa")
+            r = run_tool("cargo-ndk", home, ndk_entry())
+            check("without rustup it fails, saying what to install, and runs nothing",
+                  r["status"] == "failed" and "tools-install rustup" in r["reason"] and record(home, "install.record") == [], r)
+            run_tool("rustup", home, rustup_entry(body), serving(body))
+            r = run_tool("cargo-ndk", home, ndk_entry())
+            check("after rustup: installed", r["status"] == "installed" and r.get("version") == "4.1.2", r)
+            rec = record(home, "install.record")
+            argv = rec[:7]  # $0 and the six arguments, then the environment
+            check("cargo ran as: cargo +1.98.1 install --locked --version =4.1.2 cargo-ndk (a pinned, exact, locked install)",
+                  argv == [os.path.join(home, ".cargo", "bin", "cargo"), "+1.98.1", "install", "--locked", "--version", "=4.1.2", "cargo-ndk"], argv)
+            check("...with the account's CARGO_HOME and not the session's", f"CARGO_HOME={home}/.cargo" in rec and not any("hostile" in x for x in rec), rec)
+            n_before = len(record(home, "install.record"))
+            again = run_tool("cargo-ndk", home, ndk_entry())
+            check("a second run is current (the proof decides) and installs nothing",
+                  again["status"] == "current" and len(record(home, "install.record")) == n_before, again)
+            check("no proof ran with rustup's auto-install on, and the install itself did not turn it off",
+                  not os.path.exists(os.path.join(home, "proof-would-download-toolchain"))
+                  and not any(x == "RUSTUP_AUTO_INSTALL=0" for x in record(home, "install.record")), record(home, "install.record")[-12:])
+            os.unlink(os.path.join(home, ".cargo", "bin", "cargo-ndk"))
+            gone = run_tool("cargo-ndk", home, ndk_entry())
+            check("with the tool gone the proof fails and the install runs again (the proof is not decorative)",
+                  gone["status"] == "installed" and len(record(home, "install.record")) > n_before, gone)
+
+            flag(home, ".fake-cargo-fails")
+            os.unlink(os.path.join(home, ".cargo", "bin", "cargo-ndk"))
+            r = run_tool("cargo-ndk", home, ndk_entry())
+            os.unlink(os.path.join(home, ".fake-cargo-fails"))
+            check("a failing cargo install: failed with its last line", r["status"] == "failed" and "exited 101" in r["reason"] and "no space left" in r["reason"], r)
+            cargohome = os.path.join(home, ".cargo")
+            check("...and its build directory is gone, though the program wrote into its TMPDIR",
+                  [n for n in os.listdir(cargohome) if n.startswith(".build.")] == [], os.listdir(cargohome))
+            check("...its TMPDIR was that run's own directory under ~/.cargo, not /tmp",
+                  any(x.startswith(f"TMPDIR={cargohome}/.build.cargo-ndk.") for x in record(home, "install.record")), record(home, "install.record")[-20:])
+
+            tools_install.RUN_TIMEOUT_S["cargo"] = 1
+            flag(home, ".fake-cargo-sleeps")
+            t0 = time.monotonic()
+            r = run_tool("cargo-ndk", home, ndk_entry())
+            took = time.monotonic() - t0
+            os.unlink(os.path.join(home, ".fake-cargo-sleeps"))
+            tools_install.RUN_TIMEOUT_S.update(saved_bound)
+            time.sleep(0.2)
+            check("a cargo install past its bound is stopped with its children",
+                  r["status"] == "failed" and "did not finish within 1 s" in r["reason"] and took < 20
+                  and not alive(os.path.join(home, "cargo-child.pid"))
+                  and [n for n in os.listdir(os.path.join(home, ".cargo")) if n.startswith(".build.")] == [], (r, took))
+
+            r = run_tool("cargo-ndk", home, {**ndk_entry(), "proof": "cargo ndk --version"})
+            check("a proof that does not name the pin's toolchain is refused (the proxy has no default)",
+                  r["status"] == "refused" and "cargo +1.98.1" in r["reason"], r)
+
+            stale_build = os.path.join(home, ".cargo", f".build.cargo-ndk.{2**22 + 1}")
+            os.mkdir(stale_build)
+            run_tool("cargo-ndk", home, ndk_entry())
+            check("the build directory of a killed run is swept", not os.path.exists(stale_build))
+
+            os.makedirs(os.path.join(home, ".cargo", f".build.cargo-ndk.{os.getpid()}"))
+            os.unlink(os.path.join(home, ".cargo", "bin", "cargo-ndk"))
+            r = run_tool("cargo-ndk", home, ndk_entry())
+            check("a leftover build directory of this pid (an earlier call in the process) does not fail the install",
+                  r["status"] == "installed", r)
+
+            print("a proof never lets rustup download a toolchain")
+            check("tools_check.prove runs every proof with RUSTUP_AUTO_INSTALL=0, the caller's own environment or one given",
+                  tools_check.prove("sh -c 'echo $RUSTUP_AUTO_INSTALL'") == ("ok", "0")
+                  and tools_check.prove("sh -c 'echo $RUSTUP_AUTO_INSTALL'", env={"PATH": "/usr/bin:/bin"}) == ("ok", "0")
+                  and tools_check.prove("sh -c 'echo $RUSTUP_AUTO_INSTALL'", env={"PATH": "/usr/bin:/bin", "RUSTUP_AUTO_INSTALL": "1"}) == ("ok", "0"),
+                  tools_check.prove("sh -c 'echo $RUSTUP_AUTO_INSTALL'"))
+
+            print("the link temporaries")
+            home = account("pa")
+            bindir = os.path.join(home, ".local", "bin")
+            os.makedirs(os.path.join(home, ".cargo", "bin"))
+            real_replace = tools_install.os.replace
+            def interrupted(*a: object, **kw: object) -> None:
+                raise tools_install.Terminated(143)
+            tools_install.os.replace = interrupted
+            try:
+                tools_install.link_proxies(home, ("rustup",))
+            except tools_install.Terminated:
+                pass
+            finally:
+                tools_install.os.replace = real_replace
+            check("a link interrupted between its symlink and its replace leaves no temporary", listing(home) == [], listing(home))
+            dead_link = os.path.join(bindir, f".cargo.{2**22 + 1}.link.tmp")
+            os.symlink("/nonexistent", dead_link)
+            body2 = init_body()
+            run_tool("rustup", home, rustup_entry(body2), serving(body2))
+            check("a killed run's link temporary is swept by the next", not os.path.lexists(dead_link), listing(home))
+
+            print("the pins themselves are checked")
+            good_installer = rustup_entry(body)["install"]
+            for label, pin_ in (("an installer pin", good_installer), ("a cargo pin", NDK)):
+                check(f"{label} as the registry carries it is acceptable (positive control)", tools_install.check_pin(pin_) is None, tools_install.check_pin(pin_))
+            for label, pin_ in (("a cargo pin without locked", {k: v for k, v in NDK.items() if k != "locked"}),
+                                ("a cargo pin with locked: false", {**NDK, "locked": False}),
+                                ("a cargo pin with locked: 'yes'", {**NDK, "locked": "yes"}),
+                                ("a cargo pin without a version", {k: v for k, v in NDK.items() if k != "version"}),
+                                ("a cargo version that is a caret range", {**NDK, "version": "^4.1.2"}),
+                                ("a cargo version of two numbers", {**NDK, "version": "4.1"}),
+                                ("a cargo version with an operator", {**NDK, "version": "=4.1.2"}),
+                                ("a floating toolchain", {**NDK, "toolchain": "stable"}),
+                                ("no toolchain", {k: v for k, v in NDK.items() if k != "toolchain"}),
+                                ("a cargo pin with an extra argument field", {**NDK, "args": ["--git", "x"]}),
+                                ("a cargo pin that also names a url", {**NDK, "url": RURL}),
+                                ("an installer pin with a member", {**good_installer, "member": "x"}),
+                                ("an installer pin with arguments", {**good_installer, "args": ["--default-toolchain", "stable"]}),
+                                ("an installer pin with a bad digest", {**good_installer, "sha256": "abc"}),
+                                ("an installer pin over http", {**good_installer, "url": "http://example.invalid/x"}),
+                                ("an installer version of two numbers", {**good_installer, "version": "1.29"}),
+                                ("a kind this installer does not know", {**good_installer, "kind": "shell"}),
+                                ("a null kind", {**good_installer, "kind": None})):
+                check(f"{label}: refused", tools_install.check_pin(pin_) is not None, pin_)
+
+            check("an unknown kind is named as such, not as a stray field",
+                  "kind 'shell' is not one this installer knows" in (tools_install.check_pin({**good_installer, "kind": "shell"}) or ""))
+
+            home = account("pa")
+            tools_install.exit_on_sigterm()
+            tools_install.RUN_TIMEOUT_S["installer"] = 1
+            saved_grace = tools_install.STOP_GRACE_S
+            tools_install.STOP_GRACE_S = 3
+            flag(home, ".fake-init-sleeps")
+            term_timer = threading.Timer(2.0, os.kill, (os.getpid(), signal.SIGTERM))
+            term_timer.start()
+            t0 = time.monotonic()
+            try:
+                run_tool("rustup", home, rustup_entry(body), serving(body))
+                stopped = False
+            except tools_install.Terminated:
+                stopped = True
+            finally:
+                term_timer.cancel()  # a run that ended early must not leave a SIGTERM for the runner
+                signal.signal(signal.SIGTERM, signal.SIG_DFL)
+                tools_install.STOP_GRACE_S = saved_grace
+                tools_install.RUN_TIMEOUT_S.update(saved_bound)
+            took = time.monotonic() - t0
+            time.sleep(0.2)
+            check("SIGTERM during the grace wait after a timeout still ends a TERM-deaf program with KILL (its child runs 300 s)",
+                  stopped and took < 15 and not alive(os.path.join(home, "init-child.pid")), (stopped, took))
+
+            print("an end to the run ends the program")
+            home = account("pa")
+            tools_install.exit_on_sigterm()
+            run_tool("rustup", home, rustup_entry(body), serving(body))
+            flag(home, ".fake-cargo-sleeps")
+            threading.Timer(1.0, os.kill, (os.getpid(), signal.SIGTERM)).start()
+            t0 = time.monotonic()
+            try:
+                run_tool("cargo-ndk", home, ndk_entry())
+                stopped = False
+            except tools_install.Terminated:
+                stopped = True
+            finally:
+                signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            time.sleep(0.2)
+            check("SIGTERM to the installer ends the cargo build with it, at once (the build's leader runs 30 s, its child 300 s)",
+                  stopped and time.monotonic() - t0 < 15 and not alive(os.path.join(home, "cargo-child.pid")), (stopped, time.monotonic() - t0))
+        finally:
+            tools_install.subprocess.Popen = real_popen
+            tools_install.RUN_TIMEOUT_S.update(saved_bound)
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
         print("fabric-tools --install — the command")
         os.environ["PATH"] = saved_path
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "GIT_"))}

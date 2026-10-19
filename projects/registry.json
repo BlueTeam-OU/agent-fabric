@@ -306,7 +306,9 @@
       "tools": [
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
-        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain InterWeave's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["p2p-network-dev", "rust-ui-dev", "devex-tooling"]},
+        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain InterWeave's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["p2p-network-dev", "rust-ui-dev", "devex-tooling"], "install": {"kind": "installer", "version": "1.29.1", "url": "https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init", "sha256": "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"}},
+        {"name": "cargo-ndk", "proof": "cargo +1.98.1 ndk --version", "version": "4.1.2", "why": "the Android APK build: cargo ndk cross-compiles the Rust crates for aarch64-linux-android (the device run of tests/android-e2e)", "where": "account", "roles": ["p2p-network-dev", "rust-ui-dev"],
+         "install": {"kind": "cargo", "version": "4.1.2", "locked": true, "toolchain": "1.98.1"}},
         {"name": "cargo-deny", "proof": "cargo-deny --version", "why": "CI's dependency policy (deny.toml), run before a push that changes the graph", "where": "account", "roles": ["p2p-network-dev", "rust-ui-dev", "devex-tooling"],
          "install": {"version": "0.20.2", "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz",
                      "sha256": "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f", "member": "cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny"}},
@@ -343,7 +345,7 @@
       "tools": [
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
-        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain the gateway's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["rust-services-dev", "devex-tooling"]},
+        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain the gateway's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["rust-services-dev", "devex-tooling"], "install": {"kind": "installer", "version": "1.29.1", "url": "https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init", "sha256": "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"}},
         {"name": "cargo-deny", "proof": "cargo-deny --version", "why": "CI's dependency policy over the committed Cargo.lock (deny.toml)", "where": "account", "roles": ["rust-services-dev", "devex-tooling"],
          "install": {"version": "0.20.2", "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz",
                      "sha256": "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f", "member": "cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny"}},
@@ -385,7 +387,7 @@
       "tools": [
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
-        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain herdr's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["rust-ui-dev", "devex-tooling"]},
+        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain herdr's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["rust-ui-dev", "devex-tooling"], "install": {"kind": "installer", "version": "1.29.1", "url": "https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init", "sha256": "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"}},
         {"name": "zig", "proof": "zig version", "version": "0.16.0", "why": "herdr's vendored libghostty-vt build (ZIG=<path>): the pinned release tarball from ziglang.org checked by sha256 before unpacking, installed whole because the compiler needs its lib/ tree beside it", "where": "account", "roles": ["rust-ui-dev", "devex-tooling"], "install": {"version": "0.16.0", "url": "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz", "sha256": "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00", "root": "zig-x86_64-linux-0.16.0", "whole": true, "entrypoint": "zig"}},
         {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
          "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
