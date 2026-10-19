@@ -203,8 +203,10 @@ serve as the parity oracle for each port, unchanged.
    to `fabric-pr`) stay forwarders until rule 7 retires them.
 10. A managed project's own Node scripts move to Python in Wave 10
    (§7), the one port wave a project has; the owner asked for it
-   (A 2026-10-19). A `.mjs` file a project runs as a script is ported,
-   and none is added; a `.js` or `.cjs` script stays under rule 9,
+   (A 2026-10-19). A `.mjs` file a project runs as a script, written
+   by us, is ported, and none is added; one a fork took from the
+   upstream it tracks stays the upstream's and is never ported (it
+   would only make the fork diverge); a `.js` or `.cjs` script stays under rule 9,
    ported when it next changes. Exempt, and named in the wave's
    inventory with why: a framework's own configuration it loads itself
    (`astro.config.mjs`), and a script that works inside a Node library's
@@ -347,7 +349,7 @@ adding to the list is not a finding. Until that change merges, a
 line rule is what lint enforces: 160 lines (A 2026-10-13).
 
 Wave 10 ports the managed projects' Node scripts. When it was set the
-projects held 19 `.mjs` scripts, 3,379 lines, beside the
+projects held 16 `.mjs` scripts of their own, 2,897 lines, beside the
 framework configurations; the fabric itself has none since Wave 8.
 Each port is the holder's of the path in its project's taxonomy, one
 pull request per project and holder, under that project's arming rules.
@@ -359,10 +361,10 @@ pull request per project and holder, under that project's arming rules.
 | gzapp | `tools/build_glyphs/build-glyphs.mjs` | 1 | 271 | devex-tooling | exempt if fontnik has no Python path; the holder says |
 | gzapp | `apps/admin_web/scripts/import-table.mjs` | 1 | 157 | web-dev | exempt: it walks the AST of the project's pinned TypeScript compiler, which has no Python binding; a re-implementation missed real imports (its holder's proposal) |
 | gzapp.decks | `scripts/*.mjs` | 8 | 1,092 | brand-comms | `doc.mjs` drives puppeteer: exempt or ported to the fleet's browser, the holder says |
-| herdr | `scripts/docs/*.mjs` | 3 | 482 | rust-ui-dev | |
 | blueteam.ee | `deploy/check-dist.mjs` | 1 | 109 | edge-hosting | the taxonomy's note gives it the deploy; its paths are empty |
 
-`astro.config.mjs` in blueteam.ee and gzapi.ge is exempt (rule 10).
+`astro.config.mjs` in blueteam.ee and gzapi.ge is exempt (rule 10). herdr's `scripts/docs/*.mjs` came from
+the upstream FleetDeck tracks (`herdrdev/herdr`) and stay as they are.
 
 ## 8. Decision Status
 
@@ -397,4 +399,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-11 | Wave 9: the rest of the bash moves to Python | §2, §5 rules 1, 2, 4, 5, 7 and 9, §7: Python bar the pre-Python list and the forwarder; the 150-line rule goes; 37 files in ten batches; managed projects advised |
 | 2026-10-13 | the interim line limit is 160 | §7 |
 | 2026-10-14 | Wave 8 is done: no fabric command runs Node | §5 rule 8, §7, §8: the Node control plane, locale search server, shims and Node suites are gone (#170, #174, #181); Node stays only as a test oracle; new wire behaviour is no longer held back |
-| 2026-10-19 | Wave 10: the managed projects' Node scripts move to Python | §5 rule 10, §7, §8: the owner's request; 19 `.mjs` scripts: five ports, one deletion, one exemption, one decision with its holder; framework configuration and a Node-API-bound script exempt, named |
+| 2026-10-19 | Wave 10: the managed projects' Node scripts move to Python | §5 rule 10, §7, §8: the owner's request; 16 `.mjs` scripts of their own: four ports, one deletion, one exemption, one decision with its holder; a fork's upstream code never ported; framework configuration and a Node-API-bound script exempt, named |

@@ -171,8 +171,11 @@ amendment and dispatch jobs to migrate the remaining". Rule 9 had kept
 projects out of port waves, porting a script only when it next changed;
 for Node this record now runs one wave. Measured on each project's
 default branch that day: gzapp 7 files (1,696 lines), gzapp.decks 8
-(1,092), herdr 3 (482), blueteam.ee 1 (109), plus `astro.config.mjs` in
-blueteam.ee and gzapi.ge, a framework's own configuration and so exempt.
+(1,092), blueteam.ee 1 (109), plus `astro.config.mjs` in blueteam.ee
+and gzapi.ge, a framework's own configuration and so exempt. herdr's
+three docs scripts came from its upstream (herdrdev/herdr, 8a6d6973):
+the owner, asked, ruled that only the JavaScript we wrote is ported,
+never a fork's upstream code, and the herdr port (#47) was closed.
 Two scripts import a Node library with no obvious Python counterpart
 (gzapp's glyph builder, fontnik; gzapp.decks' `doc.mjs`, puppeteer):
 their holders decide port or exemption, and an exemption is added to
