@@ -16,10 +16,15 @@ total, per actor, per actor class (person or agent) and per role:
    yet and is not read. A marked review that mentions a level but whose
    findings do not parse is counted apart (`unparsed`), never as zero.
 2. **red checks** per head pushed, by check name: a named check run that
-   concluded failure or timed_out. A head is a commit of the PR on which a
-   named check ran to a conclusion (checks run on push); never the aggregate
-   the ruleset requires (`ci-ok`, which counts its dependencies again), never
-   a cancelled run. A named check that failed and later succeeded on the same
+   concluded failure or timed_out. The runs counted are the jobs the
+   repository's required aggregate `needs` (ADR-061 §2, amended after #312's
+   review: in agent-fabric the jobs `ci-ok` lists in .github/workflows/ci.yml
+   on the default branch), a matrix job by its "name (legs)" runs; never the
+   aggregate itself, which counts them again, never a cancelled run and never
+   a run of another workflow (pr-counts, stripped-nightly). A head is a
+   commit of the PR on which such a run ran to a conclusion (checks run on
+   push). A repository with no such aggregate is not read for red checks, and
+   says so. A named check that failed and later succeeded on the same
    sha is *flaky*: the check's, counted apart and not the actor's.
 3. **reverts** (git's own revert line naming a commit of the PR, as
    results.reverted_shas matches it) and **fixes forward** (a later commit
@@ -47,6 +52,7 @@ message body.
 from __future__ import annotations
 
 import argparse
+import base64
 import concurrent.futures
 import datetime as dt
 import json
@@ -79,6 +85,51 @@ def aggregate_checks() -> set[str]:
         doc = json.load(fh)
     return {c["context"] for r in doc["rules"] if r["type"] == "required_status_checks"
             for c in r["parameters"]["required_status_checks"]}
+
+
+WORKFLOW = ".github/workflows/ci.yml"
+
+
+def needed_jobs(workflow: str, aggregates: set[str]) -> set[str] | None:
+    """The check-run names the aggregate job `needs`, from the workflow text: each needed job's `name:` (else its
+    id), which a matrix job's runs extend as "<name> (<legs>)". None when the workflow has no aggregate of the
+    ruleset's name or a needed name cannot be read (an expression): unknown, never guessed from the runs seen."""
+    jobs: dict[str, list[str]] = {}
+    current = None
+    in_jobs = False
+    for line in workflow.splitlines():
+        if re.match(r"^jobs:\s*$", line):
+            in_jobs = True
+        elif in_jobs and re.match(r"^\S", line):
+            in_jobs = False
+        m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line) if in_jobs else None
+        if m:
+            current = m.group(1)
+            jobs[current] = []
+        elif current:
+            jobs[current].append(line)
+    agg = next((j for j in jobs if j in aggregates), None)
+    if agg is None:
+        return None
+    body = "\n".join(jobs[agg])
+    m = re.search(r"^    needs:\s*(\[[^\]]*\]|(?:\n      - .*)+|\S.*)$", body, re.M)
+    if not m:
+        return None
+    needed = re.findall(r"[A-Za-z0-9_][A-Za-z0-9_-]*", m.group(1).replace("needs:", ""))
+    names = set()
+    for j in needed:
+        if j not in jobs:
+            return None
+        nm = next((re.match(r"^    name:\s*(.+?)\s*$", l) for l in jobs[j] if re.match(r"^    name:", l)), None)
+        name = nm.group(1).strip("'\"") if nm else j
+        if "${{" in name:
+            return None
+        names.add(name)
+    return names
+
+
+def counted_run(name: str, needed: set[str]) -> bool:
+    return any(name == n or name.startswith(n + " (") for n in needed)
 
 
 def known_hosts() -> set[str]:
@@ -134,11 +185,11 @@ def parse_review(body: str) -> tuple[list[tuple[str, str]], bool]:
     return list(found.items()), unparsed
 
 
-def check_verdict(runs: list[dict], aggregates: set[str]) -> tuple[bool, list[str], list[str]]:
-    """(counted, red names, flaky names) for one sha's check runs."""
+def check_verdict(runs: list[dict], needed: set[str]) -> tuple[bool, list[str], list[str]]:
+    """(counted, red names, flaky names) for one sha's check runs of the needed jobs."""
     by_name: dict[str, list[dict]] = {}
     for r in runs:
-        if r.get("name") in aggregates or not r.get("conclusion") or r["conclusion"] == "cancelled":
+        if not counted_run(r.get("name") or "", needed) or not r.get("conclusion") or r["conclusion"] == "cancelled":
             continue
         by_name.setdefault(r["name"], []).append(r)
     red, flaky = [], []
@@ -153,8 +204,9 @@ def check_verdict(runs: list[dict], aggregates: set[str]) -> tuple[bool, list[st
 
 
 def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, window: int,
-              hosts: set[str], aggregates: set[str]) -> list[dict]:
-    """The error events of one merged PR. `checks(repo, sha)` gives a sha's check runs."""
+              hosts: set[str], needed: set[str] | None) -> list[dict]:
+    """The error events of one merged PR. `checks(repo, sha)` gives a sha's check runs; `needed` the check-run
+    names of the repository's aggregate's dependencies, None when unknown (no head is then counted)."""
     n = pr["number"]
     commits = pr.get("commits") or []
     by_sha = {c["oid"]: c for c in commits}
@@ -189,10 +241,12 @@ def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, 
                    "findings": [{"level": lvl, "answered": any(i > at and label in ls for i, ls in answers)}
                                 for label, lvl in findings]})
 
-    for c in commits:
+    if needed is None:
+        ev.append({**base, "kind": "checks_unread"})
+    for c in commits if needed is not None else ():
         if c.get("parents", 1) > 1 and FOLD.match(c.get("messageHeadline") or ""):
             continue          # a fold merge is the integrator's commit, not a head anyone pushed to be tested
-        counted, red, flaky = check_verdict(checks(repo, c["oid"]), aggregates)
+        counted, red, flaky = check_verdict(checks(repo, c["oid"]), needed)
         if counted:
             ev.append({**base, **who(c["oid"]), "kind": "head", "red": red, "flaky": flaky})
 
@@ -240,7 +294,8 @@ def tally(events: list[dict]) -> dict:
                         "findings": {k: findings[k] for k in sorted(findings)}, "findings_total": nfind,
                         "findings_per_review": rate(nfind, len(reviews)),
                         "on_a_commit_not_in_the_pr": sum(1 for e in events if e["kind"] == "review_elsewhere")},
-            "red_checks": {"heads": len(heads), "heads_red": red_heads, "rate": rate(red_heads, len(heads)),
+            "red_checks": {"unread_no_aggregate": sum(1 for e in events if e["kind"] == "checks_unread"),
+                           "heads": len(heads), "heads_red": red_heads, "rate": rate(red_heads, len(heads)),
                            "by_check": {k: red_by[k] for k in sorted(red_by)},
                            "flaky_not_the_actors": {k: flaky_by[k] for k in sorted(flaky_by)}},
             **out}
@@ -270,7 +325,8 @@ def render(rep: dict, doc: dict) -> str:
         pct = lambda x: "no rate (<5)" if x is None else f"rate {x}"  # noqa: E731
         return (f"  {name}: PRs {t['prs_merged']} ({t['prs_window_closed']} windows closed); "
                 f"findings in {r['given']} reviews ({r['unparsed']} unparsed): {fnd}; "
-                f"red heads {c['heads_red']}/{c['heads']} {pct(c['rate'])}, by check {c['by_check'] or '-'}, flaky {c['flaky_not_the_actors'] or '-'}; "
+                f"red heads {c['heads_red']}/{c['heads']} {pct(c['rate'])}, by check {c['by_check'] or '-'}, flaky {c['flaky_not_the_actors'] or '-'}"
+                f"{'; red checks NOT READ for %d PRs (no aggregate in %s)' % (c['unread_no_aggregate'], WORKFLOW) if c['unread_no_aggregate'] else ''}; "
                 f"reverts {t['reverts']['count']}/{t['reverts']['of_prs_with_closed_window']} {pct(t['reverts']['rate'])} "
                 f"(+{t['reverts']['found_so_far_in_open_windows']} in open windows); "
                 f"fixes forward {t['fixes']['count']}/{t['fixes']['of_prs_with_closed_window']} {pct(t['fixes']['rate'])} "
@@ -302,19 +358,34 @@ def check_runs(repo: str, sha: str) -> list[dict]:
     raise AssertionError("unreachable")
 
 
+def read_needed(repo: str, aggregates: set[str]) -> set[str] | None:
+    """The default branch's workflow, through GitHub: any registered repository, not only a local clone. A repository
+    with no such file is a known answer (None, unread); any other failure is raised."""
+    try:
+        doc = gh.api(f"repos/{repo}/contents/{WORKFLOW}")
+    except gh.GhError as e:
+        if e.status == 404:
+            return None
+        raise
+    if not isinstance(doc, dict) or doc.get("encoding") != "base64":
+        raise gh.GhError(f"read {WORKFLOW} of {repo}", "not a base64 file")
+    return needed_jobs(base64.b64decode(doc["content"]).decode("utf-8"), aggregates)
+
+
 def collect(repos: list[str], now: dt.datetime, days: int, window: int) -> list[dict]:
     hosts, aggregates = known_hosts(), aggregate_checks()
+    needed = {repo: read_needed(repo, aggregates) for repo in repos}
     since = now - dt.timedelta(days=days)
     read = {repo: (results.main_commits(repo, since), results.merged_prs(repo, since, ("headRefName",))) for repo in repos}
     wanted = sorted({(repo, c["oid"]) for repo, (_, prs) in read.items() for pr in prs for c in pr.get("commits") or []
-                     if not (c.get("parents", 1) > 1 and FOLD.match(c.get("messageHeadline") or ""))})
+                     if needed[repo] is not None and not (c.get("parents", 1) > 1 and FOLD.match(c.get("messageHeadline") or ""))})
     # A sha never changes, so what GitHub says of it is asked once, all at once.
     with concurrent.futures.ThreadPoolExecutor(WORKERS) as pool:
         cache = dict(zip(wanted, pool.map(lambda k: check_runs(*k), wanted)))
     events: list[dict] = []
     for repo, (later, prs) in read.items():
         for pr in prs:
-            events += events_of(repo, pr, later, lambda r, sha: cache[r, sha], now, window, hosts, aggregates)
+            events += events_of(repo, pr, later, lambda r, sha: cache[r, sha], now, window, hosts, needed[repo])
     return events
 
 

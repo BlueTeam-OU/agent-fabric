@@ -18,6 +18,8 @@ MARK = errors.REVIEW_MARKER
 # The host registry is instance data (ADR-045 §5 rule 3): a fixture, never the checkout's.
 HOSTS = {"develop-qzapp", "other-host"}
 AGG = errors.aggregate_checks()
+CI = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), errors.WORKFLOW), encoding="utf-8").read()
+NEEDED = errors.needed_jobs(CI, AGG)
 H = "develop-qzapp"
 
 
@@ -39,7 +41,7 @@ def review(body, oid):
 
 def run(p, later=(), runs=None):
     runs = runs or {}
-    return errors.events_of("o/r", p, list(later), lambda repo, sha: runs.get(sha, []), NOW, 14, HOSTS, AGG)
+    return errors.events_of("o/r", p, list(later), lambda repo, sha: runs.get(sha, []), NOW, 14, HOSTS, NEEDED)
 
 
 def cr(name, conclusion, at="2026-10-01T01:00:00Z"):
@@ -77,7 +79,25 @@ def main() -> int:
     h1, h2 = list(heads.values())
     check("a named failure is red; the aggregate and a cancelled run are not", h1["red"] == ["static"] and h1["flaky"] == [], h1)
     check("red then green on the same sha is flaky, the check's and not the actor's", h2["red"] == [] and h2["flaky"] == ["static"], h2)
-    check("the ruleset's required context is what is excluded as the aggregate", "ci-ok" in AGG, AGG)
+    check("the ruleset's required context is the aggregate, and its needs are the jobs counted",
+          "ci-ok" in AGG and "ci-ok" not in NEEDED and {"static", "platform-smoke"} <= NEEDED, (AGG, NEEDED))
+    ev = [e for e in run(pr(), runs={"c1": [cr("pr-counts", "failure"), cr("stripped-nightly", "failure"), cr("CodeQL", "failure"),
+                                            cr("platform-smoke (debian, x)", "failure")]}) if e["kind"] == "head"]
+    check("a failed run of a job the aggregate does not need is not counted; a matrix leg of one it needs is",
+          ev[0]["red"] == ["platform-smoke (debian, x)"], ev)
+    ev = [e for e in run(pr(), runs={"c1": [cr("platform-smokeX", "failure"), cr("static-extra", "failure")]}) if e["kind"] == "head"]
+    check("a name that only starts with a needed job's is not that job", ev == [], ev)
+    check("needed_jobs: a job's name: is the check name; a list under needs",
+          errors.needed_jobs("jobs:\n  a:\n    name: Alpha\n  z-ok:\n    needs:\n      - a\n", {"z-ok"}) == {"Alpha"}
+          and errors.needed_jobs("jobs:\n  a:\n    x: 1\n  b:\n    x: 1\n  z-ok:\n    needs: [a, b]\n", {"z-ok"}) == {"a", "b"}, "")
+    check("needed_jobs: no aggregate, a needed job missing, or an expression name is unknown, not guessed",
+          errors.needed_jobs("jobs:\n  a:\n    x: 1\n", {"z-ok"}) is None
+          and errors.needed_jobs("jobs:\n  z-ok:\n    needs: [gone]\n", {"z-ok"}) is None
+          and errors.needed_jobs("jobs:\n  a:\n    name: x ${{ m }}\n  z-ok:\n    needs: [a]\n", {"z-ok"}) is None, "")
+    ev = errors.events_of("o/r", pr(), [], lambda r, s: [cr("static", "failure")], NOW, 14, HOSTS, None)
+    t = errors.tally(ev)
+    check("a repository with no readable aggregate: no head counted, said as unread",
+          t["red_checks"]["heads"] == 0 and t["red_checks"]["unread_no_aggregate"] == 1, t["red_checks"])
     ev = [e for e in run(pr(), runs={"c1": [cr("ci-ok", "failure"), cr("unit", "cancelled")]}) if e["kind"] == "head"]
     check("a head with only the aggregate and a cancelled run is not a head pushed in the denominator", ev == [], ev)
     ev = [e for e in run(pr(), runs={"c1": [cr("static", "success", "2026-10-01T02:00:00Z"), cr("static", "failure", "2026-10-01T03:00:00Z")]}) if e["kind"] == "head"]
@@ -94,7 +114,7 @@ def main() -> int:
           sorted(kinds) == [("fix", "alice"), ("revert", "alice")], ev)
     check("their PR's window had closed", all(e["closed"] for e in ev if e["kind"] in ("revert", "fix")), ev)
     ev = errors.events_of("o/r", pr(merged="2026-10-25T00:00:00Z"), [later("fix #7 F1", "Answers: F1", day=26)],
-                          lambda r, s: [], NOW, 14, HOSTS, AGG)
+                          lambda r, s: [], NOW, 14, HOSTS, NEEDED)
     t = errors.tally(ev)
     check("a fix on a PR whose window is still open is apart from the denominator",
           t["fixes"]["count"] == 0 and t["fixes"]["of_prs_with_closed_window"] == 0 and t["fixes"]["found_so_far_in_open_windows"] == 1, t["fixes"])
@@ -171,9 +191,33 @@ def main() -> int:
     check("a transient read failure is retried twice, then raised", ok and third, (ok, third))
     check("a refusal is raised at once, not retried", refused)
 
+    # --- the workflow read: base64 from the contents API; a 404 is "no aggregate", any other failure is raised
+    import base64
+    saved_api = errors.gh.api
+    try:
+        errors.gh.api = lambda path, **k: {"encoding": "base64", "content": base64.b64encode(CI.encode()).decode()}
+        got = errors.read_needed("o/r", AGG)
+        def nf(path, **k):
+            raise errors.gh.GhError("gh api", "Not Found", status=404)
+        errors.gh.api = nf
+        none = errors.read_needed("o/r", AGG)
+        def boom(path, **k):
+            raise errors.gh.GhError("gh api", "Server", status=502, transient=True)
+        errors.gh.api = boom
+        try:
+            errors.read_needed("o/r", AGG)
+            raised = False
+        except errors.gh.GhError:
+            raised = True
+    finally:
+        errors.gh.api = saved_api
+    check("read_needed: the file's jobs; a 404 is unread (None); a 502 is raised, not read as 'none'",
+          got == NEEDED and none is None and raised, (got, none, raised))
+
     # --- main(): text and JSON through stubbed readers
-    saved = (errors.results.main_commits, errors.results.merged_prs, errors.gh.api, errors.known_hosts)
+    saved = (errors.results.main_commits, errors.results.merged_prs, errors.gh.api, errors.known_hosts, errors.read_needed)
     errors.known_hosts = lambda: HOSTS
+    errors.read_needed = lambda repo, agg: NEEDED
     errors.results.main_commits = lambda repo, since: []
     errors.results.merged_prs = lambda repo, since, extra=(): [pr(merged="2026-10-25T00:00:00Z")]
     errors.gh.api = lambda *a, **k: [cr("static", "failure")]
@@ -189,7 +233,7 @@ def main() -> int:
         with contextlib.redirect_stderr(err):
             rc3 = errors.main(["--days", "0"])
     finally:
-        errors.results.main_commits, errors.results.merged_prs, errors.gh.api, errors.known_hosts = saved
+        errors.results.main_commits, errors.results.merged_prs, errors.gh.api, errors.known_hosts, errors.read_needed = saved
     check("main --json: the red head counted, window open", rc == 0 and js["repositories_read"] == ["o/r"] and list(js["repos"]) == ["o/r"]
           and js["total"]["all"]["red_checks"]["heads_red"] == 2 and js["total"]["all"]["prs_window_closed"] == 0, js["total"]["all"])
     check("main text says what is not read and shows no rate under 5", rc2 == 0 and "judged-not-real findings: not read" in out.getvalue()
