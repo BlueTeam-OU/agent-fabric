@@ -24,12 +24,17 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HOOK = os.path.join(FABRIC, "runtime", "claude-code", "hooks", "pipe-status-guard.sh")
-ENTRY = ["bash", HOOK]
+HOOK = os.environ.get("PIPE_STATUS_GUARD_HOOK") or os.path.join(FABRIC, "runtime", "claude-code", "hooks", "pipe-status-guard.sh")
+if not os.path.isfile(HOOK):
+    sys.exit(f"test: not found: {HOOK}")
+# The tracked hook is what the harness runs as `bash <path>`; an override is run as a program (its shebang), the way
+# tab-title's oracle runs $TAB_TITLE_HOOK, so it can name the module that replaces the script.
+ENTRY = [HOOK] if os.environ.get("PIPE_STATUS_GUARD_HOOK") else ["bash", HOOK]
 SAFE_PATH = "/usr/bin:/bin"
 
 REFUSED = [

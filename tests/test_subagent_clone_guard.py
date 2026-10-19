@@ -14,7 +14,8 @@ guard that cannot run asks, never allows; exit 0 always.
 Cases of the bash test: main session (2), nine types denied Write, three other write tools, Bash fence (4 denied,
 2 allowed read-only), isolated worktree (3), types left alone (2), other tools (2), the denial's two facts, jq
 missing asks, malformed payloads never exit 2 (3).
-NEW: exit status 0 and one JSON line on a denial; a worktree boundary (a path that only ends at .claude/worktrees
+NEW: a writing class's refusals name its type, the clone and the way out, the review class's keep the fence's wording (j228,
+added to the bash test after the first port); exit status 0 and one JSON line on a denial; a worktree boundary (a path that only ends at .claude/worktrees
 is not inside one); an absent cwd, agent_type or tool_name; the denial names the type and the tool; the Bash
 decision of the fence passes through unchanged (an allowed command is rewritten to run with a clean environment).
 
@@ -28,12 +29,17 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HOOK = os.path.join(FABRIC, "runtime", "claude-code", "hooks", "subagent-clone-guard.sh")
-ENTRY = ["bash", HOOK]
+HOOK = os.environ.get("SUBAGENT_CLONE_GUARD_HOOK") or os.path.join(FABRIC, "runtime", "claude-code", "hooks", "subagent-clone-guard.sh")
+if not os.path.isfile(HOOK):
+    sys.exit(f"test: not found: {HOOK}")
+# The tracked hook is what the harness runs as `bash <path>`; an override is run as a program (its shebang), the way
+# tab-title's oracle runs $TAB_TITLE_HOOK, so it can name the module that replaces the script.
+ENTRY = [HOOK] if os.environ.get("SUBAGENT_CLONE_GUARD_HOOK") else ["bash", HOOK]
 SAFE_PATH = "/usr/bin:/bin"
 TYPES = ["code-low", "code-medium", "code-high", "code-plan", "code-review", "general-purpose", "claude", "Explore", "Plan"]
 
@@ -135,6 +141,25 @@ class Guard(unittest.TestCase):
         self.assertIn("This code-high subagent runs in the session clone", reason)
         self.assertIn("may not use Write", reason)
         self.assertIn("resumed by SendMessage", reason)                                                # j228: why it is here
+
+    def reason(self, tool, agent_type, command="") -> str:
+        r = self.run_hook(self.payload(tool, agent_type, self.clone, command))
+        return json.loads(r.stdout)["hookSpecificOutput"].get("permissionDecisionReason", "")
+
+    def test_a_writing_class_resumed_in_the_clone_is_told_why_in_every_refusal(self):          # j228; in the bash test, not the first port
+        r = self.reason("Bash", "code-medium", "git commit -m x")
+        self.assertIn(f"This code-medium subagent runs in the session clone ({self.clone})", r)
+        self.assertIn("dispatch a new one with isolation worktree", r)
+        self.assertIn("The read-only fence says: ", r)
+        r = self.reason("Write", "code-low")
+        self.assertIn("This code-low subagent runs in the session clone", r)
+        self.assertIn("It may not use Write.", r)
+
+    def test_the_review_class_keeps_the_fence_s_own_wording(self):                              # j228; in the bash test, not the first port
+        self.assertIn("The review class runs in the session clone and is read-only: it may not use Write.", self.reason("Write", "code-review"))
+        r = self.reason("Bash", "code-review", "git commit -m x")
+        self.assertNotIn("subagent runs in the session clone", r)
+        self.assertIn("The review class", r)
 
     def test_a_guard_that_cannot_run_asks_it_never_silently_allows(self):
         tools = os.path.join(self.tmp, "tools")
