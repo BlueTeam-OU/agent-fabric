@@ -9,6 +9,7 @@ the BaseException handler narrowed back to TimeoutExpired, == 0 turned
 into != 0."""
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import signal
@@ -45,6 +46,12 @@ class Quiet(unittest.TestCase):
             if alive(pid):
                 os.kill(pid, signal.SIGKILL)
 
+    @staticmethod
+    def reap_group(parent: subprocess.Popen) -> None:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(parent.pid, signal.SIGKILL)
+        parent.wait(timeout=10)
+
     def grandchild(self) -> int:
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
@@ -75,17 +82,36 @@ class Quiet(unittest.TestCase):
     def test_interrupt_kills_the_group_and_propagates(self) -> None:
         # A terminal's Ctrl-C reaches the foreground group only: run quiet in a
         # parent of its own and send that group SIGINT, as the terminal would.
-        code = ("import sys; sys.path.insert(0, %r); import langid_install, json;"
+        code = ("import signal, sys; signal.signal(signal.SIGINT, signal.default_int_handler); sys.path.insert(0, %r); import langid_install, json;"
                 "langid_install.quiet(json.loads(sys.argv[1]), 300)" % os.path.join(HERE, "tools", "fabric"))
         import json
         parent = subprocess.Popen([sys.executable, "-c", code, json.dumps(self.hang)],
                                   stderr=subprocess.DEVNULL, start_new_session=True)
-        self.addCleanup(parent.wait)
+        self.addCleanup(self.reap_group, parent)
         pid = self.grandchild()
         os.killpg(parent.pid, signal.SIGINT)
         self.assertEqual(parent.wait(timeout=30), -signal.SIGINT)
         time.sleep(0.2)
         self.assertFalse(alive(pid), "an interrupt left the child running")
+
+
+class HalfMadeVenv(unittest.TestCase):
+    def test_a_venv_that_fails_midway_is_removed_not_left_to_poison_the_next_run(self) -> None:
+        sandbox = os.path.realpath(tempfile.mkdtemp(prefix="lh."))
+        self.addCleanup(shutil.rmtree, sandbox, ignore_errors=True)
+        fakebin = os.path.join(sandbox, "bin")
+        os.makedirs(fakebin)
+        fake = os.path.join(fakebin, "python3")
+        with open(fake, "w", encoding="utf-8") as fh:
+            fh.write('#!/bin/sh\nmkdir -p "$3/bin" && : > "$3/bin/python" && chmod 755 "$3/bin/python"\nexit 1\n')
+        os.chmod(fake, 0o755)
+        target = os.path.join(sandbox, "langid")
+        env = {"PATH": f"{fakebin}{os.pathsep}/usr/bin:/bin", "HOME": sandbox, "AGENT_FABRIC_LANGID_DIR": target}
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "langid_install.py")],
+                           env=env, capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("python3 -m venv failed", p.stdout)
+        self.assertFalse(os.path.exists(os.path.join(target, "venv")), "a half-made venv was left behind")
 
 
 if __name__ == "__main__":

@@ -39,6 +39,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -127,7 +128,16 @@ def run(argv: list[str]) -> int:
             say(f"  !  {target}: cannot be prepared ({type(exc).__name__}); the language section stays unavailable")
             return 1
         executable = os.path.isfile(venv_python) and os.access(venv_python, os.X_OK)
-        if not executable and not quiet(["python3", "-m", "venv", venv], VENV_TIMEOUT_S):
+        made = False
+        if not executable:
+            # venv writes bin/python before bin/pip: a half-made one would pass the
+            # `executable` test on the next run and fail there for the wrong reason.
+            try:
+                made = quiet(["python3", "-m", "venv", venv], VENV_TIMEOUT_S)
+            finally:
+                if not made:
+                    shutil.rmtree(venv, ignore_errors=True)
+        if not executable and not made:
             say(f"  !  {venv}: python3 -m venv failed; the language section stays unavailable")
             rc = 1
         else:
