@@ -30,9 +30,15 @@ RUN_TOKEN_VARIABLE = "TEST_RUN_PY_TOKEN"
 RUN_TOKEN = uuid.uuid4().hex
 
 
+capture: list | None = None   # a case that judges check()'s own calls sets it: they are recorded, not counted
+
+
 def check(label: str, good: bool, detail: object = "") -> None:
     global fails
-    print(f"  {'ok  ' if good else 'FAIL'} {label}")
+    if capture is not None:
+        capture.append((label, good))
+        return
+    print(f"  {'ok  ' if good else 'FAIL'} {label}", flush=True)
     if not good:
         fails += 1
         if detail != "":
@@ -112,6 +118,59 @@ def run(base: str, *args: str, **extra: str) -> subprocess.CompletedProcess:
 
 def runs_left(base: str) -> list[str]:
     return [n for n in os.listdir(os.path.join(os.path.dirname(base), "runtime")) if n.startswith("af-t.")]
+
+
+def end_run(p: subprocess.Popen, own_group: bool) -> None:
+    """Ends a run whose case cannot go on. A run started as a session leader (`own_group`) is a group of its own and is KILLed
+    whole, also when its leader has already exited: the group id stays its own while any member lives, so no pid is probed.
+    One that shares this test's group is asked to stop (TERM) while it runs, and ends its own tree and removes its directory."""
+    try:
+        if own_group:
+            os.killpg(p.pid, signal.SIGKILL)
+        elif p.returncode is None:
+            p.terminate()
+    except OSError:
+        pass
+    # Bounded: an orphan that holds the run's pipe would otherwise hold this call too.
+    try:
+        p.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        try:
+            p.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def wait_until(p: subprocess.Popen, ready, what: str, timeout: float = 120.0, own_group: bool = False) -> bool:
+    """Polls `ready` until it holds, with the run `p` still alive. A case that signals a run must signal it in the state the
+    case describes, so the wait has no ceiling a loaded machine reaches (10 s once passed with no suite started: the signal
+    then went to a run that had nothing to show, exit 129 and no output). When the state is not reached, because the run
+    ended first or the deadline passed, the run is ended and the one failure says so; the caller skips the rest of the case,
+    so no assertion reports a behaviour that was never exercised."""
+    deadline = time.monotonic() + timeout
+    while not ready():
+        if p.poll() is not None:
+            why = f"the run exited ({p.returncode}) before {what}"
+        elif time.monotonic() > deadline:
+            why = f"{what} did not happen within {timeout:g} s"
+        else:
+            time.sleep(0.1)
+            continue
+        end_run(p, own_group)
+        check(f"precondition: {why}", False)
+        return False
+    return True
+
+
+def poll_until(ready, timeout: float) -> bool:
+    """What a case observes after its signal (no precondition): True once `ready` holds, False at the deadline."""
+    deadline = time.monotonic() + timeout
+    while not ready():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.1)
+    return True
 
 
 def suite(body: str) -> str:
@@ -293,6 +352,56 @@ def main() -> int:
               r.returncode == 1 and "tests/run.py: 2 suite(s) FAILED" in r.stdout and "/nonexistent/command could not be started" in r.stderr,
               (r.returncode, r.stdout, r.stderr))
 
+        print("a case whose run never reaches the state it signals in reports that, once, and ends the run")
+        # wait_until reports through check(), which would fail this file: its calls are captured here, and judged below.
+        global capture
+        seen: list = []
+        capture = seen
+        try:
+            gone_at = subprocess.Popen([sys.executable, "-c", "pass"], stdin=subprocess.DEVNULL)
+            began = time.monotonic()
+            r_exit = wait_until(gone_at, lambda: False, "its suites started", timeout=60.0)
+            took_exit = time.monotonic() - began
+            seen_exit, seen[:] = list(seen), []
+            results = []
+            childpid = os.path.join(sandbox, "hung-child.pid")
+            for new_session in (False, True):
+                # A shell holding a child of its own: ended with its group when it leads one, so the child goes with it.
+                hung = subprocess.Popen(["sh", "-c", f"sleep 60 & echo $! > {childpid}; wait"], stdin=subprocess.DEVNULL,
+                                        start_new_session=new_session)
+                poll_until(lambda: os.path.exists(childpid) and open(childpid).read().strip() != "", 30.0)
+                child = int(open(childpid).read())
+                results.append((wait_until(hung, lambda: False, "its suites started", timeout=1.0, own_group=new_session), list(seen), hung.poll()))
+                seen[:] = []
+                # Not "alive": a killed child stays a zombie until its parent is reaped.
+                dead = poll_until(lambda: not os.path.exists(f"/proc/{child}")
+                                  or open(f"/proc/{child}/stat").read().rsplit(")", 1)[1].split()[0] == "Z", 10.0)
+                results[-1] += (dead if new_session else True,)
+                if not new_session:
+                    os.kill(child, signal.SIGKILL)     # the shell was only asked to stop; its child holds this file's stdout
+                os.unlink(childpid)
+            alive = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL)
+            ok_state = wait_until(alive, lambda: True, "its suites started")
+            seen_ok, seen[:] = list(seen), []
+            left_running = alive.poll() is None
+            alive.kill()
+            alive.wait()
+        finally:
+            capture = None
+        # Kills: dropping the p.poll() test (the run that has already exited would be waited on for the whole 60 s, then
+        # reported as a deadline) and reporting through the behaviour's own label.
+        check("a run that exited before the state: reported at once as an exit, once, not after the deadline",
+              r_exit is False and took_exit < 30 and len(seen_exit) == 1
+              and seen_exit[0][0].startswith("precondition: the run exited (0) before its suites started") and seen_exit[0][1] is False,
+              (r_exit, round(took_exit, 1), seen_exit))
+        # Kills: dropping end_run() (the run would be left running), the group KILL for a run that leads its own session (its
+        # child would outlive it) and the deadline test.
+        check("a run that never reaches the state: reported once as a deadline, and ended (own session or not)",
+              all(r is False and len(sn) == 1 and sn[0][0] == "precondition: its suites started did not happen within 1 s"
+                  and rc is not None and child_gone for r, sn, rc, child_gone in results), results)
+        # Positive control: the same helper, with the state reached, says nothing and leaves the run alone.
+        check("a state that is reached: True, nothing reported, the run left running", ok_state is True and seen_ok == [] and left_running, (ok_state, seen_ok, left_running))
+
         print("a run that is signalled ends, and its directory goes with it")
         write(os.path.join(sandbox, "slowbin", "shellcheck"), "#!/usr/bin/env bash\nsleep 60 &\necho $! > \"$GRANDCHILD\"\nsleep 60\n", 0o755)
         for sig, name in ((signal.SIGTERM, "TERM"), (signal.SIGINT, "INT"), (signal.SIGHUP, "HUP")):
@@ -301,10 +410,8 @@ def main() -> int:
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "static"], cwd=base, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, stdin=subprocess.DEVNULL,
                                  env=env(base, PATH=f"{sandbox}/slowbin:{os.environ.get('PATH', '')}", GRANDCHILD=grandchild))
-            for _ in range(100):
-                if os.path.exists(grandchild) and runs_left(base):
-                    break
-                time.sleep(0.1)
+            if not wait_until(p, lambda: os.path.exists(grandchild) and runs_left(base), f"{name}: the run made its directory and the suite its grandchild"):
+                continue
             made = bool(runs_left(base))
             gc = int(open(grandchild).read()) if os.path.exists(grandchild) else 0
             p.send_signal(sig)
@@ -331,10 +438,8 @@ def main() -> int:
             os.makedirs(started)
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                                  stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
-            for _ in range(100):
-                if len(os.listdir(started)) >= 2:
-                    break
-                time.sleep(0.1)
+            if not wait_until(p, lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started"):
+                continue
             time.sleep(0.5)       # the suites' MARK lines are written; the runner holds them until the suites end
             before = sorted(os.listdir(started))
             p.send_signal(sig)
@@ -364,10 +469,8 @@ def main() -> int:
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True, start_new_session=True,
                                  env=env(base, STARTED=started))
-            for _ in range(100):
-                if len(os.listdir(started)) >= 2:
-                    break
-                time.sleep(0.1)
+            if not wait_until(p, lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started", own_group=True):
+                continue
             time.sleep(0.5)
             os.killpg(p.pid, sig)
             try:
@@ -387,77 +490,63 @@ def main() -> int:
         os.makedirs(started)
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
-        for _ in range(100):
-            if len(os.listdir(started)) >= 2:
-                break
-            time.sleep(0.1)
-        time.sleep(0.5)
+        if wait_until(p, lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started"):
+            time.sleep(0.5)
 
-        def children(pid: int) -> list[int]:
-            r = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True)
-            return [int(x) for x in r.stdout.split()]
-        runner = next((c for c in children(p.pid) if "run_python_suites" in open(f"/proc/{c}/cmdline").read()), 0)
-        for pid in [runner, *children(runner)] if runner else []:
-            os.kill(pid, signal.SIGINT)
-        try:
-            out, _ = p.communicate(timeout=40)
-        except subprocess.TimeoutExpired:
-            # Not killpg: run.py shares this test's group. The runner and its suites are ended by pid.
+            def children(pid: int) -> list[int]:
+                r = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True)
+                return [int(x) for x in r.stdout.split()]
+            runner = next((c for c in children(p.pid) if "run_python_suites" in open(f"/proc/{c}/cmdline").read()), 0)
             for pid in [runner, *children(runner)] if runner else []:
-                with contextlib.suppress(OSError):
-                    os.kill(pid, signal.SIGKILL)
-            p.kill()
-            out = p.communicate()[0]
-        shown = sorted(set(re.findall(r"MARK\d", out)))
-        check("INT to the runner and its suites alone: no queued suite starts and both running suites' lines reach stdout",
-              runner != 0 and len(shown) == 2 and len(os.listdir(started)) == 2, (runner, shown, sorted(os.listdir(started)), out[-300:]))
+                os.kill(pid, signal.SIGINT)
+            try:
+                out, _ = p.communicate(timeout=40)
+            except subprocess.TimeoutExpired:
+                # Not killpg: run.py shares this test's group. The runner and its suites are ended by pid.
+                for pid in [runner, *children(runner)] if runner else []:
+                    with contextlib.suppress(OSError):
+                        os.kill(pid, signal.SIGKILL)
+                p.kill()
+                out = p.communicate()[0]
+            shown = sorted(set(re.findall(r"MARK\d", out)))
+            check("INT to the runner and its suites alone: no queued suite starts and both running suites' lines reach stdout",
+                  runner != 0 and len(shown) == 2 and len(os.listdir(started)) == 2, (runner, shown, sorted(os.listdir(started)), out[-300:]))
         deaf = {"tests/test_deaf.py": suite("import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
                                             "print('MARK-DEAF', flush=True)\nopen(os.environ['STARTED'], 'w').close()\ntime.sleep(60)\n")}
         base = fresh(files=deaf)
         started = os.path.join(sandbox, "started-deaf")
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
-        for _ in range(100):
-            if os.path.exists(started):
-                break
-            time.sleep(0.1)
-        time.sleep(0.3)
-        began = time.monotonic()
-        p.send_signal(signal.SIGTERM)
-        try:
-            out, err = p.communicate(timeout=30)
-            rc = p.returncode
-        except subprocess.TimeoutExpired:
-            p.kill()
-            (out, err), rc = p.communicate(), None
-        took = time.monotonic() - began
-        # The kept line is the proof that the runner KILLed the suite itself after its grace: a runner that does not is still
-        # waiting on the suite when run.py stops waiting for it, and run.py's KILL loses everything it had buffered. A
-        # stopwatch adds nothing to that and fails under load (7.4 s against a 7 s bound once in twenty runs).
-        check(f"a suite that ignores TERM: the runner ends it after its {run_python_suites.STOP_GRACE_S:g} s grace, exit 143, its line kept",
-              rc == 143 and "MARK-DEAF" in out, (rc, round(took, 1), out[-300:], err[-600:]))
-        time.sleep(0.3)
-        check("…and no process of that suite is left", not runs_left(base)
-              and subprocess.run(["pgrep", "-f", os.path.join(base, "tests", "test_deaf.py")], capture_output=True).returncode == 1)
+        if wait_until(p, lambda: os.path.exists(started), "the suite that ignores TERM started"):
+            time.sleep(0.3)
+            began = time.monotonic()
+            p.send_signal(signal.SIGTERM)
+            try:
+                out, err = p.communicate(timeout=30)
+                rc = p.returncode
+            except subprocess.TimeoutExpired:
+                p.kill()
+                (out, err), rc = p.communicate(), None
+            took = time.monotonic() - began
+            # The kept line is the proof that the runner KILLed the suite itself after its grace: a runner that does not is still
+            # waiting on the suite when run.py stops waiting for it, and run.py's KILL loses everything it had buffered. A
+            # stopwatch adds nothing to that and fails under load (7.4 s against a 7 s bound once in twenty runs).
+            check(f"a suite that ignores TERM: the runner ends it after its {run_python_suites.STOP_GRACE_S:g} s grace, exit 143, its line kept",
+                  rc == 143 and "MARK-DEAF" in out, (rc, round(took, 1), out[-300:], err[-600:]))
+            time.sleep(0.3)
+            check("…and no process of that suite is left", not runs_left(base)
+                  and subprocess.run(["pgrep", "-f", os.path.join(base, "tests", "test_deaf.py")], capture_output=True).returncode == 1)
         base = fresh(scripts={"good.sh": "#!/usr/bin/env bash\necho fine\n"})
         grandchild = os.path.join(sandbox, "gc-KILL")
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "static"], cwd=base, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, start_new_session=True,
                              env=env(base, PATH=f"{sandbox}/slowbin:{os.environ.get('PATH', '')}", GRANDCHILD=grandchild))
-        for _ in range(100):
-            if os.path.exists(grandchild) and runs_left(base):
-                break
-            time.sleep(0.1)
-        made = bool(runs_left(base))
-        os.killpg(p.pid, signal.SIGKILL)       # a group KILL: no cleanup runs, the suite's processes die with it
-        p.wait(timeout=20)
-        gone = False
-        for _ in range(100):
-            if not runs_left(base):
-                gone = True
-                break
-            time.sleep(0.1)
-        check("KILL to the run's group: the watcher removes the directory", made and gone, (made, runs_left(base)))
+        if wait_until(p, lambda: os.path.exists(grandchild) and runs_left(base), "KILL: the run made its directory and the suite its grandchild", own_group=True):
+            made = bool(runs_left(base))
+            os.killpg(p.pid, signal.SIGKILL)       # a group KILL: no cleanup runs, the suite's processes die with it
+            p.wait(timeout=20)
+            gone = poll_until(lambda: not runs_left(base), 30.0)
+            check("KILL to the run's group: the watcher removes the directory", made and gone, (made, runs_left(base)))
 
         print("a signal to the run's pid alone, while a suite keeps starting children")
         base = fresh()
