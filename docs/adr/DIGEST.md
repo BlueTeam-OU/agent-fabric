@@ -434,26 +434,25 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
 - Every change reaches `main` through a PR (§2, §5 rule 1, §6).
-- One open PR per agent and repository; next work is another commit;
-  two exceptions (§5 rule 2).
-- Work commits exclude review fixes, by each commit's `Kind:` trailer
-  (§5 rule 3); 8 or more arm at the gate, under 8 ask the owner (§5
-  rule 4).
+- One open PR per agent and repository, two exceptions (§5 rule 2).
+- Work commits exclude review fixes, by `Kind:` (§5 rule 3); 8 or more
+  arm at the gate, under 8 the owner's or the policy's authority's word
+  (§5 rule 4).
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, with no open P1/P2 (§5
   rules 5–6).
 - No machine attribution (§5 rule 7). GitHub settings: §6.
 - A 2026-10-04 — `main`'s ruleset (§5 rule 6).
-- A 2026-10-05 — the ruleset requires `ci-ok` alone (§5 rule 6).
-- A 2026-10-05 — 8+ work commits arm on the gate alone (§5 rule 4).
+- A 2026-10-05 — the ruleset requires `ci-ok` (§5 rule 6).
+- A 2026-10-05 — 8+ arm on the gate alone (§5 rule 4).
 - A 2026-10-06 — one open PR at a time (§5 rule 2).
 - A 2026-10-08 — every commit declares its `Kind:` (§5 rule 3).
 - A 2026-10-08 — a folded PR's review fixes are fixes (§5 rule 3).
 - A 2026-10-09 — results.py reads a fold (§5 rule 3).
-- A 2026-10-09 — a push after the arming disarms it (§5 rule 5).
-- A 2026-10-10 — arm.json `direct`: fast-forward main, fenced by
-  pre-push (§5 rule 1).
+- A 2026-10-09 — a push disarms (§5 rule 5).
+- A 2026-10-10 — arm.json `direct`, fenced by pre-push (§5 rule 1).
 - A 2026-10-11 — pre-push refuses unsigned commits (§5 rule 1).
-- Keywords: Answers, Kind, fold, pr-gate, ruleset, direct, pre-push.
+- A 2026-10-19 — an authority's word (§5 rule 4).
+- Keywords: Answers, Kind, fold, pr-gate, ruleset, direct, authority.
 
 ### ADR-020 — The review class is the review (Accepted)
 

@@ -105,3 +105,19 @@ The owner, 2026-10-10, after arming blueteam.ee#3 (3 work, 0 fix) by hand: "thes
 ### Amendment 2026-10-11 — pre-push also checks signatures in every project
 
 Rule 1 said that in a project without `direct` the pre-push hook does nothing. Since the signature check (tools/fabric/guards/ban_unsigned_commits.py, run from tools/fabric/githooks_prepush.py) the hook refuses, in every project, a push that adds a commit without a signature the checker can read; the main ruleset requires signed commits, so the keyboard now says so before the server does. The commits it checks are those no remote-tracking ref has, whatever remote or URL is pushed to (review of #212, F2). A project without `direct` still gets no direct-push rule.
+
+### Amendment 2026-10-19 — an arming authority's word beside the owner's
+
+§5 rule 4. The owner decided on 2026-10-19 that a project's arms below
+its minimum need not all wait on the owner: each repository's arming
+policy may name the role that gives the word in the owner's place,
+`below_min_authority` for any PR under the minimum and
+`boundary_authority` for a security-boundary change under
+`boundary_min` (identities/schemas/arming.schema.json). `fabric-pr arm`
+reads it (the code landed with #305); the settings repositories named
+fabric-coordinator for agent-fabric, its gateway and FleetDeck, with
+`authority_own_prs` true, and architect-cto for InterWeave and gzapp,
+with it false (agent-fabric-settings#9, gzapi-org/agent-fabric-settings#8).
+The word travels as an AUTHORIZES message naming the PR and its head,
+or the authority arms from its own bound session; neither skips the
+review.
