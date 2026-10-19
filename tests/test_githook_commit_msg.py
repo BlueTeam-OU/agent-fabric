@@ -132,6 +132,24 @@ class BannedAttribution(Hook):
 
 
 class GuardedChange(Hook):
+    def test_a_hook_reached_through_a_symlink_finds_the_fabric_from_its_real_path(self):
+        # core.hooksPath may name a directory of links; the owner named in authority.json proves which root the hook resolved.
+        fabric = Fabric(owner_role="owner-by-file")
+        self.addCleanup(fabric.cleanup)
+        repo = fabric.project()
+        links = os.path.join(fabric.root, "links")
+        os.makedirs(links)
+        for name in os.listdir(fabric.hooks):
+            os.symlink(os.path.join(fabric.hooks, name), os.path.join(links, name))
+        repo.stage(".agent-fabric/memory/backend-dev/workflow.md")
+        fabric.bind("backend-dev")
+        msg = os.path.join(fabric.root, "LINKMSG")
+        with open(msg, "w", encoding="utf-8") as fh:
+            fh.write("subject" + KIND)
+        r = subprocess.run([os.path.join(links, "commit-msg"), msg], cwd=repo.path, capture_output=True, text=True, timeout=120, env=fabric.env())
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not owner-by-file", r.stderr)
+
     def test_an_unbound_session_is_refused_naming_no_role_and_the_owner(self):
         self.stage_guarded()
         r, after = self.run_hook("subject" + KIND)

@@ -23,11 +23,14 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from githook_fixtures import HOST, LOGIN, Fabric  # noqa: E402
+from githook_fixtures import HOST, LOGIN, ROOT, Fabric  # noqa: E402
+from instance_fixtures import write_registry  # noqa: E402
 
 GENERIC_TAIL = "agent-fabric is read-only for every role but fabric-coordinator; in a managed\nproject, .agent-fabric/ is."
 LOCALE = "identities/roles/language-culture/locale"
@@ -238,6 +241,103 @@ class AgentFabricItself(PreCommit):
         r = self.contributor(None, "tools/fabric/new_thing.py")
         self.assertEqual(r.returncode, 1)
         self.assertIn("this agent's binding holds: (no role bound)", r.stderr)
+
+
+class Linked(PreCommit):
+    def test_a_hook_reached_through_a_symlink_finds_the_fabric_from_its_real_path(self):
+        # core.hooksPath may name a directory of links; the owner read from authority.json proves which root the hook resolved.
+        self.build(owner_role="owner-by-file")
+        repo = self.fabric.project()
+        links = os.path.join(self.fabric.root, "links")
+        os.makedirs(links)
+        for name in os.listdir(self.fabric.hooks):
+            os.symlink(os.path.join(self.fabric.hooks, name), os.path.join(links, name))
+        repo.stage(".agent-fabric/memory/backend-dev/new.md")
+        self.fabric.bind("backend-dev")
+        r = self.fabric.hook("pre-commit", repo)
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stderr.splitlines()[0], "pre-commit: this commit changes .agent-fabric/, which only the owner-by-file role writes.")
+        r = subprocess.run([os.path.join(links, "pre-commit")], cwd=repo.path, capture_output=True, text=True, timeout=120, env=self.fabric.env())
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stderr.splitlines()[0], "pre-commit: this commit changes .agent-fabric/, which only the owner-by-file role writes.")
+
+
+class DecisionRecords(PreCommit):
+    """The decision records keep their own books in agent-fabric itself (the hook's first leg, before the role is asked)."""
+
+    def setUp(self):
+        self.build(owner_role="fabric-coordinator")
+        self.repo = self.fabric.itself()
+        self.scratch = os.path.join(self.fabric.root, "tmp")
+        os.makedirs(self.scratch)
+        f = self.fabric.fabric
+        shutil.copytree(os.path.join(ROOT, "tests", "fixtures", "adr-mini", "docs", "adr"), os.path.join(f, "docs", "adr"))
+        os.makedirs(os.path.join(f, "docs", "live-checks"))
+        write_registry(os.path.join(f, "projects"))
+        self.repo.git("add", "-A")
+        self.repo.git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "records in place")
+
+    def run_hook(self, repo=None):
+        return self.fabric.hook("pre-commit", repo or self.repo, TMPDIR=self.scratch)
+
+    def stale_index(self):
+        self.repo.stage("docs/adr/index.json", "not the generated index\n")
+
+    def test_an_inconsistent_change_is_refused_naming_the_fault_whoever_is_bound(self):
+        self.stale_index()
+        for role in ("fabric-coordinator", "backend-dev", None):
+            with self.subTest(role=role):
+                self.fabric.bind(role)
+                r = self.run_hook()
+                self.assertEqual(r.returncode, 1)
+                self.assertEqual(r.stderr.splitlines()[0], "pre-commit: the decision records in this commit are not consistent \u2014 not committed:")
+                self.assertIn("index.json: stale", r.stderr)
+                self.assertNotIn("only the fabric-coordinator role writes", r.stderr)
+
+    def test_a_consistent_change_goes_on_to_the_role_question(self):
+        self.repo.stage("docs/adr/DIGEST.md", "a note\n")
+        self.fabric.bind("backend-dev")
+        r = self.run_hook()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("this commit changes agent-fabric itself, which only the fabric-coordinator role writes.", r.stderr)
+        self.fabric.bind("fabric-coordinator")
+        self.assertEqual(self.run_hook().returncode, 0)
+
+    def test_a_commit_that_stages_no_record_is_not_checked(self):
+        self.repo.stage("src/b.txt")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook()
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_a_record_moved_out_of_the_directory_is_a_change_to_it(self):
+        self.repo.git("mv", "docs/adr/DIGEST.md", "docs/DIGEST.md")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not consistent", r.stderr)
+
+    def test_the_scratch_tree_is_removed_whether_the_records_pass_or_not(self):
+        self.fabric.bind("fabric-coordinator")
+        self.repo.stage("docs/adr/DIGEST.md", "a note\n")
+        self.assertEqual(self.run_hook().returncode, 0)
+        self.assertEqual(os.listdir(self.scratch), [])
+        self.stale_index()
+        self.assertEqual(self.run_hook().returncode, 1)
+        self.assertEqual(os.listdir(self.scratch), [])
+
+    def test_the_staged_tree_is_checked_not_the_working_tree(self):
+        self.repo.stage("docs/adr/index.json", "not the generated index\n")
+        with open(os.path.join(self.repo.path, "docs", "adr", "index.json"), "w", encoding="utf-8") as fh:
+            fh.write(self.repo.git("show", "HEAD:docs/adr/index.json").stdout)
+        self.fabric.bind("fabric-coordinator")
+        self.assertEqual(self.run_hook().returncode, 1)
+
+    def test_a_managed_projects_own_records_are_not_checked(self):
+        project = self.fabric.project()
+        project.stage("docs/adr/index.json", "not ours\n")
+        self.fabric.bind("backend-dev")
+        r = self.fabric.hook("pre-commit", project, TMPDIR=self.scratch)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
 
 
 if __name__ == "__main__":
