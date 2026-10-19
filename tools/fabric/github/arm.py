@@ -78,7 +78,9 @@ default. A repository in mode owner-only is not armed here; one in mode direct h
 they read; there every PR, boundary or not and waived or not, needs the review of its head and no open
 thread, and a head with no check at all merges on that review alone. A difference between the policy and GitHub in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
 merge methods are allowed, advisory. The minimum is the stated class's, else the author's role's (the
-Fabric-Role trailer every commit of the PR carries, when they agree), else commits.min; a boundary change gets
+Fabric-Role trailer every commit of the PR carries, when they agree and fabric-ctl's presence of the login the
+branch is named for reports that role bound, as a waiver's sender is checked; presence that cannot say is exit 2),
+else commits.min; a boundary change gets
 max(commits.min, commits.boundary_min) whatever role or class; commits.below_min "refuse" is a refusal the owner's
 word does not lift; the merge method is the policy's; a repository with no required check, and every direct
 repository whatever its policy lists, is armed only with every check on the head green, except a direct
@@ -499,6 +501,15 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
         raise deny(f"the {word} {ref} {field} head {m.group(3)}, and #{num}'s head is now {head[:12]}"
                      f" — an approval of one head arms no other")
     host, login = sender.split("/", 1)
+    held = held_role(host, login, f"the {word}")
+    if held != role:
+        raise deny(f"the {word} {ref} is from {login}, who holds {held or 'no role'}, not {role}")
+    return login, mid
+
+
+def held_role(host: str, login: str, what: str) -> str:
+    """The role fabric-ctl's presence of `login` on `host` reports it bound to ("" for none) — the fabric's record,
+    never a line a message or a commit carries. Unanswered when presence cannot say (`what` is what it checks)."""
     rc, out = run_reader(program("AGENT_FABRIC_CTL", os.path.join(FABRIC, "bin", "fabric-ctl")),
                          [login, "presence", "--json"], timeout=120)
     try:
@@ -508,11 +519,29 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
     p = row.get("presence") if isinstance(row, dict) else None
     if (not isinstance(p, dict) or row.get("status") != "ok" or p.get("status") != "ok"
             or row.get("account") != login or row.get("host") != host):
-        raise Unanswered(f"fabric-ctl could not say which role {login} holds (presence, exit {rc}) — the {word}"
+        raise Unanswered(f"fabric-ctl could not say which role {login} holds (presence, exit {rc}) — {what}"
                          f" cannot be checked")
-    if p.get("role") != role:
-        raise deny(f"the {word} {ref} is from {login}, who holds {p.get('role') or 'no role'}, not {role}")
-    return login, mid
+    return str(p.get("role") or "")
+
+
+def role_bound(role: str, branch: str) -> str | None:
+    """`role`, the PR's commits' Fabric-Role trailer, when the login its branch is named for (<host>/<login>/…) is
+    bound to it by presence, as a waiver's sender is; else None, said. The trailer is text a committer can type and
+    the commit-msg hook keeps a typed one, so a minimum lowered for a role is taken only on the fabric's record of
+    who holds it (reviews of BlueTeam-OU/agent-fabric-settings#8 F2, gzapi-org/agent-fabric-settings#7 §3). The
+    branch name is typed too: this stops a mistake, not a forger. Unanswered when presence cannot say."""
+    m = re.fullmatch(r"([a-z0-9._-]+)/([a-z0-9._-]+)/.+", branch)
+    if not m:
+        say(f"the commits say Fabric-Role: {role}, and the branch {branch} names no <host>/<login>/… to check it"
+            f" against: the repository's minimum, not the role's")
+        return None
+    host, login = m.groups()
+    held = held_role(host, login, f"the role {role} the commits carry")
+    if held != role:
+        say(f"the commits say Fabric-Role: {role}, and {login}, whose branch it is, holds {held or 'no role'}:"
+            f" the repository's minimum, not the role's")
+        return None
+    return role
 
 
 def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, role: str | None,
@@ -826,8 +855,13 @@ def arm(argv: list[str]) -> int:
             raise refuse(f"the body states Class: {cls} but the changed files are not that class — {head_lines(offlist)}")
         say(f"class stated and confirmed by the files: {cls}")
     # The author's role is the one the PR's own commits are stamped with (the Fabric-Role trailer the commit-msg
-    # hook adds); several roles, or none, is no role: the repository's minimum, never a lower one.
+    # hook adds), held by the branch's login; several roles, or none, is no role: the repository's minimum, never a
+    # lower one.
     role = author_role(repo, num)
+    # Presence is asked only where the role changes the floor: a class, a boundary or a role the policy does not
+    # name leaves it at what no role gets, and a fleet read that answers nothing would stop an arm it cannot change.
+    if role and arm_policy.threshold(policy, role, cls, boundary_unwaived) != arm_policy.threshold(policy, None, cls, boundary_unwaived):
+        role = role_bound(role, branch)
     floor = arm_policy.threshold(policy, role, cls, boundary_unwaived)
     # A class whose minimum is one has no lower bound than a stated, confirmed class always had (a pull request of
     # only review fixes counts zero work commits and still arms under it); above one, the class's own minimum is

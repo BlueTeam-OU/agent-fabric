@@ -30,7 +30,8 @@ commits (the owner, 2026-10-11, through fabric-coordinator's REPLY 01a12ab1). Th
 repository's file may raise it and never lowers it below the fleet's, which load() enforces after the merge.
 
 threshold() IS THE ORDER OF SPECIFICITY: a stated class whose regex every file matches (commits.classes), then the
-author's role (commits.roles), then commits.min; a boundary change gets the floor above and nothing lowers it.
+author's role (commits.roles; arm.py takes it only when presence reports the branch's login bound to it), then
+commits.min; a boundary change gets the floor above and nothing lowers it.
 render() IS THE MAPPING to GitHub: the repository fields and the ruleset body.
 """
 from __future__ import annotations
