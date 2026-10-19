@@ -149,6 +149,27 @@ class TmpdirTest(unittest.TestCase):
         self.assertEqual(os.listdir(own), ["old"])
         self.assertFalse(os.path.exists(session.default_tmpdir(env)), "the default is not made beside it")
 
+    def test_this_logins_pre_292_default_is_replaced_by_the_home_default(self):
+        env = {"HOME": self.home, "TMPDIR": "/var/tmp/agent-fabric-alice"}
+        session.settle_tmpdir(env, login="alice")
+        self.assertEqual(env["TMPDIR"], session.default_tmpdir(env))
+        self.assertTrue(os.path.isdir(env["TMPDIR"]))
+
+    def test_another_logins_legacy_path_and_any_other_value_are_the_accounts_own(self):
+        for value in ("/var/tmp/agent-fabric-bob", "/var/tmp/agent-fabric-alice/x",
+                      "/var/tmp/agent-fabric-alice/", os.path.join(self.sandbox, "own")):
+            env = {"HOME": self.home, "TMPDIR": value}
+            session.settle_tmpdir(env, login="alice")
+            self.assertEqual(env["TMPDIR"], value, value)
+            self.assertFalse(os.path.exists(session.default_tmpdir(env)), value)
+
+    def test_the_login_defaults_to_the_effective_user(self):
+        import pwd
+        me = pwd.getpwuid(os.geteuid()).pw_name
+        env = {"HOME": self.home, "TMPDIR": session.legacy_tmpdir(me)}
+        session.settle_tmpdir(env)
+        self.assertEqual(env["TMPDIR"], session.default_tmpdir(env))
+
 
 if __name__ == "__main__":
     unittest.main()
