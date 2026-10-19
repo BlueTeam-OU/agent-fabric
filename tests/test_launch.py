@@ -340,14 +340,18 @@ def main() -> int:
         launch.reexec = lambda env, args: calls.append((env, args)) or (_ for _ in ()).throw(SystemExit(0))
         state = f"{tmp}/state"
         put(f"{state}/binding.json", json.dumps({"session": "sess-9"}))
-        when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 5))
+        # The launch's start is one value, taken once: a marker is obeyed only when it was requested at or after it, and the
+        # cases below run seconds apart (a loaded run took longer than the 5 s that stood here, and a later case then
+        # met its own marker as stale: exit with no resume). Passing the clock at each call made "after" a race.
+        launched = int(time.time())
+        when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(launched + 5))
         put(f"{state}/restart.json", json.dumps({"requested_at": when, "status": "done", "piece": "claude",
                                                  "from": "1", "to": "2"}))
         saved = dict(os.environ)
         os.environ["AGENT_FABRIC_PULLED"] = "1"
         try:
             with redirect_stderr(io.StringIO()):
-                launch.restart(state, int(time.time()), True, 143, ["--resume", "old", "-p", "x"], tmp, tmp)
+                launch.restart(state, launched, True, 143, ["--resume", "old", "-p", "x"], tmp, tmp)
         except SystemExit:
             pass
         finally:
@@ -426,7 +430,7 @@ def main() -> int:
         t.start()
         err = io.StringIO()
         with redirect_stderr(err):
-            resumed = launch.read_restart(marker, int(time.time()), binding, "30")
+            resumed = launch.read_restart(marker, launched, binding, "30")
         t.join()
         check("a pending upgrade is waited for, and the session resumed once it is done",
               resumed == "sess-7" and "waiting for it" in err.getvalue()
@@ -451,7 +455,7 @@ def main() -> int:
             err = io.StringIO()
             try:
                 with redirect_stderr(err):
-                    launch.restart(state, int(time.time()), True, 143, [], tmp, tmp)
+                    launch.restart(state, launched, True, 143, [], tmp, tmp)
             except SystemExit:
                 pass
             finally:
