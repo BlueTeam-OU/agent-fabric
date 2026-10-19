@@ -16,7 +16,7 @@ ROOT = os.path.dirname(HERE)
 
 LEAKS = [
     "The APK is at `/var/tmp/j94-292/j94-292-0057924e.apk`, sha256 91819bbe.",
-    "evidence in /var/tmp/j88-swipe-review (README.txt)", "keep /var/tmp/agent-fabric-python-dev-02/cienv.sh", "/var/tmp/agent-fabric-user/.cache/x",
+    "evidence in /var/tmp/j88-swipe-review (README.txt)", "keep /var/tmp/agent-fabric-python-dev-02/cienv.sh", "/var/tmp/agent-fabric-user/.cache/x", "/var/tmp/agent-fabric-user/../x",
     "a backup at /var/tmp/w.bak, then", "heads under /var/tmp/review-*",
     "rebuilt into ~/scratch/j97 for later", "(~/scratch/look-compare/both.png, and", "~/scratch/j97/*.orig",
 ]
