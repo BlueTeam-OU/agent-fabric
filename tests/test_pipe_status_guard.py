@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """runtime/claude-code/hooks/pipe-status-guard.sh (Claude Code PreToolUse hook on Bash) — Wave 9 batch 5.
 
-The oracle is test_pipe-status-guard.sh, ported case for case (its 27 refused commands and 6 allowed ones are the
+The oracle is the bash test test_pipe-status-guard.sh (deleted with the port), ported case for case (its 27 refused commands and 6 allowed ones are the
 first entries of the lists below, in order); the cases it missed are marked NEW. The hook is driven through ONE
 constant, ENTRY, the command the harness runs (`bash "<path>"`, the payload on stdin), so this file runs unchanged
 against the bash and against the Python port behind the same path.

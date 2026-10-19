@@ -1,39 +1,24 @@
 #!/usr/bin/env bash
-# Claude Code PreToolUse hook on Bash, for every session: refuses a check
-# piped into a filter and chained into a commit, a push or a merge.
+# runtime/claude-code/hooks/pipe-status-guard.sh — the PreToolUse hook on Bash that refuses a check piped
+# into a filter and chained into a commit, push or merge. The path is the contract (the settings files run
+# it by path); the guard, its contract and every reason for it are in pipe-status-guard.py beside this file
+# (ADR-040 §5 rule 1, Wave 9 batch 5).
 #
-# WHY. `check | tail -1 && git commit` tests tail's exit status, which is
-# 0 whatever the check did, so a failed lint, suite or gate still commits,
-# pushes or merges. A written rule did not hold: the coordinator did it six
-# times, the last one pushing a red test to a pull request. A pipe followed
-# by `;` is not refused (nothing is chained on it), nor a pipe no commit,
-# push or merge follows.
-#
-# Output: a deny decision, or nothing. Exit 0 always; input it cannot
-# parse is allowed silently — this is a fence against a habit, not a
-# sandbox.
-set -uo pipefail
-
-command -v jq >/dev/null 2>&1 || exit 0
-cmd="$(jq -r '.tool_input.command // empty' 2>/dev/null)" || exit 0
-[[ -n "$cmd" ]] || exit 0
-# One line: a continuation or a newline must not hide the chain.
-flat="$(printf '%s' "$cmd" | tr '\n' ' ' | sed 's/\\ / /g')"
-# Only `&&` chains matter here. Every other `&` — in a redirection
-# (`2>&1`, `>& log`, `&>log`, `<&0`), a `|&` pipe or a background job —
-# is dropped before matching, so no spelling of a redirection hides the
-# chain (review of #54: each narrower rule left one).
-flat="$(sed -E 's/&&/\x01/g; s/&//g; s/\x01/\&\&/g' <<<"$flat")"
-# No exemption for pipefail: telling a `set -o pipefail` the shell runs from
-# one in an echo, a comment or a subshell is a shell parser this hook is
-# not, and each attempt left a bypass (review of #54). The way through is
-# the one the message names: run the check, capture its status, commit on 0.
-filter='(tail|head|grep|sed|cut|wc|awk|sort|uniq|tee)'
-# Any global options between git and the subcommand (-C dir, -c k=v,
-# --no-pager, --git-dir=…).
-write='(git([[:space:]]+-[^[:space:]]+([[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|[^-[:space:]][^[:space:]]*))?)*[[:space:]]+(commit|push)|gh[[:space:]]+pr[[:space:]]+(merge|create))'
-if grep -qE "\|[[:space:]]*${filter}\b[^;]*&&.*\b${write}\b" <<<"$flat"; then
-  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",
-    permissionDecisionReason:"A check piped into a filter and chained with && into a commit, push or merge tests the filter'"'"'s exit status, not the check'"'"'s: a failed check would still commit. Run the check to a log, capture rc=$?, and commit only on 0."}}'
-fi
+# A permission gate that cannot run must not vanish into an allow: the harness reads a failed hook as no
+# objection. So this forwarder does not exec: with the fleet's pinned Python missing, its module not beside
+# it, or a run that fails, it ASKS. Bash builtins only, so nothing it needs can be missing.
+here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+module="$here/pipe-status-guard.py"
+cannot_run() {
+  printf '%s\n' "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The pipe-status guard could not run ($1). Approve only if this command does not pipe a check into a filter and chain it with && into a commit, push or merge.\"}}"
+  exit 0
+}
+# The fleet's pinned Python (runtime/python.json), by its fixed path and never AGENT_FABRIC_PYTHON: a gate
+# whose interpreter the environment chose could be pointed at /bin/true (as agent-dispatch-guard.sh).
+py=/usr/local/bin/fabric-python
+[[ -x "$py" ]] || cannot_run "the fleet's pinned Python is missing ($py)"
+[[ -f "$module" ]] || cannot_run "its module is not beside it"
+# -I: no PYTHONPATH or user site can put a module of its own under the guard; -S: no site import.
+out="$("$py" -I -S "$module" 2>/dev/null)" || cannot_run "the guard failed"
+[[ -z "$out" ]] || printf '%s\n' "$out"
 exit 0
