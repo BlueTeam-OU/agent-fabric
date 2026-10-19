@@ -138,6 +138,39 @@ def main() -> int:
     check("actors in name order, not by count", list(rep["total"]["by_actor"]) == ["amy", "zed"], list(rep["total"]["by_actor"]))
     check("no score key anywhere", "score" not in json.dumps(rep).lower() and "rank" not in json.dumps(rep).lower())
 
+    # --- check-run reads: a transient failure is retried, a refusal is not, and the last failure is raised
+    calls = []
+    def flaky_api(n_bad, transient):
+        def api(*a, **k):
+            calls.append(1)
+            if len(calls) <= n_bad:
+                raise errors.gh.GhError("gh api", "x", transient=transient)
+            return [cr("static", "success")]
+        return api
+    saved_api, saved_sleep = errors.gh.api, errors.time.sleep
+    errors.time.sleep = lambda s: None
+    try:
+        errors.gh.api = flaky_api(2, True)
+        ok = errors.check_runs("o/r", "s") == [cr("static", "success")] and len(calls) == 3
+        calls.clear()
+        errors.gh.api = flaky_api(3, True)
+        try:
+            errors.check_runs("o/r", "s")
+            third = False
+        except errors.gh.GhError:
+            third = len(calls) == 3
+        calls.clear()
+        errors.gh.api = flaky_api(1, False)
+        try:
+            errors.check_runs("o/r", "s")
+            refused = False
+        except errors.gh.GhError:
+            refused = len(calls) == 1
+    finally:
+        errors.gh.api, errors.time.sleep = saved_api, saved_sleep
+    check("a transient read failure is retried twice, then raised", ok and third, (ok, third))
+    check("a refusal is raised at once, not retried", refused)
+
     # --- main(): text and JSON through stubbed readers
     saved = (errors.results.main_commits, errors.results.merged_prs, errors.gh.api, errors.known_hosts)
     errors.known_hosts = lambda: HOSTS

@@ -47,11 +47,13 @@ message body.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import datetime as dt
 import json
 import os
 import re
 import sys
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -283,23 +285,36 @@ def render(rep: dict, doc: dict) -> str:
     return "\n".join(lines)
 
 
+WORKERS = 8                                          # one gh call per commit: the wait is the network's, not the CPU's
+RETRIES = 2
+
+
+def check_runs(repo: str, sha: str) -> list[dict]:
+    """A sha's check runs. A read that failed in a way a retry could help (gh.GhError.transient) is retried; any
+    other failure, or the last one, is raised: a head whose checks are unread is never counted green."""
+    for attempt in range(RETRIES + 1):
+        try:
+            return gh.api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True, items_key="check_runs")
+        except gh.GhError as e:
+            if not e.transient or attempt == RETRIES:
+                raise
+            time.sleep(2 ** attempt)
+    raise AssertionError("unreachable")
+
+
 def collect(repos: list[str], now: dt.datetime, days: int, window: int) -> list[dict]:
     hosts, aggregates = known_hosts(), aggregate_checks()
-    cache: dict[tuple[str, str], list[dict]] = {}
-
-    def checks(repo: str, sha: str) -> list[dict]:
-        # A sha never changes, so what GitHub says of it is asked once.
-        if (repo, sha) not in cache:
-            cache[repo, sha] = gh.api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True,
-                                      items_key="check_runs")
-        return cache[repo, sha]
-
     since = now - dt.timedelta(days=days)
+    read = {repo: (results.main_commits(repo, since), results.merged_prs(repo, since, ("headRefName",))) for repo in repos}
+    wanted = sorted({(repo, c["oid"]) for repo, (_, prs) in read.items() for pr in prs for c in pr.get("commits") or []
+                     if not (c.get("parents", 1) > 1 and FOLD.match(c.get("messageHeadline") or ""))})
+    # A sha never changes, so what GitHub says of it is asked once, all at once.
+    with concurrent.futures.ThreadPoolExecutor(WORKERS) as pool:
+        cache = dict(zip(wanted, pool.map(lambda k: check_runs(*k), wanted)))
     events: list[dict] = []
-    for repo in repos:
-        later = results.main_commits(repo, since)
-        for pr in results.merged_prs(repo, since, ("headRefName",)):
-            events += events_of(repo, pr, later, checks, now, window, hosts, aggregates)
+    for repo, (later, prs) in read.items():
+        for pr in prs:
+            events += events_of(repo, pr, later, lambda r, sha: cache[r, sha], now, window, hosts, aggregates)
     return events
 
 
