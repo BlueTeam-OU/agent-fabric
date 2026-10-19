@@ -322,7 +322,7 @@ def main() -> int:
     # The hook bounds each pgrep at 2 s and the whole ground truth at 3 s of
     # wall time, so a loaded host answers "could not ask" (None) where the
     # case means to read procps's answer: the cases below widen both bounds
-    # (the bound itself is pinned further down, against a stubbed listed()).
+    # (the shipped bounds are pinned in their own case further down).
     real_listed, real_budget = g.listed, g.GROUND_TRUTH_BUDGET_S
     g.listed = lambda argv, timeout=2.0: real_listed(argv, 120.0)
     g.GROUND_TRUTH_BUDGET_S = 600.0
@@ -390,7 +390,20 @@ def main() -> int:
         check("the ground truth stops within its budget, across killall's names", took < 1.5, took)
         # selects() hands its bound to the process it starts: a pgrep that
         # hangs is killed at the timeout, never waited on (#70, tenth re-review).
-        g.listed = real_listed   # this case pins the bound selects hands down
+        g.listed = real_listed   # these cases pin the bounds the hook ships
+        # The shipped bounds, which every other case widens: ground_truth
+        # under the real budget hands pgrep at most 2 s, and the budget
+        # stays under the harness's 5 s hook timeout.
+        got, widened_budget = [], g.GROUND_TRUTH_BUDGET_S
+        g.listed = lambda argv, timeout=2.0: got.append(timeout) or set()
+        g.GROUND_TRUTH_BUDGET_S = real_budget
+        try:
+            g.ground_truth("pkill -f claude-zzqk", pid)
+        finally:
+            g.listed, g.GROUND_TRUTH_BUDGET_S = real_listed, widened_budget
+        check("the hook ships a 3 s ground-truth budget under the harness's 5 s",
+              real_budget == 3.0, real_budget)
+        check("…and hands each pgrep at most 2 s of it", len(got) == 1 and 0 < got[0] <= 2.0, got)
         real_run, seen = g.subprocess.run, []
 
         def recording(argv, **kw):
@@ -448,6 +461,9 @@ def main() -> int:
         while time.monotonic() < deadline and not (
                 "".join(g.read_argv(sib)[:1]).startswith("zzsib-bg-task-qx") and g.is_inbox(g.read_argv(inbox))):
             time.sleep(0.02)
+        check("the sibling and the inbox stand-in have exec'd under their names before any case asks",
+              "".join(g.read_argv(sib)[:1]).startswith("zzsib-bg-task-qx") and g.is_inbox(g.read_argv(inbox)),
+              (g.read_argv(sib), g.read_argv(inbox)))
         reasons: list[str] = []
 
         def hook_in_session(cmd: str) -> tuple[str, str] | None:

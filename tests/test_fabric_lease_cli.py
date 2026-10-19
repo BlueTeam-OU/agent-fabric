@@ -187,27 +187,35 @@ def main() -> int:
             # The caller's own bound is one second (lease.py FAIL_FAST_S), and
             # a probe starved of CPU for longer than that holds its shared
             # lock for longer: at load 60+ the bare caller was refused by a
-            # probe that was merely slow. --wait makes the caller wait for
-            # what it needs (the probes to end), not for a second of wall
-            # time; stdout stays exactly the command's, and a refusal is
-            # still rc 75.
+            # probe that was merely slow. So this case waits (--wait) for what
+            # it needs, the probes to end, and pins only that a burst never
+            # leaves a caller unable to run; the one-second window itself is
+            # pinned by the next case, which a caller with no window fails.
             rc, out, err = lease("backend-test", "--wait", "120", "--", "echo", "got-through", merged=False)
             for p in probes:
                 p.wait()
-            check("a caller is not refused by a burst of --who probes", rc == 0 and out == "got-through",
+            check("a caller runs through a burst of --who probes", rc == 0 and out == "got-through",
                   f"rc={rc} {out} {err}")
-            # The window itself, without a probe's speed in it: a shared lock
-            # held by the test for a fixed 0.2 s from the caller's spawn,
-            # inside the caller's second (its interpreter takes longer than
-            # that to start), is waited out without a notice.
+            # The window itself, without a probe's speed in it: the test holds
+            # a shared lock, starts the caller, and lets go the moment the
+            # caller is queued behind it (a blocked FLOCK in /proc/locks, on
+            # this file's inode), so the caller must wait the hold out inside
+            # its second, whatever the load.
             with open(f"{d}/backend-test") as observer:
                 fcntl.flock(observer, fcntl.LOCK_SH)
+                inode = os.fstat(observer.fileno()).st_ino
                 caller = subprocess.Popen(["bash", CMD, "backend-test", "--", "echo", "got-through"],
                                           env=clean_env(AGENT_FABRIC_LEASES=d), stdout=subprocess.PIPE,
                                           stderr=subprocess.STDOUT, text=True)
-                time.sleep(0.2)
+                queued, give_up = False, time.monotonic() + 60
+                while not queued and caller.poll() is None and time.monotonic() < give_up:
+                    queued = any("->" in ln and "FLOCK" in ln and f":{inode} " in ln
+                                 for ln in read("/proc/locks").splitlines())
+                    if not queued:
+                        time.sleep(0.005)
                 fcntl.flock(observer, fcntl.LOCK_UN)
             said = caller.communicate(timeout=60)[0].rstrip("\n")
+            check("the caller queued behind a shared hold", queued, f"rc={caller.returncode} {said}")
             check("a caller waits out a momentary shared hold", caller.returncode == 0 and said == "got-through",
                   f"rc={caller.returncode} {said}")
             # Two probes at once both say free (shared locks coexist).
