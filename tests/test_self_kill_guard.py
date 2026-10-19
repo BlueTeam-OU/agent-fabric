@@ -318,7 +318,10 @@ def main() -> int:
     # in for the session (argv0 claude-zzqk, name "sleep"). The reading
     # above gets a command line WITHOUT the token, so every deny here is
     # procps's answer (the owner's choice after seven rounds, 2026-09-30).
-    dummy = subprocess.Popen(["bash", "-c", "exec -a claude-zzqk sleep 60"])
+    # Stand-ins live for an hour, not a minute: at load 100+ the file runs
+    # longer than 60 s and the processes it judges expired under it. Each
+    # is killed in its case's finally, so the length leaves nothing behind.
+    dummy = subprocess.Popen(["bash", "-c", "exec -a claude-zzqk sleep 3600"])
     # The hook bounds each pgrep at 2 s and the whole ground truth at 3 s of
     # wall time, so a loaded host answers "could not ask" (None) where the
     # case means to read procps's answer: the cases below widen both bounds
@@ -431,7 +434,7 @@ def main() -> int:
     tmp = tempfile.mkdtemp()
     os.symlink("/bin/bash", os.path.join(tmp, "claude"))
     os.symlink("/bin/sleep", os.path.join(tmp, INBOX := "gzcoord-inbox"))
-    script = ('(exec -a "$SIB" sleep 60) & s=$!; "$INB" 61 & i=$!; echo "$s $i"; '
+    script = ('(exec -a "$SIB" sleep 3600) & s=$!; "$INB" 3601 & i=$!; echo "$s $i"; '
               'while read -r f; do sh -c \'python3 "$0" < "$1"\' "$HOOK" "$f"; echo @@END; done; '
               'kill "$s" "$i"; wait')
     # The hook runs as the harness runs it, in its own process, so the
@@ -451,7 +454,7 @@ def main() -> int:
     env = dict(os.environ, SIB="zzsib-bg-task-qx --token=zzSENTINEL-c6", INB=os.path.join(tmp, INBOX), HOOK=runner)
     session = subprocess.Popen([os.path.join(tmp, "claude"), "-c", script], env=env, text=True,
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True)
-    outside = subprocess.Popen(["zzout-unrelated-qx", "60"], executable="/bin/sleep")
+    outside = subprocess.Popen(["zzout-unrelated-qx", "3600"], executable="/bin/sleep")
     try:
         sib, inbox = map(int, session.stdout.readline().split())
         # The subshell is `bash` until its exec -a lands, and the symlinked
@@ -569,10 +572,14 @@ def main() -> int:
         os.makedirs(os.path.join(flags, "sh"))
         py, sh = os.path.join(flags, INBOX), os.path.join(flags, "sh", INBOX)
         with open(py, "w") as fh:
-            fh.write(f"#!{sys.executable}\nimport time\ntime.sleep(60)\n")
+            # Ends when the test closes its end of the pipe: `setsid` forks
+            # the watch off, and a kill of the Popen child would leave it.
+            fh.write(f"#!{sys.executable}\nimport sys\nsys.stdin.read()\n")
         os.chmod(py, 0o755)
         with open(sh, "w") as fh:
-            fh.write("sleep 60\n:\n")
+            # A builtin read, not `sleep`: killing the shell must not orphan a
+            # child that outlives the suite.
+            fh.write("read -r line\n:\n")
         spellings = (("python3 -I -u -B -X utf8 <path>", [sys.executable, "-I", "-u", "-B", "-X", "utf8", py, "--wait"]),
                      ("timeout 600 <path>", ["timeout", "600", py, "--until-delivery"]),
                      ("nohup <path>", ["nohup", py, "--until-delivery"]),
@@ -580,7 +587,7 @@ def main() -> int:
                      ("sh <path>", ["sh", sh]),
                      ("python3 --check-hash-based-pycs default <path>",
                       [sys.executable, "--check-hash-based-pycs", "default", py, "--until-delivery"]))
-        watches = [(label, subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        watches = [(label, subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                             stderr=subprocess.DEVNULL)) for label, argv in spellings]
         try:
             time.sleep(0.5)
@@ -592,6 +599,7 @@ def main() -> int:
             for _, w in watches:
                 w.kill()
                 w.wait()
+                w.stdin.close()
             os.unlink(py)
             os.unlink(sh)
             os.rmdir(os.path.join(flags, "sh"))
