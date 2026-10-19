@@ -1214,6 +1214,16 @@ class ArmRun(unittest.TestCase):
                                2, role_trailers=["web-dev"], body="Class: docs", classes={"docs": r"\.md$"}, extra=("--dry-run",))
         self.assertEqual((rc, [r for r in self.reads if r[0] == "presence"]), (0, []), out)
 
+    def test_a_role_minimum_above_the_repositorys_stands_with_no_presence_read(self):
+        # #312 review F1: presence was asked whenever the role's minimum differed, so a login presence placed in
+        # another role armed at the repository's 8 where the role's 12 stood, and presence that could not answer
+        # stopped an arm the role only raised.
+        p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 12}}}})
+        for label, presence in (("another role", presence_of(role="devex-tooling", login="me")), ("no answer", (1, ""))):
+            rc, _ = self.run_arm(p, 9, role_trailers=["web-dev"] * 9, presence=presence)
+            self.assertIn("under 12 arms only on the owner's word", str(rc), label)
+            self.assertEqual([r for r in self.reads if r[0] in ("presence", "fleet")], [], label)
+
     def test_a_role_only_lowers_a_non_boundary_pull_request(self):
         p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
         rc, _ = self.run_arm(p, 2, files=("policies/x.json",), role_trailers=["web-dev"])

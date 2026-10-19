@@ -914,9 +914,11 @@ def arm(argv: list[str]) -> int:
     # hook adds), held by the branch's login; several roles, or none, is no role: the repository's minimum, never a
     # lower one.
     role = author_role(repo, num)
-    # Presence is asked only where the role changes the floor: a class, a boundary or a role the policy does not
+    # Presence is asked only where the role lowers the floor: a class, a boundary or a role the policy does not
     # name leaves it at what no role gets, and a fleet read that answers nothing would stop an arm it cannot change.
-    if role and arm_policy.threshold(policy, role, cls, boundary_unwaived) != arm_policy.threshold(policy, None, cls, boundary_unwaived):
+    # A role minimum above the repository's lowers nothing, so it stands as the trailer states it, with no fleet
+    # read: presence saying the login holds another role must not drop it to the repository's (#312 review F1).
+    if role and arm_policy.threshold(policy, role, cls, boundary_unwaived) < arm_policy.threshold(policy, None, cls, boundary_unwaived):
         role = role_bound(role, branch)
     floor = arm_policy.threshold(policy, role, cls, boundary_unwaived)
     # A class whose minimum is one has no lower bound than a stated, confirmed class always had (a pull request of
