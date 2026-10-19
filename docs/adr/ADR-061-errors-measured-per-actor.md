@@ -25,9 +25,9 @@ actor differently is therefore argued, never measured, and so is the
 claim that it is unnecessary.
 
 The artifacts already hold most of it (the live check): a marked review
-(ADR-020) sits on the head it read, and most reviewers write a finding
-as `**F<n> (P<level>, …)**`, though no record fixes that shape and a
-third of the reviews read used another; a commit answering one names it
+(ADR-020) sits on the head it read, and some reviewers write a finding
+as `**F<n> (P<level>, …)**`, though no record fixes that shape and only
+13 of the 38 reviews read used it; a commit answering one names it
 in `Answers:`; GitHub keeps
 every check run per commit; a revert names the commit it reverts; and a
 branch is `<host>/<login>/…`, so the login that made a PR is in its head
@@ -175,7 +175,7 @@ from reading as an error-prone one.
   branches are theirs. A person's work is counted by the same
   definitions where a branch names them; the owner's direct commits are
   unattributed until per-person signatures exist, and an arming is no
-  kind here (a candidate, §7). The report says how many of each it saw.
+  kind here (a refused arming is a candidate, §7). The report says how many of each it saw.
 - Attribution is by branch until ADR-057's cut-over: a commit pushed to
   another login's branch, or a PR made on the owner's word by an agent,
   counts against the branch's login. The report states the attribution

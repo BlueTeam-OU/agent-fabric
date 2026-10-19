@@ -1309,8 +1309,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   reviewing engine for a finding judged not real; after an ADR-057
   cut-over, the commit's signer; else unattributed, never guessed (§2,
   §5 rule 3).
-- Kinds: review findings by level (answered, judged not real, unjudged),
-  red checks per head pushed (flaky apart), reverts and fixes forward per
+- Kinds: review findings by level (answered, judged not real, unjudged;
+  unparsed reviews counted apart), red checks per head pushed in the jobs
+  the required check needs (flaky apart), reverts and fixes forward per
   PR merged in a fourteen-day window; every count beside its denominator
   (§2, §5 rule 4).
 - A rule that treats one actor class differently names the counts that
@@ -1318,7 +1319,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   rule 5).
 - Never a target, a ranking or one score per actor, never a reason to
   assign or withhold work, resources, a role or a login; corrected at the
-  source for every holder (§5 rules 6-7).
+  source for every holder; acceptance amends ADR-046 §5 rule 7 to admit
+  error counts (§5 rules 6-7).
 - Reader `fabric-errors` (`tools/fabric/errors.py`), a section of
   `fabric-fleet`; not built yet (§5 rule 8). Waits on the owner's
   acceptance (§8).
