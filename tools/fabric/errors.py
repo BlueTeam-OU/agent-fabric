@@ -46,11 +46,12 @@ its count. CLASS: *agent* when the commit carries a `Fabric-Role:` trailer
 it; *person* when it carries none. A login is not a class: the operator's own
 login commits with and without a role.
 
-A revert's row is the actor and class of the commit that was reverted (a fold's
-contributor, a commit with or without a role), while the denominator, the
-PRs merged, is the head ref's: an actor or class row that was reverted but
-owned no PR of the period shows its count beside a denominator of 0, and no
-rate. Nothing is moved to the owner to make the row tidy.
+A revert's row is the actor, class and role of the commit that was reverted (a
+fold's contributor; a commit with or without a role; a revert of the merge commit
+is the head ref's login with the head commit's class and role), so the
+denominator of the reverts and fixes forward of a row is the PRs of the period
+in which that row had a commit, never only the PRs it owns: its count is always
+drawn from its denominator, and a rate cannot exceed 1.
 
 EVERY count carries its denominator; below 5 denominators there is no rate.
 No combined score, no ranking, no sort by count (ADR-061 §5 rule 6): actors
@@ -261,6 +262,9 @@ def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, 
     if not (period or cperiod):
         return []
     ev = [{**base, "kind": "pr", "closed": closed}]
+    # Every row that had a commit in this PR is in the denominator of its reverts and fixes forward.
+    rows = {(owner, pr_class, pr_role)} | {(w["actor"], w["class"], w["role"]) for w in (who(c["oid"]) for c in commits)}
+    ev += [{**base, "actor": a_, "class": c_, "role": r_, "kind": "pr_part", "closed": closed} for a_, c_, r_ in sorted(rows)]
     if not period:
         # Only reverts and fixes forward are read for a PR that is in the closed period alone.
         return ev + reverts_and_fixes(pr, later, merged, window, closed, base, who, by_sha)
@@ -309,7 +313,8 @@ def rate(count: int, denominator: int) -> float | None:
 def tally(events: list[dict]) -> dict:
     """One group's counts, each beside its denominator."""
     prs = [e for e in events if e["kind"] == "pr" and e["period"]]
-    closed = sum(1 for e in events if e["kind"] == "pr" and e["cperiod"])
+    closed = len({(e["repo"], e["pr"]) for e in events if e["kind"] == "pr_part" and e["cperiod"]})
+    closed_owned = sum(1 for e in events if e["kind"] == "pr" and e["cperiod"])
     reviews = [e for e in events if e["kind"] == "review"]
     findings: dict[str, dict] = {}
     for e in reviews:
@@ -333,7 +338,7 @@ def tally(events: list[dict]) -> dict:
         n_closed = len({(e["repo"], e["pr"]) for e in found if e["cperiod"]})
         out[key] = {"count": n_closed, "of_prs_with_closed_window": closed, "rate": rate(n_closed, closed),
                     "found_so_far_in_open_windows": len({(e["repo"], e["pr"]) for e in found if e["period"] and not e["closed"]})}
-    return {"prs_merged": len(prs), "prs_in_closed_period": closed,
+    return {"prs_merged": len(prs), "prs_in_closed_period": closed_owned,
             "reviews": {"given": len(reviews), "unparsed": sum(1 for e in reviews if e["unparsed"]),
                         "findings": {k: findings[k] for k in sorted(findings)}, "findings_total": nfind,
                         "findings_per_review": rate(nfind, len(reviews) - sum(1 for e in reviews if e["unparsed"])),

@@ -141,6 +141,17 @@ def main() -> int:
           heads[2]["red"] == ["static"] and heads[2]["actor"] == "alice", heads)
     check("with only the cut headline there is no fold to read: nothing is attributed to the branch's login",
           errors.fold_logins([dict(c, subject=None) for c in fold], HOSTS) == {}, "")
+    rep = errors.report(ev)["total"]
+    check("a fold contributor's revert row is beside the PRs it had a commit in: 1 of 1, a rate cannot exceed 1",
+          rep["by_actor"]["carol"]["reverts"]["count"] == 1 and rep["by_actor"]["carol"]["reverts"]["of_prs_with_closed_window"] == 1
+          and rep["by_actor"]["alice"]["reverts"]["of_prs_with_closed_window"] == 1 and rep["by_actor"]["alice"]["reverts"]["count"] == 0,
+          {k: v["reverts"] for k, v in rep["by_actor"].items()})
+    check("…and the PR is owned by alice alone",
+          rep["by_actor"]["carol"]["prs_merged"] == 0 and rep["by_actor"]["alice"]["prs_merged"] == 1
+          and rep["by_actor"]["carol"]["prs_in_closed_period"] == 0 and rep["by_actor"]["alice"]["prs_in_closed_period"] == 1, "")
+    merge_ev = run(pr(commits=fold, merge="e" * 40), [later("Revert", "This reverts commit " + "e" * 40 + ".")])
+    check("a revert of the merge commit is the head ref's login with the head commit's class and role",
+          [(e["actor"], e["class"], e["role"]) for e in merge_ev if e["kind"] == "revert"] == [("alice", "agent", "python-dev")], merge_ev)
     check("a revert of a folded commit is its contributor's; the review stays with the head ref's login",
           [e["actor"] for e in ev if e["kind"] == "revert"] == ["carol"] and [e["actor"] for e in ev if e["kind"] == "review"] == ["alice"], ev)
     one = [commit("b1"), commit("m", f"Merge branch '{H}/carol/for/alice/thing'", parents=("b1",))]
@@ -216,7 +227,7 @@ def main() -> int:
     ev = errors.events_of("o/r", ten, [when(5, "Revert", "This reverts commit " + "a" * 40 + ".")], lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED)
     check("positive control: the same PR in the closed period does give the revert",
           [e["kind"] for e in errors.events_of("o/r", dict(ten, mergedAt=at(16)), [when(10, "Revert", "This reverts commit " + "a" * 40 + ".")],
-                                                lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED)] == ["pr", "revert"])
+                                                lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED) if e["kind"] in ("pr", "revert")] == ["pr", "revert"])
     check("a PR between the period and the closed period (10 days ago, defaults) gives no event, so no empty actor row", ev == [], ev)
     two = pr(number=400, merged=at(16), commits=[commit("a" * 40), commit("b" * 40, parents=("a" * 40,))])
     ev = errors.events_of("o/r", two, [when(10, "Revert", "This reverts commit " + "a" * 40 + ".\n\nThis reverts commit " + "b" * 40 + ".")],
