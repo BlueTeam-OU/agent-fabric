@@ -1,0 +1,56 @@
+name: stripped-nightly
+
+# Every test file run on a copy of the tree without its instance data
+# (tests/stripped_run.py, agent-fabric ADR-045 rule 3). The scan in
+# tests/test_tests_read_fixtures.py reads test source and cannot see a test
+# that reaches the live data through a tool it runs; this run can, and is
+# too slow for every push (270 files, one after another in one stripped
+# copy and one TMPDIR, so a file sees what an earlier one left). It fails on a
+# red file not in tests/stripped_skip.txt and on a listed file that now
+# passes, so the list only shrinks. On a pull request it runs only when the
+# run's own parts change, so a list edit is proven before it lands.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - tests/stripped_run.py
+      - tests/stripped_skip.txt
+      - .github/workflows/stripped-nightly.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stripped-nightly-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  stripped:
+    runs-on: ubuntu-latest
+    # A cap for a hang, not a budget.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The copy's objects hold the tree's history: a port's test reads
+          # the old script from it (tests/stripped_run.py).
+          fetch-depth: 0
+      - name: the fleet's pinned Python, as a host installs it
+        run: sudo /usr/bin/python3 tools/fabric/python_pin.py install && /usr/bin/python3 tools/fabric/python_pin.py check
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: the schema validator and paperkey, as the suites' environment has them
+        run: python3 -m pip install --quiet --disable-pip-version-check jsonschema && sudo apt-get install -y --no-install-recommends paperkey
+      # A short TMPDIR: the copy and each file's TMPDIR live under it, and a
+      # long one overflows an AF_UNIX socket path (test_bootstrap_internals,
+      # python-dev-03's run of 2026-10-19).
+      - name: every test file on a stripped copy
+        env:
+          TMPDIR: /tmp/sr
+        run: mkdir -p "$TMPDIR" && python3 tests/stripped_run.py . --skip-list tests/stripped_skip.txt tests/test_*.py

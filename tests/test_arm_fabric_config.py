@@ -7,6 +7,7 @@ no role but the owner waives agent-fabric's, the gateway's or
 radicle-spike's (whose PRs could not be armed without one, 2026-10-08)."""
 from __future__ import annotations
 
+import ast
 import glob
 import os
 import sys
@@ -17,6 +18,45 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric", "github"))
 import arm  # noqa: E402
 
 CONFIG = os.path.join(HERE, "projects", "agent-fabric", "integration", "gh", "arm.json")
+
+
+def arm_closure() -> set[str]:
+    """Every module arm.py imports, directly or through another, found on
+    the two roots it puts on sys.path (tools/fabric, tools/fabric/github):
+    the files whose change changes what an arm decides. Computed, not
+    listed, so a new import is caught the day it is added."""
+    fabric = os.path.join(HERE, "tools", "fabric")
+    roots_ = (fabric, os.path.join(fabric, "github"))
+
+    def find(dotted: str) -> str | None:
+        parts = dotted.split(".")
+        for root in roots_:
+            base = os.path.join(root, *parts)
+            for cand in (base + ".py", os.path.join(base, "__init__.py")):
+                if os.path.isfile(cand):
+                    return cand
+        return None
+
+    seen: set[str] = set()
+    todo = [os.path.join(fabric, "github", "arm.py")]
+    while todo:
+        f = todo.pop()
+        if f in seen:
+            continue
+        seen.add(f)
+        tree = ast.parse(open(f, encoding="utf-8").read(), f)
+        for node in ast.walk(tree):
+            names: list[str] = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                names = [node.module] + [f"{node.module}.{a.name}" for a in node.names]
+            for n in names:
+                for i in range(1, n.count(".") + 2):
+                    hit = find(".".join(n.split(".")[:i]))
+                    if hit and hit not in seen:
+                        todo.append(hit)
+    return {os.path.relpath(f, HERE) for f in seen}
 
 
 def main() -> int:
@@ -41,6 +81,12 @@ def main() -> int:
         check(f"{f}: not boundary", not boundary(f))
     check("no classes", classes == {})
     check("no role waives the boundary: the owner arms it", waiver is None)
+    closure = arm_closure()
+    gh_dir = os.path.join("tools", "fabric", "github") + os.sep
+    inside = sorted(f for f in closure if f.startswith(gh_dir))
+    check(f"arm.py's import closure reaches into github/ ({len(inside)} modules)", len(inside) >= 10)
+    for f in inside:
+        check(f"{f}: in arm.py's import closure, boundary", boundary(f))
     for cfg in sorted(glob.glob(os.path.join(HERE, "projects", "*", "integration", "gh", "arm.json"))):
         rel = os.path.relpath(cfg, HERE)
         try:

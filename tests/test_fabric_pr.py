@@ -71,8 +71,8 @@ def main() -> int:
         print("fabric-pr — the verb list")
         listing = (f"usage: fabric-pr <verb> [args…]\nverbs: {LIST}\n--repo <owner>/<name>|<project>: gate, review-status,"
                    " post-review, arm, wait-merged act on that repository's PR, never the cwd checkout's;\n"
-                   "  an exported AGENT_FABRIC_ARM_CONFIG still names the arm rules, and commits are counted only in a"
-                   " clone of that repository\n")
+                   "  an exported AGENT_FABRIC_ARM_CONFIG still names the arm rules, and commits are counted,\n"
+                   "  and branches in flight listed, only in a clone of that repository\n")
         for argv in ([], ["help"], ["--help"]):
             r = run([pr, *argv])
             check(f"{argv or 'no verb'} lists the verbs, exit 0", (r.stdout, r.stderr, r.returncode) == (listing, "", 0),
