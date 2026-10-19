@@ -329,7 +329,7 @@ def main() -> int:
         open(regp, "wb").write(b"\xff\xfe")
         refuses("refuses a registry that is not UTF-8, with no traceback", tree, base_args, "is not UTF-8")
         r = sh(base, shim, "import", *base_args, "--working-copy", wc, env={**env_run, "GIT_DIR": os.path.join(scratch, "nowhere")})
-        check("a GIT_DIR in the environment is dropped: the import still finds origin/main and the sibling",
+        check("a GIT_DIR in the environment is dropped: the import still reads origin/main",
               r.returncode == 0 and "fabric-ref" in r.stdout, f"exit {r.returncode}: {r.stderr[:200]}")
 
         tree = os.path.join(scratch, "tree-link")

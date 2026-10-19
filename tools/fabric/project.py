@@ -233,7 +233,7 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
     # Whatever else projects/ holds (schemas/, registry.json, clients.json) is not an id;
     # a directory of only integration/ is a half-finished import, left to the per-file refusal.
     held = os.path.join(roots.projects_dir(root=root), args.id)
-    if os.path.lexists(held) and not (os.path.isdir(held) and set(os.listdir(held)) <= {"integration"}):
+    if os.path.lexists(held) and not (os.path.isdir(held) and not os.path.islink(held) and set(os.listdir(held)) <= {"integration"}):
         raise Refused(f"--id {args.id}: projects/{args.id} exists and is not a registered project")
     if args.like not in projects:
         raise Refused(f"--like {args.like}: not a registered project")
