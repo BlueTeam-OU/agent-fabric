@@ -114,14 +114,23 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
 1. **Owner:** say which repository, which client (an existing entry in
    `projects/clients.json`; a new client is a decision of its own), which
    roles work there and its visibility; create or transfer it on GitHub.
-   Steps 2 to 4 start from one command, run from this repository:
-   `fabric-project import --id ID --like SIBLING --client CLIENT --remote
-   SSH --remote HTTPS --default-branch B --license SPDX --role ROLE …`
-   prints the plan; `--write` writes the files (never commits, never
-   overwrites). What it leaves to you is in each step below and in the
-   lines it lists as still naming the sibling.
+   Steps 2 to 4 start from one command, `git fetch` first:
+   `<checkout>/bin/fabric-project import --id ID --like SIBLING --client
+   CLIENT --remote SSH --remote HTTPS --default-branch B --license SPDX
+   --role ROLE … --title T --working-copy <the project's clone>`. It
+   edits the agent-fabric checkout its own `bin/` sits in, never the
+   directory you stand in, so run it by the path of your branch's
+   checkout: the linked `fabric-project` writes into the checkout
+   bootstrap linked. Without `--working-copy` it writes no step 4 file
+   and says nothing of it. It prints the plan; `--write` writes the
+   files (never commits, never overwrites). What it leaves to you is in
+   each step below and in the lines it lists as still naming the
+   sibling.
 2. **fabric-coordinator**, `projects/registry.json`, one new entry
-   (`fabric-project import` copies the sibling's keys, empty `tools`): `client`, `title`, `remotes` (ssh then https),
+   (the import takes the sibling's keys in its order; `title` is the
+   sibling's unless `--title`; `tools`, `agent_env` and `plain_env`
+   empty; `note` is `imported <date>`; `moved_from` never copied):
+   `client`, `title`, `remotes` (ssh then https),
    `default_branch`, `taxonomy` (`.agent-fabric/taxonomy.json`), `memory`
    (`.agent-fabric/memory`), `integration` (`projects/<id>/integration`),
    `license`, `tools` (each with `proof`, `where`, `why`; `roles` to limit
@@ -144,10 +153,14 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    (only fabric-coordinator commits under `.agent-fabric/`):
    `taxonomy.json` (shape: `projects/schemas/taxonomy.schema.json`),
    `roles/<role>.md` remits for the roles that work there (the import
-   copies the sibling's, or writes a stub for a role it lacks; charters
-   are never copied), `memory/` (a drain fills it), `fabric-ref` (one
-   line, a full commit id of this repository, ADR-011). The import
-   writes the taxonomy with an empty rule per role, to be filled.
+   copies the sibling's, from `--like-working-copy` or the sibling's
+   clone beside the checkout; it writes a stub for a role that clone
+   lacks, and for every role when no clone is found, which only the
+   sizes in the plan show; charters are never copied), `memory/` (a
+   drain fills it), `fabric-ref` (one line, a full commit id of this
+   repository, ADR-011; the import writes origin/main as last fetched).
+   The import writes the taxonomy with an empty rule per role, to be
+   filled.
 5. **devex-tooling:** one PR in the client's `settings_repo`. It validates
    against its pinned agent-fabric commit (`AGENT_FABRIC_REF` in
    `.github/workflows/validate.yml`; `tools/validate_policies.py` reads
