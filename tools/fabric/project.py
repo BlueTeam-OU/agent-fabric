@@ -326,6 +326,15 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
     elif args.like_working_copy:
         raise Refused("--like-working-copy without --working-copy has nothing to write into")
 
+    # Every directory between projects/<id> and a planned file, not only the two
+    # the check above names: a link at any of them carries the write out of the tree.
+    for f in files:
+        if f["path"].startswith(dst_dir + os.sep):
+            here = os.path.dirname(f["path"])
+            while here != os.path.dirname(held):
+                if os.path.islink(here):
+                    raise Refused(f"{here} is a symlink; nothing is written through it")
+                here = os.path.dirname(here)
     for f in files:
         if os.path.lexists(f["path"]):
             raise Refused(f"{f['path']} exists; nothing is overwritten")

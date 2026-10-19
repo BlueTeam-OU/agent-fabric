@@ -216,6 +216,12 @@ def main() -> int:
         os.unlink(os.path.join(held, "integration"))
         os.rmdir(held)
 
+        os.makedirs(os.path.join(held, "integration"))
+        os.symlink(outside, os.path.join(held, "integration", "gh"))
+        refuses("refuses a symlinked directory below projects/<id>/integration", base, base_args + ["--write"], "nothing is written through it")
+        check("  ...and nothing went through that one", sorted(os.listdir(outside)) == ["integration"])
+        shutil.rmtree(held)
+
         os.makedirs(os.path.join(badwc, ".agent-fabric", "roles"))
         open(os.path.join(badwc, ".agent-fabric", "roles", "python-dev.md"), "wb").write(b"---\nproject: x\n---\n\xff\xfe\n")
         refuses("refuses a sibling remit that is not UTF-8, with no traceback", base,
