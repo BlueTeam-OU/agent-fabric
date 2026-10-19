@@ -396,7 +396,7 @@ def human(n: int) -> str:
 SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
-def live_sessions() -> set[str] | None:
+def live_sessions(proc: str = "/proc") -> set[str] | None:
     """The session ids a live process of this login runs (CLAUDE_CODE_SESSION_ID in its environment; the children
     of a session inherit it), or None when a process of this login cannot be read, which is unknown, never none:
     no session is then called ended. A process is live by plan_hold's rule for its markers - it answers as this
@@ -405,14 +405,14 @@ def live_sessions() -> set[str] | None:
     found: set[str] = set()
     uid = os.geteuid()
     try:
-        pids = [n for n in os.listdir("/proc") if n.isdigit()]
+        pids = [n for n in os.listdir(proc) if n.isdigit()]
     except OSError:
         return None
     for pid in pids:
         try:
-            if os.stat(f"/proc/{pid}").st_uid != uid:
+            if os.stat(f"{proc}/{pid}").st_uid != uid:
                 continue
-            with open(f"/proc/{pid}/environ", "rb") as fh:
+            with open(f"{proc}/{pid}/environ", "rb") as fh:
                 env = fh.read()
         except (FileNotFoundError, ProcessLookupError):
             continue                      # gone between the listing and the read
@@ -420,7 +420,7 @@ def live_sessions() -> set[str] | None:
             # Not dumpable (systemd --user, sshd-session): readable only by root. It is no Claude Code session unless its
             # command line says it might be, or cannot be read either: then nothing is known, and nothing is called ended.
             try:
-                with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                with open(f"{proc}/{pid}/cmdline", "rb") as fh:
                     if b"claude" not in fh.read().lower():
                         continue
             except (FileNotFoundError, ProcessLookupError):
@@ -431,7 +431,7 @@ def live_sessions() -> set[str] | None:
         for entry in env.split(b"\0"):
             if entry.startswith(b"CLAUDE_CODE_SESSION_ID="):
                 sid = entry.split(b"=", 1)[1].decode("ascii", "replace")
-                if plan_hold.alive(pid, plan_hold.start_of(pid)):
+                if proc != "/proc" or plan_hold.alive(pid, plan_hold.start_of(pid)):
                     found.add(sid)
     return found
 
@@ -475,12 +475,11 @@ def sweep_sessions() -> None:
     kept (with why). A scratch directory is removed whole, never through a link."""
     root = claude_tmp_root()
     live = live_sessions()
-    mine = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     for path in session_dirs(root):
         sid = os.path.basename(path)
         if live is None:
             echo(f"kept session scratch {path} — a process of this login cannot be read: no session is called ended")
-        elif sid in live or sid == mine:
+        elif sid in live:
             echo(f"kept session scratch {path} — live session")
         else:
             size = tree_bytes(path)

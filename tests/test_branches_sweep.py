@@ -10,14 +10,13 @@ Each case names the mutation it fails on, planted on tools/fabric/branches.py as
   commits_on_no_remote_keep              `worktree_state` drops its `unpushed` clause
   changes_and_untracked_keep             `status_lines(path)` is read as empty
   ignored_files_keep_bytecode_does_not   `is_bytecode` always False (bytecode keeps it) or always True (a build directory goes)
-  a_lock_keeps / the_current_worktree / in_use     the lock, "this one" and "in use" clauses dropped
+  a_lock_keeps / the_current_worktree_and_in_use   the lock, "this one" and "in use" clauses dropped (`if False`)
   removal_says_size                      the "  freed" line dropped
   worktrees_only_deletes_no_branch       `--worktrees` ignored, so `zero` branches are deleted
   all_sweeps_every_copy_and_names_a_refusal   `sweep_all` ignores a copy's non-zero status (exit 0, nothing named)
-  an_ended_session_goes / a_live_session_stays / own_session_stays / unreadable_process_keeps_all
-                                         the removal not asking `live` / the live set read without the process / the own id
-                                         ignored / `live_sessions` returning an empty set on an unreadable process
-  a_link_and_other_names_are_not_followed  `session_dirs` accepting a link or any name
+  an_ended_session_goes / a_live_session_stays     the removal not asking `live` (`elif False`); `sid` not looked up in it
+  a_process_that_cannot_be_read                    an unreadable claude process skipped (`continue`) where it is unknown (`return None`)
+  a_link_and_other_names_are_not_followed          `session_dirs` accepting a link (`os.path.isdir`) or any name
   another_logins_cache_is_not_named      `claude_tmp_root` built from a fixed uid
 
 The environment is built from scratch: PATH (a fake gh first, so no case reaches GitHub), HOME, LANG, TMPDIR, the state directory; no
@@ -167,11 +166,11 @@ class Sweep(unittest.TestCase):
         self.assertEqual(out.count("ignored path(s)"), 2, out)
 
     def test_a_lock_keeps(self):
-        wt = self.worktree("locked", pushed=True)
+        wt = self.worktree("held", pushed=True)
         self.git(self.wc, "worktree", "lock", wt)
         rc, out, err = self.sweep()
         self.assertTrue(os.path.isdir(wt))
-        self.assertIn("locked", out)
+        self.assertRegex(out, r"(?m)^  1   .*/held  held  locked$")
 
     def test_the_current_worktree_and_in_use_are_kept(self):
         here = self.worktree("here", pushed=True)
@@ -262,6 +261,23 @@ class Sweep(unittest.TestCase):
             os.environ.update(saved_env)
         self.assertTrue(os.path.isdir(d), "a process that cannot be read is unknown, never 'no session'")
 
+    def test_a_process_that_cannot_be_read_is_unknown_unless_it_is_no_session(self):
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        import branches
+        fake = os.path.join(self.t, "proc")
+        for pid, cmdline in (("101", b"claude\0--resume"), ("102", b"sshd-session: me")):
+            os.makedirs(os.path.join(fake, pid))
+            with open(os.path.join(fake, pid, "environ"), "wb") as fh:
+                fh.write(f"CLAUDE_CODE_SESSION_ID={LIVE}\0".encode())
+            with open(os.path.join(fake, pid, "cmdline"), "wb") as fh:
+                fh.write(cmdline)
+            os.chmod(os.path.join(fake, pid, "environ"), 0)
+        self.assertIsNone(branches.live_sessions(fake), "claude's own environment unreadable: nothing is known")
+        shutil.rmtree(os.path.join(fake, "101"))
+        self.assertEqual(branches.live_sessions(fake), set(), "a daemon that is not a session is no reason to keep everything")
+        os.chmod(os.path.join(fake, "102", "environ"), 0o644)
+        self.assertEqual(branches.live_sessions(fake), {LIVE}, "and a readable one names its session")
+
     def test_a_link_and_other_names_are_not_followed(self):
         outside = os.path.join(self.t, "precious")
         os.makedirs(outside)
@@ -271,6 +287,7 @@ class Sweep(unittest.TestCase):
         os.symlink(outside, os.path.join(root, ENDED))
         rc, out, err = self.sweep()
         self.assertTrue(os.path.exists(os.path.join(outside, "f")) and os.path.islink(os.path.join(root, ENDED)), out)
+        self.assertNotIn(ENDED, out, "a link is not a session directory: not removed, not even named")
         self.assertTrue(os.path.isdir(os.path.join(root, "not-a-session-id", "x")))
 
     def test_another_logins_cache_is_not_named(self):
