@@ -694,6 +694,18 @@ def account_switch(root, state_dir, policy=None):
         return {"status": "unknown", "detail": str(e)[:200]}
 
 
+def store_note(h):
+    """The tail of the addenda line. A moved store alone says whether the
+    addenda moved with it, so a holder need not diff the store by hand; when
+    they did (or that is unknown) the DRIFT line / this tail stands as before."""
+    moved = h["store_moved"]
+    if moved is None:
+        return "; the store could not be read now"
+    if not moved:
+        return ""
+    return "; the store has moved past the launch" + (", its addenda have not" if h["addenda_changed"] is False else "")
+
+
 def render(report, base):
     """The human report, as lines."""
     out = []
@@ -706,8 +718,7 @@ def render(report, base):
         p(f"launched as  {report['launched_role']}    prompt {report['launch_prompt_digest'] or '(no digest stamped)'}")
     if report.get("holder_addenda"):
         _h = report["holder_addenda"]
-        _moved = {True: "; the store has moved past the launch", False: "", None: "; the store could not be read now"}[_h["store_moved"]]
-        p(f"addenda      store {(_h['store_sha'] or '-')[:12]}    addenda commit {(_h['addenda_commit'] or '-')[:12]}{_moved}")
+        p(f"addenda      store {(_h['store_sha'] or '-')[:12]}    addenda commit {(_h['addenda_commit'] or '-')[:12]}{store_note(_h)}")
     for d in report["drift"] or []:
         p(f"DRIFT        {d}")
     p(f"project      {report['project'] or '(none)'}    working copy  {report['working_copy'] or '(none)'}")

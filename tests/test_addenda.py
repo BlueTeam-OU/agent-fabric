@@ -610,10 +610,17 @@ def main() -> int:
         rec, drift = status.holder_addenda(stamped)
         check("status: the store moving for its own reasons is said, and is no drift", rec["store_moved"] is True
               and rec["addenda_changed"] is False and drift is None, repr((rec, drift)))
+        check("status: …and the note says its addenda have not moved",
+              status.store_note(rec) == "; the store has moved past the launch, its addenda have not", status.store_note(rec))
         parent_push({CHARTER: file(ROLE, KID, "charter-addendum", "# v2\n\nnew\n")}, "parent: v2")
         rec, drift = status.holder_addenda(stamped)
         check("status: addenda changed since the launch is drift, telling to relaunch", rec["addenda_changed"] is True
               and drift is not None and "relaunch" in drift and ROLE in drift, repr((rec, drift)))
+        check("status: …and then the note is the moved-store text alone, the drift line saying the rest",
+              status.store_note(rec) == "; the store has moved past the launch", status.store_note(rec))
+        check("status: an unchanged store adds no note, an unreadable one says so",
+              status.store_note({"store_moved": False, "addenda_changed": False}) == ""
+              and status.store_note({"store_moved": None, "addenda_changed": None}) == "; the store could not be read now")
         rec, drift = status.holder_addenda({**stamped, "AGENT_FABRIC_SECRET_STORE": os.path.join(tmp, "nowhere")})
         check("status: a store that cannot be read is unknown, never 'unchanged', and not drift",
               rec["store_moved"] is None and rec["addenda_changed"] is None and drift is None, repr((rec, drift)))
