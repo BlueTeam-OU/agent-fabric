@@ -73,6 +73,7 @@ Notes on the ports:
 - `tests/run.sh` and `tests/static.sh` become `tests/run.py` and `tests/static.py`; the two `.sh` paths stay as forwarders that exec the host's `python3` (the interpreter CI's matrix sets, rule 4), not the pin.
 - `runtime/langid/install.sh` makes a venv with the host's `python3`; the port keeps that interpreter for the venv, as bootstrap does (rule 4).
 - `projects/gzapp/integration/provisioning/host-check.sh` is gzapp's file, tracked here; the worker runs it by path, so the port changes the call in `tools/fabric/provisioning/worker.py` and is told to gzapp's devex-tooling.
+- Landed so far for batch 10: `tests/leak-check.sh` is gone (697e98db: no runner sources it since `tests/run.sh` forwards), and `tests/test_leak-check.sh` is retired for its Python oracle (#327). The tables above stay the inventory as decided.
 
 ## Stays
 
