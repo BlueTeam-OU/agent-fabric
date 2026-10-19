@@ -10,9 +10,10 @@ CONTRACT
             [--like-working-copy DIR] [--with-compliance] [--with-trial]
             [--with-pr-tools] [--write]
             Without --write nothing is written: the plan is printed.
-  env       AGENT_FABRIC_OPERATOR / AGENT_FABRIC_ENGINE (through roots, to find
-            the sibling's checkout beside this one), PATH (git); GIT_* is dropped
-            for git. The tree it edits is the one this file sits in.
+  env       AGENT_FABRIC_OPERATOR (through roots, to find the sibling's checkout
+            beside this one), PATH (git). GIT_* is dropped at the start: a hook's
+            GIT_DIR would aim every git call, the sibling lookup's included, at
+            another repository. The tree it edits is the one this file sits in.
   stdin     not read
   stdout    the plan (each file, with its size), a diff of projects/registry.json,
             and what was written; --help
@@ -69,8 +70,6 @@ import roots  # noqa: E402
 import workingcopy  # noqa: E402
 
 ID_RE = re.compile(r"[a-z]([a-z0-9.-]*[a-z0-9])?")
-# projects/<id>/ must not be a directory projects/ already holds for another purpose.
-RESERVED_IDS = {"schemas"}
 GIT_TIMEOUT_S = 30
 # Only where the sibling uses the verb, and only when asked (the skill: they
 # exist "only where the project uses those fabric-pr verbs").
@@ -188,10 +187,8 @@ def stub_remit(role: str, pid: str) -> str:
 
 def _git_origin_main() -> str:
     try:
-        # A GIT_DIR from a hook or a wrapper would aim git at another repository.
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         r = subprocess.run(["git", "-C", ROOT, "rev-parse", "--verify", "origin/main^{commit}"],
-                           env=env, capture_output=True, text=True, timeout=GIT_TIMEOUT_S, check=False)
+                           capture_output=True, text=True, timeout=GIT_TIMEOUT_S, check=False)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise Refused(f"cannot read origin/main of {ROOT}: {e}")
     sha = r.stdout.strip()
@@ -218,9 +215,9 @@ def _read_bytes(path: str) -> bytes:
 def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], str, str, list[str]]:
     """Everything that can be refused is refused here, before the first
     write: returns (files, old registry text, new registry text, residue)."""
-    if not ID_RE.fullmatch(args.id) or ".." in args.id or args.id in RESERVED_IDS:
+    if not ID_RE.fullmatch(args.id) or ".." in args.id:
         raise Refused(f"--id {args.id!r}: a lowercase letter, then lowercase letters, digits, '.' or '-', "
-                      "ending in a letter or digit, no '..', not a name projects/ already uses")
+                      "ending in a letter or digit, no '..'")
     for flag, value in (("--default-branch", args.default_branch), ("--license", args.license), ("--title", args.title)):
         if value is not None and not value.strip():
             raise Refused(f"{flag} is empty")
@@ -233,6 +230,11 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
     projects = _load_json(reg_path).get("projects") or {}
     if args.id in projects:
         raise Refused(f"--id {args.id}: already registered in projects/registry.json")
+    # Whatever else projects/ holds (schemas/, registry.json, clients.json) is not an id;
+    # a directory of only integration/ is a half-finished import, left to the per-file refusal.
+    held = os.path.join(roots.projects_dir(root=root), args.id)
+    if os.path.lexists(held) and not (os.path.isdir(held) and set(os.listdir(held)) <= {"integration"}):
+        raise Refused(f"--id {args.id}: projects/{args.id} exists and is not a registered project")
     if args.like not in projects:
         raise Refused(f"--like {args.like}: not a registered project")
     # The registry's own comparison (what resolves a clone to a project), so a
@@ -412,6 +414,8 @@ def run(argv: list[str], root: str = ROOT, today: str | None = None) -> int:
 def main() -> int:
     sys.stdout.reconfigure(errors="surrogateescape")
     sys.stderr.reconfigure(errors="surrogateescape")
+    for name in [k for k in os.environ if k.startswith("GIT_")]:
+        del os.environ[name]
     try:
         return run(sys.argv[1:])
     except Refused as e:

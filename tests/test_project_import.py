@@ -174,7 +174,7 @@ def main() -> int:
                 ["--like", LIKE, "--role", "python-dev", "--id", "scratch.proj", "--client", "blueteam",
                  "--default-branch", "main", "--license", "MIT", "--remote", "https://github.com/BlueTeam-OU/InterWeave.git"],
                 "already registered to")
-        refuses("refuses a remote that is a registered repository's moved_from", base,
+        refuses("refuses a registered repository spelled as its old owner's remote", base,
                 ["--like", LIKE, "--role", "python-dev", "--id", "scratch.proj", "--client", "blueteam",
                  "--default-branch", "main", "--license", "MIT", "--remote", "git@github.com:gzapi-org/InterWeave.git"],
                 "already registered to")
@@ -185,7 +185,7 @@ def main() -> int:
         refuses("refuses a remote that is not a repository URL", base,
                 ["--like", LIKE, "--role", "python-dev", "--id", "scratch.proj", "--client", "blueteam",
                  "--default-branch", "main", "--license", "MIT", "--remote", "foo"], "not a remote repository URL")
-        for bad in ("schemas", "a-", "a..b", "-a"):
+        for bad in ("schemas", "registry.json", "clients.json", "a-", "a..b", "-a"):
             refuses(f"refuses the id {bad!r}", base, ["--like", LIKE, "--role", "python-dev", "--id", bad] + ARGS[2:], "--id")
         refuses("refuses an empty licence", base, base_args[:base_args.index("--license") + 1] + [" "] + base_args[base_args.index("--license") + 2:], "--license is empty")
         refuses("refuses an unknown client", base, base_args[:2] + ["--client", "nobody"] + base_args[4:], "not in projects/clients.json")
@@ -326,6 +326,12 @@ def main() -> int:
                 ["--like", LIKE, "--role", "python-dev", "--id", "scratch.proj", "--client", "blueteam",
                  "--default-branch", "main", "--license", "MIT", "--remote", "https://github.com/old-org/legacy-name"],
                 "already registered to")
+
+        open(regp, "wb").write(b"\xff\xfe")
+        refuses("refuses a registry that is not UTF-8, with no traceback", tree, base_args, "is not UTF-8")
+        r = sh(base, shim, "import", *base_args, "--working-copy", wc, env={**env_run, "GIT_DIR": os.path.join(scratch, "nowhere")})
+        check("a GIT_DIR in the environment is dropped: the import still finds origin/main and the sibling",
+              r.returncode == 0 and "fabric-ref" in r.stdout, f"exit {r.returncode}: {r.stderr[:200]}")
 
         tree = os.path.join(scratch, "tree-link")
         shutil.copytree(base, tree, symlinks=True)
