@@ -303,8 +303,8 @@ def install_claude_and_ori(w: Worker) -> None:
         resolved = text if re.match(r"[0-9]+\.[0-9]+\.[0-9]+", text) else ""
     claude = os.path.join(h, ".local", "bin", "claude")
     have = ""
-    if w.as_login(["test", "-e", claude]).returncode == 0:
-        target = w.as_login_out(["readlink", "-f", claude]).strip()
+    if w.as_login(["test", "-e", claude], login_shell=False).returncode == 0:
+        target = w.as_login_out(["readlink", "-f", claude], login_shell=False).strip()
         have = os.path.basename(target) if target else ""
     if have and resolved and have == resolved:
         w.say(f"2. claude {have} present (= {want})")
@@ -312,20 +312,22 @@ def install_claude_and_ori(w: Worker) -> None:
         w.say(f"would: as {login}: curl -fsSL {CLAUDE_INSTALLER} | bash -s -- {want}")
     else:
         done, log = vendor_install(w, CLAUDE_INSTALLER, [want])
-        if not (done and w.as_login(["claude", "--version"]).returncode == 0):
+        # One run answers both: whether it starts, and what it says (stderr apart, as the version is stdout's).
+        ran = w.as_login(["claude", "--version"], stderr=subprocess.DEVNULL) if done else None
+        if ran is None or ran.returncode != 0:
             tail(log)
             w.die(f"step failed: claude — the vendor's installer failed for {login} (target {want}); nothing after it ran")
-        version = (w.as_login_out(["claude", "--version"]).split() or [""])[0]
+        version = ((ran.stdout or "").split() or [""])[0]
         w.say(f"2. claude {version} installed by the vendor's installer ({want}{', was ' + have if have else ''})")
     ori = os.path.join(h, ".local", "bin", "ori")
-    if w.as_login(["test", "-x", ori]).returncode == 0:
+    if w.as_login(["test", "-x", ori], login_shell=False).returncode == 0:
         first = (w.as_login_out(["ori", "--version"]).split("\n") or [""])[0]
         w.say(f"   ori {first[:24]} present")
     elif a.dry:
         w.say(f"would: as {login}: curl -fsSL {ORI_INSTALLER} | bash")
     else:
         done, log = vendor_install(w, ORI_INSTALLER, [])
-        if not (done and w.as_login(["test", "-x", ori]).returncode == 0):
+        if not (done and w.as_login(["test", "-x", ori], login_shell=False).returncode == 0):
             tail(log)
             w.die(f"step failed: ori — the vendor's installer failed for {login}; nothing after it ran")
         w.say("   ori installed by the vendor's installer")
@@ -365,20 +367,20 @@ def fabric_checkout(w: Worker) -> None:
         w.must_as_login(["git", "clone", "-q", url, repo], f"git clone -q '{url}' ~/projects/agent-fabric")
         w.say("4. agent-fabric cloned (https; the fabric is public)")
         return
-    branch = w.as_login_out(["git", "-C", repo, "symbolic-ref", "-q", "--short", "HEAD"]).strip("\n")
+    branch = w.as_login_out(["git", "-C", repo, "symbolic-ref", "-q", "--short", "HEAD"], login_shell=False).strip("\n")
     if branch != "main":
         w.die(f"step failed: ~/projects/agent-fabric is on {branch or 'a detached HEAD'}, not main; bring it to main as "
               f"{login}, then re-run; nothing after it ran")
     w.must_as_login(["timeout", "60", "git", "-C", repo, "fetch", "-q", "origin", "main"],
                     "timeout 60 git -C ~/projects/agent-fabric fetch -q origin main")
-    ahead = w.as_login_out(["git", "-C", repo, "rev-list", "--count", "origin/main..HEAD"]).strip("\n")
+    ahead = w.as_login_out(["git", "-C", repo, "rev-list", "--count", "origin/main..HEAD"], login_shell=False).strip("\n")
     if not w.a.dry and ahead != "0":
         w.die(f"step failed: ~/projects/agent-fabric has {ahead or 'an unknown number of'} commit(s) not on origin/main "
               f"(pull --ff-only would keep them); push or drop them as {login}, then re-run; nothing after it ran")
     w.must_as_login(["git", "-C", repo, "merge", "-q", "--ff-only", "origin/main"],
                     "git -C ~/projects/agent-fabric merge -q --ff-only origin/main")
     if not w.a.dry:
-        sha = w.as_login_out(["git", "-C", repo, "rev-parse", "--short", "HEAD"]).strip("\n")
+        sha = w.as_login_out(["git", "-C", repo, "rev-parse", "--short", "HEAD"], login_shell=False).strip("\n")
         w.say(f"4. ~/projects/agent-fabric at origin/main ({sha})")
 
 
@@ -435,8 +437,14 @@ def point_origin_at_registry(w: Worker, pid: str, remote: str) -> None:
     if not remote:
         return
     repo = os.path.join(w.home, "projects", pid)
-    got = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.url"], stderr=subprocess.DEVNULL)
-    have = (got.stdout or "").strip("\n") if got.returncode == 0 else ""
+    # Both keys in one read; the last value of a key is what `--get` answers.
+    got = w.as_login(["git", "-C", repo, "config", "--get-regexp", r"^remote\.origin\.(url|pushurl)$"],
+                     stderr=subprocess.DEVNULL, login_shell=False)
+    seen: dict[str, str] = {}
+    for line in (got.stdout or "").split("\n") if got.returncode == 0 else []:
+        key, _, value = line.partition(" ")
+        seen[key] = value
+    have = seen.get("remote.origin.url", "")
     if not have:
         w.say(f"6. {pid}: origin not readable; left as it is")
         return
@@ -447,8 +455,7 @@ def point_origin_at_registry(w: Worker, pid: str, remote: str) -> None:
             w.say(f"6. {pid}: origin set to {remote}")
     # set-url leaves a pushurl of its own alone, so pushes would still go there: said, not rewritten (a hand-made
     # setting is the person's).
-    push = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.pushurl"], stderr=subprocess.DEVNULL)
-    pushurl = (push.stdout or "").strip("\n") if push.returncode == 0 else ""
+    pushurl = seen.get("remote.origin.pushurl", "")
     if pushurl and pushurl != remote:
         w.say(f"6. {pid}: warning: origin has its own push URL {pushurl}; pushes still go there")
 
