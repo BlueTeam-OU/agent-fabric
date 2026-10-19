@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/errors.py — errors per actor and per kind, the same for people
-and agents, read from artifacts only (agent-fabric ADR-061, Proposed: its
+and agents, read from artifacts only (ADR-061, Proposed: its
 definitions are the contract here and change only by an amendment of it).
 
     fabric-errors [--days 7] [--window 14] [--repo OWNER/NAME]... [--all] [--json]
@@ -99,11 +99,11 @@ def needed_jobs(workflow: str, aggregates: set[str]) -> set[str] | None:
     current = None
     in_jobs = False
     for line in workflow.splitlines():
-        if re.match(r"^jobs:\s*$", line):
+        if re.fullmatch(r"jobs:\s*", line):
             in_jobs = True
         elif in_jobs and re.match(r"^\S", line):
             in_jobs = False
-        m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line) if in_jobs else None
+        m = re.fullmatch(r"  ([A-Za-z0-9_-]+):\s*", line) if in_jobs else None
         if m:
             current = m.group(1)
             jobs[current] = []
@@ -121,7 +121,7 @@ def needed_jobs(workflow: str, aggregates: set[str]) -> set[str] | None:
     for j in needed:
         if j not in jobs:
             return None
-        nm = next((re.match(r"^    name:\s*(.+?)\s*$", l) for l in jobs[j] if re.match(r"^    name:", l)), None)
+        nm = next((re.fullmatch(r"    name:\s*(.+?)\s*", l) for l in jobs[j] if re.match(r"^    name:", l)), None)
         name = nm.group(1).strip("'\"") if nm else j
         if "${{" in name:
             return None
