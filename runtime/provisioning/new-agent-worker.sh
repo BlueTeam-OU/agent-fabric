@@ -13,7 +13,7 @@
 # Why this entry stays bash: it is run on a FAR host through the host
 # executor, where the fleet's pinned Python may not be installed yet, and then
 # the operator must be told how to install it, from an executable that does not
-# need it (the same reason tools/fabric/new_agent.py stays).
+# need it (no python3 at all can be assumed there).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 PY=/usr/local/bin/fabric-python

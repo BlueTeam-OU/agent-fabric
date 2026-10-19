@@ -516,6 +516,16 @@ def main() -> int:
         r = subprocess.run([sys.executable, SHIM, "--help"], capture_output=True, text=True, timeout=30,
                            env=clean_env(AGENT_FABRIC_PYTHON=sys.executable))
         check("the pin being the running interpreter: no exec, the help", r.returncode == 0 and 'give a role its own account' in r.stdout)
+        # A pin that is a wrapper (a pyenv shim) is never sys.executable: only the marker stops the re-exec.
+        loop = put(f"{tmp}/pin/wrapper", f"#!/bin/sh\nexec {sys.executable} \"$@\"\n", 0o755)
+        try:
+            r = subprocess.run([sys.executable, SHIM, "--help"], capture_output=True, text=True, timeout=20,
+                               env=clean_env(AGENT_FABRIC_PYTHON=loop))
+            looped = False
+        except subprocess.TimeoutExpired:
+            looped = True
+        check("a wrapper as the pin: one exec, no loop, the help", not looped and r.returncode == 0
+              and "give a role its own account" in r.stdout)
         # In process, because the exec of the same interpreter is invisible from outside: with the pin being
         # the running interpreter nothing is exec'd (the positive control is the wrapper case above).
         import pin_entry

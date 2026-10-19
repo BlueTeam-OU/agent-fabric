@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # runtime/provisioning/new-agent.sh — give a role its own account on a
-# host. The path is the contract (the runbook and the README run it); the
+# host. Kept for one release so old callers keep working (ADR-040 §5 rule 7); the
 # work, its contract, its help text and every reason for it are in
 # tools/fabric/new_agent.py (ADR-040 §5 rule 4); the host half is
 # runtime/provisioning/new-agent-worker.sh.
