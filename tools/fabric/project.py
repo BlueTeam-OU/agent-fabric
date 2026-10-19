@@ -10,7 +10,9 @@ CONTRACT
             [--like-working-copy DIR] [--with-compliance] [--with-trial]
             [--with-pr-tools] [--write]
             Without --write nothing is written: the plan is printed.
-  env       none read. The tree it edits is the one this file sits in.
+  env       AGENT_FABRIC_OPERATOR / AGENT_FABRIC_ENGINE (through roots, to find
+            the sibling's checkout beside this one), PATH (git); GIT_* is dropped
+            for git. The tree it edits is the one this file sits in.
   stdin     not read
   stdout    the plan (each file, with its size), a diff of projects/registry.json,
             and what was written; --help
@@ -53,6 +55,7 @@ import difflib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 
@@ -63,8 +66,11 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
+import workingcopy  # noqa: E402
 
-ID_RE = re.compile(r"^[a-z][a-z0-9.-]*$")
+ID_RE = re.compile(r"[a-z]([a-z0-9.-]*[a-z0-9])?")
+# projects/<id>/ must not be a directory projects/ already holds for another purpose.
+RESERVED_IDS = {"schemas"}
 GIT_TIMEOUT_S = 30
 # Only where the sibling uses the verb, and only when asked (the skill: they
 # exist "only where the project uses those fabric-pr verbs").
@@ -84,17 +90,6 @@ class Refused(Exception):
 def say(msg: str) -> None:
     sys.stdout.flush()
     print(f"fabric-project: {msg}", file=sys.stderr)
-
-
-def _remote_key(remote: str) -> str:
-    """A remote as a forge names a repository: `host/owner/name`, whatever the
-    transport, so the ssh and https spellings of one repository collide."""
-    r = remote.strip().lower()
-    r = re.sub(r"^[a-z+]+://([^@/]*@)?", "", r)
-    r = re.sub(r"^[^@/]*@", "", r)
-    r = r.replace(":", "/", 1) if "://" not in remote and ":" in r.split("/", 1)[0] else r
-    r = r.rstrip("/")
-    return r[:-4] if r.endswith(".git") else r
 
 
 def _load_json(path: str) -> dict:
@@ -193,14 +188,23 @@ def stub_remit(role: str, pid: str) -> str:
 
 def _git_origin_main() -> str:
     try:
+        # A GIT_DIR from a hook or a wrapper would aim git at another repository.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         r = subprocess.run(["git", "-C", ROOT, "rev-parse", "--verify", "origin/main^{commit}"],
-                           capture_output=True, text=True, timeout=GIT_TIMEOUT_S, check=False)
+                           env=env, capture_output=True, text=True, timeout=GIT_TIMEOUT_S, check=False)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise Refused(f"cannot read origin/main of {ROOT}: {e}")
     sha = r.stdout.strip()
     if r.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise Refused(f"cannot read origin/main of {ROOT} (git said: {r.stderr.strip() or sha!r}); fetch first")
     return sha
+
+
+def _decode(data: bytes, where: str) -> str:
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise Refused(f"{where} is not UTF-8: {e}")
 
 
 def _read_bytes(path: str) -> bytes:
@@ -214,25 +218,34 @@ def _read_bytes(path: str) -> bytes:
 def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], str, str, list[str]]:
     """Everything that can be refused is refused here, before the first
     write: returns (files, old registry text, new registry text, residue)."""
-    if not ID_RE.fullmatch(args.id):
-        raise Refused(f"--id {args.id!r}: a lowercase letter, then lowercase letters, digits, '.' or '-'")
+    if not ID_RE.fullmatch(args.id) or ".." in args.id or args.id in RESERVED_IDS:
+        raise Refused(f"--id {args.id!r}: a lowercase letter, then lowercase letters, digits, '.' or '-', "
+                      "ending in a letter or digit, no '..', not a name projects/ already uses")
+    for flag, value in (("--default-branch", args.default_branch), ("--license", args.license), ("--title", args.title)):
+        if value is not None and not value.strip():
+            raise Refused(f"{flag} is empty")
     if not args.remote:
         raise Refused("at least one --remote is required")
     if len(set(args.remote)) != len(args.remote) or len(set(args.role)) != len(args.role):
         raise Refused("a --remote or --role is given twice")
     reg_path = roots.projects_registry(root=root)
-    raw = open(reg_path, encoding="utf-8").read() if os.path.exists(reg_path) else None
-    if raw is None:
-        raise Refused(f"no {reg_path}")
+    raw = _decode(_read_bytes(reg_path), reg_path)
     projects = _load_json(reg_path).get("projects") or {}
     if args.id in projects:
         raise Refused(f"--id {args.id}: already registered in projects/registry.json")
     if args.like not in projects:
         raise Refused(f"--like {args.like}: not a registered project")
-    taken = {_remote_key(r): pid for pid, p in projects.items() for r in (p.get("remotes") or []) + (p.get("moved_from") or [])}
+    # The registry's own comparison (what resolves a clone to a project), so a
+    # spelling it calls the same repository is never accepted here: an entry
+    # appended behind a registered one is shadowed without any error.
+    taken = {workingcopy.canonical_remote(r): pid for pid, p in projects.items()
+             for r in (p.get("remotes") or []) + (p.get("moved_from") or [])}
     for r in args.remote:
-        if _remote_key(r) in taken:
-            raise Refused(f"--remote {r}: already registered to {taken[_remote_key(r)]}")
+        key = workingcopy.canonical_remote(r)
+        if key is None:
+            raise Refused(f"--remote {r}: not a remote repository URL")
+        if key in taken:
+            raise Refused(f"--remote {r}: already registered to {taken[key]}")
     clients = _load_json(roots.clients_registry(root=root)).get("clients") or {}
     if args.client not in clients:
         raise Refused(f"--client {args.client}: not in projects/clients.json (known: {', '.join(sorted(clients))})")
@@ -252,6 +265,9 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
     present = set()
     for base, dirs, names in os.walk(src_dir):
         dirs.sort()
+        for d in dirs:
+            if os.path.islink(os.path.join(base, d)):
+                raise Refused(f"{os.path.join(base, d)} is a symlink; not copied")
         for name in sorted(names):
             full = os.path.join(base, name)
             rel = os.path.relpath(full, src_dir)
@@ -293,12 +309,11 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
                       "data": (json.dumps(tax, indent=2, ensure_ascii=False) + "\n").encode(), "mode": 0o644})
         like_wc = args.like_working_copy
         if not like_wc:
-            import workingcopy
             like_wc = workingcopy.sibling_working_copies(root).get(args.like)
         for role in args.role:
             src = os.path.join(like_wc, ".agent-fabric", "roles", f"{role}.md") if like_wc else None
             if src and os.path.exists(src):
-                text = _frontmatter_project(_read_bytes(src).decode("utf-8"), args.id, src)
+                text = _frontmatter_project(_decode(_read_bytes(src), src), args.id, src)
             else:
                 text = stub_remit(role, args.id)
             files.append({"path": os.path.join(af, "roles", f"{role}.md"), "data": text.encode(), "mode": 0o644})
@@ -325,10 +340,14 @@ def write_all(files: list[dict], reg_path: str, new_raw: str) -> None:
             os.chmod(f["path"], f["mode"])
         # Last: the registry entry is what makes the project exist, so a
         # failure before it leaves files and no project, and a rerun says so.
-        tmp = reg_path + ".import.tmp"
+        # The file's own mode and place are kept: a replace takes the umask's
+        # mode, and over a symlink it would swap the link for a file.
+        target = os.path.realpath(reg_path)
+        tmp = target + ".import.tmp"
         with open(tmp, "x", encoding="utf-8") as fh:
             fh.write(new_raw)
-        os.replace(tmp, reg_path)
+        os.chmod(tmp, stat.S_IMODE(os.stat(target).st_mode))
+        os.replace(tmp, target)
     except OSError as e:
         if made:
             say("written before the failure, remove or keep: " + ", ".join(made))
@@ -398,12 +417,12 @@ def main() -> int:
     except Refused as e:
         say(str(e))
         return 2
-    except OSError as e:
-        say(str(e))
-        return 1
     except BrokenPipeError:
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 141
+    except OSError as e:
+        say(str(e))
+        return 1
 
 
 if __name__ == "__main__":

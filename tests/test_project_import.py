@@ -88,14 +88,11 @@ def main() -> int:
           == "gzapi-org/gzapp gzapp.decks gzapp-claude2 gzapp:gzcoord git@github.com:o/gzapp.git")
     check("replace: positive control for the line above (the same words standing alone are replaced)",
           r("gzapp gzapp", "gzapp", "n") == "n n")
-    check("remote key: ssh and https spellings of one repository agree",
-          pj._remote_key("git@github.com:Org/Repo.git") == pj._remote_key("https://github.com/org/repo/")
-          and pj._remote_key("git@github.com:Org/Repo.git") != pj._remote_key("git@github.com:org/other.git"))
-
-    live = os.path.join(HERE, "projects", "registry.json")
-    if not os.path.exists(live) or LIKE not in json.load(open(live, encoding="utf-8")).get("projects", {}):
-        print(f"  skip: {LIKE} is not registered here (a stripped copy); the tree cases need the operator's registry")
-        return 1 if fails else 0
+    ck = pj.workingcopy.canonical_remote
+    check("remote key: the registry's comparison, so ssh, https, a default port and a case difference agree",
+          len({ck(x) for x in ("git@github.com:BlueTeam-OU/InterWeave.git", "https://github.com/blueteam-ou/interweave/",
+                               "ssh://git@github.com:22/BlueTeam-OU/InterWeave.git", "https://github.com:443/BlueTeam-OU/InterWeave")}) == 1
+          and ck("git@github.com:org/other.git") != ck("git@github.com:org/interweave.git"))
 
     mini = '{\n  "projects": {\n    "a": {\n      "x": 1\n    }\n  }\n}\n'
     grown = pj.insert_entry(mini, "b", {"y": 2})
@@ -172,6 +169,20 @@ def main() -> int:
                 ["--like", LIKE, "--role", "python-dev", "--id", "scratch.proj", "--client", "blueteam",
                  "--default-branch", "main", "--license", "MIT", "--remote", "https://github.com/BlueTeam-OU/InterWeave.git"],
                 "already registered to")
+        refuses("refuses a remote that is a registered repository's moved_from", base,
+                ["--like", LIKE, "--role", "python-dev", "--id", "scratch.proj", "--client", "blueteam",
+                 "--default-branch", "main", "--license", "MIT", "--remote", "git@github.com:gzapi-org/InterWeave.git"],
+                "already registered to")
+        refuses("refuses a registered repository spelled with an explicit port", base,
+                ["--like", LIKE, "--role", "python-dev", "--id", "scratch.proj", "--client", "blueteam",
+                 "--default-branch", "main", "--license", "MIT", "--remote", "ssh://git@github.com:22/BlueTeam-OU/InterWeave.git"],
+                "already registered to")
+        refuses("refuses a remote that is not a repository URL", base,
+                ["--like", LIKE, "--role", "python-dev", "--id", "scratch.proj", "--client", "blueteam",
+                 "--default-branch", "main", "--license", "MIT", "--remote", "foo"], "not a remote repository URL")
+        for bad in ("schemas", "a-", "a..b", "-a"):
+            refuses(f"refuses the id {bad!r}", base, ["--like", LIKE, "--role", "python-dev", "--id", bad] + ARGS[2:], "--id")
+        refuses("refuses an empty licence", base, base_args[:base_args.index("--license") + 1] + [" "] + base_args[base_args.index("--license") + 2:], "--license is empty")
         refuses("refuses an unknown client", base, base_args[:2] + ["--client", "nobody"] + base_args[4:], "not in projects/clients.json")
         refuses("refuses an unknown sibling", base, ["--like", "no-such"] + ARGS + ["--role", "python-dev"], "not a registered project")
         refuses("refuses an unknown role", base, base_args + ["--role", "no-such-role"], "not in identities/roles/catalog.json")
@@ -184,6 +195,16 @@ def main() -> int:
         refuses("refuses to overwrite an existing integration file", base, base_args, "exists; nothing is overwritten")
         check("  ...and the file is as it was", open(existing).read() == "mine\n")
         shutil.rmtree(os.path.join(base, "projects", "scratch.proj"))
+
+        badwc = os.path.join(scratch, "badwc")
+        os.makedirs(os.path.join(badwc, ".agent-fabric", "roles"))
+        open(os.path.join(badwc, ".agent-fabric", "roles", "python-dev.md"), "wb").write(b"---\nproject: x\n---\n\xff\xfe\n")
+        refuses("refuses a sibling remit that is not UTF-8, with no traceback", base,
+                base_args + ["--working-copy", wc, "--like-working-copy", badwc], "is not UTF-8")
+        linked = os.path.join(base, "projects", LIKE, "integration", "linked")
+        os.symlink(os.path.join(base, "projects", LIKE, "integration", "gh"), linked)
+        refuses("refuses a symlinked directory in the sibling's integration", base, base_args, "is a symlink")
+        os.unlink(linked)
 
         os.makedirs(os.path.join(wc, ".agent-fabric"))
         open(os.path.join(wc, ".agent-fabric", "taxonomy.json"), "w").write("mine\n")
@@ -200,6 +221,7 @@ def main() -> int:
             argv = ARGS + ["--like", like, "--role", "python-dev", "--role", "devex-tooling", "--working-copy", wcopy,
                            "--write", *extra]
             original = open(os.path.join(tree, "projects", "registry.json"), encoding="utf-8").read()
+            reg_mode = os.stat(os.path.join(tree, "projects", "registry.json")).st_mode & 0o777
             old_umask = os.umask(0o077)   # a created file must still take the sibling's mode
             try:
                 r = imp(tree, *argv)
@@ -229,9 +251,13 @@ def main() -> int:
                 check("--like interweave: no opt-in file was written",
                       not any(n in ("compliance.json", "trial.json", "pr-tools.json")
                               for _, _, ns in os.walk(os.path.join(tree, "projects", "scratch.proj")) for n in ns))
-            cfg = open(os.path.join(tree, "projects", "scratch.proj", "integration", "gzcoord", "config.json"), encoding="utf-8").read()
-            check(f"--like {like}: the id is replaced where it is the project (config.json no longer says {like}'s path)",
-                  f"projects/{like}/" not in cfg and f'"{like}"' not in cfg)
+            snippet = open(os.path.join(tree, "projects", "scratch.proj", "integration", "gzcoord", "CLAUDE.snippet.md"), encoding="utf-8").read()
+            sibling_snippet = open(os.path.join(tree, "projects", like, "integration", "gzcoord", "CLAUDE.snippet.md"), encoding="utf-8").read()
+            check(f"--like {like}: the id is replaced where it is the project (a file that names {like}'s directory now names the new one)",
+                  f"projects/{like}/integration/gzcoord/" in sibling_snippet
+                  and "projects/scratch.proj/integration/gzcoord/" in snippet and f"projects/{like}/" not in snippet)
+            check(f"--like {like}: the registry keeps its mode under umask 077",
+                  os.stat(os.path.join(tree, "projects", "registry.json")).st_mode & 0o777 == reg_mode)
             tax = json.load(open(os.path.join(wcopy, ".agent-fabric", "taxonomy.json")))
             check(f"--like {like}: a taxonomy of this project, one rule per role",
                   tax["project"] == "scratch.proj" and [x["id"] for x in tax["roles"]] == ["python-dev", "devex-tooling"])
@@ -283,6 +309,18 @@ def main() -> int:
         finally:
             os.chmod(os.path.join(tree, "projects", "scratch.proj"), 0o700)
 
+        tree = os.path.join(scratch, "tree-link")
+        shutil.copytree(base, tree, symlinks=True)
+        real = os.path.join(scratch, "real-registry.json")
+        shutil.move(os.path.join(tree, "projects", "registry.json"), real)
+        os.symlink(real, os.path.join(tree, "projects", "registry.json"))
+        r = imp(tree, *base_args, "--write")
+        check("a symlinked registry stays a symlink and its target gets the entry",
+              r.returncode == 0 and os.path.islink(os.path.join(tree, "projects", "registry.json"))
+              and "scratch.proj" in json.load(open(real, encoding="utf-8"))["projects"], r.stderr)
+        r = sh(base, PY, "-c", "import sys; sys.path.insert(0, %r); import project; project.run = lambda argv: (_ for _ in ()).throw(BrokenPipeError()); sys.exit(project.main())" % os.path.join(base, "tools", "fabric"),
+               env=env_run)
+        check("a broken pipe from the run exits 141, not 1", r.returncode == 141, f"exit {r.returncode}: {r.stderr[:200]}")
         r = sh(base, shim, "--help", env=env_run)
         check("--help: exit 0 and the contract on stdout", r.returncode == 0 and "CONTRACT" in r.stdout)
         r = sh(base, shim, "bogus", env=env_run)
