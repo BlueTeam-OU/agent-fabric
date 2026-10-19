@@ -319,8 +319,22 @@ def main() -> int:
     # above gets a command line WITHOUT the token, so every deny here is
     # procps's answer (the owner's choice after seven rounds, 2026-09-30).
     dummy = subprocess.Popen(["bash", "-c", "exec -a claude-zzqk sleep 60"])
+    # The hook bounds each pgrep at 2 s and the whole ground truth at 3 s of
+    # wall time, so a loaded host answers "could not ask" (None) where the
+    # case means to read procps's answer: the cases below widen both bounds
+    # (the bound itself is pinned further down, against a stubbed listed()).
+    real_listed, real_budget = g.listed, g.GROUND_TRUTH_BUDGET_S
+    g.listed = lambda argv, timeout=2.0: real_listed(argv, 120.0)
+    g.GROUND_TRUTH_BUDGET_S = 600.0
     try:
-        time.sleep(0.3)
+        # Until the exec has happened the process is still `bash -c`, which
+        # pgrep -f claude-zzqk does not select: wait for what the cases
+        # name, never a fixed 0.3 s.
+        deadline = time.monotonic() + 120
+        while g.read_argv(dummy.pid)[:1] != ["claude-zzqk"] and time.monotonic() < deadline:
+            time.sleep(0.02)
+        check("the stand-in has exec'd under its name before any case asks", g.read_argv(dummy.pid)[:1] == ["claude-zzqk"],
+              g.read_argv(dummy.pid))
         pid, other = dummy.pid, "claude --model x unrelated"
         truth = [
             ("pkill -f claude-zzqk", True),
@@ -346,12 +360,12 @@ def main() -> int:
             check(f"ground truth: {cmd} -> {'deny' if want else 'allowed'}", (d is not None and d[0] == "deny") == want, d)
         check("by name, the shell's stand-in (a sleep) is not the shell: killall sleep passes with the shell modelled",
               g.decision("killall sleep", other, None, {}, shell=True) is None)
-        real_listed, ran = g.listed, []
+        widened, ran = g.listed, []
         g.listed = lambda argv, timeout=2.0: ran.append(argv) or set()
         try:
             d = g.decision('pkill -f "$P"', other, pid)
         finally:
-            g.listed = real_listed
+            g.listed = widened
         check("a pattern it cannot read: pgrep is never run for it, and the hook asks",
               ran == [] and (d or ("",))[0] == "ask", (ran, d))
         check("-c and -d leave the selection intact: a glued value and a pattern after -- are untouched",
@@ -364,7 +378,7 @@ def main() -> int:
               g.pgrep_argvs(["pkill", "-TERM", "-9", "-f", "p"]) == [["pgrep", "-f", "p"]]
               and g.pgrep_argvs(["killall", "a", "b"]) == [["pgrep", "-x", "a"], ["pgrep", "-x", "b"]])
         # The budget holds across every pgrep, killall's names included.
-        real_listed, budget = g.listed, g.GROUND_TRUTH_BUDGET_S
+        widened, budget = g.listed, g.GROUND_TRUTH_BUDGET_S
         g.listed = lambda argv, timeout=2.0: time.sleep(min(timeout, 0.4)) or set()
         g.GROUND_TRUTH_BUDGET_S = 0.5
         try:
@@ -372,10 +386,11 @@ def main() -> int:
             g.ground_truth("killall a b c d e f", pid)
             took = time.monotonic() - t0
         finally:
-            g.listed, g.GROUND_TRUTH_BUDGET_S = real_listed, budget
+            g.listed, g.GROUND_TRUTH_BUDGET_S = widened, budget
         check("the ground truth stops within its budget, across killall's names", took < 1.5, took)
         # selects() hands its bound to the process it starts: a pgrep that
         # hangs is killed at the timeout, never waited on (#70, tenth re-review).
+        g.listed = real_listed   # this case pins the bound selects hands down
         real_run, seen = g.subprocess.run, []
 
         def recording(argv, **kw):
@@ -390,6 +405,7 @@ def main() -> int:
               seen == [0.7] and answer is None, (seen, answer))
         check("the dummy was not killed by any of this", dummy.poll() is None)
     finally:
+        g.listed, g.GROUND_TRUTH_BUDGET_S = real_listed, real_budget
         dummy.kill()
         dummy.wait()
 
@@ -405,13 +421,33 @@ def main() -> int:
     script = ('(exec -a "$SIB" sleep 60) & s=$!; "$INB" 61 & i=$!; echo "$s $i"; '
               'while read -r f; do sh -c \'python3 "$0" < "$1"\' "$HOOK" "$f"; echo @@END; done; '
               'kill "$s" "$i"; wait')
-    env = dict(os.environ, SIB="zzsib-bg-task-qx --token=zzSENTINEL-c6", INB=os.path.join(tmp, INBOX), HOOK=HOOK)
+    # The hook runs as the harness runs it, in its own process, so the
+    # in-process widening above cannot reach it: this runner loads the same
+    # file and widens the same two wall-clock bounds (a loaded host answers
+    # "could not ask" in 2 s and 3 s) before its main().
+    runner = os.path.join(tmp, "run-hook.py")
+    with open(runner, "w") as fh:
+        fh.write("import importlib.util, sys\n"
+                 f"spec = importlib.util.spec_from_file_location('self_kill_guard', {HOOK!r})\n"
+                 "m = importlib.util.module_from_spec(spec)\n"
+                 "spec.loader.exec_module(m)\n"
+                 "ask = m.listed\n"
+                 "m.listed = lambda argv, timeout=2.0: ask(argv, 120.0)\n"
+                 "m.GROUND_TRUTH_BUDGET_S = 600.0\n"
+                 "sys.exit(m.main())\n")
+    env = dict(os.environ, SIB="zzsib-bg-task-qx --token=zzSENTINEL-c6", INB=os.path.join(tmp, INBOX), HOOK=runner)
     session = subprocess.Popen([os.path.join(tmp, "claude"), "-c", script], env=env, text=True,
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True)
     outside = subprocess.Popen(["zzout-unrelated-qx", "60"], executable="/bin/sleep")
     try:
         sib, inbox = map(int, session.stdout.readline().split())
-        time.sleep(0.2)
+        # The subshell is `bash` until its exec -a lands, and the symlinked
+        # inbox watch is a `sleep` until then too: the cases read their argv
+        # from /proc, so wait for those, not a fixed 0.2 s.
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline and not (
+                "".join(g.read_argv(sib)[:1]).startswith("zzsib-bg-task-qx") and g.is_inbox(g.read_argv(inbox))):
+            time.sleep(0.02)
         reasons: list[str] = []
 
         def hook_in_session(cmd: str) -> tuple[str, str] | None:
@@ -572,7 +608,7 @@ def main() -> int:
         except OSError:
             pass
         session.wait()
-        for name in ("claude", INBOX, "payload.json"):
+        for name in ("claude", INBOX, "payload.json", "run-hook.py"):
             if os.path.lexists(os.path.join(tmp, name)):
                 os.unlink(os.path.join(tmp, name))
         os.rmdir(tmp)

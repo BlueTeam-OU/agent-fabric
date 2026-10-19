@@ -184,11 +184,32 @@ def main() -> int:
             # caller in the middle.
             probes = [subprocess.Popen(["bash", CMD, "backend-test", "--who"], env=clean_env(AGENT_FABRIC_LEASES=d),
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for _ in range(40)]
-            rc, out, _ = lease("backend-test", "--", "echo", "got-through")
+            # The caller's own bound is one second (lease.py FAIL_FAST_S), and
+            # a probe starved of CPU for longer than that holds its shared
+            # lock for longer: at load 60+ the bare caller was refused by a
+            # probe that was merely slow. --wait makes the caller wait for
+            # what it needs (the probes to end), not for a second of wall
+            # time; stdout stays exactly the command's, and a refusal is
+            # still rc 75.
+            rc, out, err = lease("backend-test", "--wait", "120", "--", "echo", "got-through", merged=False)
             for p in probes:
                 p.wait()
             check("a caller is not refused by a burst of --who probes", rc == 0 and out == "got-through",
-                  f"rc={rc} {out}")
+                  f"rc={rc} {out} {err}")
+            # The window itself, without a probe's speed in it: a shared lock
+            # held by the test for a fixed 0.2 s from the caller's spawn,
+            # inside the caller's second (its interpreter takes longer than
+            # that to start), is waited out without a notice.
+            with open(f"{d}/backend-test") as observer:
+                fcntl.flock(observer, fcntl.LOCK_SH)
+                caller = subprocess.Popen(["bash", CMD, "backend-test", "--", "echo", "got-through"],
+                                          env=clean_env(AGENT_FABRIC_LEASES=d), stdout=subprocess.PIPE,
+                                          stderr=subprocess.STDOUT, text=True)
+                time.sleep(0.2)
+                fcntl.flock(observer, fcntl.LOCK_UN)
+            said = caller.communicate(timeout=60)[0].rstrip("\n")
+            check("a caller waits out a momentary shared hold", caller.returncode == 0 and said == "got-through",
+                  f"rc={caller.returncode} {said}")
             # Two probes at once both say free (shared locks coexist).
             pair = [subprocess.Popen(["bash", CMD, "backend-test", "--who"], env=clean_env(AGENT_FABRIC_LEASES=d),
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) for _ in range(2)]
