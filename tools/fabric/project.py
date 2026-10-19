@@ -62,6 +62,7 @@ sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+import roots  # noqa: E402
 
 ID_RE = re.compile(r"^[a-z][a-z0-9.-]*$")
 GIT_TIMEOUT_S = 30
@@ -219,7 +220,7 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
         raise Refused("at least one --remote is required")
     if len(set(args.remote)) != len(args.remote) or len(set(args.role)) != len(args.role):
         raise Refused("a --remote or --role is given twice")
-    reg_path = os.path.join(root, "projects", "registry.json")
+    reg_path = roots.projects_registry(root=root)
     raw = open(reg_path, encoding="utf-8").read() if os.path.exists(reg_path) else None
     if raw is None:
         raise Refused(f"no {reg_path}")
@@ -232,10 +233,10 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
     for r in args.remote:
         if _remote_key(r) in taken:
             raise Refused(f"--remote {r}: already registered to {taken[_remote_key(r)]}")
-    clients = _load_json(os.path.join(root, "projects", "clients.json")).get("clients") or {}
+    clients = _load_json(roots.clients_registry(root=root)).get("clients") or {}
     if args.client not in clients:
         raise Refused(f"--client {args.client}: not in projects/clients.json (known: {', '.join(sorted(clients))})")
-    catalog = {r.get("id") for r in _load_json(os.path.join(root, "identities", "roles", "catalog.json")).get("roles") or []}
+    catalog = {r.get("id") for r in _load_json(roots.role_catalog(root=root)).get("roles") or []}
     for role in args.role:
         if role not in catalog:
             raise Refused(f"--role {role}: not in identities/roles/catalog.json")
@@ -246,8 +247,8 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
 
     files: list[dict] = []
     residue: list[str] = []
-    src_dir = os.path.join(root, "projects", args.like, "integration")
-    dst_dir = os.path.join(root, "projects", args.id, "integration")
+    src_dir = roots.project_integration(args.like, root=root)
+    dst_dir = roots.project_integration(args.id, root=root)
     present = set()
     for base, dirs, names in os.walk(src_dir):
         dirs.sort()
@@ -283,7 +284,7 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
             raise Refused(f"--working-copy {args.working_copy}: not a directory")
         af = os.path.join(wc, ".agent-fabric")
         tax = taxonomy_doc(args.id, args.role)
-        schema = _load_json(os.path.join(root, "projects", "schemas", "taxonomy.schema.json"))
+        schema = _load_json(os.path.join(roots.projects_dir(root=root), "schemas", "taxonomy.schema.json"))
         from lint_rules.schema import validate_json
         bad = validate_json(schema, tax, "taxonomy.json")
         if bad:
@@ -369,7 +370,7 @@ def run(argv: list[str], root: str = ROOT, today: str | None = None) -> int:
         raise Refused("at least one --role is required")
     today = today or datetime.date.today().isoformat()
     files, raw, new_raw, residue = plan(args, root, today)
-    reg_path = os.path.join(root, "projects", "registry.json")
+    reg_path = roots.projects_registry(root=root)
     print(("writing" if args.write else "dry run, nothing written; would write") + f" {len(files) + 1} files:")
     for f in files:
         print(f"  {os.path.relpath(f['path'], root) if f['path'].startswith(root + os.sep) else f['path']}  ({len(f['data'])} bytes)")
