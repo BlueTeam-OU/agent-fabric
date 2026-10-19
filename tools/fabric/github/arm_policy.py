@@ -22,7 +22,12 @@ Objects merge recursively, scalars and lists replace. The fetched file is cached
 not fall to the default.
 
 commits.boundary_authority (a role slug; absent: none) names the role whose holder may authorize arming a
-security-boundary change under boundary_min in the owner's place (arm.py --authorization); the review gate still applies.
+security-boundary change under boundary_min in the owner's place (arm.py --authorization, or a session that holds the
+role); the review gate still applies. commits.below_min_authority (a role slug; absent: none) is the same for a PR under
+its minimum that is no boundary change: the owner's word, said by a holder of that role. commits.authority_own_prs
+(true or false; absent: false) is whether an authority may arm a PR of its own authorship: false refuses it, the owner's
+word staying the only one there; true lets the session holding the role arm its own, for a repository whose authority
+is also the role that opens most of its PRs.
 
 commits.boundary_min. A security-boundary change not waived is judged against max(commits.min, commits.boundary_min):
 the owner's word it needs under that many work commits is about the security boundary, not about the count of
@@ -55,6 +60,8 @@ ROLE_SLUG = re.compile(r"[a-z][a-z0-9-]*")
 MODES = ("queue", "auto", "direct", "owner-only")
 METHODS = ("merge", "squash", "rebase")
 BELOW_MIN = ("owner-word", "refuse")
+# Absent from DEFAULT on purpose: absent is "no authority", which a default role slug would not be.
+AUTHORITY_KEYS = ("boundary_authority", "below_min_authority")
 GROUPING = ("allgreen", "headgreen")
 UPDATE_TYPES = ("patch", "minor", "major")
 # GitHub's repository fields for the merge methods: the merge commit's is the odd one out.
@@ -204,9 +211,12 @@ def validate(doc: Any, where: str = "the policy") -> dict:
             if not _int(q[k]):
                 raise PolicyError(f"{where}: queue.{k} is not a whole number of at least 1")
             _whole(q, k)
-    c = _only_keys(p["commits"], (*DEFAULT["commits"], "boundary_authority"), f"{where}: commits")
-    if "boundary_authority" in c and not (isinstance(c["boundary_authority"], str) and ROLE_SLUG.fullmatch(c["boundary_authority"])):
-        raise PolicyError(f"{where}: commits.boundary_authority is not a role slug")
+    c = _only_keys(p["commits"], (*DEFAULT["commits"], *AUTHORITY_KEYS, "authority_own_prs"), f"{where}: commits")
+    for key in AUTHORITY_KEYS:
+        if key in c and not (isinstance(c[key], str) and ROLE_SLUG.fullmatch(c[key])):
+            raise PolicyError(f"{where}: commits.{key} is not a role slug")
+    if "authority_own_prs" in c and not isinstance(c["authority_own_prs"], bool):
+        raise PolicyError(f"{where}: commits.authority_own_prs is true or false")
     for k in ("min", "advice_over", "boundary_min"):
         if not _int(c[k]):
             raise PolicyError(f"{where}: commits.{k} is not a whole number of at least 1")

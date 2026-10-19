@@ -546,6 +546,9 @@ def write_role(run: Run, role: str) -> None:
             os.makedirs(os.path.join(base, CLASS_FILES[klass]), exist_ok=True)
             os.replace(flat, os.path.join(base, CLASS_FILES[klass], name))
             run.migrated.append(f"{role}/{klass}: {CLASS_FILES[klass]}.md -> {CLASS_FILES[klass]}/{name}")
+            # The writers recorded under the old path would otherwise be dropped by the report merge (it keeps a writer
+            # only while its path exists), and a stale-hard flag on an untouched section would route to no one.
+            run.section_moves[in_report(run, flat)] = in_report(run, os.path.join(base, CLASS_FILES[klass], name))
             # Moved now, so stamped now; named for one topic, it is that
             # topic's file and says so.
             restamp(os.path.join(base, CLASS_FILES[klass], name), run.args.stamp,

@@ -888,6 +888,60 @@ def test_a_collision_stops_the_drain_until_the_owner_decides(tmp: str) -> None:
                                               "agent": "unresolved", "observed_at": "2026-09-18"}], report["collision_decisions"]
 
 
+def test_commit_message_comes_from_the_report_alone(tmp: str) -> None:
+    """gzapp.decks #29 F2: one hand-written commit message was said of seven drains. A clean drain's body names neither
+    collisions nor a hold-back; one with them names their counts, and the owner only for the decisions the owner's
+    file made."""
+    one = {"class": "domain", "topic": "one", "title": "Same title", "evidence": ["h1"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {**one, "body": "The first claim.", "observed_at": "2026-08-30"},
+        {**one, "body": "A genuinely different second claim.", "observed_at": "2026-09-18"},
+        {"class": "domain", "topic": "two", "title": "Other", "body": "b", "evidence": ["h2"]},
+    ])})
+    clean_drain, clean_claims, clean_out = build(os.path.join(tmp, "clean"), {"beta": claims("beta", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}])})
+    msg = os.path.join(tmp, "msg.txt")
+    proc = run_assemble(clean_drain, clean_claims, clean_out, "--commit-message", msg)
+    assert proc.returncode == 0, proc.stderr
+    clean = read(msg)
+    assert clean.startswith("demo: memory drain 2026-01-01\n"), clean
+    assert "Roles indexed: 1 (beta)." in clean and "Files written: " in clean, clean
+    assert re.search(r"Indexes built against agent-fabric (\w{40}|unknown)", clean), clean
+    for word in ("ollision", "Held back", "Oversized", "owner"):
+        assert word not in clean, f"{word!r} said of a drain that had none: {clean}"
+
+    proc = run_assemble(drain, claims_dir, out, "--commit-message", msg,
+                        *keep_both(tmp, "alpha/domain:one#Same title"), "--hold",
+                        _hold_file(tmp, ["alpha/domain:two"]))
+    assert proc.returncode == 0, proc.stderr
+    said = read(msg)
+    assert "Collision decisions: 1, 1 decided by the owner (--collision-decisions), 0 by the same-agent rule." in said, said
+    assert "Held back: 1 (alpha/domain:two)." in said, said
+
+
+def _hold_file(tmp: str, keys: list[str]) -> str:
+    path = os.path.join(tmp, "hold.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(keys, fh)
+    return path
+
+
+def test_a_failed_drain_writes_no_commit_message(tmp: str) -> None:
+    """A drain that exits 1 after its report (a claim hygiene rejects) leaves nothing to commit, so a message from
+    it would describe a drain that did not land. The control: the same drain without the rejected claim writes one."""
+    good = {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]}
+    bad = {"class": "domain", "topic": "two", "title": "U", "body": "Quindi questo sono senza molto.", "evidence": ["h2"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [good, bad])})
+    msg = os.path.join(tmp, "msg.txt")
+    proc = run_assemble(drain, claims_dir, out, "--commit-message", msg)
+    assert proc.returncode == 1 and "REJECTED" in proc.stderr, proc.stderr
+    assert not os.path.exists(msg), "a failed drain wrote a commit message"
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(claims("alpha", [good]), fh)
+    assert run_assemble(drain, claims_dir, out, "--commit-message", msg).returncode == 0
+    assert os.path.exists(msg), "the control drain wrote none"
+
+
 def test_the_owner_supersedes_or_drops_a_colliding_claim(tmp: str) -> None:
     """Against a section already in the corpus: supersede makes the incoming
     text replace it (merge_target applied on the owner's word, siblings
@@ -1477,6 +1531,26 @@ def test_a_projects_own_name_in_a_corrected_heading_does_not_end_its_entry(tmp: 
     assert entry["heading"] == "Springfield deploy notes" and "applied correction" not in proc.stderr, (entry, proc.stderr)
 
 
+def test_a_name_pattern_that_spares_the_terminal_phrases_still_withholds_the_name(tmp: str) -> None:
+    """gzapp's "external project name" entry for dcs redacted the VT term DCS in "C1 CSI breaking into strings/DCS/
+    intermediates" (a drain's review, 2026-10-18). The project writes DCS itself, so case cannot tell them apart; the
+    entry (gzapp #1129) lets dcs stand only before string, sequence, passthrough or intermediate. The terminal
+    phrases survive, the name is still withheld (the positive control). The pattern is stated
+    here, as the project's file states it, so this pins the assembler's reading of it, not the file."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "one", "title": "Parser", "evidence": ["h1"],
+         "body": "C1 CSI breaking into strings/DCS/intermediates, a DCS passthrough, unlike the DCS platform and Dcs rules."}])})
+    os.makedirs(os.path.join(working_copy(out), ".agent-fabric"), exist_ok=True)
+    with open(os.path.join(working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+        json.dump({"patterns": [{"pattern": r"(?<![A-Za-z0-9])dcs(?![A-Za-z0-9]|[ _/-]?(string|sequence|passthrough|intermediate)s?\b)",
+                                 "flags": "i", "label": "external project name"}]}, fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    text = "".join(alpha_slices(out).values())
+    assert "strings/DCS/intermediates, a DCS passthrough" in text, text
+    assert "the [redacted] platform and [redacted] rules" in text, text
+
+
 def test_a_correction_of_a_section_in_another_budget_part_is_listed(tmp: str) -> None:
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "domain", "topic": "grow", "title": "Big", "body": "y " * 850, "evidence": ["h1"]},
@@ -1654,6 +1728,27 @@ def test_the_report_records_who_last_wrote_each_section_and_keeps_it_across_drai
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-02-02").returncode == 0
     gone = {k.partition("#")[2] for k in json.loads(read(report_path(out)))["section_writers"]}
     assert gone == {"U"}, gone
+
+
+def test_a_flat_file_that_moves_into_the_directory_keeps_its_untouched_sections_writers(tmp: str) -> None:
+    """The flat `workflow.md` moves to `workflow/first.md` when the class splits. The report merge keeps a writer only
+    while its path exists, so a writer recorded under the old path was dropped and a stale-hard flag on the untouched
+    section routed to no one (a drain's review, 2026-10-18): the move re-keys it."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "workflow", "topic": "first", "title": "First", "body": "one", "evidence": ["h1"], "observed_at": "2026-09-18"}])})
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"content_hash": "h1", "agent": "python-dev-03", "host": "hostA"}) + "\n")
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert list(json.loads(read(report_path(out)))["section_writers"]) == [".agent-fabric/memory/alpha/workflow.md#First"]
+    drain, claims_dir, _ = build(os.path.join(tmp, "two"), {"alpha": claims("alpha", [
+        {"class": "workflow", "topic": "second", "title": "Second", "body": "two", "evidence": ["h2"]},
+        {"class": "workflow", "topic": "third", "title": "Third", "body": "three", "evidence": ["h3"]}])})
+    assert run_assemble(drain, claims_dir, out, "--stamp", "2026-02-02").returncode == 0
+    assert os.path.exists(proj(out, "alpha", "workflow", "first.md")) and not os.path.exists(proj(out, "alpha", "workflow.md"))
+    report = json.loads(read(report_path(out)))
+    assert report["section_writers"] == {".agent-fabric/memory/alpha/workflow/first.md#First":
+                                         {"agent": "python-dev-03", "host": "hostA", "observed": "2026-09-18"}}, report["section_writers"]
+    assert "section_moves" not in report, "a hand-off to the merge, not a record"
 
 
 def alpha_slices(out: str) -> dict[str, str]:
@@ -2466,8 +2561,11 @@ def test_a_retitled_memory_replaces_its_own_old_section(tmp: str) -> None:
                "body": "Merged on 2026-09-24.", "evidence": ["a3"], "observed_at": "2026-09-24"}
     set_claims(claims_dir, "alpha", [retitle])
     tracker = dom(out, "alpha", "domain", "tracker.md")
-    proc = run_assemble(drain, claims_dir, out)
+    msg = os.path.join(tmp, "msg.txt")
+    proc = run_assemble(drain, claims_dir, out, "--commit-message", msg)
     assert proc.returncode == 0, proc.stderr
+    # The same-agent rule decided it, so the body does not credit the owner.
+    assert "Collision decisions: 1, 0 decided by the owner (--collision-decisions), 1 by the same-agent rule." in read(msg), read(msg)
     assert "SUPERSEDED, same agent" in proc.stderr and "alpha/domain:tracker#Issue 851 is merged  (dev-01)" in proc.stderr, proc.stderr
     report = json.loads(read(report_path(out)))
     assert any(d.get("rule") == "same-agent" and d["decision"] == "supersede"
@@ -3715,6 +3813,8 @@ def main() -> int:
         test_a_banned_term_in_title_or_topic_is_redacted_too_and_a_person_becomes_the_role,
         test_an_overlong_description_is_clipped_everywhere_it_appears,
         test_a_flat_class_file_moves_into_the_directory_when_the_class_splits,
+        test_a_flat_file_that_moves_into_the_directory_keeps_its_untouched_sections_writers,
+        test_a_name_pattern_that_spares_the_terminal_phrases_still_withholds_the_name,
         test_an_oversized_single_claim_is_written_whole_and_reported,
         test_drain_report_carries_the_watermark_forward,
         test_the_drain_report_lists_the_memory_marks_and_call_counts,
@@ -3742,6 +3842,8 @@ def main() -> int:
         test_merge_target_strengthens_instead_of_appending,
         test_a_collision_stops_the_drain_until_the_owner_decides,
         test_the_owner_supersedes_or_drops_a_colliding_claim,
+        test_commit_message_comes_from_the_report_alone,
+        test_a_failed_drain_writes_no_commit_message,
         test_collision_is_reported_on_every_run,
         test_collision_survives_a_drain_with_an_empty_delta,
         test_authored_headings_are_not_mistaken_for_collisions,

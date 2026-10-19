@@ -7,6 +7,7 @@ Turn distiller claims into the knowledge corpus, filed by scope.
     tools/fabric/assemble.py --claims DIR --drain DIR --project <project> --stamp DATE
     tools/fabric/assemble.py --bundle FILE|- --project <project> --stamp DATE
     tools/fabric/assemble.py … --flags [--send]      # then the flag phase (memory_flagrun.py): dry run, or --send
+    tools/fabric/assemble.py … --commit-message FILE  # the commit body for the drain, built from its report (commit with -F)
 
 A BUNDLE is the drain as one tar with a manifest (harvest_memory.py
 --bundle; bin/fabric-host <host> drain <login> streams one from the

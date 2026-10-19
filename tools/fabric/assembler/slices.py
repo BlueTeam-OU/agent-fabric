@@ -76,10 +76,16 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     # Who last wrote each section accumulates across drains (ADR-050 rule 3): a section written by an earlier drain
     # keeps its writer until it is written again, and a slice that is gone takes its sections' writers with it.
     gone = set(current.get("section_writers_gone") or [])
-    writers = {k: v for k, v in (previous.get("section_writers") or {}).items()
-               if isinstance(v, dict) and k not in gone and exists(k.partition("#")[0])}
+    moves = current.get("section_moves") or {}
+
+    def moved(key: str) -> str:
+        path, hash_, heading = key.partition("#")
+        return f"{moves[path]}#{heading}" if hash_ and path in moves else key
+    # Re-keyed before `gone` and `exists` are asked: both name the path a section lives at now.
+    writers = {moved(k): v for k, v in (previous.get("section_writers") or {}).items() if isinstance(v, dict)}
+    writers = {k: v for k, v in writers.items() if k not in gone and exists(k.partition("#")[0])}
     writers.update(current.get("section_writers") or {})
-    current = {k: v for k, v in current.items() if k != "section_writers_gone"}     # a hand-off to this merge, not a record
+    current = {k: v for k, v in current.items() if k not in ("section_writers_gone", "section_moves")}   # hand-offs to this merge, not a record
     # ADR-050 rule 10: every correction the drain applied, kept while the slice it corrected exists (the harvest reads them to
     # skip an applied correction and to name a superseded original), each once.
     applied: dict[tuple, dict[str, Any]] = {}
