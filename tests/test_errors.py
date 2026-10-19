@@ -202,6 +202,13 @@ def main() -> int:
                    "**No findings at P1:**\nthe lock is held across await"):
         f, un = errors.parse_review(hidden)
         check(f"a heading is no clean level when a finding follows it or nothing does: {hidden[:30]!r}", f == [] and un, (f, un))
+    for clean in ("**No P1 findings.**", "**P1: none.**\n**P2: none.**\n**P3: none.**", "**P1** none\n**P2** none\n**P3** none\nOverall fine.",
+                  "## P1 findings\nNone."):
+        f, un = errors.parse_review(clean)
+        check(f"a bold denial, a bold label with its value, and a 'findings' heading are clean: {clean[:24]!r}", f == [] and not un, (f, un))
+    for hidden in ("## P1\nNone\n- the caller ignores the result", "## P1 findings\nNone\nThe lock is not released"):
+        f, un = errors.parse_review(hidden)
+        check(f"a heading and its None do not hide a finding under them: {hidden[:24]!r}", f == [] and un, (f, un))
     f, un = errors.parse_review("## No P1 findings\n\n## P2: none\n\nP3: none")
     check("…and a denying heading followed only by denials stays clean", f == [] and not un, (f, un))
     f, un = errors.parse_review("P1 or P2.")
@@ -305,6 +312,9 @@ def main() -> int:
         errors.results.gh.pr_list, errors.results.gh.pr_view, errors.results.gh.api = saved
     check("merged_prs: a whole list is not cut; 250 rows, or a commit the list lacks, is",
           not whole["cut"] and at_cap["cut"] and lacking["cut"], (whole["cut"], at_cap["cut"], lacking["cut"]))
+    old_cut = errors.tally(errors.events_of("o/r", {**pr(merged="2026-09-20T10:00:00Z"), "cut": True}, [], lambda r, s_: [], NOW, 30, 14, HOSTS, NEEDED))
+    check("a cut PR in the closed-window period alone is counted apart too: its reverts and fixes are partial",
+          old_cut["prs_cut"] == 1, old_cut["prs_cut"])
     cut_pr = {**pr(), "cut": True}
     t = errors.tally(run(cut_pr))
     check("a cut PR is counted apart, and the report says its counts are partial",

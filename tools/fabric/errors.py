@@ -203,27 +203,34 @@ def absence(clause: str) -> bool:
 
 
 def is_heading(clause: str) -> bool:
-    return bool(re.match(r"\s*(#|\*\*)", clause)) or clause.rstrip().endswith(":")
+    """A clause that is a section's title: a `#` heading, a clause wholly in bold (CLAUSE cuts a period inside the
+    bold, so an unclosed one counts), or one ending in a colon. `**P3** none` is a label with its value, not a title."""
+    return bool(re.match(r"\s*#", clause) or re.fullmatch(r"\s*\*\*[^*]*(?:\*\*)?\s*", clause)) or clause.rstrip().endswith(":")
+
+
+def hides_finding(clauses: list[str]) -> bool:
+    """Whether a section's clauses (up to the next level or `#` heading) hold something that is not a denial."""
+    for later in clauses:
+        if LEVEL_LINE.search(later) or later.startswith("#"):
+            break
+        if words_of(later) and not absence(later):
+            return True
+    return False
 
 
 def level_unparsed(clauses: list[str], i: int) -> bool:
-    """Whether the level clause at `i` leaves what the review says unknown. A level with no other word is a heading
-    and says what its next clause says; a heading that denies findings ("## No P1 findings") speaks for its whole
-    section, so a clause of the section that is not itself a denial is a finding it would hide."""
+    """Whether the level clause at `i` leaves what the review says unknown. A level with no other word (or only
+    "findings") is a heading and says what its next clause says; a heading that denies findings ("## No P1
+    findings") speaks for its whole section, so a clause of the section that is not itself a denial is a finding
+    it would hide, whichever of the two forms the heading takes."""
     clause = clauses[i]
-    if not words_of(clause):
+    words = words_of(clause)
+    if set(words) <= {"finding", "findings"}:
         nxt = clauses[i + 1] if i + 1 < len(clauses) else ""
-        return not absence(nxt) or bool(LEVEL_LINE.search(nxt))
+        return not absence(nxt) or bool(LEVEL_LINE.search(nxt)) or hides_finding(clauses[i + 2:])
     if not absence(clause):
         return True
-    if not is_heading(clause):
-        return False
-    for later in clauses[i + 1:]:
-        if LEVEL_LINE.search(later) or later.startswith("#"):
-            break
-        if not absence(later):
-            return True
-    return False
+    return is_heading(clause) and hides_finding(clauses[i + 1:])
 
 
 def parse_review(body: str) -> tuple[list[tuple[str, str]], bool]:
@@ -381,7 +388,7 @@ def tally(events: list[dict]) -> dict:
                         "findings": {k: findings[k] for k in sorted(findings)}, "findings_total": nfind,
                         "findings_per_review": rate(nfind, len(reviews) - sum(1 for e in reviews if e["unparsed"])),
                         "on_a_commit_not_in_the_pr": sum(1 for e in events if e["kind"] == "review_elsewhere")},
-            "prs_cut": len({(e["repo"], e["pr"]) for e in events if e["kind"] == "cut" and e["period"]}),
+            "prs_cut": len({(e["repo"], e["pr"]) for e in events if e["kind"] == "cut"}),
             "red_checks": {"unread_no_aggregate": sum(1 for e in events if e["kind"] == "checks_unread"),
                            "heads": len(heads), "heads_red": red_heads, "rate": rate(red_heads, len(heads)),
                            "by_check": {k: red_by[k] for k in sorted(red_by)},
