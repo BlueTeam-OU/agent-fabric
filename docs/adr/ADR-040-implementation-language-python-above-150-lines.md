@@ -92,8 +92,9 @@ serve as the parity oracle for each port, unchanged.
      stub), `enter-ssh` (an sshd forced command) and `completion.bash`.
      Adding to the list is a finding. A script that is not on it is not
      pre-Python for being a step of provisioning: `bootstrap.sh`, the
-     account creation and the host executor all need the pin, and are
-     forwarders.
+     account creation and the host executor all need the pin; the first
+     and the last are forwarders, the account creation its module by
+     rule 7 (A 2026-10-19).
    - **The forwarder**: a file that finds its Python module, checks
      that the pin is installed and, if it is not, prints the command that
      installs it, and execs the module; at most 12 lines of code, comments
@@ -178,10 +179,15 @@ serve as the parity oracle for each port, unchanged.
    past the move. A CI-only script is called through its module. Kept as shell: the
    pre-Python list and the forwarders of rule 1, and nothing else
    (A 2026-10-11). The `bin/` entry points, the host executor,
-   `bootstrap.sh`, `moveto` and the provisioning entries are forwarders
-   whose few lines of shell print the install command when the pin is
-   absent; the git hooks and the suite runners are forwarders once
-   ported.
+   `bootstrap.sh` and `moveto` are forwarders whose few lines of shell
+   print the install command when the pin is absent; the git hooks and
+   the suite runners are forwarders once ported. The two provisioning
+   entries a person runs, `tools/fabric/new_agent.py` and
+   `tools/fabric/store_enroll.py`, are their modules, run as `python3
+   <agent-fabric>/tools/fabric/<module>.py`: before any import that
+   needs the pin they re-exec under it, or print the install command and
+   exit 127, so no shell stands in front of them; `new-agent.sh` and
+   `store-enroll.sh` retire by the steps above (A 2026-10-19).
 8. No new fabric code is written in Node. Wave 7's carve-out kept
    existing Node code as it was; it never admitted new modules into it,
    and none is admitted now (A 2026-10-09). No fabric command runs
@@ -404,3 +410,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-14 | Wave 8 is done: no fabric command runs Node | §5 rule 8, §7, §8: the Node control plane, locale search server, shims and Node suites are gone (#170, #174, #181); Node stays only as a test oracle; new wire behaviour is no longer held back |
 | 2026-10-19 | Wave 10: the managed projects' Node scripts move to Python | §5 rule 10, §7, §8: the owner's request; 16 `.mjs` scripts of their own: four ports, one deletion, one exemption, one decision with its holder; a fork's upstream code never ported; framework configuration and a Node-API-bound script exempt, named |
 | 2026-10-19 | Wave 10: build-glyphs exempt; validate.js joins the wave | §5 rule 10: a `.js` script of ours may join the wave, and one to be updated or fixed is ported instead; §7's Wave 10 table: `build-glyphs.mjs` exempt, `validate.js` and its two tests ported |
+| 2026-10-19 | the provisioning entries are their modules | §5 rules 1 and 7: `new_agent.py` and `store_enroll.py` are the entries, re-exec under the pin or print its install command; `new-agent.sh` and `store-enroll.sh` retire by the shim steps |
