@@ -656,7 +656,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-30 — rule 14 withdrawn (§5 rule 5).
 - A 2026-10-06 — local, local-prune (§5 rule 15).
 - A 2026-10-07 — session state (rule 16).
-- A 2026-10-07 — selftest (§5 rule 17).
+- A 2026-10-07 — secrets-selftest (rule 17).
 - A 2026-10-08 — resumable state (§5 rule 16).
 - A 2026-10-08 — public ops (§5 rule 4).
 - A 2026-10-09 — forged claims (§5 rule 4).
