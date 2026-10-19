@@ -685,11 +685,12 @@ def main() -> int:
 
         def who(leases: str) -> str:
             return subprocess.run([os.path.join(leasebin, "fabric-lease"), "full-suite", "--who"], capture_output=True, text=True,
-                                  env={"PATH": host_path, "AGENT_FABRIC_LEASES": leases}).stdout
+                                  env={"PATH": host_path, "AGENT_FABRIC_LEASES": leases, "PYTHONDONTWRITEBYTECODE": "1"}).stdout
 
         def hold(leases: str) -> subprocess.Popen:
             h = subprocess.Popen([os.path.join(leasebin, "fabric-lease"), "full-suite", "--label", "other", "--", "sleep", "60"],
-                                 env={"PATH": host_path, "AGENT_FABRIC_LEASES": leases}, stdin=subprocess.DEVNULL)
+                                 env={"PATH": host_path, "AGENT_FABRIC_LEASES": leases, "PYTHONDONTWRITEBYTECODE": "1"},
+                                 stdin=subprocess.DEVNULL)
             for _ in range(100):
                 if who(leases).startswith("held:"):
                     break
@@ -783,6 +784,35 @@ def main() -> int:
         check("a group KILL of a full run ends its suites and frees the lease with them, never before (catches: the lease "
               "held by a process outside the caller's group)",
               was_held and suite_pid > 0 and not left and free, (was_held, suite_pid, left, free))
+
+        # a group KILL while the run waits for the lease leaves no directory (review of #323, N1: the watcher started
+        # after the wait, so nothing removed what mkdtemp had made)
+        leases, extra = lease_world()
+        holder_proc = hold(leases)
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-while-held")})
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "all"], cwd=base, env=env(base, **extra),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True,
+                             start_new_session=True)
+        said = ""
+        for _ in range(300):
+            line = p.stderr.readline()
+            said += line
+            if "waiting up to" in line or not line:
+                break
+        made = bool(runs_left(base))
+        os.killpg(p.pid, signal.SIGKILL)
+        p.wait()
+        p.stderr.close()
+        for _ in range(100):
+            if not runs_left(base):
+                break
+            time.sleep(0.1)
+        holder_proc.terminate()
+        holder_proc.wait()
+        check("a group KILL of a run waiting for the lease leaves no directory behind (catches: the watcher started "
+              "after the wait)",
+              "waiting up to" in said and made and not runs_left(base)
+              and not os.path.exists(os.path.join(sandbox, "ran-while-held")), (said, made, runs_left(base)))
 
         # a wait that ends with the lease still held is 75, fabric-lease's EX_TEMPFAIL
         leases, extra = lease_world()

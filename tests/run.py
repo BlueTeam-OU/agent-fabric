@@ -299,15 +299,19 @@ def take_lease(what: str, environ: dict[str, str]) -> int | None:
         no_lease(f"cannot open {path}: {e.strerror}")
         return None
     # fabric-lease's own two steps: a bounded second that outlives any --who probe's shared hold, then the real wait.
-    if not lease.lock_exclusive(fd, lease.FAIL_FAST_S):
-        print(f"{PROG}: {LEASE_NAME} is held by {lease.holder(path)} — waiting up to {LEASE_WAIT_S}s", file=sys.stderr,
-              flush=True)
-        if not lease.lock_exclusive(fd, LEASE_WAIT_S):
-            print(f"{PROG}: {LEASE_NAME} still held by {lease.holder(path)} after {LEASE_WAIT_S}s", file=sys.stderr,
-                  flush=True)
-            os.close(fd)
-            raise LeaseTimeout
-    lease.record(path, LEASE_NAME, LEASE_LABEL)
+    # Any ending before the descriptor is returned closes it: a signal can land after flock granted the lock.
+    try:
+        if not lease.lock_exclusive(fd, lease.FAIL_FAST_S):
+            print(f"{PROG}: {LEASE_NAME} is held by {lease.holder(path)} — waiting up to {LEASE_WAIT_S}s",
+                  file=sys.stderr, flush=True)
+            if not lease.lock_exclusive(fd, LEASE_WAIT_S):
+                print(f"{PROG}: {LEASE_NAME} still held by {lease.holder(path)} after {LEASE_WAIT_S}s", file=sys.stderr,
+                      flush=True)
+                raise LeaseTimeout
+        lease.record(path, LEASE_NAME, LEASE_LABEL)
+    except BaseException:
+        os.close(fd)
+        raise
     return fd
 
 
@@ -335,13 +339,14 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
             raise Signalled(signum)
         for s in previous:
             signal.signal(s, stop)
-        # After the handlers: a signal during the wait is the run's own ending, 128+N, with its directory removed.
-        held = take_lease(what, environ)
         # KILL cannot be trapped, and a group KILL (timeout -s KILL, a harness killing by group) ends the suites with
         # this process but runs no cleanup. A watcher in its own session, so that group KILL misses it, removes the
         # directory once this process is gone; cleanup stops it on every other ending.
         watcher = subprocess.Popen([sys.executable, "-c", WATCHER, str(os.getpid()), scratch], stdin=subprocess.DEVNULL,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        # After the handlers and the watcher: a signal during the wait is the run's own ending, 128+N, and a group KILL
+        # during it still leaves no directory (review of #323, N1).
+        held = take_lease(what, environ)
         before = leak_snapshot(scratch)
         if what in ("all", "static"):
             failed += invoke("static (bash -n, shellcheck, ruff)", [PY, os.path.join(HERE, "static.py")], env, ROOT) != 0
