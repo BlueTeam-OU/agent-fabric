@@ -27,7 +27,7 @@ an `install` pin into this account's ~/.local/bin (a tree pin: its tree
 under ~/.local/lib/agent-fabric-tools/<tool>/<version>/, with
 ~/.local/bin/<tool> a link into it), only on an account with
 a working copy of a project that declares it (tools_install.py has the
-whole account). Its exit codes: 0 current, installed or skipped; 1 failed;
+whole account; a `rustup-target` tool is proved by its target being listed, not by its proof's exit status). Its exit codes: 0 current, installed or skipped; 1 failed;
 2 refused.
 
 Exit codes: 0 every required tool is there; 1 a required tool is

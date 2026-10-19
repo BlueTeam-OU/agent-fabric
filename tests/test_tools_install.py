@@ -1181,7 +1181,7 @@ case "$1 $2" in
   [ -e "$HOME/.fake-add-silent" ] || echo "$3" >> "$HOME/.targets" ;;
 "target list")
   echo x86_64-unknown-linux-gnu; echo aarch64-linux-androideabi
-  cat "$HOME/.targets" 2>/dev/null ;;
+  cat "$HOME/.targets" 2>/dev/null; exit 0 ;;
 esac
 """
 
