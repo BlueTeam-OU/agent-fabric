@@ -318,9 +318,26 @@ def main() -> int:
     # in for the session (argv0 claude-zzqk, name "sleep"). The reading
     # above gets a command line WITHOUT the token, so every deny here is
     # procps's answer (the owner's choice after seven rounds, 2026-09-30).
-    dummy = subprocess.Popen(["bash", "-c", "exec -a claude-zzqk sleep 60"])
+    # Stand-ins live for an hour, not a minute: at load 100+ the file runs
+    # longer than 60 s and the processes it judges expired under it. Each
+    # is killed in its case's finally, so the length leaves nothing behind.
+    dummy = subprocess.Popen(["bash", "-c", "exec -a claude-zzqk sleep 3600"])
+    # The hook bounds each pgrep at 2 s and the whole ground truth at 3 s of
+    # wall time, so a loaded host answers "could not ask" (None) where the
+    # case means to read procps's answer: the cases below widen both bounds
+    # (the shipped bounds are pinned in their own case further down).
+    real_listed, real_budget = g.listed, g.GROUND_TRUTH_BUDGET_S
+    g.listed = lambda argv, timeout=2.0: real_listed(argv, 120.0)
+    g.GROUND_TRUTH_BUDGET_S = 600.0
     try:
-        time.sleep(0.3)
+        # Until the exec has happened the process is still `bash -c`, which
+        # pgrep -f claude-zzqk does not select: wait for what the cases
+        # name, never a fixed 0.3 s.
+        deadline = time.monotonic() + 120
+        while g.read_argv(dummy.pid)[:1] != ["claude-zzqk"] and time.monotonic() < deadline:
+            time.sleep(0.02)
+        check("the stand-in has exec'd under its name before any case asks", g.read_argv(dummy.pid)[:1] == ["claude-zzqk"],
+              g.read_argv(dummy.pid))
         pid, other = dummy.pid, "claude --model x unrelated"
         truth = [
             ("pkill -f claude-zzqk", True),
@@ -346,12 +363,12 @@ def main() -> int:
             check(f"ground truth: {cmd} -> {'deny' if want else 'allowed'}", (d is not None and d[0] == "deny") == want, d)
         check("by name, the shell's stand-in (a sleep) is not the shell: killall sleep passes with the shell modelled",
               g.decision("killall sleep", other, None, {}, shell=True) is None)
-        real_listed, ran = g.listed, []
+        widened, ran = g.listed, []
         g.listed = lambda argv, timeout=2.0: ran.append(argv) or set()
         try:
             d = g.decision('pkill -f "$P"', other, pid)
         finally:
-            g.listed = real_listed
+            g.listed = widened
         check("a pattern it cannot read: pgrep is never run for it, and the hook asks",
               ran == [] and (d or ("",))[0] == "ask", (ran, d))
         check("-c and -d leave the selection intact: a glued value and a pattern after -- are untouched",
@@ -364,7 +381,7 @@ def main() -> int:
               g.pgrep_argvs(["pkill", "-TERM", "-9", "-f", "p"]) == [["pgrep", "-f", "p"]]
               and g.pgrep_argvs(["killall", "a", "b"]) == [["pgrep", "-x", "a"], ["pgrep", "-x", "b"]])
         # The budget holds across every pgrep, killall's names included.
-        real_listed, budget = g.listed, g.GROUND_TRUTH_BUDGET_S
+        widened, budget = g.listed, g.GROUND_TRUTH_BUDGET_S
         g.listed = lambda argv, timeout=2.0: time.sleep(min(timeout, 0.4)) or set()
         g.GROUND_TRUTH_BUDGET_S = 0.5
         try:
@@ -372,8 +389,22 @@ def main() -> int:
             g.ground_truth("killall a b c d e f", pid)
             took = time.monotonic() - t0
         finally:
-            g.listed, g.GROUND_TRUTH_BUDGET_S = real_listed, budget
+            g.listed, g.GROUND_TRUTH_BUDGET_S = widened, budget
         check("the ground truth stops within its budget, across killall's names", took < 1.5, took)
+        # These cases pin the bounds the hook ships, with the real listed().
+        # The shipped bounds, which every other case widens: ground_truth
+        # under the real budget hands pgrep at most 2 s, and the budget
+        # stays under the harness's 5 s hook timeout.
+        got, widened_budget = [], g.GROUND_TRUTH_BUDGET_S
+        g.listed = lambda argv, timeout=2.0: got.append(timeout) or set()
+        g.GROUND_TRUTH_BUDGET_S = real_budget
+        try:
+            g.ground_truth("pkill -f claude-zzqk", pid)
+        finally:
+            g.listed, g.GROUND_TRUTH_BUDGET_S = real_listed, widened_budget
+        check("the hook ships a 3 s ground-truth budget under the harness's 5 s",
+              real_budget == 3.0, real_budget)
+        check("…and hands each pgrep at most 2 s of it", len(got) == 1 and 0 < got[0] <= 2.0, got)
         # selects() hands its bound to the process it starts: a pgrep that
         # hangs is killed at the timeout, never waited on (#70, tenth re-review).
         real_run, seen = g.subprocess.run, []
@@ -390,6 +421,7 @@ def main() -> int:
               seen == [0.7] and answer is None, (seen, answer))
         check("the dummy was not killed by any of this", dummy.poll() is None)
     finally:
+        g.listed, g.GROUND_TRUTH_BUDGET_S = real_listed, real_budget
         dummy.kill()
         dummy.wait()
 
@@ -402,16 +434,39 @@ def main() -> int:
     tmp = tempfile.mkdtemp()
     os.symlink("/bin/bash", os.path.join(tmp, "claude"))
     os.symlink("/bin/sleep", os.path.join(tmp, INBOX := "gzcoord-inbox"))
-    script = ('(exec -a "$SIB" sleep 60) & s=$!; "$INB" 61 & i=$!; echo "$s $i"; '
+    script = ('(exec -a "$SIB" sleep 3600) & s=$!; "$INB" 3601 & i=$!; echo "$s $i"; '
               'while read -r f; do sh -c \'python3 "$0" < "$1"\' "$HOOK" "$f"; echo @@END; done; '
               'kill "$s" "$i"; wait')
-    env = dict(os.environ, SIB="zzsib-bg-task-qx --token=zzSENTINEL-c6", INB=os.path.join(tmp, INBOX), HOOK=HOOK)
+    # The hook runs as the harness runs it, in its own process, so the
+    # in-process widening above cannot reach it: this runner loads the same
+    # file and widens the same two wall-clock bounds (a loaded host answers
+    # "could not ask" in 2 s and 3 s) before its main().
+    runner = os.path.join(tmp, "run-hook.py")
+    with open(runner, "w") as fh:
+        fh.write("import importlib.util, sys\n"
+                 f"spec = importlib.util.spec_from_file_location('self_kill_guard', {HOOK!r})\n"
+                 "m = importlib.util.module_from_spec(spec)\n"
+                 "spec.loader.exec_module(m)\n"
+                 "ask = m.listed\n"
+                 "m.listed = lambda argv, timeout=2.0: ask(argv, 120.0)\n"
+                 "m.GROUND_TRUTH_BUDGET_S = 600.0\n"
+                 "sys.exit(m.main())\n")
+    env = dict(os.environ, SIB="zzsib-bg-task-qx --token=zzSENTINEL-c6", INB=os.path.join(tmp, INBOX), HOOK=runner)
     session = subprocess.Popen([os.path.join(tmp, "claude"), "-c", script], env=env, text=True,
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True)
-    outside = subprocess.Popen(["zzout-unrelated-qx", "60"], executable="/bin/sleep")
+    outside = subprocess.Popen(["zzout-unrelated-qx", "3600"], executable="/bin/sleep")
     try:
         sib, inbox = map(int, session.stdout.readline().split())
-        time.sleep(0.2)
+        # The subshell is `bash` until its exec -a lands, and the symlinked
+        # inbox watch is a `sleep` until then too: the cases read their argv
+        # from /proc, so wait for those, not a fixed 0.2 s.
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline and not (
+                "".join(g.read_argv(sib)[:1]).startswith("zzsib-bg-task-qx") and g.is_inbox(g.read_argv(inbox))):
+            time.sleep(0.02)
+        check("the sibling and the inbox stand-in have exec'd under their names before any case asks",
+              "".join(g.read_argv(sib)[:1]).startswith("zzsib-bg-task-qx") and g.is_inbox(g.read_argv(inbox)),
+              (g.read_argv(sib), g.read_argv(inbox)))
         reasons: list[str] = []
 
         def hook_in_session(cmd: str) -> tuple[str, str] | None:
@@ -517,10 +572,14 @@ def main() -> int:
         os.makedirs(os.path.join(flags, "sh"))
         py, sh = os.path.join(flags, INBOX), os.path.join(flags, "sh", INBOX)
         with open(py, "w") as fh:
-            fh.write(f"#!{sys.executable}\nimport time\ntime.sleep(60)\n")
+            # Ends when the test closes its end of the pipe: `timeout` forks
+            # the watch off as a child, and a kill of the Popen child would leave it.
+            fh.write(f"#!{sys.executable}\nimport sys\nsys.stdin.read()\n")
         os.chmod(py, 0o755)
         with open(sh, "w") as fh:
-            fh.write("sleep 60\n:\n")
+            # A builtin read, not `sleep`: killing the shell must not orphan a
+            # child that outlives the suite.
+            fh.write("read -r line\n:\n")
         spellings = (("python3 -I -u -B -X utf8 <path>", [sys.executable, "-I", "-u", "-B", "-X", "utf8", py, "--wait"]),
                      ("timeout 600 <path>", ["timeout", "600", py, "--until-delivery"]),
                      ("nohup <path>", ["nohup", py, "--until-delivery"]),
@@ -528,7 +587,7 @@ def main() -> int:
                      ("sh <path>", ["sh", sh]),
                      ("python3 --check-hash-based-pycs default <path>",
                       [sys.executable, "--check-hash-based-pycs", "default", py, "--until-delivery"]))
-        watches = [(label, subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        watches = [(label, subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                             stderr=subprocess.DEVNULL)) for label, argv in spellings]
         try:
             time.sleep(0.5)
@@ -540,6 +599,7 @@ def main() -> int:
             for _, w in watches:
                 w.kill()
                 w.wait()
+                w.stdin.close()
             os.unlink(py)
             os.unlink(sh)
             os.rmdir(os.path.join(flags, "sh"))
@@ -572,7 +632,7 @@ def main() -> int:
         except OSError:
             pass
         session.wait()
-        for name in ("claude", INBOX, "payload.json"):
+        for name in ("claude", INBOX, "payload.json", "run-hook.py"):
             if os.path.lexists(os.path.join(tmp, name)):
                 os.unlink(os.path.join(tmp, name))
         os.rmdir(tmp)
