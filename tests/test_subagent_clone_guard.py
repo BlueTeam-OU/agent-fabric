@@ -3,7 +3,9 @@
 
 The oracle is test_subagent-clone-guard.sh, ported case for case; the cases it missed are marked NEW. The hook is
 driven through ONE constant, ENTRY, the command the harness runs (`bash "<path>"`, the payload on stdin), so this
-file runs unchanged against the bash and against the Python port behind the same path. The review Bash fence
+file runs unchanged against the bash and against the Python port behind the same path.
+$SUBAGENT_CLONE_GUARD_HOOK aims it at another file (the module that replaces the script): that file is then run as a program,
+by its shebang, from its absolute path. The review Bash fence
 (review-bash-guard.sh) sits beside the hook and is not under test here: only that the hook hands Bash to it.
 
 Contract held still: a capability-class subagent (agent_id present, agent_type one of code-low, code-medium,
@@ -14,14 +16,13 @@ guard that cannot run asks, never allows; exit 0 always.
 Cases of the bash test: main session (2), nine types denied Write, three other write tools, Bash fence (4 denied,
 2 allowed read-only), isolated worktree (3), types left alone (2), other tools (2), the denial's two facts, jq
 missing asks, malformed payloads never exit 2 (3).
-NEW: a writing class's refusals name its type, the clone and the way out, the review class's keep the fence's wording (j228,
-added to the bash test after the first port); exit status 0 and one JSON line on a denial; a worktree boundary (a path that only ends at .claude/worktrees
+NEW: a writing class's refusals name its type, the clone and the way out, the review class's keep the fence's wording (j228: the Bash and review-class wording of the bash test); exit status 0 and one JSON line on a denial; a worktree boundary (a path that only ends at .claude/worktrees
 is not inside one); an absent cwd, agent_type or tool_name; the denial names the type and the tool; the Bash
 decision of the fence passes through unchanged (an allowed command is rewritten to run with a clean environment).
 
 Mutations each case set fails on: the agent_id test removed (main session); a type dropped from the case list;
 the worktree test inverted or loosened to `*/.claude/*`; Write dropped from the denied tools; Bash not handed to
-the fence; the jq ask replaced by an allow; exit 2 on bad JSON.
+the fence; the jq ask replaced by an allow; exit 2 on bad JSON; the writing class's wording given to the review class, or withheld from a writing class (j228).
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ import tempfile
 import unittest
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HOOK = os.environ.get("SUBAGENT_CLONE_GUARD_HOOK") or os.path.join(FABRIC, "runtime", "claude-code", "hooks", "subagent-clone-guard.sh")
+HOOK = os.path.abspath(os.environ.get("SUBAGENT_CLONE_GUARD_HOOK") or os.path.join(FABRIC, "runtime", "claude-code", "hooks", "subagent-clone-guard.sh"))
 if not os.path.isfile(HOOK):
     sys.exit(f"test: not found: {HOOK}")
 # The tracked hook is what the harness runs as `bash <path>`; an override is run as a program (its shebang), the way

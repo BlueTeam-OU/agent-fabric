@@ -5,6 +5,8 @@ The oracle is test_pipe-status-guard.sh, ported case for case (its 27 refused co
 first entries of the lists below, in order); the cases it missed are marked NEW. The hook is driven through ONE
 constant, ENTRY, the command the harness runs (`bash "<path>"`, the payload on stdin), so this file runs unchanged
 against the bash and against the Python port behind the same path.
+$PIPE_STATUS_GUARD_HOOK aims it at another file (the module that replaces the script): that file is then run as a program,
+by its shebang, from its absolute path.
 
 Contract held still: a check piped into a filter and chained with && into a commit, a push, or a merge or creation
 of a pull request is denied, because the chain tests the filter's exit status; the same command with the status
@@ -29,7 +31,7 @@ import tempfile
 import unittest
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HOOK = os.environ.get("PIPE_STATUS_GUARD_HOOK") or os.path.join(FABRIC, "runtime", "claude-code", "hooks", "pipe-status-guard.sh")
+HOOK = os.path.abspath(os.environ.get("PIPE_STATUS_GUARD_HOOK") or os.path.join(FABRIC, "runtime", "claude-code", "hooks", "pipe-status-guard.sh"))
 if not os.path.isfile(HOOK):
     sys.exit(f"test: not found: {HOOK}")
 # The tracked hook is what the harness runs as `bash <path>`; an override is run as a program (its shebang), the way

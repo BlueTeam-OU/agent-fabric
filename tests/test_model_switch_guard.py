@@ -2,8 +2,9 @@
 """runtime/claude-code/hooks/model-switch-guard.sh (Claude Code PreModelSwitch hook) — Wave 9 batch 5.
 
 The oracle is test_model-switch-guard.sh, ported case for case; the cases it missed are marked NEW. The hook is
-driven through ONE constant, ENTRY, the command the harness runs (.claude/settings.json: `bash "<path>"`, the
-payload on stdin), so this file runs unchanged against the bash and against the Python port behind the same path.
+driven through ONE constant, ENTRY, the command the harness runs (`bash "<path>"`, the payload on stdin), so this file runs unchanged against the bash and against the Python port behind the same path.
+$MODEL_SWITCH_GUARD_HOOK aims it at another file (the module that replaces the script): that file is then run as a program,
+by its shebang, from its absolute path.
 
 Contract held still: in a broker session (AGENT_FABRIC_LAUNCH_PROFILE set and non-empty) a bare /model to a family
 that needs a shim is denied, naming the composite and the profile; a composite, a family with no shim, a bare
@@ -34,7 +35,7 @@ FABRIC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(FABRIC, "tests"))
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
-HOOK = os.environ.get("MODEL_SWITCH_GUARD_HOOK") or os.path.join(FABRIC, "runtime", "claude-code", "hooks", "model-switch-guard.sh")
+HOOK = os.path.abspath(os.environ.get("MODEL_SWITCH_GUARD_HOOK") or os.path.join(FABRIC, "runtime", "claude-code", "hooks", "model-switch-guard.sh"))
 if not os.path.isfile(HOOK):
     sys.exit(f"test: not found: {HOOK}")
 # The tracked hook is what the harness runs as `bash <path>`; an override is run as a program (its shebang), the way
