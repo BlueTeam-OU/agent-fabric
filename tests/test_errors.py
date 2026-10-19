@@ -176,6 +176,10 @@ def main() -> int:
         check(f"a clean review in prose parses as zero findings: {clean!r}", f == [] and not un, (f, un))
     f, un = errors.parse_review("P1 and P2 at the boundary or P3.")
     check("connectives and level tokens alone are no statement of absence", un, (f, un))
+    for heading in ("P1 findings: none.\nP2 findings:\n- the lock is held across await\nP3 findings: none.",
+                    "## P2 findings\n\n1. The lock is never released on the error path.", "Finding (P2). The lock is not released."):
+        f, un = errors.parse_review(heading)
+        check(f"a level heading is no statement of absence: {heading[:30]!r}", un, (f, un))
     f, un = errors.parse_review("P1 or P2.")
     check("…nor are bare levels", un, (f, un))
     f, un = errors.parse_review("P1: none. P2 the lock is wrong at the boundary.")
@@ -208,7 +212,11 @@ def main() -> int:
     t = errors.tally(errors.events_of("o/r", old_pr, [], lambda r, s: [cr("static", "failure")], NOW, 7, 14, HOSTS, NEEDED))
     check("a PR of the closed-window period alone gives reverts and fixes a denominator and no review or head",
           t["prs_merged"] == 0 and t["prs_in_closed_period"] == 1 and t["reviews"]["given"] == 0 and t["red_checks"]["heads"] == 0, t)
-    ev = errors.events_of("o/r", pr(merged=at(10)), [when(5, "Revert", "This reverts commit " + "a" * 40 + ".")], lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED)
+    ten = pr(merged=at(10), commits=[commit("a" * 40), commit("b" * 40, parents=("a" * 40,))])
+    ev = errors.events_of("o/r", ten, [when(5, "Revert", "This reverts commit " + "a" * 40 + ".")], lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED)
+    check("positive control: the same PR in the closed period does give the revert",
+          [e["kind"] for e in errors.events_of("o/r", dict(ten, mergedAt=at(16)), [when(10, "Revert", "This reverts commit " + "a" * 40 + ".")],
+                                                lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED)] == ["pr", "revert"])
     check("a PR between the period and the closed period (10 days ago, defaults) gives no event, so no empty actor row", ev == [], ev)
     two = pr(number=400, merged=at(16), commits=[commit("a" * 40), commit("b" * 40, parents=("a" * 40,))])
     ev = errors.events_of("o/r", two, [when(10, "Revert", "This reverts commit " + "a" * 40 + ".\n\nThis reverts commit " + "b" * 40 + ".")],
@@ -216,6 +224,19 @@ def main() -> int:
     t = errors.tally(ev)
     check("two reverted commits of one PR are one revert of that PR: the count never exceeds its denominator",
           t["reverts"]["count"] == 1 and t["reverts"]["of_prs_with_closed_window"] == 1, t["reverts"])
+    fx = errors.events_of("o/r", pr(number=500, merged=at(16)), [when(10, "review fix #500 F1", "Answers: F1"), when(9, "review fix #500 F2", "Answers: F2")],
+                          lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED)
+    t = errors.tally(fx)
+    check("two fix commits naming one PR are one PR fixed forward", t["fixes"]["count"] == 1 and t["fixes"]["of_prs_with_closed_window"] == 1, t["fixes"])
+    t = errors.tally(errors.events_of("o/r", pr(number=502, merged=at(3)), [when(2, "fix #502 F1", "Answers: F1"), when(1, "fix #502 F2", "Answers: F2")],
+                                      lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED))
+    check("two fixes in an open window are one PR found so far", t["fixes"]["found_so_far_in_open_windows"] == 1, t["fixes"])
+    mixed = pr(number=501, merged=at(16), commits=[commit("a" * 40, role="x"), commit("b" * 40, parents=("a" * 40,), role="")])
+    t = errors.tally(errors.events_of("o/r", mixed, [when(10, "Revert", "This reverts commit " + "a" * 40 + ".\n\nThis reverts commit " + "b" * 40 + ".")],
+                                      lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED))
+    check("reverted commits of two classes in one PR are still one PR reverted", t["reverts"]["count"] == 1, t["reverts"])
+    check("an inline comment on needs: makes the workflow unknown, not a superset",
+          errors.needed_jobs("jobs:\n  a:\n    x: 1\n  b:\n    x: 1\n  z-ok:\n    needs: [a] # b\n", {"z-ok"}) is None, "")
     rvs = [review("**F1 (P2, x)** a\n**F2 (P3, y)** b", "c1")] + [review("- P2 the lock is wrong", "c1")] * 4
     t = errors.tally(errors.events_of("o/r", pr(reviews=rvs), [], lambda r, s: [], NOW, 30, 14, HOSTS, NEEDED))
     check("findings per review leaves the unparsed reviews out of its denominator (5 reviews, 4 unparsed: no rate under 5)",

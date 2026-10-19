@@ -80,6 +80,8 @@ LEVEL_LINE = re.compile(r"\bP[123]\b")
 # once the level tokens are taken out, every word left is one of these. A clause with any other word in it
 # ("P2: none of the callers check the result", "returns no error") is a finding in another shape, not an absence.
 ABSENCE_WORDS = {"none", "no", "nothing", "finding", "findings", "empty", "0", "at", "or", "and"}
+# "P2 findings:" names a level and states nothing; an absence needs a word that denies.
+NEGATIONS = {"none", "no", "nothing", "empty", "0"}
 CLAUSE = re.compile(r"[.;\n]")
 LABEL = re.compile(r"[A-Z]{1,2}-?[0-9]+(?:-[0-9]+)?")
 FOLD = re.compile(r"^Merge (?:remote-tracking )?branch '(?:origin/)?([^'/\s]+)/([^'/\s]+)/for/[^'\s]+'")
@@ -120,7 +122,7 @@ def needed_jobs(workflow: str, aggregates: set[str]) -> set[str] | None:
         return None
     body = "\n".join(l for l in jobs[agg] if l.strip() and not l.lstrip().startswith("#"))
     m = re.search(r"^    needs:[ \t]*(\[[^\]]*\]|(?:\n      - .*)+|\S.*)$", body, re.M)
-    if not m:
+    if not m or "#" in m.group(1):      # a trailing comment would add its words as job names
         return None
     needed = re.findall(r"[A-Za-z0-9_][A-Za-z0-9_-]*", m.group(1).replace("needs:", ""))
     names = set()
@@ -184,7 +186,7 @@ def role_of(commit: dict) -> tuple[str, str]:
 
 def absence(clause: str) -> bool:
     words = [w.lower() for w in re.findall(r"[A-Za-z0-9]+", LEVEL_LINE.sub(" ", clause))]
-    return bool(words) and all(w in ABSENCE_WORDS for w in words) and any(w not in ("at", "or", "and") for w in words)
+    return bool(words) and all(w in ABSENCE_WORDS for w in words) and any(w in NEGATIONS for w in words)
 
 
 def parse_review(body: str) -> tuple[list[tuple[str, str]], bool]:
@@ -321,9 +323,10 @@ def tally(events: list[dict]) -> dict:
     out = {}
     for kind, key in (("revert", "reverts"), ("fix", "fixes")):
         found = [e for e in events if e["kind"] == kind]
-        n_closed = sum(1 for e in found if e["cperiod"])
+        # PRs, not events: two reverted commits or two fix commits of one PR are one PR reverted or fixed.
+        n_closed = len({(e["repo"], e["pr"]) for e in found if e["cperiod"]})
         out[key] = {"count": n_closed, "of_prs_with_closed_window": closed, "rate": rate(n_closed, closed),
-                    "found_so_far_in_open_windows": sum(1 for e in found if e["period"] and not e["closed"])}
+                    "found_so_far_in_open_windows": len({(e["repo"], e["pr"]) for e in found if e["period"] and not e["closed"]})}
     return {"prs_merged": len(prs), "prs_in_closed_period": closed,
             "reviews": {"given": len(reviews), "unparsed": sum(1 for e in reviews if e["unparsed"]),
                         "findings": {k: findings[k] for k in sorted(findings)}, "findings_total": nfind,
