@@ -507,9 +507,9 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
     return login, mid
 
 
-def held_role(host: str, login: str, what: str) -> str:
-    """The role fabric-ctl's presence of `login` on `host` reports it bound to ("" for none) — the fabric's record,
-    never a line a message or a commit carries. Unanswered when presence cannot say (`what` is what it checks)."""
+def presence_of(login: str, what: str) -> tuple[str, str]:
+    """(host, role) fabric-ctl's presence reports for `login` (role "" for none) — the fabric's record, never a line a
+    message or a commit carries. Unanswered when presence cannot say (`what` is what it checks)."""
     rc, out = run_reader(program("AGENT_FABRIC_CTL", os.path.join(FABRIC, "bin", "fabric-ctl")),
                          [login, "presence", "--json"], timeout=120)
     try:
@@ -518,10 +518,19 @@ def held_role(host: str, login: str, what: str) -> str:
         row = None
     p = row.get("presence") if isinstance(row, dict) else None
     if (not isinstance(p, dict) or row.get("status") != "ok" or p.get("status") != "ok"
-            or row.get("account") != login or row.get("host") != host):
+            or row.get("account") != login or not row.get("host")):
         raise Unanswered(f"fabric-ctl could not say which role {login} holds (presence, exit {rc}) — {what}"
                          f" cannot be checked")
-    return str(p.get("role") or "")
+    return str(row["host"]), str(p.get("role") or "")
+
+
+def held_role(host: str, login: str, what: str) -> str:
+    """The role presence reports `login` on `host` bound to ("" for none). Unanswered when presence cannot say, or
+    places the login on another host — an answer about another account, named as that, not as a silent presence."""
+    at, role = presence_of(login, what)
+    if at != host:
+        raise Unanswered(f"presence places {login} on {at}, not {host} — {what} cannot be checked")
+    return role
 
 
 def role_bound(role: str, branch: str) -> str | None:
@@ -536,7 +545,11 @@ def role_bound(role: str, branch: str) -> str | None:
             f" against: the repository's minimum, not the role's")
         return None
     host, login = m.groups()
-    held = held_role(host, login, f"the role {role} the commits carry")
+    at, held = presence_of(login, f"the role {role} the commits carry")
+    if at != host:
+        say(f"the commits say Fabric-Role: {role}, and the branch names {host}/{login}, but presence places {login}"
+            f" on {at}: the repository's minimum, not the role's")
+        return None
     if held != role:
         say(f"the commits say Fabric-Role: {role}, and {login}, whose branch it is, holds {held or 'no role'}:"
             f" the repository's minimum, not the role's")

@@ -1183,12 +1183,9 @@ class ArmRun(unittest.TestCase):
         for label, kw, said in (
                 ("another role", {"presence": presence_of(role="devex-tooling", login="me")}, "me, whose branch it is, holds devex-tooling"),
                 ("no role", {"presence": presence_of(role="", login="me")}, "me, whose branch it is, holds no role"),
-                ("another host", {"presence": presence_of(role="brand-comms", login="me"), "branch": "elsewhere/me/feat/x", "extra": ("--any-owner",)}, None),
+                ("another host", {"presence": presence_of(role="brand-comms", login="me"), "branch": "elsewhere/me/feat/x", "extra": ("--any-owner",)}, "names elsewhere/me, but presence places me on h"),
                 ("a branch named for nobody", {"branch": "fix-x", "extra": ("--any-owner",)}, "names no <host>/<login>/")):
             rc, out = self.run_arm(p, 2, role_trailers=["brand-comms"], **kw)
-            if said is None:
-                self.assertIn("unanswered: fabric-ctl could not say which role me holds", str(rc), label)
-                continue
             self.assertIn("under 8 arms only on the owner's word", str(rc), label)
             self.assertIn(said, out, label)
         rc, out = self.run_arm(p, 2, role_trailers=["brand-comms"], presence=presence_of(role="brand-comms", login="me"), extra=("--dry-run",))
