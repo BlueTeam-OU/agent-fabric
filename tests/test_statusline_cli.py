@@ -24,8 +24,8 @@ Every case of runtime/claude-code/hooks/test_statusline.sh:
 Added where a refactor could break the contract: the whole line, byte for
 byte, with no trailing newline and nothing on stderr; exit 0; a closed PR
 `🚫`; the repository named by GH_REPO over origin, and the https, ssh://
-and `.git`-less forms of origin; the exact gh arguments (repo, head,
-state all); the cache is per branch and an unknown is not cached; no PR
+and `.git`-less forms of origin; the exact gh arguments (repo, head
+— the branch drawn —, state all); the cache is per branch and an unknown is not cached; no PR
 asked about on a detached HEAD or outside a repository; a payload with
 no workspace falls back to $PWD and an empty one to the model "Claude";
 the agent is the login and the host the short hostname; no `gh` on PATH:
@@ -170,6 +170,7 @@ def main() -> int:
     t.check("within the TTL the cached answer is drawn and gh is not asked", "🔀 #386 📁" in line_of(session(repo), AGENT_FABRIC_STATUSLINE_PR_TTL="300").out)
     git(repo, "checkout", "-q", "-b", "other")
     t.check("the cache is per branch: another branch asks again, and fails to unknown", "🔀 #? 📁 clone 🌿 other" in line_of(session(repo), AGENT_FABRIC_STATUSLINE_PR_TTL="300").out)
+    t.check("…and asks about that branch, not the one asked about before", "--head other " in calls(), calls())
     git(repo, "checkout", "-q", "main")
     reset()
     git(repo, "remote", "set-url", "origin", "https://example.com/fork-org/proj.git")
