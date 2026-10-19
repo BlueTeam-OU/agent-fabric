@@ -150,11 +150,16 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    `gh/compliance.json`, `gh/trial.json` and `pr-tools.json` exist only
    where the project uses those `fabric-pr` verbs (`--with-compliance`,
    `--with-trial`, `--with-pr-tools`). The import copies the sibling's
-   files with its id replaced, values included, so every `gh/arm.json`
-   key above is checked by hand against the new project, and the prose
-   too. Above all `direct` (`roles`, `pr_paths`, `cases`): copied, it
-   lets the sibling's role push straight to the new project's main, and
-   lint does not see it, since the copied cases still match.
+   files with its id replaced and every value as the sibling has it, so
+   every key of every copied file is the sibling's until you check it
+   against the new project; the list above is examples, not the whole.
+   Three need more than a check: `boundary.changes` and
+   `boundary.retired` record the sibling's own approvals, and lint
+   passes them because they cite one, so delete them; `direct` (`roles`,
+   `pr_paths`, `cases`, `not_cases`) lets the sibling's role push
+   straight to the new project's main, and lint does not see it, since
+   the copied cases still match; and `eviction_note` is printed as the
+   new project's own sentence, so keep it only if it is true there.
 4. **fabric-coordinator**, in the project's working copy, by a PR there
    (only fabric-coordinator commits under `.agent-fabric/`):
    `taxonomy.json` (shape: `projects/schemas/taxonomy.schema.json`),
