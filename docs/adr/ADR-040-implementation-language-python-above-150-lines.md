@@ -355,7 +355,7 @@ pull request per project and holder, under that project's arming rules.
 | gzapp | `tools/validate_api_surface/` and its three tests | 4 | 941 | devex-tooling | YAML: the project's own dependency, not the fabric's standard-library rule |
 | gzapp | `tools/one-shot/split_adr_amendments.mjs` | 1 | 327 | devex-tooling | deleted, not ported: it ran once |
 | gzapp | `tools/build_glyphs/build-glyphs.mjs` | 1 | 271 | devex-tooling | exempt if fontnik has no Python path; the holder says |
-| gzapp | `apps/admin_web/scripts/import-table.mjs` | 1 | 157 | web-dev | |
+| gzapp | `apps/admin_web/scripts/import-table.mjs` | 1 | 157 | web-dev | exempt: it walks the AST of the project's pinned TypeScript compiler, which has no Python binding; a re-implementation missed real imports (its holder's proposal) |
 | gzapp.decks | `scripts/*.mjs` | 8 | 1,092 | brand-comms | `doc.mjs` drives puppeteer: exempt or ported to the fleet's browser, the holder says |
 | herdr | `scripts/docs/*.mjs` | 3 | 482 | rust-ui-dev | |
 | blueteam.ee | `deploy/check-dist.mjs` | 1 | 109 | edge-hosting | |
