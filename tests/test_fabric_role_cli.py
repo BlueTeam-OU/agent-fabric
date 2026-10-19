@@ -10,10 +10,15 @@ argv and runs nothing real, except that it lets the dispatcher module itself
 forwarder and the module. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENTRY = os.environ.get("FABRIC_ROLE_ENTRY") or os.path.join(ROOT, "bin", "fabric-role")
@@ -49,6 +54,8 @@ deactivate — the Python names are unchanged).
 """
 fails = 0
 tmp = tempfile.mkdtemp(prefix="fabric-role-cli-")
+# The runner fails a suite whose scratch outlives it; removed however the run ends.
+atexit.register(shutil.rmtree, tmp, ignore_errors=True)
 fake = os.path.join(tmp, "fake-python")
 with open(fake, "w") as f:
     f.write(FAKE.format(python=sys.executable))
