@@ -264,6 +264,18 @@ def main() -> int:
     check("the download is not run in a login shell (a profile's stdout would become the vendor's script)",
           "curl" in got[0] and "-c" in got[0] and "-lc" not in got[0], str(got[0]))
     check("…while the vendor's script itself runs in one", "-lc" in got[1] and "bash" in got[1], str(got[1:]))
+    shells = {}
+
+    def spy(argv, **kw):
+        shells[argv[argv.index("_") + 1]] = argv[argv.index("_") - 2]
+        return subprocess.CompletedProcess(argv, 0, stdout="x\n", stderr="")
+    with mock.patch.object(subprocess, "run", spy):
+        w = make_worker()
+        w.as_login(["test", "-e", "/p"], login_shell=False)
+        w.as_login(["git", "-C", "/r", "config", "--get", "k"])
+        w.as_login(["claude", "--version"])
+    check("a file test needs no profile; a tool (git, claude) keeps it, as the write beside a read does",
+          shells == {"test": "-c", "git": "-lc", "claude": "-lc"}, str(shells))
     with mock.patch.object(subprocess, "run", recorder([], lambda argv: OSError("gone"))), redirect_stderr(io.StringIO()) as e2:
         make_worker().best_effort(["soft"])
     check("best_effort: a command that cannot start is a warning too", "warning: soft failed; continuing" in e2.getvalue())

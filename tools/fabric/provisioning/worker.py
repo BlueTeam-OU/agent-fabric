@@ -125,7 +125,11 @@ class Worker:
         """The command as the account, in a LOGIN shell (its profile: what its installers put on PATH). The PATH is
         re-asserted INSIDE the shell: Debian's /etc/profile assigns PATH outright for a non-root login, so what env
         -i set would be gone by the time the command runs (found by the Debian smoke container, which then downloaded
-        the real claude in place of the test's fake)."""
+the real claude in place of the test's fake).
+
+        `login_shell=False` only for a command no profile can change the answer of: `test`, `readlink` on a path.
+        Everything that runs a tool (git, claude, ori, installers) keeps the profile, so a read and the write beside
+        it see one environment; each login shell costs about 25 execs of /etc/profile.d."""
         p = f"/usr/local/bin:/usr/bin:/bin:{self.home}/.local/bin"
         script = 'export PATH="$AGENT_FABRIC_PATH:$PATH"; cd "${AGENT_FABRIC_CWD:-$HOME}" && exec "$@"'
         env = [f"HOME={self.home}", f"PATH={p}", f"AGENT_FABRIC_PATH={p}"]
@@ -367,20 +371,20 @@ def fabric_checkout(w: Worker) -> None:
         w.must_as_login(["git", "clone", "-q", url, repo], f"git clone -q '{url}' ~/projects/agent-fabric")
         w.say("4. agent-fabric cloned (https; the fabric is public)")
         return
-    branch = w.as_login_out(["git", "-C", repo, "symbolic-ref", "-q", "--short", "HEAD"], login_shell=False).strip("\n")
+    branch = w.as_login_out(["git", "-C", repo, "symbolic-ref", "-q", "--short", "HEAD"]).strip("\n")
     if branch != "main":
         w.die(f"step failed: ~/projects/agent-fabric is on {branch or 'a detached HEAD'}, not main; bring it to main as "
               f"{login}, then re-run; nothing after it ran")
     w.must_as_login(["timeout", "60", "git", "-C", repo, "fetch", "-q", "origin", "main"],
                     "timeout 60 git -C ~/projects/agent-fabric fetch -q origin main")
-    ahead = w.as_login_out(["git", "-C", repo, "rev-list", "--count", "origin/main..HEAD"], login_shell=False).strip("\n")
+    ahead = w.as_login_out(["git", "-C", repo, "rev-list", "--count", "origin/main..HEAD"]).strip("\n")
     if not w.a.dry and ahead != "0":
         w.die(f"step failed: ~/projects/agent-fabric has {ahead or 'an unknown number of'} commit(s) not on origin/main "
               f"(pull --ff-only would keep them); push or drop them as {login}, then re-run; nothing after it ran")
     w.must_as_login(["git", "-C", repo, "merge", "-q", "--ff-only", "origin/main"],
                     "git -C ~/projects/agent-fabric merge -q --ff-only origin/main")
     if not w.a.dry:
-        sha = w.as_login_out(["git", "-C", repo, "rev-parse", "--short", "HEAD"], login_shell=False).strip("\n")
+        sha = w.as_login_out(["git", "-C", repo, "rev-parse", "--short", "HEAD"]).strip("\n")
         w.say(f"4. ~/projects/agent-fabric at origin/main ({sha})")
 
 
@@ -437,7 +441,7 @@ def point_origin_at_registry(w: Worker, pid: str, remote: str) -> None:
     if not remote:
         return
     repo = os.path.join(w.home, "projects", pid)
-    got = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.url"], stderr=subprocess.DEVNULL, login_shell=False)
+    got = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.url"], stderr=subprocess.DEVNULL)
     have = (got.stdout or "").strip("\n") if got.returncode == 0 else ""
     if not have:
         w.say(f"6. {pid}: origin not readable; left as it is")
@@ -449,8 +453,7 @@ def point_origin_at_registry(w: Worker, pid: str, remote: str) -> None:
             w.say(f"6. {pid}: origin set to {remote}")
     # set-url leaves a pushurl of its own alone, so pushes would still go there: said, not rewritten (a hand-made
     # setting is the person's).
-    push = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.pushurl"], stderr=subprocess.DEVNULL,
-                      login_shell=False)
+    push = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.pushurl"], stderr=subprocess.DEVNULL)
     pushurl = (push.stdout or "").strip("\n") if push.returncode == 0 else ""
     if pushurl and pushurl != remote:
         w.say(f"6. {pid}: warning: origin has its own push URL {pushurl}; pushes still go there")
