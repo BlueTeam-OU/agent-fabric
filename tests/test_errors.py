@@ -202,11 +202,12 @@ def main() -> int:
                    "**No findings at P1:**\nthe lock is held across await"):
         f, un = errors.parse_review(hidden)
         check(f"a heading is no clean level when a finding follows it or nothing does: {hidden[:30]!r}", f == [] and un, (f, un))
-    for clean in ("**No P1 findings.**", "**P1: none.**\n**P2: none.**\n**P3: none.**", "**P1** none\n**P2** none\n**P3** none\nOverall fine.",
+    for clean in ("## No P1 findings\n---\n", "**No P1 findings.**", "**P1: none.**\n**P2: none.**\n**P3: none.**", "**P1** none\n**P2** none\n**P3** none\nOverall fine.",
                   "## P1 findings\nNone."):
         f, un = errors.parse_review(clean)
         check(f"a bold denial, a bold label with its value, and a 'findings' heading are clean: {clean[:24]!r}", f == [] and not un, (f, un))
-    for hidden in ("## P1\nNone\n- the caller ignores the result", "## P1 findings\nNone\nThe lock is not released"):
+    for hidden in ("## P1\nNone\n- the caller ignores the result", "## P1 findings\nNone\nThe lock is not released",
+                   "## No P1 findings\n- \u547c\u3073\u51fa\u3057\u5074\u304c\u7d50\u679c\u3092\u7121\u8996\u3057\u3066\u3044\u308b"):
         f, un = errors.parse_review(hidden)
         check(f"a heading and its None do not hide a finding under them: {hidden[:24]!r}", f == [] and un, (f, un))
     f, un = errors.parse_review("## No P1 findings\n\n## P2: none\n\nP3: none")

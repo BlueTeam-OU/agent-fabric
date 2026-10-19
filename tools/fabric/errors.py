@@ -92,6 +92,7 @@ ABSENCE_WORDS = {"none", "no", "nothing", "finding", "findings", "empty", "0", "
 # "P2 findings:" names a level and states nothing; an absence needs a word that denies.
 NEGATIONS = {"none", "no", "nothing", "empty", "0"}
 CLAUSE = re.compile(r"[.;\n]")
+MARKUP_ONLY = re.compile(r"[\s*_#>`~|=-]*")
 LABEL = re.compile(r"[A-Z]{1,2}-?[0-9]+(?:-[0-9]+)?")
 FOLD = re.compile(r"^Merge (?:remote-tracking )?branch '(?:origin/)?([^'/\s]+)/([^'/\s]+)/for/[^'\s]+'")
 UNATTRIBUTED = "unattributed"
@@ -213,7 +214,9 @@ def hides_finding(clauses: list[str]) -> bool:
     for later in clauses:
         if LEVEL_LINE.search(later) or later.startswith("#"):
             break
-        if words_of(later) and not absence(later):
+        # Only markup left over by CLAUSE (the `**` of a bold cut at its period, a rule) is no clause; text in
+        # another script has no word for words_of, and is no denial either.
+        if not MARKUP_ONLY.fullmatch(later) and not absence(later):
             return True
     return False
 
