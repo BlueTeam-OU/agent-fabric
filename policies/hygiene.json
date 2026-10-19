@@ -6,7 +6,7 @@
     {"pattern": "(?<![0-9.§])192\\.168\\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])|x)(?![0-9]|\\.[0-9])", "label": "private-network address (192.168.0.0/16) -- say 'a private address' or name the role", "refer_as": "a private-network address"},
     {"pattern": "(?<![0-9.§])172\\.(?:1[6-9]|2[0-9]|3[01])\\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])|x)(?![0-9]|\\.[0-9])", "label": "private-network address (172.16.0.0/12) -- say 'a private address' or name the role", "refer_as": "a private-network address"},
     {"pattern": "(?<![\\w.~/-])/home/[a-z_][a-z0-9_-]*/", "label": "a /home/<login>/ path -- write the path from the repository root or ~/", "refer_as": "~/"},
-    {"pattern": "/var/tmp/(?![^\\s`]*<)(?!agent-fabric-[a-z0-9-]+(?=$|[^\\w/.-]|[./](?![\\w/.-])))[^\\s`)\"',;\\]]*[^\\s`)\"',;\\].:]", "label": "host scratch path -- name the artifact by commit, sha and how to rebuild it; a path on one host's volatile volume is gone after a wipe and means nothing elsewhere", "refer_as": "a host scratch path"},
+    {"pattern": "/var/tmp/(?![^\\s`]*<)(?!agent-fabric-[a-z0-9-]+(?=$|[^\\w/.-]|[./](?![\\w/-]|\\.+[\\w/-])))[^\\s`)\"',;\\]]*[^\\s`)\"',;\\].:]", "label": "host scratch path -- name the artifact by commit, sha and how to rebuild it; a path on one host's volatile volume is gone after a wipe and means nothing elsewhere", "refer_as": "a host scratch path"},
     {"pattern": "~/scratch/(?![^\\s`]*<)[^\\s`)\"',;\\]]*[^\\s`)\"',;\\].:]", "label": "one account's scratch path -- name the artifact by commit, sha and how to rebuild it", "refer_as": "a scratch path"}
   ]
 }

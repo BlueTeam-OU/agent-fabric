@@ -16,7 +16,7 @@ ROOT = os.path.dirname(HERE)
 
 LEAKS = [
     "The APK is at `/var/tmp/j94-292/j94-292-0057924e.apk`, sha256 91819bbe.",
-    "evidence in /var/tmp/j88-swipe-review (README.txt)", "keep /var/tmp/agent-fabric-python-dev-02/cienv.sh",
+    "evidence in /var/tmp/j88-swipe-review (README.txt)", "keep /var/tmp/agent-fabric-python-dev-02/cienv.sh", "/var/tmp/agent-fabric-user/.cache/x",
     "a backup at /var/tmp/w.bak, then", "heads under /var/tmp/review-*",
     "rebuilt into ~/scratch/j97 for later", "(~/scratch/look-compare/both.png, and", "~/scratch/j97/*.orig",
 ]
@@ -24,7 +24,8 @@ FINE = [
     "Not /var/tmp, where that decision put it.", "the old /var/tmp/agent-fabric-<login> filled it",
     "keep artifacts in ~/scratch/<job>/ so they survive",
     # A login's TMPDIR root named whole is the account, not an artifact; a file under it is one (herdr, 2026-10-19).
-    "sweeping /var/tmp/agent-fabric-rust-ui-dev-02 test leftovers", "TMPDIR is /var/tmp/agent-fabric-user.", "/var/tmp/agent-fabric-user/ is the TMPDIR", "/var/tmp alone, and /var/tmpfs/x", "~/scratchpad/x and ~/scratch",
+    "sweeping /var/tmp/agent-fabric-rust-ui-dev-02 test leftovers", "TMPDIR is /var/tmp/agent-fabric-user.", "/var/tmp/agent-fabric-user/ is the TMPDIR",
+    "TMPDIR is /var/tmp/agent-fabric-user/.", "it was /var/tmp/agent-fabric-user...", "/var/tmp alone, and /var/tmpfs/x", "~/scratchpad/x and ~/scratch",
 ]
 # The path ends before a sentence's period or colon: what the slice says stays one sentence (review of #310, round 3).
 REFER_AS = {"/var/tmp/x.apk was": "a host scratch path was", "~/scratch/j97 was": "a scratch path was",
