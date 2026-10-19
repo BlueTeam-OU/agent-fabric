@@ -46,13 +46,31 @@ The bash test's cases, each a test method here:
 
 Added where a refactor could break the contract and the bash test is silent:
   test_success_exit_status_and_stderr_empty, test_dry_run_exit_status_zero,
-  test_unknown_option_is_refused, test_missing_pin_is_exit_127.
+  test_unknown_option_is_refused, test_missing_pin_is_exit_127,
+  test_fabrics_own_previous_file_is_not_backed_up_when_routing_rewrites_it (the bash
+  backup case wrote the "fabric's own file" by hand, without the marker or the record,
+  so its second-backup assertion held whatever keep_person_version did).
 
-Mutation this fails on (planted on the source as formatted, 2026-10-12):
-  - the "refusing to write agent files with no routing" message changed:
-    test_routing_failure_refuses_the_whole_run
-Other behaviours here are pinned by assertions that name what they compare;
-no further mutation has been run on them.
+Mutations (planted one at a time on the source as formatted, 2026-10-19, when the bash test
+was retired; each killed by the test named): second run's "=" test in put() ->
+test_worker_second_run_changes_nothing; "(would write)" text and the dry run's return ->
+test_worker_dry_run_names_it_and_writes_nothing; written bytes -> test_worker_installed_byte_equal_...;
+a class file dropped from CLASS_FILES -> test_class_files_carry_the_effort_...; the marker test
+before removal -> test_hand_written_worker_without_marker_survives; "role is" text, "(would
+remove" text and the dry run's branch in remove() -> the three test_role_change_* cases; the
+locale in the reason -> test_locale_without_worker_is_removed_naming_the_locale; the
+language-culture test on the worker and on the MCP entry -> test_role_change_* and
+test_hand_written_...; the allow/deny-websearch calls and the marker on the deny ->
+test_websearch_denied_and_marked, test_role_change_removes_the_websearch_deny,
+test_own_websearch_deny_is_left_alone; memory_search() -> test_fabric_memory_*; the effort
+write -> test_class_files_carry_the_effort_...; the pin guards (each route() call, the exit
+status, the subcommand named) -> the two RoutingFailure cases; unknown option's status ->
+test_unknown_option_is_refused; --locale before the record -> test_locale_option_wins_...;
+the websearch entry's command, args, env and the memory entry's command ->
+test_mcp_entry_written_beside_the_logins_own, test_fabric_memory_entry_by_bare_command_name_...;
+the backup (keep_person_version) -> test_backup_taken_once_... and the rewrite case above.
+`parts[1] != "-"` (no effort line where none is expressible) is killed by
+tests/test_install_agent_files.py, not here: the fixture's routing resolves an effort for every class.
 
 Exit codes: 0 all passed, non-zero on any failure (unittest)."""
 from __future__ import annotations
@@ -429,6 +447,24 @@ class ClassFiles(Fixture):
         write(os.path.join(a, "code-high.md"), "---\nname: code-high\nmodel: opus\neffort: max\n---\n\nfabric.\n")
         self.run_install()
         self.assertIn("the user own file", read(backup), "the backup was clobbered by a second run")
+
+    def test_fabrics_own_previous_file_is_not_backed_up_when_routing_rewrites_it(self) -> None:
+        # The hand-written "fabric." file above is not the fabric's record, so it is rightly kept
+        # too; this is the real case: the file the installer itself wrote, rewritten after the
+        # routed effort changes, must not become a second backup. Kills: dropping the marker and
+        # record test from fabric_writes.keep_person_version.
+        self.bind("backend-dev")
+        dest = os.path.join(self.agents, "code-high.md")
+        write(dest, "---\nname: code-high\nmodel: sonnet\n---\n\nthe user own file.\n")
+        self.run_install()
+        before = read(dest)
+        level = "low" if "effort: low" not in before else "medium"
+        write(os.path.join(self.state, "agents", LOGIN, "model-profile.local.json"),
+              json.dumps({"providers": {"anthropic": {"effort": {"code-high": level}}}}) + "\n")
+        out = self.run_install()
+        self.assertIn(f"effort: {level}", read(dest), out)       # positive control: it was rewritten
+        self.assertEqual(sorted(n for n in os.listdir(self.agents) if n.startswith("code-high.md.before-agent-fabric")),
+                         ["code-high.md.before-agent-fabric"], out)
 
 
 class RoutingFailure(Fixture):
