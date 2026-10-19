@@ -302,11 +302,22 @@ def main() -> int:
                   bool(mask) and int(mask, 16) & 0x6 == 0, f"SigIgn {mask}")
             # The teardown: a child whose TERM handler takes time and exits
             # 7. The lease stays held while it runs; the wrapper returns 7.
+            # The handler runs until the test says so, so "while it runs" is
+            # a state the test observes, not a 1.5 s of wall time that a
+            # loaded host's probe (an interpreter start) can outlast. The
+            # trap is set before `started`, or a TERM could beat it.
+            entered, release = f"{sandbox}/term-entered", f"{sandbox}/term-release"
             h = hold("backend-test", "--", "sh", "-c",
-                     'echo started; trap "sleep 1.5; echo child-done; exit 7" TERM; while :; do sleep 0.2; done')
+                     f'trap "touch {entered}; while [ ! -e {release} ]; do sleep 0.05; done; echo child-done; exit 7" TERM; '
+                     'echo started; while :; do sleep 0.2; done')
             h.send_signal(signal.SIGTERM)
-            time.sleep(0.6)
+            for _ in range(1200):
+                if os.path.exists(entered):
+                    break
+                time.sleep(0.05)
+            check("TERM: the command is in its teardown", os.path.exists(entered), read(holder_out))
             check("TERM: the lease stays held while the command tears down", free() == 1)
+            open(release, "w").close()
             rc = h.wait(timeout=60)
             check("…the wrapper's status is the command's (7), after its teardown",
                   rc == 7 and "child-done" in read(holder_out), f"rc={rc} {read(holder_out)}")
