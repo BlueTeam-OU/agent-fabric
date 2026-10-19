@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """The oracle for runtime/claude-code/user-settings.py: the fabric's keys in a
 login's Claude Code user settings — what it writes, keeps, replaces and
-refuses, the one line it prints, and its exit status. It is
-runtime/claude-code/test_user-settings.sh, case for case, driven through ONE
+refuses, the one line it prints, and its exit status. It was
+runtime/claude-code/test_user-settings.sh, case for case (the bash test is
+gone, Wave 9 batch 8), driven through ONE
 constant, USER_SETTINGS (default runtime/claude-code/user-settings.py;
 $USER_SETTINGS names another entry), so the same file runs against the
-script today and against a port's shim later (ADR-040 §5 rule 5). The auto
+script and against any shim in front of it (ADR-040 §5 rule 5). The auto
 mode defaults are tests/test_user_settings_auto_mode.py's; this file is the
 rest of the command-line contract.
 
@@ -44,13 +45,25 @@ The bash test's cases, each a test method here:
 
 Added where a refactor could break the contract and the bash test is silent:
   test_dry_run_exit_status_and_streams (0, nothing on stderr),
-  test_refused_write_leaves_stdout_empty_stderr_one_line.
+  test_refused_write_leaves_stdout_empty_stderr_one_line,
+  test_deprecated_switch_in_an_otherwise_settled_file_is_removed,
+  test_display_key_off_in_an_otherwise_settled_file_is_rewritten,
+  test_autoupdate_key_missing_from_an_otherwise_settled_file_is_rewritten (the bash cases
+  of the same names start from files unsettled in other keys too, so they were rewritten
+  whatever settled() did with the one key under test), and test_non_object_json_is_refused
+  now asks for the one-line refusal (a traceback also exits 1).
 
-Mutation this fails on (planted on the source as formatted, 2026-10-12):
-  - `doc.pop("includeCoAuthoredBy", None)` removed:
-    test_merge_keeps_every_other_key_... and test_deprecated_switch_beside_...
-Other behaviours here are pinned by assertions that name what they compare;
-no further mutation has been run on them.
+Mutations (planted one at a time on the source as formatted, 2026-10-19, when the bash test
+was retired; each killed by a test of this file unless it says otherwise): the dry run's text
+and return; os.makedirs in save(); doc.pop("includeCoAuthoredBy"); each clause of settled()
+(deprecated switch, display keys, autoupdate env, defaultMode, allow rules, withheld rules);
+ATTRIBUTION, TOP_LEVEL and ENV values; the merge of env, attribution and the account's other
+keys; load()'s ValueError and non-object tests; the refusal's status and stream; the usage
+status, the flag test, -h, the -OO fallback and the flag named; hooks_problem and its call in
+main(); the memory check's entry, its old-path removal, its neighbour, its odd entries and its
+matcher; the allow rules (own kept, withheld dropped, not_allowed, the link test, also_allowed);
+the ask rules (own kept, fabric's added); deny kept; defaultMode. In bootstrap.py, the entry
+name and the refused write's count are killed by tests/test_bootstrap_cli.py.
 
 Exit codes: 0 all passed, non-zero on any failure (unittest)."""
 from __future__ import annotations
@@ -207,6 +220,37 @@ class SettingsOfItsOwn(Base):
         self.assertTrue(self.run_s(self.s).startswith("  +  "))
         check_base(self, self.doc())
 
+    def settled(self) -> dict:
+        """What a first run writes to a fresh account: every key in place, so a
+        change made to it afterwards is the only reason to write again."""
+        self.run_raw(self.s)
+        return self.doc()
+
+    def test_deprecated_switch_in_an_otherwise_settled_file_is_removed(self) -> None:
+        # The file above is unsettled in other keys too, so it is rewritten whatever
+        # the switch does. Kills: dropping the includeCoAuthoredBy clause from settled().
+        d = self.settled()
+        d["includeCoAuthoredBy"] = True
+        self.put_json(d)
+        self.assertTrue(self.run_s(self.s).startswith("  +  "))
+        self.assertNotIn("includeCoAuthoredBy", self.doc())
+
+    def test_display_key_off_in_an_otherwise_settled_file_is_rewritten(self) -> None:
+        # Kills: dropping the TOP_LEVEL clause from settled().
+        d = self.settled()
+        d["verbose"] = False
+        self.put_json(d)
+        self.assertTrue(self.run_s(self.s).startswith("  +  "))
+        check_base(self, self.doc())
+
+    def test_autoupdate_key_missing_from_an_otherwise_settled_file_is_rewritten(self) -> None:
+        # Kills: dropping the env clause from settled().
+        d = self.settled()
+        del d["env"]["DISABLE_AUTOUPDATER"]
+        self.put_json(d)
+        self.assertTrue(self.run_s(self.s).startswith("  +  "))
+        check_base(self, self.doc())
+
     def test_unreadable_file_is_refused_in_one_line_and_not_overwritten(self) -> None:
         self.put("not json\n")
         p = self.run_raw(self.s)
@@ -220,7 +264,12 @@ class SettingsOfItsOwn(Base):
     def test_non_object_json_is_refused(self) -> None:
         self.put("[1]\n")
         p = self.run_raw(self.s)
-        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        out = p.stdout + p.stderr
+        self.assertEqual(p.returncode, 1, out)
+        # One line by the writer's own check: a traceback also exits 1, and
+        # the bash test's exit status alone could not tell the two apart.
+        self.assertTrue(out.startswith("  !  ") and "not a JSON object" in out and "NOT written" in out, out)
+        self.assertNotIn("Traceback", out)
         self.assertEqual(self.text().rstrip("\n"), "[1]")
 
     def test_no_path_is_usage_exit_2(self) -> None:
