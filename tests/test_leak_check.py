@@ -4,7 +4,7 @@ report is test_run.py's. The entry point is ONE constant, ENTRY (the path CI and
 LEAK_CHECK_ENTRY), run as a command in a process group of its own, so this file runs unchanged against the bash forwarder today
 and against the port of the suite runners later.
 
-The bash oracle tests/test_leak-check.sh, case for case (each is a method here):
+The retired bash test tests/test_leak-check.sh (deleted, Wave 9 batch 10), case for case (each is a method here):
   run_forwards_and_reports_by_its_name        "run.sh forwards to run.py, which reports with its leak_report": the bash test grepped the
                                               forwarder's exec line and run.py's source for a function name; text is not behaviour, so
                                               here the run is asked for an unknown section and must answer under the name tests/run.sh
@@ -54,8 +54,11 @@ BLOCKING = "#!/usr/bin/env bash\nprintf '%s' \"$$\" > \"$STARTED\"\nsleep 120\n"
 # the TERM-deaf suite: cleanup is still waiting when the KILL comes, so only the watcher can remove the directory
 # It writes "$STARTED.term" when it is TERMed and stays: the case waits for that file, so the KILL lands while cleanup waits on it, never
 # on a timer. Its child ignores TERM (a handler is not inherited, an ignore is) and `wait` returns on the trap, so it loops.
-DEAF = ("#!/usr/bin/env bash\ntrap 'printf x > \"$STARTED.term\"' TERM\nprintf '%s' \"$$\" > \"$STARTED\"\n"
-        "(trap '' TERM; exec sleep 120) &\nchild=$!\nwhile kill -0 $child 2>/dev/null; do wait $child; done\n")
+# $STARTED is written by the child once it ignores TERM (a subshell resets a handler until its own trap runs, and a TERM before that
+# would end it), so "started" means a suite that cleanup can only wait on, and the tree snapshot holds the child.
+DEAF = ("#!/usr/bin/env bash\ntrap 'printf x > \"$STARTED.term\"' TERM\n"
+        "(trap '' TERM; printf '%s' \"$$\" > \"$STARTED\"; exec sleep 120) &\n"
+        "child=$!\nwhile kill -0 $child 2>/dev/null; do wait $child; done\n")
 RECORDING = "#!/usr/bin/env bash\nprintf '%s' \"$TMPDIR\" > \"$STARTED\"\nsleep 120\n"
 
 
@@ -257,6 +260,9 @@ class RunLeaves(unittest.TestCase):
         self.await_state(proc, lambda: os.path.exists(self.started + ".term"), "cleanup TERMed the suite that ignores it")
         os.killpg(proc.pid, signal.SIGKILL)
         proc.wait()
+        # The .term file stays once written, and cleanup waits only its 5 s grace: a test process stalled past it sends the KILL to a
+        # run that has already finished (exit 143, directory removed by cleanup, no watcher needed), a pass that proves nothing.
+        self.assertEqual(proc.returncode, -signal.SIGKILL, "precondition: cleanup ended the run before the KILL landed")
         self.assertTrue(self.wait_for(lambda: not os.listdir(self.runtmp), END_S), repr(os.listdir(self.runtmp)))
         # the watcher exits after it has removed the directory, so the tree is polled, not read once
         self.wait_for(lambda: not alive(self.tree), END_S)
