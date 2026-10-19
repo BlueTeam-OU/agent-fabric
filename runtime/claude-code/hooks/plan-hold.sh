@@ -6,5 +6,7 @@
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
 py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
-[[ -x "$py" ]] || { echo "plan-hold: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+# A hook keeps the script's contract, exit 0: a non-zero hook is an error notice on every call. The status line
+# shows the missing pin; this one says it on stderr and does nothing.
+[[ -x "$py" ]] || { echo "plan-hold: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 0; }
 exec "$py" -I "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../tools/fabric/plan_hold.py" "$@"
