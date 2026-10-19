@@ -21,9 +21,10 @@ total, per actor, per actor class (person or agent) and per role:
    review: in agent-fabric the jobs `ci-ok` lists in .github/workflows/ci.yml
    on the default branch), a matrix job by its "name (legs)" runs; never the
    aggregate itself, which counts them again, never a cancelled run and never
-   a run of another workflow (pr-counts, stripped-nightly): by the run's name
-   only, so a check of another workflow that shares a needed job's name would
-   be counted (none does in agent-fabric). A head is a
+   a run of another workflow (pr-counts, stripped-nightly): by workflow and
+   job, the run's workflow being the one its Actions run belongs to, so a job
+   of another workflow that shares a needed job's name is not counted, nor is
+   a check run that belongs to no Actions run. A head is a
    commit of the PR on which such a run ran to a conclusion (checks run on
    push). A repository with no such aggregate is not read for red checks, and
    says so. A named check that failed and whose last run on the same
@@ -240,7 +241,9 @@ def check_verdict(runs: list[dict], needed: set[str]) -> tuple[bool, list[str], 
     """(counted, red names, flaky names) for one sha's check runs of the needed jobs."""
     by_name: dict[str, list[dict]] = {}
     for r in runs:
-        if not counted_run(r.get("name") or "", needed) or not r.get("conclusion") or r["conclusion"] == "cancelled":
+        # The name alone is not the job: a same-named job of another workflow is not the aggregate's dependency.
+        if r.get("workflow_path") != WORKFLOW or not counted_run(r.get("name") or "", needed) \
+                or not r.get("conclusion") or r["conclusion"] == "cancelled":
             continue
         by_name.setdefault(r["name"], []).append(r)
     red, flaky = [], []
@@ -427,17 +430,29 @@ WORKERS = 8                                          # one gh call per commit: t
 RETRIES = 2
 
 
+RUN_OF_JOB = re.compile(r"/actions/runs/(\d+)(?:/|$)")
+
+
 def check_runs(repo: str, sha: str) -> list[dict]:
-    """A sha's check runs. A read that failed in a way a retry could help (gh.GhError.transient) is retried; any
-    other failure, or the last one, is raised: a head whose checks are unread is never counted green."""
+    """A sha's check runs, each with the path of the workflow that ran it (`workflow_path`; None for a run that
+    is no job of a workflow run, whose workflow is then unknown). A read that failed in a way a retry could help
+    (gh.GhError.transient) is retried; any other failure, or the last one, is raised: a head whose checks are
+    unread is never counted green."""
     for attempt in range(RETRIES + 1):
         try:
-            return gh.api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True, items_key="check_runs")
+            runs = gh.api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True, items_key="check_runs")
+            wf = gh.api(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100", paginate=True, items_key="workflow_runs")
+            break
         except gh.GhError as e:
             if not e.transient or attempt == RETRIES:
                 raise
             time.sleep(2 ** attempt)
-    raise AssertionError("unreachable")
+    path_of = {str(w["id"]): w.get("path") for w in wf}
+    out = []
+    for r in runs:
+        m = RUN_OF_JOB.search(r.get("details_url") or "")
+        out.append({**r, "workflow_path": path_of.get(m.group(1)) if m else None})
+    return out
 
 
 def read_needed(repo: str, aggregates: set[str]) -> set[str] | None:

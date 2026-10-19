@@ -44,8 +44,8 @@ def run(p, later=(), runs=None):
     return errors.events_of("o/r", p, list(later), lambda repo, sha: runs.get(sha, []), NOW, 30, 14, HOSTS, NEEDED)
 
 
-def cr(name, conclusion, at="2026-10-01T01:00:00Z"):
-    return {"name": name, "conclusion": conclusion, "completed_at": at, "id": 1}
+def cr(name, conclusion, at="2026-10-01T01:00:00Z", workflow=errors.WORKFLOW):
+    return {"name": name, "conclusion": conclusion, "completed_at": at, "id": 1, "workflow_path": workflow}
 
 
 def main() -> int:
@@ -291,17 +291,24 @@ def main() -> int:
     # --- check-run reads: a transient failure is retried, a refusal is not, and the last failure is raised
     calls = []
     def flaky_api(n_bad, transient):
-        def api(*a, **k):
+        def api(path, **k):
+            if "/actions/runs" in path:
+                return [{"id": 99, "path": errors.WORKFLOW}, {"id": 98, "path": ".github/workflows/other.yml"}]
             calls.append(1)
             if len(calls) <= n_bad:
                 raise errors.gh.GhError("gh api", "x", transient=transient)
-            return [cr("static", "success")]
+            return [{"name": "static", "conclusion": "success", "completed_at": "2026-10-01T01:00:00Z", "id": 1,
+                     "details_url": "https://github.com/o/r/actions/runs/99/job/5"},
+                    {"name": "static", "conclusion": "failure", "id": 2, "details_url": "https://github.com/o/r/actions/runs/98/job/6"},
+                    {"name": "static", "conclusion": "failure", "id": 3, "details_url": "https://example.test/ci/7"}]
         return api
     saved_api, saved_sleep = errors.gh.api, errors.time.sleep
     errors.time.sleep = lambda s: None
     try:
         errors.gh.api = flaky_api(2, True)
-        ok = errors.check_runs("o/r", "s") == [cr("static", "success")] and len(calls) == 3
+        got_runs = errors.check_runs("o/r", "s")
+        ok = [(r["id"], r["workflow_path"]) for r in got_runs] == [(1, errors.WORKFLOW), (2, ".github/workflows/other.yml"), (3, None)] \
+            and len(calls) == 3
         calls.clear()
         errors.gh.api = flaky_api(3, True)
         try:
@@ -320,6 +327,14 @@ def main() -> int:
         errors.gh.api, errors.time.sleep = saved_api, saved_sleep
     check("a transient read failure is retried twice, then raised", ok and third, (ok, third))
     check("a refusal is raised at once, not retried", refused)
+
+    # --- a same-named job of another workflow, or of none the reader can name, is not the needed job
+    ev = [e for e in run(pr(), runs={"c1": [cr("static", "failure", workflow=".github/workflows/other.yml"), cr("lint", "failure", workflow=None)],
+                                     "c2": [cr("static", "failure")]}) if e["kind"] == "head"]
+    check("red checks are matched by workflow and job: only the aggregate's workflow counts",
+          len(ev) == 1 and ev[0]["red"] == ["static"], ev)
+    check("…and a head whose only red run is another workflow's is not a head at all",
+          not [e for e in run(pr(), runs={"c1": [cr("static", "failure", workflow=".github/workflows/other.yml")]}) if e["kind"] == "head"])
 
     # --- the workflow read: base64 from the contents API; a 404 is "no aggregate", any other failure is raised
     import base64
@@ -351,7 +366,8 @@ def main() -> int:
     sinces = []
     errors.results.main_commits = lambda repo, since: sinces.append(since) or []
     errors.results.merged_prs = lambda repo, since, extra=(): [pr(merged="2026-10-25T00:00:00Z")]
-    errors.gh.api = lambda *a, **k: [cr("static", "failure")]
+    errors.gh.api = lambda path, **k: ([{"id": 5, "path": errors.WORKFLOW}] if "/actions/runs" in path else
+                                       [{**cr("static", "failure"), "details_url": "https://github.com/o/r/actions/runs/5/job/1"}])
     try:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
