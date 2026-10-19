@@ -65,6 +65,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gh  # noqa: E402
 import results  # noqa: E402
+import roots  # noqa: E402
 from github import commit_class  # noqa: E402
 from github.post_review import REVIEW_MARKER  # noqa: E402
 
@@ -133,7 +134,7 @@ def counted_run(name: str, needed: set[str]) -> bool:
 
 
 def known_hosts() -> set[str]:
-    with open(os.path.join(ROOT, "runtime", "hosts", "registry.json"), encoding="utf-8") as fh:
+    with open(roots.hosts_registry(engine=roots.code_root()), encoding="utf-8") as fh:
         return set(json.load(fh)["hosts"])
 
 
