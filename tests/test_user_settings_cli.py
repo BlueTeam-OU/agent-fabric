@@ -6,7 +6,7 @@ runtime/claude-code/test_user-settings.sh, case for case (the bash test is
 gone, Wave 9 batch 8), driven through ONE
 constant, USER_SETTINGS (default runtime/claude-code/user-settings.py;
 $USER_SETTINGS names another entry), so the same file runs against the
-script today and against a port's shim later (ADR-040 §5 rule 5). The auto
+script and against any shim in front of it (ADR-040 §5 rule 5). The auto
 mode defaults are tests/test_user_settings_auto_mode.py's; this file is the
 rest of the command-line contract.
 

@@ -5,8 +5,8 @@ status. It was runtime/claude-code/test_install-agent-files.sh, case for case,
 (the bash test is gone, Wave 9 batch 8),
 driven through ONE constant, INSTALL (default
 runtime/claude-code/install-agent-files.sh; $INSTALL_AGENT_FILES names
-another), so the same file runs against the bash today and against its Python
-port later (ADR-040 §5 rule 5). tests/test_install_agent_files.py is the
+another), so the same file runs against the shim and against the port behind
+it (ADR-040 §5 rule 5). tests/test_install_agent_files.py is the
 module's internals; this file is the command-line contract only.
 
 The script is never run where it lies: it finds the fabric root from its own
