@@ -181,6 +181,8 @@ scripts, and are never migrated.
 Two scripts import a Node library with no obvious Python counterpart
 (gzapp's glyph builder, fontnik; gzapp.decks' `doc.mjs`, puppeteer):
 their holders decide port or exemption, and an exemption is added to
-§7's table with why. Each port goes to the holder of its path in the
+§7's table with why. gzapp's `apps/admin_web/scripts/import-table.mjs` is the first:
+its holder showed it walks the pinned TypeScript compiler's AST, which
+has no Python binding, and the coordinator accepted the exemption. Each port goes to the holder of its path in the
 project's taxonomy, as a request from the coordinator. Rule 10 added,
 §7's Wave 10 table, §8.

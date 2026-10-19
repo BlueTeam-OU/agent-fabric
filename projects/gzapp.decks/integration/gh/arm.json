@@ -1,7 +1,7 @@
 {
-  "description": "gzapp.decks' rules for fabric-pr arm. boundary.paths: the repository builds decks and documents with Node scripts and a Marp engine that runs on the operator's machine and calls a provider with a key, so its boundary is the release script that pushes and publishes (scripts/release.mjs), the package manifest and lockfile that decide what installs and runs (package.json, package-lock.json), the Marp configuration, which loads the theme and enables raw HTML and local files in the export browser (.marprc.yml), the harness wiring (.claude/: settings, hooks and the commands that run the build, the release and the image generation), the environment template and the ignore file that keeps .env.local out of a commit (.env* at any depth, .gitignore), CI (.github/), and words where the boundary is a file anywhere (secret, credential, token, key, auth). boundary.exempt is dropped first, but never under .claude/, scripts/ or theme/: Markdown prose (a command file under .claude/ is not prose, it is what the harness runs), .agent-fabric/, and the deck and document folders' content, their assets/ and i18n/ dictionaries. No classes. waiver_role is null: only the owner waives the boundary. The other scripts and the theme (scripts/, theme/) are outside the boundary since 2026-10-19: brand-comms arms them without a second word (boundary.changes).",
+  "description": "gzapp.decks' rules for fabric-pr arm. boundary.paths: the repository builds decks and documents with Node scripts and a Marp engine that runs on the operator's machine and calls a provider with a key, so its boundary is the scripts that build, bump, release and generate images, which the release imports and runs before it pushes and publishes (scripts/), the package manifest and lockfile that decide what installs and runs (package.json, package-lock.json), the Marp configuration, which loads the theme and enables raw HTML and local files in the export browser (.marprc.yml), the harness wiring (.claude/: settings, hooks and the commands that run the build, the release and the image generation), the environment template and the ignore file that keeps .env.local out of a commit (.env* at any depth, .gitignore), CI (.github/), and words where the boundary is a file anywhere (secret, credential, token, key, auth). boundary.exempt is dropped first, but never under .claude/, scripts/ or theme/: Markdown prose (a command file under .claude/ is not prose, it is what the harness runs), .agent-fabric/, and the deck and document folders' content, their assets/ and i18n/ dictionaries. No classes. waiver_role is null: only the owner waives the boundary. The theme (theme/) is outside the boundary since 2026-10-19: brand-comms arms it without a second word (boundary.changes).",
   "boundary": {
-    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.marprc(\\.ya?ml|\\.json|\\.js)?$|(^|/)\\.env|^\\.gitignore$|^\\.github/|(^|/)package(-lock)?\\.json$|^scripts/release\\.mjs$|secret|credential|token|key|auth",
+    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.marprc(\\.ya?ml|\\.json|\\.js)?$|(^|/)\\.env|^\\.gitignore$|^\\.github/|(^|/)package(-lock)?\\.json$|^scripts/|^\\.npmrc$|\\.pem$|secret|credential|token|key|auth",
     "exempt": "^(?!(\\.claude|scripts|theme)/)(.*\\.md$|\\.agent-fabric/|[^/]+/(assets|i18n)/)",
     "cases": [
       ".claude/settings.json",
@@ -15,13 +15,16 @@
       ".gitignore",
       "access_token.txt",
       "sa-key.json",
-      "android/release.keystore"
+      "android/release.keystore",
+      "scripts/build.mjs",
+      ".env",
+      "certs/server.pem",
+      ".npmrc"
     ],
     "changes": {
       "2026-10-19 content leaves the boundary": "Content leaves the boundary so brand-comms arms it without a second word; the harness, CI, environment, ignore file, build configuration, manifests, deploy and secret files stay (devex-tooling's REQUEST 01a152a4-df8d-7c64-8f47-12992b3ca534; the owner chose narrowing in fabric-coordinator's session, 2026-10-19)."
     },
     "retired": {
-      "scripts/build.mjs": "Content, outside the narrowed boundary (devex-tooling's REQUEST 01a152a4-df8d-7c64-8f47-12992b3ca534; the owner chose narrowing in fabric-coordinator's session, 2026-10-19).",
       "theme/gzapp.css": "Content, outside the narrowed boundary (devex-tooling's REQUEST 01a152a4-df8d-7c64-8f47-12992b3ca534; the owner chose narrowing in fabric-coordinator's session, 2026-10-19)."
     }
   },
