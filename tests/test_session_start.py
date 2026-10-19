@@ -20,7 +20,7 @@ import types
 HERE = os.path.dirname(os.path.abspath(__file__))
 import socket
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
-from instance_fixtures import write_operator_policy, write_operator_projects, write_registry  # noqa: E402
+from instance_fixtures import HOSTS_REGISTRY, write_json, write_operator_policy, write_operator_projects, write_registry  # noqa: E402
 scrub_process_env()
 HOST = socket.gethostname().split('.')[0]
 ROOT = os.path.dirname(HERE)
@@ -688,7 +688,10 @@ def says_the_job_list(tmp: str, relays: list) -> None:
     # must not be sent to a test's socket.
     bare_home = os.path.join(tmp, "bare-home")
     os.makedirs(bare_home)
-    wired = {**stubbed, "HOME": bare_home, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.getsockname()[1]}",
+    # queue.py reads the hosts registry before it calls the relay; a stripped copy has none, so the case would
+    # prove nothing there (ADR-045 §5 rule 3).
+    hosts = write_json(os.path.join(tmp, "hosts-registry.json"), HOSTS_REGISTRY)
+    wired = {**stubbed, "HOME": bare_home, "AGENT_FABRIC_HOSTS_REGISTRY": hosts, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.getsockname()[1]}",
              "CLAUDE_BRIDGE_AUTH_TOKEN": "t"}
     cache_path = os.path.join(state, "agents", id_un(), "jobs-blockers.json")
     before = open(cache_path, encoding="utf-8").read()

@@ -40,6 +40,7 @@ import time
 from typing import Callable
 
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import FIXTURE_CLIENT, write_json  # noqa: E402 — tests/, the script's own directory
 
 scrub_process_env()
 
@@ -270,6 +271,13 @@ def main() -> int:
         # is set, so a null on both sides proves nothing; the parent session is
         # this test's, never the caller's.
         os.environ["CLAUDE_CODE_SESSION_ID"] = "parent-9"
+        # The producer names the project through the operator's registry (ADR-045 §5 rule 3), read in this process:
+        # a fixture tree, never the checkout's, which a stripped copy does not have.
+        operator = os.path.join(sandbox, "operator")
+        write_json(os.path.join(operator, "projects", "registry.json"),
+                   {"version": 1, "projects": {"agent-fabric": {"client": FIXTURE_CLIENT,
+                                                               "remotes": ["git@github.com:BlueTeam-OU/agent-fabric.git"]}}})
+        os.environ["AGENT_FABRIC_OPERATOR"] = operator
         for mode in ("pinned", "working-tree"):
             rendered = review_brief.dispatch_header(
                 {"mode": "re-review", "repository": repo, "range": "a..b", "evidence": mode, "pr": 251,
