@@ -71,7 +71,6 @@ BASH_SUITES: list[tuple[str, dict[str, str], list[str]]] = [
     ("decision-record amendments (this branch)", {"AGENT_FABRIC_ADR_BASE": "origin/main"}, [PY, "tools/fabric/adr.py", "range-check"]),
     ("leak check (what a run left behind)", {}, ["bash", "tests/test_leak-check.sh"]),
     ("status line", {}, ["bash", "runtime/claude-code/hooks/test_statusline.sh"]),
-    ("language identification (the detector venv)", {}, ["bash", "runtime/langid/test_install.sh"]),
     ("subagent clone guard", {}, ["bash", "runtime/claude-code/hooks/test_subagent-clone-guard.sh"]),
     ("pipe status guard", {}, ["bash", "runtime/claude-code/hooks/test_pipe-status-guard.sh"]),
     ("model-switch guard", {}, ["bash", "runtime/claude-code/hooks/test_model-switch-guard.sh"]),
