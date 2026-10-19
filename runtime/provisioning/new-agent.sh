@@ -9,8 +9,8 @@
 #       [--host <id>] [--project <id>]... [--claude VERSION|stable|latest] [--surname <Surname>] [--dry-run]
 #   runtime/provisioning/new-agent.sh --signing-key-only <login>     # step 11 alone, at a terminal
 #
-# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
-# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
-py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
-[[ -x "$py" ]] || { echo "new-agent: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
-exec "$py" -I "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../tools/fabric/new_agent.py" "$@"
+# Retiring (ADR-040 §5 rule 7): the module is the entry, and it finds the
+# fleet's pinned Python itself (or prints the install command, exit 127).
+here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../tools/fabric"
+echo "new-agent.sh is retired and goes in the next release; run: python3 $here/new_agent.py" >&2
+exec python3 "$here/new_agent.py" "$@"

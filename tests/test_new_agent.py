@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/new_agent.py and tools/fabric/provisioning/; the
 behaviour is tests/test_new_agent_cli.py's, run against the
-new-agent.sh shim and the new-agent-worker.sh step-runner (ADR-040 §5 rule
+new_agent.py entry and the new-agent-worker.sh step-runner (ADR-040 §5 rule
 5). What is here is what that suite does not reach: the worker's
 argument quirks, each decision on its own (the claude version, the
 subordinate ids, the host keys, the audit, the closing list), the
@@ -28,7 +28,7 @@ import new_agent as na  # noqa: E402
 from provisioning import config as cfg, new_agent_args as nargs, signing, steps as steps_mod  # noqa: E402
 from provisioning import bounded, github_signing_key as gsk, host_steps as hs, verify as vf, worker_args as wa  # noqa: E402
 
-SHIM = os.path.join(HERE, "runtime", "provisioning", "new-agent.sh")
+SHIM = os.path.join(HERE, "tools", "fabric", "new_agent.py")
 
 
 def clean_env(**extra) -> dict:
@@ -177,7 +177,7 @@ def main() -> int:
         print("the closing list")
         c = vf.closing("acct", "absent", "no", "demo")
         check("no GPG key: step 11 alone named first, the raw lines kept after it as the fallback",
-              0 <= c.find("runtime/provisioning/new-agent.sh --signing-key-only acct") < c.find("or by hand:")
+              0 <= c.find("tools/fabric/new_agent.py --signing-key-only acct") < c.find("or by hand:")
               < c.find("sudo -u acct gpg --batch --import"), c)
         check("no GPG key and no template: both named, with the commands, and the first launch in the first project",
               "GPG secret key: the signing key's is NOT" in c and "sudo -u acct gpg --batch --import" in c and "fabric-accounts assign acct" in c and "bin/fabric-accounts" not in c
@@ -411,11 +411,11 @@ def main() -> int:
 
         print("the orchestrator's command line")
         def shim(*args, **env):
-            return subprocess.run(["bash", SHIM, *args], capture_output=True, text=True, timeout=60,
+            return subprocess.run([sys.executable, SHIM, *args], capture_output=True, text=True, timeout=60,
                                   env=clean_env(AGENT_FABRIC_PYTHON=sys.executable, **env))
         r = shim("--help")
         check("--help: the header, on stdout, exit 0", r.returncode == 0 and r.stdout == nargs.HELP and
-              r.stdout.startswith("runtime/provisioning/new-agent.sh — give a role its own account"))
+              r.stdout.startswith("tools/fabric/new_agent.py — give a role its own account"))
         r = shim()
         check("no login or role: the usage line, exit 2", r.returncode == 2 and r.stderr == nargs.USAGE)
         r = shim("l", "r", "x")
@@ -460,7 +460,7 @@ def main() -> int:
         check("…a flag for its login is no login: the usage", sko("--signing-key-only", "--dry-run")[0] == 2
               and sko("--signing-key-only=")[0] == 2)
         check("…named in the usage and the help, the raw lines kept as the fallback",
-              "--signing-key-only <login>" in nargs.USAGE and "new-agent.sh --signing-key-only <login>" in nargs.HELP
+              "--signing-key-only <login>" in nargs.USAGE and "new_agent.py --signing-key-only <login>" in nargs.HELP
               and "by hand follow it as the fallback" in nargs.HELP)
         r = shim("--signing-key-only", "acct")
         check("…with no terminal (a pipe here): refused, exit 1, naming why, nothing asked of a host",
@@ -502,10 +502,39 @@ def main() -> int:
             rc, out = worker_args("finish", "p", "--human", *extra)
             check(f"…and refuses --human with {extra[0]}: exit 2", rc == 2 and "--human takes no" in out, out)
 
-        r = subprocess.run(["bash", SHIM, "--help"], capture_output=True, text=True, timeout=30,
+        r = subprocess.run([sys.executable, SHIM, "--help"], capture_output=True, text=True, timeout=30,
                            env=clean_env(AGENT_FABRIC_PYTHON=f"{tmp}/no-python"))
-        check("the shim with no pinned interpreter: exit 127, one line",
+        check("the module with no pinned interpreter: exit 127, one line, the install command",
               r.returncode == 127 and r.stderr.count("\n") == 1 and "python_pin.py install" in r.stderr)
+
+        # The module is the entry: run by another interpreter it execs the pin with -I and the same argv.
+        wrap = put(f"{tmp}/pin/python", f"#!/bin/sh\necho \"$@\" > {tmp}/pin/argv\nexit 7\n", 0o755)
+        r = subprocess.run([sys.executable, SHIM, "--help", "x y"], capture_output=True, text=True, timeout=30,
+                           env=clean_env(AGENT_FABRIC_PYTHON=wrap))
+        check("run by another interpreter: it execs the pin with -I, the script and the same argv",
+              r.returncode == 7 and open(f"{tmp}/pin/argv").read() == f"-I {os.path.realpath(SHIM)} --help x y\n")
+        r = subprocess.run([sys.executable, SHIM, "--help"], capture_output=True, text=True, timeout=30,
+                           env=clean_env(AGENT_FABRIC_PYTHON=sys.executable))
+        check("the pin being the running interpreter: no exec, the help", r.returncode == 0 and 'give a role its own account' in r.stdout)
+        # In process, because the exec of the same interpreter is invisible from outside: with the pin being
+        # the running interpreter nothing is exec'd (the positive control is the wrapper case above).
+        import pin_entry
+        execs: list = []
+        saved_execv, saved_env = os.execv, dict(os.environ)
+        os.execv = lambda *a: execs.append(a)
+        try:
+            os.environ["AGENT_FABRIC_PYTHON"] = sys.executable
+            pin_entry.ensure(SHIM, "new-agent")
+        finally:
+            os.execv = saved_execv
+            os.environ.clear()
+            os.environ.update(saved_env)
+        check("the pin being the running interpreter: ensure execs nothing", execs == [])
+        r = subprocess.run(["bash", os.path.join(HERE, "runtime", "provisioning", "new-agent.sh"), "--help"], capture_output=True, text=True, timeout=30,
+                           env=clean_env(AGENT_FABRIC_PYTHON=sys.executable))
+        check("the retired shim: stderr names the command that replaces it, then the module runs",
+              r.returncode == 0 and "new-agent.sh is retired" in r.stderr and "python3 " in r.stderr
+              and "new_agent.py" in r.stderr and 'give a role its own account' in r.stdout)
 
         print("the orchestrator, against fakes")
         # A fake host executor and store tools: each answers from files the
@@ -544,7 +573,7 @@ esac
 """, 0o755)
         put(f"{fk}/templates", '[{"account": "acct-one", "token_sha256_12": "0123456789ab"}]\n')
         put(f"{fk}/assign", '[{"login": "new", "status": "written", "token_sha256_12": "0123456789ab"}]\n0\n')
-        enroll = put(f"{fk}/store-enroll.sh", "#!/usr/bin/env bash\nexit 0\n", 0o755)
+        enroll = put(f"{fk}/store_enroll.py", "#!/usr/bin/env bash\nexit 0\n", 0o755)
         reg = put(f"{fk}/root/projects/registry.json", json.dumps({"projects": {"demo": {"remotes": ["https://h/o/d.git", "git@h:o/d.git"]}}}))
         hosts = put(f"{fk}/hosts.json", json.dumps({"hosts": {"here": {"ssh": None}, "far": {"ssh": "op@far"}},
                                                     "placement": {"placed": "far"}}))
@@ -1008,7 +1037,7 @@ exec env GNUPGHOME="$home" "$@"
             rc, err, calls = step11()
             check("a failed import: exit 1, gpg's last line, and the two lines a person runs",
                   rc == 1 and "11. the signing key: FAILED — the import as new: gpg: import failed (injected)" in err
-                  and "step 11 alone, in a terminal: runtime/provisioning/new-agent.sh --signing-key-only new" in err
+                  and "step 11 alone, in a terminal: python3 tools/fabric/new_agent.py --signing-key-only new" in err
                   and "sudo -u new gpg --batch --import" in err and "gpg --import-ownertrust" in err
                   and not held(gB, fpr) and "--import-ownertrust" not in calls, f"rc={rc}\n{err}\n{calls}")
             err = io.StringIO()

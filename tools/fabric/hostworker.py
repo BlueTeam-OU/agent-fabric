@@ -12,7 +12,7 @@ runs as is, in the caller's environment. As another account: through
 sudo, with a clean environment — HOME from the passwd entry, a fixed
 PATH plus the account's ~/.local/bin, cwd its home (or --cwd) — the
 idiom every provisioning tool used inline until 2026-09-16
-(the retired Doppler enrolment, new-agent.sh as_login,
+(the retired Doppler enrolment, new_agent.py as_login,
 rename-working-copy.sh as); one place now. stdin, stdout,
 stderr and the exit status are the command's: a token piped in and a
 bundle streamed out pass through untouched and never appear in argv.

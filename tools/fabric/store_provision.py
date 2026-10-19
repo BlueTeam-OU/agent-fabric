@@ -67,7 +67,7 @@ def child_names(who: str) -> tuple[str, str, list[str]]:
     aid, rec = ss.resolve(who)
     mirror = os.path.join(ss.children_dir(), aid)
     if not os.path.isdir(mirror):
-        raise ss.StoreError(f"no mirror of {rec.get('login') or who}'s store ({mirror}): store-enroll.sh {rec.get('login') or who} first")
+        raise ss.StoreError(f"no mirror of {rec.get('login') or who}'s store ({mirror}): store_enroll.py {rec.get('login') or who} first")
     ss.pull(mirror)
     return rec.get("login") or who, aid, ss.names(mirror)
 
