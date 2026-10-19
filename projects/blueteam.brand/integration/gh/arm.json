@@ -1,13 +1,21 @@
 {
   "description": "blueteam.brand's rules for fabric-pr arm. The repository has no code and no build: it is BlueTeam OÜ's brand source of authority, and the other repositories copy its machine-read files at a pinned commit. boundary.paths: those files, which every consumer takes verbatim into its own build (brand/tokens.css, the design tokens, and brand/assets/fonts/, the vendored font files), the harness wiring (.claude/: settings and hooks), CI and package manifests should the repository ever grow them (.github/, package.json and lockfiles), and words where the boundary is a file anywhere (secret, credential, token, key, auth). boundary.exempt is dropped first, but never under .claude/: Markdown, which is the brand guide, the claims and the decision records' prose, and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary. No direct-to-main rule: every change is a pull request (the repository's README).",
   "boundary": {
-    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.github/|(^|/)package(-lock)?\\.json$|^pnpm-|^brand/tokens\\.css$|^brand/assets/fonts/|secret|credential|token|key|auth",
+    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.github/|^\\.env|^\\.npmrc$|(^|/)package(-lock)?\\.json$|^pnpm-|secret|credential|auth|\\.pem$|\\.key$|(^|/)[^/]*api[-_]?key|(^|/)\\.?tokens?(\\.(json|ya?ml|txt|env))?$",
     "exempt": "^(?!\\.claude/)(.*\\.md$|\\.agent-fabric/)",
     "cases": [
       ".claude/settings.json",
-      "brand/tokens.css",
-      "brand/assets/fonts/x.ttf"
-    ]
+      "package.json",
+      ".github/workflows/ci.yml",
+      "config/api-key.txt"
+    ],
+    "changes": {
+      "2026-10-19 brand content leaves the boundary": "Narrowed to the harness, CI, environment, dependency-manifest, deploy and secret files: brand-comms arms brand content without a second word (devex-tooling's REQUEST 01a152a4-df8d-7c64-8f47-12992b3ca534; the owner chose narrowing over removing the boundary in fabric-coordinator's session, 2026-10-19)."
+    },
+    "retired": {
+      "brand/tokens.css": "Brand content, out of the narrowed boundary (REQUEST 01a152a4-df8d-7c64-8f47-12992b3ca534, the owner's word in fabric-coordinator's session, 2026-10-19).",
+      "brand/assets/fonts/x.ttf": "Brand content, out of the narrowed boundary (REQUEST 01a152a4-df8d-7c64-8f47-12992b3ca534, the owner's word in fabric-coordinator's session, 2026-10-19)."
+    }
   },
   "waiver_role": null
 }
