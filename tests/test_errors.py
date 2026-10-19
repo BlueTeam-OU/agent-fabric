@@ -195,6 +195,15 @@ def main() -> int:
                     "## P2 findings\n\n1. The lock is never released on the error path.", "Finding (P2). The lock is not released."):
         f, un = errors.parse_review(heading)
         check(f"a level heading is no statement of absence: {heading[:30]!r}", un, (f, un))
+    for clean in ("## P1\nNone\n## P2\nNone", "**P1**\nNone.\n**P2**\nNone\n**P3**\nNone", "P1\n\nnone"):
+        f, un = errors.parse_review(clean)
+        check(f"a level heading with None on the next line is a review with no findings: {clean[:22]!r}", f == [] and not un, (f, un))
+    for hidden in ("## P1\nThe caller ignores the result", "## P1", "## P1\n## P2\nNone", "## No P1 findings\n- the caller ignores the result",
+                   "**No findings at P1:**\nthe lock is held across await"):
+        f, un = errors.parse_review(hidden)
+        check(f"a heading is no clean level when a finding follows it or nothing does: {hidden[:30]!r}", f == [] and un, (f, un))
+    f, un = errors.parse_review("## No P1 findings\n\n## P2: none\n\nP3: none")
+    check("…and a denying heading followed only by denials stays clean", f == [] and not un, (f, un))
     f, un = errors.parse_review("P1 or P2.")
     check("…nor are bare levels", un, (f, un))
     f, un = errors.parse_review("P1: none. P2 the lock is wrong at the boundary.")

@@ -192,9 +192,37 @@ def role_of(commit: dict) -> tuple[str, str]:
     return ("agent", role) if role else ("person", "-")
 
 
+def words_of(clause: str) -> list[str]:
+    return [w.lower() for w in re.findall(r"[A-Za-z0-9]+", LEVEL_LINE.sub(" ", clause))]
+
+
 def absence(clause: str) -> bool:
-    words = [w.lower() for w in re.findall(r"[A-Za-z0-9]+", LEVEL_LINE.sub(" ", clause))]
+    words = words_of(clause)
     return bool(words) and all(w in ABSENCE_WORDS for w in words) and any(w in NEGATIONS for w in words)
+
+
+def is_heading(clause: str) -> bool:
+    return bool(re.match(r"\s*(#|\*\*)", clause)) or clause.rstrip().endswith(":")
+
+
+def level_unparsed(clauses: list[str], i: int) -> bool:
+    """Whether the level clause at `i` leaves what the review says unknown. A level with no other word is a heading
+    and says what its next clause says; a heading that denies findings ("## No P1 findings") speaks for its whole
+    section, so a clause of the section that is not itself a denial is a finding it would hide."""
+    clause = clauses[i]
+    if not words_of(clause):
+        nxt = clauses[i + 1] if i + 1 < len(clauses) else ""
+        return not absence(nxt) or bool(LEVEL_LINE.search(nxt))
+    if not absence(clause):
+        return True
+    if not is_heading(clause):
+        return False
+    for later in clauses[i + 1:]:
+        if LEVEL_LINE.search(later) or later.startswith("#"):
+            break
+        if not absence(later):
+            return True
+    return False
 
 
 def parse_review(body: str) -> tuple[list[tuple[str, str]], bool]:
@@ -203,7 +231,8 @@ def parse_review(body: str) -> tuple[list[tuple[str, str]], bool]:
     found: dict[str, str] = {}
     for m in FINDING.finditer(body):
         found.setdefault(f"F{m.group(1)}", f"P{m.group(2)}")
-    unparsed = not found and any(LEVEL_LINE.search(c) and not absence(c) for c in CLAUSE.split(body))
+    clauses = [c.strip() for c in CLAUSE.split(body) if c.strip()]
+    unparsed = not found and any(LEVEL_LINE.search(c) and level_unparsed(clauses, i) for i, c in enumerate(clauses))
     return list(found.items()), unparsed
 
 
