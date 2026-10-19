@@ -243,3 +243,15 @@ while a forwarder of rule 1 checks the pin first and exits 127. That is
 the departure the rule already allowed for an unknown verb, met through
 a file instead; the rule now names any input, so each later port meets
 it as a cited case instead of a fresh decision.
+
+### Amendment 2026-10-19 — Wave 9 batch 5: the three Claude Code guards run on the pin
+
+§5 rule 4. Wave 9 batch 5 ports the three Claude Code guards
+(`model-switch-guard.sh`, `pipe-status-guard.sh`,
+`subagent-clone-guard.sh`) to modules beside them, run on the pinned
+interpreter; each `.sh` stays the path settings register, a forwarder
+that fails closed (the model-switch guard asks, the other two deny)
+when the pin or its module is missing. So `model-switch-guard.sh` is
+no longer among the hooks that keep the host's `python3`. Their bash
+tests are retired for the Python oracles of #320, which ran unchanged
+against both.
