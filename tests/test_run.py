@@ -111,6 +111,20 @@ def runs_left(base: str) -> list[str]:
     return [n for n in os.listdir(os.path.join(os.path.dirname(base), "runtime")) if n.startswith("af-t.")]
 
 
+def wait_until(ready, what: str, timeout: float = 120.0) -> bool:
+    """Polls `ready` until it holds. A case that signals a run must signal it in the state the case describes, so the wait
+    has no ceiling a loaded machine reaches (10 s once passed with no suite started: the signal then went to a run that had
+    nothing to show, exit 129 and no output); if even this one is passed, the case says the precondition failed instead of
+    letting the assertions that follow report a behaviour that was never exercised."""
+    deadline = time.monotonic() + timeout
+    while not ready():
+        if time.monotonic() > deadline:
+            check(f"precondition: {what} within {timeout:g} s", False)
+            return False
+        time.sleep(0.1)
+    return True
+
+
 def suite(body: str) -> str:
     return "import os, sys\n" + body
 
@@ -298,10 +312,7 @@ def main() -> int:
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "static"], cwd=base, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, stdin=subprocess.DEVNULL,
                                  env=env(base, PATH=f"{sandbox}/slowbin:{os.environ.get('PATH', '')}", GRANDCHILD=grandchild))
-            for _ in range(100):
-                if os.path.exists(grandchild) and runs_left(base):
-                    break
-                time.sleep(0.1)
+            wait_until(lambda: os.path.exists(grandchild) and runs_left(base), f"{name}: the run made its directory and the suite its grandchild")
             made = bool(runs_left(base))
             gc = int(open(grandchild).read()) if os.path.exists(grandchild) else 0
             p.send_signal(sig)
@@ -328,10 +339,7 @@ def main() -> int:
             os.makedirs(started)
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                                  stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
-            for _ in range(100):
-                if len(os.listdir(started)) >= 2:
-                    break
-                time.sleep(0.1)
+            wait_until(lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started")
             time.sleep(0.5)       # the suites' MARK lines are written; the runner holds them until the suites end
             before = sorted(os.listdir(started))
             p.send_signal(sig)
@@ -361,10 +369,7 @@ def main() -> int:
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True, start_new_session=True,
                                  env=env(base, STARTED=started))
-            for _ in range(100):
-                if len(os.listdir(started)) >= 2:
-                    break
-                time.sleep(0.1)
+            wait_until(lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started")
             time.sleep(0.5)
             os.killpg(p.pid, sig)
             try:
@@ -384,10 +389,7 @@ def main() -> int:
         os.makedirs(started)
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
-        for _ in range(100):
-            if len(os.listdir(started)) >= 2:
-                break
-            time.sleep(0.1)
+        wait_until(lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started")
         time.sleep(0.5)
 
         def children(pid: int) -> list[int]:
@@ -414,10 +416,7 @@ def main() -> int:
         started = os.path.join(sandbox, "started-deaf")
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
-        for _ in range(100):
-            if os.path.exists(started):
-                break
-            time.sleep(0.1)
+        wait_until(lambda: os.path.exists(started), "the suite that ignores TERM started")
         time.sleep(0.3)
         began = time.monotonic()
         p.send_signal(signal.SIGTERM)
@@ -441,19 +440,11 @@ def main() -> int:
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "static"], cwd=base, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, start_new_session=True,
                              env=env(base, PATH=f"{sandbox}/slowbin:{os.environ.get('PATH', '')}", GRANDCHILD=grandchild))
-        for _ in range(100):
-            if os.path.exists(grandchild) and runs_left(base):
-                break
-            time.sleep(0.1)
+        wait_until(lambda: os.path.exists(grandchild) and runs_left(base), "KILL: the run made its directory and the suite its grandchild")
         made = bool(runs_left(base))
         os.killpg(p.pid, signal.SIGKILL)       # a group KILL: no cleanup runs, the suite's processes die with it
         p.wait(timeout=20)
-        gone = False
-        for _ in range(100):
-            if not runs_left(base):
-                gone = True
-                break
-            time.sleep(0.1)
+        gone = wait_until(lambda: not runs_left(base), "KILL: the watcher removed the directory", timeout=30.0)
         check("KILL to the run's group: the watcher removes the directory", made and gone, (made, runs_left(base)))
 
         print("a signal to the run's pid alone, while a suite keeps starting children")
