@@ -17,8 +17,8 @@ CONTRACT
   stdin     not read
   stdout    the plan (each file, with its size), a diff of projects/registry.json,
             and what was written; --help
-  stderr    every refusal, prefixed `fabric-project: `, and any file a failed
-            write had already created
+  stderr    every refusal, prefixed `fabric-project: `, any file a failed
+            write had already created, and each stub remit with why it is one
   exit      0 planned or written; 2 refused (a bad argument, an id or a remote
             already registered, an unknown client, sibling or role, a file
             that exists, anything it cannot read); 1 a write that failed
@@ -315,17 +315,20 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
         files.append({"path": os.path.join(af, "taxonomy.json"),
                       "data": (json.dumps(tax, indent=2, ensure_ascii=False) + "\n").encode(), "mode": 0o644})
         like_wc = args.like_working_copy
+        if like_wc and not os.path.isdir(like_wc):
+            raise Refused(f"--like-working-copy {like_wc}: not a directory")
         if not like_wc:
             like_wc = workingcopy.sibling_working_copies(root).get(args.like)
         for role in args.role:
-            stubbed = False
+            why = ""
             src = os.path.join(like_wc, ".agent-fabric", "roles", f"{role}.md") if like_wc else None
             if src and os.path.exists(src):
                 text = _frontmatter_project(_decode(_read_bytes(src), src), args.id, src)
             else:
                 text = stub_remit(role, args.id)
-                stubbed = True
-            files.append({"path": os.path.join(af, "roles", f"{role}.md"), "data": text.encode(), "mode": 0o644, "stub": stubbed})
+                why = (f"{src} does not exist" if src else
+                       f"{args.like}'s working copy was not found beside this one: pass --like-working-copy DIR")
+            files.append({"path": os.path.join(af, "roles", f"{role}.md"), "data": text.encode(), "mode": 0o644, "stub": why})
         files.append({"path": os.path.join(af, "fabric-ref"), "data": (_git_origin_main() + "\n").encode(), "mode": 0o644})
     elif args.like_working_copy:
         raise Refused("--like-working-copy without --working-copy has nothing to write into")
@@ -410,16 +413,13 @@ def run(argv: list[str], root: str = ROOT, today: str | None = None) -> int:
     reg_path = roots.projects_registry(root=root)
     # ROOT is the checkout this file sits in, not the cwd: through a link in
     # ~/.local/bin the writes land there, so the plan has to say where.
-    print(("writing" if args.write else "dry run, nothing written; would write") + f" {len(files) + 1} files; paths are relative to {root}:")
+    print(("writing" if args.write else "dry run, nothing written; would write") + f" {len(files) + 1} files; the fabric tree is {root}, working-copy files are absolute:")
     for f in files:
         print(f"  {os.path.relpath(f['path'], root) if f['path'].startswith(root + os.sep) else f['path']}  ({len(f['data'])} bytes)"
               + ("  [stub remit]" if f.get("stub") else ""))
-    stubs = [os.path.basename(f["path"])[:-3] for f in files if f.get("stub")]
-    if stubs:
-        # A stub is 300-odd bytes where a copied remit is thousands; the plan alone would not show why.
-        say(f"stub remits for: {', '.join(stubs)} (" + (
-            f"{args.like}'s working copy has none of them" if args.like_working_copy or workingcopy.sibling_working_copies(root).get(args.like)
-            else f"{args.like}'s working copy was not found: pass --like-working-copy DIR") + ")")
+    for f in files:
+        if f.get("stub"):
+            say(f"stub remit for {os.path.basename(f['path'])[:-3]}: {f['stub']}")
     print("  projects/registry.json  (one entry added)")
     print("".join(l if l.endswith("\n") else l + "\n" for l in difflib.unified_diff(
         raw.splitlines(True), new_raw.splitlines(True), "a/projects/registry.json", "b/projects/registry.json", n=2)), end="")

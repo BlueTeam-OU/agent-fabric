@@ -157,11 +157,11 @@ def main() -> int:
               and "taxonomy.json" in r.stdout and "fabric-ref" in r.stdout
               and tree_state(base) == before and os.listdir(wc) == [], r.stdout[-400:] + r.stderr)
         check("dry run: the first line names the tree the paths are relative to",
-              r.stdout.splitlines()[0].endswith(f"relative to {os.path.realpath(base)}:") or r.stdout.splitlines()[0].endswith(f"relative to {base}:"),
+              r.stdout.splitlines()[0].endswith(f"the fabric tree is {os.path.realpath(base)}, working-copy files are absolute:") or r.stdout.splitlines()[0].endswith(f"the fabric tree is {base}, working-copy files are absolute:"),
               r.stdout[:200])
         check("dry run: no working copy for the sibling found, so every remit is marked a stub and stderr says how to fix it",
-              r.stdout.count("[stub remit]") == 2 and "stub remits for: python-dev, devex-tooling" in r.stderr
-              and "was not found: pass --like-working-copy" in r.stderr, r.stdout[-300:] + r.stderr)
+              r.stdout.count("[stub remit]") == 2 and "stub remit for python-dev: " in r.stderr and "stub remit for devex-tooling: " in r.stderr
+              and "was not found beside this one: pass --like-working-copy" in r.stderr, r.stdout[-300:] + r.stderr)
         check("dry run: a registry diff with the new entry and the date in its note",
               '+    "scratch.proj": {' in r.stdout and '+      "note": "imported 20' in r.stdout)
 
@@ -324,10 +324,16 @@ def main() -> int:
         check("a remit the sibling has is copied with only its frontmatter project set (the body is the sibling's)",
               r.returncode == 0 and got == body.replace("project: interweave\n", "project: scratch.proj\n"), got)
         check("only the role the sibling lacks is marked and named; the copied one is not",
-              r.stdout.count("[stub remit]") == 1 and "stub remits for: devex-tooling (" in r.stderr
-              and "has none of them" in r.stderr and "python-dev," not in r.stderr, r.stdout[-300:] + r.stderr)
+              r.stdout.count("[stub remit]") == 1 and "stub remit for devex-tooling: " in r.stderr
+              and "devex-tooling.md does not exist" in r.stderr and "stub remit for python-dev" not in r.stderr, r.stdout[-300:] + r.stderr)
         stub = open(os.path.join(wcopy, ".agent-fabric", "roles", "devex-tooling.md"), encoding="utf-8").read()
         check("a role the sibling lacks is a stub", "agent: fabric-coordinator" in stub and "not written yet" in stub.lower())
+
+        tree_l = os.path.join(scratch, "tree-badlike")
+        shutil.copytree(base, tree_l, symlinks=True)
+        refuses("--like-working-copy that is not a directory is refused, naming it", tree_l,
+                [*base_args, "--working-copy", wc, "--like-working-copy", os.path.join(scratch, "no-such-dir")],
+                "--like-working-copy " + os.path.join(scratch, "no-such-dir") + ": not a directory")
 
         # --- a write that fails part-way names what it made ---------------------
         tree = os.path.join(scratch, "tree-fail")
