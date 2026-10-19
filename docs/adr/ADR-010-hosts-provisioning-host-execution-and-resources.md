@@ -111,7 +111,10 @@ that killed the host without privilege and without anything going stale.
 9. **`heavy` is the host's memory, and every memory-heavy job takes it**
    — a backend suite, a stack bring-up, an app build, a large cargo build,
    in any project, with `--label <job>`; `--need-mem` is checked under the
-   lease. A name is a resource, not a job.
+   lease. A name is a resource, not a job. `full-suite` is the host's
+   CPU and timing headroom for a full local test run: `tests/run.py`
+   takes it with `--wait` for a run of every section, and a partial run,
+   CI and `AGENT_FABRIC_SUITE_LEASE=0` skip it (A 2026-10-19).
 10. `fabric-lease` fails fast by default (exit 75); every refusal ends with
     `fabric-lease: reason=<r>` on stderr, a contract pinned by
     `tests/test_fabric_lease_cli.py`. It needs no privilege; the directory is
@@ -172,3 +175,4 @@ The body above reads current; each change's full note is in [history/ADR-010-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-30 | Doppler is retired: the coordinator keeps its own store, a parent's | §2, §5 rule 1 |
+| 2026-10-19 | full-suite: one full local test run per host | §5 rule 9: a second named resource, the host's CPU and timing headroom, which a full local test run waits for |
