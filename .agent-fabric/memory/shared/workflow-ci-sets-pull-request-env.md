@@ -8,13 +8,14 @@ knowledge_scope: full
 shared_with:
   - "fabric-coordinator"
   - "python-dev"
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 0e4dd146b9456233
   - a72ca37133badf25
 ---
 
@@ -28,4 +29,6 @@ derived_from:
 
 *References: run-suites-as-ci-before-push, local-grep-is-ugrep, smoke-container-before-ci*
 
-*Observed 2026-10-01 (fabric-coordinator)*
+*References: local-grep-is-ugrep, run-suites-as-ci-before-push, smoke-container-before-ci*
+
+*Observed 2026-10-12 (fabric-coordinator)*

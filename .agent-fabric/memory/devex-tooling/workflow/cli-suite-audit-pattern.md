@@ -5,7 +5,7 @@ topic: "cli-suite-audit-pattern"
 description: "how to cut a slow agent-fabric CLI test suite to smoke cases without losing a contract, and the trap a blind review caught"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

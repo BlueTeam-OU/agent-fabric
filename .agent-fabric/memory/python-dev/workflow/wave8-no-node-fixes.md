@@ -5,7 +5,7 @@ topic: "wave8-no-node-fixes"
 description: "during Wave 8 (control plane to Python), a behaviour change for runtime/control/*.mjs goes into the Python port, not the Node, even a fix"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

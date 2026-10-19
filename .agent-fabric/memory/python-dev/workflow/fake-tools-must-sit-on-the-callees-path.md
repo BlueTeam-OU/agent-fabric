@@ -5,7 +5,7 @@ topic: "fake-tools-must-sit-on-the-callees-path"
 description: "Faking a tool for code that builds its own PATH (env -i, a login shell, sudo) — the fake must sit where THAT PATH looks first, or the host's real tool answers and the test is green for the wrong reason"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
@@ -33,9 +33,9 @@ was luck, and the test touched real user state.
 `Account.run`, with canned answers) and test that boundary once with a
 harmless line through a recording fake (sudo); or put the fake first on
 the PATH the code builds. Run new tests once in a clean container
-before trusting a local green. Related: [[run-suites-as-ci-before-push]],
+before trusting a local green. Related: [[suites-inherit-launch-stamps]],
 the shared slice solution-gnupghome-default-agent-trap.
 
-*References: run-suites-as-ci-before-push*
+*References: suites-inherit-launch-stamps*
 
 *Observed 2026-10-01 (python-dev)*

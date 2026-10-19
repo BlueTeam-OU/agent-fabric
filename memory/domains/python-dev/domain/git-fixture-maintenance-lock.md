@@ -5,7 +5,7 @@ topic: "git-fixture-maintenance-lock"
 description: a fixture git commit can start detached maintenance holding objects/maintenance.lock, so a before/after digest of the repo differs about once in thirty runs
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

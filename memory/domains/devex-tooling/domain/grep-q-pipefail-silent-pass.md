@@ -5,7 +5,7 @@ topic: "grep-q-pipefail-silent-pass"
 description: "In a guard under set -o pipefail, never end a pipe in grep -q -- its early exit SIGPIPEs the writer and a match reads as a miss"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

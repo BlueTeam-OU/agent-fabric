@@ -5,7 +5,7 @@ topic: "flag-phase-state"
 description: "the drain's flag phase (#209, #213): where it lives, its decisions, and what a live dry run found that fixtures could not"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

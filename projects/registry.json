@@ -153,7 +153,12 @@
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
         {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
          "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
-                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "fonttools", "proof": "python3 -c 'import fontTools; print(fontTools.version)'", "version": "4.x", "why": "font subsetting and inspection for brand assets (python3-fonttools)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "uharfbuzz", "proof": "python3 -c 'import uharfbuzz; print(uharfbuzz.__version__)'", "version": "0.51", "why": "text shaping, to measure set type exactly (python3-uharfbuzz)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "scour", "proof": "scour --version", "version": "0.38", "why": "SVG optimisation for logos and icons (python3-scour)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "resvg", "proof": "resvg --version", "version": "0.48.1", "why": "SVG to PNG rendering for raster exports", "where": "host", "roles": ["brand-comms"]},
+        {"name": "vtracer", "proof": "vtracer --version", "version": "0.6.4", "why": "raster to SVG tracing; --version prints \"visioncortex VTracer 0.6.4\"", "where": "host", "roles": ["brand-comms"]}
       ]
     },
     "gzapp.decks": {
@@ -193,7 +198,7 @@
       "memory": ".agent-fabric/memory",
       "integration": "projects/blueteam.ee/integration",
       "license": "LicenseRef-blueteam-ee-Proprietary",
-      "note": "BlueTeam OÜ's private marketing site, Tallinn: Astro 7 over pre-built Landkit Bootstrap 5 bundles, built with npm; no tests, lint or CI; English now, Estonian later. Brand colour #0072ce in site.css and src/data/site.json, which are the brand source (no brand repository until a second surface needs one). A different company and brand from gzapi: gzapi naming, its claims ledger and gzapi.brand tokens do not apply. The commercial Landkit theme and the HK Grotesk Pro font are licensed for this site only, so the repository stays private; its tree carries no licence file. Deployed by hand-uploading dist/ to an i-MSCP host, which is edge-hosting's. Roles: brand-comms (the owner role), language-culture (review of copy), edge-hosting (the upload). Registered on the owner's instruction, 2026-10-10.",
+      "note": "BlueTeam OÜ's private marketing site, Tallinn: Astro 7 over pre-built Landkit Bootstrap 5 bundles, built with npm; no tests, lint or CI; English now, Estonian later. Brand colour #0072ce in site.css and src/data/site.json, which copy the brand source, blueteam.brand, at a pinned commit. A different company and brand from gzapi: gzapi naming, its claims ledger and gzapi.brand tokens do not apply. The commercial Landkit theme and the HK Grotesk Pro font are licensed for this site only, so the repository stays private; its tree carries no licence file. Deployed by hand-uploading dist/ to an i-MSCP host, which is edge-hosting's. Roles: brand-comms (the owner role), language-culture (review of copy), edge-hosting (the upload). Registered on the owner's instruction, 2026-10-10.",
       "tools": [
         {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
         {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
@@ -201,7 +206,38 @@
         {"name": "npm", "proof": "npm --version", "why": "the site's package manager (package-lock.json); npm run build writes dist/", "where": "host"},
         {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
          "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
-                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}}
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "fonttools", "proof": "python3 -c 'import fontTools; print(fontTools.version)'", "version": "4.x", "why": "font subsetting and inspection for brand assets (python3-fonttools)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "uharfbuzz", "proof": "python3 -c 'import uharfbuzz; print(uharfbuzz.__version__)'", "version": "0.51", "why": "text shaping, to measure set type exactly (python3-uharfbuzz)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "scour", "proof": "scour --version", "version": "0.38", "why": "SVG optimisation for logos and icons (python3-scour)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "resvg", "proof": "resvg --version", "version": "0.48.1", "why": "SVG to PNG rendering for raster exports", "where": "host", "roles": ["brand-comms"]},
+        {"name": "vtracer", "proof": "vtracer --version", "version": "0.6.4", "why": "raster to SVG tracing; --version prints \"visioncortex VTracer 0.6.4\"", "where": "host", "roles": ["brand-comms"]}
+      ]
+    },
+    "blueteam.brand": {
+      "client": "blueteam",
+      "title": "blueteam.brand — BlueTeam OÜ's brand source of authority",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/blueteam.brand.git",
+        "https://github.com/BlueTeam-OU/blueteam.brand"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/blueteam.brand/integration",
+      "license": "LicenseRef-blueteam-brand-Proprietary",
+      "note": "BlueTeam OÜ's brand source of authority: names, claims by audience, the design tokens (brand/tokens.css), the asset register and the decision records; no code, no build. Consumers (blueteam.ee first) copy what they need at a pinned commit and record it. The owner decides, brand-comms proposes; every change is a pull request with a decision record under brand/decisions/. A different company and brand from gzapi (gzapi.brand). A private repository, all rights reserved; its tree carries no licence file. Created 2026-10-15; registered by fabric-coordinator on 2026-10-19 at brand-comms's request (REQUEST 01a13f9b).",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.15", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.15", "url": "https://github.com/lexmount/moli/releases/download/v1.1.15/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d", "member": "moli-v1.1.15-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "fonttools", "proof": "python3 -c 'import fontTools; print(fontTools.version)'", "version": "4.x", "why": "font subsetting and inspection for brand assets (python3-fonttools)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "uharfbuzz", "proof": "python3 -c 'import uharfbuzz; print(uharfbuzz.__version__)'", "version": "0.51", "why": "text shaping, to measure set type exactly (python3-uharfbuzz)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "scour", "proof": "scour --version", "version": "0.38", "why": "SVG optimisation for logos and icons (python3-scour)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "resvg", "proof": "resvg --version", "version": "0.48.1", "why": "SVG to PNG rendering for raster exports", "where": "host", "roles": ["brand-comms"]},
+        {"name": "vtracer", "proof": "vtracer --version", "version": "0.6.4", "why": "raster to SVG tracing; --version prints \"visioncortex VTracer 0.6.4\"", "where": "host", "roles": ["brand-comms"]}
       ]
     },
     "settings-blueteam": {

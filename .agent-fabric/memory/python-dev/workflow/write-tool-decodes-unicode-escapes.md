@@ -5,7 +5,7 @@ topic: "write-tool-decodes-unicode-escapes"
 description: before writing Python with \uXXXX escapes or regexes with \s into tools/fabric/gzcoord or any fabric module — the Write tool stores raw characters, and the gzcoord guard wants re.ASCII
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "never-restore-a-mutation-with-git-checkout"
 description: planting mutations on uncommitted work — restore from a copy, never git checkout/stash of the file
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

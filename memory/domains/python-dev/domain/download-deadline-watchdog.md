@@ -5,7 +5,7 @@ topic: "download-deadline-watchdog"
 description: "Bounding a urllib download by wall-clock time (gateway-install, #176): read() and readline do not honour a deadline; use a watchdog that shuts down a duplicated socket"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

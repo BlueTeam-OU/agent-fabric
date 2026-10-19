@@ -5,7 +5,7 @@ topic: "carve-out-covers-the-past"
 description: "When the owner sets a direction, an exception or carve-out covers only what exists; new work follows the direction unless the exception says otherwise in words (ADR-001 rule 12)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "welcome-copy-promises-no-completeness"
 description: "Rider copy about the live map must not promise every vehicle — only those whose driver shares; a completeness finding is not closed by \"the empty map explains itself elsewhere\""
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ru"
     host: "develop-qzapp"

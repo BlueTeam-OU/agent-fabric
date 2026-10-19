@@ -5,7 +5,7 @@ topic: "pr-arming-and-ci-traps"
 description: "Arming a security-boundary PR under 8 work commits, the ruff gap, a wait-merged flake, and not deleting a worktree under a running suite"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

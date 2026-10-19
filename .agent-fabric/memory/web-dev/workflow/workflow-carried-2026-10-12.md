@@ -1,10 +1,11 @@
 ---
 role: "web-dev"
 class: workflow
+topic: "workflow-carried-2026-10-12"
 description: Before reading gzapp code for a claim or a build, branch from origin/main — the local main checkout can be thousands of commits behind
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "web-dev-02"
     host: "develop-qzapp"

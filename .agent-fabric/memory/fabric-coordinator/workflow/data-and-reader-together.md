@@ -5,7 +5,7 @@ topic: "data-and-reader-together"
 description: "A data file and the code that reads it land together or are cross-tested: #198's policies/arming.json broke #196's arm_policy reader, which was built to a different shape in parallel"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

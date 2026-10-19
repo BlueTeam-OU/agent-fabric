@@ -34,6 +34,7 @@
     "fabric-tools": "bin/fabric-tools",
     "fabric-genimage": "bin/fabric-genimage",
     "fabric-pr": "bin/fabric-pr",
+    "fabric-project": "bin/fabric-project",
     "fabric-query": "bin/fabric-query",
     "fabric-fleet": "bin/fabric-fleet",
     "fabric-plan": "bin/fabric-plan",

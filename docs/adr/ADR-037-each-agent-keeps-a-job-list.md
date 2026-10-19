@@ -162,7 +162,10 @@ Why these choices:
     switch runs three steps in order and refuses, naming what to fix,
     when one fails (A 2026-10-14):
     1. **The old job is settled with its evidence.** `done`: its pull
-       request is merged or its commit is on the default branch.
+       request is merged or its commit is on the default branch, or, for
+       work that leaves no repository artifact (a cleanup), the reason it
+       recorded with `fabric-jobs done <id> --no-artifact "<what was
+       done>"` (A 2026-10-18).
        `delivered`: its pull request is open. `blocked`: a request, a
        pull request, a peer's job or an owner's decision named as the
        blocker. `paused`: its branch is pushed. `dropped`: a reason.
@@ -247,3 +250,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-14 | Paused, and the transition between jobs | §5 rule 2 adds `paused` (the agent's choice) beside `blocked` (a wait it does not control); rule 10: `fabric-jobs switch` settles the old job with its evidence, starts the next fresh (rule 3 unchanged) and chooses its branch, refusing on a failed check |
 | 2026-10-15 | Built, and the text says so | §2's request intake and §5 rule 2's `paused` read as built (intake.py; `fabric-jobs pause` and `switch`); no rule changes |
 | 2026-10-16 | A delivered job whose evidence landed is swept to done | §5 rule 12 added: `fabric-jobs sweep` closes a delivered job by rule 10's `done` test, and each account's control agent runs it hourly |
+| 2026-10-18 | Work that leaves no artifact closes with a reason | §5 rule 10: a `done` job is settled by a recorded `--no-artifact` reason when its work lands nothing in a repository |

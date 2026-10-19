@@ -5,7 +5,7 @@ topic: "corr-smoke-container-before-ci"
 description: Run a platform smoke job under podman as an unprivileged login before pushing a CI change that adds a container job
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

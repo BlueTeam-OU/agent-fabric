@@ -5,7 +5,7 @@ topic: "tracing-set-default-misses-events"
 description: "a thread-scoped tracing subscriber in a unit test misses events when other tests hit the same callsite; log tests need their own binary"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"

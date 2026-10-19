@@ -5,7 +5,7 @@ topic: "launcher-print-comparison-script-deleted"
 description: "tests/parity/launch_print.py (the --print comparison against the deleted bash launcher) is gone; compare --print output by running the launcher with its fake ori and claude as tests/test_launch_cli.py does"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

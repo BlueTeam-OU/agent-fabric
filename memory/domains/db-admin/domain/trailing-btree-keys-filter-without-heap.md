@@ -5,7 +5,7 @@ topic: "trailing-btree-keys-filter-without-heap"
 description: For an ORDER BY x LIMIT n poll with extra filters, put the filtered columns AFTER x in the btree — they are checked on the index entry, so skipped rows cost no heap visit (PG18).
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "db-admin"
     host: "develop-qzapp"

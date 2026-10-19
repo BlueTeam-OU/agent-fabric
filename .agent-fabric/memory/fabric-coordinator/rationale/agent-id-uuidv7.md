@@ -5,7 +5,7 @@ topic: "agent-id-uuidv7"
 description: "owner 2026-09-29 — each agent gets a UUIDv7 id minted from its birth; the id is the identity across renames, the login its current name; secrets repos are agent-fabric-secrets-<id>"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

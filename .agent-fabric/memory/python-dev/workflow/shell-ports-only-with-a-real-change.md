@@ -5,7 +5,7 @@ topic: "shell-ports-only-with-a-real-change"
 description: "before proposing to port a shell script to Python — under ADR-040's 150-line bound, a script is ported only with a substantial change it needs"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

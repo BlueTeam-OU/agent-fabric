@@ -5,7 +5,7 @@ topic: "a-planar-corridor-cannot-see-a-bridge"
 description: "Projecting a no-stop restriction by a 2D corridor restricts lines passing over/under the structure; broad scope with no contact is not a failure"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "domain-transit"
     host: "develop-qzapp"

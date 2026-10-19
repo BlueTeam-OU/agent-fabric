@@ -5,7 +5,7 @@ topic: "j17-memory-mcp-state"
 description: "j17/j18 fabric-memory MCP server + harvest of marks/counts: MERGED as #183 (2026-10-11); what is carried and the lessons"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

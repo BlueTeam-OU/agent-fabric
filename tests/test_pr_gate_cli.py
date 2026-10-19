@@ -121,7 +121,20 @@ def main() -> int:
         for k, v in (("user.email", "t@example.invalid"), ("user.name", "t"), ("commit.gpgsign", "false"),
                      ("tag.gpgSign", "false")):
             git("config", k, v)
-        git("remote", "add", "origin", origin)
+        # origin is the GitHub URL of the repository GH_REPO names, as in a real clone, so the gate counts here (it
+        # counts nothing in a clone of another repository); git reaches the bare one through url.<x>.insteadOf.
+        # The fork's URL is routed there too: a clone of another repository that shares the history.
+        gh_url, fork_url = "git@github.com:testorg/testrepo.git", "git@github.com:testorg/fork.git"
+        routed = [origin]
+
+        def route(target: str) -> None:
+            git("config", "--remove-section", f"url.{routed[0]}", ok=True)
+            for u in (gh_url, fork_url):
+                git("config", "--add", f"url.{target}.insteadOf", u)
+            routed[0] = target
+
+        route(origin)
+        git("remote", "add", "origin", gh_url)
         c("base")
         git("push", "-q", "origin", "main")
         branch = "develop-qzapp/me/feat/thing"
@@ -276,12 +289,36 @@ def main() -> int:
         prs(one)
 
         print("a failed fetch makes every count unknown, not stale (re-review risk on #886)")
-        git("remote", "set-url", "origin", f"{sandbox}/no-such-remote.git")
+        route(f"{sandbox}/no-such-remote.git")
         out = run("--json")[1]
         check("the failure is said", "git fetch origin failed" in out, out)
         r0 = (as_json("\n".join(ln for ln in out.split("\n") if not ln.startswith("pr-gate:"))) or [{}])[0]
         check("commits_known false when origin cannot be fetched", r0.get("commits_known") is False, out)
-        git("remote", "set-url", "origin", origin)
+        route(origin)
+
+        print("a clone whose origin is another repository counts nothing, even sharing the history (review F3 on #300)")
+        git("remote", "set-url", "origin", fork_url)
+        rc, out = run("--json")
+        git("remote", "set-url", "origin", gh_url)
+        r0 = (as_json("\n".join(ln for ln in out.split("\n") if not ln.startswith("pr-gate:"))) or [{}])[0]
+        check("a fork's clone: commits_known false and the counts null, never the fork's base's count",
+              r0.get("commits_known") is False and r0.get("work_commits") is None, out)
+        check("…and the reason is said: this clone's origin is not testorg/testrepo",
+              "this clone's origin is not testorg/testrepo on github.com" in out and "git fetch origin failed" not in out, out)
+
+        # An alias origin names the repository only once url.<x>.insteadOf resolves it, as gh.this_repo reads it;
+        # the configured URL alone read "not testorg/testrepo" (review on #300, round 2). Asked in-process: the
+        # alias resolves to github.com itself, which a gate run would fetch from.
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        from github import landed
+        alias = f"{sandbox}/alias"
+        subprocess.run(["git", "init", "-q", alias], env=git_env(base_env), check=True, timeout=30)
+        git("remote", "add", "origin", "gh:testorg/testrepo", cwd=alias)
+        git("config", "url.git@github.com:.insteadOf", "gh:", cwd=alias)
+        check("landed.origin_is: an alias origin (gh:testorg/testrepo) is testorg/testrepo, resolved through insteadOf",
+              landed.origin_is("testorg/testrepo", alias) and not landed.origin_is("testorg/fork", alias))
+        check("…and the routed GitHub URL of this clone still is, as configured",
+              landed.origin_is("testorg/testrepo", repo))
 
         print("pr-gate --in-flight / --overlap: every branch on origin, PR or not; what shares its paths")
         # A job waiting for a merge: pushed, no PR, sharing f.txt with the PR
@@ -364,9 +401,21 @@ def main() -> int:
         drop("prlist_fail")
         check("gh unable to list PRs: every row reads 'PR unavailable', never 'no PR'; exit 2",
               rc == 2 and "PR unavailable" in out and "  no PR  " not in out, f"rc={rc}\n{out}")
-        git("remote", "set-url", "origin", f"{sandbox}/nowhere.git")
+        # The branches are the clone's origin's: from another repository's clone they would be listed as
+        # testorg/testrepo's, mostly as "no PR" (review on #300, round 2).
+        git("remote", "set-url", "origin", fork_url)
+        rcs = [run(*a) for a in (("--in-flight",), ("--overlap", "42"), ("--in-flight", "--json"))]
+        git("remote", "set-url", "origin", gh_url)
+        check("a fork's clone: --in-flight and --overlap refuse, exit 2, naming the clone, with no row",
+              all(rc == 2 and "this clone's origin is not testorg/testrepo on github.com" in out
+                  and "feat/parked" not in out and "in flight on" not in out for rc, out in rcs),
+              "\n".join(f"rc={rc}\n{out}" for rc, out in rcs))
+        rc, out = run("--help")
+        check("…and the help says so, beside --repo (review F3 on #304)",
+              rc == 0 and "--in-flight/--overlap refuse outside one, exit 2" in out, f"rc={rc}\n{out}")
+        route(f"{sandbox}/nowhere.git")
         rc, out = run("--in-flight", "--json")
-        git("remote", "set-url", "origin", origin)
+        route(origin)
         check("a failed fetch is said first, fetch_ok false, exit 2 — the rows are marked as what origin last showed",
               rc == 2 and "git fetch origin failed" in out and has(r"at its last fetch \([0-9]{4}-", out)
               and '"fetch_ok": false' in out, f"rc={rc}\n{out}")

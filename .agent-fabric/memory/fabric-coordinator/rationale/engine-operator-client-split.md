@@ -5,7 +5,7 @@ topic: "engine-operator-client-split"
 description: "Owner 2026-10-07 — agent-fabric splits into a public engine, Blueteam's private operator repo and per-client engagements (Gzapi first); planned, not started"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

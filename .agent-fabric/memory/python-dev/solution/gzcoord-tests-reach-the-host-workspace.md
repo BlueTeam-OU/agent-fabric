@@ -5,7 +5,7 @@ topic: "gzcoord-tests-reach-the-host-workspace"
 description: "GZCoord command tests read the real projects/.gzcoord unless AGENT_FABRIC_ROOT points at a scratch workspace; green on a non-hosting account proves nothing"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

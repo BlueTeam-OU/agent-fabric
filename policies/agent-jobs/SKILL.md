@@ -51,6 +51,7 @@ fabric-jobs add "<artifact>" --priority high                      # blocking | h
 | It waits on another agent's request being done | `fabric-jobs block <id> --on-request <MESSAGE-ID>` |
 | Its artifact exists | `fabric-jobs deliver <id> <pr-or-commit>...` |
 | The artifact landed and nothing is owed | `fabric-jobs done <id>` |
+| Its work leaves no repository artifact (a cleanup) | `fabric-jobs done <id> --no-artifact "<what was done>"` |
 | It will not be done | `fabric-jobs drop <id> "<why>"` |
 | An artifact was entered by mistake | `fabric-jobs retract <id> <artifact>`, exactly as `show` lists it; any state, done included |
 
@@ -72,7 +73,7 @@ back to the stored priorities; `--stored` skips the stream.
 
 You move between jobs with `fabric-jobs switch [<id>]` (`next` is its
 alias; ADR-037 rule 10). It refuses, saying what to fix, unless the job
-you leave is settled with its evidence (done: merged; delivered: its PR
+you leave is settled with its evidence (done: merged, or a `--no-artifact` reason; delivered: its PR
 open; blocked: a named blocker; paused: its branch pushed; dropped: a
 reason; a reply-only job: `reply:<MESSAGE-ID>` as its artifact, the id
 `gzcoord-send` printed for your answer or the id of the message it
@@ -114,6 +115,9 @@ fabric-jobs pool-list                  # your bound role's unclaimed jobs, highe
 fabric-jobs pool-claim <pool-id>       # it lands on your list, queued; one claimant per job
 fabric-jobs switch
 ```
+
+When neither your list nor the pool has a job for you, end the session
+with `fabric-fresh --note "<what just finished>"`.
 
 A claim is checked against the role your own control agent reports, and
 a job another agent claimed is refused. If a claim was recorded but your

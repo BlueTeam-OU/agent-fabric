@@ -153,6 +153,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+import git  # noqa: E402
 import roots  # noqa: E402
 from github import arm_policy, common, landed, pr_gate, repo_policy  # noqa: E402
 # The rules' names stay importable from here, where the oracle and callers
@@ -254,6 +255,7 @@ Options:
   --authorization <id|seq>  the boundary authority's message (see THE ARMING POLICY), for a boundary change under its minimum
   --any-owner           arm a PR whose branch is not this session's
   --dry-run             evaluate every gate, arm nothing, post nothing
+  --repo <owner/name|project>  the PR's repository, whose arm.json and policy apply, not the cwd checkout's
 
 Exit codes:
   0  armed or merged (or, with --dry-run, would arm)
@@ -313,7 +315,7 @@ def program(env: str, default: str) -> list[str]:
 def fabric_pr(env: str, verb: str) -> list[str]:
     """A reader that is a `fabric-pr` verb of this checkout (ADR-040 §5
     rule 7), or the env override, which stays one program."""
-    return [os.environ[env]] if os.environ.get(env) else [os.path.join(FABRIC, "bin", "fabric-pr"), verb]
+    return [os.environ[env]] if os.environ.get(env) else common.fabric_pr_verb(FABRIC, verb)
 
 
 def run_reader(head: list[str], args: list[str], timeout: int = 600) -> tuple[int, str]:
@@ -630,14 +632,15 @@ def arm(argv: list[str]) -> int:
         return Refused(f"REFUSED #{num} — {why}")
 
     try:
-        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,baseRefName,body,title"],
-                               what=f"gh pr view {num}"))
-    except (gh.GhError, ValueError):
-        raise Unanswered(f"cannot read #{num} (gh pr view failed)") from None
-    try:
         repo = gh.this_repo()
     except gh.GhError as e:
         raise Unanswered(f"cannot read the repository: {e.reason}") from None
+    try:
+        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,baseRefName,body,title"],
+                               what=f"gh pr view {num}"))
+    except (gh.GhError, ValueError):
+        # The repository named: from another project's checkout, #N is looked for in the cwd's (2026-10-18).
+        raise Unanswered(f"cannot read #{num} in {repo} (gh pr view failed; --repo names another repository)") from None
     owner, name = repo.split("/", 1)
     state, branch = str(pr.get("state")), str(pr.get("headRefName") or "")
     head, title, body = str(pr.get("headRefOid") or ""), str(pr.get("title") or ""), str(pr.get("body") or "")
@@ -798,6 +801,15 @@ def arm(argv: list[str]) -> int:
     # when the head or the base is not in the local clone (a managed project's PR #886
     # review F2 — 0 read as "under 8" and armed).
     if row.get("commits_known") is not True:
+        try:
+            ours = landed.origin_is(repo)
+        except git.GitError:
+            ours = True   # git unaskable here: the gate's own note says why, and the fetch remedy stays
+        if not ours:
+            # The fetch remedy would fetch the wrong repository again (review F3 on #300).
+            raise Unanswered(f"pr-gate could not count #{num}'s commits: this clone's origin is not {repo}, and the"
+                             f" count is read from git — run from a clone of {repo}; the count rule is not applied"
+                             f" to a guess")
         raise Unanswered(f"pr-gate could not count #{num}'s commits (head or base not in the clone — git fetch origin,"
                          f" then retry); the count rule is not applied to a guess")
     work = row.get("work_commits")
