@@ -138,11 +138,14 @@ def merged_prs(repo: str, since: dt.datetime, extra_fields: tuple = ()) -> list[
         pr = gh.pr_view(p["number"], fields, repo=repo)
         # gh's commit list has no parents; the REST list has them, so a
         # merge folded into the branch is not counted as work (review of #68).
-        parents = {c["sha"]: [x.get("sha") for x in c.get("parents") or []]
-                   for c in gh.api(f"repos/{repo}/pulls/{p['number']}/commits?per_page=100", paginate=True)}
+        rest = gh.api(f"repos/{repo}/pulls/{p['number']}/commits?per_page=100", paginate=True)
+        parents = {c["sha"]: [x.get("sha") for x in c.get("parents") or []] for c in rest}
+        messages = {c["sha"]: ((c.get("commit") or {}).get("message") or "").split("\n", 1)[0] for c in rest}
         for c in pr.get("commits") or []:
             c["parents"] = len(parents.get(c["oid"], [None]))
             c["parentShas"] = parents.get(c["oid"], [])
+            # gh cuts messageHeadline at about 70 characters and ends it in "…"; the REST message is whole.
+            c["subject"] = messages.get(c["oid"], c.get("messageHeadline") or "")
         if dt.datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00")) >= since:
             prs.append(pr)
     return prs

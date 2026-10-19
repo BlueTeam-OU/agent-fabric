@@ -21,7 +21,9 @@ total, per actor, per actor class (person or agent) and per role:
    review: in agent-fabric the jobs `ci-ok` lists in .github/workflows/ci.yml
    on the default branch), a matrix job by its "name (legs)" runs; never the
    aggregate itself, which counts them again, never a cancelled run and never
-   a run of another workflow (pr-counts, stripped-nightly). A head is a
+   a run of another workflow (pr-counts, stripped-nightly): by the run's name
+   only, so a check of another workflow that shares a needed job's name would
+   be counted (none does in agent-fabric). A head is a
    commit of the PR on which such a run ran to a conclusion (checks run on
    push). A repository with no such aggregate is not read for red checks, and
    says so. A named check that failed and later succeeded on the same
@@ -29,8 +31,9 @@ total, per actor, per actor class (person or agent) and per role:
 3. **reverts** (git's own revert line naming a commit of the PR, as
    results.reverted_shas matches it) and **fixes forward** (a later commit
    the classifier calls a fix naming the PR) per PR merged, inside the window.
-   Only a PR whose window has closed is in their denominator; what was found
-   so far on a PR whose window is still open is reported apart.
+   Their denominator is the PRs merged in the DAYS that end WINDOW days ago
+   (windows closed: a period shorter than the window holds none); what was
+   found so far on a PR of the period whose window is still open is apart.
 
 ACTOR. The login in the head ref `<host>/<login>/...`, for a host the fabric
 registry knows (so `dependabot/...` is not a login). A commit that arrived by
@@ -73,8 +76,9 @@ MIN_DENOMINATOR = 5                                  # ADR-061 §5 rule 4
 RED = {"failure", "timed_out"}
 FINDING = re.compile(r"\*\*F(\d+) \(P([123])\b")
 LEVEL_LINE = re.compile(r"\bP[123]\b")
-# A line that mentions a level to say there is none ("P1: none", "no P2").
-NO_FINDING = re.compile(r"\bnone\b|\bno\b|\b0\b|\bnothing\b", re.I)
+# A line that is only a level and the word for none ("P1: none", "- P2 — no findings"). A line that has more
+# in it and happens to contain "no" or "0" is a finding in another shape, not an absence.
+NO_FINDING = re.compile(r"\W*P[123]\W*(?:none|no findings?|nothing|0)\W*", re.I)
 LABEL = re.compile(r"[A-Z]{1,2}-?[0-9]+(?:-[0-9]+)?")
 FOLD = re.compile(r"^Merge (?:remote-tracking )?branch '(?:origin/)?([^'/\s]+)/([^'/\s]+)/for/[^'\s]+'")
 UNATTRIBUTED = "unattributed"
@@ -113,7 +117,7 @@ def needed_jobs(workflow: str, aggregates: set[str]) -> set[str] | None:
     if agg is None:
         return None
     body = "\n".join(jobs[agg])
-    m = re.search(r"^    needs:\s*(\[[^\]]*\]|(?:\n      - .*)+|\S.*)$", body, re.M)
+    m = re.search(r"^    needs:[ \t]*(\[[^\]]*\]|(?:\n      - .*)+|\S.*)$", body, re.M)
     if not m:
         return None
     needed = re.findall(r"[A-Za-z0-9_][A-Za-z0-9_-]*", m.group(1).replace("needs:", ""))
@@ -123,7 +127,7 @@ def needed_jobs(workflow: str, aggregates: set[str]) -> set[str] | None:
             return None
         nm = next((re.fullmatch(r"    name:\s*(.+?)\s*", l) for l in jobs[j] if re.match(r"^    name:", l)), None)
         name = nm.group(1).strip("'\"") if nm else j
-        if "${{" in name:
+        if "${{" in name or " #" in name:     # an expression or a trailing comment: the check name is not readable here
             return None
         names.add(name)
     return names
@@ -159,7 +163,7 @@ def fold_logins(commits: list[dict], hosts: set[str]) -> dict[str, str]:
 
     out: dict[str, str] = {}
     for c in commits:
-        m = FOLD.match(c.get("messageHeadline") or "")
+        m = FOLD.match(c.get("subject") or c.get("messageHeadline") or "")
         ps = parents.get(c["oid"], [])
         if not m or m.group(1) not in hosts or len(ps) < 2:
             continue
@@ -182,7 +186,7 @@ def parse_review(body: str) -> tuple[list[tuple[str, str]], bool]:
     found: dict[str, str] = {}
     for m in FINDING.finditer(body):
         found.setdefault(f"F{m.group(1)}", f"P{m.group(2)}")
-    unparsed = not found and any(LEVEL_LINE.search(l) and not NO_FINDING.search(l) for l in body.splitlines())
+    unparsed = not found and any(LEVEL_LINE.search(l) and not NO_FINDING.fullmatch(l) for l in body.splitlines())
     return list(found.items()), unparsed
 
 
@@ -196,15 +200,28 @@ def check_verdict(runs: list[dict], needed: set[str]) -> tuple[bool, list[str], 
     red, flaky = [], []
     for name, rs in sorted(by_name.items()):
         rs.sort(key=lambda r: (r.get("completed_at") or "", r.get("id") or 0))
-        bad = [i for i, r in enumerate(rs) if r["conclusion"] in RED]
-        if not bad:
+        if not any(r["conclusion"] in RED for r in rs):
             continue
-        # Red then green on the same sha: the check flaked, the actor's head did not fail.
-        (flaky if any(r["conclusion"] == "success" for r in rs[bad[0] + 1:]) else red).append(name)
+        # Red and the sha's last run green: the check flaked, the actor's head did not fail. Red, green, red is red.
+        (flaky if rs[-1]["conclusion"] == "success" else red).append(name)
     return bool(by_name), red, flaky
 
 
-def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, window: int,
+def merged_at(pr: dict) -> dt.datetime:
+    return dt.datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00"))
+
+
+def in_period(pr: dict, now: dt.datetime, days: int) -> bool:
+    return merged_at(pr) >= now - dt.timedelta(days=days)
+
+
+def in_closed_period(pr: dict, now: dt.datetime, days: int, window: int) -> bool:
+    """Merged in the DAYS that end WINDOW days ago: the PRs whose windows have closed, which a period shorter than
+    the window can never hold (a PR merged in the last 7 days has 7 more days to be reverted)."""
+    return now - dt.timedelta(days=days + window) <= merged_at(pr) <= now - dt.timedelta(days=window)
+
+
+def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, days: int, window: int,
               hosts: set[str], needed: set[str] | None) -> list[dict]:
     """The error events of one merged PR. `checks(repo, sha)` gives a sha's check runs; `needed` the check-run
     names of the repository's aggregate's dependencies, None when unknown (no head is then counted)."""
@@ -222,9 +239,14 @@ def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, 
         return {"actor": folds.get(sha, owner), "class": cls, "role": role}
 
     base = {"repo": repo, "pr": n, "actor": owner, "class": pr_class, "role": pr_role}
-    merged = dt.datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00"))
+    merged = merged_at(pr)
     closed = now >= merged + dt.timedelta(days=window)
-    ev = [{**base, "kind": "pr", "closed": closed}]
+    period, cperiod = in_period(pr, now, days), in_closed_period(pr, now, days, window)
+    base = {**base, "period": period, "cperiod": cperiod}
+    ev = [{**base, "kind": "pr", "closed": closed}] if period or cperiod else []
+    if not period:
+        # Only reverts and fixes forward are read for a PR that is in the closed period alone.
+        return ev + reverts_and_fixes(pr, later, merged, window, closed, base, who, by_sha)
 
     order = [c["oid"] for c in commits]
     answers = [(i, set(LABEL.findall(commit_class.answers_of(c.get("messageBody") or ""))))
@@ -245,19 +267,19 @@ def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, 
     if needed is None:
         ev.append({**base, "kind": "checks_unread"})
     for c in commits if needed is not None else ():
-        if c.get("parents", 1) > 1 and FOLD.match(c.get("messageHeadline") or ""):
-            continue          # a fold merge is the integrator's commit, not a head anyone pushed to be tested
         counted, red, flaky = check_verdict(checks(repo, c["oid"]), needed)
         if counted:
             ev.append({**base, **who(c["oid"]), "kind": "head", "red": red, "flaky": flaky})
 
+    return ev + reverts_and_fixes(pr, later, merged, window, closed, base, who, by_sha)
+
+
+def reverts_and_fixes(pr: dict, later: list[dict], merged: dt.datetime, window: int, closed: bool, base: dict,
+                      who, by_sha: dict) -> list[dict]:
     inside = [c for c in later if merged < c["when"] <= merged + dt.timedelta(days=window)]
     own = set(by_sha) | {(pr.get("mergeCommit") or {}).get("oid")}
-    for sha in sorted(results.reverted_shas(own, inside)):
-        ev.append({**base, **who(sha), "kind": "revert", "closed": closed})
-    for c in results.fixes_forward(n, inside, repo=repo):
-        ev.append({**base, "kind": "fix", "closed": closed})
-    return ev
+    ev = [{**base, **who(sha), "kind": "revert", "closed": closed} for sha in sorted(results.reverted_shas(own, inside))]
+    return ev + [{**base, "kind": "fix", "closed": closed} for _ in results.fixes_forward(pr["number"], inside, repo=base["repo"])]
 
 
 def rate(count: int, denominator: int) -> float | None:
@@ -266,8 +288,8 @@ def rate(count: int, denominator: int) -> float | None:
 
 def tally(events: list[dict]) -> dict:
     """One group's counts, each beside its denominator."""
-    prs = [e for e in events if e["kind"] == "pr"]
-    closed = sum(1 for e in prs if e["closed"])
+    prs = [e for e in events if e["kind"] == "pr" and e["period"]]
+    closed = sum(1 for e in events if e["kind"] == "pr" and e["cperiod"])
     reviews = [e for e in events if e["kind"] == "review"]
     findings: dict[str, dict] = {}
     for e in reviews:
@@ -287,10 +309,10 @@ def tally(events: list[dict]) -> dict:
     out = {}
     for kind, key in (("revert", "reverts"), ("fix", "fixes")):
         found = [e for e in events if e["kind"] == kind]
-        n_closed = sum(1 for e in found if e["closed"])
+        n_closed = sum(1 for e in found if e["cperiod"])
         out[key] = {"count": n_closed, "of_prs_with_closed_window": closed, "rate": rate(n_closed, closed),
-                           "found_so_far_in_open_windows": len(found) - n_closed}
-    return {"prs_merged": len(prs), "prs_window_closed": closed,
+                    "found_so_far_in_open_windows": sum(1 for e in found if e["period"] and not e["closed"])}
+    return {"prs_merged": len(prs), "prs_in_closed_period": closed,
             "reviews": {"given": len(reviews), "unparsed": sum(1 for e in reviews if e["unparsed"]),
                         "findings": {k: findings[k] for k in sorted(findings)}, "findings_total": nfind,
                         "findings_per_review": rate(nfind, len(reviews)),
@@ -308,7 +330,7 @@ def report(events: list[dict]) -> dict:
         res = {"all": tally(evs)}
         for dim in ("actor", "class", "role"):
             res["by_" + dim] = {k: tally([e for e in evs if e[dim] == k]) for k in sorted({e[dim] for e in evs})}
-        res["unattributed_prs"] = sum(1 for e in evs if e["kind"] == "pr" and e["actor"] == UNATTRIBUTED)
+        res["unattributed_prs"] = sum(1 for e in evs if e["kind"] == "pr" and e["period"] and e["actor"] == UNATTRIBUTED)
         return res
     repos = sorted({e["repo"] for e in events})
     return {"total": groups(events), "repos": {r: groups([e for e in events if e["repo"] == r]) for r in repos}}
@@ -324,7 +346,7 @@ def render(rep: dict, doc: dict) -> str:
         r, c = t["reviews"], t["red_checks"]
         fnd = ", ".join(f"{k} {v['answered']} answered/{v['unjudged']} unjudged" for k, v in r["findings"].items()) or "none"
         pct = lambda x: "no rate (<5)" if x is None else f"rate {x}"  # noqa: E731
-        return (f"  {name}: PRs {t['prs_merged']} ({t['prs_window_closed']} windows closed); "
+        return (f"  {name}: PRs {t['prs_merged']} ({t['prs_in_closed_period']} in the closed-window period); "
                 f"findings in {r['given']} reviews ({r['unparsed']} unparsed): {fnd}; "
                 f"red heads {c['heads_red']}/{c['heads']} {pct(c['rate'])}, by check {c['by_check'] or '-'}, flaky {c['flaky_not_the_actors'] or '-'}"
                 f"{'; red checks NOT READ for %d PRs (no aggregate in %s)' % (c['unread_no_aggregate'], WORKFLOW) if c['unread_no_aggregate'] else ''}; "
@@ -376,17 +398,17 @@ def read_needed(repo: str, aggregates: set[str]) -> set[str] | None:
 def collect(repos: list[str], now: dt.datetime, days: int, window: int) -> list[dict]:
     hosts, aggregates = known_hosts(), aggregate_checks()
     needed = {repo: read_needed(repo, aggregates) for repo in repos}
-    since = now - dt.timedelta(days=days)
+    since = now - dt.timedelta(days=days + window)
     read = {repo: (results.main_commits(repo, since), results.merged_prs(repo, since, ("headRefName",))) for repo in repos}
     wanted = sorted({(repo, c["oid"]) for repo, (_, prs) in read.items() for pr in prs for c in pr.get("commits") or []
-                     if needed[repo] is not None and not (c.get("parents", 1) > 1 and FOLD.match(c.get("messageHeadline") or ""))})
+                     if needed[repo] is not None and in_period(pr, now, days)})
     # A sha never changes, so what GitHub says of it is asked once, all at once.
     with concurrent.futures.ThreadPoolExecutor(WORKERS) as pool:
         cache = dict(zip(wanted, pool.map(lambda k: check_runs(*k), wanted)))
     events: list[dict] = []
     for repo, (later, prs) in read.items():
         for pr in prs:
-            events += events_of(repo, pr, later, lambda r, sha: cache[r, sha], now, window, hosts, needed[repo])
+            events += events_of(repo, pr, later, lambda r, sha: cache[r, sha], now, days, window, hosts, needed[repo])
     return events
 
 
@@ -409,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"fabric-errors: {e}", file=sys.stderr)
         return 1
     doc = {"days": a.days, "window": a.window, "repositories_read": repos, "since": (now - dt.timedelta(days=a.days)).isoformat(),
+           "closed_period": [(now - dt.timedelta(days=a.days + a.window)).isoformat(), (now - dt.timedelta(days=a.window)).isoformat()],
            "attribution": "head ref; a fold's contributor", "judged_not_real": "not read", **rep}
     print(json.dumps(doc, indent=2) if a.json else render(rep, doc))
     return 0

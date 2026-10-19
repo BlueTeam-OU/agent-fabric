@@ -23,10 +23,10 @@ NEEDED = errors.needed_jobs(CI, AGG)
 H = "develop-qzapp"
 
 
-def commit(oid, headline="work", body="", parents=("p",), role="python-dev"):
+def commit(oid, headline="work", body="", parents=("p",), role="python-dev", subject=None):
     trailer = f"\n\nFabric-Role: {role}" if role else ""
     return {"oid": oid, "messageHeadline": headline, "messageBody": body + trailer if not body else f"{body}\nFabric-Role: {role}" if role else body,
-            "parents": len(parents), "parentShas": list(parents)}
+            "parents": len(parents), "parentShas": list(parents), **({"subject": subject} if subject else {})}
 
 
 def pr(number=7, ref=None, commits=None, reviews=(), merged="2026-10-01T10:00:00Z", merge="m1"):
@@ -41,7 +41,7 @@ def review(body, oid):
 
 def run(p, later=(), runs=None):
     runs = runs or {}
-    return errors.events_of("o/r", p, list(later), lambda repo, sha: runs.get(sha, []), NOW, 14, HOSTS, NEEDED)
+    return errors.events_of("o/r", p, list(later), lambda repo, sha: runs.get(sha, []), NOW, 30, 14, HOSTS, NEEDED)
 
 
 def cr(name, conclusion, at="2026-10-01T01:00:00Z"):
@@ -94,7 +94,7 @@ def main() -> int:
           errors.needed_jobs("jobs:\n  a:\n    x: 1\n", {"z-ok"}) is None
           and errors.needed_jobs("jobs:\n  z-ok:\n    needs: [gone]\n", {"z-ok"}) is None
           and errors.needed_jobs("jobs:\n  a:\n    name: x ${{ m }}\n  z-ok:\n    needs: [a]\n", {"z-ok"}) is None, "")
-    ev = errors.events_of("o/r", pr(), [], lambda r, s: [cr("static", "failure")], NOW, 14, HOSTS, None)
+    ev = errors.events_of("o/r", pr(), [], lambda r, s: [cr("static", "failure")], NOW, 30, 14, HOSTS, None)
     t = errors.tally(ev)
     check("a repository with no readable aggregate: no head counted, said as unread",
           t["red_checks"]["heads"] == 0 and t["red_checks"]["unread_no_aggregate"] == 1, t["red_checks"])
@@ -114,7 +114,7 @@ def main() -> int:
           sorted(kinds) == [("fix", "alice"), ("revert", "alice")], ev)
     check("their PR's window had closed", all(e["closed"] for e in ev if e["kind"] in ("revert", "fix")), ev)
     ev = errors.events_of("o/r", pr(merged="2026-10-25T00:00:00Z"), [later("fix #7 F1", "Answers: F1", day=26)],
-                          lambda r, s: [], NOW, 14, HOSTS, NEEDED)
+                          lambda r, s: [], NOW, 30, 14, HOSTS, NEEDED)
     t = errors.tally(ev)
     check("a fix on a PR whose window is still open is apart from the denominator",
           t["fixes"]["count"] == 0 and t["fixes"]["of_prs_with_closed_window"] == 0 and t["fixes"]["found_so_far_in_open_windows"] == 1, t["fixes"])
@@ -126,14 +126,21 @@ def main() -> int:
     ev = run(pr(ref="dependabot/pip/x"))
     check("an unattributed PR is counted with its count", errors.report(ev)["total"]["unattributed_prs"] == 1
           and "unattributed" in errors.report(ev)["total"]["by_actor"], errors.report(ev)["total"]["by_actor"].keys())
+    full = f"Merge branch '{H}/carol/for/alice/thing' into {H}/alice/feat/x"
+    # GitHub cuts messageHeadline at about 70 characters and ends it in an ellipsis; the REST subject is whole.
+    cut = f"Merge branch '{H}/carol/for/\u2026"
     fold = [commit("a" * 40, role="web-dev"), commit("a2", parents=("a" * 40,), role="web-dev"),
             commit("b1", role="python-dev"),
-            commit("m", f"Merge branch '{H}/carol/for/alice/thing' into {H}/alice/feat/x", parents=("b1", "a2"), role="python-dev")]
+            commit("m", cut, parents=("b1", "a2"), role="python-dev", subject=full)]
     runs = {"a2": [cr("static", "failure")], "b1": [cr("static", "success")], "m": [cr("static", "failure")]}
     ev = run(pr(commits=fold, reviews=[review("**F1 (P3, x)** a", "m")], merge="mm"), [later("Revert", "This reverts commit " + "a" * 40 + ".")], runs)
-    h = {e["red"] and e["actor"] or "": e for e in ev if e["kind"] == "head"}
-    check("a commit that arrived by a fold of a for/ branch is that branch's login; the fold merge itself is no head",
-          sum(1 for e in ev if e["kind"] == "head") == 2 and h["carol"]["role"] == "web-dev" and h["carol"]["class"] == "agent", ev)
+    heads = [e for e in ev if e["kind"] == "head"]
+    check("a commit that arrived by a fold of a for/ branch is that branch's login, read from the whole subject, not GitHub's cut headline",
+          [e["actor"] for e in heads] == ["carol", "alice", "alice"] and heads[0]["role"] == "web-dev" and heads[0]["class"] == "agent", heads)
+    check("the fold merge is a head CI ran on: counted, red, and the head-ref login's",
+          heads[2]["red"] == ["static"] and heads[2]["actor"] == "alice", heads)
+    check("with only the cut headline there is no fold to read: nothing is attributed to the branch's login",
+          errors.fold_logins([dict(c, subject=None) for c in fold], HOSTS) == {}, "")
     check("a revert of a folded commit is its contributor's; the review stays with the head ref's login",
           [e["actor"] for e in ev if e["kind"] == "revert"] == ["carol"] and [e["actor"] for e in ev if e["kind"] == "review"] == ["alice"], ev)
     one = [commit("b1"), commit("m", f"Merge branch '{H}/carol/for/alice/thing'", parents=("b1",))]
@@ -157,6 +164,57 @@ def main() -> int:
     rep = errors.report(run(pr(ref=f"{H}/zed/x")) + run(pr(number=8, ref=f"{H}/amy/x")))
     check("actors in name order, not by count", list(rep["total"]["by_actor"]) == ["amy", "zed"], list(rep["total"]["by_actor"]))
     check("no score key anywhere", "score" not in json.dumps(rep).lower() and "rank" not in json.dumps(rep).lower())
+
+    # --- parsing: a finding line that contains "no" or "0" is not an absence; red, green, red is red
+    f, un = errors.parse_review("1. P1 confirmed: a failed read returns no error, the count is 0\nP2: the retry has no backoff\nP3: none")
+    check("a level line with more than the word for none is unparsed, not a clean review", f == [] and un, (f, un))
+    f, un = errors.parse_review("P2: none of the callers check the result")
+    check("a line that only begins with the word for none is a finding in another shape", f == [] and un, (f, un))
+    f, un = errors.parse_review("P1: none\n- P2 \u2014 no findings\nP3: 0")
+    check("lines that are only a level and none parse as zero findings", f == [] and not un, (f, un))
+    ev = [e for e in run(pr(), runs={"c1": [cr("static", "failure", "2026-10-01T01:00:00Z"), cr("static", "success", "2026-10-01T02:00:00Z"),
+                                            cr("static", "failure", "2026-10-01T03:00:00Z")]}) if e["kind"] == "head"]
+    check("red, green, red on one sha is red, not flaky", ev[0]["red"] == ["static"] and ev[0]["flaky"] == [], ev)
+    check("needed_jobs: a block list of three keeps all three; a comment on a name is unknown",
+          errors.needed_jobs("jobs:\n  a:\n    x: 1\n  b:\n    x: 1\n  c:\n    x: 1\n  z-ok:\n    needs:\n      - a\n      - b\n      - c\n", {"z-ok"}) == {"a", "b", "c"}
+          and errors.needed_jobs("jobs:\n  a:\n    name: Alpha # the a job\n  z-ok:\n    needs: [a]\n", {"z-ok"}) is None, "")
+
+    # --- the period: the default 7 days with a 14-day window still has a denominator for reverts and fixes
+    def at(days_ago):
+        return (NOW - dt.timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    def when(days_ago, subject, body=""):
+        return {"sha": "f" * 40, "subject": subject, "body": body, "when": NOW - dt.timedelta(days=days_ago)}
+    prs_ = [pr(number=100 + i, merged=at(15 + i)) for i in range(5)] + [pr(number=200, merged=at(3))]
+    evs = []
+    for p_ in prs_:
+        evs += errors.events_of("o/r", p_, [when(10, "review fix #100 F1: x", "Answers: F1"), when(1, "fix #200 F1", "Answers: F1")],
+                                lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED)
+    t = errors.tally(evs)
+    check("default period: the 5 PRs merged 15-19 days ago are the closed-window denominator, the PR of 3 days ago is the period",
+          t["prs_merged"] == 1 and t["prs_in_closed_period"] == 5 and t["fixes"]["of_prs_with_closed_window"] == 5
+          and t["fixes"]["count"] == 1 and t["fixes"]["rate"] == 0.2 and t["fixes"]["found_so_far_in_open_windows"] == 1, t)
+    old_pr = pr(number=300, merged=at(16), reviews=[review("**F1 (P2, x)** a", "c1")])
+    t = errors.tally(errors.events_of("o/r", old_pr, [], lambda r, s: [cr("static", "failure")], NOW, 7, 14, HOSTS, NEEDED))
+    check("a PR of the closed-window period alone gives reverts and fixes a denominator and no review or head",
+          t["prs_merged"] == 0 and t["prs_in_closed_period"] == 1 and t["reviews"]["given"] == 0 and t["red_checks"]["heads"] == 0, t)
+    check("PRs outside both spans are not read at all", errors.events_of("o/r", pr(merged=at(40)), [], lambda r, s: [], NOW, 7, 14, HOSTS, NEEDED) == [])
+
+    # --- merged_prs keeps the REST subject whole beside gh's cut headline
+    saved = (errors.results.gh.pr_list, errors.results.gh.pr_view, errors.results.gh.api)
+    errors.results.gh.pr_list = lambda *a, **k: [{"number": 7}]
+    errors.results.gh.pr_view = lambda *a, **k: {"number": 7, "mergedAt": "2026-10-01T10:00:00Z",
+                                                  "commits": [{"oid": "m1", "messageHeadline": "Merge branch 'x/\u2026"}, {"oid": "c9"}]}
+    errors.results.gh.api = lambda *a, **k: [{"sha": "m1", "parents": [{"sha": "p1"}, {"sha": "p2"}],
+                                              "commit": {"message": "Merge branch 'x/y/for/z/w' into v\n\nbody"}},
+                                             {"sha": "c9", "parents": [{"sha": "m1"}], "commit": {"message": "plain"}}]
+    try:
+        got = errors.results.merged_prs("o/r", dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc), ("headRefName",))
+    finally:
+        errors.results.gh.pr_list, errors.results.gh.pr_view, errors.results.gh.api = saved
+    c0, c1 = got[0]["commits"]
+    check("merged_prs: the whole first line of the REST message, the parents as shas and as a count",
+          c0["subject"] == "Merge branch 'x/y/for/z/w' into v" and c0["parentShas"] == ["p1", "p2"] and c0["parents"] == 2
+          and c1["subject"] == "plain", got)
 
     # --- check-run reads: a transient failure is retried, a refusal is not, and the last failure is raised
     calls = []
@@ -218,7 +276,8 @@ def main() -> int:
     saved = (errors.results.main_commits, errors.results.merged_prs, errors.gh.api, errors.known_hosts, errors.read_needed)
     errors.known_hosts = lambda: HOSTS
     errors.read_needed = lambda repo, agg: NEEDED
-    errors.results.main_commits = lambda repo, since: []
+    sinces = []
+    errors.results.main_commits = lambda repo, since: sinces.append(since) or []
     errors.results.merged_prs = lambda repo, since, extra=(): [pr(merged="2026-10-25T00:00:00Z")]
     errors.gh.api = lambda *a, **k: [cr("static", "failure")]
     try:
@@ -235,7 +294,10 @@ def main() -> int:
     finally:
         errors.results.main_commits, errors.results.merged_prs, errors.gh.api, errors.known_hosts, errors.read_needed = saved
     check("main --json: the red head counted, window open", rc == 0 and js["repositories_read"] == ["o/r"] and list(js["repos"]) == ["o/r"]
-          and js["total"]["all"]["red_checks"]["heads_red"] == 2 and js["total"]["all"]["prs_window_closed"] == 0, js["total"]["all"])
+          and js["total"]["all"]["red_checks"]["heads_red"] == 2 and js["total"]["all"]["prs_in_closed_period"] == 0, js["total"]["all"])
+    check("both PR and commit reads start DAYS+WINDOW days back, not DAYS",
+          len(sinces) == 2 and all(dt.timedelta(days=43, hours=23) < dt.datetime.now(dt.timezone.utc) - x < dt.timedelta(days=44, hours=1)
+                                   for x in sinces[:1]) and dt.timedelta(days=20, hours=23) < dt.datetime.now(dt.timezone.utc) - sinces[1] < dt.timedelta(days=21, hours=1), sinces)
     check("main text says what is not read and shows no rate under 5", rc2 == 0 and "judged-not-real findings: not read" in out.getvalue()
           and "no rate (<5)" in out.getvalue(), out.getvalue())
     check("a bad --days is exit 2 and a line", rc3 == 2 and "at least 1" in err.getvalue(), err.getvalue())
