@@ -17,8 +17,8 @@ CONTRACT
   stdin     not read
   stdout    the plan (each file, with its size), a diff of projects/registry.json,
             and what was written; --help
-  stderr    every refusal, prefixed `fabric-project: `, and any file a failed
-            write had already created
+  stderr    every refusal, prefixed `fabric-project: `, any file a failed
+            write had already created, and each stub remit with why it is one
   exit      0 planned or written; 2 refused (a bad argument, an id or a remote
             already registered, an unknown client, sibling or role, a file
             that exists, anything it cannot read); 1 a write that failed
@@ -44,7 +44,9 @@ Choices a reader would otherwise have to guess:
   - the taxonomy is built fresh, not copied: the sibling's path rules describe
     its tree. Each role gets an empty rule to be filled by fabric-coordinator;
   - a remit is the sibling's with only its frontmatter `project:` set; a role
-    the sibling lacks gets a stub naming fabric-coordinator as author;
+    the sibling lacks, or every role when its working copy is not found, gets a
+    stub naming fabric-coordinator as author, marked `[stub remit]` in the plan
+    and named on stderr;
   - fabric-ref is the full commit id of this repository's origin/main as last
     fetched.
 """
@@ -218,7 +220,9 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
     if not ID_RE.fullmatch(args.id) or ".." in args.id:
         raise Refused(f"--id {args.id!r}: a lowercase letter, then lowercase letters, digits, '.' or '-', "
                       "ending in a letter or digit, no '..'")
-    for flag, value in (("--default-branch", args.default_branch), ("--license", args.license), ("--title", args.title)):
+    for flag, value in (("--default-branch", args.default_branch), ("--license", args.license), ("--title", args.title),
+                        # An unset shell variable arrives as "": truthiness below would read it as "flag absent".
+                        ("--working-copy", args.working_copy), ("--like-working-copy", args.like_working_copy)):
         if value is not None and not value.strip():
             raise Refused(f"{flag} is empty")
     if not args.remote:
@@ -313,15 +317,20 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
         files.append({"path": os.path.join(af, "taxonomy.json"),
                       "data": (json.dumps(tax, indent=2, ensure_ascii=False) + "\n").encode(), "mode": 0o644})
         like_wc = args.like_working_copy
+        if like_wc and not os.path.isdir(like_wc):
+            raise Refused(f"--like-working-copy {like_wc}: not a directory")
         if not like_wc:
             like_wc = workingcopy.sibling_working_copies(root).get(args.like)
         for role in args.role:
+            why = ""
             src = os.path.join(like_wc, ".agent-fabric", "roles", f"{role}.md") if like_wc else None
             if src and os.path.exists(src):
                 text = _frontmatter_project(_decode(_read_bytes(src), src), args.id, src)
             else:
                 text = stub_remit(role, args.id)
-            files.append({"path": os.path.join(af, "roles", f"{role}.md"), "data": text.encode(), "mode": 0o644})
+                why = (f"{src} does not exist" if src else
+                       f"{args.like}'s working copy was not found beside this one: pass --like-working-copy DIR")
+            files.append({"path": os.path.join(af, "roles", f"{role}.md"), "data": text.encode(), "mode": 0o644, "stub": why})
         files.append({"path": os.path.join(af, "fabric-ref"), "data": (_git_origin_main() + "\n").encode(), "mode": 0o644})
     elif args.like_working_copy:
         raise Refused("--like-working-copy without --working-copy has nothing to write into")
@@ -404,9 +413,15 @@ def run(argv: list[str], root: str = ROOT, today: str | None = None) -> int:
     today = today or datetime.date.today().isoformat()
     files, raw, new_raw, residue = plan(args, root, today)
     reg_path = roots.projects_registry(root=root)
-    print(("writing" if args.write else "dry run, nothing written; would write") + f" {len(files) + 1} files:")
+    # ROOT is the checkout this file sits in, not the cwd: through a link in
+    # ~/.local/bin the writes land there, so the plan has to say where.
+    print(("writing" if args.write else "dry run, nothing written; would write") + f" {len(files) + 1} files; the fabric tree is {root}, working-copy files are absolute:")
     for f in files:
-        print(f"  {os.path.relpath(f['path'], root) if f['path'].startswith(root + os.sep) else f['path']}  ({len(f['data'])} bytes)")
+        print(f"  {os.path.relpath(f['path'], root) if f['path'].startswith(root + os.sep) else f['path']}  ({len(f['data'])} bytes)"
+              + ("  [stub remit]" if f.get("stub") else ""))
+    for f in files:
+        if f.get("stub"):
+            say(f"stub remit for {os.path.basename(f['path'])[:-3]}: {f['stub']}")
     print("  projects/registry.json  (one entry added)")
     print("".join(l if l.endswith("\n") else l + "\n" for l in difflib.unified_diff(
         raw.splitlines(True), new_raw.splitlines(True), "a/projects/registry.json", "b/projects/registry.json", n=2)), end="")
