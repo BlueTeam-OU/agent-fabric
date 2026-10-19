@@ -22,9 +22,14 @@ LEAKS = [
 ]
 FINE = [
     "Not /var/tmp, where that decision put it.", "the old /var/tmp/agent-fabric-<login> filled it",
-    "keep artifacts in ~/scratch/<job>/ so they survive", "/var/tmp alone, and /var/tmpfs/x", "~/scratchpad/x and ~/scratch",
+    "keep artifacts in ~/scratch/<job>/ so they survive",
+    # A login's TMPDIR root named whole is the account, not an artifact; a file under it is one (herdr, 2026-10-19).
+    "sweeping /var/tmp/agent-fabric-rust-ui-dev-02 test leftovers", "TMPDIR is /var/tmp/agent-fabric-user.", "/var/tmp alone, and /var/tmpfs/x", "~/scratchpad/x and ~/scratch",
 ]
-REFER_AS = {"/var/tmp/x.apk was": "a host scratch path was", "~/scratch/j97 was": "a scratch path was"}
+# The path ends before a sentence's period or colon: what the slice says stays one sentence (review of #310, round 3).
+REFER_AS = {"/var/tmp/x.apk was": "a host scratch path was", "~/scratch/j97 was": "a scratch path was",
+            "in /var/tmp/j9/out. Next": "in a host scratch path. Next", "at ~/scratch/x: then": "at a scratch path: then",
+            "(/var/tmp/review-*)": "(a host scratch path)"}
 
 
 def main() -> int:
