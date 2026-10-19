@@ -57,7 +57,7 @@ def main() -> int:
         fails += not good
 
     print("the locale pattern is the hooks' pattern")
-    with open(os.path.join(HERE, "policies", "githooks", "locale-carve-out.sh")) as f:
+    with open(os.path.join(HERE, "tools", "fabric", "guards", "commit_hooks.py")) as f:
         hook = f.read()
     check("the hook's regex is in the module, verbatim", da.LOCALE_PATH.pattern in hook)
 
