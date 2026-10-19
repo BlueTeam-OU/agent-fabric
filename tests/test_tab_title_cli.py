@@ -196,6 +196,9 @@ def main() -> int:
     p = subprocess.run([HOOK], input=json.dumps({"cwd": repo}).encode(), env={**clean_env(), "PATH": bare}, capture_output=True, timeout=60)
     check("…and the same payload with git on that PATH emits (the control)", p.returncode == 0 and p.stdout != b"", f"rc={p.returncode} out={p.stdout!r}")
 
+    if HOOK.endswith(".sh"):
+        p = subprocess.run([HOOK], input=json.dumps({"cwd": repo}).encode(), env={**clean_env(), "AGENT_FABRIC_PYTHON": f"{T}/no-such-python"}, capture_output=True, timeout=60)
+        check("the forwarder on a host without the pin: exit 0 and nothing on stdout (a failing hook errors on every Bash call)", p.returncode == 0 and p.stdout == b"", f"rc={p.returncode} out={p.stdout!r}")
     if HOOK.endswith(".py"):
         p = subprocess.run([sys.executable, "-I", HOOK], input=json.dumps({"cwd": repo}).encode(), env=clean_env(), capture_output=True, timeout=60)
         check("a module run as its forwarder runs it (python -I) finds its siblings and sets the same title",

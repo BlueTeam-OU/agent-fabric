@@ -226,6 +226,10 @@ def main() -> int:
         silent(f"CLAUDE_PID {bad!r} is silent", fire("PreToolUse", "plan", pid=bad))
     t.check("CLAUDE_PID that is no positive integer writes nothing", not os.path.isdir(DIR) or os.listdir(DIR) == [], str(os.listdir(DIR) if os.path.isdir(DIR) else ""))
 
+    if ENTRY.endswith(".sh"):
+        shutil.rmtree(DIR, ignore_errors=True)
+        r = h.run(ENTRY, payload("PreToolUse", "plan"), environment(AGENT_FABRIC_PYTHON=os.path.join(T, "no-such-python")))
+        t.check("the forwarder on a host without the pin: exit 0, nothing on stdout, nothing held", r.rc == 0 and r.out == "" and not held(), f"{r.rc} {r.out!r}")
     if ENTRY.endswith(".py"):
         shutil.rmtree(DIR, ignore_errors=True)
         silent("a module run as its forwarder runs it (python -I) is silent", h.run_isolated(ENTRY, payload("PreToolUse", "plan"), environment()))

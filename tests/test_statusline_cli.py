@@ -38,7 +38,7 @@ the open-first sort removed (case 5); `🔗` replaced by `🌿` (case 9); the
 version dropped from the bracket (case 14); a trailing newline added (the
 whole-line case); the closed icon changed (closed case); the $PWD fallback
 changed (thin payload); the sampler not fed the payload (the context case); the sampler's output or
-status let through, or its 2 s bound removed (the misbehaving-sampler cases); the removed-cwd fallback
+status let through, or its 2 s bound removed (the misbehaving-sampler cases); the forwarder's exit 0 or its hint without the pin (the pin cases); the removed-cwd fallback
 replaced by os.getcwd() (the removed-directory case); a non-object payload read as an object (the jq cases).
 
 Exit codes: 0 all assertions passed, 1 one or more failed."""
@@ -277,6 +277,12 @@ def main() -> int:
         t.check(f"{label}: the bracket reads {bracket!r}, exit 0", r.rc == 0 and r.out.startswith(bracket), f"{r.rc} {r.out!r} {r.err[-200:]!r}")
     r, gone = h.run_in_removed_directory(ENTRY, "{}", environment(), T)
     t.check("started in a directory that was removed: the line is drawn from $PWD, exit 0", r.rc == 0 and r.out.endswith("📁 gone") and (r.err == "" or not ENTRY.endswith(".py")), f"{r.rc} {r.out!r} {r.err[-200:]!r}")
+
+    if ENTRY.endswith(".sh"):
+        t.group("the forwarder on a host without the pin")
+        r = line_of(session(repo), AGENT_FABRIC_PYTHON=os.path.join(T, "no-such-python"))
+        t.check("AGENT_FABRIC_PYTHON names no file: the status line is the install hint, exit 0, nothing on stderr",
+                r.rc == 0 and r.out.startswith("fabric-python missing: as root") and r.err == "", f"{r.rc} {r.out!r} {r.err!r}")
 
     if ENTRY.endswith(".py"):
         t.group("a module run as its forwarder runs it (python -I)")
