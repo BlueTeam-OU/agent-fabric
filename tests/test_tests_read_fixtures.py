@@ -50,6 +50,7 @@ DELIBERATE = {
     "tests/test_arming_schema.py": "the committed policies/arming.json validates against the schema and loads through arm_policy.validate (j133): the operator's own file",
     "tests/test_tools_install.py": "the registry pins the Codex CLI (ADR-053 rule 7) at a version and digest the installer accepts: the operator's own pin",
     "tests/test_host_check.py": "the gzapp host probe is the project's own integration file (instance data): its test runs the operator's script on purpose, and a stripped copy has none to run",
+    "tests/test_hygiene_host_paths.py": "the committed policies/hygiene.json keeps recorded /var/tmp and ~/scratch artifact paths out of a slice: the operator's own list",
     "tests/test_hygiene_private_network.py": "the committed policies/hygiene.json keeps private-network addresses and /home/<login>/ paths out of a slice: the operator's own list",
     "tests/test_project_import.py": "the import is acceptance-tested --like real registered projects (the request's acceptance): a copy of the operator's tree, lint run on it; on a stripped copy it finds no sibling, says so and passes",
     "tests/test_githooks_prepush.py": "the brand projects' committed direct.pr_paths send secret-shaped files to a pull request and design files direct: the operator's own files",

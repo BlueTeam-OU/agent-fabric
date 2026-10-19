@@ -201,6 +201,24 @@ serve as the parity oracle for each port, unchanged.
    The project's devex-tooling and architect-cto decide the order. The
    forwarders a project keeps to the fabric's commands (`tools/gh/*.sh`
    to `fabric-pr`) stay forwarders until rule 7 retires them.
+10. A managed project's own Node scripts move to Python in Wave 10
+   (§7), the one port wave a project has; the owner asked for it
+   (A 2026-10-19). A `.mjs` file a project runs as a script, written
+   by us, is ported, and none is added; one a fork took from the
+   upstream it tracks stays the upstream's and is never ported (it
+   would only make the fork diverge), and a project's application
+   code (a TypeScript or JavaScript app, its packages and its build)
+   is the product, in the language the product chose, never a script
+   to port; a `.js` or `.cjs` script stays under rule 9,
+   ported when it next changes. Exempt, and named in the wave's
+   inventory with why: a framework's own configuration it loads itself
+   (`astro.config.mjs`), and a script that works inside a Node library's
+   API with no Python counterpart (gzapp's `import-table.mjs`, bound to
+   the pinned TypeScript compiler). An
+   exemption a holder finds is proposed to the coordinator and added to
+   the inventory, never assumed. A port follows rules 3 to 5: the
+   contract frozen, the command kept, the old script the oracle. Rule
+   9's "no port waves in a project" stands for bash.
 
 ## 6. Consequences
 
@@ -333,12 +351,31 @@ a finding names the rule a file breaks. Seeding `ports` is the one time
 adding to the list is not a finding. Until that change merges, a
 line rule is what lint enforces: 160 lines (A 2026-10-13).
 
+Wave 10 ports the managed projects' Node scripts. When it was set the
+projects held 16 `.mjs` scripts of their own, 2,897 lines, beside the
+framework configurations; the fabric itself has none since Wave 8.
+Each port is the holder's of the path in its project's taxonomy, one
+pull request per project and holder, under that project's arming rules.
+
+| project | what | files | lines | holder | note |
+|---|---|---|---|---|---|
+| gzapp | `tools/validate_api_surface/` and its three tests | 4 | 941 | devex-tooling | YAML: the project's own dependency, not the fabric's standard-library rule |
+| gzapp | `tools/one-shot/split_adr_amendments.mjs` | 1 | 327 | devex-tooling | deleted, not ported: it ran once |
+| gzapp | `tools/build_glyphs/build-glyphs.mjs` | 1 | 271 | devex-tooling | exempt if fontnik has no Python path; the holder says |
+| gzapp | `apps/admin_web/scripts/import-table.mjs` | 1 | 157 | web-dev | exempt: it walks the AST of the project's pinned TypeScript compiler, which has no Python binding; a re-implementation missed real imports (its holder's proposal) |
+| gzapp.decks | `scripts/*.mjs` | 8 | 1,092 | brand-comms | `doc.mjs` drives puppeteer: exempt or ported to the fleet's browser, the holder says |
+| blueteam.ee | `deploy/check-dist.mjs` | 1 | 109 | edge-hosting | the taxonomy's note gives it the deploy; its paths are empty |
+
+`astro.config.mjs` in blueteam.ee and gzapi.ge is exempt (rule 10). herdr's `scripts/docs/*.mjs` came from
+the upstream FleetDeck tracks (`herdrdev/herdr`) and stay as they are.
+
 ## 8. Decision Status
 
 Accepted and in force. Waves 0 to 8 are done: the bash allowlist is
 empty, and no fabric command runs Node (the control plane, the locale
 search server and the GZCoord tools are Python). Wave 9,
-the rest of the bash, is in progress in ten batches.
+the rest of the bash, is in progress in ten batches; Wave 10, the
+managed projects' Node scripts, is dispatched (A 2026-10-19).
 
 ## References
 
@@ -365,3 +402,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-11 | Wave 9: the rest of the bash moves to Python | §2, §5 rules 1, 2, 4, 5, 7 and 9, §7: Python bar the pre-Python list and the forwarder; the 150-line rule goes; 37 files in ten batches; managed projects advised |
 | 2026-10-13 | the interim line limit is 160 | §7 |
 | 2026-10-14 | Wave 8 is done: no fabric command runs Node | §5 rule 8, §7, §8: the Node control plane, locale search server, shims and Node suites are gone (#170, #174, #181); Node stays only as a test oracle; new wire behaviour is no longer held back |
+| 2026-10-19 | Wave 10: the managed projects' Node scripts move to Python | §5 rule 10, §7, §8: the owner's request; 16 `.mjs` scripts of their own: four ports, one deletion, one exemption, one decision with its holder; a fork's upstream code never ported; framework configuration and a Node-API-bound script exempt, named |

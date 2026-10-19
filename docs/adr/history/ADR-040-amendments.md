@@ -162,3 +162,27 @@ hold a Python helper to Node's own answers (`tests/test_control_js.py`).
 §7's Wave 8 bullets stay as the record of how the cutover was run, with
 a closing bullet; §8 states Waves 0 to 8 done and Wave 9 in progress, as
 batch 1 (#200) and later batches have landed.
+
+### Amendment 2026-10-19 — Wave 10: the managed projects' Node scripts move to Python
+
+The owner asked, in the coordinator's session on 2026-10-19, for a plan
+to move every remaining `.mjs` to Python, and then: "yes write adr
+amendment and dispatch jobs to migrate the remaining". Rule 9 had kept
+projects out of port waves, porting a script only when it next changed;
+for Node this record now runs one wave. Measured on each project's
+default branch that day: gzapp 7 files (1,696 lines), gzapp.decks 8
+(1,092), blueteam.ee 1 (109), plus `astro.config.mjs` in blueteam.ee
+and gzapi.ge, a framework's own configuration and so exempt. herdr's
+three docs scripts came from its upstream (herdrdev/herdr, 8a6d6973):
+the owner, asked, ruled that only the JavaScript we wrote is ported,
+never a fork's upstream code, and the herdr port (#47) was closed. The owner added
+that a project's TypeScript apps (gzapp's) are application code, not
+scripts, and are never migrated.
+Two scripts import a Node library with no obvious Python counterpart
+(gzapp's glyph builder, fontnik; gzapp.decks' `doc.mjs`, puppeteer):
+their holders decide port or exemption, and an exemption is added to
+§7's table with why. gzapp's `apps/admin_web/scripts/import-table.mjs` is the first:
+its holder showed it walks the pinned TypeScript compiler's AST, which
+has no Python binding, and the coordinator accepted the exemption. Each port goes to the holder of its path in the
+project's taxonomy, as a request from the coordinator. Rule 10 added,
+§7's Wave 10 table, §8.
