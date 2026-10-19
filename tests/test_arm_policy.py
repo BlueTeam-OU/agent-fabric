@@ -769,6 +769,10 @@ def presence_of(role="architect-cto", login="arch", host="h", status="ok"):
     return 0, json.dumps({"account": login, "host": host, "status": status, "presence": {"status": "ok", "role": role}})
 
 
+# The run_arm branch's login (h/me/…) bound to the role its commits carry.
+HOLDS_WEB_DEV = presence_of(role="web-dev", login="me")
+
+
 class ArmRun(unittest.TestCase):
     """arm.arm() in process, with everything it reads replaced: the rules are the policy's."""
     HEAD = "abcdef1234567890abcdef1234567890abcdef12"
@@ -1167,14 +1171,14 @@ class ArmRun(unittest.TestCase):
 
     def test_the_authors_role_minimum_applies_when_every_commit_is_stamped_with_it(self):
         p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
-        rc, out = self.run_arm(p, 2, role_trailers=["web-dev", "web-dev"], extra=("--dry-run",))
+        rc, out = self.run_arm(p, 2, role_trailers=["web-dev", "web-dev"], presence=HOLDS_WEB_DEV, extra=("--dry-run",))
         self.assertEqual(rc, 0, out)
-        rc, _ = self.run_arm(p, 1, role_trailers=["web-dev"])
+        rc, _ = self.run_arm(p, 1, role_trailers=["web-dev"], presence=HOLDS_WEB_DEV)
         self.assertIn("under 2 arms only on the owner's word", str(rc))
 
     def test_a_merge_commit_has_no_role_of_its_own_and_does_not_hide_the_authors(self):
         p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
-        rc, out = self.run_arm(p, 2, role_trailers=["web-dev", "MERGE", "web-dev"], extra=("--dry-run",))
+        rc, out = self.run_arm(p, 2, role_trailers=["web-dev", "MERGE", "web-dev"], presence=HOLDS_WEB_DEV, extra=("--dry-run",))
         self.assertEqual(rc, 0, out)
 
     def test_no_role_several_roles_or_an_unstamped_commit_is_the_repositorys_minimum(self):
@@ -1182,6 +1186,43 @@ class ArmRun(unittest.TestCase):
         for trailers in (None, ["web-dev", "rust-dev"], ["web-dev", None], ["unknown-role"]):
             rc, _ = self.run_arm(p, 2, role_trailers=trailers)
             self.assertIn("under 8 arms only on the owner's word", str(rc), trailers)
+
+    def test_a_typed_role_the_branchs_login_does_not_hold_is_the_repositorys_minimum(self):
+        p = claude_only({"commits": {"min": 8, "roles": {"brand-comms": {"min": 1}}}})
+        for label, kw, said in (
+                ("another role", {"presence": presence_of(role="devex-tooling", login="me")}, "me, whose branch it is, holds devex-tooling"),
+                ("no role", {"presence": presence_of(role="", login="me")}, "me, whose branch it is, holds no role"),
+                ("another host", {"presence": presence_of(role="brand-comms", login="me"), "branch": "elsewhere/me/feat/x", "extra": ("--any-owner",)}, "names elsewhere/me, but presence places me on h"),
+                ("a branch named for nobody", {"branch": "fix-x", "extra": ("--any-owner",)}, "names no <host>/<login>/")):
+            rc, out = self.run_arm(p, 2, role_trailers=["brand-comms"], **kw)
+            self.assertIn("under 8 arms only on the owner's word", str(rc), label)
+            self.assertIn(said, out, label)
+        rc, out = self.run_arm(p, 2, role_trailers=["brand-comms"], presence=presence_of(role="brand-comms", login="me"), extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([r for r in self.reads if r[0] == "presence"], [("presence", ["me", "presence", "--json"])])
+
+    def test_presence_that_cannot_say_stops_an_arm_the_role_would_lower_and_no_other(self):
+        p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
+        rc, _ = self.run_arm(p, 2, role_trailers=["web-dev"], presence=(1, ""))
+        self.assertIn("unanswered: fabric-ctl could not say which role me holds", str(rc))
+        self.assertIn("the role web-dev the commits carry cannot be checked", str(rc))
+        # A role the floor does not turn on is never checked: a boundary, a role the policy does not name, a class.
+        for kw in ({"files": ("policies/x.json",)}, {"role_trailers": ["rust-dev"]}):
+            self.run_arm(p, 2, **{"role_trailers": ["web-dev"], **kw})
+            self.assertEqual([r for r in self.reads if r[0] == "presence"], [], kw)
+        rc, out = self.run_arm(claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}, "classes": {"docs": {"paths": r"\.md$", "min": 1}}}}),
+                               2, role_trailers=["web-dev"], body="Class: docs", classes={"docs": r"\.md$"}, extra=("--dry-run",))
+        self.assertEqual((rc, [r for r in self.reads if r[0] == "presence"]), (0, []), out)
+
+    def test_a_role_minimum_above_the_repositorys_stands_with_no_presence_read(self):
+        # #312 review F1: presence was asked whenever the role's minimum differed, so a login presence placed in
+        # another role armed at the repository's 8 where the role's 12 stood, and presence that could not answer
+        # stopped an arm the role only raised.
+        p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 12}}}})
+        for label, presence in (("another role", presence_of(role="devex-tooling", login="me")), ("no answer", (1, ""))):
+            rc, _ = self.run_arm(p, 9, role_trailers=["web-dev"] * 9, presence=presence)
+            self.assertIn("under 12 arms only on the owner's word", str(rc), label)
+            self.assertEqual([r for r in self.reads if r[0] in ("presence", "fleet")], [], label)
 
     def test_a_role_only_lowers_a_non_boundary_pull_request(self):
         p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
@@ -1349,7 +1390,7 @@ class ArmRun(unittest.TestCase):
 
     def test_a_role_that_armed_below_the_repositorys_minimum_is_said_in_the_log_and_the_comment(self):
         p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
-        _, out = self.run_arm(p, 3, role_trailers=["web-dev"], extra=("--dry-run",))
+        _, out = self.run_arm(p, 3, role_trailers=["web-dev"], presence=HOLDS_WEB_DEV, extra=("--dry-run",))
         self.assertIn("count rule: 3 work commits — the role web-dev's minimum is 2, arms at the review gate", out)
         self.assertNotIn("on the owner's word", out)
         self.assertIn("3 work commits, role: web-dev, head", out)

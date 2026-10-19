@@ -899,18 +899,19 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A port freezes the contract, keeps the path, tests against the old
   script (§5 rules 3–5).
 - GitHub and git go through `gh.py`, `git.py` (§5 rule 6).
-- A 2026-10-01 — the oracle stays (§5 rule 5).
+- A 2026-10-01 — oracle stays (§5 rule 5).
 - A 2026-10-01 — one pinned Python per host (§5 rule 1).
-- A 2026-10-01 — a fixture copies its scripts' modules (§5 rule 5).
+- A 2026-10-01 — fixtures copy their modules (§5 rule 5).
 - A 2026-10-04 — Wave 7: GZCoord's tools to Python (§7).
-- A 2026-10-08 — commands by bare name; shims retire (§5 rule 7).
+- A 2026-10-08 — bare command names; shims retire (§5 rule 7).
 - A 2026-10-09 — Wave 8: control plane to Python; no new Node (§5 rule 8).
-- A 2026-10-09 — valid on 3.13+ (§5 rule 1).
-- A 2026-10-11 — Wave 9: the rest of the bash to Python in ten
-  batches; projects port when changed (§5 rules 1, 2, 9, §7).
+- A 2026-10-09 — 3.13+ (§5 rule 1).
+- A 2026-10-11 — Wave 9: the rest of the bash, ten batches;
+  projects port when changed (§5 rules 1, 2, 9, §7).
 - A 2026-10-13 — the interim line limit is 160 (§7).
 - A 2026-10-14 — Wave 8 done (§5 rule 8, §7).
-- A 2026-10-19 — Wave 10, project .mjs (§5 r10).
+- A 2026-10-19 — Wave 10, our .mjs (§5 r10).
+- A 2026-10-19 — .js may join (§5 r10).
 - Keywords: Python, bash, Node, mjs, port, allowlist, shim, wave, 160
   lines, bare command, forwarder.
 
@@ -1300,3 +1301,29 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-18 — no suffix fallback (§5 rule 8).
 - Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
   holder.json, locale, parent-signed, holders_specialize.
+
+### ADR-061 — Errors are measured per actor and per kind, the same for people and agents (Proposed)
+
+- Errors are counted per actor and per kind from artifacts only, with one
+  set of definitions for people and agents (§2, §5 rules 1-3).
+- An actor is the head branch's login, a folded range's contributor, the
+  reviewing engine for a finding judged not real; after an ADR-057
+  cut-over, the commit's signer; else unattributed, never guessed (§2,
+  §5 rule 3).
+- Kinds: review findings by level (answered, judged not real, unjudged;
+  unparsed reviews counted apart), red checks per head pushed in the jobs
+  the required check needs (flaky apart), reverts and fixes forward per
+  PR merged in a fourteen-day window; every count beside its denominator
+  (§2, §5 rule 4).
+- A rule that treats one actor class differently names the counts that
+  justify it, or goes to the owner to be made the same for all (§5
+  rule 5).
+- Never a target, a ranking or one score per actor, never a reason to
+  assign or withhold work, resources, a role or a login; corrected at the
+  source for every holder; acceptance amends ADR-046 §5 rule 7 to admit
+  error counts (§5 rules 6-7).
+- Reader `fabric-errors` (`tools/fabric/errors.py`), a section of
+  `fabric-fleet`; not built yet (§5 rule 8). Waits on the owner's
+  acceptance (§8).
+- Keywords: errors, trust, actor, people, agents, review findings, red
+  check, flaky, revert, fix forward, attribution, fabric-errors, proposed.

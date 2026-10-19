@@ -555,13 +555,16 @@ def main() -> int:
                 ("fabric-ctl fails", lambda: (set_presence(), put("ctl_rc", "3"))),
                 ("fabric-ctl says no answer", lambda: set_presence(status="no answer")),
                 ("presence could not be read", lambda: set_presence(pstatus="error")),
-                ("presence for another host", lambda: set_presence(host="far-host")),
                 ("presence for another account", lambda: set_presence(account="architect-cto-02")),
                 ("fabric-ctl prints nothing", lambda: put("presence.out", ""))):
             reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); setup()
             rc, out = waive()
             check(f"{label}: exit 2, the role unread is not a refusal nor a pass", rc == 2
                   and "could not say which role" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence(host="far-host")
+        rc, out = waive()
+        check("presence for another host: exit 2, the host it named said, not a silent presence", rc == 2
+              and "presence places architect-cto-01 on far-host" in out and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
         rc, out = waive(env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/no-waiver-rules.json"})
         check("an arm.json with no waiver_role: exit 2, and the relay not asked", rc == 2 and "names no waiver_role" in out
