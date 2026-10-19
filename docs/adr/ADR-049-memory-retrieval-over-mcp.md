@@ -70,7 +70,7 @@ meaning.
    `tools/fabric/install_agent_files.py` calls it for every login
    (`runtime/claude-code/install-agent-files.sh` is only a shim to it);
    its contract header and both parity tests
-   (`runtime/claude-code/test_install-agent-files.sh`,
+   (`tests/test_install_agent_files_cli.py`,
    `tests/test_install_agent_files.py`) change with the new call.
 2. It reads only the corpus the login already has: the fabric's
    `memory/` (through `tools/fabric/roots.py`) and the session's working
