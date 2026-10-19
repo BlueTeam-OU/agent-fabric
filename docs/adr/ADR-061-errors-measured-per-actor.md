@@ -25,8 +25,10 @@ actor differently is therefore argued, never measured, and so is the
 claim that it is unnecessary.
 
 The artifacts already hold most of it (the live check): a marked review
-writes each finding as `**F<n> (P<level>, …)**` on the head it read
-(ADR-020); a commit answering one names it in `Answers:`; GitHub keeps
+(ADR-020) sits on the head it read, and most reviewers write a finding
+as `**F<n> (P<level>, …)**`, though no record fixes that shape and a
+third of the reviews read used another; a commit answering one names it
+in `Answers:`; GitHub keeps
 every check run per commit; a revert names the commit it reverts; and a
 branch is `<host>/<login>/…`, so the login that made a PR is in its head
 ref. What they do not hold yet: a finding's judgement (real or not) in a
@@ -41,8 +43,10 @@ one set of definitions for people and agents, and read as evidence for
 the rules, never as a judgement of the actor.
 
 - An **actor** is whoever made the thing the error falls on: an agent by
-  its login, a person by the GitHub account or branch name that is
-  theirs. The PR's author is the login of its head branch; a range
+  its login, a person by a branch named for them; every session and the
+  owner act through one GitHub account (ADR-026 §3), so the account
+  names no one, and a commit with no head ref (a direct commit to the
+  default branch) is unattributed. The PR's author is the login of its head branch; a range
   folded from a `for/` branch is its contributor's (ADR-018 §5 rule 8);
   a review finding against the review itself — a finding judged not real
   — is the reviewing engine's and model's. Where the artifacts name no
@@ -53,11 +57,14 @@ the rules, never as a judgement of the actor.
   1. **review finding**, by level (P1, P2, P3), raised in a marked review
      on a head of the actor's PR — per review given; split into
      *answered* (named by an `Answers:` commit), *judged not real*, and
-     *unjudged*;
+     *unjudged*; a marked review whose findings the reader cannot parse
+     is counted as an *unparsed review*, never as a review with none;
   2. **red check**, a commit the actor pushed as a PR head on which a
-     named check run concluded `failure` or `timed_out` — per head
-     pushed, by check name; never the aggregate job (`ci-ok`), which
-     counts its dependencies again, and never a cancelled run; a red that
+     check run concluded `failure` or `timed_out` — per head pushed, by
+     check name; the runs counted are the jobs the repository's required
+     check depends on (in agent-fabric, the jobs `ci-ok` `needs`), never
+     the required aggregate itself, which counts them again, and never a
+     cancelled run; a red that
      the same commit later passes on a re-run is **flaky**, the check's,
      not the actor's;
   3. **revert**, a commit of the actor's PR reverted on the default
@@ -126,12 +133,13 @@ from reading as an error-prone one.
    `Fabric-Role:`), the default branch's reverts and fixes as
    `tools/fabric/github/commit_class.py` classifies them, and, after an
    ADR-057 cut-over, commit signatures. Never a session transcript, an
-   agent's memory, or a message body.
+   agent's memory, or a relay message's body.
 3. The definitions are the same for people and agents. An actor the
    artifacts do not name is counted as unattributed, with its count; it
    is never assigned to the likeliest login.
 4. Every count is published beside its denominator; findings in their
-   three states (answered, judged not real, unjudged), never summed;
+   three states (answered, judged not real, unjudged), never summed, and
+   unparsed reviews beside them;
    flaky reds apart from the actor's. A period with fewer than five
    denominators for an actor shows the count without a rate.
 5. A rule — a guard, a policy entry, a charter clause — that applies to
@@ -143,7 +151,10 @@ from reading as an error-prone one.
    score per actor, and never a reason to assign or withhold work, a
    resource, a role or a login. A view that shows actors' error counts
    side by side shows no verified-work number beside them (ADR-026 §5
-   rule 4, ADR-046 §5 rule 7).
+   rule 4). ADR-026's rule covers its own number only; ADR-046 §5 rule 7
+   lists what a comparison across agents may show (resources and job
+   counts), and accepting this record amends it to admit error counts
+   under this rule.
 7. What the measure finds is corrected at the source, for every holder
    of the role: a rule, a guard, a test, a brief. An actor's own counts
    are information to that actor, as they would be to a person, and are
@@ -152,7 +163,8 @@ from reading as an error-prone one.
    `results.py`'s readers of the PR record and the default branch; the
    fleet views read its answer as a section of `fabric-fleet`
    (ADR-046 §5 rule 1). Until a finding's judgement has a form a reader
-   parses, the report says how many findings are unjudged.
+   parses, the report says how many findings are unjudged, and until
+   findings have one shape, how many reviews it could not parse.
 
 ## 6. Consequences
 
@@ -160,9 +172,10 @@ from reading as an error-prone one.
   kind of actor has to show its evidence, and so does the claim that
   none is needed.
 - The first reports will be dominated by agents, because the fleet's
-  commits are theirs; the owner's actions that reach an artifact
-  (armings, direct commits, corrections) are counted by the same
-  definitions, and the report says how many there were, however few.
+  branches are theirs. A person's work is counted by the same
+  definitions where a branch names them; the owner's direct commits are
+  unattributed until per-person signatures exist, and an arming is no
+  kind here (a candidate, §7). The report says how many of each it saw.
 - Attribution is by branch until ADR-057's cut-over: a commit pushed to
   another login's branch, or a PR made on the owner's word by an agent,
   counts against the branch's login. The report states the attribution

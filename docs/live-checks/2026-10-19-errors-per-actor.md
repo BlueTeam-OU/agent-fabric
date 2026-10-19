@@ -52,9 +52,10 @@ commit" line. No PR in the 30 was reverted.
 
 1. Attribution by head ref works today for every PR in the sample;
    unattributed stays a defined state, not an observed one (§5 rule 3).
-2. A red check is counted per named check run, never the aggregate
-   (`ci-ok`), and a cancelled run is not red: the reader must follow the
-   repository's required checks, not every run.
+2. A red check is counted per run of a job the required check depends
+   on (here the jobs `ci-ok` `needs`), never the required aggregate
+   itself, and a cancelled run is not red: neither every run on the
+   commit nor the required check alone is the right set.
 3. A revert is a commit whose body has git's revert line naming a commit
    of the PR, matched as `results.py` matches it, never a grep over the
    phrase.
