@@ -40,7 +40,7 @@ case fails too (gpg-agent socket); both pass with a TMPDIR of
 /var/tmp/agent-fabric-<login>/x.XXXX (2026-10-08, PR #122). Use
 `mktemp -d /var/tmp/agent-fabric-<login>/afs.XXXX` for suite runs.
 
-Helpers kept outside the tree (2026-10-08): `. /var/tmp/agent-fabric-python-dev-02/cienv.sh; ci <cmd>` strips AGENT_FABRIC_*/GITHUB_*/GIT_DIR; CI's ruff 0.16.7 is in /var/tmp/agent-fabric-python-dev-02/ruff-venv/bin/ruff (not on the host otherwise). A PreToolUse hook refuses `check | filter && git commit`: run the check to a log, read rc, commit separately.
+Helpers kept outside the tree (2026-10-08): `. a host scratch path; ci <cmd>` strips AGENT_FABRIC_*/GITHUB_*/GIT_DIR; CI's ruff 0.16.7 is in a host scratch path (not on the host otherwise). A PreToolUse hook refuses `check | filter && git commit`: run the check to a log, read rc, commit separately.
 
 *References: forge-port-oracle-runs*
 
