@@ -15,9 +15,10 @@ import errors  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 30, tzinfo=dt.timezone.utc)
 MARK = errors.REVIEW_MARKER
-HOSTS = errors.known_hosts()
+# The host registry is instance data (ADR-045 §5 rule 3): a fixture, never the checkout's.
+HOSTS = {"develop-qzapp", "other-host"}
 AGG = errors.aggregate_checks()
-H = next(iter(HOSTS))
+H = "develop-qzapp"
 
 
 def commit(oid, headline="work", body="", parents=("p",), role="python-dev"):
@@ -138,7 +139,8 @@ def main() -> int:
     check("no score key anywhere", "score" not in json.dumps(rep).lower() and "rank" not in json.dumps(rep).lower())
 
     # --- main(): text and JSON through stubbed readers
-    saved = (errors.results.main_commits, errors.results.merged_prs, errors.gh.api)
+    saved = (errors.results.main_commits, errors.results.merged_prs, errors.gh.api, errors.known_hosts)
+    errors.known_hosts = lambda: HOSTS
     errors.results.main_commits = lambda repo, since: []
     errors.results.merged_prs = lambda repo, since, extra=(): [pr(merged="2026-10-25T00:00:00Z")]
     errors.gh.api = lambda *a, **k: [cr("static", "failure")]
@@ -154,7 +156,7 @@ def main() -> int:
         with contextlib.redirect_stderr(err):
             rc3 = errors.main(["--days", "0"])
     finally:
-        errors.results.main_commits, errors.results.merged_prs, errors.gh.api = saved
+        errors.results.main_commits, errors.results.merged_prs, errors.gh.api, errors.known_hosts = saved
     check("main --json: the red head counted, window open", rc == 0 and js["repositories_read"] == ["o/r"] and list(js["repos"]) == ["o/r"]
           and js["total"]["all"]["red_checks"]["heads_red"] == 2 and js["total"]["all"]["prs_window_closed"] == 0, js["total"]["all"])
     check("main text says what is not read and shows no rate under 5", rc2 == 0 and "judged-not-real findings: not read" in out.getvalue()
