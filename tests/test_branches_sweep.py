@@ -4,20 +4,19 @@ detached; what keeps one, and what is said. `--sweep --all` over every working c
 Run as the command (bin/fabric-branches, override with FABRIC_BRANCHES), in sandboxes of their own; the existing oracles
 tests/test_fabric_branches_cli.py and tests/test_branches.py run unchanged beside it.
 
-Each case names the mutation it fails on, planted on tools/fabric/branches.py as formatted:
-  pushed_unmerged_worktree_goes          the removal asks `n == "0" and not why` again (the old rule: on the default branch)
-  detached_pushed_head_goes              the same, for a review head (detached)
-  commits_on_no_remote_keep              `worktree_state` drops its `unpushed` clause
-  changes_and_untracked_keep             `status_lines(path)` is read as empty
-  ignored_files_keep_bytecode_does_not   `is_bytecode` always False (bytecode keeps it) or always True (a build directory goes)
-  a_lock_keeps / the_current_worktree_and_in_use   the lock, "this one" and "in use" clauses dropped (`if False`)
-  removal_says_size                      the "  freed" line dropped
-  worktrees_only_deletes_no_branch       `--worktrees` ignored, so `zero` branches are deleted
-  all_sweeps_every_copy_and_names_a_refusal   `sweep_all` ignores a copy's non-zero status (exit 0, nothing named)
-  an_ended_session_goes / a_live_session_stays     the removal not asking `live` (`elif False`); `sid` not looked up in it
-  a_process_that_cannot_be_read                    an unreadable claude process skipped (`continue`) where it is unknown (`return None`)
-  a_link_and_other_names_are_not_followed          `session_dirs` accepting a link (`os.path.isdir`) or any name
-  another_logins_cache_is_not_named      `claude_tmp_root` built from a fixed uid
+Each case names the mutation it fails on, planted on the source as formatted (29 were, each caught; the case is the test's name):
+  tools/fabric/branches.py   removal asks `n == "0"` again (pushed_unmerged, detached_pushed_head, all_sweeps); `unpushed` clause dropped
+                             (commits_on_no_remote, a_branch_the_remote_no_longer_has); changes read as none (changes_and_untracked);
+                             `is_bytecode` always False or True (ignored_files); lock / "this one" / "in use" / live-cwd clauses dropped
+                             (a_lock, the_current_worktree_and_in_use, a_worktree_a_live_session_stands_in); the "  freed" line
+                             (removal_says_size); `--worktrees` ignored or a typo accepted (worktrees_only, a_misspelled_second_argument);
+                             `sweep_all` ignoring a copy's status or forgetting the worktree it runs from (all_sweeps, all_from_a_linked);
+                             remote_refs not filtered by ls-remote (a_branch_the_remote_no_longer_has); the removal not asking `live`, the
+                             own session ignored, a dead harness read as live, a broken or malformed registry entry skipped, a missing
+                             registry read as empty (the session cases); `session_dirs` following a link or taking any name; the cache of
+                             uid + 1 (another_logins_cache).
+  jobsparts, control         the switch's sweep not run / run without --worktrees / its report on stdout in --json / the kept lines dropped
+                             (test_jobs_switch); the control agent's removable count on the old rule (test_control_branches).
 
 The environment is built from scratch: PATH (a fake gh first, so no case reaches GitHub), HOME, LANG, TMPDIR, the state directory; no
 AGENT_FABRIC_*, GITHUB_* or CLAUDE_* variable of the session reaches the command (the session id of the live case is planted)."""
