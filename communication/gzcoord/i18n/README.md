@@ -44,7 +44,7 @@ That is not a departure taken for taste. A translation is authored by
 the holder of the role named for that locale and by nobody else, and the
 authority fence that makes this true is a path rule: a commit staging
 nothing but `identities/roles/<role>/locale/<suffix>/` passes as that
-holder's (`policies/AUTHORITY.md`, `policies/githooks/locale-carve-out.sh`).
+holder's (`policies/AUTHORITY.md`, `tools/fabric/guards/commit_hooks.py`).
 A dictionary in a shared directory would be a file its own author could
 not commit. The standard's own layout already separates the contract
 from the dictionaries; this separates them one step further, for the

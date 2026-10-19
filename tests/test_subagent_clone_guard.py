@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """runtime/claude-code/hooks/subagent-clone-guard.sh (Claude Code PreToolUse hook) — Wave 9 batch 5.
 
-The oracle is test_subagent-clone-guard.sh, ported case for case; the cases it missed are marked NEW. The hook is
+The oracle is the bash test test_subagent-clone-guard.sh (deleted with the port), ported case for case; the cases it missed are marked NEW. The hook is
 driven through ONE constant, ENTRY, the command the harness runs (`bash "<path>"`, the payload on stdin), so this
 file runs unchanged against the bash and against the Python port behind the same path.
 $SUBAGENT_CLONE_GUARD_HOOK aims it at another file (the module that replaces the script): that file is then run as a program,

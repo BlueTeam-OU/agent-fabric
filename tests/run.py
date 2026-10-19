@@ -85,10 +85,6 @@ BASH_SUITES: list[tuple[str, dict[str, str], list[str]]] = [
     ("attribution (this branch)", {"AGENT_FABRIC_ATTRIBUTION_BASE": "origin/main"}, [PY, "tools/fabric/guards/ban_generated_by_attribution.py"]),
     ("signatures (this branch)", {"AGENT_FABRIC_SIGNATURES_BASE": "origin/main"}, [PY, "tools/fabric/guards/ban_unsigned_commits.py"]),
     ("decision-record amendments (this branch)", {"AGENT_FABRIC_ADR_BASE": "origin/main"}, [PY, "tools/fabric/adr.py", "range-check"]),
-    ("subagent clone guard", {}, ["bash", "runtime/claude-code/hooks/test_subagent-clone-guard.sh"]),
-    ("pipe status guard", {}, ["bash", "runtime/claude-code/hooks/test_pipe-status-guard.sh"]),
-    ("model-switch guard", {}, ["bash", "runtime/claude-code/hooks/test_model-switch-guard.sh"]),
-    ("model fallback note", {}, ["bash", "runtime/claude-code/hooks/test_model-fallback-note.sh"]),
 ]
 
 

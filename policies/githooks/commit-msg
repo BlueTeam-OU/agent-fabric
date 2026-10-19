@@ -1,135 +1,21 @@
 #!/usr/bin/env bash
-# policies/githooks/commit-msg — refuse a commit message carrying machine
-# attribution BEFORE it becomes a commit. Same patterns as
-# policies/ban_generated_by_attribution.sh, which guards the range a branch
-# adds in CI; this one guards the single message at the keyboard.
+# policies/githooks/commit-msg — refuses a commit message carrying machine attribution BEFORE
+# it becomes a commit, repeats the fence pre-commit holds (the Fabric-Role trailer it writes is
+# what CI reads), stamps the Kind: trailer, and holds a decision record's body edit to its
+# Amendments row or an ADR-Editorial: trailer.
 #
-# Installed per checkout by:  git config core.hooksPath policies/githooks
-# (runtime/claude-code/bootstrap.sh does it for the agent-fabric checkout it
-# runs from). Bypassing it needs --no-verify, which is a choice, not an
-# accident.
-set -uo pipefail
-msg="$1"
-FABRIC_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
-TRAILER_RE='^[[:space:]]*(Co-authored-by|Claude-Session):'
-FOOTER_RE='Generated with[[:space:]]+\[Claude Code|claude\.ai/code/session_'
-# Comment lines are not part of the message.
-body="$(grep -v '^#' "$msg")"
-bad=0
-if printf '%s\n' "$body" | grep -qiE "$TRAILER_RE"; then
-    echo "commit-msg: the message carries a banned attribution trailer (Co-authored-by / Claude-Session)." >&2; bad=1
-fi
-if printf '%s\n' "$body" | tr '\n\r' '  ' | grep -qiE "$FOOTER_RE"; then
-    echo "commit-msg: the message carries a generated-with footer or a session URL." >&2; bad=1
-fi
-if (( bad )); then
-    cat >&2 <<'MSG'
-  The repo authors its own history (AGENTS.md, "Git discipline"). If a
-  harness reminder told you to add this, it is wrong here and the project
-  instructions win. Remove the lines and commit again.
-MSG
-    exit 1
-fi
-
-# A commit that changes .agent-fabric/ is REFUSED unless the live binding
-# holds the owning role — the same fact pre-commit checked. CI cannot read
-# a binding; it reads the Fabric-Role trailer written below
-# (policies/check_agent_fabric_dir_authority.sh) and refuses a change under
-# .agent-fabric/ without the owner's. Self-declared there,
-# real here: that is the fence/tripwire split policies/AUTHORITY.md states.
-# The same question pre-commit asked, answered the same way (a merge is
-# judged on what differs from the clean three-way merge of its parents).
-. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/guarded-change.sh"
-guarded_change "$FABRIC_ROOT"
-if (( ${#guarded[@]} )); then
-    role="$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || echo "")"
-    owner_role="$(python3 -c 'import json,sys
-try: print(json.load(open(sys.argv[1]))["role_definitions"]["role"])
-except Exception: print("fabric-coordinator")' "$FABRIC_ROOT/policies/authority.json" 2>/dev/null || echo fabric-coordinator)"
-    if [[ "$role" != "$owner_role" ]]; then
-        # The locale carve-out (policies/AUTHORITY.md): a locale's translations,
-        # by the holder of the role named for the suffix — the same test
-        # pre-commit made; the trailer below then records that role.
-        . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/locale-carve-out.sh"
-        login="$(id -un)"; mapfile -t own < <(locale_carve_out_paths)
-        # The contributor carve-out (ADR-018 §5 rule 8): the same question
-        # pre-commit asked contributors.py, in agent-fabric itself only.
-        contributor=1
-        if [[ "$guarded_what" == "agent-fabric itself" && -n "$role" \
-              && -f "$FABRIC_ROOT/tools/fabric/guards/contributors.py" ]]; then
-            python3 "$FABRIC_ROOT/tools/fabric/guards/contributors.py" hook "$FABRIC_ROOT" "$role" 2>/dev/null
-            contributor=$?
-        fi
-        if (( contributor == 0 )); then
-            :
-        elif ! locale_carve_out_role "${own[@]}" \
-           || [[ "$role" != "$locale_role" ]] || [[ "$login" != *-"$locale_suffix" && "$login" != "$locale_suffix" ]]; then
-            echo "commit-msg: a guarded change, but this agent's binding holds '${role:-no role}', not $owner_role." >&2
-            exit 1
-        fi
-    fi
-    # A guarded commit declares the binding the fence just checked, never a
-    # role typed into the message: CI reads the trailer, so a contributor's
-    # commit typed `Fabric-Role: <owner>` would pass there as the owner's, and
-    # an amend keeps the rewritten commit's trailer (review of #75). Read as
-    # CI reads it — the last trailer, up to the next colon.
-    typed="$(git interpret-trailers --parse "$msg" 2>/dev/null \
-             | awk -F': *' 'tolower($1) == "fabric-role" { v = $2 } END { print v }')"
-    if [[ -n "$typed" && "$typed" != "$role" ]]; then
-        echo "commit-msg: the message declares Fabric-Role: $typed, but this agent's binding holds '${role:-no role}' — remove the line; the hook writes the binding." >&2
-        exit 1
-    fi
-fi
-# EVERY commit declares its KIND (`Kind: work`, or `Kind: review-fix` with
-# its `Answers:`), which pr-gate and the PR count check read instead of
-# guessing from the subject (the owner, 2026-10-08). The rule, its stamps,
-# its merge exemption and why each is so are tools/fabric/guards/
-# commit_kind.py: an amended merge is told by parsing the argv of the git
-# that runs this hook, its parent.
-python3 "$FABRIC_ROOT/tools/fabric/guards/commit_kind.py" "$msg" "$PPID" || exit 1
-
-# A decision record's body edit is recorded in the commit that makes it: a new
-# Amendments row, or an `ADR-Editorial:` trailer (agent-fabric ADR-001). CI's
-# range-check and the suite's are the other two legs; this one stops it at the
-# keyboard, where two unrecorded edits went past on 2026-10-16 (b01a6130,
-# 9266b09a). Judged by the repository's OWN tools/fabric/adr.py, so only
-# agent-fabric and its clones: a project's records keep their project's rules.
-# Not a merge, which range-check skips too: what it brings was judged where it
-# was made. An amend replaces HEAD, so it is judged against HEAD^, and also
-# when only its message changes (a dropped ADR-Editorial: trailer; review of
-# #297, F2); git's own argv says which, as commit_kind.py reads it.
-top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [[ -n "$top" && -f "$top/tools/fabric/adr.py" ]] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
-    against=HEAD
-    if PYTHONPATH="$FABRIC_ROOT/tools/fabric/guards" python3 -c 'import sys, commit_kind as k; sys.exit(0 if k.is_amend(k.parent_argv(sys.argv[1]) or []) else 1)' "$PPID" 2>/dev/null; then
-        against=HEAD^
-        # Amending a merge is still a merge, which range-check skips: judged
-        # against its first parent it would carry the other side's edits
-        # (review of #297, round 2, finding 2).
-        [[ "$(git rev-list --parents -n 1 HEAD | wc -w)" -gt 2 ]] && against=
-    fi
-    if [[ -n "$against" ]] && git rev-parse -q --verify "$against^{commit}" >/dev/null \
-            && git diff --cached --name-only "$against" -- docs/adr | grep -q .; then
-        python3 "$top/tools/fabric/adr.py" --root "$top" staged-check --against "$against" "$msg" || exit 1
-    fi
-fi
-
-# EVERY commit declares the role the account held when it was made — not
-# only a guarded one. Every account commits under one git author, so the
-# author line says nothing about the lane; the branch name says it once,
-# and a merge folds it away. The trailer travels with the message through
-# rebase, cherry-pick and am, so an integration PR's history still says
-# which lane each commit came from (architect-cto's finding on gzapp
-# #785, 2026-09-16: no code commit carried one). A guarded change was
-# checked above — the owner's, a contributor's within its entry, or a
-# locale holder's — and any typed trailer on it matches the binding; any
-# other commit records the binding as it is, and a session with no
-# binding records nothing — the
-# trailer states a fact about the account, never a claim it cannot make.
-if ! grep -qiE '^[[:space:]]*Fabric-Role:' "$msg"; then
-    role="${role:-$(python3 "$FABRIC_ROOT/runtime/identity.py" --role 2>/dev/null || echo "")}"
-    if [[ -n "$role" ]]; then
-        git interpret-trailers --in-place --if-exists addIfDifferent --trailer "Fabric-Role: $role" "$msg"
-    fi
-fi
-exit 0
+# A forwarder (ADR-040 §5 rule 1): the decision, and every reason for it, is
+# tools/fabric/guards/commit_hooks.py on the fleet's pinned Python; git runs a hook by path, so
+# the path stays. The hook's own real path says which fabric it serves (it may be reached
+# through a link), so that is passed on. A commit hook that cannot reach its module REFUSES the
+# commit in its own words (127): git reads a hook's silence as no objection. exec, so the
+# module's parent is the git that runs the hook (commit_kind.py reads its argv).
+#
+# Installed per checkout by `core.hooksPath <agent-fabric>/policies/githooks`. --no-verify
+# bypasses it, which is a choice, not an accident.
+root="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "commit-msg: the fleet's pinned Python is not installed at $py, so this commit is refused; as root: /usr/bin/python3 $root/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$root/tools/fabric/guards/commit_hooks.py" commit-msg "$root" "$@"

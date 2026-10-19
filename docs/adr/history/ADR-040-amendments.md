@@ -243,3 +243,29 @@ while a forwarder of rule 1 checks the pin first and exits 127. That is
 the departure the rule already allowed for an unknown verb, met through
 a file instead; the rule now names any input, so each later port meets
 it as a cited case instead of a fresh decision.
+
+### Amendment 2026-10-19 — Wave 9 batch 5: the three Claude Code guards run on the pin
+
+§5 rule 4. Wave 9 batch 5 ports the three Claude Code guards
+(`model-switch-guard.sh`, `pipe-status-guard.sh`,
+`subagent-clone-guard.sh`) to modules beside them, run on the pinned
+interpreter; each `.sh` stays the path settings register, a forwarder
+that fails closed with an ask when the pin or its module is missing
+or the run fails. So `model-switch-guard.sh` is
+no longer among the hooks that keep the host's `python3`. Their bash
+tests are retired for the Python oracles of #320, which ran unchanged
+against both.
+
+### Amendment 2026-10-19 — Wave 9 batches 4, 6 and 9: the git hooks, the fallback note and the host check run on the pin
+
+§5 rule 4. Batch 4 makes the git hooks one module,
+`tools/fabric/guards/commit_hooks.py`: `pre-commit`, `commit-msg` and
+`post-commit` are forwarders to it on the pin (the first two refuse the
+commit when the pin is missing, `post-commit` never fails one), and
+`guarded-change.sh` and `locale-carve-out.sh` stay as rule 4's sourced
+shims, because their oracles source them by path. Batch 6 makes
+`model-fallback-note.sh` a forwarder to `model_fallback_note.py`, batch
+9 gzapp's `host-check.sh` a forwarder to `host_check.py` beside it, which
+the provisioning worker runs on the pin. `pre-push` keeps the host's
+`python3`: its oracle pins that, as the hook is installed in every
+account's checkouts, and moving it is its own decision.

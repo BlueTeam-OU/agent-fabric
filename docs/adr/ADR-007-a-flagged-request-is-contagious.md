@@ -84,7 +84,7 @@ without anyone having to judge content they cannot see.
 Not measured: a safeguard flag cannot be provoked on purpose, so the hook
 firing with `source: "auto"` rests on the documentation and the recorded
 transcript event, not a live read-back. The hook's behaviour on that input
-is tested (`runtime/claude-code/hooks/test_model-fallback-note.sh`); the
+is tested (`tests/test_model_fallback_note_cli.py`); the
 first real fallback under it is the read-back, and its session's report
 should say what it saw.
 
@@ -96,7 +96,7 @@ first real fallback.
 ## References
 
 - `runtime/claude-code/hooks/model-fallback-note.sh`,
-  `runtime/claude-code/hooks/test_model-fallback-note.sh`,
+  `tools/fabric/model_fallback_note.py`, `tests/test_model_fallback_note_cli.py`,
   `runtime/claude-code/workspace/settings.json`.
 - `tools/fabric/gzcoord/send.py`; `bin/fabric-status`.
 - `communication/gzcoord/skills/gzcoord-send/SKILL.md`,

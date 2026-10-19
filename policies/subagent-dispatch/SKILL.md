@@ -306,7 +306,8 @@ in; it can only report. The main session, a fork and an unknown type
 are untouched; whether a Workflow-spawned agent's tool calls carry the
 `agent_id` / `agent_type` / `cwd` fields the guard reads has not been
 observed live, and absent fields allow — it fails open there, not
-closed. Tested by `test_subagent-clone-guard.sh`.
+closed. Its decision is `subagent-clone-guard.py` beside it; tested by
+`tests/test_subagent_clone_guard.py`.
 
 ## Isolation — what an agent actually sees
 

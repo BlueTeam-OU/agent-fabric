@@ -134,9 +134,11 @@ serve as the parity oracle for each port, unchanged.
    its caller. Every entry point the fabric installs (`bin/`, the
    `policies/` checks a person or a hook runs, `fabric-secrets`) runs it.
    These keep the host's `python3`:
-   - the hooks not yet ported — the git hooks and the Claude Code hooks
-     (`session-start.sh`, `model-switch-guard.sh`, `self-kill-guard.py`) —
-     whose port moves them to the pin in Wave 9 (A 2026-10-11); the launcher, account creation and bootstrap
+   - the hooks not yet ported — the git hooks' `pre-push` and the Claude
+     Code hooks (`session-start.sh`, `self-kill-guard.py`) — whose port
+     moves them to the pin in Wave 9 (A 2026-10-11), as it moved the three
+     guards of batch 5 (A 2026-10-19) and `pre-commit`, `commit-msg`,
+     `post-commit`, the fallback note and gzapp's host check (A 2026-10-19); the launcher, account creation and bootstrap
      have moved, and bootstrap's helpers under `runtime/` run on the pin
      with it, but for step 7's language-detector venv, which is made with
      the host's `python3`;
@@ -413,3 +415,5 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-19 | Wave 10: build-glyphs exempt; validate.js joins the wave | §5 rule 10: a `.js` script of ours may join the wave, and one to be updated or fixed is ported instead; §7's Wave 10 table: `build-glyphs.mjs` exempt, `validate.js` and its two tests ported |
 | 2026-10-19 | the provisioning entries are their modules | §5 rules 1 and 7: `new_agent.py` and `store_enroll.py` are the entries, re-exec under the pin or print its install command; `new-agent.sh` and `store-enroll.sh` retire by the shim steps |
 | 2026-10-19 | a forwarder checks the pin before the module reads anything | §5 rule 5: the fourth departure covers any input the bash read before it needed Python, not only a verb |
+| 2026-10-19 | Wave 9 batch 5: the three Claude Code guards run on the pin | §5 rule 4: `model-switch-guard.sh` leaves the host-`python3` list; it, `pipe-status-guard.sh` and `subagent-clone-guard.sh` are fail-closed forwarders to modules on the pin |
+| 2026-10-19 | Wave 9 batches 4, 6 and 9: the git hooks, the fallback note and the host check run on the pin | §5 rule 4: of the git hooks only `pre-push` keeps the host's `python3`; `pre-commit`, `commit-msg`, `post-commit`, `model-fallback-note.sh` and gzapp's `host-check.sh` are forwarders to modules on the pin |

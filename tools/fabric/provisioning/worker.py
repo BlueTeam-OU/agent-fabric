@@ -388,11 +388,14 @@ def finish(w: Worker) -> int:
     a = w.a
     w.settle_home()
     for pid in a.projects:
+        # A Python probe (ADR-040) is run with the pin; a project that still has a script gets it run by bash.
+        py_check = roots.project_integration(pid, "provisioning", "host_check.py", engine=w.root)
         check = roots.project_integration(pid, "provisioning", "host-check.sh", engine=w.root)
-        if os.access(check, os.X_OK):
+        argv = [PY, "-I", py_check] if os.path.isfile(py_check) else ["bash", check]
+        if os.access(argv[-1], os.R_OK if argv[0] == PY else os.X_OK):
             # A probe: its output is shown indented, its status is ignored, and it never ends the run.
             try:
-                got = subprocess.run(["bash", check], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                got = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                      timeout=PROBE_TIMEOUT_S, stdin=subprocess.DEVNULL)
             except (OSError, subprocess.TimeoutExpired) as e:
                 _log(f"   {pid}: host-check did not run to its end ({type(e).__name__})\n")

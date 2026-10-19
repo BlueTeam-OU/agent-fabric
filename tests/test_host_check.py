@@ -128,6 +128,16 @@ class HostCheck(unittest.TestCase):
             self.assertTrue(line.startswith(f"{PREFIX}gpg wrapper: MISSING — commit signing needs it"), line)
             self.assertIn("devex-tooling installs it (infra/signing/install-shim.sh)", line)
 
+    def test_run_by_its_bare_name_from_its_own_directory(self) -> None:
+        # mutation: the forwarder's `here=.` fallback dropped, so `bash host-check.sh` looked for
+        # host-check.sh/host_check.py (#329 F4)
+        self.fake("podman", "magick")
+        env = {"PATH": self.bin, "HOME": self.bin, "LANG": "C.UTF-8"}
+        p = subprocess.run([self.bash, os.path.basename(HOST_CHECK)], capture_output=True, text=True, env=env,
+                           cwd=os.path.dirname(HOST_CHECK), stdin=subprocess.DEVNULL, timeout=TIMEOUT_S, check=False)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("Not a directory", p.stderr)
+
     def test_probe_is_executable_for_the_worker(self) -> None:
         # worker.py runs the probe only if os.access(X_OK): a lost mode bit is
         # a silently skipped check on every provisioned host.
