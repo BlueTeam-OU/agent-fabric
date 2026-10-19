@@ -1168,6 +1168,91 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             time.sleep(0.2)
             check("SIGTERM to the installer ends the cargo build with it, at once (the build's leader runs 30 s, its child 300 s)",
                   stopped and time.monotonic() - t0 < 15 and not alive(os.path.join(home, "cargo-child.pid")), (stopped, time.monotonic() - t0))
+
+            print("rustup-target pin — rustup target add, proved by the list")
+            TGT = {"kind": "rustup-target", "toolchain": "1.98.1", "target": "aarch64-linux-android"}
+            # The decoy is a longer name that contains the target: a substring test would find it.
+            RUSTUP_FAKE = """#!/bin/sh
+case "$1 $2" in
+"target add")
+  { printf '%s\\n' "$0" "$@"; env | sort; } >> "$HOME/target.record"
+  [ -e "$HOME/.fake-add-fails" ] && { echo "error: toolchain '$5' is not installed" >&2; exit 1; }
+  [ -e "$HOME/.fake-add-sleeps" ] && { sleep 300 & echo $! > "$HOME/target-child.pid"; sleep 30; }
+  [ -e "$HOME/.fake-add-silent" ] || echo "$3" >> "$HOME/.targets" ;;
+"target list")
+  echo x86_64-unknown-linux-gnu; echo aarch64-linux-androideabi
+  cat "$HOME/.targets" 2>/dev/null ;;
+esac
+"""
+
+            def target_entry(**over: object) -> dict:
+                pin_ = {**TGT, **over}
+                return {"name": "rust-std-aarch64-linux-android", "proof": tools_install.target_proof(TGT), "why": "t",
+                        "where": "account", "install": {k: v for k, v in pin_.items() if v is not None}}
+
+            def with_rustup(home: str) -> None:
+                bin_ = os.path.join(home, ".cargo", "bin")
+                os.makedirs(bin_, exist_ok=True)
+                with open(os.path.join(bin_, "rustup"), "w") as fh:
+                    fh.write(RUSTUP_FAKE)
+                os.chmod(os.path.join(bin_, "rustup"), 0o755)
+
+            T = "rust-std-aarch64-linux-android"
+            home = account("pa")
+            r = run_tool(T, home, target_entry())
+            check("no rustup: failed, naming the rustup tool", r["status"] == "failed" and "tools-install rustup" in r["reason"], r)
+            with_rustup(home)
+            r = run_tool(T, home, target_entry())
+            rec = record(home, "target.record")
+            check("absent (a decoy name that contains it is listed): installed", r["status"] == "installed", r)
+            check("rustup ran as: rustup target add aarch64-linux-android --toolchain 1.98.1",
+                  rec[:5] == [os.path.join(home, ".cargo", "bin", "rustup"), "target", "add", "aarch64-linux-android", "--toolchain"]
+                  and rec[5] == "1.98.1", rec[:7])
+            check("...with the account's CARGO_HOME and RUSTUP_HOME and none of the session's",
+                  f"CARGO_HOME={home}/.cargo" in rec and f"RUSTUP_HOME={home}/.rustup" in rec and not any("hostile" in x for x in rec), rec)
+            args_ = [c for c in calls if c[0][0][1:3] == ["target", "add"]]
+            check("...an argument list and no shell", len(args_) == 1 and isinstance(args_[0][0][0], list) and not args_[0][1].get("shell"), args_)
+            again = run_tool(T, home, target_entry())
+            check("a second run is current and runs rustup target add no more", again["status"] == "current"
+                  and len([x for x in record(home, "target.record") if x == "add"]) == 1, again)
+            home = account("pa")
+            with_rustup(home)
+            flag(home, ".fake-add-fails")
+            r = run_tool(T, home, target_entry())
+            check("a failing rustup: failed with its last line", r["status"] == "failed" and "exited 1" in r["reason"] and "not installed" in r["reason"], r)
+            home = account("pa")
+            with_rustup(home)
+            flag(home, ".fake-add-silent")
+            r = run_tool(T, home, target_entry())
+            check("rustup exiting 0 without the target in the list is failed, not installed", r["status"] == "failed" and "not there" in r["reason"], r)
+            home = account("pa")
+            with_rustup(home)
+            r = run_tool(T, home, {**target_entry(), "proof": "rustup --version"})
+            check("a proof that is not the list is refused", r["status"] == "refused" and "target list --installed" in r["reason"], r)
+            home = account("pa")
+            with_rustup(home)
+            tools_install.RUN_TIMEOUT_S["rustup-target"] = 1
+            flag(home, ".fake-add-sleeps")
+            r = run_tool(T, home, target_entry())
+            tools_install.RUN_TIMEOUT_S.update(saved_bound)
+            time.sleep(0.2)
+            check("rustup past its bound is stopped with its children", r["status"] == "failed" and "did not finish within 1 s" in r["reason"]
+                  and not alive(os.path.join(home, "target-child.pid")), r)
+            for label, pin_ in (("a target with a space", {**TGT, "target": "x y-z"}),
+                                ("an option as the target", {**TGT, "target": "--toolchain-x-y"}),
+                                ("a target with a shell word", {**TGT, "target": "a-b-c;id"}),
+                                ("a target of one word", {**TGT, "target": "android"}),
+                                ("an uppercase target", {**TGT, "target": "Aarch64-linux-android"}),
+                                ("no target", {k: v for k, v in TGT.items() if k != "target"}),
+                                ("no toolchain", {k: v for k, v in TGT.items() if k != "toolchain"}),
+                                ("a floating toolchain", {**TGT, "toolchain": "stable"}),
+                                ("a toolchain option", {**TGT, "toolchain": "--force"}),
+                                ("an extra field", {**TGT, "args": ["--force"]}),
+                                ("a version field", {**TGT, "version": "1.0.0"})):
+                check(f"{label}: refused", tools_install.check_pin(pin_) is not None, pin_)
+            check("the pin as the registry carries it is acceptable (positive control)", tools_install.check_pin(TGT) is None, tools_install.check_pin(TGT))
+            check("a triple with three words and the Android eabi form are acceptable", all(
+                tools_install.check_pin({**TGT, "target": t}) is None for t in ("armv7-linux-androideabi", "x86_64-unknown-linux-gnu", "wasm32-wasip1-threads")))
         finally:
             tools_install.subprocess.Popen = real_popen
             tools_install.RUN_TIMEOUT_S.update(saved_bound)

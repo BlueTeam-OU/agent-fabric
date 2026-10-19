@@ -125,6 +125,45 @@ def main() -> int:
         finally:
             os.environ["PATH"] = saved_path
 
+    # A rustup-target pin: the proof exits 0 for a toolchain that lacks the target, so the list's lines decide.
+    with tempfile.TemporaryDirectory(prefix="test_tools_check.") as home:
+        bindir = os.path.join(home, "bin")
+        os.makedirs(bindir)
+        fake = os.path.join(bindir, "rustup")
+        with open(fake, "w") as fh:
+            fh.write('#!/bin/sh\necho x86_64-unknown-linux-gnu\necho aarch64-linux-androideabi\n'
+                     '[ -e "$HOME/.has-target" ] && echo aarch64-linux-android\n'
+                     '[ -e "$HOME/.list-fails" ] && { echo "error: toolchain is not installed" >&2; exit 1; }\nexit 0\n')
+        os.chmod(fake, 0o755)
+        tpin = {"kind": "rustup-target", "toolchain": "1.98.1", "target": "aarch64-linux-android"}
+        treg = {"projects": {"demo": {"tools": [{"name": "rust-std-android",
+                                                 "proof": "rustup target list --installed --toolchain 1.98.1",
+                                                 "version": "any", "why": "w", "where": "account", "install": tpin}]}}}
+        saved_path, saved_home = os.environ.get("PATH", ""), os.environ.get("HOME")
+        os.environ["PATH"], os.environ["HOME"] = f"{bindir}:{saved_path}", home
+        try:
+            row = tc.check(["demo"], None, treg, home=home)[0]
+            check("a target pin whose list exits 0 without the target (a decoy name is listed): missing, said",
+                  row["status"] == "missing" and "aarch64-linux-android is not installed for toolchain 1.98.1" in row["found"], row)
+            open(os.path.join(home, ".has-target"), "w").close()
+            row = tc.check(["demo"], None, treg, home=home)[0]
+            check("...the target listed: ok (positive control)", row["status"] == "ok" and row["found"] == "aarch64-linux-android for 1.98.1", row)
+            open(os.path.join(home, ".list-fails"), "w").close()
+            row = tc.check(["demo"], None, treg, home=home)[0]
+            check("...a list that fails (the toolchain is not installed) is failed, whatever it printed",
+                  row["status"] == "failed" and "exit 1" in row["found"], row)
+            os.unlink(os.path.join(home, ".list-fails"))
+            bad = {"projects": {"demo": {"tools": [{**treg["projects"]["demo"]["tools"][0],
+                                                    "install": {**tpin, "target": "x;y"}}]}}}
+            row = tc.check(["demo"], None, bad, home=home)[0]
+            check("...a pin naming no plain target proves nothing, though the list exits 0", row["status"] == "failed", row)
+        finally:
+            os.environ["PATH"] = saved_path
+            if saved_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = saved_home
+
     real = tc.registry
     tc.registry = lambda: REG
     try:

@@ -69,10 +69,17 @@ def prove(proof: str, env: dict[str, str] | None = None) -> tuple[str, str]:
     proving at once after a reboot) says nothing about the tool, and a session
     that read "failed" reported the tool missing. The status says to rerun the check; it is not a
     verdict on the tool (fabric-tools --install still treats any status but ok as absent)."""
+    status, said, _ = prove_output(proof, env)
+    return status, said
+
+
+def prove_output(proof: str, env: dict[str, str] | None = None) -> tuple[str, str, str]:
+    """prove(), and the proof's whole stdout as a third value ('' unless the status is ok): a proof that
+    must find a line in a list (a rustup target) cannot be judged from the first line."""
     try:
         argv = shlex.split(proof)
     except ValueError as e:
-        return "failed", f"proof is not a command line ({e})"
+        return "failed", f"proof is not a command line ({e})", ""
     # A proof that names a toolchain the account lacks (`cargo +1.98.1 ndk --version`) would make rustup
     # download it, and the bound below would kill that halfway: a toolchain directory with no manifest, which
     # then fails the install itself (found on the first live run of a cargo pin). Off, the proof just fails.
@@ -81,15 +88,34 @@ def prove(proof: str, env: dict[str, str] | None = None) -> tuple[str, str]:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=PROOF_TIMEOUT_S, stdin=subprocess.DEVNULL,
                            env=run_env)
     except FileNotFoundError:
-        return "missing", f"{argv[0]} not found"
+        return "missing", f"{argv[0]} not found", ""
     except subprocess.TimeoutExpired:
-        return "timeout", f"not answered in {PROOF_TIMEOUT_S} s, rerun fabric-tools"
+        return "timeout", f"not answered in {PROOF_TIMEOUT_S} s, rerun fabric-tools", ""
     except OSError as e:
-        return "failed", f"{argv[0]}: {e.strerror or e}"
+        return "failed", f"{argv[0]}: {e.strerror or e}", ""
     first = next((ln.strip() for ln in (r.stdout + "\n" + r.stderr).splitlines() if ln.strip()), "")
     if r.returncode != 0:
-        return "failed", f"exit {r.returncode}" + (f": {first[:120]}" if first else "")
-    return "ok", first[:120]
+        return "failed", f"exit {r.returncode}" + (f": {first[:120]}" if first else ""), ""
+    return "ok", first[:120], r.stdout
+
+
+def is_target_pin(tool: dict) -> bool:
+    pin = tool.get("install")
+    return tool.get("where") == "account" and isinstance(pin, dict) and pin.get("kind") == "rustup-target"
+
+
+def target_verdict(pin: dict, found: str, listing: str) -> tuple[str, str]:
+    """A rustup-target tool is there when its target is a line of the proof's output (`rustup target list
+    --installed --toolchain <t>`): the command exits 0 for a toolchain with no such target, so the exit
+    status alone would report an account that cannot build as complete. A pin that names no plain target
+    proves nothing, so it is not "ok" either."""
+    import tools_install  # here, not at the top: tools_install imports this module
+    bad = tools_install.check_pin(pin)
+    if bad:
+        return "failed", bad
+    if tools_install.target_listed(listing, pin["target"]):
+        return "ok", f"{pin['target']} for {pin['toolchain']}"
+    return "missing", f"{pin['target']} is not installed for toolchain {pin['toolchain']}"
 
 
 def tree_incomplete(tool: dict, home: str) -> bool:
@@ -113,7 +139,9 @@ def check(projects: list[str], role: str | None, reg: dict, home: str | None = N
             roles = tool.get("roles")
             if roles and role not in roles:
                 continue
-            status, found = prove(tool["proof"])
+            status, found, listing = prove_output(tool["proof"])
+            if status == "ok" and is_target_pin(tool):
+                status, found = target_verdict(tool["install"], found, listing)
             if status == "ok" and tree_incomplete(tool, home):
                 status = "incomplete"
                 found = (f"{found} — ~/.local/bin/{tool['name']} is not the pinned tree; "
