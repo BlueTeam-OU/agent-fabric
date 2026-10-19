@@ -4,7 +4,7 @@ model pin, no effort pin and no provider routing (Wave 9 batch 3; ADR-040 rule 5
 today and against its Python port later: the entry point is ONE constant, ENTRY (the path a harness or CI invokes; override
 with MODEL_PINS_CHECK_ENTRY), run as a command, never sourced.
 
-The bash oracle policies/test_check_repo_settings_carry_no_model_pins.sh, case for case (each is a method here):
+The bash oracle policies/test_check_repo_settings_carry_no_model_pins.sh (deleted, Wave 9 batch 3), case for case (each is a method here):
   clean_file_passes                          "a clean file passes": exit 0
   each_pin_shape_is_caught                   "each pin shape is caught": the ten shapes of its list, each non-zero
   unparseable_json_fails                     "unparseable JSON fails loudly": non-zero

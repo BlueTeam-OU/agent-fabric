@@ -63,8 +63,6 @@ AUTHORITY_BASE = {"AGENT_FABRIC_CHARTER_BASE": "origin/main"}
 BASH_SUITES: list[tuple[str, dict[str, str], list[str]]] = [
     (".agent-fabric/ authority (this branch)", AUTHORITY_BASE, [PY, "tools/fabric/guards/agent_fabric_dir_authority.py"]),
     ("charter authority (this branch)", AUTHORITY_BASE, [PY, "tools/fabric/guards/charter_authority.py", "{root}"]),
-    (".agent-fabric/ authority guard", {}, [PY, "tools/fabric/github/run_suite.py", "policies/test_check_agent_fabric_dir_authority.sh"]),
-    ("no-model-pins guard", {}, [PY, "tools/fabric/github/run_suite.py", "policies/test_check_repo_settings_carry_no_model_pins.sh"]),
     ("actions pinned by SHA (this tree)", {}, [PY, "policies/check_actions_pinned_by_sha.py"]),
     ("attribution (this branch)", {"AGENT_FABRIC_ATTRIBUTION_BASE": "origin/main"}, [PY, "tools/fabric/guards/ban_generated_by_attribution.py"]),
     ("signatures (this branch)", {"AGENT_FABRIC_SIGNATURES_BASE": "origin/main"}, [PY, "tools/fabric/guards/ban_unsigned_commits.py"]),
