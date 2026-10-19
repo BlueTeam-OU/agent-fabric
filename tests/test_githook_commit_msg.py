@@ -14,13 +14,13 @@ file untouched when refused, the check running before everything else); the refu
 naming the held role and the owner; the owner role READ from authority.json and defaulting to fabric-coordinator when the file is missing or
 unreadable; the typed-trailer mismatch message and "the last trailer wins"; the Fabric-Role trailer written after Kind:, not doubled, not
 written when no role is held, not written over an existing one in any case (an indented one folds into the previous trailer's value in git, so the Kind rule refuses it first); the locale carve-out's login test; the contributor carve-out's
-three outcomes; a missing argument.
+three outcomes; a missing argument; a hook reached through a symlink finds the fabric from its real path.
 
 Mutations each case fails on (planted on the hook as formatted): `grep -v '^#'` to `cat` (comment lines); `TRAILER_RE` anchored without the
 leading whitespace (indented trailer); `tr '\n\r' '  '` to `tr -d '\n\r'` (a footer split over lines); reading the owner role from a constant
 (authority.json); the comparison `"$typed" != "$role"` to `!=` on lower-case (mismatch); the `git interpret-trailers --in-place` call replaced by `true` (the trailer is written); `grep -qiE`
 to `grep -qE` (an existing trailer in another case); `contributor=$?` dropped (contributor carve-out); the banned check moved after the guard
-(order)."""
+(order); the inner `readlink -f` dropped from `FABRIC_ROOT=` (a hook reached through a symlink)."""
 from __future__ import annotations
 
 import os
@@ -132,6 +132,24 @@ class BannedAttribution(Hook):
 
 
 class GuardedChange(Hook):
+    def test_a_hook_reached_through_a_symlink_finds_the_fabric_from_its_real_path(self):
+        # core.hooksPath may name a directory of links; the owner named in authority.json proves which root the hook resolved.
+        fabric = Fabric(owner_role="owner-by-file")
+        self.addCleanup(fabric.cleanup)
+        repo = fabric.project()
+        links = os.path.join(fabric.root, "links")
+        os.makedirs(links)
+        for name in os.listdir(fabric.hooks):
+            os.symlink(os.path.join(fabric.hooks, name), os.path.join(links, name))
+        repo.stage(".agent-fabric/memory/backend-dev/workflow.md")
+        fabric.bind("backend-dev")
+        msg = os.path.join(fabric.root, "LINKMSG")
+        with open(msg, "w", encoding="utf-8") as fh:
+            fh.write("subject" + KIND)
+        r = subprocess.run([os.path.join(links, "commit-msg"), msg], cwd=repo.path, capture_output=True, text=True, timeout=120, env=fabric.env())
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not owner-by-file", r.stderr)
+
     def test_an_unbound_session_is_refused_naming_no_role_and_the_owner(self):
         self.stage_guarded()
         r, after = self.run_hook("subject" + KIND)
