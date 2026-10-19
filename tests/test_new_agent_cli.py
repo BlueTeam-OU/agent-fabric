@@ -668,7 +668,7 @@ def main() -> int:
                 if not _want(group):
                     continue
                 print(f"new-agent: failed steps, then the re-run, on the {backend} backend ({half + 1}/2)")
-                for fault_name in fault_names[half * 5:half * 5 + 5]:
+                for fault_name in (fault_names[:len(fault_names) // 2], fault_names[len(fault_names) // 2:])[half]:
                     reset_seq()
                     put(fault, fault_name + "\n")
                     rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")

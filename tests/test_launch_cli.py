@@ -564,6 +564,7 @@ def main() -> int:
                   has(r"CLAUDE-ENV:ANTHROPIC_DEFAULT_OPUS_MODEL=$", out), grep("OPUS", out))
         if _want(10):
             # the middle of the effort section, from its fifth fabric (it starts with a fresh fabric, as every part of it does): its own group, so the wall time is not group 4's whole
+            print("launch: the session's effort, continued — plain claude's exec, environment and pins")
             put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
             mkfabric()
             out = out_of("--provider=anthropic", "--version")
@@ -814,6 +815,7 @@ print("a" * 40, "b" * 40)
             check("profile stamped on vanilla too", f"CLAUDE-ENV:AGENT_FABRIC_LAUNCH_PROFILE=backend-dev/{LOGIN}" in out, out)
         if _want(11):
             # the rest of the effort section, from its sixth fabric: its own group, so the wall time is not group 4's whole
+            print("launch: the session's effort, continued — the last cases")
             put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
             mkfabric()
             rm(f"{agent_dir}/binding.json")
