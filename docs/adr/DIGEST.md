@@ -1300,3 +1300,27 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-18 — no suffix fallback (§5 rule 8).
 - Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
   holder.json, locale, parent-signed, holders_specialize.
+
+### ADR-061 — Errors are measured per actor and per kind, the same for people and agents (Proposed)
+
+- Errors are counted per actor and per kind from artifacts only, with one
+  set of definitions for people and agents (§2, §5 rules 1-3).
+- An actor is the head branch's login, a folded range's contributor, the
+  reviewing engine for a finding judged not real; after an ADR-057
+  cut-over, the commit's signer; else unattributed, never guessed (§2,
+  §5 rule 3).
+- Kinds: review findings by level (answered, judged not real, unjudged),
+  red checks per head pushed (flaky apart), reverts and fixes forward per
+  PR merged in a fourteen-day window; every count beside its denominator
+  (§2, §5 rule 4).
+- A rule that treats one actor class differently names the counts that
+  justify it, or goes to the owner to be made the same for all (§5
+  rule 5).
+- Never a target, a ranking or one score per actor, never a reason to
+  assign or withhold work, resources, a role or a login; corrected at the
+  source for every holder (§5 rules 6-7).
+- Reader `fabric-errors` (`tools/fabric/errors.py`), a section of
+  `fabric-fleet`; not built yet (§5 rule 8). Waits on the owner's
+  acceptance (§8).
+- Keywords: errors, trust, actor, people, agents, review findings, red
+  check, flaky, revert, fix forward, attribution, fabric-errors, proposed.

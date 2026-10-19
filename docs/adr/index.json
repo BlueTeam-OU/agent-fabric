@@ -549,6 +549,15 @@
       "date": "2026-10-17",
       "pillar": "P1",
       "amendments": 4
+    },
+    {
+      "number": "061",
+      "file": "ADR-061-errors-measured-per-actor.md",
+      "title": "Errors are measured per actor and per kind, the same for people and agents",
+      "status": "Proposed",
+      "date": "2026-10-19",
+      "pillar": "P3",
+      "amendments": 0
     }
   ]
 }
