@@ -27,6 +27,7 @@ import sys
 import tempfile
 import time
 
+sys.dont_write_bytecode = True   # plan_hold beside it leaves no __pycache__ in the tree on each fire (review of #329, F7)
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import plan_hold  # noqa: E402 — the marker directory, sweep and liveness rules are the plan-hold marker's: one implementation
 

@@ -103,6 +103,12 @@ class Direct(unittest.TestCase):
         self.assertTrue(ch._banned_attribution("x\n\nGenerated with\u2003[Claude Code](https://x)\n"))
         self.assertFalse(ch._banned_attribution("x\n\nKind: work\n"))
 
+    def test_the_role_stamp_sees_a_trailer_where_grep_space_did_and_only_there(self):
+        # mutation: the ban's wider class used for the stamp, so an NBSP-led line skipped the stamp the bash wrote (#329 r2)
+        self.assertTrue(ch.FABRIC_ROLE_RE.match("\u2003Fabric-Role: x"))
+        for lead in ("\u00a0", "\u2007", "\u202f", "\x1c", "\x85"):
+            self.assertFalse(ch.FABRIC_ROLE_RE.match(lead + "Fabric-Role: x"), repr(lead))
+
     def test_a_locale_path_is_the_whole_path(self):
         ok = "identities/roles/language-culture/locale/ge/a.md"
         self.assertEqual(ch.locale_role([ok]), ("language-culture", "ge"))

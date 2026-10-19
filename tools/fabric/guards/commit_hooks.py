@@ -61,7 +61,11 @@ LOCALE_PATH = re.compile(r"identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([
 # an em space at the keyboard while CI refused it (review of #329, F2).
 TRAILER_RE = re.compile(r"^[^\S\n]*(Co-authored-by|Claude-Session):", re.I)
 FOOTER_RE = re.compile(r"Generated with\s+\[Claude Code|claude\.ai/code/session_", re.I)
-FABRIC_ROLE_RE = re.compile(r"^[^\S\n]*Fabric-Role:", re.I)
+# The stamp's question is the bash's exactly: wider here is not stricter, it skips the stamp on a line git does not read
+# as a trailer (an NBSP before it). glibc's [[:space:]] under C.UTF-8, measured with grep on 2026-10-19: it leaves out
+# U+001C-001F, U+0085, U+00A0, U+2007 and U+202F (review of #329, round 2).
+GREP_SPACE = "\t\v\f\r \u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000"
+FABRIC_ROLE_RE = re.compile(rf"^[{GREP_SPACE}]*Fabric-Role:", re.I)
 HEX_TREE = re.compile(r"[0-9a-f]{40,64}")
 ADR_CHECK_TIMEOUT_S = 600
 SHORT_TIMEOUT_S = 30
