@@ -410,6 +410,9 @@ def main() -> int:
               all(rc == 2 and "this clone's origin is not testorg/testrepo on github.com" in out
                   and "feat/parked" not in out and "in flight on" not in out for rc, out in rcs),
               "\n".join(f"rc={rc}\n{out}" for rc, out in rcs))
+        rc, out = run("--help")
+        check("…and the help says so, beside --repo (review F3 on #304)",
+              rc == 0 and "--in-flight/--overlap refuse outside one, exit 2" in out, f"rc={rc}\n{out}")
         route(f"{sandbox}/nowhere.git")
         rc, out = run("--in-flight", "--json")
         route(origin)
