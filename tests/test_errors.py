@@ -115,6 +115,8 @@ def main() -> int:
           sum(1 for e in ev if e["kind"] == "head") == 2 and h["carol"]["role"] == "web-dev" and h["carol"]["class"] == "agent", ev)
     check("a revert of a folded commit is its contributor's; the review stays with the head ref's login",
           [e["actor"] for e in ev if e["kind"] == "revert"] == ["carol"] and [e["actor"] for e in ev if e["kind"] == "review"] == ["alice"], ev)
+    one = [commit("b1"), commit("m", f"Merge branch '{H}/carol/for/alice/thing'", parents=("b1",))]
+    check("a fold-looking headline on a commit with one parent attributes nothing", errors.fold_logins(one, HOSTS) == {}, "")
     ev = run(pr(commits=[commit("c1", role=""), commit("c2", parents=("c1",), role="")]))
     check("no Fabric-Role trailer: class person, no role invented", ev[0]["class"] == "person" and ev[0]["role"] == "-", ev[0])
 
