@@ -231,3 +231,15 @@ of it. A `bin/` command was not chosen, since every `bin/` entry is
 itself a bash forwarder. python-dev-03 built it (#315); the old paths
 say on stderr what replaces them for one release and are then deleted,
 as rule 7's shim steps say.
+
+### Amendment 2026-10-19 — a forwarder checks the pin before the module reads anything
+
+§5 rule 5's fourth departure. Porting
+`policies/check_repo_settings_carry_no_model_pins.sh` (Wave 9 batch 3),
+the oracle's case "the python is asked for only once the file exists"
+failed against the forwarder: the bash ran Python only when a settings
+file was there, so a host without the pin and without the file exited 0,
+while a forwarder of rule 1 checks the pin first and exits 127. That is
+the departure the rule already allowed for an unknown verb, met through
+a file instead; the rule now names any input, so each later port meets
+it as a cited case instead of a fresh decision.

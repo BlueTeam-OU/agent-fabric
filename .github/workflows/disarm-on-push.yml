@@ -8,8 +8,16 @@ name: disarm-on-push
 # arming is done again on the new head, through fabric-pr arm, once it is
 # reviewed. Seen live on #134 (2026-10-09): a conflict merge with new
 # code sat armed until it was disarmed by hand.
+#
+# pull_request_target, not pull_request: for pull_request GitHub runs the
+# PR's own copy of this file, so a push that edits, deletes or breaks it
+# would leave its own arming in place. pull_request_target runs main's
+# copy. That is safe here only because nothing of the pull request is
+# checked out or run: the job reads the event's numbers and calls the API.
+# Keep it so; a checkout of the head under this trigger would run a
+# stranger's code with a write token.
 on:
-  pull_request:
+  pull_request_target:
     types: [synchronize]
 
 # Auto-merge is a write to the pull request's merge, so the token needs
@@ -27,10 +35,11 @@ concurrency:
 
 jobs:
   disarm:
-    # A fork's pull request, and a push by Dependabot, run with a read-only
-    # token: the job is skipped there, never red. A Dependabot pull request
-    # is skipped whoever pushes to it: Dependabot's own action-pin bumps are
-    # merged by the coordinator, not armed through the gate (ADR-018).
+    # A fork's pull request is skipped: GitHub itself takes auto-merge off
+    # after a push from someone without write access, and nothing of a fork
+    # is armed through the gate. A Dependabot pull request is skipped whoever
+    # pushes to it: Dependabot's own action-pin bumps are merged by the
+    # coordinator, not armed through the gate (ADR-018).
     if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
