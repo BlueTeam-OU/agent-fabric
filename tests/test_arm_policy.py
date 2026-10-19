@@ -1026,6 +1026,13 @@ class ArmRun(unittest.TestCase):
         rc, _ = self.run_arm(claude_only({"commits": {"min": 1, "boundary_authority": "architect-cto"}}), 3,
                              files=("policies/x.json",), extra=("--dry-run",))
         self.assertIn("arms only on the owner's word", str(rc), "without --authorization the owner's word is still asked")
+        # mutation: the refusal names the owner alone where the policy names a role that may give the word too
+        self.assertIn("arms only on the owner's word or architect-cto's", str(rc))
+
+    def test_a_refusal_names_the_owner_alone_where_the_policy_names_no_authority(self):
+        # mutation: the role's name printed whatever the policy says (an empty "or 's")
+        rc, _ = self.run_arm(claude_only({"commits": {"min": 8}}), 3, extra=("--dry-run",))
+        self.assertIn("under 8 arms only on the owner's word, unless", str(rc))
 
     def test_authorization_needs_its_reference(self):
         policy = claude_only()

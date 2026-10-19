@@ -243,7 +243,8 @@ What it refuses, in order, and why:
      the repository over it; one that cannot be read is exit 2): 8 or more arms at the
      review gate; over 16 is ADVICE for the next batch, never a refusal; under
      8 is armed on the owner's word — the --basis must carry the phrase
-     "owner's word" — EXCEPT a class the project's arm.json lets arm at
+     "owner's word" — or, where the policy names commits.below_min_authority,
+     that role's (THE WORD OF A ROLE UNDER THE MINIMUM above) — EXCEPT a class the project's arm.json lets arm at
      the gate (none, in a project that declares none; a class arms at its own
      minimum, one for the older form, and under it only on the owner's word), STATED in the PR body
      ("Class: <class>") and confirmed by the changed files; a stated
@@ -981,15 +982,18 @@ def arm(argv: list[str]) -> int:
         say(f"no authorization is needed: the authorization {authorization} is not read, and not recorded")
     word = has_owner_word(basis) or bool(authorized_by)
     hint = lift_hint(authority, authority_key, repo, num, head, session, author, own_prs) if under and not word else ""
+    # Who may give the word, as the policy has it: a refusal that names the owner alone, where a role may lift it too,
+    # teaches the narrower route (review of #323).
+    or_role = f" or {authority}'s" if authority else ""
     if under and boundary_unwaived and not word:
-        raise refuse(f"{work} work commits — a security-boundary change under {floor} arms only on the owner's word as well"
+        raise refuse(f"{work} work commits — a security-boundary change under {floor} arms only on the owner's word{or_role} as well"
                      f" as the review, whatever class is stated; the basis does not carry the phrase \"owner's word\" — {hint}")
     if under and cls and not word:
-        raise refuse(f"{work} work commits — the class {cls} arms at {floor} or more; under that only on the owner's word,"
+        raise refuse(f"{work} work commits — the class {cls} arms at {floor} or more; under that only on the owner's word{or_role},"
                      f" and the basis does not carry the phrase \"owner's word\" — {hint}")
     if under and not cls and not word:
         gate_classes = " / ".join(f"Class: {c}" for c in classes) or "none in this project"
-        raise refuse(f"{work} work commits — under {floor} arms only on the owner's word, unless the body states a class"
+        raise refuse(f"{work} work commits — under {floor} arms only on the owner's word{or_role}, unless the body states a class"
                      f" that arms at the gate ({gate_classes}) and the files agree; the basis does not carry the"
                      f" phrase \"owner's word\" and no class is stated — {hint}")
     # The role's minimum decided it only where it is below the repository's and nothing more specific stands.
