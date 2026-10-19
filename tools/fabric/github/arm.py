@@ -24,7 +24,9 @@ nothing wrote a false record.
             project's), AGENT_FABRIC_GZCOORD_INBOX (the inbox, run as a
             program: <it> --replay <id> --json), AGENT_FABRIC_CTL
             (fabric-ctl, run as a program: <it> <login> presence
-            --json), AGENT_FABRIC_ROOT
+            --json), AGENT_FABRIC_WHOAMI (fabric-whoami, run as a
+            program: <it> --json; the role of this session by its
+            binding), AGENT_FABRIC_ROOT
   stdout    `arm: ` lines — what each gate found, and the watcher line
             (none for a PR that merged on the arming)
   stderr    `arm: REFUSED #N — <why>` on a refusal; `arm: <why>` when a
@@ -35,7 +37,8 @@ nothing wrote a false record.
             --dry-run, would arm); on a
             direct repository only merged; 1 refused — the
             reason is the last line; 2 gh / pr-gate / pr-review-status /
-            the project's arm.json / the relay / fabric-ctl could not
+            the project's arm.json / the relay / fabric-ctl / fabric-whoami
+            / the role catalogue could not
             answer, the read-back is idle with the head not in the base,
             closed or on another head (on a direct repository, anything
             but merged), or usage
@@ -269,12 +272,12 @@ Options:
 Exit codes:
   0  armed or merged (or, with --dry-run, would arm)
   1  refused — the reason is the last line
-  2  gh / pr-gate / pr-review-status / arm.json / the relay / fabric-ctl
-     could not answer, or usage
+  2  gh / pr-gate / pr-review-status / arm.json / the relay / fabric-ctl /
+     fabric-whoami / the role catalogue could not answer, or usage
 
 Environment: AGENT_FABRIC_PR_GATE, AGENT_FABRIC_PR_REVIEW_STATUS,
 AGENT_FABRIC_PR_SESSION, AGENT_FABRIC_ARM_CONFIG,
-AGENT_FABRIC_GZCOORD_INBOX, AGENT_FABRIC_CTL."""
+AGENT_FABRIC_GZCOORD_INBOX, AGENT_FABRIC_CTL, AGENT_FABRIC_WHOAMI."""
 
 
 def say(msg: str) -> None:
@@ -401,7 +404,9 @@ def session_role(session: str) -> str:
 
 
 def author_of(branch: str) -> str:
-    """The login a pull request's branch is named for (<host>/<login>/<what>), or "" when it is not so named."""
+    """The login a pull request's branch is named for (<host>/<login>/<what>), or "" when it is not so named. It is
+    the only evidence of authorship there is: every account commits under one git author and one GitHub login, so a
+    session that names its own branch for another login is believed, here as in the --authorization path."""
     m = re.fullmatch(r"[a-z0-9._-]+/([a-z0-9._-]+)/.+", branch)
     return m.group(1) if m else ""
 

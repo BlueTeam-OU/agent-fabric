@@ -1442,6 +1442,14 @@ class ArmRun(unittest.TestCase):
             self.assertEqual(self.reads[0][1], ["--json"])
         self.assertIn("Boundary count gate lifted by me", out)
 
+    def test_a_policy_with_only_boundary_authority_lets_its_holder_arm_a_boundary_change_by_the_binding_and_nothing_else(self):
+        policy = claude_only({"commits": {"min": 8, "boundary_authority": "architect-cto"}})
+        common = dict(extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x", basis="architect-cto's word")
+        rc, out = self.run_arm(policy, 3, files=self.BOUNDARY, **common)
+        self.assertEqual(rc, 0, out)
+        rc, _ = self.run_arm(policy, 3, files=("docs/a.md",), **common)
+        self.assertTrue(str(rc).startswith("refused"), rc)
+
     def test_the_binding_is_what_counts_not_the_basis_or_a_message(self):
         for label, who in (("another role", whoami_of(role="web-dev")), ("no role", whoami_of(role=None))):
             rc, _ = self.below(basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=who, branch="h/dev/feat/x")
