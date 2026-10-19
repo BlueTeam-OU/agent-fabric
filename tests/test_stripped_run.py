@@ -185,6 +185,8 @@ def main() -> int:
         rc, so, se = main_with(f"{fixture} j98\n", live, fixture)
         check("main: the list is read from where --skip-list names it, files after it: the unlisted red and the listed green both fail",
               rc == 1 and f"{live}: FAILED (exit 1)" in so and "but it passes" in so, (rc, so, se))
+        with open(os.path.join(private, "skip.txt"), "w", encoding="utf-8") as fh:
+            fh.write(f"{live} j99\n")
         args_after = [tree, live, "--skip-list", os.path.join(private, "skip.txt")]
         out_, saved_out = io.StringIO(), sys.stdout
         sys.stdout = out_
@@ -192,13 +194,15 @@ def main() -> int:
             rc = stripped_run.main(args_after)
         finally:
             sys.stdout = saved_out
-        check("main: --skip-list after a file is read the same", rc == 1 and f"{live}: FAILED (exit 1)" in out_.getvalue(), (rc, out_.getvalue()))
+        check("main: --skip-list after a file is read the same: the list there clears the red file",
+              rc == 0 and out_.getvalue() == f"{live}: red, listed — j99\n", (rc, out_.getvalue()))
         rc, so, se = main_with(f"{live} j99\n", fixture)
         check("main: a listed file the run was not asked to run is not checked: exit 0", rc == 0 and so == f"{fixture}: ok\n", (rc, so, se))
         for label, listing, needle in (
                 ("a line with no job or reason", f"{live}\n", "no job or reason"),
                 ("a path listed twice", f"{live} j1\n{live} j2\n", "listed twice"),
-                ("a path that is no file in the tree", "tests/test_gone.py j1\n", "test_gone.py"),
+                ("a path that is no file in the tree", "tests/test_gone.py j1\n", "skip.txt:1: not a file"),
+                ("a tab-separated line is split at the tab, not read as a path", f"{live}\tj1\n{live}\tj2\n", "listed twice"),
                 ("a path outside the tree", "../marks/grandchild j1\n", "../marks/grandchild")):
             rc, so, se = main_with(listing, fixture)
             check(f"main: {label} is exit 2, said, nothing run", rc == 2 and needle in se and so == "", (rc, so, se))

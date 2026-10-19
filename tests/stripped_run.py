@@ -108,10 +108,14 @@ def read_skip_list(top: str, path: str) -> dict[str, str]:
     for n, line in enumerate(lines, 1):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        name, _, reason = line.strip().partition(" ")
+        parts = line.split(None, 1)
+        name, reason = parts[0], (parts[1] if len(parts) > 1 else "")
         if not reason.strip():
             raise NotRunnable(f"{path}:{n}: {name} has no job or reason")
-        rel = in_tree(top, name)
+        try:
+            rel = in_tree(top, name)
+        except NotRunnable as e:
+            raise NotRunnable(f"{path}:{n}: {e}") from e
         if rel in skip:
             raise NotRunnable(f"{path}:{n}: {rel} is listed twice")
         if rel in KNOWN_RED:
