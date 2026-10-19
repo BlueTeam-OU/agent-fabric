@@ -28,13 +28,16 @@ CONTRACT:
   stderr    nothing of its own; the children's output is discarded.
   exit      0 done, present or dry run; 1 a said failure (venv, install,
             import check, an unusable target). Never a traceback.
-  files     the target directory is created 0700 (and chmod'ed 0700 when it
-            exists); a dry run creates and removes nothing.
+  files     on the install branch the target directory is created, or
+            chmod'ed, to 0700; a venv already importing pycld2 leaves it as
+            it is; a dry run creates and removes nothing.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import signal
 import subprocess
 import sys
 
@@ -53,11 +56,20 @@ def say(line: str) -> None:
 
 def quiet(argv: list[str], timeout: int) -> bool:
     """True when argv ran and exited 0. A missing command, a timeout and a
-    non-zero exit are all "no": the caller says one failure line for each."""
+    non-zero exit are all "no": the caller says one failure line for each.
+    The child leads its own process group so a timeout takes pip's compiler
+    children with it, not only pip."""
     try:
-        return subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, timeout=timeout, check=False).returncode == 0
-    except (OSError, subprocess.SubprocessError):
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return False
+    try:
+        return proc.wait(timeout=timeout) == 0
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(OSError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
         return False
 
 

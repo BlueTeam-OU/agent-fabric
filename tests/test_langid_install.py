@@ -2,10 +2,11 @@
 """The oracle for runtime/langid/install.sh: the language detector's venv for
 this account — made once, then left; a stale fastText model removed; a dry run
 that writes nothing; a host that cannot install the package a said failure
-(exit 1), not a crash. It is runtime/langid/test_install.sh, case for case,
-driven through ONE constant, INSTALL (default runtime/langid/install.sh;
-$LANGID_INSTALL names another entry), so the same file runs against the bash
-today and against a port's shim later (ADR-040 §5 rule 5).
+(exit 1), not a crash. It was runtime/langid/test_install.sh, case for case,
+and ran unchanged against the bash before the port to
+tools/fabric/langid_install.py (ADR-040 §5 rule 5). It is driven through ONE
+constant, INSTALL (default runtime/langid/install.sh, now the forwarder;
+$LANGID_INSTALL names another entry, e.g. the module itself).
 
 Nothing it runs reaches this account: HOME, the target directory
 (AGENT_FABRIC_LANGID_DIR) and TMPDIR are under one mkdtemp; the package
@@ -21,7 +22,7 @@ The bash test's cases, each a test method here:
   test_dry_run_writes_nothing                     ("would create", nothing installed)
   test_package_that_cannot_be_installed_is_said_exit_1  ("could not install", exit 1)
 
-Added where a refactor could break the contract and the bash test is silent:
+Added where a refactor could break the contract and the old bash test was silent:
   test_dry_run_names_the_stale_model_and_keeps_it, test_dry_run_exit_status_zero,
   test_pip_command_gets_the_package_as_its_last_argument,
   test_pip_that_succeeds_but_leaves_no_pycld2_is_said_exit_1,

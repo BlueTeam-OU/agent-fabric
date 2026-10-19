@@ -113,7 +113,7 @@ def langid_present(tmp: str) -> dict:
     """Bootstrap's language-detector step pip-installs pycld2 into a venv under the HOME: about 30 s and the network on a first
     run, a venv of its own even when pip fails, and a different answer on a runner with no compiler. A detector already
     installed is the step's "=" branch: a `python` that imports anything, in the dir the step is pointed at. The step's own
-    behaviour, install included, is runtime/langid/test_install.sh's."""
+    behaviour, install included, is tests/test_langid_install.py's."""
     exe = os.path.join(tmp, "langid", "venv", "bin", "python")
     os.makedirs(os.path.dirname(exe), exist_ok=True)
     with open(exe, "w", encoding="utf-8") as fh:
