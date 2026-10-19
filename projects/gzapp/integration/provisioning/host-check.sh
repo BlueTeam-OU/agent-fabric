@@ -1,19 +1,10 @@
 #!/usr/bin/env bash
-# projects/gzapp/integration/provisioning/host-check.sh — what a host must
-# carry for an account that works on gzapp, beyond the fabric's own
-# contract. Run by runtime/provisioning/new-agent-worker.sh on the
-# account's host for each --project it clones; prints one line per item,
-# exits 0 — a missing item is named for the person, never a stop (the
-# fabric provisions the account; the project's toolchain is its own).
+# projects/gzapp/integration/provisioning/host-check.sh — what a host must carry for an account that works on gzapp,
+# beyond the fabric's own contract. The probe is host_check.py beside this file (ADR-040 §5 rule 1, Wave 9 batch 9);
+# worker.py finish runs that directly, and this path stays for a person running the probe by hand.
 #
-# gzapp: commit signing goes through the OpenTimestamps gpg wrapper that
-# devex-tooling installs (gzapp infra/signing/install-shim.sh); the local
-# stack runs rootless podman; the decks and site tooling render with
-# ImageMagick.
-say() { printf 'host-check gzapp: %s\n' "$*" >&2; }
-[[ -x /usr/local/bin/ots-git-gpg-wrapper.sh ]] && say "gpg wrapper: /usr/local/bin/ots-git-gpg-wrapper.sh" \
-    || say "gpg wrapper: MISSING — commit signing needs it; devex-tooling installs it (infra/signing/install-shim.sh)"
-for tool in podman magick; do
-    command -v "$tool" >/dev/null 2>&1 && say "$tool: present" || say "$tool: MISSING (a TemplateVM package on Qubes)"
-done
-exit 0
+# Pure bash on purpose: the probe finds podman and magick on the caller's PATH, which may hold nothing else.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+# The probe never stops a provisioning run, so a missing pin is said on stderr and the exit is 0.
+[[ -x "$py" ]] || { echo "host-check gzapp: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 0; }
+exec "$py" -I "${BASH_SOURCE[0]%/*}/host_check.py" "$@"
