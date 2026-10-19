@@ -309,6 +309,19 @@ def main() -> int:
         finally:
             os.chmod(os.path.join(tree, "projects", "scratch.proj"), 0o700)
 
+        # No live project keeps a moved_from the remotes lack, so the registry is edited to one that does.
+        tree = os.path.join(scratch, "tree-moved")
+        shutil.copytree(base, tree, symlinks=True)
+        regp = os.path.join(tree, "projects", "registry.json")
+        text = open(regp, encoding="utf-8").read()
+        doc = json.loads(text)
+        doc["projects"][LIKE]["moved_from"] = ["git@github.com:old-org/legacy-name.git"]
+        open(regp, "w", encoding="utf-8").write(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
+        refuses("refuses a remote only in a project's moved_from", tree,
+                ["--like", LIKE, "--role", "python-dev", "--id", "scratch.proj", "--client", "blueteam",
+                 "--default-branch", "main", "--license", "MIT", "--remote", "https://github.com/old-org/legacy-name"],
+                "already registered to")
+
         tree = os.path.join(scratch, "tree-link")
         shutil.copytree(base, tree, symlinks=True)
         real = os.path.join(scratch, "real-registry.json")
