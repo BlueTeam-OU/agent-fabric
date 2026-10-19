@@ -45,7 +45,9 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 # __pycache__ is written beside the sibling it imports (the bash ran commit_kind.py as a script, which writes none).
 sys.dont_write_bytecode = True
 sys.path.insert(0, HERE)
+sys.path.insert(1, os.path.dirname(HERE))
 import commit_kind  # noqa: E402
+import roots  # noqa: E402  the hook's own checkout is the root it is given; roots spells the policy's path (test_roots_seam)
 
 ITSELF = "agent-fabric itself"
 AGENT_FABRIC_DIR = ".agent-fabric/"
@@ -117,7 +119,7 @@ def identity_role(root: str) -> str:
 
 def owner_role(root: str) -> str:
     try:
-        with open(os.path.join(root, "policies", "authority.json"), encoding="utf-8") as f:
+        with open(roots.policy("authority.json", root=root), encoding="utf-8") as f:
             return str(json.load(f)["role_definitions"]["role"]).rstrip("\n")
     except Exception:  # noqa: BLE001 - any unreadable shape is the default owner, as the bash's `except Exception`
         return DEFAULT_OWNER

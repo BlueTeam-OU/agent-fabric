@@ -134,6 +134,7 @@ def main() -> int:
         # the hooks' module beside the others (ADR-040 rule 5: a fixture that copies the scripts copies their modules)
         for g in ("contributors.py", "commit_kind.py", "commit_hooks.py"):
             shutil.copy(os.path.join(HERE, "tools", "fabric", "guards", g), os.path.join(fab, "tools", "fabric", "guards"))
+        shutil.copy(os.path.join(HERE, "tools", "fabric", "roots.py"), os.path.join(fab, "tools", "fabric"))
         with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
             json.dump(AUTHORITY, f)
         for p in ("src/a.py", "tools/a.py", "bin/fabric-x"):
