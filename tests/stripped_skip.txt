@@ -2,6 +2,5 @@
 # The nightly run fails on a red file not listed here and on a listed file that now passes:
 # a fixed file leaves this list in the fixing commit. Deliberate reds are KNOWN_RED, not here.
 tests/test_gateway_plan.py j62 (python-dev-03): reads routing/profiles.json from the live tree
-tests/test_repo_settings_cli.py j63 (python-dev-03): two cases read the operator's policy file
 tests/test_session_start.py j64 (python-dev-03): one case fails on a stripped copy, cause to find
 tests/test_subagent_ledger.py j64 (python-dev-03): two evidence_mode cases fail on a stripped copy, cause to find
