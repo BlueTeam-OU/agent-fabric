@@ -132,7 +132,10 @@ def main() -> int:
         env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT,
                "HOME": home, "CLAUDE_BRIDGE_URL": dead_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
                "AGENT_FABRIC_HOSTS_REGISTRY": registry, "FABRIC_STATE_CHANNEL": "t:state:control",
-               "FABRIC_CONTROL_CHANNEL": "t:control", "CLAUDE_CODE_SESSION_ID": "sess-A"}
+               "FABRIC_CONTROL_CHANNEL": "t:control", "CLAUDE_CODE_SESSION_ID": "sess-A",
+               # The inbox replay takes ~0.5 s on a quiet host and as long as the load makes it on a starved one: a
+               # case that reads a message sets the bound to a hang guard; the bound itself is tested below.
+               "FABRIC_INBOX_REPLAY_WAIT_S": "600"}
         # The projects the tool resolves checkouts against: a fixture
         # registry, with ids the live one lacks, so a reader of the live
         # projects/registry.json finds neither.
@@ -460,6 +463,18 @@ def main() -> int:
                                env={**env, "GZCOORD_CHANNEL": "fixture:control"}, capture_output=True, text=True)
             check("an inbox refusal is said as itself, not as 'not addressed'", p.returncode == 1
                   and "cannot read message 11" in p.stderr and "not addressed" not in p.stderr, p.stderr)
+            # A bound no interpreter start can meet: the refusal does not depend on the host's load (more load only
+            # makes the call later), and the same call under the suite's bound above just succeeded.
+            listed = len(jobs())
+            p = subprocess.run([JOBS, "add", "--request", "13", "--working-copy", repo_a], cwd=repo_a,
+                               env={**env, "FABRIC_INBOX_REPLAY_WAIT_S": "0.001"}, capture_output=True, text=True)
+            check("a replay past its bound is refused, naming the bound, and adds nothing", p.returncode == 1
+                  and "cannot read message 13: the relay did not answer within 0.001 s" in p.stderr and len(jobs()) == listed, p.stderr)
+            for bad in ("0", "-1", "abc", "nan", "inf", ""):
+                p = subprocess.run([JOBS, "add", "--request", "13", "--working-copy", repo_a], cwd=repo_a,
+                                   env={**env, "FABRIC_INBOX_REPLAY_WAIT_S": bad}, capture_output=True, text=True)
+                check(f"a malformed bound is refused by name, never replaced by the default: {bad!r}", p.returncode == 1
+                      and "FABRIC_INBOX_REPLAY_WAIT_S must be a positive number of seconds" in p.stderr and len(jobs()) == listed, p.stderr)
         finally:
             relay.shutdown()
             relay.server_close()
@@ -699,6 +714,18 @@ def main() -> int:
             jobs_mod.ask_queue.__globals__["subprocess"].run = saved_run
         check("python unable to start: a claim that never left (sent False), never 'may be claimed'",
               got is not None and got.sent is False and "python could not run" in str(got), got)
+
+        replay_wait = sys.modules["fabric_jobs.records"].replay_wait
+        saved_wait = os.environ.pop("FABRIC_INBOX_REPLAY_WAIT_S", None)
+        try:
+            unset = replay_wait()
+            os.environ["FABRIC_INBOX_REPLAY_WAIT_S"] = "7.5"
+            set_to = replay_wait()
+        finally:
+            os.environ.pop("FABRIC_INBOX_REPLAY_WAIT_S", None)
+            if saved_wait is not None:
+                os.environ["FABRIC_INBOX_REPLAY_WAIT_S"] = saved_wait
+        check("the replay bound is 15 s unless set, and the setting is read as seconds", unset == 15 and set_to == 7.5, (unset, set_to))
 
         class Fails(http.server.BaseHTTPRequestHandler):
             def do_POST(self):

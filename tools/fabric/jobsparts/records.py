@@ -3,6 +3,7 @@ A part of tools/fabric/jobs.py, whose docstring is the contract."""
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 from fabric_jobs.base import DEFAULT_PRIORITY, FABRIC_ROOT, Job, Refused, TERMINAL, identity
@@ -151,14 +152,34 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
 
 INBOX = os.path.join(FABRIC_ROOT, "bin", "gzcoord-inbox")
 
+# How long the inbox's replay may take. It is a wall bound on a whole process (interpreter start, imports, one relay
+# call): about half a second on a quiet host and, on one starved of CPU, as long as the host's load makes it, so the
+# bound is a setting and not a constant: FABRIC_INBOX_REPLAY_WAIT_S, seconds, positive. A suite that runs this on a
+# loaded host sets it high; it is never to be read as "the relay is slow".
+REPLAY_WAIT_S = 15
+
+
+def replay_wait() -> float:
+    raw = os.environ.get("FABRIC_INBOX_REPLAY_WAIT_S")
+    if raw is None:
+        return REPLAY_WAIT_S
+    try:
+        wait = float(raw)
+    except ValueError:
+        wait = math.nan
+    if not (wait > 0 and math.isfinite(wait)):
+        raise Refused(f"FABRIC_INBOX_REPLAY_WAIT_S must be a positive number of seconds, got {raw!r}")
+    return wait
+
 
 def fetch_message(which: str) -> dict:
     """The message, read the way `gzcoord-inbox --replay` reads it: the
     relay's recent history, the body only when addressed to this login."""
+    wait = replay_wait()
     try:
-        p = subprocess.run([INBOX, "--replay", which, "--json"], capture_output=True, text=True, timeout=15)
+        p = subprocess.run([INBOX, "--replay", which, "--json"], capture_output=True, text=True, timeout=wait)
     except subprocess.TimeoutExpired:
-        raise Refused(f"cannot read message {which}: the relay did not answer within 15 s")
+        raise Refused(f"cannot read message {which}: the relay did not answer within {wait:g} s")
     # Exit 2 is also inbox's refusal of a control channel: only its own
     # {"addressed": false} answer means "not for this login".
     if p.returncode == 2:

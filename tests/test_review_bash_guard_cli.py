@@ -21,10 +21,12 @@ The hook under test is $REVIEW_BASH_GUARD, default the shim.
 Exit codes: 0 all assertions passed, 1 one or more failed."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = os.path.abspath(os.environ.get("REVIEW_BASH_GUARD") or os.path.join(
@@ -55,9 +57,14 @@ def base_env(**extra: str) -> dict[str, str]:
     return env
 
 
+# Only a guard against a hang: a hook takes well under a second of CPU, and a host loaded a hundredfold stretches that
+# past a minute, which says nothing of the hook.
+HANG_S = 300
+
+
 def run(payload: str, **extra: str) -> subprocess.CompletedProcess:
     return subprocess.run(["bash", UNDER_TEST], input=payload, capture_output=True, text=True,
-                          env=base_env(**extra), timeout=60)
+                          env=base_env(**extra), timeout=HANG_S)
 
 
 def decision(command: str, **extra: str) -> str:
@@ -98,6 +105,45 @@ def table() -> None:
             expect(label, c["want"], c["command"])
 
 
+GUARD_PY = os.path.join(os.path.dirname(UNDER_TEST), "review-bash-guard.py")
+# What a crafted command may cost the verdict, in CPU seconds: the heaviest shape below takes ~0.16 s, and the
+# backtracking this guards against took minutes. CPU time, never wall: the guard itself judges in a child under a 3 s
+# wall budget and answers "slow" (a deny, by design) when the host starves that child, so a wall bound here, or an
+# allow expected of the shim under load, fails on the host's load and says nothing of the patterns.
+VERDICT_CPU_S = 1.0
+
+
+def cpu_seconds(fn, *args):
+    start = time.process_time()
+    out = fn(*args)
+    return out, time.process_time() - start
+
+
+def burn(seconds: float) -> None:
+    end = time.process_time() + seconds
+    while time.process_time() < end:
+        pass
+
+
+def guard_module():
+    spec = importlib.util.spec_from_file_location("review_bash_guard_under_test", GUARD_PY)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def shim_judgement(command: str, slow_reason: str) -> str:
+    """allow, deny:slow (the guard's own late-verdict deny) or the decision as it came."""
+    r = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "agent_type": "code-review"}))
+    try:
+        out = json.loads(r.stdout)["hookSpecificOutput"]
+    except (ValueError, KeyError, TypeError):
+        return "allow" if not r.stdout.strip() else "malformed"
+    if out.get("permissionDecision") == "deny":
+        return "deny:slow" if out.get("permissionDecisionReason") == slow_reason else "deny"
+    return "allow" if isinstance(out.get("updatedInput"), dict) else "malformed"
+
+
 def in_time() -> None:
     # Python's re backtracks where grep did not, and a hook past its timeout
     # does not refuse: each shape below once ran for minutes (CodeQL on #96,
@@ -112,8 +158,25 @@ def in_time() -> None:
         "git -C -C repeated 3000 times, then text": "git" + " -C -C" * 3000 + "!",
         "git --attr-source repeated 3000 times, then text": "git" + " --attr-source" * 3000 + "!",
     }
+    # The clock first: process time counts CPU and not waiting, which is what lets a loaded host leave the verdict alone.
+    _, slept = cpu_seconds(time.sleep, 0.5)
+    _, burnt = cpu_seconds(burn, 0.3)
+    check("the clock counts CPU and not waiting (a sleep of 0.5 s costs none, a burn of 0.3 s costs it)",
+          slept < 0.2 and burnt >= 0.25, f"slept {slept:.3f}, burnt {burnt:.3f}")
+    guard = guard_module()
     for label, command in shapes.items():
-        expect(f"allowed in time: {label}", "allow", command)
+        got, cpu = cpu_seconds(guard.verdict, command)
+        check(f"judged within {VERDICT_CPU_S} CPU s, and allowed: {label}", got is None and cpu <= VERDICT_CPU_S,
+              f"verdict {got!r} after {cpu:.2f} CPU s")
+    # Through the shim, as the harness runs it: the verdict or the guard's own late-verdict deny, never another answer.
+    slow = guard.REASONS["slow"]
+    for label, command in shapes.items():
+        got = shim_judgement(command, slow)
+        check(f"through the shim, allowed or denied for being late and never otherwise: {label}", got in ("allow", "deny:slow"), got)
+    got = shim_judgement("git commit -m x", slow)
+    check("positive control: a command a rule denies is that deny and not the late one", got == "deny", got)
+    got = shim_judgement("ls", slow)
+    check("positive control: a plain command is allowed (or late) too", got in ("allow", "deny:slow"), got)
 
 
 def clean_environment() -> None:
@@ -134,7 +197,7 @@ def clean_environment() -> None:
                  "LANG": "C.UTF-8", "PLANTED_GH_TOKEN": "planted", "PLANTED_SIGNING_KEY": "planted",
                  "SOME_UNLISTED": "x"}
     r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env,
-                       cwd=HERE, timeout=60)
+                       cwd=HERE, timeout=HANG_S)
     names = set(r.stdout.split())
     check("…a planted secret-shaped variable never reaches the command",
           r.returncode == 0 and not names & {"PLANTED_GH_TOKEN", "PLANTED_SIGNING_KEY"}, f"rc={r.returncode} {sorted(names)}")
@@ -142,16 +205,16 @@ def clean_environment() -> None:
           "SOME_UNLISTED" not in names and {"PATH", "HOME", "LANG"} <= names, str(sorted(names)))
     check("…and an unset listed one stays unset (TZ is not set to empty)", "TZ" not in names, str(sorted(names)))
     marked = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True,
-                            env={**shell_env, "CLAUDECODE": "1", "AGENT_FABRIC_LAUNCH_PROFILE": "p"}, cwd=HERE, timeout=60)
+                            env={**shell_env, "CLAUDECODE": "1", "AGENT_FABRIC_LAUNCH_PROFILE": "p"}, cwd=HERE, timeout=HANG_S)
     check("…and the session markers stay, so a tool still refuses inside a model session",
           {"CLAUDECODE", "AGENT_FABRIC_LAUNCH_PROFILE"} <= set(marked.stdout.split()), marked.stdout)
     got = rewritten({"command": "exit 3"})
-    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=60)
+    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=HANG_S)
     check("…its exit status is the command's", r.returncode == 3, f"rc={r.returncode}")
     quoted = """printf '%s|' "it's" 'a$b' "$((1+2))" '"q"'"""
     got = rewritten({"command": quoted})
-    direct = subprocess.run(["bash", "-c", quoted], capture_output=True, text=True, env=shell_env, timeout=60)
-    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=60)
+    direct = subprocess.run(["bash", "-c", quoted], capture_output=True, text=True, env=shell_env, timeout=HANG_S)
+    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=HANG_S)
     check("…and its quoting survives the rewrite", r.stdout == direct.stdout and r.stdout != "",
           f"direct=[{direct.stdout}] wrapped=[{r.stdout}]")
 
