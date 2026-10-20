@@ -179,6 +179,7 @@ def attach_hints(flags: list, sources: dict[str, dict], *, run: Callable[..., An
             if not observed:
                 raise memory_check.NoHistory("the section has no Observed date")
             diffs = []
+            seen: set[tuple[str, str]] = set()
             for reason in flag.reasons:
                 if reason["kind"] != "maybe-stale":
                     continue
@@ -189,10 +190,13 @@ def attach_hints(flags: list, sources: dict[str, dict], *, run: Callable[..., An
                     tree = holder_tree(reason["what"], named[0])
                 else:
                     tree = holder_tree(reason["what"], src.get("trees", []))
-                if tree and path not in [p for p, _ in diffs]:
+                # Keyed by the checkout as well as the path: `x.py` of the origin and `gzapp:x.py` are two files.
+                label = f"{project}:{path}" if project else path
+                if tree and (tree, path) not in seen:
+                    seen.add((tree, path))
                     diff = history.diff_since(tree, path, observed, MAX_DIFF_CHARS)
                     if diff.strip():
-                        diffs.append((path, diff))
+                        diffs.append((label, diff))
             if not diffs:
                 raise memory_check.NoHistory("no change of an anchor file to show")
         except (KeyError, OSError, memory_check.NoHistory, memory_check.Refused):

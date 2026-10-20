@@ -236,8 +236,6 @@ def named_trees(project: str, meta: dict, tree: str, own_project: str | None) ->
             break
     if "/" in wc or wc in (".", ".."):
         return [], [f"project {project}: names no working_copy to look in"]
-    if own_project is None and os.path.basename(tree) == wc:
-        return [tree], []                     # a working copy's own memory does not know its project's id: its name stands for it
     beside = os.path.normpath(os.path.join(tree, "..", wc))
     if readable_dir(beside):
         return [beside], []
