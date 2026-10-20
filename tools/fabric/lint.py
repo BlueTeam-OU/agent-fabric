@@ -102,7 +102,7 @@ from fabric_lint_rules.schema import schema_keyword_findings, validate_json  # n
 from fabric_lint_rules.regex import regex_dollar_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import BASH_LINE_LIMIT, BASH_SHEBANG, _is_bash, bash_size_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import agentd_unit_findings, candidate_role_findings, host_registry_findings  # noqa: E402, F401
-from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_CONTROL_RE, I18N_DEFAULT_REL  # noqa: E402, F401
+from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_DEFAULT_REL  # noqa: E402, F401
 from fabric_lint_rules.locales import I18N_EXTRA_PATTERNS, I18N_SCHEMA_REL, LOCALE_ENGINES  # noqa: E402, F401
 from fabric_lint_rules.locales import LOCALE_FILE_OPTIONAL, LOCALE_FILE_RE, _i18n_key_re  # noqa: E402, F401
 from fabric_lint_rules.locales import i18n_default_dictionary_findings, i18n_dictionary_findings  # noqa: E402, F401
@@ -110,6 +110,7 @@ from fabric_lint_rules.locales import (locale_coverage_findings, locale_file_fin
                                        locale_translation_findings, shared_prompt_locale_findings)
 from fabric_lint_rules.locales import locale_alignment_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import locale_worker_findings  # noqa: E402, F401
+from fabric_lint_rules.hidden import hidden_unicode_findings  # noqa: E402, F401
 from fabric_lint_rules.signing import signing_findings  # noqa: E402, F401
 from fabric_lint_rules.slices import CLASS_DIRS, flat_and_dir_findings, lint_slices, staleness_warnings  # noqa: E402, F401
 
@@ -685,6 +686,9 @@ def main() -> int:
     findings += personas_findings(roots.personas("surnames.json", engine=root), roots.personas("claims.json", engine=root),
                                   lineage_path)
     findings += signing_findings(root, roots.policy("signing.json", engine=root), roots.projects_registry(engine=root))
+
+    # --- no hidden Unicode in text an agent reads (j305) ---------------------
+    findings += hidden_unicode_findings(root)
 
     # --- role identities ---------------------------------------------------
     template_schema = load_schema(root, schemas, "role-template")
