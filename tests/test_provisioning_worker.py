@@ -294,6 +294,28 @@ def main() -> int:
     check("the download is not run in a login shell (a profile's stdout would become the vendor's script)",
           "curl" in got[0] and "-c" in got[0] and "-lc" not in got[0], str(got[0]))
     check("…while the vendor's script itself runs in one", "-lc" in got[1] and "bash" in got[1], str(got[1:]))
+    seen_shells: list = []
+
+    def spy(argv, **kw):
+        if "_" in argv:
+            seen_shells.append((argv[argv.index("_") - 2], argv[argv.index("_") + 1:]))
+        out = {"symbolic-ref": "main\n", "rev-list": "0\n", "rev-parse": "abc1234\n", "--get": "git@x:y\n"}
+        return subprocess.CompletedProcess(argv, 0, stdout=next((v for k, v in out.items() if k in argv), ""), stderr="")
+    with mock.patch.object(subprocess, "run", spy):
+        w = make_worker()
+        w.home = "/home/x"
+        worker.fabric_checkout(w)
+        worker.point_origin_at_registry(w, "p", "git@x:y")
+    git_flags = {flag for flag, rest in seen_shells if "git" in rest}
+    check("the fabric checkout's and the origin's git reads and writes all run in a login shell, one environment",
+          git_flags == {"-lc"} and len(seen_shells) >= 6, str(seen_shells))
+    seen_shells.clear()
+    with mock.patch.object(subprocess, "run", spy):
+        w = make_worker()
+        w.as_login(["test", "-e", "/p"], login_shell=False)
+        w.as_login(["claude", "--version"])
+    check("a file test needs no profile; a tool keeps it",
+          [f for f, _ in seen_shells] == ["-c", "-lc"], str(seen_shells))
     with mock.patch.object(subprocess, "run", recorder([], lambda argv: OSError("gone"))), redirect_stderr(io.StringIO()) as e2:
         make_worker().best_effort(["soft"])
     check("best_effort: a command that cannot start is a warning too", "warning: soft failed; continuing" in e2.getvalue())

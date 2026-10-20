@@ -278,6 +278,7 @@ from fabric_launcher.settings import settings_scopes, settings_pins, refuse_pins
 from fabric_launcher.routing import ResolveError, load_routing, resolve, resolve_or_die  # noqa: E402, F401
 from fabric_launcher.routing import is_broker_url, drop_broker_env, set_pins, ori_auth_ok  # noqa: E402, F401
 from fabric_launcher.routing import check_ori_auth, caller_value, effort_for  # noqa: E402, F401
+from fabric_launcher.routing import session_effort as routed_session_effort  # noqa: E402, F401
 from fabric_launcher.secrets import synced_values, synced_oauth_token, settle_oauth_token  # noqa: E402, F401
 from fabric_launcher.secrets import SYNCED_SECRETS, HARNESS_CREDENTIAL, HARNESS_EXPANDS  # noqa: E402, F401
 from fabric_launcher.secrets import settle_secrets  # noqa: E402, F401
@@ -501,8 +502,7 @@ def launch(argv: list[str]) -> int:
     # disagree with what the child applies. Empty when the session's model
     # expresses no effort; then no flag is passed and nothing is stamped,
     # because a level the model cannot take is not a decision to record.
-    routed_effort = stripped(helper([sys.executable, routing_path, "session-effort", "--me", "--provider",
-                                     routing_provider], env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True))
+    routed_effort = routed_session_effort(routing, routing_provider, role, agent, local_override)
     session_effort, caller_effort = effort_for(args, routed_effort)
     # Cleared, not just left unset, when there is no level: this stamp is
     # CONDITIONAL, so a launch started from inside another fabric session

@@ -31,6 +31,17 @@ def load_routing(routing_path: str, fabric_root: str):
             os.environ["AGENT_FABRIC_ROOT"] = saved
 
 
+def session_effort(routing, provider: str, role: str, agent: str, local_path: str) -> str:
+    """`routing.py session-effort --me`, called in this process: the module is already loaded for the
+    resolve, and a second interpreter start bought nothing but a second import. As the helper's, any
+    failure is no level (its stderr was quiet and its stdout empty): a level the session's model cannot
+    take is not a decision worth stamping, and an unreadable layer is already refused by the resolve."""
+    try:
+        return routing.session_effort(provider, role, agent, routing.load_local(agent, local_path)) or ""
+    except Exception:
+        return ""
+
+
 def resolve(routing, aliases_path: str, local_path: str, role: str, agent: str, provider: str) -> dict:
     local = {}
     if os.path.exists(local_path):

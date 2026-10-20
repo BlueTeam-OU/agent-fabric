@@ -125,7 +125,12 @@ class Worker:
         """The command as the account, in a LOGIN shell (its profile: what its installers put on PATH). The PATH is
         re-asserted INSIDE the shell: Debian's /etc/profile assigns PATH outright for a non-root login, so what env
         -i set would be gone by the time the command runs (found by the Debian smoke container, which then downloaded
-        the real claude in place of the test's fake)."""
+        the real claude in place of the test's fake).
+
+        `login_shell=False` where no profile can change the answer — `test` and `readlink` on a path — and in the two
+        calls that predate this rule: the vendor download (its stdout becomes the installer's script) and
+        launch_record.py. Everything else that runs a tool (git, claude, ori, installers) keeps the profile, so a read
+        and the write beside it see one environment; each login shell costs about 25 execs of /etc/profile.d."""
         p = f"/usr/local/bin:/usr/bin:/bin:{self.home}/.local/bin"
         script = 'export PATH="$AGENT_FABRIC_PATH:$PATH"; cd "${AGENT_FABRIC_CWD:-$HOME}" && exec "$@"'
         env = [f"HOME={self.home}", f"PATH={p}", f"AGENT_FABRIC_PATH={p}"]
@@ -303,8 +308,8 @@ def install_claude_and_ori(w: Worker) -> None:
         resolved = text if re.match(r"[0-9]+\.[0-9]+\.[0-9]+", text) else ""
     claude = os.path.join(h, ".local", "bin", "claude")
     have = ""
-    if w.as_login(["test", "-e", claude]).returncode == 0:
-        target = w.as_login_out(["readlink", "-f", claude]).strip()
+    if w.as_login(["test", "-e", claude], login_shell=False).returncode == 0:
+        target = w.as_login_out(["readlink", "-f", claude], login_shell=False).strip()
         have = os.path.basename(target) if target else ""
     if have and resolved and have == resolved:
         w.say(f"2. claude {have} present (= {want})")
@@ -312,20 +317,22 @@ def install_claude_and_ori(w: Worker) -> None:
         w.say(f"would: as {login}: curl -fsSL {CLAUDE_INSTALLER} | bash -s -- {want}")
     else:
         done, log = vendor_install(w, CLAUDE_INSTALLER, [want])
-        if not (done and w.as_login(["claude", "--version"]).returncode == 0):
+        # One run answers both: whether it starts, and what it says (stderr apart, as the version is stdout's).
+        ran = w.as_login(["claude", "--version"], stderr=subprocess.DEVNULL) if done else None
+        if ran is None or ran.returncode != 0:
             tail(log)
             w.die(f"step failed: claude — the vendor's installer failed for {login} (target {want}); nothing after it ran")
-        version = (w.as_login_out(["claude", "--version"]).split() or [""])[0]
+        version = ((ran.stdout or "").split() or [""])[0]
         w.say(f"2. claude {version} installed by the vendor's installer ({want}{', was ' + have if have else ''})")
     ori = os.path.join(h, ".local", "bin", "ori")
-    if w.as_login(["test", "-x", ori]).returncode == 0:
+    if w.as_login(["test", "-x", ori], login_shell=False).returncode == 0:
         first = (w.as_login_out(["ori", "--version"]).split("\n") or [""])[0]
         w.say(f"   ori {first[:24]} present")
     elif a.dry:
         w.say(f"would: as {login}: curl -fsSL {ORI_INSTALLER} | bash")
     else:
         done, log = vendor_install(w, ORI_INSTALLER, [])
-        if not (done and w.as_login(["test", "-x", ori]).returncode == 0):
+        if not (done and w.as_login(["test", "-x", ori], login_shell=False).returncode == 0):
             tail(log)
             w.die(f"step failed: ori — the vendor's installer failed for {login}; nothing after it ran")
         w.say("   ori installed by the vendor's installer")
