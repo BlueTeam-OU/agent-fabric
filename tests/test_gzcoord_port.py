@@ -1522,7 +1522,7 @@ def _():
 
 @case("a new watch ends an orphaned older one it finds holding the lock, through the real command")
 def _():
-    from gzcoord.inbox_parts import session as S
+    import signal
     stub, _calls = _wait_stub([])
     try:
         env = _replay_env(stub, GZCOORD_JOURNAL="off")
