@@ -253,7 +253,7 @@ def main() -> int:
     modules = os.path.join(fake, "tools", "fabric")
     os.makedirs(hooks_dir)
     os.makedirs(modules)
-    for name in ("statusline.py", "hook_common.py", "git.py"):
+    for name in ("statusline.py", "hook_common.py", "git.py", "gh.py", "gh_ledger.py"):
         shutil.copy(os.path.join(h.ROOT, "tools", "fabric", name), modules)
     shutil.copy(os.path.join(h.HOOKS, "statusline.sh"), hooks_dir)
     sampler = os.path.join(hooks_dir, "context-sample.py")

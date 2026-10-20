@@ -250,7 +250,7 @@ def main() -> int:
         # hostexec and the worker are shims for their modules (ADR-040 §5 rule 5).
         # launch_record.py (j125) records the first launch's provider with the launcher's own writer
         # (launch_provider_record.py) in the account's state directory (fabric_writes).
-        for f in ("new_agent.py", "pin_entry.py", "roots.py", "hostexec.py", "hostworker.py", "fabric_writes.py", "launch_provider_record.py"):
+        for f in ("new_agent.py", "pin_entry.py", "roots.py", "hostexec.py", "hostworker.py", "fabric_writes.py", "launch_provider_record.py", "gh.py", "gh_ledger.py"):
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fab}/tools/fabric/")
         shutil.copytree(f"{ROOT}/tools/fabric/provisioning", f"{fab}/tools/fabric/provisioning", ignore=shutil.ignore_patterns("__pycache__"))
         put(f"{sandbox}/home/.local/bin/claude", "#!/bin/sh\necho fake\n", 0o755)
