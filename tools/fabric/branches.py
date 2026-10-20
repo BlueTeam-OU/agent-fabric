@@ -50,9 +50,9 @@ checkouts piled up, 39 and 530 MB on one login in a day):
     that is live by plan_hold's rule for its own markers, or it is the session running the command. A registry that
     cannot be read or understood calls no session ended, and is said: no worktree is then removed, each is kept with the
     reason "session registry unreadable". A worktree a live session stands in is in use otherwise, and so is one that any
-    process of this uid has as its cwd (/proc), or whose `.fabric-in-use` marker (first line: a pid) names a live process of
-    this uid; a dead pid or no marker keeps nothing, and the marker is never itself a change. /proc that cannot be listed
-    keeps every worktree, said. Never another login's path, never a symlink.
+    process of this uid has as its cwd (/proc), or whose `fabric-in-use` file in its own git directory (first line: a pid)
+    names a live process of this uid; a dead pid or no file keeps nothing. /proc that cannot be listed keeps every
+    worktree, said. Never another login's path, never a symlink.
 What a sweep keeps it says with the reason (changes, commits on no remote, ignored files, lock, this one, in use,
 live session, session registry unreadable); what it removes, with its size.
 
@@ -339,9 +339,10 @@ def keep_paths() -> set[str]:
     return {p for p in os.environ.get("AGENT_FABRIC_BRANCHES_KEEP", "").split("\n") if p}
 
 
-# A pinned review worktree names the session that dispatched it in this file (first line: a pid), so the sweep finds it in
-# use before any process has stood in it. It is the marker's author's file, not the worktree's change: it never counts as one.
-IN_USE_MARKER = ".fabric-in-use"
+# A pinned review worktree names the session that dispatched it in this file of its own git directory (first line: a pid), so the
+# sweep finds it in use before any process has stood in it. Not in the tree: a reviewer would read it as part of the head, and
+# git worktree remove takes it away with the rest of the administrative directory.
+IN_USE_MARKER = "fabric-in-use"
 
 
 def process_cwds() -> list[tuple[int, str]] | None:
@@ -366,20 +367,15 @@ def process_cwds() -> list[tuple[int, str]] | None:
     return found
 
 
-def is_marker_file(path: str) -> bool:
-    """The worktree's `.fabric-in-use` is a regular file: a link of that name is somebody's file, and counts as any other."""
-    try:
-        return stat.S_ISREG(os.lstat(os.path.join(path, IN_USE_MARKER)).st_mode)
-    except OSError:
-        return False
-
-
 def marker_pid(path: str) -> int | None:
     """The pid in the worktree's in-use marker when it is alive and this uid's, else None. A marker that is a link, not a
     regular file, empty, not a number or of a dead or foreign process keeps nothing. Liveness is /proc, not kill(2): a pid of
     0 would signal a group, and a process of another uid answers "alive" to a permission error."""
-    marker = os.path.join(path, IN_USE_MARKER)
     try:
+        git_dir = git.run(path, "rev-parse", "--absolute-git-dir", check=False)
+        if git_dir.returncode != 0:
+            return None
+        marker = os.path.join(git_dir.stdout.strip(), IN_USE_MARKER)
         if not stat.S_ISREG(os.lstat(marker).st_mode):
             return None
         with open(marker, "rb") as fh:
@@ -388,7 +384,7 @@ def marker_pid(path: str) -> int | None:
             return None
         pid = int(first)
         return pid if os.stat(f"/proc/{pid}").st_uid == os.getuid() else None
-    except (OSError, ValueError):
+    except (OSError, ValueError, git.GitError):
         return None
 
 
@@ -460,9 +456,6 @@ def worktree_state(wt: dict, base: str, top: str, refs: list[str] | None = None)
     if changes is None or ignored is None:
         why = "status unreadable"
     else:
-        if is_marker_file(path):
-            changes = [l for l in changes if l[3:] != IN_USE_MARKER]
-            ignored = [l for l in ignored if l[3:] != IN_USE_MARKER]
         if changes:
             why = f"{len(changes)} uncommitted change(s)"
         n_ignored = sum(1 for l in ignored if l.startswith("!!") and not is_bytecode(l[3:]))
@@ -927,13 +920,6 @@ def run(argv: list[str], scratch: bool = True) -> int:
         why = worktree_state(fresh[0], base, top, refs)[1] if fresh else "gone"
         size = tree_bytes(p) if not why else 0
         if not why:
-            # A dead marker is the one untracked file the sweep has just judged to be nothing, and git refuses to remove a
-            # worktree that holds one; no --force, which would also delete what the sweep did not look at.
-            try:
-                if is_marker_file(p):
-                    os.unlink(os.path.join(p, IN_USE_MARKER))
-            except OSError:
-                pass
             try:
                 rm = git.run(".", "worktree", "remove", p, check=False, timeout=REMOVE_TIMEOUT_S)
                 removed = rm.returncode == 0
