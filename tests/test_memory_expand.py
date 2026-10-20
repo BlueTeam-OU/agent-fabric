@@ -118,6 +118,24 @@ def main() -> int:
     check("a slice loaded from the fabric's memory/ is the fabric's project; one from a working copy of unknown project is none",
           [s.home_project for s in loaded.sections] == ["agent-fabric", ""] and "path:agent-fabric:lib/a.py" in mi.section_keys(loaded.sections[0])
           and "path:lib/a.py" in mi.section_keys(loaded.sections[1]), [(s.home_project, sorted(mi.section_keys(s))) for s in loaded.sections])
+    import shutil
+    import subprocess
+    import tempfile
+    repo = tempfile.mkdtemp(prefix="memexp-")
+    try:
+        os.makedirs(os.path.join(repo, "memory", "dev", "domain"))
+        with open(os.path.join(repo, "memory", "dev", "domain", "x.md"), "wb") as fh:
+            fh.write(files["dev/domain/x.md"])
+        genv = {"PATH": "/usr/bin:/bin", "HOME": repo, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        for argv in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false", "-c", "gc.auto=0",
+                                                     "-c", "maintenance.auto=false", "commit", "-q", "-m", "x"]):
+            subprocess.run(["git", "-C", repo, *argv], env=genv, check=True, capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+        built = mi.build(os.path.join(repo, "memory"), None)
+        check("build() gives the fabric's memory/ slices the fabric's project, so their unnamed paths resolve",
+              [s.home_project for s in built.sections] == ["agent-fabric"] and "path:agent-fabric:lib/a.py" in mi.section_keys(built.sections[0]),
+              [(s.home_project, sorted(mi.section_keys(s))) for s in built.sections])
+    finally:
+        shutil.rmtree(repo, True)
     check("a checkout the registry cannot place is no project, never a guess", mi._project_of("/nonexistent/for/this/test") == "")
 
     print("the neighbours of the hits")
