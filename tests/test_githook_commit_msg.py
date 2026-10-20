@@ -443,5 +443,37 @@ class Carveouts(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
 
 
+class Worktree(unittest.TestCase):
+    """The same fence in a linked worktree of agent-fabric, where most fabric work is committed (j320): the worktree is agent-fabric
+    itself. Mutation: guarded_change asking the toplevel alone, which took the worktree for a project's and guarded nothing in it;
+    each case refuses something in the same worktree, so it fails."""
+
+    # Carveouts' own cases are not inherited: two of them check out main, which the clone holds.
+    attempt = Carveouts.attempt
+
+    def setUp(self):
+        Carveouts.setUp(self)
+        self.repo = self.repo.worktree(f"{HOST}/{LOGIN}/for/user/x")
+
+    def test_an_unbound_session_or_another_role_staging_identities_is_refused(self):
+        for role in (None, "backend-dev"):
+            with self.subTest(role=role):
+                r, _ = self.attempt(role, "identities/roles/x/brief.md")
+                self.assertEqual((r.returncode, r.stderr), (1, f"commit-msg: a guarded change, but this agent's binding holds "
+                                                               f"'{role or 'no role'}', not fabric-coordinator.\n"))
+
+    def test_a_contributor_within_its_entry_is_admitted_and_recorded_and_refused_outside_it(self):
+        r, after = self.attempt("python-dev", "tools/fabric/x.py")
+        self.assertEqual((r.returncode, r.stderr, after), (0, "", "subject" + KIND + "\nFabric-Role: python-dev\n"))
+        r, _ = self.attempt("python-dev", "identities/roles/x/brief.md")
+        self.assertEqual((r.returncode, r.stderr), (1, "commit-msg: a guarded change, but this agent's binding holds 'python-dev', not fabric-coordinator.\n"))
+
+    def test_the_locale_holder_is_admitted_and_recorded_and_another_role_refused(self):
+        r, after = self.attempt("language-culture", LOCALE_FILE)
+        self.assertEqual((r.returncode, r.stderr, after), (0, "", "subject" + KIND + "\nFabric-Role: language-culture\n"))
+        r, _ = self.attempt("backend-dev", LOCALE_FILE)
+        self.assertEqual(r.returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

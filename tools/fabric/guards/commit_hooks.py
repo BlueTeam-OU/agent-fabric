@@ -16,8 +16,12 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             locale-paths                              the staged paths to judge, one per line; exit 0
             <fabric-root> is where the hook file lives (the forwarder works it out from its own real path), which is
             NOT where this module lives: a test, or a checkout the hooks serve, holds its own policies/authority.json.
+  itself    "agent-fabric itself" is ONE predicate, same_repository(<fabric-root>), for every decision that asks it (the
+            guard's scope and label, the contributor carve-out, the decision-record check, the hidden-text scope): the
+            repository's toplevel is <fabric-root>, or its git common directory is <fabric-root>'s, so a linked worktree of
+            the fabric is the fabric. Every other repository is a managed project, whose guarded set is .agent-fabric/.
   hidden    pre-commit also refuses, for EVERY committer (the coordinator, both carve-outs, an unbound session), a staged
-            file that tools/fabric/agent_text.py calls text an agent reads (in agent-fabric or a worktree of it: any *.md, *.md/*.json
+            file that tools/fabric/agent_text.py calls text an agent reads (in agent-fabric itself: any *.md, *.md/*.json
             under identities/ and .agent-fabric/; in a managed project: .agent-fabric/ only) whose STAGED blob holds
             a character tools/fabric/hidden_unicode.py refuses. Exit 1, one `<path>:<line>:<col>: U+XXXX NAME (kind)` per
             character.
@@ -116,6 +120,57 @@ def toplevel() -> str:
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+def _common_dir_of(checkout: str) -> str:
+    """The git common directory of the checkout at `checkout` as git lays it out on disk, "" when it has none: its own
+    .git directory, or, for a linked worktree, what its gitdir's `commondir` names. Read from the files, because a hook
+    asks git of its cwd only (`_git`) and the root is not where it runs."""
+    dot_git = os.path.join(checkout, ".git")
+    if os.path.isdir(dot_git):
+        return _real(dot_git)
+    try:
+        with open(dot_git, encoding="utf-8") as f:
+            first = f.readline().strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    if not first.startswith("gitdir:"):
+        return ""
+    gitdir = os.path.join(checkout, first[len("gitdir:"):].strip())
+    try:
+        with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as f:
+            return _real(os.path.join(gitdir, f.read().strip()))
+    except (OSError, UnicodeDecodeError):
+        return _real(gitdir)
+
+
+def same_repository(root: str) -> bool:
+    """The commit is made in agent-fabric itself: its toplevel is the root, or it shares the root's git common directory
+    (a linked worktree of the root's repository, or the root a worktree of the clone being committed in). Most fabric work
+    is committed in a worktree, whose toplevel is never the root while it inherits the root's hooks path; asked of the
+    toplevel alone, the fence took such a commit for a managed project's and guarded only .agent-fabric/ (j320)."""
+    top = toplevel()
+    if not top:
+        # Not in a work tree: nothing is committed here, and the library answers a project's empty set outside a repository.
+        return False
+    if _real(top) == _real(root):
+        return True
+    fabric = _common_dir_of(root)
+    if not fabric:
+        return False  # the root is no git checkout (an installed copy): nothing can be a worktree of it
+    # git's own answer first, since GIT_DIR/GIT_COMMON_DIR outrank the layout. Not --path-format=absolute (git 2.31): an
+    # older git echoes an option it does not know and exits 0, and so does a git older than 2.5 for --git-common-dir,
+    # which is why an answer that is an option is no answer. Without one the toplevel's own layout is read: it names this
+    # commit's repository whichever it is, so neither side of the question is guessed. A fence that fails open when it
+    # cannot tell is the defect this predicate exists for, and taking a project for the fabric would lock the fleet out
+    # of its projects: when neither source answers, the hook cannot judge and refuses.
+    r = _git("rev-parse", "--git-common-dir")
+    answer = r.stdout.strip() if r.returncode == 0 else ""
+    here = _real(answer) if answer and "\n" not in answer and not answer.startswith("-") else _common_dir_of(top)
+    if not here:
+        raise Refuse("commit hooks: cannot tell whether this commit is made in agent-fabric (no git common directory for "
+                     f"{top}) — not committed")
+    return here == fabric
+
+
 def merge_head() -> str:
     r = _git("rev-parse", "-q", "--verify", "MERGE_HEAD")
     return r.stdout.strip() if r.returncode == 0 else ""
@@ -155,8 +210,7 @@ def _names(*args: str) -> list[str]:
 def guarded_change(fabric_root: str) -> tuple[str, list[str]]:
     """(label, guarded paths) of the commit being made: what the staged tree changes of its OWN under the fabric-coordinator
     role's guard. A merge changes only what differs from the clean three-way merge of its parents."""
-    top = toplevel()
-    itself = _real(top) == _real(fabric_root)
+    itself = same_repository(fabric_root)
     what, prefix = (ITSELF, "") if itself else (AGENT_FABRIC_DIR, AGENT_FABRIC_DIR)
     scope = ["--", prefix] if prefix else []
     guarded = _names("diff", "--cached", "--no-renames", "--name-only", "--diff-filter=ACDMRT", *scope)
@@ -236,7 +290,7 @@ def _contributor_exit(root: str, role: str, quiet: bool) -> int | None:
 def _check_decision_records(root: str) -> None:
     """In agent-fabric itself, a commit staging anything under docs/adr/ leaves the records consistent in what it
     COMMITS: the staged tree is checked, not the working tree."""
-    if _real(toplevel()) != _real(root) or _git("diff", "--cached", "--quiet", "--no-renames", "--", "docs/adr/").returncode == 0:
+    if not same_repository(root) or _git("diff", "--cached", "--quiet", "--no-renames", "--", "docs/adr/").returncode == 0:
         return
     try:
         scratch = tempfile.mkdtemp(prefix="pre-commit-adr.")
@@ -255,21 +309,11 @@ def _check_decision_records(root: str) -> None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _same_repository(root: str) -> bool:
-    """The commit is made in agent-fabric itself: its toplevel is the root, or it is a linked worktree of the root's
-    repository. Most fabric work is committed in a worktree, whose toplevel is never the root (the hooks path the root's
-    config sets is inherited by every worktree); a toplevel test alone judges such a commit as a managed project's."""
-    if _real(toplevel()) == _real(root):
-        return True
-    r = _git("rev-parse", "--path-format=absolute", "--git-common-dir")
-    return r.returncode == 0 and _real(r.stdout.strip()) == _real(os.path.join(root, ".git"))
-
-
 def _check_hidden_unicode(root: str) -> None:
     """Before any carve-out is consulted: hidden text is refused whoever commits it, the coordinator included. The staged
     blob is judged, not the work tree; a merge is judged as the rest of pre_commit does, by what the result changes against
     the merged-in side."""
-    itself = _same_repository(root)
+    itself = same_repository(root)
     against = [merge_head()] if merge_head() else []
     lines: list[str] = []
     for path in _names("diff", "--cached", "--no-renames", "--name-only", "--diff-filter=ACMRT", *against):

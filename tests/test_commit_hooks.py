@@ -10,11 +10,13 @@ Module, driven through the hooks as git runs them:
   a message file that cannot be read refuses the commit                        - the OSError branch of commit_msg returning 0
   post-commit never fails the commit: fabric-sign failing is said, exit 0      - `return 0` to `return 1` after the say in post_commit
   post-commit files the note for either signing program, by basename           - `rsplit("/", 1)[-1]` dropped, or gpg.ssh.program not read
+  a repository neither git nor its layout can place is refused, not a project  - same_repository returning False there
 Module, called directly:
   a locale path is the whole path (not found inside a longer one)              - `fullmatch` to `search`
   lines_of is mapfile's: no phantom line for empty output, no split on U+2028  - `.split("\\n")` to `.splitlines()`
   the typed Fabric-Role is the value up to the next colon, last trailer wins   - `re.split(": *"` to `partition(":")`
   a login holds a locale by the suffix after a hyphen or by being it           - `endswith("-" + suffix)` to `endswith(suffix)`
+  a worktree's common directory is its clone's .git                            - the gitdir returned without reading `commondir`
 """
 from __future__ import annotations
 
@@ -29,7 +31,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tools", "fabric", "guards"))
-from githook_fixtures import Fabric  # noqa: E402
+from githook_fixtures import Fabric, Repo  # noqa: E402
 import commit_hooks as ch  # noqa: E402
 
 NO_PIN = "/nonexistent/fabric-python"
@@ -95,6 +97,19 @@ class Module(Hooks):
         r = self.sign_with("gpg.program", "/usr/bin/gpg", 0)
         self.assertEqual((r.returncode, r.stderr, self.calls()), (0, "", ""))
 
+    def test_a_commit_whose_repository_cannot_be_told_from_the_fabrics_is_refused_not_taken_for_a_project(self):
+        # mutation: same_repository returning False when neither git nor the toplevel's layout names a common directory
+        self.fabric.itself()
+        nowhere = os.path.join(self.fabric.root, "no-checkout")
+        os.makedirs(nowhere)
+        self.stub("git", f'[ "$1" = rev-parse ] && [ "$2" = --git-common-dir ] && exit 128\n'
+                         f'[ "$1" = rev-parse ] && [ "$2" = --show-toplevel ] && {{ echo "{nowhere}"; exit 0; }}\nexec /usr/bin/git "$@"\n')
+        self.repo.stage("src/a.txt")
+        self.fabric.bind("backend-dev")
+        r = self.fabric.hook("pre-commit", self.repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("commit hooks: cannot tell whether this commit is made in agent-fabric", r.stderr)
+
 
 class Direct(unittest.TestCase):
     def test_a_unicode_space_does_not_hide_an_attribution(self):
@@ -135,6 +150,16 @@ class Direct(unittest.TestCase):
         with open(msg, "w", encoding="utf-8") as fh:
             fh.write("s\n\nfabric-ROLE: first\nFabric-Role: second: tail\n")
         self.assertEqual(ch._typed_role(msg), "second")
+
+    def test_a_checkouts_common_directory_is_its_clones_whether_it_is_the_clone_or_a_worktree_of_it(self):
+        # mutation: a worktree's gitdir taken as its common directory (`commondir` not read), so a fabric root that is itself a
+        # worktree stopped being the repository its clone's commits are made in
+        repo = Repo()
+        self.addCleanup(repo.cleanup)
+        wt = repo.worktree("feat")
+        clone = os.path.realpath(os.path.join(repo.path, ".git"))
+        self.assertEqual((ch._common_dir_of(repo.path), ch._common_dir_of(wt.path)), (clone, clone))
+        self.assertEqual(ch._common_dir_of(repo.root), "")
 
     def test_a_login_holds_a_locale_by_the_suffix_after_a_hyphen_or_by_being_it(self):
         self.assertTrue(ch._holds_locale("language-culture-ge", "ge"))
