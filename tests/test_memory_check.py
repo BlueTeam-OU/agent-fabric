@@ -494,9 +494,9 @@ class Anchors(Tree):
 
     def test_a_named_anchor_is_judged_in_the_tree_when_it_names_the_corpus_own_project(self):
         self.write("README.md", "the fabric's readme\n")
-        self.slice("a", ("own", anchored("B.", ["agent-fabric:README.md::the fabric's"], observed=None)),
-                   ("gone", anchored("B.", ["agent-fabric:README.md::absent text"], observed=None)))
-        v = self.verdicts("--project", "agent-fabric")
+        self.slice("a", ("own", anchored("B.", ["tree-id:README.md::the fabric's"], observed=None)),
+                   ("gone", anchored("B.", ["tree-id:README.md::absent text"], observed=None)))
+        v = self.verdicts("--project", "tree-id")   # no directory beside the tree is named for it: only the tree can answer
         self.assertEqual((v["own"]["anchors"][0]["status"], v["gone"]["anchors"][0]["status"]), ("exists", "stale-hard"))
 
     def test_an_anchor_is_judged_in_its_origins_checkout_never_by_a_same_named_file_of_another_project(self):
