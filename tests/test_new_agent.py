@@ -400,6 +400,17 @@ def main() -> int:
         check("a read-back is a login shell as the account through sudo -u, never as root",
               out == b"as-the-account\n" and any(c.startswith("-n -u acct -H env -i HOME=") and " bash -lc " in c
                                                   for c in calls), calls[-1:])
+        # Debian's /etc/profile assigns PATH outright for a non-root login: the account's own profile does the same here, and
+        # the tool only the account's PATH names must still be found (the worker re-asserts PATH inside the login shell).
+        put(f"{home}/.bash_profile", "PATH=/usr/bin:/bin\n")
+        put(f"{home}/.local/bin/account-only-tool", "#!/bin/sh\necho found\n", 0o755)
+        os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
+        try:
+            found = vf.Account("acct", home, f"{tmp}/vbin/sudo").run("account-only-tool")
+        finally:
+            os.environ["PATH"] = saved_path
+            os.remove(f"{home}/.bash_profile")
+        check("a profile that assigns PATH outright does not hide what the account's PATH names", found == b"found\n", found)
         saved_err = sys.stderr
         sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
         try:

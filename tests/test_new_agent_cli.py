@@ -55,6 +55,13 @@ args=(); for a in "$@"; do
 echo "sudo ${args[*]}" >> "{CALLS}"
 grep -qsxF "${args[0]}" "{FAULT}" && { echo "fake: ${args[0]} failed (injected)" >&2; exit 1; }
 [[ "${args[0]}" == chown ]] && exit 0
+# The worker runs the account's commands in a LOGIN shell (bash -lc), which reads /etc/profile and /etc/profile.d: about 25 execs
+# each, 1,400 times in this suite, and the host's own files in a suite that owns its environment. The call line above is logged as
+# the worker built it; what runs is the same script in a plain shell. The fixture accounts have no profile of their own, so
+# nothing a login shell would read here changes an answer.
+for ((i = 1; i < ${#args[@]}; i++)); do
+  [[ "${args[i-1]}" == bash && "${args[i]}" == -lc ]] && { args[i]=-c; break; }
+done
 exec "${args[@]}"
 ''',
     "useradd": r'''#!/usr/bin/env bash
