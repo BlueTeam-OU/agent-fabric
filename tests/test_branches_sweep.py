@@ -307,6 +307,18 @@ class Sweep(unittest.TestCase):
         self.assertIn("1 commit(s) on no remote", out)
         self.assertNotIn("session registry unreadable", out, "a worktree already kept says its own reason, not this one")
 
+    def test_json_counts_a_worktree_kept_for_an_unreadable_registry_as_kept(self):
+        wt = self.worktree("w", pushed=True)
+
+        def kept_because() -> object:
+            r = subprocess.run([CMD, "--json"], cwd=self.wc, env=self.env(), capture_output=True, text=True, timeout=300)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            (entry,) = [w for w in json.loads(r.stdout)["worktrees"] if w["path"] == wt]
+            return entry["kept_because"]
+        self.assertIsNone(kept_because(), "a readable registry: the control agent counts it removable (the positive control)")
+        self.no_registry()
+        self.assertEqual(kept_because(), "session registry unreadable")
+
     def test_a_readable_registry_that_lists_no_one_in_the_worktree_removes_it(self):
         wt = self.worktree("w", pushed=True)
         rc, out, err = self.sweep()

@@ -564,6 +564,10 @@ def report_json(top: str, current: str, dirty: int) -> int:
 
     def count(n: str):
         return int(n) if n.isdigit() else None
+    # The count of what a sweep would remove is the sweep's own: it keeps every worktree when the registry cannot be read, and the
+    # control agent reads this object to say how many are removable.
+    global REGISTRY_UNREADABLE
+    REGISTRY_UNREADABLE = live_sessions() is None
     listing = worktrees()
     main_wt = listing[0]["path"] if listing else ""
     wts = []
