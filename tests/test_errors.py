@@ -300,6 +300,11 @@ def main() -> int:
           and [m["line"] for m in t["malformed_lines"]] == ["Finding: F1 | P9 | certain | a | x",
                                                             "Judgement: lines   (no Finding: line: a report says `Finding: none` when it has none)"]
           and all(m["repo"] == "o/r" and m["pr"] == 7 for m in t["malformed_lines"]), t)
+    many = "".join(f"Finding: bad{i}\n" for i in range(errors.MAX_NAMED + 2))
+    t2 = errors.tally(run(pr(commits=cs2, reviews=[review(many, "c1"), review("Finding: Z | zzz\n", "c3")])))["reviews"]
+    check("tally: a report's named lines stay in order with its (+k more) entry last, not sorted by their text",
+          [m["line"] for m in t2["malformed_lines"]] == [f"Finding: bad{i}" for i in range(errors.MAX_NAMED)]
+          + ["(+2 more malformed lines)", "Finding: Z | zzz"], t2["malformed_lines"])
     check("tally: the unparsed report's findings are not counted; the old-shape report in the same PR still is",
           t["findings_total"] == 3 and t["findings"] == {"P1": {"answered": 0, "unjudged": 1}, "P2": {"answered": 1, "unjudged": 0},
                                                          "P3": {"answered": 0, "unjudged": 1}}, t)

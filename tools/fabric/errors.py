@@ -508,8 +508,9 @@ def tally(events: list[dict]) -> dict:
                     "found_so_far_in_open_windows": len({(e["repo"], e["pr"]) for e in found if e["period"] and not e["closed"]})}
     return {"prs_merged": len(prs), "prs_in_closed_period": closed_owned,
             "reviews": {"given": len(reviews), "unparsed": sum(1 for e in reviews if e["unparsed"]),
+                        # By PR only, and sorted() is stable: a report's lines keep their order, so its "(+k more)" stays after the lines it counts.
                         "malformed_lines": sorted(({"repo": e["repo"], "pr": e["pr"], "line": line} for e in reviews for line in e["malformed"]),
-                                                  key=lambda m: (m["repo"], m["pr"], m["line"])),
+                                                  key=lambda m: (m["repo"], m["pr"])),
                         "judgements": {k: verdicts[k] for k in sorted(verdicts)},
                         "findings": {k: findings[k] for k in sorted(findings)}, "findings_total": nfind,
                         "findings_per_review": rate(nfind, len(reviews) - sum(1 for e in reviews if e["unparsed"])),
