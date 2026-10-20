@@ -29,7 +29,7 @@ NAMES = ["main", "mutate", "new_job", "request_job", "fetch_message", "Refused",
          "STATES", "OPEN", "TERMINAL", "MESSAGE_ID", "POOL_ID", "identity", "find", "active", "transition", "queue_order", "stored_priority",
          "effective_priority", "stream_waits", "ask_queue", "ask_pool", "claimed_job", "pool_job", "line", "show", "summary", "decide",
          "FABRIC_ROOT", "HERE", "INBOX", "QUEUE", "QUEUE_TIMEOUT_S", "Unreachable", "Unanswered"]
-ORDER = ["base", "blockers", "vcs", "ranking", "records", "queue", "pool", "render", "settle", "branching", "sweep", "leave_sweep", "verbs"]
+ORDER = ["base", "blockers", "vcs", "ranking", "records", "queue", "pool", "render", "settle", "branching", "sweep", "leave_sweep", "leave_targets", "verbs"]
 
 
 def load(name: str):

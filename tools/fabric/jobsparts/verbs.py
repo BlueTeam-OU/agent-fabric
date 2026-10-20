@@ -10,6 +10,7 @@ import time
 from fabric_jobs import vcs
 from fabric_jobs.settle import settle
 from fabric_jobs.leave_sweep import after_leaving
+from fabric_jobs.leave_targets import clean_targets
 from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
 from fabric_jobs.base import MESSAGE_ID, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
@@ -224,7 +225,11 @@ def switch_job(args) -> int:
         settled = f"{old['state']}: " + "; ".join(evidence)
         # Before the next job's worktree is made: the sweep would take a fresh one for finished (clean, on the remote). Said, never
         # a reason to stay: what it cannot do it reports.
-        swept = after_leaving(old.get("working_copy"), here)
+        # First: the sweep may take the whole worktree, and a failed sweep must not leave the targets (tens of GB) behind.
+        if not args.keep_targets:
+            swept = clean_targets(old.get("worktree"), old.get("working_copy"),
+                                  tuple(j.get("working_copy") for j in listed["jobs"] if j["id"] != old["id"]))
+        swept += after_leaving(old.get("working_copy"), here)
     choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged)
     verdict_for = {}
 
