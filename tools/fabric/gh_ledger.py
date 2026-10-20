@@ -50,7 +50,8 @@ MAX_BYTES = 8 * 1024 * 1024
 RATE_MAX_AGE_S = 30.0
 RATE_TIMEOUT_S = 20
 
-_GRAPHQL_SUBCOMMANDS = {"pr", "issue", "repo", "project", "gist", "search"}
+# gh search and gh gist ride REST: not listed.
+_GRAPHQL_SUBCOMMANDS = {"pr", "issue", "repo", "project"}
 _DIGITS = re.compile(r"\d+")
 _SHA = re.compile(r"\b[0-9a-f]{40}\b|\b[0-9a-f]{7,12}\b")
 

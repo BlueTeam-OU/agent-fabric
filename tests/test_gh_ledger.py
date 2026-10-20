@@ -252,16 +252,48 @@ def main() -> int:
         gh_ledger._rotate(path)
         kept = open(path + ".1").read() if os.path.exists(path + ".1") else None
         open(path, "w").write("one\n")
-        gh_ledger._rotate(path)   # the session that lost the race: the file is small now
+        real_getsize = os.path.getsize
+        asked = []
+
+        def losing_getsize(p):
+            # The session that lost the race read the size BEFORE the winner renamed: large the first time,
+            # as it really is afterwards (the winner's new file is small).
+            asked.append(p)
+            return 10_000 if len(asked) == 1 else real_getsize(p)
+        os.path.getsize = losing_getsize
+        try:
+            gh_ledger._rotate(path)
+        finally:
+            os.path.getsize = real_getsize
         check("the generation a rotation kept is not replaced by a later, small file",
               kept == "x" * 200 and open(path + ".1").read() == kept, str(kept))
         gh_ledger.MAX_BYTES = saved_max
 
+        print("an entry the current build would not write is not trusted")
+        old = gh._etag_file("repos/o/r/pulls/9/reviews?per_page=100")
+        os.makedirs(os.path.dirname(old), exist_ok=True)
+        open(old, "w").write(json.dumps({"etag": 'W/"b"', "items": [{"i": n} for n in range(100)]}))
+        open(etag, "w").write('W/"b"')
+        gh.api_list("repos/o/r/pulls/9/reviews")
+        check("a cached full page (written before the fix) is not served on a 304",
+              "If-None-Match" not in fake_calls()[-1], fake_calls()[-1])
         print("what the ledger calls a call")
         check("a body makes it a POST, and a paginated call says so",
               gh_ledger.classify(["api", "repos/o/r/pulls/7/reviews", "--input", "-"])[1] == "api POST repos/o/r/pulls/N/reviews"
               and gh_ledger.classify(["api", "repos/o/r/pulls", "--paginate", "--slurp"])[1].endswith("[paginated]"),
               str((gh_ledger.classify(["api", "repos/o/r/pulls/7/reviews", "--input", "-"]),)))
+
+        os.environ.pop("GH_REPO")
+        try:
+            gh.run(["pr", "view", "7"], lookups=False)
+            e = None
+        except gh.GhError as err:
+            e = err
+        os.environ["GH_REPO"] = "o/r"
+        check("lookups=False still refuses a scoped call that names no repository (gh would guess)",
+              e is not None and "no repository is named" in e.reason, str(e and e.reason))
+        check("search and gist ride REST", gh_ledger.classify(["search", "prs"])[0] == "rest"
+              and gh_ledger.classify(["gist", "list"])[0] == "rest")
 
         print("the ledger is telemetry")
         blocked = os.path.join(tmp, "a-file")

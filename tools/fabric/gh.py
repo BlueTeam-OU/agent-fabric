@@ -204,7 +204,14 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
         stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
         # lookups=False: no helper process of ours (git for the repository, rate_limit for a reason) may add to
         # the caller's own time bound; the statusline's answer is due within its seconds.
-        env = _env(args, what, cwd) if lookups else None
+        if lookups:
+            env = _env(args, what, cwd)
+        elif not os.environ.get("GH_REPO") and _scoped(args):
+            # No git to learn the repository from, so a call gh would aim by guessing is refused outright
+            # (see _env); a caller that names one (--repo) or sets GH_REPO is unaffected.
+            raise GhError(what, "no repository is named and this call may not look one up (lookups=False)")
+        else:
+            env = None
         r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout, env=env, cwd=cwd, **stdin)
     except FileNotFoundError:
         raise GhError(what, "gh is not installed") from None
@@ -316,6 +323,8 @@ def api_list(path: str, *, timeout: float = TIMEOUT_S) -> list:
                 held = json.load(fh)
             if not (isinstance(held, dict) and isinstance(held.get("etag"), str) and isinstance(held.get("items"), list)):
                 held = None
+            elif len(held["items"]) >= 100:
+                held = None   # an entry no current build would write: never trusted
         except (OSError, ValueError):
             held = None
     args = ["api", "-i", first]

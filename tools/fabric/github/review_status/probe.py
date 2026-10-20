@@ -219,11 +219,10 @@ def head_born_sourced(repo: str, pr: str, head: str, head_ref: str) -> tuple[str
         born = ""
     if born:
         return born, True
-    if not born:
-        try:
-            born = gh.api(f"repos/{repo}/commits/{head}")["commit"]["committer"]["date"] or ""
-        except (gh.GhError, ValueError, TypeError, KeyError):
-            born = ""
+    try:
+        born = gh.api(f"repos/{repo}/commits/{head}")["commit"]["committer"]["date"] or ""
+    except (gh.GhError, ValueError, TypeError, KeyError):
+        born = ""
     return born, False
 
 
