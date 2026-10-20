@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -57,6 +58,7 @@ class Sweep(unittest.TestCase):
         self.addCleanup(self.stop)
         self.origin = os.path.join(self.t, "origin.git")
         self.wc = self.repo("wc", self.origin)
+        self.registry()   # a registry that lists no session: readable, so a sweep removes what it proves removable. The tests of an unreadable one delete it
 
     def stop(self):
         for p in self.procs:
@@ -263,11 +265,53 @@ class Sweep(unittest.TestCase):
         self.assertIn("refs/remotes/origin/elsewhere", refs, "ls-remote answered: a ref that is the same commit on both sides counts")
         self.assertNotIn("refs/remotes/origin/moved", refs, "the remote's branch of that name is another commit now")
 
+    def no_registry(self) -> None:
+        shutil.rmtree(os.path.join(self.cfg, "sessions"))
+
+    def unreadable_registry(self) -> None:
+        with open(os.path.join(self.cfg, "sessions", "1.json"), "w", encoding="utf-8") as fh:
+            fh.write("{broken")
+
     def test_an_unlistable_registry_is_said_for_the_worktrees_too(self):
         self.worktree("w", pushed=True)
+        self.no_registry()
         rc, out, err = self.sweep()
-        self.assertIn("known to be in use only through AGENT_FABRIC_BRANCHES_KEEP", err)
+        self.assertIn("no worktree is removed", err)
         self.assertIn(os.path.join(self.cfg, "sessions"), err, "it names the directory it looked in")
+
+    def test_a_missing_or_unreadable_registry_keeps_a_clean_pushed_worktree_and_says_why(self):
+        wt = self.worktree("w", pushed=True)
+        for setup in (self.no_registry, self.unreadable_registry):
+            with self.subTest(setup.__name__):
+                if setup == self.unreadable_registry:
+                    self.registry()
+                setup()
+                rc, out, err = self.sweep()
+                self.assertEqual(rc, 0, err)
+                self.assertTrue(os.path.isdir(wt), "the directory a session may stand in is still there")
+                self.assertRegex(out, rf"(?m)^  \d+\s+{re.escape(wt)}  w  session registry unreadable$")
+                self.assertNotIn("removed worktree", out)
+                self.assertIn("w", self.git(self.wc, "branch", "--list", "w"))
+
+    def test_an_unreadable_registry_still_deletes_a_branch_with_no_worktree(self):
+        self.git(self.wc, "branch", "at-tip", "main")
+        self.no_registry()
+        rc, out, err = self.sweep()
+        self.assertEqual(self.git(self.wc, "branch", "--list", "at-tip"), "", out)
+
+    def test_an_unreadable_registry_names_its_reason_beside_the_worktrees_own(self):
+        wt = self.worktree("owed", pushed=False)
+        self.no_registry()
+        rc, out, err = self.sweep()
+        self.assertTrue(os.path.isdir(wt))
+        self.assertIn("1 commit(s) on no remote", out)
+        self.assertNotIn("session registry unreadable", out, "a worktree already kept says its own reason, not this one")
+
+    def test_a_readable_registry_that_lists_no_one_in_the_worktree_removes_it(self):
+        wt = self.worktree("w", pushed=True)
+        rc, out, err = self.sweep()
+        self.assertFalse(os.path.exists(wt), out)
+        self.assertNotIn("session registry unreadable", out)
 
     def test_all_from_a_linked_worktree_keeps_that_worktree(self):
         here = self.worktree("here", pushed=True)
@@ -322,12 +366,12 @@ class Sweep(unittest.TestCase):
 
     def test_no_registry_or_one_that_cannot_be_read_keeps_all(self):
         (d,) = self.sessions(ENDED)
+        self.no_registry()
         rc, out, err = self.sweep()                       # no sessions/ at all
         self.assertTrue(os.path.isdir(d), out)
         self.assertIn("cannot be listed", out)
         os.makedirs(os.path.join(self.cfg, "sessions"))
-        with open(os.path.join(self.cfg, "sessions", "1.json"), "w", encoding="utf-8") as fh:
-            fh.write("{broken")
+        self.unreadable_registry()
         rc, out, err = self.sweep()
         self.assertTrue(os.path.isdir(d), "a file the harness wrote that cannot be understood is unknown, never none")
         with open(os.path.join(self.cfg, "sessions", "1.json"), "w", encoding="utf-8") as fh:
@@ -365,7 +409,8 @@ class Sweep(unittest.TestCase):
                 continue
             with open(path, encoding="utf-8") as fh:
                 text = fh.read()
-            if '"--sweep"' in text and "claude-config" not in text:
+            # "branches": another command's --sweep flag (fabric-ctl drift's) runs no fabric-branches sweep
+            if '"--sweep"' in text and "branches" in text and "claude-config" not in text:
                 missing.append(name)
         self.assertEqual(missing, [], "these run a sweep with this login's own registry and cache")
 
