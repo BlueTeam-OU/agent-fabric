@@ -468,6 +468,10 @@ class Judge:
             r = git.run(repo, "-c", "core.attributesFile=/dev/null", f"--attr-source={empty}", "merge-tree",
                         "--write-tree", parents[0], parents[1], check=False)
             clean = (r.stdout.splitlines() or [""])[0].strip() if r.returncode == 0 else ""
+            if r.returncode == 129:
+                # A usage error, not a conflict: --attr-source needs git 2.40.
+                return (f"{who}, a merge this git cannot judge (merge-tree exit 129: "
+                        f"{(r.stderr.strip().splitlines() or ['usage error'])[0][:80]}; git 2.40 or later is needed)")
             if not clean:
                 return (f"{who}, a merge whose parents do not merge cleanly (git merge-tree exit {r.returncode}): "
                         f"a conflict resolved on the web?{but} {remake}")

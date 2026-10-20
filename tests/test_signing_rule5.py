@@ -546,6 +546,21 @@ def run() -> None:
     check("a forge merge clean only under the checkout's merge=union attributes: refused",
           refused(r, "do not merge cleanly"), r.stdout + r.stderr)
 
+    branch("forge-union-user")
+    commit("python-dev-04", "python-dev", name="unioned-user", text="branch\n")
+    advance_main(**{"unioned-user": "main\n"})
+    # A user-level attributes file (core.attributesFile) is the host's, not
+    # the branch's, and must not decide what merges cleanly either.
+    attrs, cfg = f"{T}/user-attributes", f"{T}/user-gitconfig"
+    with open(attrs, "w", encoding="utf-8") as f:
+        f.write("unioned-user merge=union\n")
+    with open(cfg, "w", encoding="utf-8") as f:
+        f.write(f"[core]\n\tattributesFile = {attrs}\n")
+    git(*forge_cfg(), "merge", "-q", "--no-ff", "-m", "Merge branch 'main'", "main", GIT_CONFIG_GLOBAL=cfg)
+    r = guard(GIT_CONFIG_GLOBAL=cfg)
+    check("a forge merge clean only under a user-level attributes file: refused",
+          refused(r, "do not merge cleanly"), r.stdout + r.stderr)
+
     branch("forge-octopus")
     commit("python-dev-04", "python-dev")
     for side in ("oct-a", "oct-b"):
