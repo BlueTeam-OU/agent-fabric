@@ -89,3 +89,18 @@ launcher's opening prompt says to run it again after each delivery.
 ### Amendment 2026-10-11 — Every job starts in a fresh session
 
 The owner decided on 2026-10-11 that an agent starts a fresh session for every job it takes after finishing one; keeping the prompt cache warm is not a reason to continue. A fresh launch reads the fabric anew (launch prompt, charter, CLAUDE.md, hooks), which the fleet upgrade updates on disk and a running session never re-reads, so a continued session works on stale rules. `fabric-jobs next` therefore no longer compares project, working copy and topic: a session that has already worked a job gets `fabric-fresh --job <id>` always; a session that has worked none (just launched) takes the job in place, being already fresh. A job's `active` log entry records the harness session id (`CLAUDE_CODE_SESSION_ID`), which is how a session is told to have worked a job; an active job is still never preempted and a blocked one is still taken only by name.
+
+### Amendment 2026-10-19 — Stale worktrees and ended sessions' scratch are swept
+
+§5 rule 11. The owner, 2026-10-19: "you should tell also agents to do
+clean out of old stale things". One login alone held 39 leftover
+worktrees that day (review heads, drains, job checkouts across ten
+repositories, about 530 MB), none of which the sweep could remove: it
+took only worktrees whose commit was on the default branch, so pushed
+but unmerged work and detached review heads stayed. Two agents asked to
+clear their own ended sessions' scratch by hand were refused by the
+auto-mode classifier, which is why that is a command and not an rm
+rule. A worktree whose HEAD is on a remote-tracking ref loses nothing
+when removed: its commits stay on the remote. The sweep now removes
+those, covers every working copy with `--all`, removes ended sessions'
+scratch, and runs its worktree half when a job ends.

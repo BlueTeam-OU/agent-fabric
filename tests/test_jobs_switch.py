@@ -936,6 +936,62 @@ def main() -> int:
         check("a branch of the generated name that exists (a landed one, a leftover) is not reused or refused: a suffix",
               rc == 0 and w.job(j2)["branch"] == f"{host}/{login}/feat/{j2}-second-2", out + err)
 
+        print("leaving a job sweeps what it left (j301): a pushed worktree goes, no branch is deleted, the next job's worktree stays")
+
+        def git_in(path: str, *args: str) -> None:
+            subprocess.run(["git", "-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                           check=True, env=git_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        def left_behind(w: World, push: bool) -> tuple[str, str]:
+            """A job with a worktree of its own and one commit (pushed or not), dropped; a queued branch at the default's tip."""
+            j1 = w.add("first thing")
+            assert w.switch()[0] == 0
+            left = w.job(j1)["worktree"]
+            git_in(left, "commit", "-q", "--allow-empty", "-m", "work")
+            if push:
+                git_in(left, "push", "-q", "origin", "HEAD:left-work")
+                git_in(left, "fetch", "-q", "origin")
+            assert w.sw("drop", j1, "x")[0] == 0
+            git_in(w.repo, "branch", "queued-at-tip", "origin/main")
+            return j1, left
+
+        def branches_of(w: World) -> str:
+            return subprocess.run(["git", "-C", w.repo, "branch", "--format=%(refname:short)"], capture_output=True, text=True).stdout
+
+        w = World()
+        j1, left = left_behind(w, push=True)
+        j2 = w.add("second thing")
+        rc, out, err = w.switch()
+        check("the worktree the left job leaves, clean and on the remote, is removed, said, with its size",
+              rc == 0 and not os.path.exists(left) and f"removed worktree {left}" in out and "freed" in out, out + err)
+        check("…no branch is deleted: a queued job's branch may sit at the default branch's tip", "queued-at-tip" in branches_of(w), branches_of(w))
+        check("…and what the command said of itself on stderr (no session registry here) reaches the person though it exited 0",
+              "fabric-branches: the sessions of this login cannot be listed" in out, out + err)
+        check("…and the next job's own worktree is made after the sweep, and stays", os.path.isdir(w.job(j2)["worktree"]) and w.job(j2)["worktree"] != left, out + err)
+
+        w = World()
+        j1, left = left_behind(w, push=False)
+        w.add("second thing")
+        rc, out, err = w.switch()
+        check("a worktree with a commit on no remote is kept, and the switch says why and goes on",
+              rc == 0 and os.path.isdir(left) and "1 commit(s) on no remote" in out, out + err)
+
+        said = sys.modules["fabric_jobs"].leave_sweep.after_leaving(os.path.join(tmp, "not-a-checkout"), None)
+        check("a sweep that cannot start is said once, in the line that says it did not finish, and the switch goes on",
+              said == ["sweep skipped: no working copy of the job is a directory"], said)
+        os.makedirs(os.path.join(tmp, "not-a-checkout"), exist_ok=True)
+        said = sys.modules["fabric_jobs"].leave_sweep.after_leaving(os.path.join(tmp, "not-a-checkout"), None)
+        check("a sweep that fails is said once, in the line that says it did not finish, naming the line that ended it",
+              sum("not in a git working copy" in l for l in said) == 1 and said[-1].startswith("sweep of ")
+              and "did not finish (exit 2): fabric-branches: not in a git working copy" in said[-1], said)
+
+        w = World()
+        j1, left = left_behind(w, push=True)
+        w.add("second thing")
+        rc, out, err = w.switch("--json")
+        check("--json: stdout is the one object, the sweep's report is on stderr", rc == 0 and json.loads(out)["job"] and f"removed worktree {left}" in err
+              and "removed worktree" not in out, out + err)
+
         print("review findings: a switch that races, a swept worktree, odd artifacts, pause elsewhere, blockers kept")
         w = World()
         j1 = w.working("first")
