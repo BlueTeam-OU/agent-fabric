@@ -802,7 +802,10 @@ class Tokens(Base):
         finally:
             usage_mod.ledger_tokens = real
         self.assertEqual((kept["status"], list(kept["models"]), kept["ledger"]), ("ok", ["claude-opus-5"], {"status": "unreadable", "error": "OverflowError"}))
-        c = ops.collect("tokens", {"home": self.home(), "who": WHO, "state": state})
+        # collect() reads the real clock, and the rows are dated at the fixed `now` above: the window is named wide enough to hold them
+        # whenever this runs (the default 7-day window stopped holding them on 2026-10-20 12:00 UTC, which red-lit every CI run).
+        days = (time.time() * 1000 - now) / DAY + 7       # the counted rows sit a day before `now`, a4 thirty: 7 days holds the first and excludes a4 by 23, whatever the two clock reads differ by
+        c = ops.collect("tokens", {"home": self.home(), "who": WHO, "state": state, "days": days})
         self.assertEqual(c["tokens"]["ledger"]["rows"], 6, "the section reads the state directory the context names")
 
 

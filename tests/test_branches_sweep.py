@@ -337,8 +337,8 @@ class Sweep(unittest.TestCase):
         self.assertIn("unknown argument '--worktree'", err)
         self.assertIn("at-tip", self.git(self.wc, "branch", "--list", "at-tip"), "nothing was deleted")
 
-    def sessions(self, *names) -> list[str]:
-        root = os.path.join(self.tmp, f"claude-{UID}", "-proj")
+    def sessions(self, *names, base=None) -> list[str]:
+        root = os.path.join(base or self.tmp, f"claude-{UID}", "-proj")
         out = []
         for n in names:
             d = os.path.join(root, n)
@@ -361,6 +361,46 @@ class Sweep(unittest.TestCase):
         rc, out, err = self.sweep()
         self.assertTrue(os.path.isdir(live) and not os.path.exists(ended), out)
         self.assertIn(f"kept session scratch {live} — live session", out)
+
+    def test_scratch_under_claude_code_tmpdir_is_swept_by_the_registry_s_test(self):
+        """CLAUDE_CODE_TMPDIR, where the harness keeps a session's scratch when it is set: an ended session's goes, a live one's
+        stays. The old root (TMPDIR alone) lists nothing there."""
+        base = os.path.join(self.t, "cc-tmp")
+        ended, live = self.sessions(ENDED, LIVE, base=base)
+        self.registry((LIVE, self.harness(), self.t))
+        rc, out, err = self.sweep(CLAUDE_CODE_TMPDIR=base)
+        self.assertFalse(os.path.exists(ended), out)
+        self.assertTrue(os.path.isdir(live), out)
+        self.assertRegex(out, rf"removed session scratch {ended} \(2\.0 KB\)")
+        self.assertIn(f"kept session scratch {live} — live session", out)
+
+    def test_both_roots_are_swept_and_one_that_is_both_once(self):
+        cc = os.path.join(self.t, "cc-tmp")
+        (in_cc,) = self.sessions(ENDED, base=cc)
+        (in_tmp,) = self.sessions("11111111-2222-3333-4444-555555555555")
+        self.registry()
+        rc, out, err = self.sweep(CLAUDE_CODE_TMPDIR=cc)
+        self.assertFalse(os.path.exists(in_cc) or os.path.exists(in_tmp), out)
+        (again,) = self.sessions(ENDED, base=cc)
+        rc, out, err = self.sweep(CLAUDE_CODE_TMPDIR=cc, TMPDIR=cc)
+        self.assertEqual(out.count(f"removed session scratch {again}"), 1, "a root named by both variables is listed once")
+
+    def test_a_claude_code_tmpdir_root_that_is_a_link_does_not_hide_the_tmpdir_cache(self):
+        cc = os.path.join(self.t, "cc-tmp")
+        os.makedirs(cc)
+        (d,) = self.sessions(ENDED)
+        os.symlink(os.path.join(self.tmp, f"claude-{UID}"), os.path.join(cc, f"claude-{UID}"))
+        self.registry()
+        rc, out, err = self.sweep(CLAUDE_CODE_TMPDIR=cc)
+        self.assertFalse(os.path.exists(d), out)
+
+    def test_scratch_under_claude_code_tmpdir_is_kept_when_the_registry_cannot_be_read(self):
+        base = os.path.join(self.t, "cc-tmp")
+        (d,) = self.sessions(ENDED, base=base)
+        self.no_registry()
+        rc, out, err = self.sweep(CLAUDE_CODE_TMPDIR=base)
+        self.assertTrue(os.path.isdir(d), out)
+        self.assertIn(f"kept session scratch {d}", out)
 
     def test_a_registry_entry_of_a_dead_harness_is_no_session(self):
         (d,) = self.sessions(ENDED)
@@ -412,9 +452,9 @@ class Sweep(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(root, "not-a-session-id", "x")))
 
     def test_every_suite_that_runs_a_sweep_names_a_configuration_directory_of_its_own(self):
-        """The sweep removes the ended sessions' scratch under $TMPDIR that the harness's registry (under CLAUDE_CONFIG_DIR, else
+        """The sweep removes the ended sessions' scratch under $CLAUDE_CODE_TMPDIR and $TMPDIR that the harness's registry (under CLAUDE_CONFIG_DIR, else
         HOME) does not list: a suite that runs it on the real ones removes this login's real scratch. Each names its own."""
-        missing = []
+        missing, inherits = [], []
         for name in sorted(os.listdir(os.path.join(ROOT, "tests"))):
             path = os.path.join(ROOT, "tests", name)
             if not name.endswith(".py") or name == os.path.basename(__file__):
@@ -423,7 +463,13 @@ class Sweep(unittest.TestCase):
                 text = fh.read()
             if '"--sweep"' in text and "claude-config" not in text:
                 missing.append(name)
+            # A registry of its own that lists no one reads every scratch directory under both roots as an ended session's: the
+            # suite must also own CLAUDE_CODE_TMPDIR (set it, or drop the CLAUDE_* variables), or the session's real one is swept.
+            elif ('"--sweep"' in text and re.search(r"fabric[-_]branches|branches\.py", text) and "/nonexistent/claude-config" not in text
+                  and "CLAUDE_CODE_TMPDIR" not in text and '"CLAUDE_"' not in text):
+                inherits.append(name)
         self.assertEqual(missing, [], "these run a sweep with this login's own registry and cache")
+        self.assertEqual(inherits, [], "these sweep with a readable registry and inherit CLAUDE_CODE_TMPDIR")
 
     def test_another_logins_cache_is_not_named(self):
         self.registry()                                   # a registry that lists no live session: the scratch is judged
