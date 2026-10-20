@@ -843,7 +843,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-16 — landed delivered jobs swept to done (§5 rule 12).
 - A 2026-10-18 — no-artifact close with a reason (§5 rule 10).
 - A 2026-10-20 — commits fenced to the session's job copies (§5 rule 3).
-- A 2026-10-21 — switch cleans left build targets (§5 rule 10).
+- A 2026-10-21 — switch to clean targets, unbuilt (§5 rule 10).
 - Keywords: job, jobs.json, fabric-jobs, next, switch, paused, fresh
   session, intake, priority, pool, claim, sweep.
 

@@ -191,7 +191,9 @@ Why these choices:
        every `REPLY-EXPECTED: yes` addressed to the agent is answered,
        and the agent's memory has been written during the job.
        Once the job is settled, the cargo `target` directories of its
-       worktree are removed (A 2026-10-21). This covers every outcome,
+       worktree are removed (A 2026-10-21). That step is decided and
+       not yet built (python-dev's j75); until it is, the agent removes
+       them by hand when it leaves the job. This covers every outcome,
        because a left worktree sits unused, and a job that resumes
        pays a rebuild. The cleanup never reaches the job's main working
        copy and never follows a symlink. It keeps, and names, a target
