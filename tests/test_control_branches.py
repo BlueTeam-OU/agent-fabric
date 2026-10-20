@@ -45,7 +45,10 @@ class Scratch(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "GIT_"))}
         env.update(PATH=bindir + os.pathsep + os.environ["PATH"], AGENT_FABRIC_STATE_DIR=self.state, GIT_CONFIG_GLOBAL=os.devnull,
                    GIT_CONFIG_SYSTEM=os.devnull, GH_TOKEN="", GH_REPO="o/r", AGENT_FABRIC_ROOT=HERE, HOME=self.home,
-                   CLAUDE_CONFIG_DIR="/nonexistent/claude-config")      # no registry: a sweep keeps this login's real session scratch
+                   CLAUDE_CONFIG_DIR=os.path.join(self.dir, "claude-config"),
+                   TMPDIR=os.path.join(self.dir, "tmp"))   # an empty registry reads every session as ended, and a sweep removes a worktree only when it can read one: the scratch it may remove is this test's own
+        os.makedirs(os.path.join(self.dir, "claude-config", "sessions"))
+        os.makedirs(os.path.join(self.dir, "tmp"))
         self.env = env
         patcher = mock.patch.dict(os.environ, env, clear=True)
         patcher.start()
