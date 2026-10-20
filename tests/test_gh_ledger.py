@@ -24,8 +24,20 @@ import gh_ledger  # noqa: E402
 # Every call's argv is appended to $FAKE_LOG.
 FAKE = r'''#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE_LOG"
+if [[ "$1 $2" == "api -i" ]]; then
+  # A conditional list read: 304 when the validator is the current one.
+  etag="$(cat "$FAKE_ETAG")"
+  if [[ "$*" == *"If-None-Match: $etag"* ]]; then
+    if [[ -e "$FAKE_304_AS_ERROR" ]]; then echo "gh: HTTP 304" >&2; exit 1; fi
+    printf 'HTTP/2.0 304 Not Modified\r\nEtag: %s\r\n\r\n' "$etag"; exit 0
+  fi
+  printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n' "$etag"
+  [[ -e "$FAKE_NEXT" ]] && printf 'Link: <https://api.github.com/x?page=2>; rel="next"\r\n'
+  printf '\r\n'; cat "$FAKE_ITEMS"; exit 0
+fi
 case "$1 $2" in
   "api rate_limit") cat "$FAKE_RATE" ;;
+  "api repos/o/r/lists/"*) echo '[[{"n":1}],[{"n":2}]]' ;;
   "api limited/"*) echo "gh: API rate limit exceeded for user ID 1. (HTTP 403)" >&2; exit 1 ;;
   "api secondary/"*) echo "gh: You have exceeded a secondary rate limit. (HTTP 403)" >&2; exit 1 ;;
   "api missing/"*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
@@ -50,7 +62,8 @@ def main() -> int:
         print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good or not detail else f"\n        {detail}"))
         fails += not good
 
-    saved = {k: os.environ.get(k) for k in ("PATH", "AGENT_FABRIC_STATE_DIR", "FAKE_LOG", "FAKE_RATE", "GH_REPO")}
+    FAKE_ENV = ("FAKE_ETAG", "FAKE_ITEMS", "FAKE_NEXT", "FAKE_304_AS_ERROR")
+    saved = {k: os.environ.get(k) for k in ("PATH", "AGENT_FABRIC_STATE_DIR", "FAKE_LOG", "FAKE_RATE", "GH_REPO", *FAKE_ENV)}
     with tempfile.TemporaryDirectory() as tmp:
         bindir = os.path.join(tmp, "bin")
         os.mkdir(bindir)
@@ -61,6 +74,8 @@ def main() -> int:
         log, ratefile, state = (os.path.join(tmp, n) for n in ("calls.log", "rate.json", "state"))
         os.environ.update(PATH=bindir + os.pathsep + os.environ["PATH"], AGENT_FABRIC_STATE_DIR=state, FAKE_LOG=log,
                           FAKE_RATE=ratefile, GH_REPO="o/r")
+        etag, items, nxt, as_err = (os.path.join(tmp, n) for n in ("etag", "items.json", "next", "304-as-error"))
+        os.environ.update(FAKE_ETAG=etag, FAKE_ITEMS=items, FAKE_NEXT=nxt, FAKE_304_AS_ERROR=as_err)
 
         def rows() -> list[dict]:
             path = os.path.join(gh_ledger.state_dir(), gh_ledger.LEDGER)
@@ -147,6 +162,47 @@ def main() -> int:
         check("an unreadable budget is no wait, never a guess",
               gh_ledger.wait_seconds(resources={}) == 0 and gh_ledger.wait_seconds(resources={"core": {"remaining": "x"}}) == 0)
 
+        print("a list read that polls cheaply")
+        open(etag, "w").write('W/"a"')
+        open(items, "w").write('[{"id": 1}]')
+
+        def listing() -> tuple[list, int, list[dict]]:
+            before_rows = len(rows())
+            before_calls = len(fake_calls())
+            got_items = gh.api_list("repos/o/r/pulls/7/reviews")
+            return got_items, len(fake_calls()) - before_calls, rows()[before_rows:]
+
+        got, n, new = listing()
+        check("the first read is full, and asks for 100 a page", got == [{"id": 1}] and n == 1
+              and "per_page=100" in fake_calls()[-1] and "If-None-Match" not in fake_calls()[-1], str(fake_calls()[-1:]))
+        got, n, new = listing()
+        check("the second sends the validator and a 304 answers from the cache",
+              got == [{"id": 1}] and 'If-None-Match: W/"a"' in fake_calls()[-1], str(fake_calls()[-1:]))
+        check("…recorded as a free call with status 304, so the summary does not count it as spend",
+              [(r["kind"], r["status"]) for r in new] == [("free", 304)], str(new))
+        open(etag, "w").write('W/"b"')
+        open(items, "w").write('[{"id": 1}, {"id": 2}]')
+        got, n, new = listing()
+        check("a changed list is read in full (control: the 304 path is not a stuck cache)",
+              got == [{"id": 1}, {"id": 2}] and [r["status"] for r in new] == ["ok"], str((got, new)))
+        got, n, new = listing()
+        check("…and is then the cached one", got == [{"id": 1}, {"id": 2}] and [r["status"] for r in new] == [304], str(new))
+        open(as_err, "w").write("")
+        got, n, new = listing()
+        check("a gh that reports the 304 as an error is the same answer", got == [{"id": 1}, {"id": 2}], str(got))
+        os.remove(as_err)
+        cachefile = gh._etag_file("repos/o/r/pulls/7/reviews?per_page=100")
+        open(cachefile, "w").write("{damaged")
+        got, n, new = listing()
+        check("a damaged cache is a full read, not an error", got == [{"id": 1}, {"id": 2}] and "If-None-Match" not in fake_calls()[-1],
+              str(fake_calls()[-1:]))
+        open(nxt, "w").write("")
+        got = gh.api_list("repos/o/r/lists/x")
+        check("a first page with a next link is read in full, page by page", got == [{"n": 1}, {"n": 2}], str(got))
+        check("…and not cached: page one's validator says nothing of page two",
+              not os.path.exists(gh._etag_file("repos/o/r/lists/x?per_page=100")))
+        os.remove(nxt)
+
         print("the ledger is telemetry")
         blocked = os.path.join(tmp, "a-file")
         open(blocked, "w").write("x")
@@ -157,6 +213,17 @@ def main() -> int:
             out = f"raised {ex!r}"
         check("a state directory that cannot be written never fails the call", out == {}, str(out))
         os.environ["AGENT_FABRIC_STATE_DIR"] = state
+
+        print("the pace between looks")
+        import poll_pace
+        pace = poll_pace.Pace(30)
+        got = [pace.nap(i == 0) for i in range(9)]
+        check("an unchanged reading grows the wait by half, to five minutes and no further",
+              got == [30, 45, 68, 101, 152, 228, 300, 300, 300], str(got))
+        check("a change falls back to the interval", pace.nap(True) == 30 and pace.nap(False) == 45)
+        check("a limit that ended is no wait; one still on is the seconds to its reset and a second",
+              poll_pace.until_reset(NOW - 5, NOW) is None and poll_pace.until_reset(NOW + 599, NOW) == 600
+              and poll_pace.until_reset(None, NOW) is None)
 
         print("the summary")
         text = gh_ledger.summarize(gh_ledger.read_ledger(3600, now=time.time), calls=True)

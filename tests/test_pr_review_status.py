@@ -70,7 +70,8 @@ def suite(at, ref=REF, prs=(77,)):
 @contextlib.contextmanager
 def scripted_gh(polls=(("OPEN", "abc123", 0),), reviews=(), comments=(), threads=(), threads_fail=False,
                 checks=CHECKS_TABLE, reviews_fail=False, reviews_fail_after=None, comments_fail=False,
-                formal=(), suites=None, page2=(), head_date="2026-08-10T00:00:00Z", head_ref=REF):
+                formal=(), suites=None, page2=(), head_date="2026-08-10T00:00:00Z", head_ref=REF,
+                reviews_limited=None):
     """gh as one run of the command sees it, in place of gh.py's calls.
 
     polls     one per `gh pr view`, the last repeating: (state, head, requests)
@@ -102,6 +103,8 @@ def scripted_gh(polls=(("OPEN", "abc123", 0),), reviews=(), comments=(), threads
             # polls counts this probe's own `pr view`, so it IS the poll number.
             if reviews_fail or (reviews_fail_after is not None and seen.polls > reviews_fail_after):
                 raise gh.GhError(f"gh api GET {path}", "exit 1")
+            if reviews_limited and seen.polls <= reviews_limited[0]:
+                raise gh.GhError(f"gh api GET {path}", "rate limited until 12:34Z", 403, True, reset=clock[0] + reviews_limited[1])
             return list(reviews)
         if "/check-suites" in path:
             return own + (list(page2) if paginate else [])
@@ -133,13 +136,16 @@ def scripted_gh(polls=(("OPEN", "abc123", 0),), reviews=(), comments=(), threads
         seen.naps.append(n)
         clock[0] += n
 
-    real = (gh.pr_view, gh.api, gh.graphql, gh.run, shutil.which, time.time, time.sleep)
+    real = (gh.pr_view, gh.api, gh.graphql, gh.run, shutil.which, time.time, time.sleep, gh.api_list, gh.budget_wait)
+    # api_list is `api(paginate=True)` with a validator; the budget is not this fixture's to read.
     gh.pr_view, gh.api, gh.graphql, gh.run = pr_view, api, graphql, run
+    gh.api_list = lambda path, *, timeout=0: api(path, paginate=True)
+    gh.budget_wait = lambda *a, **k: 0
     shutil.which, time.time, time.sleep = (lambda name: "/bin/gh"), (lambda: clock[0]), sleep
     try:
         yield seen
     finally:
-        gh.pr_view, gh.api, gh.graphql, gh.run, shutil.which, time.time, time.sleep = real
+        gh.pr_view, gh.api, gh.graphql, gh.run, shutil.which, time.time, time.sleep, gh.api_list, gh.budget_wait = real
 
 
 def go(*argv, env=None, **world):
@@ -494,6 +500,30 @@ def main() -> int:
     check("a permanent no-review state exits 5 under a long --wait, without sleeping first", r.rc == 5 and r.naps == [])
     r = go("--wait", "3600", "--interval", "1", "-q", polls=[("CLOSED", "abc123", 1)])
     check("a CLOSED PR stops the wait and exits 1", r.rc == 1 and r.naps == [])
+    def chk(label, good, detail=""):
+        check(label if good else f"{label}\n        {detail}", good)
+
+    # a PR that reads the same is looked at less often; a change falls back to the interval
+    r = go("--wait", "3600", "--interval", "30", "-q", polls=[("OPEN", "abc123", 1)])
+    chk("an unchanged PR is polled at growing intervals, to at most five minutes",
+          r.rc == 1 and r.naps[:8] == [30, 45, 68, 101, 152, 228, 300, 300], str(r.naps[:8]))
+    r = go("--wait", "3600", "--interval", "30", "-q",
+           polls=[("OPEN", "abc123", 1)] * 3 + [("OPEN", "def456", 1)])
+    chk("…and a poll that reads something new puts it back to the interval", r.naps[:5] == [30, 45, 68, 30, 45], str(r.naps[:5]))
+    r = go("--wait", "3600", "--interval", "1000", "-q", polls=[("OPEN", "abc123", 1)])
+    chk("an explicit interval above the cap is the caller's: kept, never grown", r.naps[:3] == [1000, 1000, 1000], str(r.naps[:3]))
+    # a rate-limited look waits for the reset and is not a failure to read
+    r = go("--wait", "3600", "--interval", "30", polls=[("OPEN", "abc123", 1)], reviews=[rev("bot", at=T)],
+           reviews_limited=(4, 600))
+    chk("four rate-limited looks do not end the watch as 'could not read' (three failures would)",
+          r.rc == 0 and "could not read" not in r.all and "rate limited until" in r.all, r.all[-300:])
+    chk("…each waits until the limit ends, not the interval", r.naps and r.naps[0] == 601, str(r.naps))
+    r = go("--wait", "100", "--interval", "30", "-q", polls=[("OPEN", "abc123", 1)], reviews=[rev("bot", at=T)],
+           reviews_limited=(99, 600))
+    chk("a watch that ends while rate limited says so", r.rc != 0 and "rate limited until" in r.all, r.all[-300:])
+    r = go("--wait", "100", "--interval", "30", "-q", polls=[("OPEN", "abc123", 1)], reviews_fail=True)
+    chk("(control) an unreadable PR still ends as 'could not read' after three failures",
+          r.rc != 0 and "could not read PR #77" in r.all and "rate limited" not in r.all, r.all[-300:])
     # --wait SHORTER than --interval once answered at once while reporting a
     # 4-second wait: the nap is clamped to what is left.
     r = go("--wait", "4", "--interval", "60", "-q", polls=[("OPEN", "abc123", 1)])

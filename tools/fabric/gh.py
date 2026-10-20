@@ -30,6 +30,7 @@ fifty. Read the list's numbers first and each item alone (results.py).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -188,7 +189,7 @@ def _env(args: list[str], what: str, cwd: str | None = None) -> dict[str, str] |
 
 
 def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S, what: str | None = None,
-        cwd: str | None = None) -> str:
+        cwd: str | None = None, record: bool = True) -> str:
     """`gh <args>`, its stdout; a failure is a GhError naming `what` (by
     default the first two words of the call)."""
     what = what or "gh " + " ".join(args[:2])
@@ -221,7 +222,8 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
             reason, reset = gh_ledger.limited_reason("graphql" if args[:2] == ["api", "graphql"] else "core")
             lines = [reason]
         raise GhError(what, lines[-1], status, transient, r.stdout, r.stderr, r.returncode, reset)
-    gh_ledger.record(args, caller, "ok", time.monotonic() - started)
+    if record:
+        gh_ledger.record(args, caller, "ok", time.monotonic() - started)
     return r.stdout
 
 
@@ -261,6 +263,97 @@ def api(path: str, *, method: str = "GET", body: dict | list | None = None, pagi
                               f" (pass items_key= for an endpoint whose pages are objects)")
         return items
     return data
+
+
+_HEAD_END = re.compile(r"\r?\n\r?\n")
+_NEXT = re.compile(r'<[^>]*>\s*;\s*rel="next"', re.IGNORECASE)
+
+
+def _etag_file(path: str) -> str | None:
+    directory = gh_ledger.state_dir()
+    if directory is None:
+        return None
+    return os.path.join(directory, "gh-etag", hashlib.sha256(path.encode()).hexdigest()[:32] + ".json")
+
+
+def api_list(path: str, *, timeout: float = TIMEOUT_S) -> list:
+    """A REST list that polls cheaply: every item, like `api(path, paginate=True)`, but when the list fits
+    one page it is asked with the ETag of the last answer, and GitHub answers "304 Not Modified" without
+    counting the request against the rate limit. A poll of a review thread that has not changed costs
+    nothing.
+
+    Only a list that fits ONE page is cached: a list that grows at its end (reviews, comments) leaves page
+    one's ETag unchanged while page two changes, so a conditional read of a first page would answer
+    "unchanged" about a list that is not. A page with a `next` link is read in full, uncached, as `api` does.
+
+    The cache is this account's own (state directory), keyed by path: the answers of one token are the
+    answers of every session on it, and nothing is trusted past the validator GitHub itself accepts. A
+    missing, unreadable or damaged cache is simply a full read."""
+    sep = "&" if "?" in path else "?"
+    first = f"{path}{sep}per_page=100"
+    cache = _etag_file(first)
+    held = None
+    if cache:
+        try:
+            with open(cache, encoding="utf-8") as fh:
+                held = json.load(fh)
+            if not (isinstance(held, dict) and isinstance(held.get("etag"), str) and isinstance(held.get("items"), list)):
+                held = None
+        except (OSError, ValueError):
+            held = None
+    args = ["api", "-i", first]
+    if held:
+        args += ["-H", f"If-None-Match: {held['etag']}"]
+    what = f"gh api GET {path.split('?')[0]}"
+    caller = gh_ledger.caller_module(__file__)
+    started = time.monotonic()
+    try:
+        out = run(args, timeout=timeout, what=what, record=False)
+    except GhError as e:
+        if held and (e.status == 304 or "HTTP 304" in e.stderr):
+            gh_ledger.record(args, caller, 304, time.monotonic() - started)
+            return held["items"]
+        gh_ledger.record(args, caller, e.status or "error", time.monotonic() - started)
+        raise
+    cut = _HEAD_END.search(out)
+    head, body = (out[:cut.start()], out[cut.end():]) if cut else (out, "")
+    status_line = head.splitlines()[0] if head else ""
+    parts = status_line.split()
+    code = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+    if code == 304 and held:
+        gh_ledger.record(args, caller, 304, time.monotonic() - started)
+        return held["items"]
+    if code != 200:
+        gh_ledger.record(args, caller, code or "error", time.monotonic() - started)
+        raise GhError(what, f"unexpected answer {status_line.strip()[:80]!r}", transient=True)
+    gh_ledger.record(args, caller, "ok", time.monotonic() - started)
+    try:
+        items = json.loads(body)
+    except ValueError:
+        raise GhError(what, "the answer is not JSON", transient=True) from None
+    if not isinstance(items, list):
+        raise GhError(what, "the answer is not a list", transient=True)
+    if _NEXT.search(head):
+        return api(path + sep + "per_page=100", paginate=True, timeout=timeout) or []
+    etag = next((l.split(":", 1)[1].strip() for l in head.splitlines()[1:] if l.lower().startswith("etag:")), "")
+    if cache and etag:
+        try:
+            os.makedirs(os.path.dirname(cache), mode=0o700, exist_ok=True)
+            tmp = f"{cache}.{os.getpid()}"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump({"etag": etag, "items": items}, fh)
+            os.replace(tmp, cache)
+        except OSError:
+            pass   # a cache that cannot be written is a full read next time
+    return items
+
+
+def budget_wait(floor: int = 100) -> float:
+    """Seconds a poller should wait before its next call so as not to spend the last of the rate limit: the
+    longer of the REST (core) and GraphQL waits, 0 while both have more than `floor` calls left and when the
+    budget cannot be read (see gh_ledger.wait_seconds). Costs no quota."""
+    res = gh_ledger.rate_limit()
+    return max(gh_ledger.wait_seconds(name, floor, resources=res) for name in ("core", "graphql"))
 
 
 def graphql(query: str, *, timeout: float = TIMEOUT_S, **variables) -> dict:

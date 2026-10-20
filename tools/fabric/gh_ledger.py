@@ -110,6 +110,8 @@ def caller_module(skip_file: str) -> str:
 
 def record(args: list[str], caller: str, status, seconds: float) -> None:
     kind, call = classify(args)
+    if status == 304:
+        kind = "free"   # not modified: GitHub does not count it against the limit
     directory = state_dir()
     if directory is None:
         return
