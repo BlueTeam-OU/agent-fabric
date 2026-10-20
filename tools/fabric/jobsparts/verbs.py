@@ -9,6 +9,7 @@ import sys
 import time
 from fabric_jobs import vcs
 from fabric_jobs.settle import settle
+from fabric_jobs.leave_sweep import after_leaving
 from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
 from fabric_jobs.base import MESSAGE_ID, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
@@ -209,6 +210,7 @@ def switch_job(args) -> int:
     session = session_id()
     old = last_worked(listed, session)
     settled = None
+    swept: list[str] = []
     # The job just left is the one taken again (a blocker that cleared at once, a job paused and resumed): nothing was left.
     if old and old["id"] != nxt["id"]:
         try:
@@ -220,6 +222,9 @@ def switch_job(args) -> int:
         if problems:
             raise Refused(f"cannot leave {old['id']} ({old['state']}) yet; fix:\n" + "\n".join(f"  - {p}" for p in problems))
         settled = f"{old['state']}: " + "; ".join(evidence)
+        # Before the next job's worktree is made: the sweep would take a fresh one for finished (clean, on the remote). Said, never
+        # a reason to stay: what it cannot do it reports.
+        swept = after_leaving(old.get("working_copy"), here)
     choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged)
     verdict_for = {}
 
@@ -258,6 +263,8 @@ def switch_job(args) -> int:
         raise
     verdict, job = verdict_for["verdict"], verdict_for["job"]
     if args.json:
+        for said in swept:
+            print(said, file=sys.stderr)      # stdout is the one JSON object
         print(json.dumps({**verdict, "branch": choice.branch, "worktree": choice.worktree, "branch_kind": choice.kind, "settled": settled},
                          ensure_ascii=False, indent=2))
         return 0
@@ -269,6 +276,8 @@ def switch_job(args) -> int:
         print(f"  resumes paused work: {verdict_for['resumed']}")
     if settled:
         print(f"  left {old['id']}: {settled}")
+        for said in swept:
+            print(f"    {said}")
     print(f"  branch {choice.branch} ({choice.note}) in {choice.worktree}")
     if verdict_for["who"] and stored_priority(job) != "blocking":
         print(f"  ranked blocking: {named(verdict_for['who'], stale)} {'waits' if len(verdict_for['who']) == 1 else 'wait'} on its request "
