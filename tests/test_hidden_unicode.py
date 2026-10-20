@@ -81,14 +81,14 @@ def case_allowance_zwj_inside_an_emoji_sequence() -> None:
     assert hu.scan(family) == []
     assert hu.scan("\U0001F469\U0001F3FD\u200d⚕\ufe0f") == []   # modifier before ZWJ, VS16 after the symbol
     assert hu.scan("❤\ufe0f\u200d\U0001F525") == []   # VS16 before ZWJ
-    for bad in ("a\u200db", "\U0001F468\u200d^", "\u200d\U0001F469", "\U0001F468\u200d", "\U0001F468\u200da", "\U0001F468 \u200d\U0001F469"):
+    for bad in ("a\u200db", "\U0001F468\u200d^", "^\u200d\U0001F469", "`\u200d\U0001F469", "\u200d\U0001F469", "\U0001F468\u200d", "\U0001F468\u200da", "\U0001F468 \u200d\U0001F469"):
         assert kinds(bad) == ["format"], bad
 
 
 def case_allowance_vs16_after_symbol_digit_and_hash() -> None:
     for ok in ("✔\ufe0f", "1\ufe0f\u20e3", "#\ufe0f\u20e3", "*\ufe0f\u20e3"):
         assert hu.scan(ok) == [], ok
-    for bad in ("a\ufe0f", " \ufe0f", "\ufe0f", "\n\ufe0f", "`\ufe0f", "^\ufe0f"):
+    for bad in ("a\ufe0f", " \ufe0f", "\ufe0f", "\n\ufe0f", "`\ufe0f", "^\ufe0f", "1\ufe0f x", "#\ufe0f", "*\ufe0f"):
         assert kinds(bad) == ["variation"], bad
 
 

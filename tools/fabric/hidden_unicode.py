@@ -32,8 +32,8 @@ Allowances, the only ones, each because a real file needs it:
   * ZWJ (U+200D) between two emoji symbols (So, a skin-tone modifier or
     VS16 before the next symbol): the glue of family and profession
     emoji. Between anything else it is refused.
-  * VS16 (U+FE0F) after a symbol (So), a digit, # or *: the emoji
-    presentation selector and the keycap sequence. After a letter or
+  * VS16 (U+FE0F) after a symbol (So), or after a digit, # or * that
+    U+20E3 follows: the emoji presentation selector and the keycap sequence. After a letter or
     space it is refused.
   * ZWNJ (U+200C) is NOT allowed. Persian and several Indic scripts need
     it for correct spelling; our locales are ru, ge and en, none does.
@@ -119,7 +119,10 @@ def _kind(text: str, i: int, allow_bom: bool) -> str | None:
         return None if (before and after and _is_symbol(before) and unicodedata.category(after) == "So") else "format"
     if cp == VS16:
         before = text[i - 1] if i > 0 else ""
-        return None if before and (_is_symbol(before) or before in KEYCAP_BASE) else "variation"
+        after = text[i + 1] if i + 1 < len(text) else ""
+        # A digit, # or * with VS16 and no keycap after it shows nothing: one hidden bit on each Markdown "#".
+        keycap = before in KEYCAP_BASE and after == "\u20e3"
+        return None if before and (_is_symbol(before) or keycap) else "variation"
     if cp in VARIATION:
         return "variation"
     cat = unicodedata.category(c)
