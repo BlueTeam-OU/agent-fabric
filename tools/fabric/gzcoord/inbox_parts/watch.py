@@ -46,7 +46,8 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
               sleep: Callable[[float], None] = lambda ms: time.sleep(ms / 1000),
               journal: Callable[[list[dict]], dict] | None = None,
               on_journal_fail: Callable[[str, int], None] = lambda reason, n: None,
-              journal_retry_ms: int = JOURNAL_RETRY_MS, deadline: float | None = None) -> dict:
+              journal_retry_ms: int = JOURNAL_RETRY_MS, deadline: float | None = None,
+              session_gone: Callable[[], bool] = lambda: False) -> dict:
     """One arm of the waiter. `delivered` iff some slice carried a message
     for this session. Every slice's messages are acknowledged before the
     loop continues or returns — an acknowledgement means "shown this
@@ -61,7 +62,9 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     watch printed (the owner, 2026-09-25). `deadline` (time.monotonic) ends a
     hold and abandons a slice still unanswered at it, as a hold does: `waited`
     counts nominal slice seconds, while a relay that accepts and never answers
-    holds a slice for up to the request timeout on top."""
+    holds a slice for up to the request timeout on top. `session_gone` is asked as `held` is, and ends the wait the way a deadline
+    does, with `sessionEnded` in the result: a slice abandoned or a page that landed with it is unread and unacknowledged, so
+    the relay shows it again to the next watch (a page already being journaled and shown is finished, and is in the journal)."""
     for_me_fn = for_me_fn or (lambda msg: False)
     keywords = keywords or []
     waited = 0.0
@@ -69,6 +72,8 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     out_of_time = {"classified": [], "waited": 0.0, "delivered": False, "keywordHit": None, "othersPassed": 0}
     was_held = False
     while True:
+        if session_gone():
+            return {**out_of_time, "waited": waited, "sessionEnded": True}
         if held():
             if deadline is not None and time.monotonic() >= deadline:
                 return {**out_of_time, "waited": waited}
@@ -99,6 +104,9 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
             worker.join(hold_poll_ms / 1000)
             if not worker.is_alive():
                 break
+            if session_gone():
+                abort.set()   # nobody is left to read what the slice brings
+                return {**out_of_time, "waited": waited, "sessionEnded": True}
             if held():
                 abort.set()   # the slice is abandoned: nothing read is acknowledged
                 break
@@ -115,6 +123,8 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
         abort.set()
         if held():
             page = {"messages": []}   # landed as the hold began: unread, unacknowledged, re-shown later
+        if session_gone():
+            return {**out_of_time, "waited": waited, "sessionEnded": True}   # landed as the session ended: the next watch is shown it
         waited += slice_
         classified, retired = [], []
         delivered = False

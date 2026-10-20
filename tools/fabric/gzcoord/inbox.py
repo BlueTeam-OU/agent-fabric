@@ -20,8 +20,8 @@ CONTRACT, frozen from the Node:
                                 held inbox is waited out as in --follow.
                                 Whatever ends it other than a delivery,
                                 the harness's timeout, a second watch's
-                                refusal or the --deadline quiet exit
-                                (below) is an exit other than 0 with its reason on STDOUT (a
+                                refusal, the --deadline quiet exit or the
+                                session-ended exit (below) is an exit other than 0 with its reason on STDOUT (a
                                 background command's output reaches the
                                 session only at exit): 2 a control
                                 channel named, 3 not configured
@@ -39,6 +39,31 @@ CONTRACT, frozen from the Node:
                                 line naming the first's pid and start on
                                 STDOUT and exits 0. Every other mode
                                 takes no lock.
+                                A watch ends with its session
+                                (inbox_parts/session.py): it records, at
+                                start, the process it serves (its nearest
+                                `claude` ancestor, else its parent) and,
+                                once a second while it waits, ends when
+                                that process is gone or its own parent
+                                changed, printing `gzcoord-inbox: the
+                                session this watch served (pid N) has
+                                ended; the watch ends with it` on STDOUT
+                                and exiting 0; what a slice had fetched
+                                and not shown is unacknowledged, shown to
+                                the next watch. The lock file holds, after
+                                its pid and start time, that session's pid,
+                                start time and kind. A watch that loses the
+                                lock to a holder whose session is gone
+                                (recorded session dead, or, for a file of
+                                two lines from an older watch, a holder
+                                hanging from init or systemd --user through
+                                shells only) ends it with SIGTERM — by the
+                                pid /proc/locks gives for the flock, after
+                                checking through /proc that it is this
+                                login's gzcoord-inbox watch — waits up to
+                                5 s for the flock, names both pids on
+                                STDERR and takes over; a holder whose
+                                session is alive is refused as above.
                                 --deadline S (default 6900, under the
                                 harness's 2 h cap, which kills the watch
                                 and can leave an orphan that blocks the
@@ -82,13 +107,14 @@ CONTRACT, frozen from the Node:
             reason; under GZCOORD_JOURNAL=off also the bypass warning)
             and no relay-down/back lines; the journal's held-messages
             line is printed only as it exits 6.
-            a second watch's refusal line (watchlock.py) and the --deadline
-            quiet line, which exit 0 without being a delivery.
+            a second watch's refusal line (watchlock.py), the --deadline
+            quiet line and the session-ended line, which exit 0 without
+            being a delivery.
   stderr    every start-up and refusal line (under --until-delivery, the
             refusals that end it go to stdout instead); the hold's
             held/released
   exit      0 drained, delivered, a second watch refused (one per login), --until-delivery quiet to its
-            --deadline, nothing for you, relay unreachable on a
+            --deadline, a watch whose session ended, nothing for you, relay unreachable on a
             drain or wait, and (outside --until-delivery) not configured
             or no token; 1 a usage line, replay of no such message, the
             --held "not held"; 2 a control channel named, replay not
@@ -163,6 +189,7 @@ from .inbox_parts.render import NOTIFICATION_CAP, MAX_FLAG_LINES, _SECTION, cut_
 from .inbox_parts.render import _drop_final_newline, split_message, render  # noqa: F401
 from .inbox_parts.watch import JOURNAL_RETRY_MS, bypass_inbound, wait_loop  # noqa: F401
 from .inbox_parts.watchlock import take_or_report  # noqa: F401
+from .inbox_parts import session as watch_session
 
 
 QUIET_LINE = "gzcoord inbox: quiet for {minutes} min, nothing delivered; run the watch again"
@@ -257,6 +284,9 @@ def with_queued(shown: str, classified: list[dict], me: dict) -> str:
     a job the list could not take is a line on stderr, never an unshown message."""
     lines = intake.queue_received(classified, me)
     return shown + "".join(f"\n{x}" for x in lines)
+
+
+SESSION_ENDED = "gzcoord-inbox: the session this watch served (pid {pid}) has ended; the watch ends with it"
 
 
 def main(argv: list[str]) -> int:
@@ -436,6 +466,13 @@ def main(argv: list[str]) -> int:
         down_since = 0.0
         started = time.monotonic()
         deadline = started + deadline_s
+
+        # The same record run() gave the lock: a pure reading of /proc, so main keeps its one argument (a test and the shim
+        # call it so) and a watch started through main alone serves its session as one started through run.
+        session = watch_session.current()
+
+        def session_gone() -> bool:
+            return watch_session.gone(session)
         while True:
             # Checked before each arm, so a relay that was down at the
             # deadline, or a hold that outlasted it, ends the watch as a quiet one.
@@ -447,7 +484,8 @@ def main(argv: list[str]) -> int:
                 r = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, min(3600, math.ceil(left)) if until_delivery else 3600,
                                                            mine_fn, [], me["address"], held, on_hold, journal=journal,
                                                            on_journal_fail=on_journal_fail,
-                                                           deadline=deadline if until_delivery else None))
+                                                           deadline=deadline if until_delivery else None,
+                                                           session_gone=session_gone))
             except _JournalHeld as e:
                 print(e.line, flush=True)
                 return 6
@@ -469,6 +507,9 @@ def main(argv: list[str]) -> int:
                 # carry the watch past the deadline it promised, and a shorter bound (a test's) is not slept through twice.
                 time.sleep(max(0.0, min(30.0, UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since), deadline - time.monotonic())) if until_delivery else 30)
                 continue
+            if r.get("sessionEnded"):
+                print(SESSION_ENDED.format(pid=session.pid), flush=True)
+                return 0
             if down:
                 if not until_delivery:
                     print(t("watch.relay-back"), flush=True)
@@ -524,7 +565,7 @@ def run(argv: list[str]) -> int:
         # exits 0, so the harness's background call ends clean.
         if ({"--follow", "--until-delivery"} & set(argv)
                 and not {"--replay", "--history", "--held"} & set(argv)):
-            lock = take_or_report(gzmsg.whoami()["agent"])
+            lock = take_or_report(gzmsg.whoami()["agent"], watch_session.current())
             if lock is not None and not lock.acquired:
                 lock = None
             elif lock is None:
