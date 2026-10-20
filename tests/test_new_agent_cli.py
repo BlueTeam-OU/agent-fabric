@@ -62,7 +62,8 @@ has_line "${args[0]}" "{FAULT}" && { echo "fake: ${args[0]} failed (injected)" >
 # The worker runs the account's commands in a LOGIN shell (bash -lc), which reads /etc/profile and /etc/profile.d: about 25 execs
 # each, 1,400 times in this suite, and the host's own files in a suite that owns its environment. The call line above is logged as
 # the worker built it; what runs is the same script in a plain shell. The fixture accounts have no profile of their own, so
-# nothing a login shell would read here changes an answer.
+# nothing a login shell would read here changes an answer. What a real profile does to PATH (Debian's assigns it outright) is
+# covered where a real login shell runs: tests/test_provisioning_worker.py and tests/test_new_agent.py.
 for ((i = 1; i < ${#args[@]}; i++)); do
   [[ "${args[i-1]}" == bash && "${args[i]}" == -lc ]] && { args[i]=-c; break; }
 done
@@ -437,7 +438,9 @@ def main() -> int:
             for k, v in fill.items():
                 text = text.replace(k, v)
             # `grep -qsxF LINE FILE` in a bash fake was one exec per call, thousands in a run: the same question asked in the shell.
-            if text.startswith("#!/usr/bin/env bash\n") and "has_line " in text:
+            if "has_line " in text:
+                # A fake with another interpreter would get "has_line: command not found" and quietly lose its fault injection.
+                assert text.startswith("#!/usr/bin/env bash\n"), "has_line is a bash function"
                 head, rest = text.split("\n", 1)
                 text = head + "\n" + HAS_LINE + rest
             return text
