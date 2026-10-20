@@ -85,6 +85,10 @@ class Probe:
 
 
 def head_born(repo: str, pr: str, head: str, head_ref: str) -> str:
+    return head_born_sourced(repo, pr, head, head_ref)[0]
+
+
+def head_born_sourced(repo: str, pr: str, head: str, head_ref: str) -> tuple[str, bool]:
     """WHEN THE HEAD BECAME THE HEAD, which is not when its commit was
     written.
 
@@ -213,12 +217,14 @@ def head_born(repo: str, pr: str, head: str, head_ref: str) -> str:
         born = min(dates) if dates else ""
     except (gh.GhError, ValueError, TypeError, AttributeError):
         born = ""
+    if born:
+        return born, True
     if not born:
         try:
             born = gh.api(f"repos/{repo}/commits/{head}")["commit"]["committer"]["date"] or ""
         except (gh.GhError, ValueError, TypeError, KeyError):
             born = ""
-    return born
+    return born, False
 
 
 def formal_request_at(repo: str, pr: str, pending_logins: list[str]) -> str:
@@ -383,9 +389,13 @@ def probe(ctx: "Ctx") -> Probe | None:
     if p.request_at:
         # A head's birth never changes: asked once per head, a poll that finds the same ask asks nothing.
         key = (p.head, head_ref)
-        born = ctx.born.get(key) or head_born(ctx.repo, ctx.pr, p.head, head_ref)
-        if born:
-            ctx.born[key] = born
+        born = ctx.born.get(key)
+        if not born:
+            born, from_suite = head_born_sourced(ctx.repo, ctx.pr, p.head, head_ref)
+            # Only the check suite's date is the push's: the commit-date fallback can predate the push by
+            # a rebase's age, and the suite may simply not be registered yet. A fallback is asked again.
+            if born and from_suite:
+                ctx.born[key] = born
         if not born or p.request_at > born:
             p.request_pending = True
         # A refusal that arrived after the ask still answers it.

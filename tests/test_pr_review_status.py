@@ -83,7 +83,7 @@ def scripted_gh(polls=(("OPEN", "abc123", 0),), reviews=(), comments=(), threads
               which is how the earliest suite across pages stays pinned.
     The clock is fake: sleep advances time.time() and is recorded, so a wait
     of an hour costs nothing and the naps can be asserted."""
-    seen = SimpleNamespace(polls=0, naps=[])
+    seen = SimpleNamespace(polls=0, naps=[], suite_calls=0, commit_calls=0)
     clock = [1_000_000.0]
     own = [suite(head_date, ref=head_ref)] if suites is None else list(suites)
 
@@ -107,8 +107,10 @@ def scripted_gh(polls=(("OPEN", "abc123", 0),), reviews=(), comments=(), threads
                 raise gh.GhError(f"gh api GET {path}", "rate limited until 12:34Z", 403, True, reset=clock[0] + reviews_limited[1])
             return list(reviews)
         if "/check-suites" in path:
+            seen.suite_calls += 1
             return own + (list(page2) if paginate else [])
         if "/commits/" in path:
+            seen.commit_calls += 1
             return {"commit": {"committer": {"date": head_date}}}
         if "/comments" in path:
             if comments_fail:
@@ -164,7 +166,7 @@ def go(*argv, env=None, **world):
             rc = d.code
             print(f"{rs.PROG}: {d}", file=sys.stderr)
     return SimpleNamespace(rc=rc, out=out.getvalue(), err=err.getvalue(), all=out.getvalue() + err.getvalue(),
-                           polls=seen.polls, naps=seen.naps)
+                           polls=seen.polls, naps=seen.naps, suite_calls=seen.suite_calls, commit_calls=seen.commit_calls)
 
 
 def rev(login, commit="abc123", **kw):
@@ -512,6 +514,14 @@ def main() -> int:
     chk("…and a poll that reads something new puts it back to the interval", r.naps[:5] == [30, 45, 68, 30, 45], str(r.naps[:5]))
     r = go("--wait", "3600", "--interval", "1000", "-q", polls=[("OPEN", "abc123", 1)])
     chk("an explicit interval above the cap is the caller's: kept, never grown", r.naps[:3] == [1000, 1000, 1000], str(r.naps[:3]))
+    # a head's birth is cached only when a check suite said it
+    ask_comment = [ask("2026-08-25T10:00:00Z")]
+    r = go("--wait", "100", "--interval", "30", "-q", polls=[("OPEN", "abc123", 0)], comments=ask_comment)
+    chk("a head's birth read from its check suite is asked once for the whole watch", r.polls >= 3 and r.suite_calls == 1,
+        f"polls={r.polls} suite_calls={r.suite_calls}")
+    r = go("--wait", "100", "--interval", "30", "-q", polls=[("OPEN", "abc123", 0)], comments=ask_comment, suites=[])
+    chk("…but the commit-date fallback (no suite registered yet) is asked again on every poll, as it was",
+        r.polls >= 3 and r.commit_calls == r.polls and r.suite_calls == r.polls, f"polls={r.polls} commits={r.commit_calls} suites={r.suite_calls}")
     # a rate-limited look waits for the reset and is not a failure to read
     r = go("--wait", "3600", "--interval", "30", polls=[("OPEN", "abc123", 1)], reviews=[rev("bot", at=T)],
            reviews_limited=(4, 600))

@@ -440,6 +440,7 @@ class Watch:
                 if not readable and poll_pace.until_reset(self.limited_until, time.time()) is not None:
                     # Refused on the rate limit: the lookup was not made, not unreadable.
                     self.note(f"#{pr} checks: rate limited until {poll_pace.reset_clock(self.limited_until)}")
+                    unreadable_total += 1   # a failing check may have been hidden by this poll, as by an unreadable one
                     failing = ""
                 elif not readable:
                     check_failures += 1

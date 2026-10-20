@@ -115,7 +115,7 @@ def ask_gh(directory: str, repo: str, branch: str) -> str:
     import gh   # the one door to GitHub: its ledger counts this call too
     try:
         out = gh.run(["pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", "5",
-                      "--json", "number,state"], cwd=directory, timeout=GH_TIMEOUT_S)
+                      "--json", "number,state"], cwd=directory, timeout=GH_TIMEOUT_S, lookups=False)
         rows = json.loads(out)
     except (gh.GhError, OSError, ValueError):
         return "unknown"

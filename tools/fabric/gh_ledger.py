@@ -80,7 +80,8 @@ def classify(args: list[str]) -> tuple[str, str]:
         return "rest", "gh"
     if args[0] == "api":
         path = next((a for a in args[1:] if not a.startswith("-") and a not in ("GET", "POST", "PUT", "PATCH", "DELETE")), "")
-        method = "GET"
+        # gh sends POST when a body is given and no method is: the same path is a different spend.
+        method = "POST" if any(a in ("--input", "-f", "-F", "--field", "--raw-field") for a in args) else "GET"
         for i, a in enumerate(args):
             if a in ("--method", "-X") and i + 1 < len(args):
                 method = args[i + 1]
@@ -89,7 +90,8 @@ def classify(args: list[str]) -> tuple[str, str]:
             return "graphql", "api graphql"
         if path == "rate_limit":
             return "free", "api rate_limit"
-        return "rest", f"api {method} {path}"
+        # One row, however many pages: said, so a paginated call is not read as one request.
+        return "rest", f"api {method} {path}" + (" [paginated]" if "--paginate" in args else "")
     kind = "graphql" if args[0] in _GRAPHQL_SUBCOMMANDS else "rest"
     words = [a for a in args[:2] if not a.startswith("-")]
     return kind, " ".join(words)
@@ -108,6 +110,21 @@ def caller_module(skip_file: str) -> str:
     return "?"
 
 
+def _rotate(path: str) -> None:
+    """Move a ledger past MAX_BYTES to .1, once: two sessions seeing the same size would otherwise both
+    rename, and the second would put a one-line file over the generation the first just kept."""
+    try:
+        if os.path.getsize(path) <= MAX_BYTES:
+            return
+        import fcntl
+        with open(path + ".lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if os.path.getsize(path) > MAX_BYTES:
+                os.replace(path, path + ".1")
+    except OSError:
+        return
+
+
 def record(args: list[str], caller: str, status, seconds: float) -> None:
     kind, call = classify(args)
     if status == 304:
@@ -121,11 +138,7 @@ def record(args: list[str], caller: str, status, seconds: float) -> None:
     path = os.path.join(directory, LEDGER)
     try:
         os.makedirs(directory, mode=0o700, exist_ok=True)
-        try:
-            if os.path.getsize(path) > MAX_BYTES:
-                os.replace(path, path + ".1")
-        except OSError:
-            pass
+        _rotate(path)
         # One O_APPEND write of a short line: two processes of this account
         # never interleave inside it.
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
@@ -143,7 +156,9 @@ def _read_snapshot(path: str) -> dict | None:
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
-        return doc if isinstance(doc, dict) and isinstance(doc.get("resources"), dict) else None
+        ok = isinstance(doc, dict) and isinstance(doc.get("resources"), dict) \
+            and isinstance(doc.get("at"), (int, float)) and not isinstance(doc.get("at"), bool)
+        return doc if ok else None
     except (OSError, ValueError):
         return None
 

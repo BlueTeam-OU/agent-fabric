@@ -93,6 +93,8 @@ class Fake:
         self._tick()
         assert args[:2] == ["pr", "checks"], args
         answer = self._at(self.checks, self.n_view - 1)
+        if answer == "LIMITED":
+            raise gh.GhError("gh pr checks", "rate limited until 12:34Z", 403, True, reset=self.clock.now + 600)
         if answer is None:
             raise gh.GhError("gh pr checks", "HTTP 502", stdout="")
         if isinstance(answer, str):
@@ -195,6 +197,10 @@ def main() -> int:
                                timeout=4000)
     check("a rate-limited lookup is waited out to the reset, however many times (four would be 'unreadable')",
           code == 0 and text.startswith("MERGED") and "rate limited until" in err and 601 in c.naps, f"{code} {text} {c.naps}")
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:CLEAN"], checks=["LIMITED"]), c, interval=30, timeout=100)
+    check("checks refused on the limit on every poll end the watch at its deadline, and the expiry still says the lookup was hidden",
+          code == 4 and "unreadable on" in text and "rate limited until" in err, f"{code} {text}")
     c = Clock()
     code, text, err, _ = watch(Fake(c, ["FAIL", "FAIL", "FAIL", "FAIL", "FAIL"]), c, interval=30, timeout=4000)
     check("(control) five plain failures are still 'unreadable', exit 2", code == 2 and "rate limited" not in err, f"{code} {text}")

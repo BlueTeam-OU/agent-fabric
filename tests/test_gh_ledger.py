@@ -36,6 +36,7 @@ if [[ "$1 $2" == "api -i" ]]; then
   printf '\r\n'; cat "$FAKE_ITEMS"; exit 0
 fi
 case "$1 $2" in
+  "pr view") if [[ -e "$FAKE_PRVIEW_LIMITED" ]]; then echo "GraphQL: API rate limit already exceeded for user ID 1. (HTTP 403)" >&2; exit 1; fi; echo '{}' ;;
   "api rate_limit") cat "$FAKE_RATE" ;;
   "api repos/o/r/lists/"*) echo '[[{"n":1}],[{"n":2}]]' ;;
   "api limited/"*) echo "gh: API rate limit exceeded for user ID 1. (HTTP 403)" >&2; exit 1 ;;
@@ -62,7 +63,7 @@ def main() -> int:
         print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good or not detail else f"\n        {detail}"))
         fails += not good
 
-    FAKE_ENV = ("FAKE_ETAG", "FAKE_ITEMS", "FAKE_NEXT", "FAKE_304_AS_ERROR")
+    FAKE_ENV = ("FAKE_ETAG", "FAKE_ITEMS", "FAKE_NEXT", "FAKE_304_AS_ERROR", "FAKE_PRVIEW_LIMITED")
     saved = {k: os.environ.get(k) for k in ("PATH", "AGENT_FABRIC_STATE_DIR", "FAKE_LOG", "FAKE_RATE", "GH_REPO", *FAKE_ENV)}
     with tempfile.TemporaryDirectory() as tmp:
         bindir = os.path.join(tmp, "bin")
@@ -75,7 +76,8 @@ def main() -> int:
         os.environ.update(PATH=bindir + os.pathsep + os.environ["PATH"], AGENT_FABRIC_STATE_DIR=state, FAKE_LOG=log,
                           FAKE_RATE=ratefile, GH_REPO="o/r")
         etag, items, nxt, as_err = (os.path.join(tmp, n) for n in ("etag", "items.json", "next", "304-as-error"))
-        os.environ.update(FAKE_ETAG=etag, FAKE_ITEMS=items, FAKE_NEXT=nxt, FAKE_304_AS_ERROR=as_err)
+        prview = os.path.join(tmp, "prview-limited")
+        os.environ.update(FAKE_ETAG=etag, FAKE_ITEMS=items, FAKE_NEXT=nxt, FAKE_304_AS_ERROR=as_err, FAKE_PRVIEW_LIMITED=prview)
 
         def rows() -> list[dict]:
             path = os.path.join(gh_ledger.state_dir(), gh_ledger.LEDGER)
@@ -137,6 +139,27 @@ def main() -> int:
             e = err
         check("(control) a plain 404 keeps gh's own reason and is not transient",
               e is not None and e.reason == "gh: Not Found (HTTP 404)" and not e.transient and e.reset is None, str(e and e.reason))
+
+        open(ratefile, "w").write(json.dumps({"resources": {"core": {"limit": 5000, "remaining": 4000, "reset": int(RESET), "used": 1000},
+                                                             "graphql": {"limit": 5000, "remaining": 0, "reset": int(RESET), "used": 5000}}}))
+        open(prview, "w").write("")
+        try:
+            gh.pr_view(7, ["number"], repo="o/r")
+            e = None
+        except gh.GhError as err:
+            e = err
+        check("a spent GraphQL budget on `gh pr view` is a primary limit with its reset time, not a secondary one",
+              e is not None and e.reason == want and e.reset == int(RESET), str(e and (e.reason, e.reset)))
+        before = len(fake_calls())
+        try:
+            gh.run(["pr", "view", "7"], lookups=False)
+        except gh.GhError as err:
+            e = err
+        check("lookups=False asks for no reset time (no helper process in a caller's time bound)",
+              e.reset is None and e.reason.startswith("GraphQL: API rate limit") and "api rate_limit" not in fake_calls()[before:],
+              str((e.reason, fake_calls()[before:])))
+        os.remove(prview)
+        open(ratefile, "w").write(rate(4000))
 
         print("the budget")
         open(ratefile, "w").write(rate(4000))
@@ -204,6 +227,42 @@ def main() -> int:
               not os.path.exists(gh._etag_file("repos/o/r/lists/x?per_page=100")))
         os.remove(nxt)
 
+        with open(os.path.join(gh_ledger.state_dir(), gh_ledger.RATE), "w") as fh:
+            fh.write('{"at": "x", "resources": {}}')
+        try:
+            wait = gh.budget_wait()
+        except Exception as ex:  # noqa: BLE001
+            wait = f"raised {ex!r}"
+        check("a damaged budget snapshot is read again, never a traceback", wait == 0, str(wait))
+
+        print("a full page is never trusted under a validator")
+        open(etag, "w").write('W/"full"')
+        open(items, "w").write(json.dumps([{"i": n} for n in range(100)]))
+        got, n, new = listing()
+        got, n, new = listing()
+        check("a list of exactly 100 is read in full every time (item 101 would not change page one's validator)",
+              len(got) == 100 and "If-None-Match" not in fake_calls()[-1] and [r["status"] for r in new] == ["ok"],
+              str((fake_calls()[-2:], new)))
+
+        print("the ledger rotates once")
+        path = os.path.join(tmp, "rotating.jsonl")
+        saved_max = gh_ledger.MAX_BYTES
+        gh_ledger.MAX_BYTES = 50
+        open(path, "w").write("x" * 200)
+        gh_ledger._rotate(path)
+        kept = open(path + ".1").read() if os.path.exists(path + ".1") else None
+        open(path, "w").write("one\n")
+        gh_ledger._rotate(path)   # the session that lost the race: the file is small now
+        check("the generation a rotation kept is not replaced by a later, small file",
+              kept == "x" * 200 and open(path + ".1").read() == kept, str(kept))
+        gh_ledger.MAX_BYTES = saved_max
+
+        print("what the ledger calls a call")
+        check("a body makes it a POST, and a paginated call says so",
+              gh_ledger.classify(["api", "repos/o/r/pulls/7/reviews", "--input", "-"])[1] == "api POST repos/o/r/pulls/N/reviews"
+              and gh_ledger.classify(["api", "repos/o/r/pulls", "--paginate", "--slurp"])[1].endswith("[paginated]"),
+              str((gh_ledger.classify(["api", "repos/o/r/pulls/7/reviews", "--input", "-"]),)))
+
         print("the ledger is telemetry")
         blocked = os.path.join(tmp, "a-file")
         open(blocked, "w").write("x")
@@ -228,9 +287,10 @@ def main() -> int:
 
         print("the summary")
         text = gh_ledger.summarize(gh_ledger.read_ledger(3600, now=time.time), calls=True)
-        check("per caller, rest and graphql counted apart",
-              "test_gh_ledger" in text and "total" in text and "api GET repos/N/N/pulls/N/reviews" not in text.split("total")[0],
-              text)
+        row = next((l.split() for l in text.splitlines() if l.startswith("test_gh_ledger")), [])
+        check("per caller, rest and graphql counted apart: this test's own row carries its counts",
+              len(row) == 4 and int(row[1]) >= 3 and int(row[2]) >= 2, text)
+        check("…and the per-caller table lists no individual call", "repos/" not in text.split("total")[0], text)
         check("--calls lists each distinct call", "api GET repos/o/r/pulls/N/reviews" in text, text)
         check("a window with nothing says so", gh_ledger.summarize([]) == "no gh calls recorded in that window")
         with open(os.path.join(gh_ledger.state_dir(), gh_ledger.LEDGER), "a") as fh:
