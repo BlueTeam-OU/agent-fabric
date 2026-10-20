@@ -365,6 +365,47 @@ def _operators(token: str) -> list[str]:
     return out
 
 
+def _opens_past_line(code: str) -> bool:
+    """Whether the line leaves a ( , $( , ${ or " open, read with the
+    nesting the shell gives them: quotes start again inside $( … ), and a
+    paren inside ${ … } is pattern text. A ) that closes nothing (a case
+    pattern's) is passed over."""
+    stack, i = [""], 0
+    while i < len(code):
+        c, top = code[i], stack[-1]
+        if c == "\\":
+            i += 2
+            continue
+        if top == '"':
+            if c == '"':
+                stack.pop()
+            elif code.startswith("$(", i) or code.startswith("${", i):
+                stack.append(code[i:i + 2])
+                i += 1
+        elif top == "${":
+            if c == "}":
+                stack.pop()
+            elif c == '"':
+                stack.append('"')
+        else:
+            if c == "'":
+                end = code.find("'", i + 1)
+                if end < 0:
+                    return True
+                i = end
+            elif c == '"':
+                stack.append('"')
+            elif code.startswith("$(", i) or code.startswith("${", i):
+                stack.append(code[i:i + 2])
+                i += 1
+            elif c == "(":
+                stack.append("(")
+            elif c == ")" and top in ("(", "$("):
+                stack.pop()
+        i += 1
+    return len(stack) > 1
+
+
 def _outside_single_quotes(code: str) -> str:
     """The line without its single-quoted spans and escaped characters, as
     the shell's own quoting reads it (a \\' outside quotes opens nothing).
@@ -412,8 +453,7 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
             return [], f"line {start}: a quote that does not close on its line"
         # A ( that closes on a later line holds lines that are no commands
         # (an array's elements) or commands this cannot place (a subshell).
-        syntax = re.sub(r'"(?:\\.|[^"\\])*"', "", bare)
-        if syntax.count("(") > syntax.count(")"):
+        if _opens_past_line(code):
             return [], f"line {start}: a ( that closes on a later line"
         lines.append((code, tokens))
     return lines, ""
@@ -440,18 +480,6 @@ def _self_dir_vars(lines: list[tuple[str, list[str]]]) -> set[str]:
         if not mentions and not used_first and not re.search(r"\$\{" + var + r":?[=?]", rest):
             out.add(var)
     return out
-
-
-def _command_words(tokens: list[str]) -> list[str]:
-    """The first word of each separator-bounded command, past keywords."""
-    words, fresh = [], True
-    for t in tokens:
-        if t in _SEPARATORS or t in _GROUPING:
-            fresh = True
-        elif fresh and t not in KEYWORDS:
-            words.append(t)
-            fresh = False
-    return words
 
 
 def _run_path(tokens: list[str]) -> str | None:
@@ -511,13 +539,16 @@ def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
     own = os.path.dirname(rel)
     out = set()
     in_case = 0
-    for _code_line, tokens in lines:
+    for code_line, tokens in lines:
         # Between case and esac a line is a pattern or an arm: not read.
-        # Only a command word opens or closes one: `echo esac` does neither.
-        words = _command_words(tokens)
-        opened = words.count("case") - words.count("esac")
-        if in_case or "case" in words:
-            in_case = max(0, in_case + opened)
+        # Any case token opens one, which can only skip too much; only a
+        # bare esac at the line's start or after ;; closes one, read on
+        # the raw text, so a pattern spelt esac ("esac", a|esac) closes
+        # nothing.
+        opened = tokens.count("case")
+        if in_case or opened:
+            closed = len(re.findall(r"(?:^|;;)\s*esac(?=\s*(?:$|[;&|}]))", code_line))
+            in_case = max(0, in_case + opened - closed)
             continue
         command_tokens: list[list[str]] = [[]]
         spoilt = [False]
