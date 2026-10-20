@@ -119,7 +119,7 @@ GH_VALUE_OPTIONS = ("-R", "--repo", "--hostname")
 SHELLS = ("bash", "sh", "zsh", "dash", "ksh")
 CD_OPTION = re.compile(r"-[LPe@]+")
 UNRESOLVABLE = re.compile(r"[$`*?\[]")
-# `<<WORD`, `<<-WORD`, `<<'WORD'`, `<<"WORD"`; never `<<<` (a here-string, whose word is on its own line).
+# `<<WORD`, `<<-WORD`, `<<'WORD'`, `<<"WORD"`; never `<<<` (a here-string: its word is the data, on the same line).
 HEREDOC = re.compile(r"(?<!<)<<(?!<)(-?)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
 OPERATOR = re.compile(r"[;&|()`]+")
 TOPLEVEL_TIMEOUT_S = 2.0
@@ -147,6 +147,8 @@ def without_heredocs(text: str) -> tuple[str, list[str]]:
         opened = HEREDOC.findall(line)
         runs_shell = any(os.path.basename(w) in SHELLS or w == "eval" for w in re.split(r"[\s;&|()]+", line))
         pending.extend((dash == "-", word, runs_shell) for dash, _, word in opened)
+    if pending:
+        kept.extend(body)     # no terminator: the `<<` was text (a quoted word), and what followed is read as commands
     return "\n".join(kept), scripts
 
 
@@ -218,7 +220,7 @@ class Reading:
                 self.read(word.replace("$(", " ; "), depth + 1)     # a substitution inside a quoted word runs too
 
     def cd(self, rest: list[str]) -> None:
-        args = [w for w in rest if not CD_OPTION.fullmatch(w)]
+        args = [w for w in rest if not CD_OPTION.fullmatch(w) and w != "--"]
         self.dirs.append(("cd", args[0] if args else HOME_MARK))
 
     def git(self, rest: list[str]) -> None:
@@ -266,7 +268,7 @@ class Reading:
 
 
 class Undecided(Exception):
-    """The guard cannot decide; the message is the ask's reason."""
+    """A directory's checkout could not be found in time: the guard asks."""
 
 
 def candidates(cwd: str, dirs: list[tuple[str, str]]) -> list[tuple[str, str | None]]:

@@ -178,6 +178,9 @@ class Guard(unittest.TestCase):
         self.assertEqual(self.decision(f"git commit -m x; cd {self.other}", self.worktree), "deny", "order is not modelled")
         self.assertEqual(self.decision("cd $OTHER && git commit -m x", self.worktree), "deny", "a variable is outside")
         self.assertEqual(self.decision(f"bash -c 'cd {self.other} && git push'", self.worktree), "deny", "a shell's script")
+        self.assertEqual(self.decision(f"bash <<'EOF'\ncd {self.other}\ngit commit -m x\nEOF", self.worktree), "deny", "a heredoc fed to a shell")
+        self.assertEqual(self.decision(f"git commit -m 'a <<EOF'\ncd {self.other}", self.worktree), "deny", "a `<<` with no terminator is text")
+        self.assertEqual(self.decision("git commit -F - <<'EOF'\nsubject, cd /elsewhere\nEOF", self.worktree), "allow", "a message body is data")
 
     def test_gh_pr_create_in_another_copy_is_denied(self):
         self.active_j7()
