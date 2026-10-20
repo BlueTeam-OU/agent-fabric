@@ -23,6 +23,7 @@
     "fabric-whoami": "bin/fabric-whoami",
     "fabric-fresh": "bin/fabric-fresh",
     "fabric-branches": "bin/fabric-branches",
+    "fabric-drift": "bin/fabric-drift",
     "fabric-jobs": "bin/fabric-jobs",
     "fabric-history": "bin/fabric-history",
     "fabric-reflect": "bin/fabric-reflect",
