@@ -44,9 +44,12 @@ directory on a line of its own and names nowhere else
 (`here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`, then
 "$here/<name>"), or as "$(dirname "$0")/<name>". Nothing else counts: a
 path an echo, printf, test or cat is handed, one in a comment or a
-string, one under any other variable, and a member reached only through
-a member itself reached only so. A script with a heredoc, a backtick or
-a quote that does not close on its line is not read at all; a member
+string, one under any other variable or used before its assignment, a
+command beside a ( or ) (a case pattern, an array, a subshell), an
+interpreter run with -c, -s or a flag taking an argument, and a member
+reached only through a member itself reached only so. A script with a
+<<, a backtick (outside single quotes) or a quote that does not close
+on its line is not read at all; a member
 it names is reported unwired, with a line on stderr saying why. Rules 2
 and 3 are unchanged: such a helper still needs its own self-test, and a
 workflow must run that.
@@ -338,31 +341,58 @@ _ASSIGN = re.compile(r"(?:(?:local|readonly|declare|typeset|export)(?:\s+-\w+)*\
 # "$(dirname "$0")/x" as shlex leaves it: the inner quotes gone, a space kept.
 _DIRNAME_WORD = re.compile(r"\$\(dirname\s+(--\s+)?" + _SELF + r"\s*\)/(.+)", re.S)
 _INTERPRETERS = {"bash", "sh", "python3", "python"}
-_SEPARATORS = {";", ";;", "&", "&&", "|", "||", "|&", "(", ")"}
+_SEPARATORS = {";", ";;", "&", "&&", "|", "||", "|&"}
+# A ( or ) bounds no simple command this reads: a case pattern, an array,
+# a subshell. A command beside one is not read.
+_GROUPING = {"(", ")"}
+_SAFE_FLAGS = {"bash": set("euxvE"), "sh": set("euxvE"), "python3": set("uBEIsS"), "python": set("uBEIsS")}
 
 
-def _unquoted(code: str) -> str:
-    """The line without its quoted spans: what the shell reads as syntax."""
-    return re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", "", code)
+def _outside_single_quotes(code: str) -> str:
+    """The line without its single-quoted spans and escaped characters, as
+    the shell's own quoting reads it (a \\' outside quotes opens nothing).
+    Double-quoted text is kept: a ` or a $( … <<  inside it still runs."""
+    out, quote, i = [], "", 0
+    while i < len(code):
+        c = code[i]
+        if quote == "'":
+            if c == "'":
+                quote = ""
+        elif c == "\\":
+            i += 1
+        elif c == "'" and not quote:
+            quote = "'"
+        else:
+            if c == '"':
+                quote = "" if quote == '"' else '"'
+            out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
     """Each line of code, its comment stripped, with its tokens; or, for a
     script outside the subset this reads, no lines and why."""
-    lines = []
-    for n, line in enumerate(text.replace("\\\n", " ").split("\n"), 1):
+    lines, physical, n = [], text.split("\n"), 0
+    while n < len(physical):
+        # A backslash-newline joins the next line; n names the first.
+        start, line = n + 1, physical[n]
+        while line.endswith("\\") and n + 1 < len(physical):
+            n += 1
+            line = line[:-1] + " " + physical[n]
+        n += 1
         code = strip_comment(line).strip()
-        bare = _unquoted(code)
+        bare = _outside_single_quotes(code)
         if "`" in bare:
-            return [], f"line {n}: a backtick"
+            return [], f"line {start}: a backtick"
         if re.search(r"(?<!<)<<(?!<)", bare):
-            return [], f"line {n}: a heredoc"
+            return [], f"line {start}: a << (a heredoc, or a shift)"
         lex = shlex.shlex(code, posix=True, punctuation_chars=True)
         lex.whitespace_split, lex.commenters = True, ""
         try:
             lines.append((code, list(lex)))
         except ValueError:
-            return [], f"line {n}: a quote that does not close on its line"
+            return [], f"line {start}: a quote that does not close on its line"
     return lines, ""
 
 
@@ -370,18 +400,21 @@ def _self_dir_vars(lines: list[tuple[str, list[str]]]) -> set[str]:
     """The variables assigned the script's own directory on a line of their
     own, and named nowhere else as anything but $var or ${var}: a for,
     a read, a let, a second assignment, ${var:=…} — any other mention —
-    and which value a later line sees is not read here."""
-    own = {}
-    for code, _tokens in lines:
+    unresolves it, and so does a use before its first assignment."""
+    own, first = {}, {}
+    for k, (code, _tokens) in enumerate(lines):
         m = _ASSIGN.fullmatch(code)
         if m and _SELF_VALUE.fullmatch(re.sub(r"[\s\"']", "", m.group(2))):
             own.setdefault(m.group(1), set()).add(code)
+            first.setdefault(m.group(1), k)
     rest = "\n".join(code for code, _t in lines)
     out = set()
     for var in own:
         others = "\n".join(c for c, _t in lines if c not in own[var])
         mentions = re.findall(r"(?<![\w$])(?<!\$\{)" + var + r"\b", others)
-        if not mentions and not re.search(r"\$\{" + var + r":?[=?]", rest):
+        before = "\n".join(c for c, _t in lines[:first[var]])
+        used_first = re.search(r"\$\{?" + var + r"\b", before)
+        if not mentions and not used_first and not re.search(r"\$\{" + var + r":?[=?]", rest):
             out.add(var)
     return out
 
@@ -389,7 +422,8 @@ def _self_dir_vars(lines: list[tuple[str, list[str]]]) -> set[str]:
 def _run_path(tokens: list[str]) -> str | None:
     """The script a simple command runs: an interpreter's first operand, or
     the command word itself. Leading assignments, keywords and redirections
-    are passed over; an option to anything but the interpreter is not read."""
+    are passed over; an interpreter flag other than a harmless one (-e, -u,
+    -x for a shell; -u, -B for Python) reads nothing."""
     i = 0
     while i < len(tokens):
         t = tokens[i]
@@ -403,11 +437,16 @@ def _run_path(tokens: list[str]) -> str | None:
             break
     if i >= len(tokens):
         return None
-    if os.path.basename(tokens[i]) not in _INTERPRETERS:
+    interpreter = os.path.basename(tokens[i])
+    if interpreter not in _INTERPRETERS:
         return tokens[i]
     for t in tokens[i + 1:]:
         if not t.startswith("-"):
             return t
+        # Only a flag that changes nothing about which file runs: -c, -s,
+        # -m and anything taking an argument read no script operand.
+        if not (re.fullmatch(r"-[A-Za-z]+", t) and set(t[1:]) <= _SAFE_FLAGS[interpreter]):
+            return None
     return None
 
 
@@ -438,12 +477,20 @@ def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
     out = set()
     for _code_line, tokens in lines:
         command_tokens: list[list[str]] = [[]]
+        spoilt = [False]
         for t in tokens:
             if t in _SEPARATORS:
                 command_tokens.append([])
+                spoilt.append(False)
+            elif t in _GROUPING:
+                spoilt[-1] = True
+                command_tokens.append([])
+                spoilt.append(True)
             else:
                 command_tokens[-1].append(t)
-        for cmd in command_tokens:
+        for cmd, bad in zip(command_tokens, spoilt):
+            if bad:
+                continue
             w = _run_path(cmd)
             if not w:
                 continue
