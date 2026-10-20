@@ -178,7 +178,11 @@ def read_claims(run: Run) -> int | None:
             elif len(listed) > anchors.ANCHORS_MAX:
                 anchor_violations.append(f"{who}: {len(listed)} anchors, at most {anchors.ANCHORS_MAX}")
             else:
-                anchor_violations.extend(f"{who}: anchor {a[:60]!r}: {anchors.problem(a)}" for a in listed if anchors.problem(a))
+                known_projects = frozenset(layout.project_ids())
+                for a in listed:
+                    bad = anchors.problem(a) or anchors.registry_problem(a, known_projects)
+                    if bad:
+                        anchor_violations.append(f"{who}: anchor {a[:60]!r}: {bad}")
     if anchor_violations:
         print("CLAIM ANCHOR VIOLATIONS:", file=sys.stderr)
         for problem in anchor_violations:

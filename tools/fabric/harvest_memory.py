@@ -289,12 +289,13 @@ def parse_memory(path: str) -> dict[str, Any] | None:
     anchor_problems: list[str] = []
     raw_anchors = meta.get("metadata.anchors") or meta.get("anchors")
     if raw_anchors is not None:
+        known_projects = frozenset(layout.project_ids())
         listed = anchors_mod.split_inline_list(raw_anchors)
         if listed is None:
             anchor_problems.append(f"anchors is no inline list: {raw_anchors[:60]!r}")
         else:
             for a in listed:
-                bad = anchors_mod.problem(a)
+                bad = anchors_mod.problem(a) or anchors_mod.registry_problem(a, known_projects)
                 if bad:
                     anchor_problems.append(f"anchor {a[:60]!r}: {bad}")
                 elif a not in anchors:

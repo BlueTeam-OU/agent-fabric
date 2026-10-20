@@ -211,6 +211,23 @@ def test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_th
     assert len(report["anchor_warnings"]) >= 7, report.get("anchor_warnings")
 
 
+def test_a_named_anchor_travels_when_the_registry_names_the_project_and_is_refused_said_when_not(tmp: str) -> None:
+    """ADR-050 rule 1 (2026-10-20): `<project>:<path>::<symbol>` keeps the prefix in the claim when the project is
+    a projects/registry.json id; an id the registry lacks, or a prefix that is no id, drops that anchor with a
+    warning; an unnamed anchor, and a colon after `::`, are what they were."""
+    mem, out = os.path.join(tmp, "np"), os.path.join(tmp, "onp")
+    os.makedirs(mem)
+    write_anchored(mem, "named", "solution", '[gzapp:src/a.py::run, "blueteam.ee:docs/b.md::note: with a colon", tools/c.py::ok]')
+    write_anchored(mem, "bad", "solution", "[nosuchproject:src/a.py::run, Gzapp:src/a.py, tools/ok.py::fine]")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    got = {c["topic"]: c.get("anchors") for c in claims_of(out)}
+    assert got["named"] == ["gzapp:src/a.py::run", "blueteam.ee:docs/b.md::note: with a colon", "tools/c.py::ok"], got
+    assert got["bad"] == ["tools/ok.py::fine"], got
+    assert "bad.md: anchor 'nosuchproject:src/a.py::run': names project 'nosuchproject', which projects/registry.json does not" in r.stderr, r.stderr
+    assert "bad.md: anchor 'Gzapp:src/a.py': its path holds a colon" in r.stderr, r.stderr
+
+
 def test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused(tmp: str) -> None:
     """ADR-050 rule 7: the claim of an empty memory that names a section in merge_target has an empty body and
     that target, and the assembler retires the section; an empty memory that names none files nothing and
@@ -1103,6 +1120,7 @@ def main() -> int:
         test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim,
         test_an_applied_correction_is_not_harvested_again_and_the_original_it_replaced_is_named,
         test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays,
+        test_a_named_anchor_travels_when_the_registry_names_the_project_and_is_refused_said_when_not,
         test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused,
         test_an_anchor_that_carries_a_credential_refuses_the_drain_and_a_doubled_single_quote_is_one_quote,
     ]
