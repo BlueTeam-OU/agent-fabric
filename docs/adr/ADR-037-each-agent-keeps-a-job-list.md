@@ -103,6 +103,24 @@ Why these choices:
      project, working copy and topic (A 2026-10-11);
    - a session that has worked none is already fresh and takes the job
      in place.
+
+   A session works one job's working copy, and a hook enforces it
+   (A 2026-10-20). The hook is `runtime/claude-code/hooks/job-copy-guard.sh`,
+   which runs before every Bash command of the main session. It refuses
+   a command that commits or publishes (a commit, push, merge, rebase,
+   cherry-pick or am in git; a pull request opened or merged) when the
+   command acts in a directory outside the job it allows:
+   - it allows the active job, when this session worked that job or
+     worked none, and the allowed copies are that job's working copy
+     and its worktree;
+   - it allows nothing once the session worked a job that has since
+     left `active`.
+   When in doubt it judges a directory to be outside. Reading any
+   working copy stays allowed, as does a session that has worked no
+   job and has none active. A delivered REQUEST for another copy is
+   queued as a job (rule 11), and only the fresh session that `switch`
+   prints acts on it. Where the guard cannot read the list or the
+   tree, it asks.
 4. Jobs come from the agent itself (`fabric-jobs add`), and from the owner
    (`fabric-ctl <login> jobs-add`, a signed action, ADR-029 rule 13),
    which lands in that login's checkout of the job's project. A GZCoord
@@ -251,3 +269,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-15 | Built, and the text says so | §2's request intake and §5 rule 2's `paused` read as built (intake.py; `fabric-jobs pause` and `switch`); no rule changes |
 | 2026-10-16 | A delivered job whose evidence landed is swept to done | §5 rule 12 added: `fabric-jobs sweep` closes a delivered job by rule 10's `done` test, and each account's control agent runs it hourly |
 | 2026-10-18 | Work that leaves no artifact closes with a reason | §5 rule 10: a `done` job is settled by a recorded `--no-artifact` reason when its work lands nothing in a repository |
+| 2026-10-20 | A session works one job's working copy | §5 rule 3: a PreToolUse hook refuses a commit or a publish outside the session's job copies, and refuses everything after the session's job has left `active`; reads stay allowed |
