@@ -1106,8 +1106,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Shared corrections name `shared_with`; authors retire corrected memories;
   a retitle replaces only what it names; hygiene gains private addresses and
   home paths; the drain runs per project; no local cross-host reads (§5
-  rules 9-14). Rules not in the tree say so, with what holds until
-  they are. Amends ADR-013, ADR-014.
+  rules 9-14). Amends ADR-013, ADR-014.
+- A 2026-10-20 — an anchor may name its project, `<project>:<path>` (§5 r1-2).
 - Keywords: stale, anchors, memory_check, maybe-stale, stale-hard, flag,
   memory_mark, horizon, lesson, record, retire, shared_with, drain report.
 

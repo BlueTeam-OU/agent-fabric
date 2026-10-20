@@ -36,12 +36,17 @@ CONTRACT
            project that is not the tree's own (`--project` names it; the
            fabric's memory/ is agent-fabric, a .agent-fabric/memory is its working
            copy). A slice with no origin is judged by the corpus's tree.
-  ANCHORS  a section's `*Anchors: `<path>::<symbol or literal>`, …*` line (written by
+  ANCHORS  a section's `*Anchors: `[<project>:]<path>::<symbol or literal>`, …*` line (written by
            the assembler from the memory's `anchors:`, ADR-050 rule 1): the path must
            exist, and when `::` follows, the file must contain that string (a symbol
            name or a literal, matched as plain text). Unlike a cited path, an anchor is
            looked for only in the slice's origin checkouts (the corpus's own tree when
-           the slice has none): a same-named file of another project proves nothing. OBSERVED is the date in
+           the slice has none): a same-named file of another project proves nothing. An anchor that
+           names a project (`<project>:`, a projects/registry.json id; ADR-050 rule 1) is judged in
+           that project's checkout alone, never the slice's origins: the corpus's own tree when it is the
+           corpus's project, else the checkout beside the tree that the slice's origin names for it
+           (working_copy), else one named for the id. That checkout absent, the anchor is `unchecked`.
+           OBSERVED is the date in
            the section's `*Observed YYYY-MM-DD (role)*` tail.
   VERDICT  per path: `exists` (in the tree or an origin's checkout), `stale-hard`
            (in none of them, and every origin's checkout was here to look in),
@@ -69,7 +74,7 @@ CONTRACT
            <slice> is relative to CORPUS. --json prints one document instead:
            {"corpus", "tree", "sections": [{"slice", "heading", "verdict", "role"?,
            "observed"?, "paths": [{"path", "status", "why"?}], "anchors": [{"anchor",
-           "path", "status", "why"?, "commit"?, "date"?, "subject"?}], "why"?}],
+           "path", "project"?, "status", "why"?, "commit"?, "date"?, "subject"?}], "why"?}],
            "counts": {verdict: n}}.
   stderr   `fabric-memory-check: ` and one line on a refusal.
   exit     0 whatever it found: a report, not a gate; 2 usage or an
@@ -99,6 +104,7 @@ import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
+import anchors as anchor_syntax  # noqa: E402
 import layout  # noqa: E402
 import roots  # noqa: E402
 from assembler import slices  # noqa: E402
@@ -215,6 +221,25 @@ def origin_trees(meta: dict, tree: str, own_project: str | None) -> tuple[list[s
         if found not in here:
             here.append(found)
     return here, sorted(set(missing))
+
+
+def named_trees(project: str, meta: dict, tree: str, own_project: str | None) -> tuple[list[str], list[str]]:
+    """(the checkout a named anchor `<project>:…` is judged in if it is here, why not). The corpus's own project
+    is the tree; another is the checkout beside the tree named by the slice's origin working_copy for that project,
+    else by the project id itself. Absent, the answer is "unknown": the caller reads it as unchecked, never gone."""
+    if project == own_project:
+        return [tree], []
+    wc = project
+    for o in meta.get("origin") or []:
+        if isinstance(o, dict) and o.get("project") == project and isinstance(o.get("working_copy"), str) and o["working_copy"]:
+            wc = o["working_copy"]
+            break
+    if "/" in wc or wc in (".", ".."):
+        return [], [f"project {project}: names no working_copy to look in"]
+    beside = os.path.normpath(os.path.join(tree, "..", wc))
+    if readable_dir(beside):
+        return [beside], []
+    return [], [f"project {project}: no checkout {wc!r} beside the tree"]
 
 
 def cited(text: str, known: set[str]) -> list[str]:
@@ -340,13 +365,14 @@ def _in_tree(root: str, path: str) -> str:
 
 
 def judge_anchor(anchor: str, trees: list[str], missing: list[str], observed: str | None, history: History) -> dict:
-    """One anchor `<path>[::<symbol or literal>]` of a section, sorted: stale-hard when its path or its string is
+    """One anchor `<path>[::<symbol or literal>]` of a section (the path already the named project's when the
+    anchor names one: `trees` and `missing` are that project's), sorted: stale-hard when its path or its string is
     gone, maybe-stale when its file has a commit after the section's Observed day, unchecked when that cannot be
     looked at, exists otherwise. It is judged where the slice's origin says it lives, in `trees` (the checkouts the
     slice's origin names, the corpus's own tree when it names none): a file of the same name in another project's
     tree says nothing, and a checkout that is not here makes what it would have held unknown, never gone."""
-    path, _, symbol = anchor.partition("::")
-    row: dict = {"anchor": anchor, "path": path}
+    project, path, symbol = anchor_syntax.split(anchor)
+    row: dict = {"anchor": anchor, "path": path, **({"project": project} if project else {})}
     found = {t: _in_tree(t, path) for t in trees}
     present = [t for t in trees if found[t] == "ok"]
     if not present:
@@ -437,7 +463,11 @@ def check(corpus: str, tree: str, extra_dirs: list[str] | None = None, project: 
                 state, why = status(p, tree, trees, missing)
                 paths.append({"path": p, "status": state, **({"why": why} if why else {})})
             observed, role = observed_of(text)
-            anchors = [judge_anchor(a, trees, missing, observed, history) for a in slices.anchors_of(text)]
+            anchors = []
+            for a in slices.anchors_of(text):
+                project = anchor_syntax.split(a)[0]
+                where, why = named_trees(project, sl["meta"], tree, own) if project else (trees, missing)
+                anchors.append(judge_anchor(a, where, why, observed, history))
             row = {"slice": sl["rel"], "heading": heading, "verdict": verdict_of(paths, anchors, observed), "paths": paths, "anchors": anchors,
                    **({"observed": observed} if observed else {}), **({"role": role} if role else {})}
             if anchors and observed is None and row["verdict"] == "unchecked" and not any(a["status"] == "unchecked" for a in anchors):
