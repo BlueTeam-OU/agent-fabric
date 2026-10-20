@@ -46,8 +46,7 @@ checkouts piled up, 39 and 530 MB on one login in a day):
     directories beside this one that have a `.git` directory of their own), each with its own fetch. One that
     cannot be fetched, or refuses, is named and skipped, never guessed: the rest are swept and the status is 1;
   - an ended Claude Code session's scratch under this login's claude-tmp cache ($CLAUDE_CODE_TMPDIR/claude-<uid> when set,
-    and $TMPDIR/claude-<uid>, each swept; /tmp without either)/…/<session
-    id>), unless the harness of this login's registry (~/.claude/sessions/<pid>.json) names it for a harness
+    and ${TMPDIR:-/tmp}/claude-<uid>, each swept)/…/<session id>), unless the harness of this login's registry (~/.claude/sessions/<pid>.json) names it for a harness
     that is live by plan_hold's rule for its own markers, or it is the session running the command. A registry that
     cannot be read or understood calls no session ended, and is said: no worktree is then removed, each is kept with the
     reason "session registry unreadable". A worktree a live session stands in is in use otherwise. Never
@@ -481,9 +480,18 @@ def claude_tmp_roots() -> list[str]:
     directory is ever named."""
     name = f"claude-{os.geteuid()}"
     roots: list[str] = []
+    seen: set[str] = set()
     for base in (os.environ.get("CLAUDE_CODE_TMPDIR"), os.environ.get("TMPDIR") or "/tmp"):
-        if base and os.path.realpath(os.path.join(base, name)) not in {os.path.realpath(r) for r in roots}:
-            roots.append(os.path.join(base, name))
+        if not base:
+            continue
+        root = os.path.join(base, name)
+        if os.path.realpath(root) in seen:
+            continue
+        roots.append(root)
+        # Only a root session_dirs will look in counts as seen: a link is never followed, so one that points at the other
+        # variable's cache must not hide that cache.
+        if not os.path.islink(root):
+            seen.add(os.path.realpath(root))
     return roots
 
 
