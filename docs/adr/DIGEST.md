@@ -508,10 +508,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   `NO INBOX WATCH` on start, resume or compaction without one (§2, §5
   rules 1–3).
 - Every login's user settings start sessions in auto mode (§5 r4).
-- While a session plans, `plan-hold.sh` marks the account held and the
-  watch polls nothing; the planning span arrives together after
-  approval; sending, the start drain and `--wait` are not held (§5 rules
-  5–7).
+- While a session plans, `plan-hold.sh` holds the account and the watch
+  polls nothing; held messages arrive after approval; sending, the start
+  drain and `--wait` are not held (§5 rules 5–7).
 - Presence reports `planning`; `fabric-ctl presence` shows it;
   `gzcoord-send` tells the sender, without refusing (§5 r8).
 - A clone-started session is held only if its project wires the hooks
@@ -520,10 +519,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — `fabric-branches --sweep` weekly (r11).
 - A 2026-09-28 — `fabric-jobs next`, `fabric-fresh --job` (r12).
 - A 2026-09-30 — the opening prompt names no command (§5 r1).
-- A 2026-10-10 — the watch is `gzcoord-inbox --until-delivery`, a
-  background command, never a Monitor (§5 r1, r2, r6).
-- A 2026-10-11 — a session that worked a job starts every next one fresh (§5 r12).
+- A 2026-10-10 — the watch is `gzcoord-inbox --until-delivery` in the
+  background (§5 r1, r2, r6).
+- A 2026-10-11 — after a worked job, every next one starts fresh (§5 r12).
 - A 2026-10-19 — sweep pushed worktrees, session scratch; at switch (r11).
+- A 2026-10-20 — unreadable registry keeps all (r11).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.

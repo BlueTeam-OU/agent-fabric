@@ -108,3 +108,15 @@ the harness's own session registry, since its process does not carry
 its session id in its environment (both found by the review of #330). The sweep now removes
 those, covers every working copy with `--all`, removes ended sessions'
 scratch, and runs its worktree half when a job ends.
+
+### Amendment 2026-10-20 — An unreadable session registry keeps every worktree
+
+python-dev-03 built it in #337 (merged 2026-10-20). The rule had a
+registry that cannot be read keep all the scratch but leave the worktree
+half to `AGENT_FABRIC_BRANCHES_KEEP` alone, so a live session's worktree
+the variable did not name could be removed under it. Now nothing the
+registry would have judged is removed: each worktree is kept and listed
+as "session registry unreadable", branch deletion is unchanged, and
+`fabric-branches --json` reads the registry too, so the control plane's
+removable count agrees with the sweep. A readable registry that lists no
+one still lets a worktree go.
