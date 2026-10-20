@@ -45,11 +45,12 @@ directory on a line of its own and names nowhere else
 "$here/<name>"), or as "$(dirname "$0")/<name>". Nothing else counts: a
 path an echo, printf, test or cat is handed, one in a comment or a
 string, one under any other variable or used before its assignment, a
-command beside a ( or ) (a case pattern, an array, a subshell), an
+command beside a ( or ) (an array, a subshell), any line from a case to
+its esac, an
 interpreter run with -c, -s or a flag taking an argument, and a member
 reached only through a member itself reached only so. A script with a
-<<, a backtick (outside single quotes) or a quote that does not close
-on its line is not read at all; a member
+<<, a backtick (outside single quotes), a quote that does not close
+on its line or a ( that closes on a later one is not read at all; a member
 it names is reported unwired, with a line on stderr saying why. Rules 2
 and 3 are unchanged: such a helper still needs its own self-test, and a
 workflow must run that.
@@ -348,6 +349,22 @@ _GROUPING = {"(", ")"}
 _SAFE_FLAGS = {"bash": set("euxvE"), "sh": set("euxvE"), "python3": set("uBEIsS"), "python": set("uBEIsS")}
 
 
+_OPERATORS = ("<<<", ";;", "&&", "||", "|&", ">>", ">&", "<&", "&>", ">|", "<<", ";", "&", "|", "(", ")", "<", ">")
+
+
+def _operators(token: str) -> list[str]:
+    """shlex hands a run of punctuation over as one token (`);`, `)&&`):
+    split it into the shell's operators, longest first. A word is itself."""
+    if not re.fullmatch(r"[();<>|&]+", token):
+        return [token]
+    out, i = [], 0
+    while i < len(token):
+        op = next(o for o in _OPERATORS if token.startswith(o, i))
+        out.append(op)
+        i += len(op)
+    return out
+
+
 def _outside_single_quotes(code: str) -> str:
     """The line without its single-quoted spans and escaped characters, as
     the shell's own quoting reads it (a \\' outside quotes opens nothing).
@@ -390,9 +407,14 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
         lex = shlex.shlex(code, posix=True, punctuation_chars=True)
         lex.whitespace_split, lex.commenters = True, ""
         try:
-            lines.append((code, list(lex)))
+            tokens = [op for t in lex for op in _operators(t)]
         except ValueError:
             return [], f"line {start}: a quote that does not close on its line"
+        # A ( that closes on a later line holds lines that are no commands
+        # (an array's elements) or commands this cannot place (a subshell).
+        if tokens.count("(") > tokens.count(")"):
+            return [], f"line {start}: a ( that closes on a later line"
+        lines.append((code, tokens))
     return lines, ""
 
 
@@ -475,7 +497,13 @@ def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
     selfvars = _self_dir_vars(lines)
     own = os.path.dirname(rel)
     out = set()
+    in_case = 0
     for _code_line, tokens in lines:
+        # Between case and esac a line is a pattern or an arm: not read.
+        opened = tokens.count("case") - tokens.count("esac")
+        if in_case or opened > 0 or "esac" in tokens:
+            in_case = max(0, in_case + opened)
+            continue
         command_tokens: list[list[str]] = [[]]
         spoilt = [False]
         for t in tokens:
