@@ -12,9 +12,10 @@ total, per actor, per actor class (person or agent) and per role:
    fabric-pr post-review writes) given on a commit of the PR, parsed from the
    `**F<n> (P<level>` shape. Per review given; each finding is *answered*
    (an `Answers:` commit of the PR, later in the PR than the reviewed commit,
-   names its label) or *unjudged*. "Judged not real" has no parseable form
-   yet and is not read. A marked review that mentions a level but whose
-   findings do not parse is counted apart (`unparsed`), never as zero.
+   names its label) or *unjudged*. A marked review that mentions a level but
+   whose findings do not parse is counted apart (`unparsed`), never as zero.
+   A review with machine lines (`Finding:` and `Judgement:`, below) is read
+   by them alone; every other review by the shape above, unchanged.
 2. **red checks** per head pushed, by check name: a named check run that
    concluded failure or timed_out. The runs counted are the jobs the
    repository's required aggregate `needs` (ADR-061 §2, amended after #312's
@@ -55,6 +56,21 @@ closed-window period in which that row had a commit or which it owns, never
 only the PRs it owns: its count is always
 drawn from its denominator, and a rate cannot exceed 1.
 
+MACHINE LINES (one shape for every engine; the review brief owns it, this is the reader):
+
+    Finding: F<n> | P<1-3> | certain|likely|possible | <path>[:<line>] or - | <summary>
+    Judgement: F<n> | real|not-real|partly|fixed|not-fixed | <reason>
+
+at the start of a line; a summary or reason may contain "|" (a line splits on the first four, or two).
+A report with no findings says exactly `Finding: none`. A report with either kind of line is judged by
+those lines only, never by the prose around them. A line that does not fit, a repeated label among the
+Finding lines or among the Judgement lines, and `Finding: none` beside a finding make the whole report
+unparsed and are named in the output: what the lines of a malformed report said is unknown, so none of
+them is counted. Judgement lines without a Finding line leave the report unparsed too: a report that does not say
+what it found leaves that unknown, never zero (the brief's rule is that no findings is said as `Finding: none`).
+At most MAX_NAMED malformed lines of a report are named, the rest counted. The verdicts are exposed per verdict (`reviews.judgements`) so a later view can count findings
+judged not-real (ADR-061 §7); no view reads them yet.
+
 EVERY count carries its denominator; below 5 denominators there is no rate.
 No combined score, no ranking, no sort by count (ADR-061 §5 rule 6): actors
 are listed in name order. Every number is information for the rules, never a
@@ -72,6 +88,7 @@ import os
 import re
 import sys
 import time
+from dataclasses import dataclass, field
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -96,6 +113,15 @@ MARKUP_ONLY = re.compile(r"[\s*_#>`~|=-]*")
 LABEL = re.compile(r"[A-Z]{1,2}-?[0-9]+(?:-[0-9]+)?")
 FOLD = re.compile(r"^Merge (?:remote-tracking )?branch '(?:origin/)?([^'/\s]+)/([^'/\s]+)/for/[^'\s]+'")
 UNATTRIBUTED = "unattributed"
+FINDING_LINE = re.compile(r"^Finding:(.*)$", re.M)
+JUDGEMENT_LINE = re.compile(r"^Judgement:(.*)$", re.M)
+CONFIDENCES = {"certain", "likely", "possible"}
+VERDICTS = {"real", "not-real", "partly", "fixed", "not-fixed"}
+FINDING_LABEL = re.compile(r"F[0-9]+")
+FINDING_LEVEL = re.compile(r"P[123]")
+FINDING_PATH = re.compile(r"-|[^\s|]+")
+NAMED_LINE_CHARS = 120                               # a malformed line is named, not quoted whole
+MAX_NAMED = 5                                        # and a report names at most this many of them
 
 
 def aggregate_checks() -> set[str]:
@@ -247,6 +273,95 @@ def parse_review(body: str) -> tuple[list[tuple[str, str]], bool]:
     return list(found.items()), unparsed
 
 
+@dataclass
+class Review:
+    """What one review body says: findings as (label, level), judgements as (label, verdict, reason), whether it
+    is unparsed, and the machine lines that did not fit."""
+    findings: list[tuple[str, str]] = field(default_factory=list)
+    unparsed: bool = False
+    judgements: list[tuple[str, str, str]] = field(default_factory=list)
+    malformed: list[str] = field(default_factory=list)
+
+
+def named(line: str) -> str:
+    line = line.strip()
+    return line if len(line) <= NAMED_LINE_CHARS else line[:NAMED_LINE_CHARS] + "..."
+
+
+def named_all(bad: list[tuple[str, str]]) -> list[str]:
+    """The malformed lines as they are named: each cut at NAMED_LINE_CHARS before its reason is added (a cut
+    after it would lose the reason), the report's first MAX_NAMED and a count of the rest."""
+    out = [named(line) + reason for line, reason in bad[:MAX_NAMED]]
+    return out + [f"(+{len(bad) - MAX_NAMED} more malformed lines)"] if len(bad) > MAX_NAMED else out
+
+
+def parse_finding_line(rest: str) -> tuple[str, str] | None:
+    """(label, level) of one `Finding:` line's text after the colon, None when it does not fit the shape."""
+    fields = [f.strip() for f in rest.split("|", 4)]
+    if len(fields) != 5:
+        return None
+    label, level, confidence, path, summary = fields
+    if not (FINDING_LABEL.fullmatch(label) and FINDING_LEVEL.fullmatch(level) and confidence in CONFIDENCES
+            and FINDING_PATH.fullmatch(path) and summary):
+        return None
+    return label, level
+
+
+def parse_judgement_line(rest: str) -> tuple[str, str, str] | None:
+    fields = [f.strip() for f in rest.split("|", 2)]
+    if len(fields) != 3 or not (FINDING_LABEL.fullmatch(fields[0]) and fields[1] in VERDICTS and fields[2]):
+        return None
+    return fields[0], fields[1], fields[2]
+
+
+def parse_machine_lines(body: str) -> Review | None:
+    """The review by its `Finding:`/`Judgement:` lines; None when it has none (an older report). Any malformed
+    line leaves the whole report unparsed with nothing counted from it: a report is read by its lines or not at all."""
+    finding_lines = FINDING_LINE.findall(body)
+    judgement_lines = JUDGEMENT_LINE.findall(body)
+    if not finding_lines and not judgement_lines:
+        return None
+    bad: list[tuple[str, str]] = []
+    findings: dict[str, str] = {}
+    none_lines = 0
+    for rest in finding_lines:
+        if rest.strip() == "none":
+            none_lines += 1
+            continue
+        got = parse_finding_line(rest)
+        if got is None:
+            bad.append(("Finding:" + rest, ""))
+        elif got[0] in findings:
+            bad.append(("Finding:" + rest, "   (repeated label)"))
+        else:
+            findings[got[0]] = got[1]
+    if none_lines > 1 or (none_lines and len(finding_lines) > none_lines):
+        bad.append(("Finding: none", "   (repeated, or beside a finding)"))
+    if not finding_lines:
+        bad.append(("Judgement: lines", "   (no Finding: line: a report says `Finding: none` when it has none)"))
+    judged: dict[str, tuple[str, str]] = {}
+    for rest in judgement_lines:
+        got = parse_judgement_line(rest)
+        if got is None:
+            bad.append(("Judgement:" + rest, ""))
+        elif got[0] in judged:
+            bad.append(("Judgement:" + rest, "   (repeated label)"))
+        else:
+            judged[got[0]] = got[1:]
+    if bad:
+        return Review(unparsed=True, malformed=named_all(bad))
+    return Review(findings=list(findings.items()), judgements=[(k, v, r) for k, (v, r) in judged.items()])
+
+
+def read_review(body: str) -> Review:
+    """Machine lines when the report has them; otherwise the older shapes, unchanged."""
+    lines = parse_machine_lines(body)
+    if lines is not None:
+        return lines
+    findings, unparsed = parse_review(body)
+    return Review(findings=findings, unparsed=unparsed)
+
+
 def check_verdict(runs: list[dict], needed: set[str]) -> tuple[bool, list[str], list[str]]:
     """(counted, red names, flaky names) for one sha's check runs of the needed jobs."""
     by_name: dict[str, list[dict]] = {}
@@ -327,11 +442,12 @@ def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, 
         if sha not in by_sha:
             ev.append({**base, "kind": "review_elsewhere"})
             continue
-        findings, unparsed = parse_review(rv["body"])
+        got = read_review(rv["body"])
         at = order.index(sha)
-        ev.append({**base, "kind": "review", "unparsed": unparsed,
+        ev.append({**base, "kind": "review", "unparsed": got.unparsed, "malformed": got.malformed,
+                   "judgements": [{"label": label, "verdict": verdict, "reason": reason} for label, verdict, reason in got.judgements],
                    "findings": [{"level": lvl, "answered": any(i > at and label in ls for i, ls in answers)}
-                                for label, lvl in findings]})
+                                for label, lvl in got.findings]})
 
     if needed is None:
         ev.append({**base, "kind": "checks_unread"})
@@ -370,6 +486,10 @@ def tally(events: list[dict]) -> dict:
             cell = findings.setdefault(f["level"], {"answered": 0, "unjudged": 0})
             cell["answered" if f["answered"] else "unjudged"] += 1
     nfind = sum(sum(v.values()) for v in findings.values())
+    verdicts: dict[str, int] = {}
+    for e in reviews:
+        for j in e["judgements"]:
+            verdicts[j["verdict"]] = verdicts.get(j["verdict"], 0) + 1
     heads = [e for e in events if e["kind"] == "head"]
     red_by: dict[str, int] = {}
     flaky_by: dict[str, int] = {}
@@ -388,6 +508,10 @@ def tally(events: list[dict]) -> dict:
                     "found_so_far_in_open_windows": len({(e["repo"], e["pr"]) for e in found if e["period"] and not e["closed"]})}
     return {"prs_merged": len(prs), "prs_in_closed_period": closed_owned,
             "reviews": {"given": len(reviews), "unparsed": sum(1 for e in reviews if e["unparsed"]),
+                        # By PR only, and sorted() is stable: a report's lines keep their order, so its "(+k more)" stays after the lines it counts.
+                        "malformed_lines": sorted(({"repo": e["repo"], "pr": e["pr"], "line": line} for e in reviews for line in e["malformed"]),
+                                                  key=lambda m: (m["repo"], m["pr"])),
+                        "judgements": {k: verdicts[k] for k in sorted(verdicts)},
                         "findings": {k: findings[k] for k in sorted(findings)}, "findings_total": nfind,
                         "findings_per_review": rate(nfind, len(reviews) - sum(1 for e in reviews if e["unparsed"])),
                         "on_a_commit_not_in_the_pr": sum(1 for e in events if e["kind"] == "review_elsewhere")},
@@ -415,7 +539,7 @@ def render(rep: dict, doc: dict) -> str:
     lines = [f"fabric-errors: PRs merged in the last {doc['days']} days (reverts and fixes: {doc['window']}-day window, counted on the PRs merged {doc['closed_period'][0][:10]}..{doc['closed_period'][1][:10]}, whose windows have closed); "
              f"attribution: head ref, a fold's contributor; class: Fabric-Role trailer. "
              f"Counts for the rules, never a target, a ranking or a score (ADR-061, Proposed).",
-             f"judged-not-real findings: not read (no parseable judgement); signature attribution: not read"]
+             f"judged-not-real findings: counted per verdict in --json (reviews.judgements), from `Judgement:` lines only; no text view yet; signature attribution: not read"]
 
     def line(name: str, t: dict) -> str:
         r, c = t["reviews"], t["red_checks"]
@@ -434,6 +558,7 @@ def render(rep: dict, doc: dict) -> str:
     for title, g in [("total", rep["total"]), *[(r, g) for r, g in rep["repos"].items()]]:
         lines.append(f"{title}  (unattributed PRs: {g['unattributed_prs']})")
         lines.append(line("all", g["all"]))
+        lines += [f"  unparsed, named: {m['repo']}#{m['pr']}: {m['line']}" for m in g["all"]["reviews"]["malformed_lines"]]
         for dim in ("actor", "class", "role"):
             for k, t in g["by_" + dim].items():
                 lines.append(line(f"{dim} {k}", t))
@@ -520,7 +645,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     doc = {"days": a.days, "window": a.window, "repositories_read": repos, "since": (now - dt.timedelta(days=a.days)).isoformat(),
            "closed_period": [(now - dt.timedelta(days=a.days + a.window)).isoformat(), (now - dt.timedelta(days=a.window)).isoformat()],
-           "attribution": "head ref; a fold's contributor", "judged_not_real": "not read", **rep}
+           "attribution": "head ref; a fold's contributor", "judged_not_real": "per verdict in reviews.judgements, from Judgement: lines only", **rep}
     print(json.dumps(doc, indent=2) if a.json else render(rep, doc))
     return 0
 
