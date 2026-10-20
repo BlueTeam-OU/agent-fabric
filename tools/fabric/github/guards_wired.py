@@ -412,7 +412,8 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
             return [], f"line {start}: a quote that does not close on its line"
         # A ( that closes on a later line holds lines that are no commands
         # (an array's elements) or commands this cannot place (a subshell).
-        if tokens.count("(") > tokens.count(")"):
+        syntax = re.sub(r'"(?:\\.|[^"\\])*"', "", bare)
+        if syntax.count("(") > syntax.count(")"):
             return [], f"line {start}: a ( that closes on a later line"
         lines.append((code, tokens))
     return lines, ""
@@ -439,6 +440,18 @@ def _self_dir_vars(lines: list[tuple[str, list[str]]]) -> set[str]:
         if not mentions and not used_first and not re.search(r"\$\{" + var + r":?[=?]", rest):
             out.add(var)
     return out
+
+
+def _command_words(tokens: list[str]) -> list[str]:
+    """The first word of each separator-bounded command, past keywords."""
+    words, fresh = [], True
+    for t in tokens:
+        if t in _SEPARATORS or t in _GROUPING:
+            fresh = True
+        elif fresh and t not in KEYWORDS:
+            words.append(t)
+            fresh = False
+    return words
 
 
 def _run_path(tokens: list[str]) -> str | None:
@@ -500,8 +513,10 @@ def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
     in_case = 0
     for _code_line, tokens in lines:
         # Between case and esac a line is a pattern or an arm: not read.
-        opened = tokens.count("case") - tokens.count("esac")
-        if in_case or opened > 0 or "esac" in tokens:
+        # Only a command word opens or closes one: `echo esac` does neither.
+        words = _command_words(tokens)
+        opened = words.count("case") - words.count("esac")
+        if in_case or "case" in words:
             in_case = max(0, in_case + opened)
             continue
         command_tokens: list[list[str]] = [[]]
