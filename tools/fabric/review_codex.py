@@ -406,14 +406,16 @@ def range_head(req: dict) -> str:
 
 def pr_head(repo: str, pr: str) -> str:
     """The PR's head commit as GitHub has it now: the one a request must name, as the commit the gate reads."""
-    r = subprocess.run(["gh", "pr", "view", pr, "--json", "headRefOid,state"], cwd=repo, capture_output=True,
-                       text=True, timeout=60, stdin=subprocess.DEVNULL)
+    out = ""
     try:
-        oid = json.loads(r.stdout).get("headRefOid") if r.returncode == 0 else None
+        out = gh.run(["pr", "view", pr, "--json", "headRefOid,state"], cwd=repo, timeout=60, what=f"gh pr view {pr}")
+        oid = json.loads(out).get("headRefOid")
+    except gh.GhError as e:
+        raise Refused(f"could not read the head of PR #{pr}: {e.stderr.strip() or e.reason}") from None
     except (ValueError, AttributeError):
         oid = None
     if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{40}", oid):
-        raise Refused(f"could not read the head of PR #{pr}: {r.stderr.strip() or r.stdout.strip()[:200]}")
+        raise Refused(f"could not read the head of PR #{pr}: {out.strip()[:200]}")
     return oid
 
 

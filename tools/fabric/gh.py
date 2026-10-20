@@ -34,6 +34,9 @@ import json
 import os
 import re
 import subprocess
+import time
+
+import gh_ledger
 
 TIMEOUT_S = 60
 _STATUS = re.compile(r"\(HTTP (\d{3})\)")
@@ -57,10 +60,13 @@ class GhError(Exception):
     ran and exited."""
 
     def __init__(self, what: str, reason: str, status: int | None = None, transient: bool = False,
-                 stdout: str = "", stderr: str = "", code: int | None = None):
+                 stdout: str = "", stderr: str = "", code: int | None = None, reset: float | None = None):
         super().__init__(f"{what}: {reason}")
         self.what, self.reason, self.status, self.transient = what, reason, status, transient
         self.stdout, self.stderr, self.code = stdout, stderr, code
+        # When the call was refused on the primary rate limit: the epoch at
+        # which the budget comes back. A poller waits until then.
+        self.reset = reset
 
 
 # `gh pr checks` with nothing to list prints no table and no JSON — not
@@ -164,7 +170,7 @@ def _scoped(args: list[str]) -> bool:
     return bool(args) and args[0] in _REPO_SCOPED
 
 
-def _env(args: list[str], what: str) -> dict[str, str] | None:
+def _env(args: list[str], what: str, cwd: str | None = None) -> dict[str, str] | None:
     """The environment for gh: GH_REPO pinned to this_repo(), so a command
     that takes no --repo (gh pr view N, gh pr merge N, gh api's {owner}/
     {repo}) targets this working copy's repository, never gh's default.
@@ -174,35 +180,48 @@ def _env(args: list[str], what: str) -> dict[str, str] | None:
     if os.environ.get("GH_REPO"):
         return None
     try:
-        return {**os.environ, "GH_REPO": this_repo()}
+        return {**os.environ, "GH_REPO": this_repo(cwd)}
     except GhError as e:
         if _scoped(args):
             raise GhError(what, e.reason) from None
         return None
 
 
-def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S, what: str | None = None) -> str:
+def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S, what: str | None = None,
+        cwd: str | None = None) -> str:
     """`gh <args>`, its stdout; a failure is a GhError naming `what` (by
     default the first two words of the call)."""
     what = what or "gh " + " ".join(args[:2])
+    caller = gh_ledger.caller_module(__file__)
+    started = time.monotonic()
     try:
         # No input is an empty stdin, never the caller's: a gh that reads
         # stdin would otherwise wait on it for the whole bound.
         stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
-        env = _env(args, what)
-        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout, env=env, **stdin)
+        env = _env(args, what, cwd)
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout, env=env, cwd=cwd, **stdin)
     except FileNotFoundError:
         raise GhError(what, "gh is not installed") from None
     except subprocess.TimeoutExpired:
+        gh_ledger.record(args, caller, "timeout", time.monotonic() - started)
         raise GhError(what, f"no answer within {timeout:g} s", transient=True) from None
     if r.returncode != 0:
         lines = [l for l in r.stderr.strip().splitlines() if l.strip()] or [f"exit {r.returncode}"]
         m = _STATUS.search(r.stderr)
         status = int(m.group(1)) if m else None
         low = r.stderr.lower()
+        limited = "rate limit" in low or status == 429
         transient = status is not None and (status >= 500 or status == 429) \
-            or "rate limit" in low or any(t in low for t in NETWORK_FAILURES)
-        raise GhError(what, lines[-1], status, transient, r.stdout, r.stderr, r.returncode)
+            or limited or any(t in low for t in NETWORK_FAILURES)
+        gh_ledger.record(args, caller, status or "error", time.monotonic() - started)
+        reset = None
+        if limited:
+            # Said as what it is, with the time it ends, never as "could not
+            # read PR": the next call is wasted until then.
+            reason, reset = gh_ledger.limited_reason("graphql" if args[:2] == ["api", "graphql"] else "core")
+            lines = [reason]
+        raise GhError(what, lines[-1], status, transient, r.stdout, r.stderr, r.returncode, reset)
+    gh_ledger.record(args, caller, "ok", time.monotonic() - started)
     return r.stdout
 
 

@@ -112,12 +112,12 @@ def ask_gh(directory: str, repo: str, branch: str) -> str:
     import shutil
     if not repo or not shutil.which("gh"):
         return "unknown"
+    import gh   # the one door to GitHub: its ledger counts this call too
     try:
-        r = subprocess.run(["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", "5",
-                            "--json", "number,state"], cwd=directory, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                           stderr=subprocess.DEVNULL, timeout=GH_TIMEOUT_S)
-        rows = json.loads(r.stdout) if r.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError, ValueError):
+        out = gh.run(["pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", "5",
+                      "--json", "number,state"], cwd=directory, timeout=GH_TIMEOUT_S)
+        rows = json.loads(out)
+    except (gh.GhError, OSError, ValueError):
         return "unknown"
     if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
         return "unknown"
