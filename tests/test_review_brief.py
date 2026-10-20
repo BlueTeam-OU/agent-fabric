@@ -430,6 +430,65 @@ def test_reusing_and_remaking_a_head_worktree(tmp: str) -> None:
         tempfile.tempdir = saved
 
 
+def _fake_proc(root: str, chain: list[tuple[int, str, int]]) -> str:
+    """A /proc under root: (pid, comm, ppid) per process."""
+    for pid, comm, ppid in chain:
+        d = os.path.join(root, str(pid)); os.makedirs(d)
+        open(os.path.join(d, "comm"), "w").write(comm + "\n")
+        open(os.path.join(d, "stat"), "w").write(f"{pid} ({comm} x) S {ppid} 1 1 0\n")
+    return root
+
+
+def test_the_in_use_marker(tmp: str) -> None:
+    import contextlib as cl, io
+    repo = mkrepo(tmp, "markrepo")
+    head = g(repo, "rev-parse", "HEAD")
+    env = TMPENV(tmp)
+    saved, tempfile.tempdir = tempfile.tempdir, env["TMPDIR"]
+    real_pid = rb.dispatching_session_pid
+    proc = _fake_proc(os.path.join(tmp, "proc1"), [(50, "claude", 1), (60, "bash", 50), (70, "python3", 60)])
+    assert real_pid(proc, 70) == 50 and real_pid(proc, 50) == 50
+    noclaude = _fake_proc(os.path.join(tmp, "proc2"), [(60, "bash", 1), (70, "python3", 60)])
+    assert real_pid(noclaude, 70) is None
+    want = os.path.join(env["TMPDIR"], "fabric-review", f"markrepo-{head[:12]}")
+
+    def as_if(fake: str) -> None:
+        rb.dispatching_session_pid = lambda proc_="/proc", start=None: real_pid(fake, 70)
+    try:
+        as_if(proc)
+        path, made = rb.ensure_head_worktree(repo, head)
+        assert made and path == want
+        marker = os.path.join(g(path, "rev-parse", "--absolute-git-dir"), "fabric-in-use")
+        lines = open(marker).read().splitlines()
+        assert lines[0] == "50" and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", lines[1]), lines
+        assert oct(os.stat(marker).st_mode & 0o777) == "0o600"
+        assert g(path, "status", "--porcelain", "--untracked-files=all") == "", "nothing new in the tree"
+        assert not os.path.exists(os.path.join(path, "fabric-in-use"))
+        open(marker, "w").write("1\nold\n")
+        path, made = rb.ensure_head_worktree(repo, head)
+        assert not made and open(marker).read().splitlines()[0] == "50", "a reuse refreshes it"
+        os.unlink(marker)
+        as_if(noclaude)
+        rb.ensure_head_worktree(repo, head)
+        assert not os.path.exists(marker), "no claude ancestor, no marker"
+        as_if(proc)
+        gitdir = os.path.dirname(marker)
+        os.chmod(gitdir, 0o500)
+        try:
+            err = io.StringIO()
+            with cl.redirect_stderr(err):
+                rb.ensure_head_worktree(repo, head)
+            if os.geteuid() != 0:
+                out = err.getvalue().strip().splitlines()
+                assert len(out) == 1 and "sweep may take the worktree" in out[0], out
+        finally:
+            os.chmod(gitdir, 0o700)
+    finally:
+        rb.dispatching_session_pid = real_pid
+        tempfile.tempdir = saved
+        g(repo, "worktree", "remove", "--force", want)
+
+
 def test_every_refusal_names_its_field(tmp: str) -> None:
     repo = mkrepo(tmp, "repo2")
     ok = base_request(repo)
@@ -657,7 +716,7 @@ def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
              test_render_carries_every_heading_once_and_the_named_lenses, test_the_project_review_card,
-             test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode, test_a_pinned_brief_checks_out_its_head_detached, test_a_refused_pinned_request_leaves_no_worktree, test_reusing_and_remaking_a_head_worktree,
+             test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode, test_a_pinned_brief_checks_out_its_head_detached, test_a_refused_pinned_request_leaves_no_worktree, test_reusing_and_remaking_a_head_worktree, test_the_in_use_marker,
              test_every_refusal_names_its_field,
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
