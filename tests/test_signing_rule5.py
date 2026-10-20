@@ -10,7 +10,10 @@ halves and lineage.json under an operator root of its own (AGENT_FABRIC_OPERATOR
 a stand-in for the shared owner key that is in no lineage, a revoked agent, an
 agent its parent never certified; commits signed through the real
 bin/fabric-sign (both formats) against a fake `ots`, their proofs attached as
-notes by `fabric-sign note`. No case reads this checkout's instance data.
+notes by `fabric-sign note`. A forge key made here (never GitHub's own) stands
+in for web-flow: listed in the operator's forge_keys with its file, it signs
+the commits rule 8 judges, as git and gpg sign them on the forge. No case
+reads this checkout's instance data.
 
 Exit codes: 0 all checks passed, 1 one or more failed."""
 from __future__ import annotations
@@ -162,12 +165,29 @@ def write_fleet(revoked: tuple[str, ...] = ()) -> None:
         json.dump(doc, f, indent=1)
 
 
+FORGE: dict[str, str] = {}   # "fpr": the stand-in forge key's primary, which signs
+
+
+def make_forge_key() -> None:
+    # As web-flow's is: one primary that signs, no subkey.
+    gpg("--quick-gen-key", "Forge <forge@example.invalid>", "ed25519", "sign", "never")
+    listing = gpg("--with-colons", "--list-keys", "<forge@example.invalid>")
+    FORGE["fpr"] = next(l.split(":")[9] for l in listing.splitlines() if l.startswith("fpr:"))
+
+
+def forge_key_file() -> str:
+    return os.path.join(FABRIC, "policies", "forge-keys", f"{FORGE['fpr']}.asc")
+
+
 def write_operator(since: str | None, fmt: str = "ssh") -> None:
     pol = os.path.join(FABRIC, "policies")
-    os.makedirs(pol, exist_ok=True)
+    os.makedirs(os.path.join(pol, "forge-keys"), exist_ok=True)
     with open(os.path.join(pol, "signing.json"), "w", encoding="utf-8") as f:
         json.dump({"default": {"format": "ssh", "since": None},
-                   "repositories": {SLUG: {"format": fmt, "since": since}}}, f)
+                   "repositories": {SLUG: {"format": fmt, "since": since}},
+                   "forge_keys": {FORGE["fpr"]: "the test's forge"}}, f)
+    with open(forge_key_file(), "w", encoding="utf-8") as f:
+        f.write(gpg("--armor", "--export", FORGE["fpr"]))
     with open(os.path.join(pol, "authority.json"), "w", encoding="utf-8") as f:
         json.dump({"role_definitions": {"role": "fabric-coordinator", "holders": ["user"]}}, f)
     for role in ("fabric-coordinator", "python-dev", "web-dev", "devex-tooling", "language-culture/locale/en"):
@@ -195,14 +215,20 @@ def sign_cfg(login: str, fmt: str) -> list[str]:
 _n = 0
 
 
-def commit(login: str | None, role: str | None, fmt: str = "ssh", note: bool = True) -> str:
-    """A commit on the current branch; login None = unsigned."""
+def put(name: str, text: str) -> None:
+    os.makedirs(os.path.dirname(os.path.join(REPO, name)), exist_ok=True)
+    with open(os.path.join(REPO, name), "w", encoding="utf-8") as f:
+        f.write(text)
+    git("add", name)
+
+
+def commit(login: str | None, role: str | None, fmt: str = "ssh", note: bool = True, name: str = "", text: str = "") -> str:
+    """A commit on the current branch; login None = unsigned. It adds a file
+    of its own unless `name` says which file to write."""
     global _n
     _n += 1
-    name = f"f{_n}"
-    with open(os.path.join(REPO, name), "w", encoding="utf-8") as f:
-        f.write(name + "\n")
-    git("add", name)
+    name = name or f"f{_n}"
+    put(name, text or name + "\n")
     msg = f"change {name}" + (f"\n\nFabric-Role: {role}\n" if role else "")
     cfg = sign_cfg(login, fmt) if login else ["-c", "commit.gpgsign=false"]
     git(*cfg, "commit", "-q", "-m", msg)
@@ -214,6 +240,30 @@ def commit(login: str | None, role: str | None, fmt: str = "ssh", note: bool = T
 
 def branch(name: str) -> None:
     git("checkout", "-q", "-B", name, "main")
+
+
+def forge_cfg(key: str = "") -> list[str]:
+    """git signing as the forge does: OpenPGP, plain gpg, no fabric-sign, no proof."""
+    return ["-c", "gpg.format=openpgp", "-c", "gpg.program=gpg", "-c", f"user.signingkey={key or FORGE['fpr']}!",
+            "-c", "commit.gpgsign=true"]
+
+
+def advance_main(**files: str) -> None:
+    """main moves on under a branch, as it does before "Update branch"."""
+    here = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    git("checkout", "-q", "main")
+    if files:
+        for name, text in files.items():
+            put(name, text)
+        git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "main moves")
+    else:
+        commit(None, None)
+    git("checkout", "-q", here)
+
+
+def forge_merge(*heads: str, key: str = "", **extra: str) -> str:
+    git(*forge_cfg(key), "merge", "-q", "--no-ff", "-m", f"Merge {' '.join(heads)}", *heads, **extra)
+    return git("rev-parse", "HEAD").stdout.strip()
 
 
 def guard(cwd: str = REPO, base: str = "main", **extra: str) -> subprocess.CompletedProcess:
@@ -238,6 +288,7 @@ def run() -> None:
     agent("orphan-dev", "user", certify=False)
     agent("devex-child", "devex-tooling")    # certified by its parent before the parent was revoked
     agent("owner", None)     # the shared key's stand-in: signs, in no lineage
+    make_forge_key()
     write_fleet(revoked=("devex-tooling",))
     os.makedirs(os.path.join(FABRIC, "identities", "roles", "orphan-dev"), exist_ok=True)
 
@@ -452,6 +503,126 @@ def run() -> None:
     finally:
         git("config", "--unset", "log.showSignature")
         write_operator(since=old)
+
+    print("rule 8: a commit the forge makes (the repository signs ssh; the forge signs OpenPGP)")
+    write_operator(since=old)
+    branch("forge-update")
+    commit("python-dev-04", "python-dev")
+    advance_main()
+    forge_merge("main")
+    r = guard()
+    check("a forge-signed clean merge of two parents (Update branch), no trailer, no proof: passes",
+          passed(r) and "2 judged" in r.stdout, r.stdout + r.stderr)
+
+    branch("forge-own")
+    commit("python-dev-04", "python-dev")
+    advance_main()
+    git("merge", "-q", "--no-ff", "--no-commit", "main")
+    put("own-change", "slipped in\n")
+    git(*forge_cfg(), "commit", "-q", "-m", "Merge branch 'main'")
+    r = guard()
+    check("a forge merge that changes something itself: refused", refused(r, "changes something itself"), r.stdout + r.stderr)
+
+    branch("forge-conflict")
+    commit("python-dev-04", "python-dev", name="contested", text="branch\n")
+    advance_main(contested="main\n")
+    git("merge", "-q", "--no-ff", "main", check_ok=False)
+    put("contested", "resolved on the web\n")
+    git(*forge_cfg(), "commit", "-q", "-m", "Merge branch 'main'")
+    r = guard()
+    check("a forge merge of parents that conflict (resolved in the web editor): refused",
+          refused(r, "do not merge cleanly"), r.stdout + r.stderr)
+
+    branch("forge-octopus")
+    commit("python-dev-04", "python-dev")
+    for side in ("oct-a", "oct-b"):
+        git("checkout", "-q", "-B", side, "main")
+        commit("python-dev-04", "python-dev")
+    git("checkout", "-q", "forge-octopus")
+    forge_merge("oct-a", "oct-b")
+    r = guard()
+    check("a forge-signed octopus merge, clean: refused", refused(r, "octopus"), r.stdout + r.stderr)
+
+    git("checkout", "-q", "--orphan", "forge-root")
+    git("rm", "-q", "-r", "-f", ".")
+    put("root", "root\n")
+    git(*forge_cfg(), "commit", "-q", "-m", "Initial commit")
+    r = guard()
+    check("a forge-signed root commit: refused", refused(r, "root commit"), r.stdout + r.stderr)
+
+    bot = {"GIT_AUTHOR_NAME": "dependabot[bot]", "GIT_AUTHOR_EMAIL": "49699333+dependabot[bot]@users.noreply.github.com"}
+    branch("dependabot")
+    put(".github/workflows/ci.yml", "uses: actions/checkout@" + "1" * 40 + "\n")
+    git(*forge_cfg(), "commit", "-q", "-m", "Bump actions/checkout", **bot)
+    r = guard()
+    check("a forge-signed Dependabot commit changing only .github/workflows/: passes", passed(r), r.stdout + r.stderr)
+    branch("dependabot-wide")
+    put(".github/workflows/ci.yml", "uses: actions/checkout@" + "2" * 40 + "\n")
+    put("README", "and this\n")
+    git(*forge_cfg(), "commit", "-q", "-m", "Bump actions/checkout", **bot)
+    r = guard()
+    check("a forge-signed Dependabot commit touching a path outside .github/workflows/: refused",
+          refused(r, "README") and "outside .github/workflows/" in r.stderr, r.stdout + r.stderr)
+    branch("dependabot-empty")
+    git(*forge_cfg(), "commit", "-q", "--allow-empty", "-m", "Bump nothing", **bot)
+    r = guard()
+    check("a forge-signed Dependabot commit that changes nothing: refused", refused(r, "changing nothing"),
+          r.stdout + r.stderr)
+    branch("dependabot-merge")
+    commit("python-dev-04", "python-dev")
+    advance_main()
+    git("merge", "-q", "--no-ff", "--no-commit", "main")
+    put(".github/workflows/ci.yml", "uses: actions/checkout@" + "3" * 40 + "\n")
+    git(*forge_cfg(), "commit", "-q", "-m", "Merge branch 'main'", **bot)
+    r = guard()
+    check("a forge-signed merge authored by Dependabot, changing only workflows itself: refused",
+          refused(r, "changes something itself") and "not a merge" in r.stderr, r.stdout + r.stderr)
+
+    branch("forge-edit")
+    put("edited-on-the-web", "x\n")
+    git(*forge_cfg(), "commit", "-q", "-m", "Update edited-on-the-web")
+    r = guard()
+    check("a forge-signed plain commit by the shared author (a web edit, a squash): refused",
+          refused(r, "made on the forge"), r.stdout + r.stderr)
+
+    branch("forge-unlisted")
+    commit("python-dev-04", "python-dev")
+    advance_main()
+    sha = forge_merge("main", key=AGENTS["owner"]["sub"])
+    r = guard()
+    check("a clean merge signed by an OpenPGP key forge_keys does not list: refused",
+          r.returncode == 1 and sha[:10] in r.stderr and "1 of 2" in r.stderr, r.stdout + r.stderr)
+    write_operator(since=old, fmt="openpgp")
+    r = guard()
+    check("  ... and where the repository signs OpenPGP too",
+          refused(r, "not signed by an agent's signing subkey") and sha[:10] in r.stderr, r.stdout + r.stderr)
+    write_operator(since=old)
+    # A key the checker's keyring holds and verifies (G/U), so only the
+    # forge_keys list stands between it and rule 8's clean-merge pass.
+    branch("forge-unlisted-known")
+    commit("python-dev-04", "python-dev")
+    advance_main()
+    sha = forge_merge("main", key=AGENTS["python-dev-04"]["sub"])
+    r = guard()
+    check("a clean merge signed by a key the checker verifies but forge_keys does not list (an agent's): refused",
+          r.returncode == 1 and sha[:10] in r.stderr and "1 of 2" in r.stderr, r.stdout + r.stderr)
+
+    branch("forge-absent")
+    commit("python-dev-04", "python-dev")
+    advance_main()
+    sha = forge_merge("main")
+    os.remove(forge_key_file())
+    r = guard()
+    check("a listed forge key whose file is absent: its clean merge refused, the agent's commit still passes",
+          refused(r, "listed in forge_keys but not loaded") and sha[:10] in r.stderr and "1 of 2" in r.stderr,
+          r.stdout + r.stderr)
+    with open(forge_key_file(), "w", encoding="utf-8") as f:
+        f.write(gpg("--armor", "--export", AGENTS["owner"]["primary"]))
+    r = guard()
+    check("a listed forge key whose file is another key: its clean merge refused, the agent's commit still passes",
+          refused(r, "not that key alone") and "1 of 2" in r.stderr, r.stdout + r.stderr)
+    write_operator(since=old)
+    git("checkout", "-q", "main")
 
     print("the policy and the checker's own pieces")
     with open(os.path.join(FABRIC, "policies", "signing.json"), "w", encoding="utf-8") as f:
