@@ -89,11 +89,12 @@ import os
 import stat
 import subprocess
 import sys
-import unicodedata
 from typing import Any, Callable
 
 from . import bypass, gzmsg, i18n, inbox, intake, paths
 from . import jsvalues as js
+
+import hidden_unicode  # noqa: E402 — tools/fabric, on sys.path through paths
 
 
 def fallback_marker(directory: str | None = None, pid: int | None = None) -> dict | None:
@@ -378,7 +379,7 @@ def empty_body(msg: dict) -> list[str] | None:
         # not strip) and a heading the sender's indentation made part of the
         # section above (validate only warns of it).
         for line in sections.get(name, "").split("\n"):
-            line = "".join(c for c in line if unicodedata.category(c) != "Cf" and c != "\u180e")
+            line = "".join(c for c in line if not hidden_unicode.is_format(c))
             if gzmsg.js_trim(line) != "" and not gzmsg._SWALLOWED.fullmatch(line):
                 return True
         return False

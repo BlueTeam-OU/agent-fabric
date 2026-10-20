@@ -262,12 +262,19 @@ def case_link_pattern_is_linear_on_a_run_of_destinations() -> None:
 
 def case_every_control_character_is_refused() -> None:
     for code in (list(range(0x00, 0x09)) + list(range(0x0b, 0x20)) + list(range(0x7f, 0xa0)) + [0x2028, 0x2029]
-                 + list(range(0x202a, 0x202f)) + list(range(0x2066, 0x206a))):
+                 + list(range(0x202a, 0x202f)) + list(range(0x2066, 0x206a)) + [0x200b, 0x200c, 0x2060, 0xfeff, 0x206a]):
         must_refuse("charter-addendum.md", addendum(f"a{chr(code)}b\n"), "control")
     # Spaces and format-looking code points that are not controls: refusing them would refuse real text (a no-break
     # space between a number and its unit, a narrow no-break space in French, the unassigned code points beside the bidi ones).
-    for ok in ("\n", "\t", "\u00a0", "\u202f", "\u2065", "\u206a"):   # the positive control: these are allowed
+    for ok in ("\n", "\t", "\u00a0", "\u202f", "\u2065"):   # the positive control: these are allowed
         must_pass("charter-addendum.md", addendum(f"a{ok}b\n"))
+
+
+def case_hidden_classes_beyond_controls_are_refused() -> None:
+    # hidden_unicode's variation, filler and private-use classes reach addenda too: one case per class.
+    for odd in ("a\ufe0eb", "a\u3164b", "a\ue000b"):
+        must_refuse("charter-addendum.md", addendum(odd + "\n"), "hidden format")
+    must_pass("charter-addendum.md", addendum("a \u2714\ufe0f b\n"))   # the control: VS16 after a symbol
 
 
 def case_oversize_file_runs_no_pattern() -> None:
@@ -314,21 +321,20 @@ def case_a_well_formed_value_is_not_echoed_either() -> None:
 
 
 def case_oversize_file_runs_no_control_scan() -> None:
-    saved = ac.CONTROL_RE
+    saved = ac.hidden_unicode.scan
     seen = []
 
-    class Spy:
-        def search(self, text):
-            seen.append(len(text))
-            return saved.search(text)
-    ac.CONTROL_RE = Spy()
+    def spy(text, **kw):
+        seen.append(len(text))
+        return saved(text, **kw)
+    ac.hidden_unicode.scan = spy
     try:
         ac.validate(ROLE, AID, "charter-addendum.md", addendum("x" * (ac.MAX_CHARS + 1) + "\x01\n"))
         assert not seen, seen
         ac.validate(ROLE, AID, "charter-addendum.md", addendum("x\n"))
         assert seen   # the control: under the cap the scan runs
     finally:
-        ac.CONTROL_RE = saved
+        ac.hidden_unicode.scan = saved
 
 
 def case_set_gloss_digest() -> None:
