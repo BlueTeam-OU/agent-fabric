@@ -1333,3 +1333,20 @@ its record disagree, the record wins. Look it up, never read it whole:
   acceptance (§8).
 - Keywords: errors, trust, actor, people, agents, review findings, red
   check, flaky, revert, fix forward, attribution, fabric-errors, proposed.
+
+### ADR-062 — Hidden Unicode is refused in what agents read (Proposed)
+
+- `tools/fabric/hidden_unicode.py` is the one definition (bidi, Cf incl.
+  tag characters, controls but TAB/LF, stray variation selectors, fillers,
+  private use); every boundary calls it, an allowance is added there with a
+  test (§2, §5 rule 1).
+- Judged: every tracked Markdown file of agent-fabric, Markdown and JSON
+  under `identities/` and `.agent-fabric/`; a project's `.agent-fabric/`;
+  vendored text not exempt (§5 rule 2).
+- Pre-commit refuses the staged content for every committer; the corpus
+  lint refuses the committed tree in the suite and CI (§5 rule 3).
+- A project's own documents are not judged; a finding there goes to its
+  owning role as an observation. What text says is never judged (§5 rules
+  4-5). Waits on the owner's acceptance (§8).
+- Keywords: hidden unicode, bidi, zero-width, tag characters, control
+  characters, prompt injection, lint, pre-commit, skills, slices, apm.
