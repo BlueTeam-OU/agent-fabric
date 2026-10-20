@@ -268,31 +268,41 @@ def parse_memory(path: str) -> dict[str, Any] | None:
         return None                     # MEMORY.md, or a stray note
     head, body = m.group(1), m.group(2).strip()
     meta: dict[str, str] = {}
+    block_lists: dict[str, list[str]] = {}      # key -> the `- item` lines under a key with no value on its own line
     section = None
+    list_key = None
     for line in head.split("\n"):
         if not line.strip():
             continue
+        item = re.fullmatch(r"\s*-(?:\s+(.*))?", line)
+        if item and list_key is not None:
+            block_lists.setdefault(list_key, []).append(scalar(item.group(1) or ""))
+            continue
         if re.fullmatch(r"^\S+:\s*$", line):
             section = line.split(":")[0].strip()
+            list_key = section
             continue
         km = re.fullmatch(r"^\s*([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", line)
         if not km:
+            list_key = None
             continue
         key, value = km.group(1), scalar(km.group(2))
         # `metadata:` nests one level; flatten it, since `type` is the only
         # field under it that this reads.
-        meta[key if section is None else f"{section}.{key}"] = value
+        flat = key if section is None else f"{section}.{key}"
+        meta[flat] = value
+        list_key = flat if not value else None
         if not line.startswith((" ", "\t")):
             section = None
     name = meta.get("name") or os.path.splitext(os.path.basename(path))[0]
     anchors: list[str] = []
     anchor_problems: list[str] = []
-    raw_anchors = meta.get("metadata.anchors") or meta.get("anchors")
+    listed, raw_anchors = anchors_mod.read_list(meta.get("metadata.anchors") or meta.get("anchors"),
+                                                block_lists.get("metadata.anchors") or block_lists.get("anchors"))
     if raw_anchors is not None:
         known_projects = frozenset(layout.project_ids())
-        listed = anchors_mod.split_inline_list(raw_anchors)
         if listed is None:
-            anchor_problems.append(f"anchors is no inline list: {raw_anchors[:60]!r}")
+            anchor_problems.append(f"anchors is no inline list and no block list of `- item` lines: {raw_anchors[:60]!r}")
         else:
             for a in listed:
                 bad = anchors_mod.problem(a) or anchors_mod.registry_problem(a, known_projects)

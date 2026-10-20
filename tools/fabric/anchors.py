@@ -85,6 +85,19 @@ def split_inline_list(value: str) -> list[str] | None:
     return [x for x in items if x]
 
 
+def read_list(inline: str | None, block: list[str] | None) -> tuple[list[str] | None, str | None]:
+    """(the items, the raw text they came from) of an `anchors:` value in either YAML form: `anchors: [a, "b"]` (inline) or
+    `anchors:` followed by `- a` lines (block, which a harness that normalises a memory's front matter writes back). The items
+    are None when the value is neither, which the caller says; a block item is one anchor, so it is not split on commas.
+    An inline value wins when both appear, as the key's own line. The raw text is what the credential fence reads; None says the
+    key is absent (or bare, with nothing under it), which is no anchors and not a problem."""
+    if inline:
+        return split_inline_list(inline), inline
+    if block:
+        return list(block), "\n".join(block)
+    return None, inline
+
+
 def problem(anchor: str) -> str | None:
     """Why `anchor` is not `[<project>:]<repository path>` or that with `::<symbol or literal>`, or None. The path is
     relative and stays inside its tree; the part after `::` is non-empty; and nothing in it is a backtick, a

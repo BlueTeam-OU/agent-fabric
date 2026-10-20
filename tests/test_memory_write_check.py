@@ -160,6 +160,8 @@ def main() -> int:
             ("anchors at the top level of the frontmatter count", "  roles_class: solution\n", None),
             ("an anchor list that is no inline list", "  roles_class: solution\n  anchors: a/b.py\n", "no inline list"),
             ("an anchor that leaves the tree is no anchor", "  roles_class: solution\n  anchors: [/etc/passwd::x]\n", "no anchors"),
+            ("a block list of anchors is read like the inline form", "  roles_class: solution\n  anchors:\n    - tools/fabric/anchors.py::problem\n    - gzapp:src/a.py\n", None),
+            ("a block list whose only item is no anchor says so", "  roles_class: solution\n  anchors:\n    - /etc/passwd::x\n", "no anchors"),
             ("a domain memory needs none", "  roles_class: domain\n", None),
             ("a threads memory needs none", "  roles_class: threads\n", None),
         ]
