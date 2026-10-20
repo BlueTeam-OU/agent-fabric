@@ -16,6 +16,11 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             locale-paths                              the staged paths to judge, one per line; exit 0
             <fabric-root> is where the hook file lives (the forwarder works it out from its own real path), which is
             NOT where this module lives: a test, or a checkout the hooks serve, holds its own policies/authority.json.
+  hidden    pre-commit also refuses, for EVERY committer (the coordinator, both carve-outs, an unbound session), a staged
+            file that tools/fabric/agent_text.py calls text an agent reads (in agent-fabric: any *.md, and *.md/*.json
+            under identities/ and .agent-fabric/; in a managed project: .agent-fabric/ only) whose STAGED blob holds
+            a character tools/fabric/hidden_unicode.py refuses. Exit 1, one `<path>:<line>:<col>: U+XXXX NAME (kind)` per
+            character.
   env       AGENT_FABRIC_STATE_DIR etc. are read by runtime/identity.py, which runs for the binding's role;
             AGENT_FABRIC_PYTHON is read by the forwarders only. The login is `id -un`, never the password database.
   stdout    only the three library verbs print on stdout; the hooks speak on stderr (and the decision-record check's
@@ -46,7 +51,9 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.dont_write_bytecode = True
 sys.path.insert(0, HERE)
 sys.path.insert(1, os.path.dirname(HERE))
+import agent_text  # noqa: E402  the one predicate for text an agent reads (lint judges the same files)
 import commit_kind  # noqa: E402
+import hidden_unicode  # noqa: E402  the one definition of what such text may not hide
 import roots  # noqa: E402  the hook's own checkout is the root it is given; roots spells the policy's path (test_roots_seam)
 
 ITSELF = "agent-fabric itself"
@@ -248,8 +255,33 @@ def _check_decision_records(root: str) -> None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def _check_hidden_unicode(root: str) -> None:
+    """Before any carve-out is consulted: hidden text is refused whoever commits it, the coordinator included. The staged
+    blob is judged, not the work tree; a merge is judged as the rest of pre_commit does, by what the result changes against
+    the merged-in side."""
+    itself = _real(toplevel()) == _real(root)
+    against = [merge_head()] if merge_head() else []
+    lines: list[str] = []
+    for path in _names("diff", "--cached", "--no-renames", "--name-only", "--diff-filter=ACMRT", *against):
+        if not agent_text.is_agent_text(path, itself=itself):
+            continue
+        blob = subprocess.run(["git", "show", f":{path}"], capture_output=True, timeout=GIT_TIMEOUT_S, stdin=subprocess.DEVNULL)
+        if blob.returncode != 0:
+            raise Refuse(f"pre-commit: cannot read the staged {path} to check it for hidden Unicode")
+        try:
+            text = blob.stdout.decode("utf-8")
+        except UnicodeDecodeError:
+            lines.append(f"{path}: not UTF-8")
+            continue
+        lines += [f"{path}:{f.line}:{f.column}: U+{f.codepoint:04X} {f.name} ({f.kind})" for f in hidden_unicode.scan(text)]
+    if lines:
+        raise Refuse("\n".join(lines) + "\npre-commit: staged text an agent reads holds characters the reader does not see "
+                     "— not committed. What is refused, and what is allowed, is defined in tools/fabric/hidden_unicode.py.")
+
+
 def pre_commit(root: str) -> int:
     _check_decision_records(root)
+    _check_hidden_unicode(root)
     what, staged = guarded_change(root)
     if not staged:
         return 0

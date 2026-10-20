@@ -350,5 +350,80 @@ class DecisionRecords(PreCommit):
         self.assertEqual((r.returncode, r.stderr), (0, ""))
 
 
+class HiddenUnicode(PreCommit):
+    """A staged file that is text an agent reads and hides a character (tools/fabric/hidden_unicode.py) is refused whoever commits.
+    Mutations: the call to the check removed from pre_commit (every case); the check placed after the owner's return (the
+    unbound and owner cases); `git show :path` read from the work tree instead (the staged-blob case); is_agent_text widened to
+    every path (the .py case) or to the whole project (the project's docs case)."""
+
+    RLO = "evil ‮ text\n"
+
+    def setUp(self):
+        self.build(owner_role="fabric-coordinator")
+
+    def test_a_staged_md_with_a_bidi_override_is_refused_for_the_owner_and_for_an_unbound_session_alike(self):
+        repo = self.fabric.itself()
+        repo.stage("docs/x.md", self.RLO)
+        for role in (None, "backend-dev", "fabric-coordinator"):
+            with self.subTest(role=role):
+                self.fabric.bind(role)
+                r = self.run_hook(repo)
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn("docs/x.md:1:6: U+202E RIGHT-TO-LEFT OVERRIDE (bidi)", r.stderr)
+                self.assertIn("tools/fabric/hidden_unicode.py", r.stderr)
+
+    def test_nothing_is_committed_when_it_is_refused(self):
+        repo = self.fabric.itself()
+        before = repo.git("rev-parse", "HEAD").stdout
+        repo.stage("docs/x.md", self.RLO)
+        self.fabric.bind("fabric-coordinator")
+        r = self.fabric.commit(repo, "x\n\nKind: work")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(repo.git("rev-parse", "HEAD").stdout, before)
+
+    def test_the_staged_blob_is_judged_not_the_work_tree(self):
+        repo = self.fabric.itself()
+        repo.stage("docs/x.md", self.RLO)
+        repo.write("docs/x.md", "clean now\n")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("docs/x.md:1:6: U+202E", r.stderr)
+
+    def test_the_same_character_in_a_py_file_is_admitted(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/x.py", "# " + self.RLO)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_a_json_under_identities_is_judged_and_one_elsewhere_is_not(self):
+        repo = self.fabric.itself()
+        self.fabric.bind("fabric-coordinator")
+        repo.stage("data/x.json", '{"a": "b‮c"}\n')
+        self.assertEqual(self.run_hook(repo).returncode, 0)
+        repo.stage("identities/x.json", '{"a": "b‮c"}\n')
+        self.assertEqual(self.run_hook(repo).returncode, 1)
+
+    def test_in_a_managed_project_the_fabrics_directory_is_judged_and_the_projects_own_docs_are_not(self):
+        project = self.fabric.project()
+        self.fabric.bind("fabric-coordinator")
+        project.stage("docs/x.md", self.RLO)
+        r = self.run_hook(project)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        project.stage(".agent-fabric/x.md", self.RLO)
+        r = self.run_hook(project)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn(".agent-fabric/x.md:1:6: U+202E", r.stderr)
+        self.assertNotIn("docs/x.md", r.stderr)
+
+    def test_a_family_emoji_is_admitted(self):
+        repo = self.fabric.itself()
+        repo.stage("docs/x.md", "family \U0001F468‍\U0001F469‍\U0001F467\n")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+
 if __name__ == "__main__":
     unittest.main()
