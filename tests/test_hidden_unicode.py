@@ -29,7 +29,7 @@ def refused(ch: str, kind: str) -> None:
 
 def case_clean_text_passes_with_every_script() -> None:
     assert hu.scan("plain\ttext\nline two\n") == []
-    assert hu.scan("Привет, мир\nამ დეტალებით\nA B   é é ✔\n") == []   # ru, ka, en, NBSP, combining
+    assert hu.scan("Привет, мир\nამ დეტალებით\nA\u00a0B \u202f é e\u0301 ✔\n") == []   # ru, ka, en, NBSP, narrow NBSP, combining
 
 
 def case_bidi_is_refused() -> None:
@@ -40,7 +40,7 @@ def case_bidi_is_refused() -> None:
 def case_format_characters_are_refused() -> None:
     for cp in (0x200B, 0x200C, 0x2060, 0x00AD, 0x180E, 0x206A, 0xE0041, 0xE007F):
         refused(chr(cp), "format")
-    refused("﻿", "format")   # a BOM inside text is a zero-width no-break space
+    refused("\ufeff", "format")   # a BOM inside text is a zero-width no-break space
 
 
 def case_controls_are_refused() -> None:
@@ -54,12 +54,12 @@ def case_variation_fillers_and_private_use_are_refused() -> None:
         refused(chr(cp), "variation")
     for cp in (0x115F, 0x1160, 0x3164, 0xFFA0):
         refused(chr(cp), "filler")
-    for ch in ("", "\udc80", "\U000f0000"):
+    for ch in ("\ue000", "\udc80", "\U000f0000"):
         refused(ch, "private")
 
 
 def case_lines_and_columns_count_code_points() -> None:
-    f = hu.scan("é😀x\n\nab​c\n")
+    f = hu.scan("é😀x\n\nab\u200bc\n")
     assert [(x.line, x.column) for x in f] == [(3, 3)], f
     assert str(f[0]) == "3:3: U+200B ZERO WIDTH SPACE (format)"
 
@@ -70,31 +70,31 @@ def case_allowance_tab_and_newline() -> None:
 
 
 def case_allowance_leading_bom_only() -> None:
-    assert hu.scan("﻿a") == []
-    assert kinds("﻿a", allow_bom=False) == ["format"]
-    assert kinds("a﻿") == ["format"]
-    assert kinds("\n﻿") == ["format"]   # offset 0 only, not the start of a line
+    assert hu.scan("\ufeffa") == []
+    assert kinds("\ufeffa", allow_bom=False) == ["format"]
+    assert kinds("a\ufeff") == ["format"]
+    assert kinds("\n\ufeff") == ["format"]   # offset 0 only, not the start of a line
 
 
 def case_allowance_zwj_inside_an_emoji_sequence() -> None:
-    family = "\U0001F468‍\U0001F469‍\U0001F467"
+    family = "\U0001F468\u200d\U0001F469\u200d\U0001F467"
     assert hu.scan(family) == []
-    assert hu.scan("\U0001F469\U0001F3FD‍⚕️") == []   # modifier before ZWJ, VS16 after the symbol
-    assert hu.scan("❤️‍\U0001F525") == []   # VS16 before ZWJ
-    for bad in ("a‍b", "‍\U0001F469", "\U0001F468‍", "\U0001F468‍a", "\U0001F468 ‍\U0001F469"):
+    assert hu.scan("\U0001F469\U0001F3FD\u200d⚕\ufe0f") == []   # modifier before ZWJ, VS16 after the symbol
+    assert hu.scan("❤\ufe0f\u200d\U0001F525") == []   # VS16 before ZWJ
+    for bad in ("a\u200db", "\U0001F468\u200d^", "\u200d\U0001F469", "\U0001F468\u200d", "\U0001F468\u200da", "\U0001F468 \u200d\U0001F469"):
         assert kinds(bad) == ["format"], bad
 
 
 def case_allowance_vs16_after_symbol_digit_and_hash() -> None:
-    for ok in ("✔️", "1️⃣", "#️⃣", "*️⃣"):
+    for ok in ("✔\ufe0f", "1\ufe0f\u20e3", "#\ufe0f\u20e3", "*\ufe0f\u20e3"):
         assert hu.scan(ok) == [], ok
-    for bad in ("a️", " ️", "️", "\n️"):
+    for bad in ("a\ufe0f", " \ufe0f", "\ufe0f", "\n\ufe0f", "`\ufe0f", "^\ufe0f"):
         assert kinds(bad) == ["variation"], bad
 
 
 def case_zwnj_is_not_allowed() -> None:
     # Persian needs it; ru, ka and en do not. A locale that does adds an allowance with a test.
-    assert kinds("می‌خواهم") == ["format"]
+    assert kinds("می\u200cخواهم") == ["format"]
 
 
 def case_tag_characters_are_refused_even_in_a_flag() -> None:
@@ -111,7 +111,7 @@ def case_cli_exit_codes_and_lines() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         clean, dirty, binary = (os.path.join(tmp, n) for n in ("clean.md", "dirty.md", "bin.md"))
         open(clean, "w", encoding="utf-8").write("ok\n")
-        open(dirty, "w", encoding="utf-8").write("ok\nx‮y​\n")
+        open(dirty, "w", encoding="utf-8").write("ok\nx\u202ey\u200b\n")
         open(binary, "wb").write(b"\xff\xfe")
         r = run(clean)
         assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), r
