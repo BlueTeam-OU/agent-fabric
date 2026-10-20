@@ -26,7 +26,7 @@ import json
 import os
 import subprocess
 import sys
-import time
+import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = os.path.abspath(os.environ.get("REVIEW_BASH_GUARD") or os.path.join(
@@ -111,37 +111,82 @@ GUARD_PY = os.path.join(os.path.dirname(UNDER_TEST), "review-bash-guard.py")
 # wall budget and answers "slow" (a deny, by design) when the host starves that child, so a wall bound here, or an
 # allow expected of the shim under load, fails on the host's load and says nothing of the patterns.
 VERDICT_CPU_S = 1.0
+# And a ceiling the kernel enforces on the child that measures it, so a pattern that backtracks without end fails in
+# seconds instead of stalling the suite (the run has no bound of its own); whole seconds, as RLIMIT_CPU is. SIGXCPU
+# ends it at the soft limit; the hard one is a margin above, as equal limits end it by SIGKILL instead.
+VERDICT_CEILING_S = 5
+# Run in the interpreter the hook ships with (the shim's own choice), so the budget is measured on its regex engine.
+MEASURE = """
+import importlib.util, json, resource, sys, time
+resource.setrlimit(resource.RLIMIT_CPU, (%d, %d))
+spec = importlib.util.spec_from_file_location("review_bash_guard_under_test", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+command = sys.stdin.read()
+start = time.process_time()
+got = mod.verdict(command)
+print(json.dumps({"verdict": got, "cpu": time.process_time() - start}))
+""" % (VERDICT_CEILING_S, VERDICT_CEILING_S + 5)
 
 
-def cpu_seconds(fn, *args):
-    start = time.process_time()
-    out = fn(*args)
-    return out, time.process_time() - start
+def hook_python() -> str:
+    py = os.environ.get("AGENT_FABRIC_PYTHON") or "/usr/local/bin/fabric-python"
+    return py if os.access(py, os.X_OK) else sys.executable
 
 
-def burn(seconds: float) -> None:
-    end = time.process_time() + seconds
-    while time.process_time() < end:
-        pass
+def verdict_cpu(command: str, guard: str = GUARD_PY) -> tuple[str | None, float] | str:
+    """(verdict, CPU seconds it took) as the hook's interpreter measured them, or why there is none."""
+    try:
+        r = subprocess.run([hook_python(), "-c", MEASURE, guard], input=command, capture_output=True, text=True,
+                           env=base_env(), timeout=HANG_S)
+    except subprocess.TimeoutExpired:
+        return f"no answer within {HANG_S} s"
+    if r.returncode == -24:     # SIGXCPU: the ceiling above
+        return f"ran past {VERDICT_CEILING_S} CPU s and was stopped"
+    try:
+        said = json.loads(r.stdout)
+        return said["verdict"], said["cpu"]
+    except (ValueError, KeyError, TypeError):
+        return f"no measurement (rc {r.returncode}): {r.stderr.strip()[-200:]}"
 
 
-def guard_module():
-    spec = importlib.util.spec_from_file_location("review_bash_guard_under_test", GUARD_PY)
+def within_budget(got) -> bool:
+    return isinstance(got, tuple) and got[0] is None and got[1] <= VERDICT_CPU_S
+
+
+def burn_and_sleep() -> tuple[float, float]:
+    """CPU seconds a 0.5 s sleep costs and CPU seconds a 0.3 s burn costs, on the clock verdict_cpu uses."""
+    code = ("import time\n"
+            "a = time.process_time(); time.sleep(0.5); b = time.process_time()\n"
+            "end = b + 0.3\n"
+            "while time.process_time() < end: pass\n"
+            "print(b - a, time.process_time() - b)\n")
+    out = subprocess.run([hook_python(), "-c", code], capture_output=True, text=True, env=base_env(), timeout=HANG_S).stdout.split()
+    return float(out[0]), float(out[1])
+
+
+def guard_reasons() -> dict[str, str]:
+    """The guard's own reason text -> its key (slow is its late-verdict deny, error a crash)."""
+    spec = importlib.util.spec_from_file_location("review_bash_guard_reasons", GUARD_PY)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod
+    return {text: key for key, text in mod.REASONS.items()}
 
 
-def shim_judgement(command: str, slow_reason: str) -> str:
-    """allow, deny:slow (the guard's own late-verdict deny) or the decision as it came."""
-    r = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "agent_type": "code-review"}))
+def judgement_of(stdout: str, reasons: dict[str, str]) -> str:
+    """allow; deny:<the guard's reason key>; or malformed."""
     try:
-        out = json.loads(r.stdout)["hookSpecificOutput"]
+        out = json.loads(stdout)["hookSpecificOutput"]
     except (ValueError, KeyError, TypeError):
-        return "allow" if not r.stdout.strip() else "malformed"
+        return "allow" if not stdout.strip() else "malformed"
     if out.get("permissionDecision") == "deny":
-        return "deny:slow" if out.get("permissionDecisionReason") == slow_reason else "deny"
+        return "deny:" + reasons.get(out.get("permissionDecisionReason"), "unknown reason")
     return "allow" if isinstance(out.get("updatedInput"), dict) else "malformed"
+
+
+def shim_judgement(command: str, **extra: str) -> str:
+    r = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "agent_type": "code-review"}), **extra)
+    return judgement_of(r.stdout, guard_reasons())
 
 
 def in_time() -> None:
@@ -159,24 +204,49 @@ def in_time() -> None:
         "git --attr-source repeated 3000 times, then text": "git" + " --attr-source" * 3000 + "!",
     }
     # The clock first: process time counts CPU and not waiting, which is what lets a loaded host leave the verdict alone.
-    _, slept = cpu_seconds(time.sleep, 0.5)
-    _, burnt = cpu_seconds(burn, 0.3)
+    slept, burnt = burn_and_sleep()
     check("the clock counts CPU and not waiting (a sleep of 0.5 s costs none, a burn of 0.3 s costs it)",
           slept < 0.2 and burnt >= 0.25, f"slept {slept:.3f}, burnt {burnt:.3f}")
-    guard = guard_module()
     for label, command in shapes.items():
-        got, cpu = cpu_seconds(guard.verdict, command)
-        check(f"judged within {VERDICT_CPU_S} CPU s, and allowed: {label}", got is None and cpu <= VERDICT_CPU_S,
-              f"verdict {got!r} after {cpu:.2f} CPU s")
+        got = verdict_cpu(command)
+        check(f"judged within {VERDICT_CPU_S} CPU s, and allowed: {label}", within_budget(got), f"{got!r}")
+    # The measure can fail: stand-in guards that are quick, slow, and without end, each a verdict() and nothing else.
+    with tempfile.TemporaryDirectory() as tmp:
+        def stand_in(name: str, body: str) -> str:
+            path = os.path.join(tmp, name + ".py")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("import time\ndef verdict(cmd):\n" + body)
+            return path
+        quick = verdict_cpu("x", stand_in("quick", "    return None\n"))
+        slow = verdict_cpu("x", stand_in("slow", "    end = time.process_time() + 1.6\n    while time.process_time() < end: pass\n    return None\n"))
+        endless = verdict_cpu("x", stand_in("endless", "    while True: pass\n"))
+        check("positive control: a verdict that returns at once is within the budget", within_budget(quick), f"{quick!r}")
+        check(f"a verdict that takes 1.6 CPU s is past the budget, though it ends", isinstance(slow, tuple) and not within_budget(slow), f"{slow!r}")
+        check("a verdict without end is stopped at the CPU ceiling and said so, not waited for",
+              isinstance(endless, str) and "was stopped" in endless and not within_budget(endless), f"{endless!r}")
     # Through the shim, as the harness runs it: the verdict or the guard's own late-verdict deny, never another answer.
-    slow = guard.REASONS["slow"]
     for label, command in shapes.items():
-        got = shim_judgement(command, slow)
+        got = shim_judgement(command)
         check(f"through the shim, allowed or denied for being late and never otherwise: {label}", got in ("allow", "deny:slow"), got)
-    got = shim_judgement("git commit -m x", slow)
-    check("positive control: a command a rule denies is that deny and not the late one", got == "deny", got)
-    got = shim_judgement("ls", slow)
+    got = verdict_cpu("git commit -m x")
+    check("positive control: the verdict of a command a rule denies is that rule's, by the measuring child as well",
+          isinstance(got, tuple) and got[0] == "git", f"{got!r}")
+    got = shim_judgement("git commit -m x")
+    check("positive control: through the shim that command is the rule's deny, or the late one, and never a crash or an allow",
+          got in ("deny:git", "deny:slow"), got)
+    got = shim_judgement("ls")
     check("positive control: a plain command is allowed (or late) too", got in ("allow", "deny:slow"), got)
+    # What cannot depend on the load: the reading of an answer, and the late deny a budget of zero always produces.
+    reasons = guard_reasons()
+    deny = lambda key: json.dumps({"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": key}})  # noqa: E731
+    texts = {key: text for text, key in reasons.items()}
+    check("the reading of an answer: a rule's deny, the late deny, a crash, an unknown text, an allow and no answer",
+          [judgement_of(deny(texts["git"]), reasons), judgement_of(deny(texts["slow"]), reasons), judgement_of(deny(texts["error"]), reasons),
+           judgement_of(deny("something else"), reasons), judgement_of(json.dumps({"hookSpecificOutput": {"updatedInput": {}}}), reasons),
+           judgement_of("", reasons)]
+          == ["deny:git", "deny:slow", "deny:error", "deny:unknown reason", "allow", "allow"], "")
+    got = shim_judgement("ls", AGENT_FABRIC_REVIEW_GUARD_BUDGET="0")
+    check("a budget of zero is the late deny, through the shim", got == "deny:slow", got)
 
 
 def clean_environment() -> None:
