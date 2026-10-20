@@ -324,16 +324,23 @@ _SELF_DIR = re.compile(r"\$\(dirname(--)?" + _SELF + r"\)")
 _SELF_VALUE = re.compile(r"\$\(cd(--)?" + _SELF_DIR.pattern + r"&&pwd(-P)?\)|" + _SELF_DIR.pattern)
 # "$(dirname "$0")/x" as shlex leaves it: the inner quotes gone, a space kept.
 _DIRNAME_WORD = re.compile(r"^\$\(dirname\s+(--\s+)?" + _SELF + r"\s*\)/")
-_ASSIGN = re.compile(r"^\s*(?:(?:local|readonly|declare|typeset|export)(?:\s+-\w+)*\s+)?([A-Za-z_]\w*)(\+?)=(.*)$", re.S)
-_HEREDOC = re.compile(r"<<-?\s*([\"']?)([A-Za-z_][\w.-]*)\1")
-_BINDS = {"read", "for", "local", "declare", "typeset", "readonly", "export", "unset", "mapfile", "readarray"}
+_ASSIGN = re.compile(r"\s*(?:(?:local|readonly|declare|typeset|export)(?:\s+-\w+)*\s+)?([A-Za-z_]\w*)(\+?)=(.*)", re.S)
+_HEREDOC = re.compile(r"<<-?\s*\\?([\"']?)([A-Za-z_][\w.-]*)\1")
+_BINDS = {"read", "for", "select", "getopts", "local", "declare", "typeset", "readonly", "export", "unset", "mapfile", "readarray"}
+
+
+class _Unreadable(Exception):
+    """A construct the reader cannot follow with certainty: the script then
+    wires nothing, so its helpers are reported rather than passed."""
 
 
 def _segments(text: str) -> list[str]:
     """The simple commands of a script, split where the shell splits them:
-    at a newline, ;, & or | outside quotes and outside $( … ). A comment is
-    dropped, a heredoc's body is not a command and is skipped, and a
-    quoted string may span lines."""
+    at a newline, ;, & or | outside quotes and outside $( … ), never at
+    the & of a redirect (>&2, 2>&1, &>). A comment is dropped; a heredoc's
+    body, at any depth, is not a command and is skipped; (( … )) and a
+    <<< here-string are no heredoc; a quoted string may span lines. A <<
+    whose delimiter this cannot read raises _Unreadable."""
     # A backslash-newline is consumed as an escaped character below, which
     # joins the continuation without a split.
     out, cur, quote, depth, i, n = [], [], "", 0, 0, len(text)
@@ -360,6 +367,14 @@ def _segments(text: str) -> list[str]:
         elif c in "'\"":
             quote = c
             cur.append(c)
+        elif text.startswith("((", i) or text.startswith("$((", i):
+            # Arithmetic: a << there is a shift, never a heredoc.
+            end = text.find("))", i)
+            if end < 0:
+                raise _Unreadable("(( with no ))")
+            cur.append(text[i:end + 2])
+            i = end + 2
+            continue
         elif c == "$" and text.startswith("$(", i):
             depth += 1
             cur.append("$(")
@@ -371,16 +386,23 @@ def _segments(text: str) -> list[str]:
             while i < n and text[i] != "\n":
                 i += 1
             continue
-        elif c == "<" and text.startswith("<<", i) and not text.startswith("<<<", i):
+        elif text.startswith("<<<", i):
+            cur.append("<<<")
+            i += 3
+            continue
+        elif text.startswith("<<", i):
             m = _HEREDOC.match(text, i)
-            if m:
-                pending.append(m.group(2))
-                cur.append(m.group(0))
-                i = m.end()
-                continue
-            cur.append(c)
-        elif c == "\n" and not depth:
-            flush()
+            if not m:
+                raise _Unreadable("a heredoc delimiter this cannot read")
+            pending.append(m.group(2))
+            cur.append(m.group(0))
+            i = m.end()
+            continue
+        elif c == "\n":
+            if depth:
+                cur.append(" ")
+            else:
+                flush()
             # A heredoc's body runs from the next line to its delimiter.
             for delim in pending:
                 while i < n:
@@ -391,6 +413,8 @@ def _segments(text: str) -> list[str]:
                     if line.strip() == delim:
                         break
             pending = []
+        elif c == "&" and (text[i - 1:i] in ("<", ">") or text[i + 1:i + 2] == ">"):
+            cur.append(c)
         elif c in ";&|" and not depth:
             flush()
         else:
@@ -419,7 +443,7 @@ def _self_dir_vars(text: str, segments: list[str]) -> set[str]:
     for seg in segments:
         # The segment's own assignment, read raw: its value's $( … ) and
         # quotes are what shlex would split it at.
-        lead = _ASSIGN.match(seg)
+        lead = _ASSIGN.fullmatch(seg)
         if lead:
             value = re.sub(r"[\s\"']", "", lead.group(3))
             (good if not lead.group(2) and _SELF_VALUE.fullmatch(value) else bad).add(lead.group(1))
@@ -428,9 +452,26 @@ def _self_dir_vars(text: str, segments: list[str]) -> set[str]:
                 bad.add(m.group(1))
         ws = _split(seg) or seg.split()
         for k, w in enumerate(ws):
-            if k and (ws[k - 1] == "-v" or ws[0] in _BINDS) and re.fullmatch(r"[A-Za-z_]\w*", w):
+            if k and ws[k - 1] == "-v" and re.fullmatch(r"[A-Za-z_]\w*", w):
                 bad.add(w)
+        # The binder is the command word, past keywords and prefix
+        # assignments: `while read -r v`, `IFS= read v`, `do for v in`.
+        cmd = command(seg)
+        if cmd and cmd[0] in _BINDS:
+            bad |= {w for w in cmd[1:] if re.fullmatch(r"[A-Za-z_]\w*", w)}
     return good - bad
+
+
+_REDIRECT = re.compile(r"(\d*|&)(>>?|<)(&\S*|\S+)?")
+
+
+def _past_redirects(cmd: list[str]) -> list[str]:
+    """The command past its leading redirections: `>&2 echo x` runs echo.
+    An operator standing alone takes the next word as its target."""
+    i = 0
+    while i < len(cmd) and _REDIRECT.fullmatch(cmd[i]):
+        i += 2 if _REDIRECT.fullmatch(cmd[i]).group(3) is None else 1
+    return cmd[i:]
 
 
 def invoked_members(root: str, rel: str) -> set[str]:
@@ -449,18 +490,21 @@ def invoked_members(root: str, rel: str) -> set[str]:
         # A wired member this cannot read would wire nothing, so a helper
         # it runs would read as unreachable: refused, never guessed.
         raise Refused(f"could not read a wired member: {path}: {_why(e)}") from None
-    segments = _segments(text)
+    try:
+        segments = _segments(text)
+    except _Unreadable:
+        return set()
     selfvars = _self_dir_vars(text, segments)
     own = os.path.dirname(rel)
     out = set()
     for seg in segments:
         if _split(seg) is None:
             continue
-        cmd = command(seg)
+        cmd = _past_redirects(command(seg))
         if not cmd or cmd[0] in ("echo", UNREADABLE):
             continue
         for w in cmd:
-            m = re.match(r"^\$\{?([A-Za-z_]\w*)\}?/(.+)$", w)
+            m = re.fullmatch(r"\$\{?([A-Za-z_]\w*)\}?/(.+)", w, re.S)
             if m and m.group(1) in selfvars:
                 target = os.path.join(own, m.group(2))
             elif _DIRNAME_WORD.match(w):
