@@ -84,6 +84,8 @@ class Fake:
         self.n_view += 1
         if line == "FAIL":
             raise gh.GhError("gh pr view", "no answer within 60 s", transient=True)
+        if line == "LIMITED":
+            raise gh.GhError("gh pr view", "rate limited until 12:34Z", 403, True, reset=self.clock.now + 600)
         state, _, merge = line.partition(":")
         return {"state": state, "mergeStateStatus": merge or "CLEAN"}
 
@@ -91,6 +93,8 @@ class Fake:
         self._tick()
         assert args[:2] == ["pr", "checks"], args
         answer = self._at(self.checks, self.n_view - 1)
+        if answer == "LIMITED":
+            raise gh.GhError("gh pr checks", "rate limited until 12:34Z", 403, True, reset=self.clock.now + 600)
         if answer is None:
             raise gh.GhError("gh pr checks", "HTTP 502", stdout="")
         if isinstance(answer, str):
@@ -130,7 +134,8 @@ HEALTHY = {"exit": 0, "verdict": "ok", "period": "2026-10", "public": False, "pr
 def watch(fake: Fake, clock: Clock, interval=30, timeout=2400, idle=2, health=None, env=None):
     """One watch, in process: (code, verdict text, stderr). Patches only for
     its own duration, and restores what it found."""
-    saved = (gh.pr_view, gh.run, gh.api, gh.graphql, wm.time.time, wm.time.sleep, wm.Watch._health)
+    saved = (gh.pr_view, gh.run, gh.api, gh.graphql, wm.time.time, wm.time.sleep, wm.Watch._health, gh.budget_wait)
+    gh.budget_wait = lambda *a, **k: 0   # the budget is read from GitHub, which no test reaches
     old_env = dict(os.environ)
     gh.pr_view, gh.run, gh.api, gh.graphql = fake.pr_view, fake.run, fake.api, fake.graphql
     wm.time.time, wm.time.sleep = clock.time, clock.sleep
@@ -156,7 +161,7 @@ def watch(fake: Fake, clock: Clock, interval=30, timeout=2400, idle=2, health=No
                 return v.code, v.text, err.getvalue(), seen
             return None, "", err.getvalue(), seen
     finally:
-        gh.pr_view, gh.run, gh.api, gh.graphql, wm.time.time, wm.time.sleep, wm.Watch._health = saved
+        gh.pr_view, gh.run, gh.api, gh.graphql, wm.time.time, wm.time.sleep, wm.Watch._health, gh.budget_wait = saved
         os.environ.clear()
         os.environ.update(old_env)
 
@@ -182,7 +187,23 @@ def main() -> int:
     code, text, _, _ = watch(Fake(c, ["OPEN:BLOCKED"]), c, interval=30, timeout=100)
     check("the watch expires at its timeout, exit 4", code == 4 and text == "STILL OPEN after 100s — watch expired,"
           " state unknown", f"{code} {text}")
-    check("its naps are the interval, the last clamped to what is left", c.naps == [30, 30, 30, 10], str(c.naps))
+    check("its naps grow while nothing changes (poll_pace), the last clamped to what is left", c.naps == [30, 45, 25], str(c.naps))
+    c = Clock()
+    watch(Fake(c, ["OPEN:BLOCKED", "OPEN:BLOCKED", "OPEN:CLEAN", "OPEN:CLEAN"], checks=[[{"name": "ci", "bucket": "pending"}]],
+               arming=["queued"]), c, interval=30, timeout=400)
+    check("a poll that reads something new puts the nap back to the interval", c.naps[:3] == [30, 45, 30], str(c.naps))
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:CLEAN", "LIMITED", "LIMITED", "LIMITED", "LIMITED", "MERGED"]), c, interval=30,
+                               timeout=4000)
+    check("a rate-limited lookup is waited out to the reset, however many times (four would be 'unreadable')",
+          code == 0 and text.startswith("MERGED") and "rate limited until" in err and 601 in c.naps, f"{code} {text} {c.naps}")
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["OPEN:CLEAN"], checks=["LIMITED"]), c, interval=30, timeout=100)
+    check("checks refused on the limit on every poll end the watch at its deadline, and the expiry still says the lookup was hidden",
+          code == 4 and "unreadable on" in text and "rate limited until" in err, f"{code} {text}")
+    c = Clock()
+    code, text, err, _ = watch(Fake(c, ["FAIL", "FAIL", "FAIL", "FAIL", "FAIL"]), c, interval=30, timeout=4000)
+    check("(control) five plain failures are still 'unreadable', exit 2", code == 2 and "rate limited" not in err, f"{code} {text}")
 
     c = Clock()
     code, text, _, _ = watch(Fake(c, ["OPEN:BLOCKED"]), c, interval=60, timeout=6)
@@ -310,7 +331,7 @@ def main() -> int:
     check("after one nap between them", c.naps == [30], str(c.naps))
     c = Clock()
     code, text, _, _ = watch(Fake(c, ["OPEN:CLEAN"], arming=["queued", "idle"]), c, idle=3)
-    check("the threshold is the setting's", code == 6 and "on 3 consecutive polls" in text and c.naps == [30, 30], text)
+    check("the threshold is the setting's", code == 6 and "on 3 consecutive polls" in text and c.naps == [30, 45], text)
     c = Clock()
     code, text, _, _ = watch(Fake(c, ["OPEN:CLEAN"], arming=["queued", "idle", "queued", "idle", "queued"]), c,
                              interval=30, timeout=120)

@@ -960,7 +960,8 @@ def main() -> int:
 
         # A registry the sweep can read, that lists no session: it removes a worktree only then, and reads every scratch directory
         # under $TMPDIR as an ended session's, so the suite gives it a $TMPDIR of its own.
-        readable = {"CLAUDE_CONFIG_DIR": os.path.join(tmp, "claude-config"), "TMPDIR": os.path.join(tmp, "scratch-tmp")}
+        readable = {"CLAUDE_CONFIG_DIR": os.path.join(tmp, "claude-config"), "TMPDIR": os.path.join(tmp, "scratch-tmp"),
+                    "CLAUDE_CODE_TMPDIR": os.path.join(tmp, "scratch-tmp")}
         os.makedirs(os.path.join(readable["CLAUDE_CONFIG_DIR"], "sessions"))
         os.makedirs(readable["TMPDIR"])
 

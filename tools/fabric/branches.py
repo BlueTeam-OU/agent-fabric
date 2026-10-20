@@ -45,8 +45,8 @@ checkouts piled up, 39 and 530 MB on one login in a day):
   - with `--sweep --all`, that over every working copy of this login in the projects directory (the
     directories beside this one that have a `.git` directory of their own), each with its own fetch. One that
     cannot be fetched, or refuses, is named and skipped, never guessed: the rest are swept and the status is 1;
-  - an ended Claude Code session's scratch under this login's claude-tmp cache ($TMPDIR/claude-<uid>/…/<session
-    id>), unless the harness of this login's registry (~/.claude/sessions/<pid>.json) names it for a harness
+  - an ended Claude Code session's scratch under this login's claude-tmp cache ($CLAUDE_CODE_TMPDIR/claude-<uid> when set,
+    and ${TMPDIR:-/tmp}/claude-<uid>, each swept)/…/<session id>), unless the harness of this login's registry (~/.claude/sessions/<pid>.json) names it for a harness
     that is live by plan_hold's rule for its own markers, or it is the session running the command. A registry that
     cannot be read or understood calls no session ended, and is said: no worktree is then removed, each is kept with the
     reason "session registry unreadable". A worktree a live session stands in is in use otherwise. Never
@@ -472,10 +472,27 @@ def live_sessions(registry: str | None = None) -> tuple[set[str], list[str]] | N
     return ids, cwds
 
 
-def claude_tmp_root() -> str:
-    """This login's claude-tmp cache: the harness writes its per-session scratch under $TMPDIR/claude-<uid>. The
-    variable is the launcher's (the account's own TMPDIR), so no other login's directory is ever named."""
-    return os.path.join(os.environ.get("TMPDIR") or "/tmp", f"claude-{os.geteuid()}")
+def claude_tmp_roots() -> list[str]:
+    """This login's claude-tmp caches: the harness writes a session's scratch under $CLAUDE_CODE_TMPDIR/claude-<uid> when
+    that is set, else under $TMPDIR/claude-<uid>. Both are swept when both are set (and differ): a session launched before
+    the variable was set, or without it, left its scratch in the other, and the registry's "ended" test is the same for a
+    session id wherever its directory is. The variables are the launcher's (the account's own), so no other login's
+    directory is ever named."""
+    name = f"claude-{os.geteuid()}"
+    roots: list[str] = []
+    seen: set[str] = set()
+    for base in (os.environ.get("CLAUDE_CODE_TMPDIR"), os.environ.get("TMPDIR") or "/tmp"):
+        if not base:
+            continue
+        root = os.path.join(base, name)
+        if os.path.realpath(root) in seen:
+            continue
+        roots.append(root)
+        # Only a root session_dirs will look in counts as seen: a link is never followed, so one that points at the other
+        # variable's cache must not hide that cache.
+        if not os.path.islink(root):
+            seen.add(os.path.realpath(root))
+    return roots
 
 
 def session_dirs(root: str) -> list[str]:
@@ -509,9 +526,8 @@ def session_dirs(root: str) -> list[str]:
 def sweep_sessions() -> None:
     """Remove the scratch of this login's ended sessions, and say what is removed (with its size) and what is
     kept (with why). A scratch directory is removed whole, never through a link."""
-    root = claude_tmp_root()
     # Listed first: a session that starts after the listing has no directory in it, and one that started before is live below.
-    found = session_dirs(root)
+    found = [path for root in claude_tmp_roots() for path in session_dirs(root)]
     registry = live_sessions()
     live = registry[0] if registry is not None else None
     mine = os.environ.get("CLAUDE_CODE_SESSION_ID", "")     # the session running this command, whatever the registry says

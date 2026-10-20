@@ -137,6 +137,7 @@ from dataclasses import dataclass, field
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+import poll_pace  # noqa: E402
 from github import common  # noqa: E402
 # Every name the parts define, from here as before: callers and tests reach
 # them as pr_review_status.<name> (pr_gate; tests/test_pr_review_status.py,
@@ -172,6 +173,10 @@ class Ctx:
     # Not reset by a failed poll, as the bash's `head` was not: None is the
     # bash's unset variable.
     head: str | None = None
+    # The epoch the primary rate limit ends, when the last probe was refused on it (probe sets it).
+    limited_until: float | None = None
+    # A head's birth by (head, ref): fixed once read.
+    born: dict = field(default_factory=dict)
 
     def seconds(self) -> int:
         return int(time.time()) - self.t0
@@ -219,10 +224,16 @@ def run(argv: list[str], env=None) -> int:
     # means the PR is genuinely unreadable. Same tolerance as fabric-pr wait-merged.
     failures = 0
     p: Probe | None = None
+    # The wait grows while the PR reads the same and falls back when it changes (poll_pace.py).
+    pace = poll_pace.Pace(interval)
+    last: Probe | None = None
+    changed = True
     while True:
         p = probe(ctx)
         if p is not None:
             failures = 0
+            changed = p != last
+            last = p
             if p.head_reviewed:
                 ctx.render(p)
                 return 0
@@ -272,6 +283,10 @@ def run(argv: list[str], env=None) -> int:
                 if not args.json:
                     out(f"PR #{ctx.pr} NO REVIEW COMING — the head moved past every review; dispatch a re-review (exit 5)")
                 return 5
+        elif poll_pace.until_reset(ctx.limited_until, time.time()) is not None:
+            # Refused on the rate limit: not a failure of the PR to read, and another look before the reset is
+            # a wasted call. The nap below lasts until then.
+            ctx.note(f"rate limited until {poll_pace.reset_clock(ctx.limited_until)}")
         else:
             failures += 1
             if failures >= 3:
@@ -289,7 +304,14 @@ def run(argv: list[str], env=None) -> int:
         remaining = deadline - ctx.seconds()
         if not remaining > 0:
             break
-        nap = min(interval, remaining)
+        nap = min(pace.nap(changed), remaining)
+        # A call refused on the limit, or a budget nearly gone, waits for the reset rather than spend or retry.
+        quiet_for = poll_pace.until_reset(ctx.limited_until, time.time())
+        budget = gh.budget_wait() if quiet_for is None else 0
+        if budget > 0:
+            quiet_for = int(budget) or 1
+        if quiet_for is not None:
+            nap = min(max(nap, quiet_for), remaining)
         if ctx.head is None:
             # The bash's `${head:0:8}` under `set -u`: a first poll that
             # could not even read the PR, then a wait, aborted the script
@@ -304,6 +326,9 @@ def run(argv: list[str], env=None) -> int:
     # probe that COMPLETED — `head` alone is not enough, because it is set
     # before the reviews lookup that may be the thing that failed.
     if p is None or not p.head:
+        if ctx.limited_until is not None:
+            raise Die(f"could not read PR #{ctx.pr} in {ctx.repo}: rate limited until "
+                      f"{poll_pace.reset_clock(ctx.limited_until)}.")
         raise Die(f"could not read PR #{ctx.pr} in {ctx.repo}.")
     ctx.render(p)
     return 1
