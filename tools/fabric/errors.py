@@ -66,8 +66,9 @@ A report with no findings says exactly `Finding: none`. A report with either kin
 those lines only, never by the prose around them. A line that does not fit, a repeated label among the
 Finding lines or among the Judgement lines, and `Finding: none` beside a finding make the whole report
 unparsed and are named in the output: what the lines of a malformed report said is unknown, so none of
-them is counted. A report with Judgement lines and no Finding line is a finding-adjudication: no findings
-of its own. The verdicts are exposed per verdict (`reviews.judgements`) so a later view can count findings
+them is counted. Judgement lines without a Finding line leave the report unparsed too: a report that does not say
+what it found leaves that unknown, never zero (the brief's rule is that no findings is said as `Finding: none`).
+At most MAX_NAMED malformed lines of a report are named, the rest counted. The verdicts are exposed per verdict (`reviews.judgements`) so a later view can count findings
 judged not-real (ADR-061 §7); no view reads them yet.
 
 EVERY count carries its denominator; below 5 denominators there is no rate.
@@ -120,6 +121,7 @@ FINDING_LABEL = re.compile(r"F[0-9]+")
 FINDING_LEVEL = re.compile(r"P[123]")
 FINDING_PATH = re.compile(r"-|[^\s|]+")
 NAMED_LINE_CHARS = 120                               # a malformed line is named, not quoted whole
+MAX_NAMED = 5                                        # and a report names at most this many of them
 
 
 def aggregate_checks() -> set[str]:
@@ -286,6 +288,13 @@ def named(line: str) -> str:
     return line if len(line) <= NAMED_LINE_CHARS else line[:NAMED_LINE_CHARS] + "..."
 
 
+def named_all(bad: list[tuple[str, str]]) -> list[str]:
+    """The malformed lines as they are named: each cut at NAMED_LINE_CHARS before its reason is added (a cut
+    after it would lose the reason), the report's first MAX_NAMED and a count of the rest."""
+    out = [named(line) + reason for line, reason in bad[:MAX_NAMED]]
+    return out + [f"(+{len(bad) - MAX_NAMED} more malformed lines)"] if len(bad) > MAX_NAMED else out
+
+
 def parse_finding_line(rest: str) -> tuple[str, str] | None:
     """(label, level) of one `Finding:` line's text after the colon, None when it does not fit the shape."""
     fields = [f.strip() for f in rest.split("|", 4)]
@@ -312,7 +321,7 @@ def parse_machine_lines(body: str) -> Review | None:
     judgement_lines = JUDGEMENT_LINE.findall(body)
     if not finding_lines and not judgement_lines:
         return None
-    bad: list[str] = []
+    bad: list[tuple[str, str]] = []
     findings: dict[str, str] = {}
     none_lines = 0
     for rest in finding_lines:
@@ -321,24 +330,26 @@ def parse_machine_lines(body: str) -> Review | None:
             continue
         got = parse_finding_line(rest)
         if got is None:
-            bad.append("Finding:" + rest)
+            bad.append(("Finding:" + rest, ""))
         elif got[0] in findings:
-            bad.append("Finding:" + rest + "   (repeated label)")
+            bad.append(("Finding:" + rest, "   (repeated label)"))
         else:
             findings[got[0]] = got[1]
     if none_lines > 1 or (none_lines and len(finding_lines) > none_lines):
-        bad.append("Finding: none   (repeated, or beside a finding)")
+        bad.append(("Finding: none", "   (repeated, or beside a finding)"))
+    if not finding_lines:
+        bad.append(("Judgement: lines", "   (no Finding: line: a report says `Finding: none` when it has none)"))
     judged: dict[str, tuple[str, str]] = {}
     for rest in judgement_lines:
         got = parse_judgement_line(rest)
         if got is None:
-            bad.append("Judgement:" + rest)
+            bad.append(("Judgement:" + rest, ""))
         elif got[0] in judged:
-            bad.append("Judgement:" + rest + "   (repeated label)")
+            bad.append(("Judgement:" + rest, "   (repeated label)"))
         else:
             judged[got[0]] = got[1:]
     if bad:
-        return Review(unparsed=True, malformed=[named(b) for b in bad])
+        return Review(unparsed=True, malformed=named_all(bad))
     return Review(findings=list(findings.items()), judgements=[(k, v, r) for k, (v, r) in judged.items()])
 
 
@@ -527,7 +538,7 @@ def render(rep: dict, doc: dict) -> str:
     lines = [f"fabric-errors: PRs merged in the last {doc['days']} days (reverts and fixes: {doc['window']}-day window, counted on the PRs merged {doc['closed_period'][0][:10]}..{doc['closed_period'][1][:10]}, whose windows have closed); "
              f"attribution: head ref, a fold's contributor; class: Fabric-Role trailer. "
              f"Counts for the rules, never a target, a ranking or a score (ADR-061, Proposed).",
-             f"judged-not-real findings: read from `Judgement:` lines only (reports in the older shapes have none); signature attribution: not read"]
+             f"judged-not-real findings: counted per verdict in --json (reviews.judgements), from `Judgement:` lines only; no text view yet; signature attribution: not read"]
 
     def line(name: str, t: dict) -> str:
         r, c = t["reviews"], t["red_checks"]
@@ -633,7 +644,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     doc = {"days": a.days, "window": a.window, "repositories_read": repos, "since": (now - dt.timedelta(days=a.days)).isoformat(),
            "closed_period": [(now - dt.timedelta(days=a.days + a.window)).isoformat(), (now - dt.timedelta(days=a.window)).isoformat()],
-           "attribution": "head ref; a fold's contributor", "judged_not_real": "Judgement: lines only", **rep}
+           "attribution": "head ref; a fold's contributor", "judged_not_real": "per verdict in reviews.judgements, from Judgement: lines only", **rep}
     print(json.dumps(doc, indent=2) if a.json else render(rep, doc))
     return 0
 

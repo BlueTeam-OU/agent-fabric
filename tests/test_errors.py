@@ -230,9 +230,12 @@ def main() -> int:
     r = errors.read_review("Finding: none\n" + J1 + "\n" + J2 + "\n")
     check("judgements by label and verdict, a reason may hold '|'",
           r.judgements == [("F1", "not-real", "the caller does check it"), ("F2", "real", "confirmed | by a run")] and not r.unparsed, r)
-    r = errors.read_review(J1 + "\n")
-    check("a finding-adjudication (Judgement: lines, no Finding: line) has no findings of its own and is parsed",
-          r.findings == [] and not r.unparsed and r.judgements == [("F1", "not-real", "the caller does check it")], r)
+    r = errors.read_review(J1 + "\n- P2 the lock is wrong\nfix it\n")
+    check("Judgement: lines with no Finding: line leave the report unparsed, named: its own findings are unknown, never zero",
+          r.unparsed and r.findings == [] and r.judgements == [] and len(r.malformed) == 1 and "no Finding: line" in r.malformed[0], r)
+    r = errors.read_review("Finding: none\nJudgement: F1 | fixed | done\nJudgement: F2 | not-fixed | still there\nJudgement: F3 | partly | one of two\n")
+    check("an adjudication that says Finding: none is parsed, and the verdicts fixed, not-fixed and partly are kept",
+          not r.unparsed and r.judgements == [("F1", "fixed", "done"), ("F2", "not-fixed", "still there"), ("F3", "partly", "one of two")], r)
     r = errors.read_review("**F9 (P1, x)** old shape in prose\nP2 the lock is wrong\nFinding: none\n")
     check("a report with machine lines is judged by them only: prose findings in an older shape are not read",
           r.findings == [] and not r.unparsed, r)
@@ -246,12 +249,25 @@ def main() -> int:
         check(f"a malformed machine line makes the whole report unparsed, the line named, nothing counted: {bad!r}",
               r.unparsed and r.findings == [] and r.judgements == [] and len(r.malformed) == 1 and r.malformed[0].startswith(bad.split(":")[0]),
               r)
-    for bad in (F1 + "\n" + F1.replace("P2", "P3"), "Finding: none\n" + F1, "Finding: none\nFinding: none", J1 + "\n" + J1.replace("not-real", "real")):
+    for bad in (F1 + "\n" + F1.replace("P2", "P3"), "Finding: none\n" + F1, "Finding: none\nFinding: none", "Finding: none\n" + J1 + "\n" + J1.replace("not-real", "real")):
         r = errors.read_review(bad + "\n")
         check(f"a repeated label, or none beside a finding, is malformed: {bad[:34]!r}", r.unparsed and r.findings == [] and r.malformed, r)
     r = errors.read_review("Finding: F1 | P9 | certain | a.py | " + "y" * 400 + "\n")
     check("a malformed line is named at a bounded length", len(r.malformed) == 1 and len(r.malformed[0]) <= errors.NAMED_LINE_CHARS + 3
           and r.malformed[0].startswith("Finding: F1 | P9"), r)
+    long = "Finding: F1 | P2 | certain | a.py | " + "y" * 200
+    r = errors.read_review(long + "\n" + long + "\n")
+    check("a repeated label on a long line is named with its reason, cut before the reason is added",
+          len(r.malformed) == 1 and r.malformed[0].endswith("...   (repeated label)") and len(r.malformed[0]) <= errors.NAMED_LINE_CHARS + 25, r)
+    r = errors.read_review(F1 + "\r\n" + F1 + "\r\n")
+    check("a CRLF body names a repeated label without a bare carriage return in it",
+          r.unparsed and len(r.malformed) == 1 and "\r" not in r.malformed[0] and r.malformed[0].endswith("(repeated label)"), r)
+    r = errors.read_review("Finding: x\n" * 50)
+    check("a report names at most MAX_NAMED malformed lines and counts the rest",
+          r.unparsed and len(r.malformed) == errors.MAX_NAMED + 1 and r.malformed[-1] == f"(+{50 - errors.MAX_NAMED} more malformed lines)", r)
+    r = errors.read_review("Finding: x\n" * errors.MAX_NAMED)
+    check("…and names them all, with no count line, at the bound (positive control)",
+          len(r.malformed) == errors.MAX_NAMED and not r.malformed[-1].startswith("(+"), r)
     r = errors.read_review(F1 + "\n" + J1 + "\nJudgement: F2 | maybe | x\n")
     check("a malformed line leaves no judgement counted, as no finding", r.unparsed and r.findings == [] and r.judgements == [], r)
     for indented in ("  Finding: F1 | P2 | certain | a.py | indented, so not at the start of a line\n", "\tFinding: none\n P2: none\n"):
@@ -279,9 +295,11 @@ def main() -> int:
           revs[0]["judgements"][0] == {"label": "F1", "verdict": "not-real", "reason": "the caller does check it"}
           and revs[1]["unparsed"] and revs[1]["malformed"] == ["Finding: F1 | P9 | certain | a | x"], revs[:2])
     t = errors.tally(evs)["reviews"]
-    check("tally: judgements per verdict, in verdict order; the malformed line named with its PR; unparsed counted apart",
-          t["judgements"] == {"not-real": 1, "real": 2} and t["unparsed"] == 1 and t["given"] == 4
-          and t["malformed_lines"] == [{"repo": "o/r", "pr": 7, "line": "Finding: F1 | P9 | certain | a | x"}], t)
+    check("tally: judgements per verdict, in verdict order; the malformed lines named with their PR; unparsed counted apart",
+          t["judgements"] == {"not-real": 1, "real": 1} and t["unparsed"] == 2 and t["given"] == 4
+          and [m["line"] for m in t["malformed_lines"]] == ["Finding: F1 | P9 | certain | a | x",
+                                                            "Judgement: lines   (no Finding: line: a report says `Finding: none` when it has none)"]
+          and all(m["repo"] == "o/r" and m["pr"] == 7 for m in t["malformed_lines"]), t)
     check("tally: the unparsed report's findings are not counted; the old-shape report in the same PR still is",
           t["findings_total"] == 3 and t["findings"] == {"P1": {"answered": 0, "unjudged": 1}, "P2": {"answered": 1, "unjudged": 0},
                                                          "P3": {"answered": 0, "unjudged": 1}}, t)
@@ -493,7 +511,8 @@ def main() -> int:
                                    for x in sinces[:1]) and dt.timedelta(days=20, hours=23) < dt.datetime.now(dt.timezone.utc) - sinces[1] < dt.timedelta(days=21, hours=1), sinces)
     check("the text header dates the PRs that reverts and fixes are counted on", "whose windows have closed" in out.getvalue()
           and "counted on the PRs merged" in out.getvalue(), out.getvalue()[:400])
-    check("main text says how judged-not-real is read, what is not, and shows no rate under 5", rc2 == 0 and "judged-not-real findings: read from `Judgement:` lines only" in out.getvalue()
+    check("main text says where judged-not-real is counted (json, per verdict, no text view) and shows no rate under 5", rc2 == 0
+          and "judged-not-real findings: counted per verdict in --json (reviews.judgements), from `Judgement:` lines only; no text view yet" in out.getvalue()
           and "no rate (<5)" in out.getvalue(), out.getvalue())
     check("a bad --days is exit 2 and a line", rc3 == 2 and "at least 1" in err.getvalue(), err.getvalue())
 
