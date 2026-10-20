@@ -166,6 +166,8 @@ def orphan_of(path: str, record: list[str], proc: str = sess.PROC, locks: str = 
     recorded = sess.Session.of(record[2:])
     if recorded is not None:
         return (pid, f"its session, pid {recorded.pid}, has ended") if sess.ended(recorded, pid, proc) else None
+    if any(record[2:]):
+        return None   # session lines that do not parse (cut short, a kind this code does not know) are not "no session": unknown
     # Two lines: an older watch, which recorded no session.
     return (pid, "it hangs from init or systemd through no session") if sess.reparented(pid, proc) else None
 

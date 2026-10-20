@@ -14,7 +14,7 @@ service, a container entrypoint) is "detached": nothing above it is a session wh
 death ends it. Everything is read from /proc, which takes `proc` so a test can build the tree it asks about.
 
 Unknown stays unknown: a process /proc cannot show is not read as a live session, and a tree that cannot be read as a
-reparented one is not read as orphaned, except where the session is named by a pid that is not there at all."""
+reparented one is not read as orphaned, except where the session is recorded with a start time and its pid is not there at all."""
 from __future__ import annotations
 
 import os

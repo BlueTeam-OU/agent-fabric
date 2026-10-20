@@ -1247,7 +1247,7 @@ def _():
     eq((sent, res), ([], None))
     # an empty file (the holder has not written it yet, or could not) or one naming another pid says nothing about a holder that hangs
     # from systemd: it is no orphan, only a holder not identified
-    for rec in ([], ["77", "T"], ["77", "T", "55", "550", "claude"]):
+    for rec in ([], ["77", "T"], ["77", "T", "55", "550", "claude"], ["100", "T", "55"], ["100", "T", "55", "550", "future-kind"]):
         sent, res, _ = _orphan_world(rec, gone_tree)
         eq((sent, res), ([], None), rec)
     # a signal that is not allowed is said, and is no signal sent; a holder gone before the signal is still the one signalled
