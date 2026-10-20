@@ -19,11 +19,11 @@ Claude Code wrote nothing under either entry during the runs.
 
 ## What it decides
 
-In a linked worktree `claude -p` reads the external-include approval of the **main checkout**, never the worktree's own path. Only sibling directories without links were tested, so how Claude Code finds the main checkout (the common git directory, or otherwise) is not shown. For this key, so:
+In a linked worktree `claude -p` reads the external-include approval of the **main checkout**, never the worktree's own path. Only sibling directories without links were tested, so how Claude Code finds the main checkout (the common git directory, or otherwise) is not shown. So, for this key:
 
 - A worktree of a checkout bootstrap approved loads the fabric's rules with no approval of its own: `workspace_trust.py` need not write the approval for worktrees. Whether the trust key needs a worktree entry is not shown (below).
 - The entries for worktree paths in an account's `.claude.json` are inert for this key. They do no harm and need no sweep.
-- A checkout whose approval is off disables the fabric's rules in **every** worktree of it, whatever the worktree's own entry says. The fix is the checkout's entry (bootstrap's `trust` step for registered copies), never a worktree's.
+- A checkout with no approval (absent; `false` was not run) disables the fabric's rules in **every** worktree of it, whatever the worktree's own entry says. The fix is the checkout's entry (bootstrap's `trust` step for registered copies), never a worktree's.
 
 ## Not verified
 
