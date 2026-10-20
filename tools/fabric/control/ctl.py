@@ -11,6 +11,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login|all> restart
     fabric-ctl <login|all> presence | jobs | tools | local | local-prune | secrets-selftest
     fabric-ctl <login|all> branches [--sweep]
+    fabric-ctl <login|all> drift
     fabric-ctl <login|all> tools-install <tool>
     fabric-ctl <login|all> gateway | gateway-install --version V
     fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
@@ -137,6 +138,7 @@ USAGE = (
     "       fabric-ctl <login|all> local-prune\n"
     "       fabric-ctl <login|all> branches   (each account, per working copy: the last sweep, its local branches and worktrees, how many are wholly on the default branch; no fetch, nothing changed)\n"
     "       fabric-ctl <login|all> branches --sweep   (an action: the account runs fabric-branches --sweep in each working copy with no uncommitted change and no build or suite running in it)\n"
+    "       fabric-ctl <login|all> drift   (each account: the files the fabric wrote there that are edited or missing, and what bootstrap --dry-run would change that the record does not explain; nothing changed)\n"
     "       fabric-ctl <login|all> states [--follow] [--json]\n"
     "       fabric-ctl <coordinator> switch   (the account switch controller's mode and move log, ADR-052; any other account has none)\n"
     "       fabric-ctl <login|all> control-start [--json]   (starts each account's stopped control agent through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60)\n"
@@ -408,6 +410,7 @@ def parse_args(argv: list[str]) -> dict:
                           else 240 if op == "secrets-sync" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
                           else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
+                          else 90 if op == "drift"
                           else SELFTEST_BUDGET_S if op == "secrets-selftest" else 20)
     if op == "upgrade" and out["piece"] not in PIECES:
         raise CtlError(f"upgrade takes a piece: {', '.join(PIECES)}")
@@ -631,7 +634,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
-                    **{k: g(k) for k in ("harness", "inbox", "switch") if dig(d, k) is not UNDEFINED},
+                    **{k: g(k) for k in ("harness", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
                     **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep")) if dig(d, op) is not UNDEFINED}})
     return out
 
@@ -866,6 +869,29 @@ def _table_branches(op: str, rs: list) -> list[str]:
                                       f"{pad_end(_cell(dig(w, 'merged')), 7)} {pad_end(_cell(dig(w, 'worktrees')), 10)} {pad_end(_cell(dig(w, 'removable_worktrees')), 10)} "
                                       f"{pad_end(_age_words(dig(w, 'fetched_age_s')), 8)} {'yes' if dig(w, 'dirty') is True else 'no'}"
                                       + (f"  ({dig(w, 'unknown')} not counted)" if isinstance(dig(w, 'unknown'), int) and not isinstance(dig(w, 'unknown'), bool) and dig(w, 'unknown') else "")))
+    return lines
+
+
+def _table_drift(rs: list) -> list[str]:
+    """Per account: the counts, then one line per finding. What an account sent reaches this terminal escaped (esc)."""
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 8)} ok  edited  missing  unreadable  retired  stale"]
+    for r in rs:
+        u = r.get("drift")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        c = dig(u, "counts")
+        if dig(u, "status") not in ("ok", "drift") or not T(c):
+            lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(esc(nullish(dig(u, 'status'), 'no status')), 8)} {esc(nullish(dig(u, 'reason'), ''))}"))
+            continue
+        lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(esc(dig(u, 'status')), 8)} {pad_end(_cell(dig(c, 'ok')), 3)} {pad_end(_cell(dig(c, 'edited')), 7)} "
+                              f"{pad_end(_cell(dig(c, 'missing')), 8)} {pad_end(_cell(dig(c, 'unreadable')), 11)} {pad_end(_cell(dig(c, 'retired')), 8)} {_cell(dig(c, 'stale'))}"))
+        found = dig(u, "findings")
+        for f in found if isinstance(found, list) else []:
+            lines.append(trim_end(f"{pad_end('', 22)}   {pad_end(esc(dig(f, 'kind')), 10)} {esc(dig(f, 'path'))}"
+                                  + (f": {esc(dig(f, 'detail'))}" if T(dig(f, "detail")) else "")))
+        if dig(u, "truncated") is True:
+            lines.append(trim_end(f"{pad_end('', 22)}   ... {_cell(dig(u, 'findings_total'))} findings in all"))
     return lines
 
 
@@ -1596,6 +1622,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_local(op, rs)
     elif op in ("branches", "branches-sweep"):
         lines = _table_branches(op, rs)
+    elif op == "drift":
+        lines = _table_drift(rs)
     elif op == "jobs":
         lines = _table_jobs(rs)
     elif op == "tools":

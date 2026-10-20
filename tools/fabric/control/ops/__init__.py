@@ -56,11 +56,12 @@ from .host import host, DISK_TIMEOUT_MS, DISK_MAX_BUFFER, DISK_TOP, disk  # noqa
 from .activity import (script_counts, langid_cmd, languages, recall_kind, recall, notes_dir, script,  # noqa: F401
                        WORKER_TYPE, worker_transcripts, source_locale, SOURCE_TAG)
 from .memory import MEMORY_PART_BYTES, memory_slug, memory_dirs, memory  # noqa: F401
+from .account_drift import FINDINGS_MAX, drift_report, section as _drift_section  # noqa: F401
 
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
        "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "tools-install", "local", "local-prune",
        "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", "branches", "branches-sweep", "restart",
-       "switch"]
+       "switch", "drift"]
 
 # Answered for any placed account, not only an operator: whether a session
 # is running is what every sender needs before it writes to one, and it
@@ -185,6 +186,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "disk": lambda c: c["disk_cached"]() if c.get("disk_cached") else disk(c.get("home"), **(c.get("disk_opts") or {})),
     "local": _local,
     "branches": _branches,
+    "drift": _drift_section,
     "jobs": _jobs,
     "harness": _harness,
     "inbox": _inbox,
