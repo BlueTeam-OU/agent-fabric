@@ -147,14 +147,18 @@ the same command asks on one account and not on another.
     its own what is wholly on the remote's default branch (`origin/HEAD`,
     else the project registry's; unknown, it refuses), and every linked
     worktree with no changes, no untracked or ignored files (Python
-    bytecode does not count) and no lock whose HEAD is on any
-    remote-tracking ref, attached or detached, never the one it runs in;
+    bytecode does not count) and no lock whose HEAD is the tip of a
+    branch the remote still has (`git ls-remote`, by name and commit; a
+    remote-tracking ref alone is no proof, a fetch without prune keeps
+    a deleted branch's), attached or detached, never the one it runs in
+    nor one a live session stands in;
     a branch with commits off it is kept and brought to the person.
     `--sweep --all` does it in every working copy of the login, each
     after its own fetch, naming and skipping one that refuses; the same
-    sweep removes the scratch of the login's ended Claude Code sessions,
-    never one a live process of the login runs, and never another
-    login's. What it keeps it names with the reason, what it removes
+    sweep removes the scratch of the login's ended Claude Code sessions:
+    a session is live while the harness's own session registry lists
+    its process alive, and a registry that cannot be read keeps
+    everything; never another login's. What it keeps it names with the reason, what it removes
     with its size (A 2026-10-19). Local only: no remote branch is deleted or pushed.
     At a job's end `fabric-jobs switch` runs the worktree half
     (`--sweep --worktrees`, no branch deleted) for the job's working
@@ -233,4 +237,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-09-30 | The opening prompt names no command | §5 rule 1, §3: the prompt defers the exact Monitor call to the hook's line |
 | 2026-10-10 | The watch is a background command, not a Monitor | §2, §5 rules 1, 2, 6: `gzcoord-inbox --until-delivery` exits on each delivery; no 30-minute expiry |
 | 2026-10-11 | Every job starts in a fresh session | §5 rule 12: `next` gives a fresh session whenever this session has worked a job; in place only for one that has worked none |
-| 2026-10-19 | Stale worktrees and ended sessions' scratch are swept | §5 rule 11: a clean worktree on any remote-tracking ref goes, `--sweep --all` covers every working copy, ended sessions' scratch goes, and `fabric-jobs switch` runs the worktree half at a job's end |
+| 2026-10-19 | Stale worktrees and ended sessions' scratch are swept | §5 rule 11: a clean worktree whose commit is a branch tip the remote still has goes, `--sweep --all` covers every working copy, ended sessions' scratch goes, and `fabric-jobs switch` runs the worktree half at a job's end |
