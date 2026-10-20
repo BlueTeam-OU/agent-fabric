@@ -131,8 +131,9 @@ judged.
    `policies/AUTHORITY.md`, a tripwire like it, since an author is
    text. Every other forge-signed commit — an edit or a suggestion
    committed on the web, a conflict resolved in the web editor, a
-   squash, an octopus — is refused: it is re-made in a working copy and
-   signed by its agent. A forge key is listed by its full fingerprint;
+   squash, an octopus, the commits of a branch the forge rebased
+   ("Update branch" by rebase re-signs each) — is refused: it is
+   re-made in a working copy and signed by its agent. A forge key is listed by its full fingerprint;
    a rotated key is a policy change, and until it lands the forge's
    commits are refused.
 
