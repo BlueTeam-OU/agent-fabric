@@ -461,7 +461,7 @@ def main() -> int:
         # In process, not through `fabric-review brief`: the CLI also checks the head out and names that worktree,
         # which the second engine does not (it reads its own extract, so the brief it sends names none).
         with open(req, encoding="utf-8") as fh:
-            brief = review_codex.review_brief.render(review_codex.review_brief.parse_request(fh.read()))
+            brief = review_codex.review_brief.render(review_codex.review_brief.parse_request(fh.read()), engine="codex")
         # The dispatch header differs per render (its id, its time) and per engine
         # (codex, second-engine-review); everything after it is the brief unchanged.
         def after_header(text: str) -> str:
