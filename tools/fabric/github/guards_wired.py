@@ -42,7 +42,8 @@ written as the repository-relative path, or under a variable the script
 sets to its own directory and to nothing else (`here="$(cd "$(dirname
 "${BASH_SOURCE[0]}")" && pwd)"`, then "$here/<name>"), or as
 "$(dirname "$0")/<name>". A comment, an echo, a path inside a longer
-string, and a variable this cannot resolve do not count; nor does a
+string, a heredoc's body, and a variable this cannot resolve (one bound
+anywhere to anything else) do not count; nor does a
 member reached only through a member that is itself reached only so.
 Rules 2 and 3 are unchanged: such a helper still needs its own
 self-test, and a workflow must run that.
@@ -64,7 +65,8 @@ Exit codes:
   1  a guard or self-test is unreachable or untested, or a self-test is
      run without the runner
   2  invocation problem (no workflows directory, no exemption list, a
-     workflow or package script that cannot be read, no config)
+     workflow or package script that cannot be read, a wired shell
+     member that cannot be read, no config)
 """
 # The docstring is --help, whole. Ported from two managed projects'
 # tools/checks/check_guards_are_wired.sh (ADR-040; both suites, run
@@ -92,6 +94,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -319,22 +322,115 @@ def package_commands(root: str, workflows: str, excludes: set[str]) -> list[str]
 _SELF = r"(\$0|\$\{0\}|\$BASH_SOURCE|\$\{BASH_SOURCE\}|\$\{BASH_SOURCE\[0\]\})"
 _SELF_DIR = re.compile(r"\$\(dirname(--)?" + _SELF + r"\)")
 _SELF_VALUE = re.compile(r"\$\(cd(--)?" + _SELF_DIR.pattern + r"&&pwd(-P)?\)|" + _SELF_DIR.pattern)
-_ASSIGN = re.compile(r"^\s*(?:(?:local|readonly|declare|export)(?:\s+-\w+)*\s+)?([A-Za-z_]\w*)=(.*)$")
 # "$(dirname "$0")/x" as shlex leaves it: the inner quotes gone, a space kept.
 _DIRNAME_WORD = re.compile(r"^\$\(dirname\s+(--\s+)?" + _SELF + r"\s*\)/")
+_ASSIGN = re.compile(r"^\s*(?:(?:local|readonly|declare|typeset|export)(?:\s+-\w+)*\s+)?([A-Za-z_]\w*)(\+?)=(.*)$", re.S)
+_HEREDOC = re.compile(r"<<-?\s*([\"']?)([A-Za-z_][\w.-]*)\1")
+_BINDS = {"read", "for", "local", "declare", "typeset", "readonly", "export", "unset", "mapfile", "readarray"}
 
 
-def _self_dir_vars(lines: list[str]) -> set[str]:
-    """The variables every assignment of which is the script's own
-    directory. One other assignment anywhere and the variable is
-    unresolved: which value a later line sees is not read here."""
-    values: dict[str, list[bool]] = {}
-    for line in lines:
-        m = _ASSIGN.match(line)
-        if m:
-            value = re.sub(r"[\s\"']", "", m.group(2))
-            values.setdefault(m.group(1), []).append(bool(_SELF_VALUE.fullmatch(value)))
-    return {v for v, ok in values.items() if all(ok)}
+def _segments(text: str) -> list[str]:
+    """The simple commands of a script, split where the shell splits them:
+    at a newline, ;, & or | outside quotes and outside $( … ). A comment is
+    dropped, a heredoc's body is not a command and is skipped, and a
+    quoted string may span lines."""
+    # A backslash-newline is consumed as an escaped character below, which
+    # joins the continuation without a split.
+    out, cur, quote, depth, i, n = [], [], "", 0, 0, len(text)
+    pending: list[str] = []
+
+    def flush():
+        seg = "".join(cur).strip()
+        if seg:
+            out.append(seg)
+        cur.clear()
+
+    while i < n:
+        c = text[i]
+        if quote:
+            cur.append(c)
+            if c == "\\" and quote == '"' and i + 1 < n:
+                cur.append(text[i + 1])
+                i += 1
+            elif c == quote:
+                quote = ""
+        elif c == "\\" and i + 1 < n:
+            cur.append(c + text[i + 1])
+            i += 1
+        elif c in "'\"":
+            quote = c
+            cur.append(c)
+        elif c == "$" and text.startswith("$(", i):
+            depth += 1
+            cur.append("$(")
+            i += 1
+        elif c == ")" and depth:
+            depth -= 1
+            cur.append(c)
+        elif c == "#" and (not cur or cur[-1][-1:].isspace() or cur[-1] in "(;&|") and not depth:
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        elif c == "<" and text.startswith("<<", i) and not text.startswith("<<<", i):
+            m = _HEREDOC.match(text, i)
+            if m:
+                pending.append(m.group(2))
+                cur.append(m.group(0))
+                i = m.end()
+                continue
+            cur.append(c)
+        elif c == "\n" and not depth:
+            flush()
+            # A heredoc's body runs from the next line to its delimiter.
+            for delim in pending:
+                while i < n:
+                    j = text.find("\n", i + 1)
+                    j = n if j < 0 else j
+                    line = text[i + 1:j]
+                    i = j
+                    if line.strip() == delim:
+                        break
+            pending = []
+        elif c in ";&|" and not depth:
+            flush()
+        else:
+            cur.append(c)
+        i += 1
+    flush()
+    return out
+
+
+def _split(segment: str) -> list[str] | None:
+    """The segment's words, or None where shlex cannot read it: a reading
+    that is not certain wires nothing."""
+    try:
+        return shlex.split(segment, comments=False)
+    except ValueError:
+        return None
+
+
+def _self_dir_vars(text: str, segments: list[str]) -> set[str]:
+    """The variables every binding of which is the script's own directory.
+    Any other binding anywhere — an assignment in any position, +=, a for
+    or read target, ${v:=…}, printf -v, local or export without a value —
+    and the variable is unresolved: which value a later line sees is not
+    read here."""
+    good, bad = set(), set(re.findall(r"\$\{([A-Za-z_]\w*):?[=?]", text))
+    for seg in segments:
+        # The segment's own assignment, read raw: its value's $( … ) and
+        # quotes are what shlex would split it at.
+        lead = _ASSIGN.match(seg)
+        if lead:
+            value = re.sub(r"[\s\"']", "", lead.group(3))
+            (good if not lead.group(2) and _SELF_VALUE.fullmatch(value) else bad).add(lead.group(1))
+        for m in re.finditer(r"(?:^|[\s(;`])([A-Za-z_]\w*)\+?=", seg):
+            if not (lead and m.start(1) == lead.start(1)):
+                bad.add(m.group(1))
+        ws = _split(seg) or seg.split()
+        for k, w in enumerate(ws):
+            if k and (ws[k - 1] == "-v" or ws[0] in _BINDS) and re.fullmatch(r"[A-Za-z_]\w*", w):
+                bad.add(w)
+    return good - bad
 
 
 def invoked_members(root: str, rel: str) -> set[str]:
@@ -343,40 +439,41 @@ def invoked_members(root: str, rel: str) -> set[str]:
     and nothing it cannot resolve."""
     path = os.path.join(root, rel)
     try:
-        with open(path, encoding="utf-8") as fh:
-            text = fh.read()
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        # A member that is not shell is not read as shell, nor decoded.
+        if not (rel.endswith(".sh") or re.match(rb"#!\S*(/|\s)(ba)?sh\b", raw)):
+            return set()
+        text = raw.decode("utf-8")
     except (OSError, ValueError) as e:
         # A wired member this cannot read would wire nothing, so a helper
         # it runs would read as unreachable: refused, never guessed.
         raise Refused(f"could not read a wired member: {path}: {_why(e)}") from None
-    if not (rel.endswith(".sh") or re.match(r"#!\S*(/|\s)(ba)?sh\b", text)):
-        return set()
-    lines = [strip_comment(l) for l in text.replace("\\\n", " ").split("\n")]
-    selfvars = _self_dir_vars(lines)
+    segments = _segments(text)
+    selfvars = _self_dir_vars(text, segments)
     own = os.path.dirname(rel)
     out = set()
-    for line in lines:
-        for sep in ("&&", "||", ";", "|"):
-            line = line.replace(sep, "\n")
-        for seg in line.split("\n"):
-            cmd = command(seg)
-            if not cmd or cmd[0] in ("echo", UNREADABLE):
+    for seg in segments:
+        if _split(seg) is None:
+            continue
+        cmd = command(seg)
+        if not cmd or cmd[0] in ("echo", UNREADABLE):
+            continue
+        for w in cmd:
+            m = re.match(r"^\$\{?([A-Za-z_]\w*)\}?/(.+)$", w)
+            if m and m.group(1) in selfvars:
+                target = os.path.join(own, m.group(2))
+            elif _DIRNAME_WORD.match(w):
+                target = os.path.join(own, _DIRNAME_WORD.sub("", w))
+            elif "/" in w and not os.path.isabs(w) and not GLOB_CHARS.search(w):
+                # Read as repository-relative; an unexpanded $X/… names
+                # no file there, and so wires nothing.
+                target = w
+            else:
                 continue
-            for w in cmd:
-                m = re.match(r"^\$\{?([A-Za-z_]\w*)\}?/(.+)$", w)
-                if m and m.group(1) in selfvars:
-                    target = os.path.join(own, m.group(2))
-                elif _DIRNAME_WORD.match(w):
-                    target = os.path.join(own, _DIRNAME_WORD.sub("", w))
-                elif "/" in w and not os.path.isabs(w) and not GLOB_CHARS.search(w):
-                    # Read as repository-relative; an unexpanded $X/… names
-                    # no file there, and so wires nothing.
-                    target = w
-                else:
-                    continue
-                target = os.path.normpath(target)
-                if not target.startswith("..") and os.path.isfile(os.path.join(root, target)):
-                    out.add(target)
+            target = os.path.normpath(target)
+            if not target.startswith("..") and os.path.isfile(os.path.join(root, target)):
+                out.add(target)
     return out
 
 
