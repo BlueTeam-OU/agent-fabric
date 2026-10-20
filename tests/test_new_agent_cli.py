@@ -38,6 +38,10 @@ def with_account(args: tuple[str, ...], default: tuple[str, ...]) -> list[str]:
     named = any(a in ACCOUNT_FLAGS or a.startswith("--claude-account=") or a == "--human" for a in args)
     return [*args] if named or "--no-account-flag" in args else [*args, *default]
 
+# grep -qsxF "$1" "$2" without the exec: a line of the file equal to $1; a file that cannot be read has no such line.
+HAS_LINE = '''has_line() { local l; [[ -r "$2" ]] || return 1; while IFS= read -r l || [[ -n $l ]]; do [[ "$l" == "$1" ]] && return 0; done < "$2"; return 1; }
+'''
+
 # The fakes, as the bash suite wrote them: {SEQ}, {BIN}, {HOMES}, {CALLS},
 # {FAULT}, {SANDBOX} are filled in.
 FAKES = {
@@ -53,8 +57,16 @@ args=(); for a in "$@"; do
   [[ "$a" == AGENT_FABRIC_PATH=* ]] && a="AGENT_FABRIC_PATH={BIN}:${a#AGENT_FABRIC_PATH=}" && a="${a//\/usr\/local\/bin:/}"
   args+=("$a"); done
 echo "sudo ${args[*]}" >> "{CALLS}"
-grep -qsxF "${args[0]}" "{FAULT}" && { echo "fake: ${args[0]} failed (injected)" >&2; exit 1; }
+has_line "${args[0]}" "{FAULT}" && { echo "fake: ${args[0]} failed (injected)" >&2; exit 1; }
 [[ "${args[0]}" == chown ]] && exit 0
+# The worker runs the account's commands in a LOGIN shell (bash -lc), which reads /etc/profile and /etc/profile.d: about 25 execs
+# each, 1,400 times in this suite, and the host's own files in a suite that owns its environment. The call line above is logged as
+# the worker built it; what runs is the same script in a plain shell. The fixture accounts have no profile of their own, so
+# nothing a login shell would read here changes an answer. What a real profile does to PATH (Debian's assigns it outright) is
+# covered where a real login shell runs: tests/test_provisioning_worker.py and tests/test_new_agent.py.
+for ((i = 1; i < ${#args[@]}; i++)); do
+  [[ "${args[i-1]}" == bash && "${args[i]}" == -lc ]] && { args[i]=-c; break; }
+done
 exec "${args[@]}"
 ''',
     "useradd": r'''#!/usr/bin/env bash
@@ -71,7 +83,7 @@ login="${@: -1}"; r=""; while [[ $# -gt 0 ]]; do [[ "$1" == --add-subuids ]] && 
     "loginctl": '#!/usr/bin/env bash\necho "loginctl $*" >> "{CALLS}"\n',
     "getent": r'''#!/usr/bin/env bash
 case "$1" in
-  passwd) grep -qsxF "$2" "{SEQ}/passwd" && echo "$2:x:1000:1000::{HOMES}/$2:/bin/bash" ;;
+  passwd) has_line "$2" "{SEQ}/passwd" && echo "$2:x:1000:1000::{HOMES}/$2:/bin/bash" ;;
   group) exit 2 ;;
 esac
 ''',
@@ -82,7 +94,7 @@ exec /usr/bin/id "$@"
 ''',
     "curl": r'''#!/usr/bin/env bash
 echo "curl $*" >> "{CALLS}"
-grep -qsxF curl "{FAULT}" && exit 22
+has_line curl "{FAULT}" && exit 22
 case "$*" in
   *claude-code-releases/latest*) echo "9.9.9" ;;
   *claude.ai/install.sh*) printf 'v="${1:-9.9.9}"; mkdir -p ~/.local/share/claude/versions ~/.local/bin; printf "#!/bin/sh\\necho %%s-fake\\n" "$v" > ~/.local/share/claude/versions/$v; chmod +x ~/.local/share/claude/versions/$v; ln -sf ~/.local/share/claude/versions/$v ~/.local/bin/claude\n' ;;
@@ -106,7 +118,7 @@ fi
 echo "gh auth: Logged in to github.com"
 ''',
     "git": r'''#!/usr/bin/env bash
-[[ "$1" == clone ]] && grep -qsxF git "{FAULT}" && { echo "fake git: clone failed (injected)" >&2; exit 128; }
+[[ "$1" == clone ]] && has_line git "{FAULT}" && { echo "fake git: clone failed (injected)" >&2; exit 128; }
 exec /usr/bin/git "$@"
 ''',
     "npm": '#!/usr/bin/env bash\n[[ "$1" == ci ]] && mkdir -p node_modules; exit 0\n',
@@ -118,7 +130,7 @@ printf '%s\n' "$*" >> "{SEQ}/ssh.log"; args=("$@"); PATH="{SEQ}/farbin:$PATH" ex
 }
 STORE_ENROLL = r'''#!/usr/bin/env bash
 echo "store-enroll $*" >> "{CALLS}"
-grep -qsxF "store-enroll" "{FAULT}" && { echo "store-enroll: injected failure" >&2; exit 1; }
+has_line "store-enroll" "{FAULT}" && { echo "store-enroll: injected failure" >&2; exit 1; }
 [[ -f "{SEQ}/enrolled" ]] || echo '[]' > "{SEQ}/enrolled"
 '''
 # provision answers rows as the real one does: a name the store holds is
@@ -129,18 +141,18 @@ echo "secrets $*" >> "{CALLS}"
 # with a token, one without. assign writes the token into the child's
 # store, which the fakes keep in $SEQ/token for the account's sync to apply.
 if [[ "$1 $2" == "store templates" ]]; then
-  grep -qsxF "store templates" "{FAULT}" && { echo "store: injected failure" >&2; exit 1; }
+  has_line "store templates" "{FAULT}" && { echo "store: injected failure" >&2; exit 1; }
   echo '[{"account": "acct-one", "token_sha256_12": "{FP}"}, {"account": "acct-empty", "token_sha256_12": null}]'; exit 0
 fi
 if [[ "$1 $2" == "store assign" ]]; then
-  grep -qsxF "store assign" "{FAULT}" && { echo '[{"login": "'"$4"'", "from": "none", "status": "failed", "reason": "injected"}]'; exit 1; }
+  has_line "store assign" "{FAULT}" && { echo '[{"login": "'"$4"'", "from": "none", "status": "failed", "reason": "injected"}]'; exit 1; }
   [[ "$3" == acct-one ]] || exit 9
   st=written; [[ "$(cat "{SEQ}/token" 2>/dev/null)" == "{TOKEN}" ]] && st=unchanged
   printf '%s' "{TOKEN}" > "{SEQ}/token"
   echo '[{"login": "'"$4"'", "from": "none", "to": "acct-one", "status": "'"$st"'", "token_sha256_12": "{FP}"}]'; exit 0
 fi
 [[ "$1" == provision ]] || exit 9
-grep -qsxF "provision $2" "{FAULT}" && { echo "provision: injected failure" >&2; exit 1; }
+has_line "provision $2" "{FAULT}" && { echo "provision: injected failure" >&2; exit 1; }
 case "$2" in identity) names="AGENT_LOGIN AGENT_HOST" ;; share) names="GH_TOKEN SSH_PRIVATE_KEY"; [[ "$4" == --name ]] && names="$5" ;;
   issue-key) [[ "$3" == openrouter ]] && names=OPENROUTER_API_KEY || names=OPENAI_API_KEY ;; esac
 python3 - "{SEQ}/enrolled" $names <<'PY'
@@ -171,11 +183,11 @@ sys.exit(9)
 ACCOUNT_SECRETS = r'''#!/usr/bin/env bash
 echo "$*" >> "{SEQ}/account-calls"
 [[ "$*" == "store take-bundle" ]] && { grep -q "BEGIN AGENT-FABRIC STORE BUNDLE" || { echo "no bundle on stdin" >&2; exit 1; }; echo "taken"; exit 0; }
-grep -qsxF account-sync "{FAULT}" && { echo "fabric-secrets: the store names another login" >&2; exit 3; }
+has_line account-sync "{FAULT}" && { echo "fabric-secrets: the store names another login" >&2; exit 3; }
 # sync applies the token the store holds, as secrets.env's export line;
 # account-token makes it apply another one.
 if [[ "$1" == sync && -f "{SEQ}/token" ]]; then
-  t="$(cat "{SEQ}/token")"; grep -qsxF account-token "{FAULT}" && t="other-token"
+  t="$(cat "{SEQ}/token")"; has_line account-token "{FAULT}" && t="other-token"
   for h in "{HOMES}"/*/; do mkdir -p "$h.config/agent-fabric"; printf "export CLAUDE_CODE_OAUTH_TOKEN='%s'\n" "$t" > "$h.config/agent-fabric/secrets.env"; done
 fi
 echo "fabric-secrets: OK"
@@ -425,6 +437,12 @@ def main() -> int:
         def filled(text: str) -> str:
             for k, v in fill.items():
                 text = text.replace(k, v)
+            # `grep -qsxF LINE FILE` in a bash fake was one exec per call, thousands in a run: the same question asked in the shell.
+            if "has_line " in text:
+                # A fake with another interpreter would get "has_line: command not found" and quietly lose its fault injection.
+                assert text.startswith("#!/usr/bin/env bash\n"), "has_line is a bash function"
+                head, rest = text.split("\n", 1)
+                text = head + "\n" + HAS_LINE + rest
             return text
         # A fleet host's python3 meets the floor (detect.sh FABRIC_HOST_PYTHON_MIN);
         # /usr/bin/python3 of a CI runner may not, so the fake host offers the

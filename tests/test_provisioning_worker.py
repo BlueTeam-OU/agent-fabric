@@ -316,6 +316,27 @@ def main() -> int:
         w.as_login(["claude", "--version"])
     check("a file test needs no profile; a tool keeps it",
           [f for f, _ in seen_shells] == ["-c", "-lc"], str(seen_shells))
+    # Debian's /etc/profile assigns PATH outright for a non-root login, so the PATH env -i set is gone when the command runs: the script
+    # re-asserts it. The profile here is the account's own, read by a real login shell through a sudo that only drops its flags.
+    # (tests/test_new_agent_cli.py's sudo fake runs a plain shell, to spare the host's profile.d: this is where that is covered.)
+    with tempfile.TemporaryDirectory() as tmp:
+        home = os.path.join(tmp, "home")
+        os.makedirs(os.path.join(home, ".local", "bin"))
+        with open(os.path.join(home, ".bash_profile"), "w", encoding="utf-8") as fh:
+            fh.write("PATH=/usr/bin:/bin\n")
+        with open(os.path.join(home, ".local", "bin", "account-only-tool"), "w", encoding="utf-8") as fh:
+            fh.write("#!/bin/sh\necho found\n")
+        os.chmod(os.path.join(home, ".local", "bin", "account-only-tool"), 0o755)
+        fake_sudo = os.path.join(tmp, "sudo")
+        with open(fake_sudo, "w", encoding="utf-8") as fh:
+            fh.write('#!/bin/sh\n[ "$1" = -n ] && shift; [ "$1" = -u ] && shift 2; [ "$1" = -H ] && shift\nexec "$@"\n')
+        os.chmod(fake_sudo, 0o755)
+        w = make_worker()
+        w.home, w.sudo = home, [fake_sudo]
+        r = subprocess.run(w.as_login_argv(["account-only-tool"]), capture_output=True, text=True, timeout=60,
+                           env={"PATH": "/usr/bin:/bin"})
+    check("a profile that assigns PATH outright does not hide a tool the account's PATH names (the worker re-asserts PATH in its shell)",
+          r.stdout == "found\n", f"{r.stdout!r} {r.stderr!r}")
     with mock.patch.object(subprocess, "run", recorder([], lambda argv: OSError("gone"))), redirect_stderr(io.StringIO()) as e2:
         make_worker().best_effort(["soft"])
     check("best_effort: a command that cannot start is a warning too", "warning: soft failed; continuing" in e2.getvalue())
