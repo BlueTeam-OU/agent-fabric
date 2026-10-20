@@ -136,24 +136,32 @@ def main() -> int:
               [(s.home_project, sorted(mi.section_keys(s))) for s in built.sections])
     finally:
         shutil.rmtree(repo, True)
-    for marker, expected, why in (("gzapp", "gzapp", "a marker naming a registry project"), ("no-such-project", "", "a marker the registry does not know"), ("", "", "an empty marker")):
-        wc = tempfile.mkdtemp(prefix="memexp-wc-")
-        try:
-            os.makedirs(os.path.join(wc, ".agent-fabric", "memory", "dev", "domain"))
-            with open(os.path.join(wc, ".agent-fabric", "memory", "dev", "domain", "x.md"), "wb") as fh:
-                fh.write(files["dev/domain/x.md"])
-            with open(os.path.join(wc, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
-                fh.write(marker + "\n")
-            for argv in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false", "-c", "gc.auto=0",
-                                                         "-c", "maintenance.auto=false", "commit", "-q", "-m", "x"]):
-                subprocess.run(["git", "-C", wc, *argv], env=genv, check=True, capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+    def _check_markers(files, genv, check) -> None:
+        for marker, expected, why in (("fixtureproj", "fixtureproj", "a marker naming a registry project"), ("no-such-project", "", "a marker the registry does not know"), ("", "", "an empty marker")):
+            wc = tempfile.mkdtemp(prefix="memexp-wc-")
             try:
-                got_homes = [s.home_project for s in mi.build(os.path.join(wc, "no-fabric-memory"), wc).sections]
-            except SystemExit as e:
-                got_homes = f"build() ended with SystemExit: {e}"
-            check(f"build() gives a working copy's slices its registry project, or none when the marker cannot say: {why}", got_homes == [expected], got_homes)
-        finally:
-            shutil.rmtree(wc, True)
+                os.makedirs(os.path.join(wc, ".agent-fabric", "memory", "dev", "domain"))
+                with open(os.path.join(wc, ".agent-fabric", "memory", "dev", "domain", "x.md"), "wb") as fh:
+                    fh.write(files["dev/domain/x.md"])
+                with open(os.path.join(wc, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+                    fh.write(marker + "\n")
+                for argv in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false", "-c", "gc.auto=0",
+                                                             "-c", "maintenance.auto=false", "commit", "-q", "-m", "x"]):
+                    subprocess.run(["git", "-C", wc, *argv], env=genv, check=True, capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+                try:
+                    got_homes = [s.home_project for s in mi.build(os.path.join(wc, "no-fabric-memory"), wc).sections]
+                except SystemExit as e:
+                    got_homes = f"build() ended with SystemExit: {e}"
+                check(f"build() gives a working copy's slices its registry project, or none when the marker cannot say: {why}", got_homes == [expected], got_homes)
+            finally:
+                shutil.rmtree(wc, True)
+    import workingcopy
+    real_registry = workingcopy.load_registry
+    workingcopy.load_registry = lambda path=None: {"version": 1, "projects": {"fixtureproj": {}}}   # the instance's registry is not a fixture
+    try:
+        _check_markers(files, genv, check)
+    finally:
+        workingcopy.load_registry = real_registry
     check("a checkout the registry cannot place is no project, never a guess", mi._project_of("/nonexistent/for/this/test") == "")
 
     print("the neighbours of the hits")
