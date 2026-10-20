@@ -24,6 +24,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -141,7 +142,7 @@ def verdict_cpu(command: str, guard: str = GUARD_PY) -> tuple[str | None, float]
                            env=base_env(), timeout=HANG_S)
     except subprocess.TimeoutExpired:
         return f"no answer within {HANG_S} s"
-    if r.returncode == -24:     # SIGXCPU: the ceiling above
+    if r.returncode == -signal.SIGXCPU:     # the ceiling above
         return f"ran past {VERDICT_CEILING_S} CPU s and was stopped"
     try:
         said = json.loads(r.stdout)
@@ -152,17 +153,6 @@ def verdict_cpu(command: str, guard: str = GUARD_PY) -> tuple[str | None, float]
 
 def within_budget(got) -> bool:
     return isinstance(got, tuple) and got[0] is None and got[1] <= VERDICT_CPU_S
-
-
-def burn_and_sleep() -> tuple[float, float]:
-    """CPU seconds a 0.5 s sleep costs and CPU seconds a 0.3 s burn costs, on the clock verdict_cpu uses."""
-    code = ("import time\n"
-            "a = time.process_time(); time.sleep(0.5); b = time.process_time()\n"
-            "end = b + 0.3\n"
-            "while time.process_time() < end: pass\n"
-            "print(b - a, time.process_time() - b)\n")
-    out = subprocess.run([hook_python(), "-c", code], capture_output=True, text=True, env=base_env(), timeout=HANG_S).stdout.split()
-    return float(out[0]), float(out[1])
 
 
 def guard_reasons() -> dict[str, str]:
@@ -203,10 +193,6 @@ def in_time() -> None:
         "git -C -C repeated 3000 times, then text": "git" + " -C -C" * 3000 + "!",
         "git --attr-source repeated 3000 times, then text": "git" + " --attr-source" * 3000 + "!",
     }
-    # The clock first: process time counts CPU and not waiting, which is what lets a loaded host leave the verdict alone.
-    slept, burnt = burn_and_sleep()
-    check("the clock counts CPU and not waiting (a sleep of 0.5 s costs none, a burn of 0.3 s costs it)",
-          slept < 0.2 and burnt >= 0.25, f"slept {slept:.3f}, burnt {burnt:.3f}")
     for label, command in shapes.items():
         got = verdict_cpu(command)
         check(f"judged within {VERDICT_CPU_S} CPU s, and allowed: {label}", within_budget(got), f"{got!r}")
@@ -218,10 +204,16 @@ def in_time() -> None:
                 fh.write("import time\ndef verdict(cmd):\n" + body)
             return path
         quick = verdict_cpu("x", stand_in("quick", "    return None\n"))
+        # The clock control, on the measure itself: process time counts CPU and not waiting, which is what lets a loaded
+        # host leave the verdict alone. A verdict that waits half a second costs none; the burning one below costs it.
+        waits = verdict_cpu("x", stand_in("waits", "    time.sleep(0.5)\n    return None\n"))
         slow = verdict_cpu("x", stand_in("slow", "    end = time.process_time() + 1.6\n    while time.process_time() < end: pass\n    return None\n"))
         endless = verdict_cpu("x", stand_in("endless", "    while True: pass\n"))
         check("positive control: a verdict that returns at once is within the budget", within_budget(quick), f"{quick!r}")
-        check(f"a verdict that takes 1.6 CPU s is past the budget, though it ends", isinstance(slow, tuple) and not within_budget(slow), f"{slow!r}")
+        check("the measure counts CPU and not waiting: a verdict that sleeps 0.5 s costs under 0.2 CPU s",
+              isinstance(waits, tuple) and waits[0] is None and waits[1] < 0.2, f"{waits!r}")
+        check("…and one that burns 1.6 CPU s is counted as that, past the budget though it ends",
+              isinstance(slow, tuple) and slow[1] >= 1.5 and not within_budget(slow), f"{slow!r}")
         check("a verdict without end is stopped at the CPU ceiling and said so, not waited for",
               isinstance(endless, str) and "was stopped" in endless and not within_budget(endless), f"{endless!r}")
     # Through the shim, as the harness runs it: the verdict or the guard's own late-verdict deny, never another answer.
@@ -240,11 +232,11 @@ def in_time() -> None:
     reasons = guard_reasons()
     deny = lambda key: json.dumps({"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": key}})  # noqa: E731
     texts = {key: text for text, key in reasons.items()}
+    read = [judgement_of(deny(texts["git"]), reasons), judgement_of(deny(texts["slow"]), reasons), judgement_of(deny(texts["error"]), reasons),
+            judgement_of(deny("something else"), reasons), judgement_of(json.dumps({"hookSpecificOutput": {"updatedInput": {}}}), reasons),
+            judgement_of("", reasons)]
     check("the reading of an answer: a rule's deny, the late deny, a crash, an unknown text, an allow and no answer",
-          [judgement_of(deny(texts["git"]), reasons), judgement_of(deny(texts["slow"]), reasons), judgement_of(deny(texts["error"]), reasons),
-           judgement_of(deny("something else"), reasons), judgement_of(json.dumps({"hookSpecificOutput": {"updatedInput": {}}}), reasons),
-           judgement_of("", reasons)]
-          == ["deny:git", "deny:slow", "deny:error", "deny:unknown reason", "allow", "allow"], "")
+          read == ["deny:git", "deny:slow", "deny:error", "deny:unknown reason", "allow", "allow"], f"{read!r}")
     got = shim_judgement("ls", AGENT_FABRIC_REVIEW_GUARD_BUDGET="0")
     check("a budget of zero is the late deny, through the shim", got == "deny:slow", got)
 
