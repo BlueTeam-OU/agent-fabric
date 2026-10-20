@@ -1164,6 +1164,11 @@ def _():
     orphan = _fake_proc(P.scratch("proc-"), {1: ("systemd", 0, "S", 1), 80: ("bash", 1, "S", 800), 81: ("fabric-python", 80, "S", 810)})
     ok(S.ended(parent_kind, 81, orphan), "the wrapper shell lives on, hanging from init: the session it stood for is gone")
     ok(not S.ended(S.Session(80, "800", 80, "detached"), 81, orphan), "a detached watch is ended by its parent's death only")
+    # a session /proc did not show when recorded (the watch is pid 1, or /proc hides its parent): not seen, so not seen to end
+    unseen = S.Session(1, "", 1, "detached")
+    ok(not S.ended(unseen, 70, root) and not S.ended(S.Session(0, "", 0, "parent"), 70, root), "an unrecorded session is no ended session")
+    ok(S.gone(S.Session(0, "", 0, "parent"), root, pid=70, ppid=999), "...but its parent changing still ends the watch")
+    ok(S.ended(S.Session(999, "9", 999, "claude"), 70, root), "control: a recorded start with the process absent is an ended session")
     eq(S.Session.of(["50", "500", "claude", ""]), S.Session(50, "500", 0, "claude"))
     ok(S.Session.of(["50"]) is None and S.Session.of(["x", "1", "claude"]) is None and S.Session.of(["5", "1", "other"]) is None, "a malformed or short record is no session")
     for args, want in (([PYTHON, "-I", "/x/bin/gzcoord-inbox", "--until-delivery"], True), (["python3", "/x/tools/fabric/gzcoord/inbox.py", "--follow"], True),
@@ -1217,36 +1222,56 @@ def _():
     base = {1: ("systemd", 0, "S", 1), 90: ("claude", 1, "S", 900), 91: ("bash", 90, "S", 910)}
     # a recorded session that is gone (pid 55 is not there)
     sent, res, err = _orphan_world(["100", "T", "55", "550", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, watch)})
-    eq((sent, res), ([(100, signal.SIGTERM)], True))
+    eq((sent, res), ([(100, signal.SIGTERM)], 100))
     ok("pid 100" in err and "session, pid 55, has ended" in err, err)
     # the same record with the session alive: refused as before, nothing signalled
     sent, res, _ = _orphan_world(["100", "T", "90", "900", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, watch)})
-    eq((sent, res), ([], False))
+    eq((sent, res), ([], None))
     # the session's pid reused by another process
     sent, res, _ = _orphan_world(["100", "T", "90", "111", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, watch)})
-    eq((sent, res), ([(100, signal.SIGTERM)], True))
+    eq((sent, res), ([(100, signal.SIGTERM)], 100))
     # a holder that is no watch (a sleeper, a drain, a replay) is never signalled, though its session is gone
     for args in (["sleep", "60"], [PYTHON, "-I", "/x/bin/gzcoord-inbox"], [PYTHON, "-I", "/x/bin/gzcoord-inbox", "--replay", "5", "--follow"]):
         sent, res, _ = _orphan_world(["100", "T", "55", "550", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, args)})
-        eq((sent, res), ([], False), args)
+        eq((sent, res), ([], None), args)
     # a file of two lines (an older watch): judged by the holder hanging from init or systemd through shells only
     gone_tree = {1: ("systemd", 0, "S", 1), 91: ("bash", 1, "S", 910), 100: ("fabric-python", 91, "S", 1000, watch)}
     sent, res, _ = _orphan_world(["100", "T"], gone_tree)
-    eq((sent, res), ([(100, signal.SIGTERM)], True))
+    eq((sent, res), ([(100, signal.SIGTERM)], 100))
     sent, res, _ = _orphan_world(["100", "T"], {**base, 100: ("fabric-python", 91, "S", 1000, watch)})
-    eq((sent, res), ([], False))
+    eq((sent, res), ([], None))
     sent, res, _ = _orphan_world(["100", "T"], {1: ("systemd", 0, "S", 1), 91: ("python3", 1, "S", 910), 100: ("fabric-python", 91, "S", 1000, watch)})
-    eq((sent, res), ([], False), "a parent that is not a shell is a session of its own")
+    eq((sent, res), ([], None), "a parent that is not a shell is a session of its own")
     # a file naming another pid than the one that owns the flock is stale: its session lines are not the holder's
     sent, res, _ = _orphan_world(["77", "T", "55", "550", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, watch)})
-    eq((sent, res), ([], False))
+    eq((sent, res), ([], None))
+    # an empty file (the holder has not written it yet, or could not) or one naming another pid says nothing about a holder that hangs
+    # from systemd: it is no orphan, only a holder not identified
+    for rec in ([], ["77", "T"], ["77", "T", "55", "550", "claude"]):
+        sent, res, _ = _orphan_world(rec, gone_tree)
+        eq((sent, res), ([], None), rec)
+    # a signal that is not allowed is said, and is no signal sent; a holder gone before the signal is still the one signalled
+    for exc, want_res, want_err in ((PermissionError(1, "Operation not permitted"), None, True), (ProcessLookupError(), 100, False)):
+        def kill_raises(_pid, _sig, exc=exc):
+            raise exc
+        from gzcoord.inbox_parts import watchlock as W
+        base2 = P.scratch("orph-")
+        path = os.path.join(base2, "x.lock")
+        open(path, "w").close()
+        st = os.stat(path)
+        lk = os.path.join(base2, "locks")
+        open(lk, "w").write(f"1: FLOCK  ADVISORY  WRITE 100 {os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino} 0 EOF\n")
+        e2 = io.StringIO()
+        with contextlib.redirect_stderr(e2):
+            r2 = W.end_orphan(path, ["100", "T"], _fake_proc(os.path.join(base2, "proc"), gone_tree), lk, kill=kill_raises)
+        eq((r2, "could not signal pid 100" in e2.getvalue()), (want_res, want_err), repr(exc))
     # nothing to judge: the holder is not in /proc
     sent, res, _ = _orphan_world(["100", "T", "55", "550", "claude"], base)
-    eq((sent, res), ([], False))
+    eq((sent, res), ([], None))
     # this process owns the flock (a second take in one process): never signalled, whatever its record says
     me = os.getpid()
     sent, res, _ = _orphan_world([str(me), "T", "55", "550", "claude"], {**base, me: ("fabric-python", 91, "S", 1000, watch)}, holder=me)
-    eq((sent, res), ([], False))
+    eq((sent, res), ([], None))
 
 
 _HOLDER = r"""
@@ -1369,6 +1394,30 @@ def _():
         ok(none is None and f"a watch is already running (pid {live.pid}, started " in out, out + err)
         ok(live.poll() is None and "SIGTERM" not in err, "the live holder was not signalled: " + err)
     finally:
+        _reap(live)
+
+
+@case("a watch that finds the orphan already taken by a quicker new watch refuses at once with the normal line; one whose orphan stays says so after the wait")
+def _():
+    import time
+    from gzcoord.inbox_parts import session as S, watchlock
+    me = S.read_proc(os.getpid())
+    run_dir = P.scratch("run-")
+    lock_file = watchlock.lock_path("fixture-login", run_dir)
+    live = _spawn_holder("gzcoord-inbox", "new", lock_file, os.getpid(), me.start)
+    saved = watchlock.end_orphan, watchlock.lock_holder
+    try:
+        mine = S.Session(os.getpid(), me.start, os.getppid(), "parent")
+        watchlock.end_orphan = lambda *_a, **_k: 12345   # the orphan this watch signalled; the lock is held by another pid now
+        t = time.monotonic()
+        none, out, err = _take(run_dir, mine, wait_s=30.0)
+        ok(none is None and f"a watch is already running (pid {live.pid}" in out and "did not release" not in err, out + err)
+        ok(time.monotonic() - t < 10, "refused without waiting out the bound")
+        watchlock.lock_holder = lambda *_a, **_k: 12345   # control: the signalled orphan still holds it
+        none, out, err = _take(run_dir, mine, wait_s=0.5)
+        ok(none is None and "pid 12345 did not release the lock in time" in err, out + err)
+    finally:
+        watchlock.end_orphan, watchlock.lock_holder = saved
         _reap(live)
 
 

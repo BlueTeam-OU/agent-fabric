@@ -159,28 +159,35 @@ def orphan_of(path: str, record: list[str], proc: str = sess.PROC, locks: str = 
     holder = sess.read_proc(pid, proc)
     if holder is None or holder.uid != os.getuid() or not sess.is_inbox(pid, proc):
         return None
-    # The file's session lines are the holder's own only when its pid line is the holder's.
-    recorded = sess.Session.of(record[2:]) if record[:1] == [str(pid)] else None
+    # The file speaks for the holder only when its pid line is the holder's: a file that is empty (the holder has not written it
+    # yet, or could not) or names another pid says nothing, and a holder that cannot be identified is not an orphan.
+    if record[:1] != [str(pid)]:
+        return None
+    recorded = sess.Session.of(record[2:])
     if recorded is not None:
         return (pid, f"its session, pid {recorded.pid}, has ended") if sess.ended(recorded, pid, proc) else None
+    # Two lines: an older watch, which recorded no session.
     return (pid, "it hangs from init or systemd through no session") if sess.reparented(pid, proc) else None
 
 
 def end_orphan(path: str, record: list[str], proc: str = sess.PROC, locks: str = LOCKS,
-               kill: Callable[[int, int], None] = os.kill) -> bool:
-    """SIGTERM to the holder of the lock when `orphan_of` says its session is gone; True when it was sent. Said once on stderr,
-    with both pids."""
+               kill: Callable[[int, int], None] = os.kill) -> int | None:
+    """SIGTERM to the holder of the lock when `orphan_of` says its session is gone; the pid signalled, else None. Said once on
+    stderr, with both pids. A signal that is not allowed is said and is no signal sent."""
     found = orphan_of(path, record, proc, locks)
     if found is None:
-        return False
+        return None
     pid, why = found
     print(f"gzcoord-inbox: the watch of pid {pid} outlived its session ({why}); ending it (SIGTERM) to take its place as pid {os.getpid()}",
           file=sys.stderr)
     try:
         kill(pid, signal.SIGTERM)
-    except OSError:
-        pass   # gone between the look and the signal: the flock is free, or it is not ours to end
-    return True
+    except ProcessLookupError:
+        pass   # gone between the look and the signal: the flock is free
+    except OSError as e:
+        print(f"gzcoord-inbox: could not signal pid {pid}: {e.strerror or e}", file=sys.stderr)
+        return None
+    return pid
 
 
 def take_or_report(login: str, session: sess.Session | None = None, wait_s: float | None = None) -> WatchLock | None:
@@ -195,15 +202,20 @@ def take_or_report(login: str, session: sess.Session | None = None, wait_s: floa
             if lock.took_over:
                 print(f"gzcoord-inbox: taking over the watch mark of pid {lock.took_over}, which is gone", file=sys.stderr)
             return lock
-        if end_orphan(lock.path, lock.record):
+        ended = end_orphan(lock.path, lock.record)
+        if ended is not None:
             until = time.monotonic() + (TAKEOVER_WAIT_S if wait_s is None else wait_s)
             while True:
                 if lock.acquire(session):
                     return lock
+                # Another new watch found the same orphan and was quicker: its pid holds the lock now, and is refused as any other.
+                now = lock_holder(lock.path)
+                if now is not None and now != ended:
+                    break
                 if time.monotonic() >= until:
+                    print(f"gzcoord-inbox: pid {ended} did not release the lock in time", file=sys.stderr)
                     break
                 time.sleep(TAKEOVER_POLL_S)
-            print("gzcoord-inbox: the orphaned watch did not release the lock in time", file=sys.stderr)
     except OSError as e:
         print(f"gzcoord-inbox: no watch lock ({lock.path}: {e.strerror or e}); watching without one", file=sys.stderr)
         return lock  # not acquired, holds nothing; release() is a no-op

@@ -125,9 +125,13 @@ def current(proc: str = PROC, pid: int | None = None, ppid: int | None = None) -
 
 def ended(session: Session, watch: int, proc: str = PROC) -> bool:
     """Is the session gone, as seen from the watch `watch` that serves it? Gone: no such process, a zombie, another process
-    under that pid; and, for a watch whose session is its parent, the watch hanging from init or systemd through shells only."""
+    under that pid; and, for a watch whose session is its parent, the watch hanging from init or systemd through shells only.
+    A session /proc did not show when it was recorded (the watch is pid 1, or /proc hides its parent) has no start time, and
+    what could not be seen is not seen to end: only the parent's change (`gone`) ends such a watch."""
+    if not session.start:
+        return False
     now = read_proc(session.pid, proc)
-    if now is None or now.state == "Z" or (session.start and now.start != session.start):
+    if now is None or now.state == "Z" or now.start != session.start:
         return True
     return session.kind == "parent" and reparented(watch, proc)
 
