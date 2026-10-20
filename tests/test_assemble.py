@@ -1589,6 +1589,13 @@ def test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_f
     assert "Retire me" not in heads() and "Keep me" in heads(), heads()
 
 
+def write_registry(fabric: str) -> None:
+    """A registry of the scratch fabric that names one project: the live projects/registry.json is the instance's, not a fixture."""
+    os.makedirs(os.path.join(fabric, "projects"), exist_ok=True)
+    with open(os.path.join(fabric, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+        json.dump({"version": 1, "projects": {"gzapp": {}}}, fh)
+
+
 def test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped(tmp: str) -> None:
     """A claims file is untrusted text: an anchor that is no anchor, of the wrong class, not a list, or more than
     ANCHORS_MAX refuses the run before anything is written; one that hygiene would substitute is dropped, never
@@ -1613,14 +1620,13 @@ def test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped
     ctl = run_assemble(drain, claims_dir, out)
     assert ctl.returncode == 1 and "projects/registry.json could not be read" in ctl.stderr, \
         ("a named project is unknown, never accepted, while the registry cannot be read", ctl.stderr)
-    os.makedirs(os.path.join(out, "projects"), exist_ok=True)
-    shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(out, "projects", "registry.json"))
+    write_registry(out)
     ctl = run_assemble(drain, claims_dir, out)
     assert ctl.returncode == 0, ("positive control: a valid anchor, and one naming a registry project, are accepted", ctl.stderr)
     unknown = {**base, "anchors": ["nosuchproject:a.py::x"]}
     drain, claims_dir, out2 = build(os.path.join(tmp, "unknown"), {"alpha": claims("alpha", [unknown])})
     os.makedirs(os.path.join(out2, "projects"))
-    shutil.copy(os.path.join(ROOT, "projects", "registry.json"), os.path.join(out2, "projects", "registry.json"))
+    write_registry(out2)
     proc = run_assemble(drain, claims_dir, out2)
     assert proc.returncode == 1 and "which projects/registry.json does not" in proc.stderr, ("registry readable, project not in it", proc.stderr)
     banned = {**base, "anchors": ["docs/Springfield.md::heading", "a.py"]}
