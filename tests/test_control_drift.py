@@ -34,7 +34,8 @@ class Scratch(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="control-drift-")
         self.addCleanup(shutil.rmtree, self.dir, True)
-        # No registry of the login's own sessions: a sweep reached through ctl would keep this login's real session scratch.
+        # Ctl.test_argv_timeout_and_the_closed_sets names "--sweep", so test_branches_sweep requires a claude-config of this suite's own;
+        # no case here runs a sweep, and with no registry one would keep every session's scratch.
         patcher = mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": os.path.join(self.dir, "claude-config")})
         patcher.start()
         self.addCleanup(patcher.stop)
