@@ -21,8 +21,10 @@ the session starts without the fabric's rules, silently in `claude -p`
 (docs/live-checks/2026-10-13-agents-md-import.md). A new account's first
 launch asked about it, and the owner (2026-10-09) said it should be
 managed and approved without asking. Claude Code 2.1.286 keeps both keys
-per project beside the trust. A linked worktree reads its main checkout's
-approval, never its own path's, so a worktree needs no entry of its own
+per project beside the trust. In a linked worktree `claude -p` reads the
+external-include approval of its main checkout, never its own path's, so
+a worktree needs no approval of its own; which entry the trust question
+reads there is unmeasured
 (docs/live-checks/2026-10-20-worktree-include-approval.md).
 
 Every other key of the file is kept as read; the file is replaced
