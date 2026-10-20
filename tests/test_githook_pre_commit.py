@@ -454,7 +454,8 @@ class HiddenUnicode(PreCommit):
     """A staged file that is text an agent reads and hides a character (tools/fabric/hidden_unicode.py) is refused whoever commits.
     Mutations: the call to the check removed from pre_commit (every case); the check placed after the owner's return (the
     unbound and owner cases); `git show :path` read from the work tree instead (the staged-blob case); is_agent_text widened to
-    every path (the .py case) or to the whole project (the project's docs case)."""
+    every path (the .py case) or to the whole project (the project's docs case); names read without -z (the non-ASCII case); a
+    merge judged against MERGE_HEAD (the merge case); a non-UTF-8 blob admitted (the not-UTF-8 case)."""
 
     RLO = "evil ‮ text\n"
 
@@ -480,6 +481,45 @@ class HiddenUnicode(PreCommit):
         r = self.run_hook(wt)
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("docs/x.md:1:6: U+202E RIGHT-TO-LEFT OVERRIDE (bidi)", r.stderr)
+
+    def test_a_non_ascii_name_is_judged(self):
+        # Mutation: names read without -z: git quotes "docs/caf\303\251.md", it ends in .md" and is skipped (review of #346, F1).
+        repo = self.fabric.itself()
+        repo.stage("docs/café.md", self.RLO)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("docs/café.md:1:6: U+202E RIGHT-TO-LEFT OVERRIDE (bidi)", r.stderr)
+
+    def test_a_merge_is_judged_on_what_it_brings_in(self):
+        # Mutation: the merge diffed against MERGE_HEAD, where the merged-in file is identical and never read (review of #346, F2).
+        repo = self.fabric.itself()
+        repo.git("checkout", "-q", "-b", "side")
+        repo.write("docs/x.md", self.RLO)
+        repo.git("add", "-A")
+        repo.git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "unjudged")   # a --no-verify commit, a web edit
+        repo.git("checkout", "-q", "main")
+        repo.write("other.md", "plain\n")
+        repo.git("add", "-A")
+        repo.git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "main moves")
+        repo.git("-c", "core.hooksPath=/dev/null", "merge", "--no-commit", "--no-ff", "-q", "side")
+        for role in (None, "fabric-coordinator"):
+            with self.subTest(role=role):
+                self.fabric.bind(role)
+                r = self.run_hook(repo)
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn("docs/x.md:1:6: U+202E RIGHT-TO-LEFT OVERRIDE (bidi)", r.stderr)
+
+    def test_a_staged_file_that_is_not_utf8_is_refused(self):
+        # Mutation: the UnicodeDecodeError branch admits (review of #346, F3).
+        repo = self.fabric.itself()
+        with open(os.path.join(repo.path, "docs.md"), "wb") as fh:
+            fh.write(b"\xff\n")
+        repo.git("add", "-A")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("docs.md: not UTF-8", r.stderr)
 
     def test_nothing_is_committed_when_it_is_refused(self):
         repo = self.fabric.itself()

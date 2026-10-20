@@ -311,17 +311,23 @@ def _check_decision_records(root: str) -> None:
 
 def _check_hidden_unicode(root: str) -> None:
     """Before any carve-out is consulted: hidden text is refused whoever commits it, the coordinator included. The staged
-    blob is judged, not the work tree; a merge is judged as the rest of pre_commit does, by what the result changes against
-    the merged-in side."""
+    blob is judged, not the work tree. Every staged path that differs from HEAD is judged, a merge included: the authority
+    fence may take a merged-in commit as judged when it was made, a content check cannot (a --no-verify commit, a web
+    edit, a branch from before this hook). Names are read NUL-separated: git's default output quotes and octal-escapes a non-ASCII
+    name, which then no longer ends in .md and was never judged (review of #346, F1). A question git does
+    not answer refuses: judging nothing would admit."""
     itself = same_repository(root)
-    against = [merge_head()] if merge_head() else []
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
+    if r.returncode != 0:
+        raise Refuse("pre-commit: cannot list the staged files to check them for hidden Unicode — not committed")
     lines: list[str] = []
-    for path in _names("diff", "--cached", "--no-renames", "--name-only", "--diff-filter=ACMRT", *against):
+    for path in (p for p in r.stdout.split("\0") if p):
         if not agent_text.is_agent_text(path, itself=itself):
             continue
-        blob = subprocess.run(["git", "show", f":{path}"], capture_output=True, timeout=GIT_TIMEOUT_S, stdin=subprocess.DEVNULL)
+        blob = subprocess.run(["git", "cat-file", "blob", f":{path}"], capture_output=True, timeout=GIT_TIMEOUT_S,
+                              stdin=subprocess.DEVNULL)
         if blob.returncode != 0:
-            raise Refuse(f"pre-commit: cannot read the staged {path} to check it for hidden Unicode")
+            raise Refuse(f"pre-commit: cannot read the staged {path} to check it for hidden Unicode — not committed")
         try:
             text = blob.stdout.decode("utf-8")
         except UnicodeDecodeError:
