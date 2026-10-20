@@ -124,6 +124,7 @@ class Wiring(unittest.TestCase):
             ctx["drift_cached"]()
             ctx["drift_cached"]()
         self.assertEqual(len(calls), 1)
+        self.assertEqual(ctx["drift_cached"].__self__._cache_ms, agentd.DRIFT_CACHE_MS)   # the keeper's own window, not only the constant
         self.assertEqual(agentd.DRIFT_CACHE_MS, 60000)
 
 

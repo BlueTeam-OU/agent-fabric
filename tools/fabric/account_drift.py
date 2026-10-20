@@ -58,7 +58,8 @@ place and records no hash for, so the dry run's lines about it ("<file>
 mcpServers.<name>", "<dir>: trusted in Claude Code …") are not read; and the
 dry run's lines that are not a file or a link ("episodic journal: would import
 …" has no "(would write)"). A recorded path that is not a regular file (a
-named pipe, a device, a link to one) is `unreadable` without being opened.
+named pipe, a device, a link to one) is `unreadable` without being opened,
+and so is one larger than 64 MiB.
 """
 from __future__ import annotations
 
@@ -80,6 +81,8 @@ import fabric_writes  # noqa: E402
 # bootstrap --dry-run measured at about 3 s on a warm host; the children it
 # runs (the langid and settings dry runs) are what make it that long.
 BOOTSTRAP_TIMEOUT_S = 60
+# Far above any file the fabric writes (the largest is a few hundred KiB); a bound on the read, not a policy.
+MAX_FILE_BYTES = 64 << 20
 KINDS = ("ok", "edited", "missing", "unreadable", "retired", "stale")
 LISTED = ("edited", "missing", "unreadable", "stale")
 _WOULD = re.compile(r"^  \+  (?P<what>.+) \((?:would write|would link)\)$")
@@ -126,13 +129,27 @@ def load_record(path: str) -> dict[str, str]:
 
 def judge(path: str, recorded: str) -> tuple[str, str | None]:
     """(kind, detail) of one recorded path; an absent one is `missing` here and
-    check() decides whether the fabric still wants it."""
+    check() decides whether the fabric still wants it. The account owns its home,
+    so a recorded path may have become anything: only a regular file of sane size
+    is read, judged on the descriptor that is read (a swap between a stat and an
+    open would otherwise bring the endless read back)."""
     try:
         if not stat.S_ISREG(os.stat(path).st_mode):
             return "unreadable", "not a regular file"   # a pipe with no writer blocks open() for ever; /dev/zero never ends
         fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
-        with os.fdopen(fd, "rb") as f:
-            got = hashlib.sha256(f.read()).hexdigest()
+        with os.fdopen(fd, "rb", buffering=0) as f:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                return "unreadable", "not a regular file"
+            if st.st_size > MAX_FILE_BYTES:
+                return "unreadable", f"larger than {MAX_FILE_BYTES >> 20} MiB"
+            digest, seen = hashlib.sha256(), 0
+            while chunk := f.read(1 << 20):
+                seen += len(chunk)
+                if seen > MAX_FILE_BYTES:   # it grew while it was read
+                    return "unreadable", f"larger than {MAX_FILE_BYTES >> 20} MiB"
+                digest.update(chunk)
+            got = digest.hexdigest()
     except OSError as e:
         if e.errno in (errno.ENOENT, errno.ENOTDIR):
             return "missing", None

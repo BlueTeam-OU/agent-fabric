@@ -223,6 +223,26 @@ def classes(tmp: str) -> None:
                                                         "ok 1, edited 0, missing 0, unreadable 2, retired 0, stale 0"]) and time.monotonic() - t0 < 20, (r.returncode, r.stdout))
     os.unlink(fifo)
     os.unlink(zero)
+
+    big = os.path.join(w.home, "big")
+    with open(big, "wb") as f:
+        f.truncate(account_drift.MAX_FILE_BYTES + 1)   # sparse: judged on its size, never read
+    w.record({a: sha(b"agent a\n"), big: sha(b"x")})
+    r = w.run()
+    check("a recorded regular file past the size bound is unreadable and is not read",
+          (r.returncode, r.stdout.splitlines()) == (1, [f"unreadable {big}: larger than 64 MiB", "ok 1, edited 0, missing 0, unreadable 1, retired 0, stale 0"]), (r.returncode, r.stdout))
+    os.unlink(big)
+    exact = os.path.join(w.home, "exact")
+    with open(exact, "wb") as f:
+        f.write(b"x" * (3 << 20 | 5))
+    w.record({exact: sha(b"x" * (3 << 20 | 5))})
+    r = w.run()
+    check("a multi-chunk file is hashed whole: ok when it matches", (r.returncode, r.stdout) == (0, "ok 1, edited 0, missing 0, unreadable 0, retired 0, stale 0\n"), (r.returncode, r.stdout))
+    with open(exact, "ab") as f:
+        f.write(b"y")
+    r = w.run()
+    check("and edited when its last byte differs", (r.returncode, lines(r)[0]) == (1, f"edited     {exact}"), (r.returncode, r.stdout))
+    os.unlink(exact)
     w.record({a: sha(b"agent a\n"), b: sha(b"agent b\n"), c: sha(b"hook c\n")})
 
     d = os.path.join(w.home, "adir")
