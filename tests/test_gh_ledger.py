@@ -189,7 +189,8 @@ def main() -> int:
         check("…and is then the cached one", got == [{"id": 1}, {"id": 2}] and [r["status"] for r in new] == [304], str(new))
         open(as_err, "w").write("")
         got, n, new = listing()
-        check("a gh that reports the 304 as an error is the same answer", got == [{"id": 1}, {"id": 2}], str(got))
+        check("a gh that reports the 304 as an error (as gh 2.87 does) is the same answer, recorded once, as free",
+              got == [{"id": 1}, {"id": 2}] and [(r["kind"], r["status"]) for r in new] == [("free", 304)], str((got, new)))
         os.remove(as_err)
         cachefile = gh._etag_file("repos/o/r/pulls/7/reviews?per_page=100")
         open(cachefile, "w").write("{damaged")

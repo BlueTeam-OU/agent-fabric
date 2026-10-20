@@ -550,8 +550,9 @@ class Watch:
             # of it: the nap is clamped to what is left.
             nap = min(self.pace.nap(changed), remaining)
             quiet_for = poll_pace.until_reset(self.limited_until, time.time())
-            if quiet_for is None and gh.budget_wait() > 0:
-                quiet_for = int(gh.budget_wait()) or 1
+            budget = gh.budget_wait() if quiet_for is None else 0
+            if budget > 0:
+                quiet_for = int(budget) or 1
             if quiet_for is not None:
                 nap = min(max(nap, quiet_for), remaining)
             time.sleep(nap)

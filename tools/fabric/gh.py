@@ -204,7 +204,8 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
     except FileNotFoundError:
         raise GhError(what, "gh is not installed") from None
     except subprocess.TimeoutExpired:
-        gh_ledger.record(args, caller, "timeout", time.monotonic() - started)
+        if record:
+            gh_ledger.record(args, caller, "timeout", time.monotonic() - started)
         raise GhError(what, f"no answer within {timeout:g} s", transient=True) from None
     if r.returncode != 0:
         lines = [l for l in r.stderr.strip().splitlines() if l.strip()] or [f"exit {r.returncode}"]
@@ -214,7 +215,8 @@ def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S
         limited = "rate limit" in low or status == 429
         transient = status is not None and (status >= 500 or status == 429) \
             or limited or any(t in low for t in NETWORK_FAILURES)
-        gh_ledger.record(args, caller, status or "error", time.monotonic() - started)
+        if record:
+            gh_ledger.record(args, caller, status or "error", time.monotonic() - started)
         reset = None
         if limited:
             # Said as what it is, with the time it ends, never as "could not
