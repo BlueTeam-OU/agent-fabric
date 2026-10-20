@@ -58,3 +58,11 @@ The fence is a PreToolUse hook on Bash. It runs session-side because the fact it
 Reads in other copies stay allowed, because diagnosing anywhere is every role's right. A session with no job is left alone, which covers the owner's own sessions. The hook reads directories by over-reporting: any `cd`, `pushd` or `git -C` target outside the copies, or one it cannot resolve, counts as outside. A false refusal costs a rephrase; a false allowance is the incident.
 
 The inbox path needs no change. Intake already queues a delivered REQUEST as a job (rule 11), and this fence is what stops the session acting on it in place. When the hook cannot read the job list or the tree, it asks rather than allows.
+
+### Amendment 2026-10-21 — Leaving a job cleans its build output
+
+/home on the fleet's host filled twice between 2026-10-20 and 2026-10-21. The first time it reached 98%, and other logins' runs failed with ENOSPC. The second time the owner added 100G. `fabric-ctl all disk` put almost all of it in cargo `target` directories of 60 to 75G each, one per job worktree, left behind after the job moved on. Asked by message, the agents freed about 270G the first time, and three of the directories were back within hours.
+
+The owner approved cleaning on leaving a job. `fabric-jobs switch` removes the old job's worktree targets once the job is settled, whatever the outcome (python-dev-03, its j75).
+
+One shared target directory per login was proposed and withdrawn before anything was built. InterWeave binaries bake in `CARGO_MANIFEST_DIR`, and cargo does not rebuild for another worktree with the same sources. A shared target therefore runs binaries that point at the first worktree's paths, which failed all of xtask's checks once on 2026-10-07 (rust-ui-dev's slice shared-target-worktree). How large a project's builds are is the project's own decision (InterWeave: architect-cto, asked 2026-10-21).
