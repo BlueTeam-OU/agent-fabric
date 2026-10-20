@@ -1331,3 +1331,28 @@ its record disagree, the record wins. Look it up, never read it whole:
   acceptance (§8).
 - Keywords: errors, trust, actor, people, agents, review findings, red
   check, flaky, revert, fix forward, attribution, fabric-errors, proposed.
+
+### ADR-062 — Each agent acts on GitHub as its own machine user (Proposed)
+
+- Each agent acts on GitHub as its own machine user, with its own token
+  in its own store; the owner's shared token leaves every cut-over store
+  (§2, §5 rule 1).
+- Users are made by the owner by hand; the terms' one-free-machine-account
+  limit is settled first (paid plan or GitHub's word) (§5 rule 2).
+- Named `<prefix><login>`, persona as display name; `lineage.json`
+  `github: {user, id}` is the only map; emails in the coordinator's store
+  (§5 rules 3-4).
+- Password, 2FA and recovery codes are the owner's; the token has `repo`,
+  `workflow`, `read:org` and no `admin:` scope; members of one `fleet` team;
+  git over HTTPS with gh's helper (§5 rules 5-7).
+- Commits keep the shared author; signing keys stay on the committer
+  email's account (§5 rule 8).
+- Gate: a marked review by any fleet user counts; a fleet user's unmarked
+  review is never independent. Arm: the PR's GitHub author must be the
+  branch login's user (§5 rules 9-10).
+- Cut-over per login, read back by sync (`gh api user` id = record); then
+  the shared token and SSH key leave the share list and are revoked, org
+  2FA on; new agents wait for their user (§5 rules 11-13).
+- Runbook: `docs/github-machine-users.md`. Waits on the owner (§8).
+- Keywords: GitHub, machine user, token, GH_TOKEN, rate limit, quota,
+  5000, seat, terms, 2FA, team, provision, cut-over, proposed.
