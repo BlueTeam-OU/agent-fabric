@@ -14,7 +14,8 @@ Refused classes (each has a test that fails when its check is removed):
   bidi     U+202A-202E, U+2066-2069, and the marks U+200E, U+200F, U+061C
   format   every Cf character (zero-width space, joiners, word joiner,
            soft hyphen, BOM inside text, Unicode tag characters), plus
-           U+180E, which older Unicode data calls Cf and newer does not
+           U+180E, which Unicode data before 6.3 called Zs; the clause is kept for
+           such data and never fires on a supported interpreter
   control  every Cc but TAB and LF (CR included: LF line endings only), and
            the line and paragraph separators U+2028, U+2029
   variation selectors other than VS16, and the ideographic fillers that
@@ -31,7 +32,7 @@ Allowances, the only ones, each because a real file needs it:
   * ZWJ (U+200D) between two emoji symbols (So, a skin-tone modifier or
     VS16 before the next symbol): the glue of family and profession
     emoji. Between anything else it is refused.
-  * VS16 (U+FE0F) after a symbol (So/Sk), a digit, # or *: the emoji
+  * VS16 (U+FE0F) after a symbol (So), a digit, # or *: the emoji
     presentation selector and the keycap sequence. After a letter or
     space it is refused.
   * ZWNJ (U+200C) is NOT allowed. Persian and several Indic scripts need
@@ -84,7 +85,7 @@ class Finding(NamedTuple):
 
 
 def is_format(c: str) -> bool:
-    """One character a reader sees nothing of: Cf, and U+180E whichever Unicode data the interpreter has. Context
+    """One character a reader sees nothing of: Cf, and U+180E in case the Unicode data is older than 6.3. Context
     allowances (ZWJ in an emoji) do not apply: a caller asking this wants every such character gone."""
     return unicodedata.category(c) == "Cf" or ord(c) == 0x180E
 
@@ -95,7 +96,8 @@ def _name(c: str) -> str:
 
 
 def _is_symbol(c: str) -> bool:
-    return unicodedata.category(c) in ("So", "Sk") or ord(c) in EMOJI_MODIFIERS
+    # So only: Sk would admit ASCII ^ and the backtick, each a carrier of one hidden bit in Markdown.
+    return unicodedata.category(c) == "So" or ord(c) in EMOJI_MODIFIERS
 
 
 def _kind(text: str, i: int, allow_bom: bool) -> str | None:

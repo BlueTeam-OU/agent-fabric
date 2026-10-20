@@ -270,6 +270,13 @@ def case_every_control_character_is_refused() -> None:
         must_pass("charter-addendum.md", addendum(f"a{ok}b\n"))
 
 
+def case_hidden_classes_beyond_controls_are_refused() -> None:
+    # hidden_unicode's variation, filler and private-use classes reach addenda too: one case per class.
+    for odd in ("a\ufe0eb", "a\u3164b", "a\ue000b"):
+        must_refuse("charter-addendum.md", addendum(odd + "\n"), "hidden format")
+    must_pass("charter-addendum.md", addendum("a \u2714\ufe0f b\n"))   # the control: VS16 after a symbol
+
+
 def case_oversize_file_runs_no_pattern() -> None:
     saved = ac._hygiene, ac._model_pins
     calls = []
