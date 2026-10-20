@@ -320,11 +320,24 @@ def _check_hidden_unicode(root: str) -> None:
     r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
     if r.returncode != 0:
         raise Refuse("pre-commit: cannot list the staged files to check them for hidden Unicode — not committed")
+    judged = [p for p in r.stdout.split("\0") if p and agent_text.is_agent_text(p, itself=itself)]
+    # Each blob by the object id the index holds for the path, never by `:<path>`: that is revision syntax, and a file
+    # named `0:README.md` read as `:0:README.md` is README.md's stage-0 blob (re-review of #346).
+    oids: dict[str, str] = {}
+    if judged:
+        idx = _git("ls-files", "-s", "-z", "--full-name")
+        if idx.returncode != 0:
+            raise Refuse("pre-commit: cannot read the index to check staged files for hidden Unicode — not committed")
+        for entry in (e for e in idx.stdout.split("\0") if e):
+            meta, _, name = entry.partition("\t")
+            fields = meta.split()
+            if len(fields) == 3 and fields[2] == "0":
+                oids[name] = fields[1]
     lines: list[str] = []
-    for path in (p for p in r.stdout.split("\0") if p):
-        if not agent_text.is_agent_text(path, itself=itself):
-            continue
-        blob = subprocess.run(["git", "cat-file", "blob", f":{path}"], capture_output=True, timeout=GIT_TIMEOUT_S,
+    for path in judged:
+        if path not in oids:
+            raise Refuse(f"pre-commit: {path} is staged but has no stage-0 entry in the index — not committed")
+        blob = subprocess.run(["git", "cat-file", "blob", oids[path]], capture_output=True, timeout=GIT_TIMEOUT_S,
                               stdin=subprocess.DEVNULL)
         if blob.returncode != 0:
             raise Refuse(f"pre-commit: cannot read the staged {path} to check it for hidden Unicode — not committed")

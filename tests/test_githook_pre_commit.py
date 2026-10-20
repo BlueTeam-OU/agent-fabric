@@ -455,7 +455,7 @@ class HiddenUnicode(PreCommit):
     Mutations: the call to the check removed from pre_commit (every case); the check placed after the owner's return (the
     unbound and owner cases); `git show :path` read from the work tree instead (the staged-blob case); is_agent_text widened to
     every path (the .py case) or to the whole project (the project's docs case); names read without -z (the non-ASCII case); a
-    merge judged against MERGE_HEAD (the merge case); a non-UTF-8 blob admitted (the not-UTF-8 case)."""
+    merge judged against MERGE_HEAD (the merge case); a non-UTF-8 blob admitted (the not-UTF-8 case); the blob read as `:<path>` (the stage-like name case)."""
 
     RLO = "evil ‮ text\n"
 
@@ -490,6 +490,15 @@ class HiddenUnicode(PreCommit):
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("docs/café.md:1:6: U+202E RIGHT-TO-LEFT OVERRIDE (bidi)", r.stderr)
+
+    def test_a_name_that_reads_as_a_stage_is_judged_by_its_own_blob(self):
+        # Mutation: the blob read as `:<path>`, where `:0:x.md` is x.md's stage-0 blob, clean (re-review of #346).
+        repo = self.fabric.itself({"x.md": "clean\n"})
+        repo.stage("0:x.md", self.RLO)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("0:x.md:1:6: U+202E RIGHT-TO-LEFT OVERRIDE (bidi)", r.stderr)
 
     def test_a_merge_is_judged_on_what_it_brings_in(self):
         # Mutation: the merge diffed against MERGE_HEAD, where the merged-in file is identical and never read (review of #346, F2).
