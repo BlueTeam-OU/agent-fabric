@@ -134,28 +134,29 @@ def classes(tmp: str) -> None:
     before = w.tree()
     r = w.run()
     check("clean account: counts only, exit 0, nothing on stderr",
-          (r.returncode, r.stdout, r.stderr) == (0, "ok 3, edited 0, missing 0, unreadable 0, stale 0\n", ""), (r.returncode, r.stdout, r.stderr))
+          (r.returncode, r.stdout, r.stderr) == (0, "ok 3, edited 0, missing 0, unreadable 0, retired 0, stale 0\n", ""), (r.returncode, r.stdout, r.stderr))
     check("a run changes no file of the account, the state or the checkout", w.tree() == before)
 
     with open(a, "wb") as f:
         f.write(b"agent a, edited by a person\n")
     r = w.run()
     check("edited: the path is named, counts last, exit 1",
-          (r.returncode, lines(r)) == (1, [f"edited     {a}", "ok 2, edited 1, missing 0, unreadable 0, stale 0"]), (r.returncode, r.stdout))
+          (r.returncode, lines(r)) == (1, [f"edited     {a}", "ok 2, edited 1, missing 0, unreadable 0, retired 0, stale 0"]), (r.returncode, r.stdout))
     with open(a, "wb") as f:
         f.write(b"agent a\n")
 
     os.unlink(b)
+    w.dry(f"  +  {b} (would write)\n")
     r = w.run()
     check("missing: the path is named, exit 1",
-          (r.returncode, lines(r)) == (1, [f"missing    {b}", "ok 2, edited 0, missing 1, unreadable 0, stale 0"]), (r.returncode, r.stdout))
+          (r.returncode, lines(r)) == (1, [f"missing    {b}", "ok 2, edited 0, missing 1, unreadable 0, retired 0, stale 0"]), (r.returncode, r.stdout))
     with open(b, "wb") as f:
         f.write(b"agent b\n")
 
     w.dry(f"  =  {a}\n  +  {c} (would write)\n")
     r = w.run()
     check("stale: the dry run would rewrite a path the account holds as the fabric wrote it",
-          (r.returncode, lines(r)) == (1, [f"stale      {c}", "ok 3, edited 0, missing 0, unreadable 0, stale 1"]), (r.returncode, r.stdout))
+          (r.returncode, lines(r)) == (1, [f"stale      {c}", "ok 3, edited 0, missing 0, unreadable 0, retired 0, stale 1"]), (r.returncode, r.stdout))
 
     new = os.path.join(w.home, ".claude", "new.md")
     link = os.path.join(w.home, ".local", "bin", "tool")
@@ -167,7 +168,7 @@ def classes(tmp: str) -> None:
     check("stale: a path never recorded, a link, a path with words after it; the line that is not a file is not a finding",
           (r.returncode, lines(r)) == (1, [f"stale      {new}", f"stale      {link} -> {w.root}/bin/tool",
                                            f"stale      {w.home}/.claude/settings.json fabric user settings",
-                                           "ok 3, edited 0, missing 0, unreadable 0, stale 3"]), (r.returncode, r.stdout))
+                                           "ok 3, edited 0, missing 0, unreadable 0, retired 0, stale 3"]), (r.returncode, r.stdout))
 
     os.unlink(b)
     with open(a, "wb") as f:
@@ -176,11 +177,53 @@ def classes(tmp: str) -> None:
     r = w.run()
     check("a would-write that an edited or missing path explains is not counted a second time; a longer name is not explained by a prefix",
           (r.returncode, lines(r)) == (1, [f"edited     {a}", f"missing    {b}", f"stale      {a}.extra",
-                                           "ok 1, edited 1, missing 1, unreadable 0, stale 1"]), (r.returncode, r.stdout))
+                                           "ok 1, edited 1, missing 1, unreadable 0, retired 0, stale 1"]), (r.returncode, r.stdout))
     with open(a, "wb") as f:
         f.write(b"agent a\n")
     with open(b, "wb") as f:
         f.write(b"agent b\n")
+
+    with open(a, "wb") as f:
+        f.write(b"edited\n")
+    spaced = f"{a} dir/f"
+    w.dry(f"  +  {spaced} (would write)\n")
+    r = w.run()
+    check("a longer name with a space after an edited path is not explained by it",
+          (r.returncode, lines(r)) == (1, [f"edited     {a}", f"stale      {spaced}", "ok 2, edited 1, missing 0, unreadable 0, retired 0, stale 1"]), (r.returncode, r.stdout))
+    with open(a, "wb") as f:
+        f.write(b"agent a\n")
+
+    gone = os.path.join(w.home, ".claude", "commands", "role.md")
+    w.record({a: sha(b"agent a\n"), gone: sha(b"x")})
+    w.dry(f"  -  {gone} (would remove: /role is retired)\n")
+    r = w.run()
+    check("retired: a recorded path the fabric removed itself and no longer writes is counted, not a finding, exit 0",
+          (r.returncode, r.stdout) == (0, "ok 1, edited 0, missing 0, unreadable 0, retired 1, stale 0\n"), (r.returncode, r.stdout))
+    w.dry(f"  +  {gone} (would write)\n")
+    r = w.run()
+    check("the same absent path is missing once the fabric would write it",
+          (r.returncode, lines(r)) == (1, [f"missing    {gone}", "ok 1, edited 0, missing 1, unreadable 0, retired 0, stale 0"]), (r.returncode, r.stdout))
+
+    w.dry(f"  +  {w.home}/.claude.json mcpServers.fabric-memory (would write)\n  +  {w.home}/p: trusted in Claude Code, its external imports approved (would write)\n")
+    w.record({a: sha(b"agent a\n")})
+    r = w.run()
+    check("the dry run's lines about ~/.claude.json are not read",
+          (r.returncode, r.stdout) == (0, "ok 1, edited 0, missing 0, unreadable 0, retired 0, stale 0\n"), (r.returncode, r.stdout))
+
+    fifo = os.path.join(w.home, "fifo")
+    os.mkfifo(fifo)
+    zero = os.path.join(w.home, "zero")
+    os.symlink("/dev/zero", zero)
+    w.record({a: sha(b"agent a\n"), fifo: sha(b"x"), zero: sha(b"x")})
+    w.dry("")
+    t0 = time.monotonic()
+    r = subprocess.run([os.path.join(w.root, "bin", "fabric-drift")], capture_output=True, text=True, env=w.env(), timeout=30, check=False, stdin=subprocess.DEVNULL)
+    check("a recorded pipe, or a link to an endless device, is unreadable at once and is not opened",
+          (r.returncode, r.stdout.splitlines()) == (1, [f"unreadable {fifo}: not a regular file", f"unreadable {zero}: not a regular file",
+                                                        "ok 1, edited 0, missing 0, unreadable 2, retired 0, stale 0"]) and time.monotonic() - t0 < 20, (r.returncode, r.stdout))
+    os.unlink(fifo)
+    os.unlink(zero)
+    w.record({a: sha(b"agent a\n"), b: sha(b"agent b\n"), c: sha(b"hook c\n")})
 
     d = os.path.join(w.home, "adir")
     os.mkdir(d)
@@ -188,15 +231,16 @@ def classes(tmp: str) -> None:
     w.dry("")
     r = w.run()
     check("unreadable: a recorded path that is there and cannot be read is its own kind, with the error",
-          (r.returncode, lines(r)) == (1, [f"unreadable {d}: Is a directory", "ok 1, edited 0, missing 0, unreadable 1, stale 0"]), (r.returncode, r.stdout))
+          (r.returncode, lines(r)) == (1, [f"unreadable {d}: not a regular file", "ok 1, edited 0, missing 0, unreadable 1, retired 0, stale 0"]), (r.returncode, r.stdout))
 
     w.record({a: sha(b"agent a\n"), os.path.join(w.home, "no-such-dir", "x"): sha(b"x")})
+    w.dry(f"  +  {os.path.join(w.home, 'no-such-dir', 'x')} (would write)\n")
     r = w.run()
     check("a recorded path under a parent that is a file or absent reads missing, not unreadable",
           (r.returncode, lines(r)[0]) == (1, f"missing    {os.path.join(w.home, 'no-such-dir', 'x')}"), (r.returncode, r.stdout))
 
     w.record({a: sha(b"agent a\n"), b: sha(b"agent b\n")})
-    w.dry(f"  +  {new} (would write)\n")
+    w.dry(f"  +  {new} (would write)\n  +  {b} (would write)\n")
     os.unlink(b)
     r = w.run("--json")
     try:
@@ -204,14 +248,14 @@ def classes(tmp: str) -> None:
     except ValueError:
         doc = None
     check("--json is the same data: status, counts, findings in the text's order",
-          r.returncode == 1 and doc == {"status": "drift", "counts": {"ok": 1, "edited": 0, "missing": 1, "unreadable": 0, "stale": 1},
+          r.returncode == 1 and doc == {"status": "drift", "counts": {"ok": 1, "edited": 0, "missing": 1, "unreadable": 0, "retired": 0, "stale": 1},
                                         "findings": [{"kind": "missing", "path": b}, {"kind": "stale", "path": new}]}, (r.returncode, r.stdout))
     with open(b, "wb") as f:
         f.write(b"agent b\n")
     w.dry("")
     r = w.run("--json")
     check("--json on a clean account: status ok, no findings, exit 0",
-          (r.returncode, json.loads(r.stdout)) == (0, {"status": "ok", "counts": {"ok": 2, "edited": 0, "missing": 0, "unreadable": 0, "stale": 0}, "findings": []}), (r.returncode, r.stdout))
+          (r.returncode, json.loads(r.stdout)) == (0, {"status": "ok", "counts": {"ok": 2, "edited": 0, "missing": 0, "unreadable": 0, "retired": 0, "stale": 0}, "findings": []}), (r.returncode, r.stdout))
 
     r = w.run("--help")
     check("--help: the usage on stdout, exit 0", r.returncode == 0 and "usage: fabric-drift [--json]" in r.stdout and r.stderr == "", (r.returncode, r.stderr))

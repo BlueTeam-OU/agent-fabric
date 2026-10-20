@@ -230,8 +230,8 @@ BESIDE_LOOP_OPS = ["disk", "gateway", "branches", "drift"]
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).
 DISK_CACHE_MS = 60000
-# `drift` runs bootstrap.py --dry-run, a few seconds of the account's own children, and is as open to
-# any placed account as `disk` is: one run per minute per daemon, whoever asks.
+# `drift` runs bootstrap.py --dry-run, a few seconds of the account's own children, for any operator that
+# asks and without a signature (it is a read): one run per minute per daemon, however many ask.
 DRIFT_CACHE_MS = 60000
 RETRY_S = 30
 POLL_S = 55

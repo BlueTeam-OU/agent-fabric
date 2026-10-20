@@ -874,7 +874,7 @@ def _table_branches(op: str, rs: list) -> list[str]:
 
 def _table_drift(rs: list) -> list[str]:
     """Per account: the counts, then one line per finding. What an account sent reaches this terminal escaped (esc)."""
-    lines = [f"{pad_end('account', 22)} {pad_end('status', 8)} ok  edited  missing  unreadable  stale"]
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 8)} ok  edited  missing  unreadable  retired  stale"]
     for r in rs:
         u = r.get("drift")
         if _unless(r, u):
@@ -885,7 +885,7 @@ def _table_drift(rs: list) -> list[str]:
             lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(esc(nullish(dig(u, 'status'), 'no status')), 8)} {esc(nullish(dig(u, 'reason'), ''))}"))
             continue
         lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(esc(dig(u, 'status')), 8)} {pad_end(_cell(dig(c, 'ok')), 3)} {pad_end(_cell(dig(c, 'edited')), 7)} "
-                              f"{pad_end(_cell(dig(c, 'missing')), 8)} {pad_end(_cell(dig(c, 'unreadable')), 11)} {_cell(dig(c, 'stale'))}"))
+                              f"{pad_end(_cell(dig(c, 'missing')), 8)} {pad_end(_cell(dig(c, 'unreadable')), 11)} {pad_end(_cell(dig(c, 'retired')), 8)} {_cell(dig(c, 'stale'))}"))
         found = dig(u, "findings")
         for f in found if isinstance(found, list) else []:
             lines.append(trim_end(f"{pad_end('', 22)}   {pad_end(esc(dig(f, 'kind')), 10)} {esc(dig(f, 'path'))}"

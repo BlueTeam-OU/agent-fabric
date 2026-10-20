@@ -23,18 +23,26 @@ CONTRACT (j138; the request is develop-qzapp/user's, 2026-10-20):
                `tools/fabric/bootstrap.py --dry-run`, which writes nothing.
   findings     one per path that is not as the fabric left it:
                  edited      exists and its sha256 is not the recorded one
-                 missing     the record names it and nothing is there
+                 missing     the record names it, nothing is there, and the
+                             dry run says the fabric would write it
                  unreadable  it is there and cannot be read (the error)
                  stale       a "+  <what> (would write)" or "(would link)"
                              line of the dry run that no edited or missing
                              path above explains: the fabric would change it
                              although the account holds what the fabric last
                              wrote (it moved upstream), or never recorded it
-               A path whose hash matches is `ok`: counted, never listed.
+               A path whose hash matches is `ok`, and one that is absent and
+               that the dry run does not name is `retired`: counted, never
+               listed. The record only grows (fabric_writes has no way to
+               forget a path), so a file the fabric itself removed later (the
+               /role command, a skill of a role no longer held) stays in it
+               for good; read as `missing` it would keep an account that ever
+               changed role at exit 1. What the fabric wants written is what
+               its dry run says, not the record.
   stdout       one line per finding, "<kind>  <what>[: <detail>]", sorted by
                kind then path with the stale lines in the dry run's order,
                then the counts last: "ok N, edited N, missing N, unreadable
-               N, stale N". --json: one object, {"status": "ok"|"drift",
+               N, retired N, stale N". --json: one object, {"status": "ok"|"drift",
                "counts": {...}, "findings": [{"kind", "path"[, "detail"]}]},
                the same data.
   stderr       a refusal, one line, "fabric-drift: <why>".
@@ -45,9 +53,12 @@ CONTRACT (j138; the request is develop-qzapp/user's, 2026-10-20):
                an account that has written nothing (fabric_writes.py reads
                it so, to cost one extra backup; here that would be silence).
 
-What is deliberately not here: a fix, ~/.claude.json (bootstrap edits it in
-place and records no hash), and the dry run's lines that are not a file or a
-link ("episodic journal: would import …" has no "(would write)").
+What is deliberately not here: a fix; ~/.claude.json, which bootstrap edits in
+place and records no hash for, so the dry run's lines about it ("<file>
+mcpServers.<name>", "<dir>: trusted in Claude Code …") are not read; and the
+dry run's lines that are not a file or a link ("episodic journal: would import
+…" has no "(would write)"). A recorded path that is not a regular file (a
+named pipe, a device, a link to one) is `unreadable` without being opened.
 """
 from __future__ import annotations
 
@@ -57,6 +68,7 @@ import json
 import os
 import re
 import signal
+import stat
 import subprocess
 import sys
 from typing import Any
@@ -68,8 +80,15 @@ import fabric_writes  # noqa: E402
 # bootstrap --dry-run measured at about 3 s on a warm host; the children it
 # runs (the langid and settings dry runs) are what make it that long.
 BOOTSTRAP_TIMEOUT_S = 60
-KINDS = ("ok", "edited", "missing", "unreadable", "stale")
+KINDS = ("ok", "edited", "missing", "unreadable", "retired", "stale")
+LISTED = ("edited", "missing", "unreadable", "stale")
 _WOULD = re.compile(r"^  \+  (?P<what>.+) \((?:would write|would link)\)$")
+# What bootstrap and its children print after the path of a would-write line:
+# a link's target, and user-settings.py's own words. Any other tail is not
+# assumed to be a path's: a longer name with a space in it must not be taken for
+# a recorded path followed by words.
+_TAILS = (" -> ", " fabric user settings")
+_CLAUDE_JSON = re.compile(r"(?:^|/)\.claude\.json(?: |$)|: trusted in Claude Code")
 
 HELP = """bin/fabric-drift — what in this account differs from what the fabric wrote.
 
@@ -106,9 +125,13 @@ def load_record(path: str) -> dict[str, str]:
 
 
 def judge(path: str, recorded: str) -> tuple[str, str | None]:
-    """(kind, detail) of one recorded path."""
+    """(kind, detail) of one recorded path; an absent one is `missing` here and
+    check() decides whether the fabric still wants it."""
     try:
-        with open(path, "rb") as f:
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            return "unreadable", "not a regular file"   # a pipe with no writer blocks open() for ever; /dev/zero never ends
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        with os.fdopen(fd, "rb") as f:
             got = hashlib.sha256(f.read()).hexdigest()
     except OSError as e:
         if e.errno in (errno.ENOENT, errno.ENOTDIR):
@@ -156,9 +179,12 @@ def would_change(root: str, env: dict[str, str], timeout: float) -> list[str]:
 
 
 def explained(what: str, paths: set[str]) -> bool:
-    """A dry-run subject is a path, or a path and words after it
-    ("<settings> fabric user settings", "<link> -> <target>")."""
-    return any(what == p or what.startswith(p + " ") for p in paths)
+    """A dry-run subject is a path, or a path and one of the tails bootstrap prints."""
+    return any(what == p or any(what == p + t.rstrip() or what.startswith(p + t) for t in _TAILS) for p in paths)
+
+
+def explained_by_any(wanted: list[str], path: str) -> bool:
+    return any(explained(w, {path}) for w in wanted)
 
 
 def check(state: str | None = None, root: str | None = None, home: str | None = None,
@@ -170,18 +196,20 @@ def check(state: str | None = None, root: str | None = None, home: str | None = 
     if home is not None:
         env["HOME"] = home
     record = load_record(os.path.join(state, fabric_writes.RECORD))
+    wanted = [w for w in would_change(root, env, timeout) if not _CLAUDE_JSON.search(w)]
     counts = dict.fromkeys(KINDS, 0)
     findings: list[dict[str, str]] = []
     off: set[str] = set()
     for path in sorted(record):
         kind, detail = judge(path, record[path])
+        if kind == "missing" and not explained_by_any(wanted, path):
+            kind = "retired"
         counts[kind] += 1
-        if kind != "ok":
+        if kind in LISTED:
             findings.append({"kind": kind, "path": path, **({"detail": detail} if detail else {})})
-        if kind in ("edited", "missing", "unreadable"):
             off.add(path)
-    findings.sort(key=lambda f: KINDS.index(f["kind"]))
-    for what in would_change(root, env, timeout):
+    findings.sort(key=lambda f: LISTED.index(f["kind"]))
+    for what in wanted:
         if not explained(what, off):
             counts["stale"] += 1
             findings.append({"kind": "stale", "path": what})

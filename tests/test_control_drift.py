@@ -6,12 +6,14 @@ chosen by the case) show what reaches a reply and what reaches a terminal."""
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -61,7 +63,7 @@ class Scratch(unittest.TestCase):
 class Op(Scratch):
     def test_a_clean_account_is_ok_with_whole_counts(self):
         self.assertEqual(ops.collect("drift", self.ctx()),
-                         {"drift": {"status": "ok", "counts": {"ok": 1, "edited": 0, "missing": 0, "unreadable": 0, "stale": 0}, "findings": []}})
+                         {"drift": {"status": "ok", "counts": {"ok": 1, "edited": 0, "missing": 0, "unreadable": 0, "retired": 0, "stale": 0}, "findings": []}})
 
     def test_drift_is_said_with_the_findings(self):
         with open(self.a, "w") as f:
@@ -104,6 +106,27 @@ class Op(Scratch):
         self.assertEqual(reply["op"], "drift")
 
 
+class Wiring(unittest.TestCase):
+    def test_the_daemons_own_context_caches_the_read_for_a_minute(self):
+        """main()'s ctx, captured from its --self answer: the keeper is wired, and two reads inside its window run bootstrap once."""
+        seen = []
+
+        def capture(request, ctx):
+            seen.append(ctx)
+            return {"id": "self", "op": "status", "data": {}}
+        calls = []
+        with mock.patch.object(agentd, "answer", capture), \
+                mock.patch.object(ops, "drift_report", lambda: calls.append(1) or {"status": "ok", "counts": {}, "findings": []}), \
+                mock.patch("sys.stdout", new=io.StringIO()):
+            agentd.main(["--self"])
+            ctx = seen[0]
+            self.assertIn("drift_cached", ctx)
+            ctx["drift_cached"]()
+            ctx["drift_cached"]()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(agentd.DRIFT_CACHE_MS, 60000)
+
+
 class Ctl(Scratch):
     def test_argv_timeout_and_the_closed_sets(self):
         a = ctl.parse_args(["all", "drift"])
@@ -125,13 +148,13 @@ class Ctl(Scratch):
         text = ctl.table("drift", self.rows(ops.collect("drift", self.ctx())["drift"]))
         head, counts, *found = text.splitlines()
         self.assertIn("stale", head)
-        self.assertEqual(counts.split(), ["a", "drift", "0", "1", "0", "0", "1"])
+        self.assertEqual(counts.split(), ["a", "drift", "0", "1", "0", "0", "0", "1"])
         self.assertEqual([ln.split()[0] for ln in found], ["edited", "stale"])
         self.assertIn(self.a, found[0])
 
     def test_what_an_account_sent_reaches_the_terminal_escaped(self):
         hostile = "/h/\x1b[31mred\x07\nnext"
-        text = ctl.table("drift", self.rows({"status": "drift", "counts": {"ok": 0, "edited": 1, "missing": 0, "unreadable": 0, "stale": 0},
+        text = ctl.table("drift", self.rows({"status": "drift", "counts": {"ok": 0, "edited": 1, "missing": 0, "unreadable": 0, "retired": 0, "stale": 0},
                                              "findings": [{"kind": "edited", "path": hostile, "detail": "\x1b]0;x\x07"}]}))
         for bad in ("\x1b", "\x07"):
             self.assertNotIn(bad, text)
@@ -141,7 +164,7 @@ class Ctl(Scratch):
         failed = ctl.table("drift", self.rows({"status": "failed", "reason": "no record at /x"}))
         self.assertIn("failed", failed.splitlines()[1])
         self.assertIn("no record at /x", failed.splitlines()[1])
-        cut = ctl.table("drift", self.rows({"status": "drift", "counts": {"ok": 0, "edited": 0, "missing": 0, "unreadable": 0, "stale": 150},
+        cut = ctl.table("drift", self.rows({"status": "drift", "counts": {"ok": 0, "edited": 0, "missing": 0, "unreadable": 0, "retired": 0, "stale": 150},
                                             "findings": [{"kind": "stale", "path": "/p"}], "findings_total": 150, "truncated": True}))
         self.assertIn("150 findings in all", cut)
         none = ctl.table("drift", ctl.rows([{"login": "a", "host": "h", "address": "h/a"}], []))

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # bin/fabric-drift — what in an account differs from what the fabric wrote (j138). The path is the
-# contract (commands.json, the session-start hook's advice, the agents'
-# procedures name it); the work, its rules and every reason for them are in
+# contract; the work, its rules and every reason for them are in
 # tools/fabric/account_drift.py (ADR-040 §5 rule 4). Bash builtins only, to find
 # it: with git or hostname missing from PATH the module must still run, and
 # say which. It is reached through a symlink in ~/.local/bin, which no bash
