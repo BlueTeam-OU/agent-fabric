@@ -1288,10 +1288,11 @@ def _spawn_holder(name: str, mode: str, lock: str, session_pid: int = 0, session
         sim = os.path.join(d, "sim.py")
         open(sim, "w").write(_SIM)
         argv = [sys.executable, sim, parent_comm, *argv]
-    p = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True)
+    # A session of its own: the stand-in parent and the holder under it are one process group, ended together by _reap.
+    p = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True, start_new_session=True)
     line = p.stdout.readline()
     if line.strip() != "READY":
-        p.kill()
+        _reap(p)
         raise Failed(f"the holder did not start: {line!r}")
     return p
 
@@ -1324,8 +1325,13 @@ def _take(lock_dir: str, session: Any = None, wait_s: float = 5.0) -> tuple[Any,
 
 
 def _reap(*procs: subprocess.Popen) -> None:
+    """End each holder's whole process group (the stand-in parent too), reap it, leave nothing running."""
+    import signal
     for p in procs:
-        p.kill()
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         p.wait()
         p.stdout.close()
 
