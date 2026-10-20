@@ -36,17 +36,20 @@ reaches that package script's body, one hop, the filter resolved through
 a for-loop over a matrix.
 
 For rule 1 only, a member is also RUN when a shell member a workflow
-runs itself runs it: one hop, read as a run: line is read — the path
-as an argument of an executed command in the invoking script's text —
-written as the repository-relative path, or under a variable the script
-sets to its own directory and to nothing else (`here="$(cd "$(dirname
-"${BASH_SOURCE[0]}")" && pwd)"`, then "$here/<name>"), or as
-"$(dirname "$0")/<name>". A comment, an echo, a path inside a longer
-string, a heredoc's body, and a variable this cannot resolve (one bound
-anywhere to anything else) do not count; nor does a
-member reached only through a member that is itself reached only so.
-Rules 2 and 3 are unchanged: such a helper still needs its own
-self-test, and a workflow must run that.
+runs itself runs it: one hop, as the script of a simple command —
+bash, sh, python3 or python's first operand, or the command word itself
+— past leading assignments, keywords and redirections; written as the
+repository-relative path, under a variable the script sets to its own
+directory on a line of its own and names nowhere else
+(`here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`, then
+"$here/<name>"), or as "$(dirname "$0")/<name>". Nothing else counts: a
+path an echo, printf, test or cat is handed, one in a comment or a
+string, one under any other variable, and a member reached only through
+a member itself reached only so. A script with a heredoc, a backtick or
+a quote that does not close on its line is not read at all; a member
+it names is reported unwired, with a line on stderr saying why. Rules 2
+and 3 are unchanged: such a helper still needs its own self-test, and a
+workflow must run that.
 
 NOT checked here: whether the paths a guard protects trigger the job
 that runs it. "Runs at all" and "runs on the right changes" are
@@ -314,6 +317,15 @@ def package_commands(root: str, workflows: str, excludes: set[str]) -> list[str]
 
 
 # ── one hop: what a wired shell member itself runs ───────────────────
+#
+# Deliberately NOT a shell parser. Two rounds of review found a new way
+# for a permissive reader to take printed text for a command each time
+# (a ; in a string, a heredoc inside "$( )", the & of >&2, a binder in a
+# case arm), so the reading is an allow-list: a script is read only when
+# every line of its code is one shlex reads whole, with no heredoc and no
+# backtick, and only an interpreter's script argument, or a command word
+# that is itself a path, counts. Anything else the script does wires
+# nothing, which reports a helper rather than passing it.
 
 # The value of an assignment that names the script's own directory and
 # nothing else, its quotes and spaces removed: $(dirname "$0"), or the
@@ -322,203 +334,133 @@ def package_commands(root: str, workflows: str, excludes: set[str]) -> list[str]
 _SELF = r"(\$0|\$\{0\}|\$BASH_SOURCE|\$\{BASH_SOURCE\}|\$\{BASH_SOURCE\[0\]\})"
 _SELF_DIR = re.compile(r"\$\(dirname(--)?" + _SELF + r"\)")
 _SELF_VALUE = re.compile(r"\$\(cd(--)?" + _SELF_DIR.pattern + r"&&pwd(-P)?\)|" + _SELF_DIR.pattern)
+_ASSIGN = re.compile(r"(?:(?:local|readonly|declare|typeset|export)(?:\s+-\w+)*\s+)?([A-Za-z_]\w*)=(.*)", re.S)
 # "$(dirname "$0")/x" as shlex leaves it: the inner quotes gone, a space kept.
-_DIRNAME_WORD = re.compile(r"^\$\(dirname\s+(--\s+)?" + _SELF + r"\s*\)/")
-_ASSIGN = re.compile(r"\s*(?:(?:local|readonly|declare|typeset|export)(?:\s+-\w+)*\s+)?([A-Za-z_]\w*)(\+?)=(.*)", re.S)
-_HEREDOC = re.compile(r"<<-?\s*\\?([\"']?)([A-Za-z_][\w.-]*)\1")
-_BINDS = {"read", "for", "select", "getopts", "local", "declare", "typeset", "readonly", "export", "unset", "mapfile", "readarray"}
+_DIRNAME_WORD = re.compile(r"\$\(dirname\s+(--\s+)?" + _SELF + r"\s*\)/(.+)", re.S)
+_INTERPRETERS = {"bash", "sh", "python3", "python"}
+_SEPARATORS = {";", ";;", "&", "&&", "|", "||", "|&", "(", ")"}
 
 
-class _Unreadable(Exception):
-    """A construct the reader cannot follow with certainty: the script then
-    wires nothing, so its helpers are reported rather than passed."""
+def _unquoted(code: str) -> str:
+    """The line without its quoted spans: what the shell reads as syntax."""
+    return re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", "", code)
 
 
-def _segments(text: str) -> list[str]:
-    """The simple commands of a script, split where the shell splits them:
-    at a newline, ;, & or | outside quotes and outside $( … ), never at
-    the & of a redirect (>&2, 2>&1, &>). A comment is dropped; a heredoc's
-    body, at any depth, is not a command and is skipped; (( … )) and a
-    <<< here-string are no heredoc; a quoted string may span lines. A <<
-    whose delimiter this cannot read raises _Unreadable."""
-    # A backslash-newline is consumed as an escaped character below, which
-    # joins the continuation without a split.
-    out, cur, quote, depth, i, n = [], [], "", 0, 0, len(text)
-    pending: list[str] = []
+def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
+    """Each line of code, its comment stripped, with its tokens; or, for a
+    script outside the subset this reads, no lines and why."""
+    lines = []
+    for n, line in enumerate(text.replace("\\\n", " ").split("\n"), 1):
+        code = strip_comment(line).strip()
+        bare = _unquoted(code)
+        if "`" in bare:
+            return [], f"line {n}: a backtick"
+        if re.search(r"(?<!<)<<(?!<)", bare):
+            return [], f"line {n}: a heredoc"
+        lex = shlex.shlex(code, posix=True, punctuation_chars=True)
+        lex.whitespace_split, lex.commenters = True, ""
+        try:
+            lines.append((code, list(lex)))
+        except ValueError:
+            return [], f"line {n}: a quote that does not close on its line"
+    return lines, ""
 
-    def flush():
-        seg = "".join(cur).strip()
-        if seg:
-            out.append(seg)
-        cur.clear()
 
-    while i < n:
-        c = text[i]
-        if quote:
-            cur.append(c)
-            if c == "\\" and quote == '"' and i + 1 < n:
-                cur.append(text[i + 1])
-                i += 1
-            elif c == quote:
-                quote = ""
-        elif c == "\\" and i + 1 < n:
-            cur.append(c + text[i + 1])
-            i += 1
-        elif c in "'\"":
-            quote = c
-            cur.append(c)
-        elif text.startswith("((", i) or text.startswith("$((", i):
-            # Arithmetic: a << there is a shift, never a heredoc.
-            end = text.find("))", i)
-            if end < 0:
-                raise _Unreadable("(( with no ))")
-            cur.append(text[i:end + 2])
-            i = end + 2
-            continue
-        elif c == "$" and text.startswith("$(", i):
-            depth += 1
-            cur.append("$(")
-            i += 1
-        elif c == ")" and depth:
-            depth -= 1
-            cur.append(c)
-        elif c == "#" and (not cur or cur[-1][-1:].isspace() or cur[-1] in "(;&|") and not depth:
-            while i < n and text[i] != "\n":
-                i += 1
-            continue
-        elif text.startswith("<<<", i):
-            cur.append("<<<")
-            i += 3
-            continue
-        elif text.startswith("<<", i):
-            m = _HEREDOC.match(text, i)
-            if not m:
-                raise _Unreadable("a heredoc delimiter this cannot read")
-            pending.append(m.group(2))
-            cur.append(m.group(0))
-            i = m.end()
-            continue
-        elif c == "\n":
-            if depth:
-                cur.append(" ")
-            else:
-                flush()
-            # A heredoc's body runs from the next line to its delimiter.
-            for delim in pending:
-                while i < n:
-                    j = text.find("\n", i + 1)
-                    j = n if j < 0 else j
-                    line = text[i + 1:j]
-                    i = j
-                    if line.strip() == delim:
-                        break
-            pending = []
-        elif c == "&" and (text[i - 1:i] in ("<", ">") or text[i + 1:i + 2] == ">"):
-            cur.append(c)
-        elif c in ";&|" and not depth:
-            flush()
-        else:
-            cur.append(c)
-        i += 1
-    flush()
+def _self_dir_vars(lines: list[tuple[str, list[str]]]) -> set[str]:
+    """The variables assigned the script's own directory on a line of their
+    own, and named nowhere else as anything but $var or ${var}: a for,
+    a read, a let, a second assignment, ${var:=…} — any other mention —
+    and which value a later line sees is not read here."""
+    own = {}
+    for code, _tokens in lines:
+        m = _ASSIGN.fullmatch(code)
+        if m and _SELF_VALUE.fullmatch(re.sub(r"[\s\"']", "", m.group(2))):
+            own.setdefault(m.group(1), set()).add(code)
+    rest = "\n".join(code for code, _t in lines)
+    out = set()
+    for var in own:
+        others = "\n".join(c for c, _t in lines if c not in own[var])
+        mentions = re.findall(r"(?<![\w$])(?<!\$\{)" + var + r"\b", others)
+        if not mentions and not re.search(r"\$\{" + var + r":?[=?]", rest):
+            out.add(var)
     return out
 
 
-def _split(segment: str) -> list[str] | None:
-    """The segment's words, or None where shlex cannot read it: a reading
-    that is not certain wires nothing."""
-    try:
-        return shlex.split(segment, comments=False)
-    except ValueError:
-        return None
-
-
-def _self_dir_vars(text: str, segments: list[str]) -> set[str]:
-    """The variables every binding of which is the script's own directory.
-    Any other binding anywhere — an assignment in any position, +=, a for
-    or read target, ${v:=…}, printf -v, local or export without a value —
-    and the variable is unresolved: which value a later line sees is not
-    read here."""
-    good, bad = set(), set(re.findall(r"\$\{([A-Za-z_]\w*):?[=?]", text))
-    for seg in segments:
-        # The segment's own assignment, read raw: its value's $( … ) and
-        # quotes are what shlex would split it at.
-        lead = _ASSIGN.fullmatch(seg)
-        if lead:
-            value = re.sub(r"[\s\"']", "", lead.group(3))
-            (good if not lead.group(2) and _SELF_VALUE.fullmatch(value) else bad).add(lead.group(1))
-        for m in re.finditer(r"(?:^|[\s(;`])([A-Za-z_]\w*)\+?=", seg):
-            if not (lead and m.start(1) == lead.start(1)):
-                bad.add(m.group(1))
-        ws = _split(seg) or seg.split()
-        for k, w in enumerate(ws):
-            if k and ws[k - 1] == "-v" and re.fullmatch(r"[A-Za-z_]\w*", w):
-                bad.add(w)
-        # The binder is the command word, past keywords and prefix
-        # assignments: `while read -r v`, `IFS= read v`, `do for v in`.
-        cmd = command(seg)
-        if cmd and cmd[0] in _BINDS:
-            bad |= {w for w in cmd[1:] if re.fullmatch(r"[A-Za-z_]\w*", w)}
-    return good - bad
-
-
-_REDIRECT = re.compile(r"(\d*|&)(>>?|<)(&\S*|\S+)?")
-
-
-def _past_redirects(cmd: list[str]) -> list[str]:
-    """The command past its leading redirections: `>&2 echo x` runs echo.
-    An operator standing alone takes the next word as its target."""
+def _run_path(tokens: list[str]) -> str | None:
+    """The script a simple command runs: an interpreter's first operand, or
+    the command word itself. Leading assignments, keywords and redirections
+    are passed over; an option to anything but the interpreter is not read."""
     i = 0
-    while i < len(cmd) and _REDIRECT.fullmatch(cmd[i]):
-        i += 2 if _REDIRECT.fullmatch(cmd[i]).group(3) is None else 1
-    return cmd[i:]
+    while i < len(tokens):
+        t = tokens[i]
+        if t in KEYWORDS or re.fullmatch(r"[A-Za-z_]\w*=.*", t, re.S):
+            i += 1
+        elif t.isdigit() and i + 1 < len(tokens) and re.fullmatch(r"[<>&|]*[<>][<>&|]*", tokens[i + 1]):
+            i += 3
+        elif re.fullmatch(r"[<>&|]*[<>][<>&|]*", t):
+            i += 2
+        else:
+            break
+    if i >= len(tokens):
+        return None
+    if os.path.basename(tokens[i]) not in _INTERPRETERS:
+        return tokens[i]
+    for t in tokens[i + 1:]:
+        if not t.startswith("-"):
+            return t
+    return None
 
 
-def invoked_members(root: str, rel: str) -> set[str]:
-    """The repository-relative paths the shell member `rel` runs as an
-    argument of an executed command: the readings the docstring lists,
-    and nothing it cannot resolve."""
+def _mentions(root: str, script: str, name: str) -> bool:
+    with open(os.path.join(root, script), encoding="utf-8") as fh:
+        return name in fh.read()
+
+
+def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
+    """The repository-relative paths the shell member `rel` runs, by the
+    readings the docstring lists; and, for a script outside the subset
+    read here, nothing and why."""
     path = os.path.join(root, rel)
     try:
         with open(path, "rb") as fh:
             raw = fh.read()
         # A member that is not shell is not read as shell, nor decoded.
         if not (rel.endswith(".sh") or re.match(rb"#!\S*(/|\s)(ba)?sh\b", raw)):
-            return set()
+            return set(), ""
         text = raw.decode("utf-8")
     except (OSError, ValueError) as e:
         # A wired member this cannot read would wire nothing, so a helper
         # it runs would read as unreachable: refused, never guessed.
         raise Refused(f"could not read a wired member: {path}: {_why(e)}") from None
-    try:
-        segments = _segments(text)
-    except _Unreadable:
-        return set()
-    selfvars = _self_dir_vars(text, segments)
+    lines, why = _code(text)
+    selfvars = _self_dir_vars(lines)
     own = os.path.dirname(rel)
     out = set()
-    for seg in segments:
-        if _split(seg) is None:
-            continue
-        cmd = _past_redirects(command(seg))
-        if not cmd or cmd[0] in ("echo", UNREADABLE):
-            continue
-        for w in cmd:
+    for _code_line, tokens in lines:
+        command_tokens: list[list[str]] = [[]]
+        for t in tokens:
+            if t in _SEPARATORS:
+                command_tokens.append([])
+            else:
+                command_tokens[-1].append(t)
+        for cmd in command_tokens:
+            w = _run_path(cmd)
+            if not w:
+                continue
             m = re.fullmatch(r"\$\{?([A-Za-z_]\w*)\}?/(.+)", w, re.S)
+            d = _DIRNAME_WORD.fullmatch(w)
             if m and m.group(1) in selfvars:
                 target = os.path.join(own, m.group(2))
-            elif _DIRNAME_WORD.match(w):
-                target = os.path.join(own, _DIRNAME_WORD.sub("", w))
-            elif "/" in w and not os.path.isabs(w) and not GLOB_CHARS.search(w):
-                # Read as repository-relative; an unexpanded $X/… names
-                # no file there, and so wires nothing.
+            elif d:
+                target = os.path.join(own, d.group(3))
+            elif "/" in w and not w.startswith("$") and not os.path.isabs(w) and not GLOB_CHARS.search(w):
                 target = w
             else:
                 continue
             target = os.path.normpath(target)
             if not target.startswith("..") and os.path.isfile(os.path.join(root, target)):
                 out.add(target)
-    return out
+    return out, why
 
 
 # ── is it run, and how ───────────────────────────────────────────────
@@ -651,11 +593,15 @@ def check(root: str, cfg: dict) -> dict:
     # Rule 1's one hop: what the members a workflow runs themselves run.
     # Read from the directly wired only, so a second hop never counts.
     hop: set[str] = set()
+    unread: dict[str, str] = {}
     for d in cfg["dirs"]:
         for name in _files(os.path.join(root, d["dir"])):
             rel = f"{d['dir']}/{name}"
             if not name.startswith("test_") and d["members"].search(name) and runs.wired(rel):
-                hop |= invoked_members(root, rel)
+                found, why = invoked_members(root, rel)
+                hop |= found
+                if why:
+                    unread[rel] = why
 
     f = {"events": [], "unwired": [], "untested": [], "unwired_tests": [], "bare": [], "guards": 0,
          "exempt": len(exempt)}
@@ -689,6 +635,12 @@ def check(root: str, cfg: dict) -> dict:
                     and not runs.wired(rel) and rel not in hop:
                 f["unwired"].append(shown)
                 f["events"].append(("member_unwired", rel, d["dir"]))
+                # A wired script this did not read, naming the member: say
+                # so, or "unwired" sits beside a script that plainly runs it.
+                for script, why in sorted(unread.items()):
+                    if _mentions(root, script, name):
+                        print(f"{PROG}: {script} was not read for what it runs ({why}), and names {rel}",
+                              file=sys.stderr)
     # EVERY OTHER test_*.sh IN THE TREE: a list of directories is the same
     # narrowness one level out, and the next self-test put somewhere new
     # would be invisible again. Hidden directories are not walked, as
