@@ -70,8 +70,8 @@ committing in J's copy — the incident one step later. A session launched by `f
 nothing (J was activated by another session) and is allowed J's copies; the session that switched has worked W
 and is allowed nothing.
 
-WHY. 2026-10-20 (the owner's report through architect-cto-01): a session launched on InterWeave closed its job,
-took a gzapp question with REPLY-EXPECTED, cd'd into ~/projects/gzapp and committed there (9fbb51030) without
+WHY. 2026-10-20 (the owner's report through architect-cto-01): a session launched on one project closed its job,
+took another project's question with REPLY-EXPECTED, cd'd into that project's working copy and committed there without
 `fabric-jobs switch`. Its own reasoning noticed the switch rule and went on. ADR-037 rule 3 says that once a
 session has worked a job, every next job gets a fresh session; prose did not hold, so the rule has a fence. The
 inbox needs no change for it: a REQUEST addressed to this login is already queued as a job when it is delivered
