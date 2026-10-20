@@ -550,6 +550,57 @@ def worktree_head(path: str) -> str | None:
     return head.stdout.strip() if head.returncode == 0 else None
 
 
+def dispatching_session_pid(proc: str = "/proc", start: int | None = None) -> int | None:
+    """Pid of the nearest ancestor of `start` (default: this process) whose comm is
+    `claude`, or None. `proc` is injectable so a test can lay out a fake process tree."""
+    pid = os.getpid() if start is None else start
+    seen: set[int] = set()
+    while pid > 1 and pid not in seen:
+        seen.add(pid)
+        try:
+            with open(os.path.join(proc, str(pid), "comm"), encoding="utf-8", errors="replace") as f:
+                comm = f.read().strip()
+            if comm == "claude":
+                return pid
+            with open(os.path.join(proc, str(pid), "stat"), encoding="utf-8", errors="replace") as f:
+                # comm may hold spaces and parens: the fields after the LAST ')' are state, ppid, ...
+                pid = int(f.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return None
+    return None
+
+
+def mark_in_use(path: str, proc: str = "/proc") -> None:
+    """Write `fabric-in-use` (pid line, UTC timestamp line) into the worktree's own git
+    directory. `fabric-branches --sweep` once removed a pinned evidence worktree while
+    a review still read it; it keeps one whose git dir names a live pid. The git dir,
+    never the tree: the reviewer reads the tree as the head, and ensure_head_worktree
+    refuses a tree that differs from it. No claude ancestor (a shell, a test) writes
+    nothing, so the sweep behaves as before. A failure never fails the brief."""
+    pid = dispatching_session_pid(proc)
+    if pid is None:
+        return
+    tmp = None
+    try:
+        r = subprocess.run(["git", "-C", path, "rev-parse", "--absolute-git-dir"], capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise OSError(r.stderr.strip() or "git rev-parse --absolute-git-dir failed")
+        gitdir = r.stdout.strip()
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fd, tmp = tempfile.mkstemp(prefix=".fabric-in-use.", dir=gitdir)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(f"{pid}\n{stamp}\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, os.path.join(gitdir, "fabric-in-use"))
+        tmp = None
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"fabric-review: could not mark {path} in use ({exc}); the branch sweep may take the worktree", file=sys.stderr)
+    finally:
+        if tmp:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+
+
 def ensure_head_worktree(repo: str, head_sha: str) -> tuple[str, bool]:
     """(path, made_by_this_call): a detached worktree of head_sha, made or
     reused. --detach so no branch and no branch.* config lands in the clone
@@ -570,6 +621,7 @@ def ensure_head_worktree(repo: str, head_sha: str) -> tuple[str, bool]:
             if st.returncode != 0 or changed:
                 raise EvidenceRefused(f"{path} is not clean ({changed[0][3:] if changed else st.stderr.decode(errors='replace').strip()}); "
                                       "it is not mine to delete: restore or remove it, then render again")
+            mark_in_use(path)
             return path, False
         r = _git(repo, "worktree", "add", "--detach", path, head_sha)
         # A cleaned temp dir leaves the clone's registration behind; prune drops only registrations whose path is gone.
@@ -580,6 +632,7 @@ def ensure_head_worktree(repo: str, head_sha: str) -> tuple[str, bool]:
             raise EvidenceRefused(f"git worktree add --detach {path} {head_sha[:12]} failed: {r.stderr.decode(errors='replace').strip()}")
     except subprocess.TimeoutExpired as exc:
         raise EvidenceRefused(f"{' '.join(map(str, exc.cmd))} timed out after {exc.timeout:g}s; {path} may be half made: check it, then render again")
+    mark_in_use(path)
     return path, True
 
 
