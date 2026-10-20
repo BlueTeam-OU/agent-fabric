@@ -100,7 +100,9 @@ tree; the words after it say what happens until it is.
    `roles_class` is `solution` or `workflow` may carry
    `anchors: [<path>::<symbol or literal>]` in its `metadata:` block: a
    repository path, and after `::` a symbol name or a literal string that
-   path must contain. `harvest_memory.parse_memory` carries them to the
+   path must contain. The path is the origin project's unless it names
+   another, `<project>:<path>`, by its `projects/registry.json` id; a
+   project the registry does not name is refused at the harvest. `harvest_memory.parse_memory` carries them to the
    claim, `identities/schemas/claims.schema.json` admits them,
    `slices.claim_block` renders them into the section's provenance line,
    and `memory-write-check.py` asks for them on a `solution` or `workflow`
@@ -114,9 +116,11 @@ tree; the words after it say what happens until it is.
    symbol or literal is no longer in its file, or a path the section cites
    is gone. `maybe-stale`: an anchor's file changed after the section's
    *Observed* date; the finding names the commit that changed it, and it
-   needs that file's git history. `fresh`: every anchor and cited path
+   needs that file's git history. An anchor that names a project is judged
+   in that project's checkout beside the fabric's, under the same
+   outcomes. `fresh`: every anchor and cited path
    holds and no anchor's file changed since *Observed*. `unchecked`: the
-   origin project's checkout is absent, or the history is shallow or
+   origin project's checkout, or a named project's, is absent, or the history is shallow or
    missing, so the section cannot be judged; unknown, never stale, never
    routed. `no-anchor`: the section has no anchors and cites no path; not
    checked, never routed. Only `stale-hard` and `maybe-stale` are flags.
@@ -281,3 +285,11 @@ Accepted (the header names the owner's word).
   (`remove_sections`, `claim_block`), `tools/fabric/assembler/writer.py`,
   `tools/fabric/harvest_memory.py`,
   `runtime/claude-code/hooks/memory-write-check.py`
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-050-amendments.md](history/ADR-050-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-20 | An anchor may name its project | §5 rules 1-2: `<project>:<path>::<symbol>`, judged in that project's checkout; absent checkout is unchecked |

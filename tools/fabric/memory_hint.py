@@ -40,6 +40,7 @@ from typing import Any, Callable
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "runtime"))
+import anchors as anchor_syntax  # noqa: E402
 import identity  # noqa: E402
 import memory_check  # noqa: E402
 import memory_flags  # noqa: E402
@@ -123,14 +124,14 @@ def ask(body: str, *, run: Callable[..., Any] = subprocess.run, argv: list[str] 
 
 
 def anchor_path(anchor: str) -> str:
-    return anchor.split("::", 1)[0]
+    return anchor_syntax.split(anchor)[1]
 
 
 def holder_tree(anchor: str, trees: list[str]) -> str | None:
     """The checkout memory_check judged `anchor` in (judge_anchor): the first that has the path and, when a symbol
     follows `::`, holds it; else the first that has the path. A flag about a file that moved in one checkout must
     not show the history of a same-named file in another."""
-    path, _, symbol = anchor.partition("::")
+    _project, path, symbol = anchor_syntax.split(anchor)
     present = [t for t in trees if memory_check._in_tree(t, path) == "ok"]
     if symbol:
         for t in present:
@@ -156,6 +157,7 @@ def attach_hints(flags: list, sources: dict[str, dict], *, run: Callable[..., An
     history = history or memory_check.History()
     report: dict = {"eligible": 0, "hinted": 0, "skipped": 0, "failed": None}
     read: dict[str, dict[str, dict]] = {}
+    metas: dict[str, dict[str, dict]] = {}
     for flag in flags:
         kinds = {r["kind"] for r in flag.reasons}
         if "maybe-stale" not in kinds or "stale-hard" in kinds:
@@ -169,21 +171,32 @@ def attach_hints(flags: list, sources: dict[str, dict], *, run: Callable[..., An
             continue
         try:
             if flag.corpus not in read:
-                read[flag.corpus] = {sl["rel"]: sl["sections"] for sl in memory_check.read_corpus(src["corpus"]) if "sections" in sl}
+                corpus_slices = [sl for sl in memory_check.read_corpus(src["corpus"]) if "sections" in sl]
+                read[flag.corpus] = {sl["rel"]: sl["sections"] for sl in corpus_slices}
+                metas[flag.corpus] = {sl["rel"]: sl["meta"] for sl in corpus_slices}
             text = read[flag.corpus][flag.slice][flag.heading]
             observed, _ = memory_check.observed_of(text)
             if not observed:
                 raise memory_check.NoHistory("the section has no Observed date")
             diffs = []
+            seen: set[tuple[str, str]] = set()
             for reason in flag.reasons:
                 if reason["kind"] != "maybe-stale":
                     continue
                 path = anchor_path(reason["what"])
-                tree = holder_tree(reason["what"], src.get("trees", []))
-                if tree and path not in [p for p, _ in diffs]:
+                project = anchor_syntax.split(reason["what"])[0]
+                if project:           # judged in the named project's checkout (memory_check.named_trees), not the slice's origins
+                    named = memory_check.named_trees(project, metas[flag.corpus][flag.slice], src["tree"], src.get("own_project")) if "tree" in src else ([], [])
+                    tree = holder_tree(reason["what"], named[0])
+                else:
+                    tree = holder_tree(reason["what"], src.get("trees", []))
+                # Keyed by the checkout as well as the path: `x.py` of the origin and `other:x.py` are two files.
+                label = f"{project}:{path}" if project else path
+                if tree and (tree, path) not in seen:
+                    seen.add((tree, path))
                     diff = history.diff_since(tree, path, observed, MAX_DIFF_CHARS)
                     if diff.strip():
-                        diffs.append((path, diff))
+                        diffs.append((label, diff))
             if not diffs:
                 raise memory_check.NoHistory("no change of an anchor file to show")
         except (KeyError, OSError, memory_check.NoHistory, memory_check.Refused):

@@ -109,7 +109,7 @@ def gather(corpora: list[Corpus], report: dict, history: "memory_check.History |
             for t in memory_check.origin_trees(sl.get("meta") or {}, c.tree, c.own_project)[0]:
                 if t not in trees:
                     trees.append(t)
-        sources[c.label] = {"corpus": c.root, "trees": trees}
+        sources[c.label] = {"corpus": c.root, "trees": trees, "tree": c.tree, "own_project": c.own_project}
     by_prefix = {c.prefix: c.root for c in corpora}
     labels = {c.prefix: c.label for c in corpora}
     memory_flags.flags_from_marks(report.get("memory_marks") or {}, by_prefix, labels, into=flags)

@@ -113,14 +113,14 @@
             "type": "string"
           },
           "anchors": {
-            "description": "The paths and symbols a solution or workflow claim rests on (ADR-050 rule 1): a repository path, and after `::` a symbol name or a literal string that file must contain. A mechanical check (memory_check.py) sorts the section stale-hard when one is gone and maybe-stale when its file changed since the section was observed. Rendered into the section's provenance as a line of its own above the *Observed* tail.",
+            "description": "The paths and symbols a solution or workflow claim rests on (ADR-050 rule 1): a repository path, the origin project's unless prefixed `<project>:` with a projects/registry.json id, and after `::` a symbol name or a literal string that file must contain. A mechanical check (memory_check.py) sorts the section stale-hard when one is gone and maybe-stale when its file changed since the section was observed. Rendered into the section's provenance as a line of its own above the *Observed* tail.",
             "type": "array",
             "uniqueItems": true,
             "maxItems": 20,
             "items": {
               "type": "string",
               "maxLength": 300,
-              "pattern": "^[^\\s`\\\\:/][^\\s`\\\\:]*(::[^`\\r\\n]*[^\\s`\\r\\n])?$"
+              "pattern": "^(?:[a-z0-9][a-z0-9._-]*:(?!:))?[^\\s`\\\\:/][^\\s`\\\\:]*(::[^`\\r\\n]*[^\\s`\\r\\n])?$"
             }
           },
           "shared_with": {
