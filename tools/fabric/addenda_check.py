@@ -65,6 +65,7 @@ import zoneinfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import hidden_unicode  # noqa: E402
 import layout  # noqa: E402
 
 MAX_CHARS = 4000
@@ -111,9 +112,6 @@ LINK_RE = re.compile(r"(?=\]\(\s*<?([^)\s>\]]*))")
 REF_DEF_RE = re.compile(r"^[ \t]{0,3}\[(?!\^)[^\]\n]+\]:\s*<?(\S+)", re.M)
 AUTOLINK_RE = re.compile(r"<([A-Za-z][A-Za-z0-9+.-]*:[^>\s]*|[./][^>\s]*)>")
 HTML_ATTR_RE = re.compile(r"\b(?:href|src)\s*=\s*[\"']?([^\"'\s>]*)", re.I)
-# A line separator other than LF, a control character or a bidi override
-# changes what a reader or an auditor of the gloss sees.
-CONTROL_RE = re.compile("[\x00-\x08\x0b\x0c\r\x0e-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
 # Unicode hyphens are folded before the model-pin patterns look.
 HYPHENS = dict.fromkeys(range(0x2010, 0x2016), "-")
 WIKILINK_RE = re.compile(r"\[\[[^\]\n]+\]\]")
@@ -174,8 +172,13 @@ def _decode(name: str, raw: bytes) -> tuple[str | None, list[str]]:
     findings = []
     if "\r" in text:
         findings.append(f"{name}: carriage return (LF line endings only)")
-    if CONTROL_RE.search(text):
-        findings.append(f"{name}: a control character, a line separator other than LF or a bidi override")
+    # What a reader or an auditor of the gloss sees differs from what a model reads: hidden_unicode owns the
+    # classes. The BOM was refused on the bytes above, so none is allowed at offset 0 here either.
+    hidden = hidden_unicode.scan(text, allow_bom=False)
+    if hidden:
+        first = hidden[0]
+        findings.append(f"{name}: a control character, a line separator other than LF, a bidi override or a hidden "
+                        f"format character (first: {first})")
     return text, findings
 
 
