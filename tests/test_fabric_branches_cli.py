@@ -61,7 +61,9 @@ def main() -> int:
         # The scratch origin is a local path: GH_REPO names the repository the
         # fake gh serves, since gh's default is never used (gh.this_repo).
         env.update(PATH=f"{t}/bin{os.pathsep}{env.get('PATH', '')}", AGENT_FABRIC_STATE_DIR=f"{t}/state",
-                   GH_REPO="o/r", CLAUDE_CONFIG_DIR="/nonexistent/claude-config")   # no registry: a sweep keeps this login's real session scratch
+                   GH_REPO="o/r", CLAUDE_CONFIG_DIR=f"{t}/claude-config", TMPDIR=f"{t}/tmp")   # an empty registry reads every scratch directory under $TMPDIR as an ended session's, and a sweep removes a worktree only when it reads one: the scratch is this suite's own
+        os.makedirs(f"{t}/claude-config/sessions")
+        os.makedirs(f"{t}/tmp")
 
         def git(*args: str, cwd: str = wc, ok: bool = False) -> str:
             r = subprocess.run(["git", "-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t",

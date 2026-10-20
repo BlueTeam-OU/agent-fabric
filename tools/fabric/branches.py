@@ -48,11 +48,11 @@ checkouts piled up, 39 and 530 MB on one login in a day):
   - an ended Claude Code session's scratch under this login's claude-tmp cache ($TMPDIR/claude-<uid>/…/<session
     id>), unless the harness of this login's registry (~/.claude/sessions/<pid>.json) names it for a harness
     that is live by plan_hold's rule for its own markers, or it is the session running the command. A registry that
-    cannot be read or understood calls no session ended, and is said: the worktrees a live session stands in are then known
-    only through AGENT_FABRIC_BRANCHES_KEEP. A worktree a live session stands in is in use otherwise. Never
+    cannot be read or understood calls no session ended, and is said: no worktree is then removed, each is kept with the
+    reason "session registry unreadable". A worktree a live session stands in is in use otherwise. Never
     another login's path, never a symlink.
 What a sweep keeps it says with the reason (changes, commits on no remote, ignored files, lock, this one, in use,
-live session); what it removes, with its size.
+live session, session registry unreadable); what it removes, with its size.
 
 What differs from the bash, on purpose — every one a place where bash read a
 failed git call as an answer, which for a command that deletes is the one
@@ -326,6 +326,9 @@ def record_sweep(top: str) -> None:
 # The directories live Claude Code sessions of this login stand in (their registry's cwd), filled by a sweep: a worktree one of
 # them is in is in use, whichever session runs the sweep.
 LIVE_CWDS: list[str] = []
+# Whether the registry could not be read at all. Unknown is not "no session stands anywhere": the worktrees go the way the scratch
+# does, kept, because a removed cwd is pulled from under a session and nothing says whose.
+REGISTRY_UNREADABLE = False
 
 
 def keep_paths() -> set[str]:
@@ -402,6 +405,8 @@ def worktree_state(wt: dict, base: str, top: str, refs: list[str] | None = None)
         why = f"{why + ', ' if why else ''}this one"
     if path in keep_paths() or any(c == path or c.startswith(path + "/") for c in LIVE_CWDS):
         why = f"{why + ', ' if why else ''}in use"
+    if not why and REGISTRY_UNREADABLE:
+        why = "session registry unreadable"
     return n, why
 
 
@@ -559,6 +564,10 @@ def report_json(top: str, current: str, dirty: int) -> int:
 
     def count(n: str):
         return int(n) if n.isdigit() else None
+    # The count of what a sweep would remove is the sweep's own: it keeps every worktree when the registry cannot be read, and the
+    # control agent reads this object to say how many are removable.
+    global REGISTRY_UNREADABLE
+    REGISTRY_UNREADABLE = live_sessions() is None
     listing = worktrees()
     main_wt = listing[0]["path"] if listing else ""
     wts = []
@@ -730,9 +739,11 @@ def run(argv: list[str], scratch: bool = True) -> int:
     refs = remote_refs(f"refs/remotes/{base}")
     registry = live_sessions()
     LIVE_CWDS[:] = registry[1] if registry is not None else []
+    global REGISTRY_UNREADABLE
+    REGISTRY_UNREADABLE = registry is None
     if registry is None:
-        say(f"the sessions of this login cannot be listed ({sessions_dir()}): a worktree a live session stands in is "
-            "known to be in use only through AGENT_FABRIC_BRANCHES_KEEP")
+        say(f"the sessions of this login cannot be listed ({sessions_dir()}): no worktree is removed, because the "
+            "directory a live session stands in cannot be told from another (branches are still deleted)")
 
     identity = load_identity()
     host, login = identity.current_host(), identity.current_agent()
