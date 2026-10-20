@@ -122,20 +122,21 @@ judged.
    committed beside the policy) — names no agent, and any account
    pushing through the shared GitHub account can have the forge make
    one. Rule 5 admits it, with no `Fabric-Role:` trailer and no proof,
-   only where it carries nothing an agent should have signed:
-   (a) a merge of two parents whose tree is the clean merge of them
-   (`git merge-tree --write-tree`) — the forge's "Update branch", whose
-   content is its parents', each judged where the branch adds it; or
-   (b) a commit authored `dependabot[bot]`, not a merge, that changes
-   only `.github/workflows/` — the action-pin carve-out of
-   `policies/AUTHORITY.md`, a tripwire like it, since an author is
-   text. Every other forge-signed commit — an edit or a suggestion
-   committed on the web, a conflict resolved in the web editor, a
-   squash, an octopus, the commits of a branch the forge rebased
-   ("Update branch" by rebase re-signs each) — is refused: it is
-   re-made in a working copy and signed by its agent. A forge key is listed by its full fingerprint;
-   a rotated key is a policy change, and until it lands the forge's
-   commits are refused.
+   only where it carries nothing an agent should have signed: (a) a
+   merge of two parents whose tree is the clean merge of them (`git
+   merge-tree --write-tree`, with no merge attributes from the checkout
+   being judged) — the forge's "Update branch", whose content is its
+   parents', each judged where the branch adds it; or (b) a commit
+   authored `dependabot[bot]`, not a merge, whose diff against its
+   parent is not empty and lies only under `.github/workflows/` — the
+   action-pin carve-out of `policies/AUTHORITY.md`, a tripwire like it,
+   since an author is text. Every other forge-signed commit — an edit or
+   a suggestion committed on the web, a conflict resolved in the web
+   editor, a squash, an octopus, the commits of a branch the forge
+   rebased other than (b) ("Update branch" by rebase re-signs each) — is
+   refused: it is re-made in a working copy and signed by its agent. A
+   forge key is listed by its full fingerprint; a rotated key is a
+   policy change, and until it lands the forge's commits are refused.
 
 ## 6. Consequences
 

@@ -533,6 +533,19 @@ def run() -> None:
     check("a forge merge of parents that conflict (resolved in the web editor): refused",
           refused(r, "do not merge cleanly"), r.stdout + r.stderr)
 
+    branch("forge-union")
+    commit("python-dev-04", "python-dev", name="unioned", text="branch\n")
+    advance_main(unioned="main\n")
+    # The checkout's own attributes (CI checks out the branch being judged)
+    # would make this conflict merge "cleanly" as the union of both sides.
+    with open(os.path.join(REPO, ".gitattributes"), "w", encoding="utf-8") as f:
+        f.write("unioned merge=union\n")    # untracked, as a checkout's own would be
+    git(*forge_cfg(), "merge", "-q", "--no-ff", "-m", "Merge branch 'main'", "main")
+    r = guard()
+    os.remove(os.path.join(REPO, ".gitattributes"))
+    check("a forge merge clean only under the checkout's merge=union attributes: refused",
+          refused(r, "do not merge cleanly"), r.stdout + r.stderr)
+
     branch("forge-octopus")
     commit("python-dev-04", "python-dev")
     for side in ("oct-a", "oct-b"):

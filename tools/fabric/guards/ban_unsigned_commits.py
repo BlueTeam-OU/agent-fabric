@@ -46,8 +46,9 @@ OpenPGP signature (G or U) by a key policies/signing.json lists under
 `forge_keys`, its primary the one in policies/forge-keys/<fingerprint>.asc,
 names no agent, no role and no proof, and passes only as
   - a merge of exactly two parents whose tree is `git merge-tree
-    --write-tree` of them (exit 0): "Update branch", whose content is its
-    parents', each judged here where the branch adds it; or
+    --write-tree` of them (exit 0), with no merge attributes from the
+    checkout: "Update branch", whose content is its parents', each judged
+    here where the branch adds it; or
   - a commit, not a merge, authored `dependabot[bot]`, whose diff against
     its parent is not empty and lies wholly under .github/workflows/: the
     action-pin carve-out of policies/AUTHORITY.md.
@@ -458,7 +459,14 @@ class Judge:
             but = " (Dependabot's carve-out is for a commit that is not a merge)" if dependabot else ""
             # Exit 1 is a conflict: whatever tree the forge wrote, a person
             # chose it in the web editor, and that choice is what rule 5 judges.
-            r = git.run(repo, "merge-tree", "--write-tree", parents[0], parents[1], check=False)
+            # Merge attributes are read from the empty tree, never the
+            # checkout: in CI the checkout is the branch being judged, and its
+            # `.gitattributes` (`merge=union`, say) could turn that conflict
+            # into a "clean" merge (review of #341). A repository whose own
+            # attributes GitHub honours is refused here, which fails closed.
+            empty = git.run(repo, "hash-object", "-t", "tree", "--stdin", input="").stdout.strip()
+            r = git.run(repo, "-c", "core.attributesFile=/dev/null", f"--attr-source={empty}", "merge-tree",
+                        "--write-tree", parents[0], parents[1], check=False)
             clean = (r.stdout.splitlines() or [""])[0].strip() if r.returncode == 0 else ""
             if not clean:
                 return (f"{who}, a merge whose parents do not merge cleanly (git merge-tree exit {r.returncode}): "
