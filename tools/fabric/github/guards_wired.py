@@ -35,6 +35,18 @@ With package_scripts, a `pnpm --filter <pkg> <script>` a workflow runs
 reaches that package script's body, one hop, the filter resolved through
 a for-loop over a matrix.
 
+For rule 1 only, a member is also RUN when a shell member a workflow
+runs itself runs it: one hop, read as a run: line is read — the path
+as an argument of an executed command in the invoking script's text —
+written as the repository-relative path, or under a variable the script
+sets to its own directory and to nothing else (`here="$(cd "$(dirname
+"${BASH_SOURCE[0]}")" && pwd)"`, then "$here/<name>"), or as
+"$(dirname "$0")/<name>". A comment, an echo, a path inside a longer
+string, and a variable this cannot resolve do not count; nor does a
+member reached only through a member that is itself reached only so.
+Rules 2 and 3 are unchanged: such a helper still needs its own
+self-test, and a workflow must run that.
+
 NOT checked here: whether the paths a guard protects trigger the job
 that runs it. "Runs at all" and "runs on the right changes" are
 different failures with different fixes.
@@ -298,6 +310,76 @@ def package_commands(root: str, workflows: str, excludes: set[str]) -> list[str]
     return out
 
 
+# ── one hop: what a wired shell member itself runs ───────────────────
+
+# The value of an assignment that names the script's own directory and
+# nothing else, its quotes and spaces removed: $(dirname "$0"), or the
+# same inside $(cd … && pwd). `/..` or any other suffix is another
+# directory, and fails the match.
+_SELF = r"(\$0|\$\{0\}|\$BASH_SOURCE|\$\{BASH_SOURCE\}|\$\{BASH_SOURCE\[0\]\})"
+_SELF_DIR = re.compile(r"\$\(dirname(--)?" + _SELF + r"\)")
+_SELF_VALUE = re.compile(r"\$\(cd(--)?" + _SELF_DIR.pattern + r"&&pwd(-P)?\)|" + _SELF_DIR.pattern)
+_ASSIGN = re.compile(r"^\s*(?:(?:local|readonly|declare|export)(?:\s+-\w+)*\s+)?([A-Za-z_]\w*)=(.*)$")
+# "$(dirname "$0")/x" as shlex leaves it: the inner quotes gone, a space kept.
+_DIRNAME_WORD = re.compile(r"^\$\(dirname\s+(--\s+)?" + _SELF + r"\s*\)/")
+
+
+def _self_dir_vars(lines: list[str]) -> set[str]:
+    """The variables every assignment of which is the script's own
+    directory. One other assignment anywhere and the variable is
+    unresolved: which value a later line sees is not read here."""
+    values: dict[str, list[bool]] = {}
+    for line in lines:
+        m = _ASSIGN.match(line)
+        if m:
+            value = re.sub(r"[\s\"']", "", m.group(2))
+            values.setdefault(m.group(1), []).append(bool(_SELF_VALUE.fullmatch(value)))
+    return {v for v, ok in values.items() if all(ok)}
+
+
+def invoked_members(root: str, rel: str) -> set[str]:
+    """The repository-relative paths the shell member `rel` runs as an
+    argument of an executed command: the readings the docstring lists,
+    and nothing it cannot resolve."""
+    path = os.path.join(root, rel)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except (OSError, ValueError) as e:
+        # A wired member this cannot read would wire nothing, so a helper
+        # it runs would read as unreachable: refused, never guessed.
+        raise Refused(f"could not read a wired member: {path}: {_why(e)}") from None
+    if not (rel.endswith(".sh") or re.match(r"#!\S*(/|\s)(ba)?sh\b", text)):
+        return set()
+    lines = [strip_comment(l) for l in text.replace("\\\n", " ").split("\n")]
+    selfvars = _self_dir_vars(lines)
+    own = os.path.dirname(rel)
+    out = set()
+    for line in lines:
+        for sep in ("&&", "||", ";", "|"):
+            line = line.replace(sep, "\n")
+        for seg in line.split("\n"):
+            cmd = command(seg)
+            if not cmd or cmd[0] in ("echo", UNREADABLE):
+                continue
+            for w in cmd:
+                m = re.match(r"^\$\{?([A-Za-z_]\w*)\}?/(.+)$", w)
+                if m and m.group(1) in selfvars:
+                    target = os.path.join(own, m.group(2))
+                elif _DIRNAME_WORD.match(w):
+                    target = os.path.join(own, _DIRNAME_WORD.sub("", w))
+                elif "/" in w and not os.path.isabs(w) and not GLOB_CHARS.search(w):
+                    # Read as repository-relative; an unexpanded $X/… names
+                    # no file there, and so wires nothing.
+                    target = w
+                else:
+                    continue
+                target = os.path.normpath(target)
+                if not target.startswith("..") and os.path.isfile(os.path.join(root, target)):
+                    out.add(target)
+    return out
+
+
 # ── is it run, and how ───────────────────────────────────────────────
 
 
@@ -425,6 +507,15 @@ def check(root: str, cfg: dict) -> dict:
     def is_exempt(rel: str) -> bool:
         return any(e == rel or ("/" not in e and e == os.path.basename(rel)) for e in exempt)
 
+    # Rule 1's one hop: what the members a workflow runs themselves run.
+    # Read from the directly wired only, so a second hop never counts.
+    hop: set[str] = set()
+    for d in cfg["dirs"]:
+        for name in _files(os.path.join(root, d["dir"])):
+            rel = f"{d['dir']}/{name}"
+            if not name.startswith("test_") and d["members"].search(name) and runs.wired(rel):
+                hop |= invoked_members(root, rel)
+
     f = {"events": [], "unwired": [], "untested": [], "unwired_tests": [], "bare": [], "guards": 0,
          "exempt": len(exempt)}
     scanned = set()
@@ -454,7 +545,7 @@ def check(root: str, cfg: dict) -> dict:
                 f["untested"].append(shown)
                 f["events"].append(("member_untested", rel, d["dir"]))
             if d["role"] in ("guard", "ci") and not (cfg["exempt_excuses_wiring"] and is_exempt(rel)) \
-                    and not runs.wired(rel):
+                    and not runs.wired(rel) and rel not in hop:
                 f["unwired"].append(shown)
                 f["events"].append(("member_unwired", rel, d["dir"]))
     # EVERY OTHER test_*.sh IN THE TREE: a list of directories is the same
