@@ -259,7 +259,8 @@ class Hints(Tree):
         self.assertEqual(len(shown), 1, "the named anchor's section is asked about with gzapp's history")
         self.assertIn("7_000_001", shown[0])
         self.assertIn("+    return 2", shown[0], "the origin's same-named path is a second file, not a duplicate of the named one")
-        self.assertIn("gzapp:tools/fabric/runner.py", shown[0], "the block says whose file it is")
+        self.assertIn("--- CHANGES to gzapp:tools/fabric/runner.py since", shown[0], "the block says whose file it is")
+        self.assertIn("--- CHANGES to tools/fabric/runner.py since", shown[0])
         self.assertEqual(memory_hint.anchor_path("gzapp:tools/fabric/runner.py::run_it"), "tools/fabric/runner.py")
 
     def test_holder_tree_follows_judge_anchor_for_a_fifo_and_for_a_file_past_the_size_limit(self):

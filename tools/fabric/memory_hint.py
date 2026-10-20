@@ -190,7 +190,7 @@ def attach_hints(flags: list, sources: dict[str, dict], *, run: Callable[..., An
                     tree = holder_tree(reason["what"], named[0])
                 else:
                     tree = holder_tree(reason["what"], src.get("trees", []))
-                # Keyed by the checkout as well as the path: `x.py` of the origin and `gzapp:x.py` are two files.
+                # Keyed by the checkout as well as the path: `x.py` of the origin and `other:x.py` are two files.
                 label = f"{project}:{path}" if project else path
                 if tree and (tree, path) not in seen:
                     seen.add((tree, path))

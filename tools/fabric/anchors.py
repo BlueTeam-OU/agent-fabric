@@ -4,7 +4,7 @@ text, and a line of a slice that no harvest ever validated is held to it too.
 
 An ANCHOR is `<path>` or `<path>::<symbol or literal>`: a repository path that stays inside its tree, and after
 `::` a string that file must contain. The path is the origin project's unless it is prefixed `<project>:`, a
-projects/registry.json id (ADR-050 rule 1 as amended 2026-10-20): `blueteam.ee:docs/x.md::a literal`. A memory carries them in its metadata block as one inline list,
+projects/registry.json id (ADR-050 rule 1 as amended 2026-10-20): `other-project:src/x.py::a literal`. A memory carries them in its metadata block as one inline list,
 
     anchors: [tools/fabric/harvest_memory.py::parse_memory, "memory/README.md::a literal, with a comma"]
 
