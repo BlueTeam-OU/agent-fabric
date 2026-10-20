@@ -92,6 +92,14 @@ Every heading is rendered, an empty one as `(none stated)`: a field the
 dispatcher forgot is visible to the reviewer, never silently gone. An
 unknown key is refused (`invariant:` → "did you mean invariants?").
 
+**Machine lines.** A claude review's brief ends with `## Report lines`, the
+mode's rule for the `Finding:` and `Judgement:` lines `fabric-errors`
+reads (ADR-061); the constitution quotes the same shapes. Codex is not asked
+for them: `review_codex.render_review` writes its `Finding:` lines from the
+structured answer (confidence `likely`, since the answer carries none). The
+shapes, vocabularies and writers are `tools/fabric/review_lines.py`, and
+`tests/test_review_lines.py` feeds each writer's text to the reader.
+
 **Wrong and right, side by side.** Objective is one line about the
 *system*, in the present tense — not about the change:
 

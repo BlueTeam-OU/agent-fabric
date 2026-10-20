@@ -56,7 +56,7 @@ closed-window period in which that row had a commit or which it owns, never
 only the PRs it owns: its count is always
 drawn from its denominator, and a rate cannot exceed 1.
 
-MACHINE LINES (one shape for every engine; the review brief owns it, this is the reader):
+MACHINE LINES (one shape for every engine; review_lines.py owns it, this is the reader):
 
     Finding: F<n> | P<1-3> | certain|likely|possible | <path>[:<line>] or - | <summary>
     Judgement: F<n> | real|not-real|partly|fixed|not-fixed | <reason>
@@ -94,6 +94,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gh  # noqa: E402
 import results  # noqa: E402
+import review_lines  # noqa: E402
 import roots  # noqa: E402
 from github import commit_class  # noqa: E402
 from github.post_review import REVIEW_MARKER  # noqa: E402
@@ -115,8 +116,8 @@ FOLD = re.compile(r"^Merge (?:remote-tracking )?branch '(?:origin/)?([^'/\s]+)/(
 UNATTRIBUTED = "unattributed"
 FINDING_LINE = re.compile(r"^Finding:(.*)$", re.M)
 JUDGEMENT_LINE = re.compile(r"^Judgement:(.*)$", re.M)
-CONFIDENCES = {"certain", "likely", "possible"}
-VERDICTS = {"real", "not-real", "partly", "fixed", "not-fixed"}
+CONFIDENCES = set(review_lines.CONFIDENCES)
+VERDICTS = set(review_lines.VERDICTS)
 FINDING_LABEL = re.compile(r"F[0-9]+")
 FINDING_LEVEL = re.compile(r"P[123]")
 FINDING_PATH = re.compile(r"-|[^\s|]+")

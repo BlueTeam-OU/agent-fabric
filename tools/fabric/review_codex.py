@@ -157,6 +157,7 @@ import gh  # noqa: E402
 import ledger  # noqa: E402
 import review_brief  # noqa: E402
 import review_gateway  # noqa: E402
+import review_lines  # noqa: E402
 import routing  # noqa: E402
 from github.review_status.base import Die  # noqa: E402
 from github.review_status.config import read_config  # noqa: E402
@@ -844,11 +845,18 @@ def render_review(model: str, head: str, rng: str, findings: list[dict], effort_
     else:
         out.append("Findings: " + ", ".join(f"{counts[lv]} {lv}" for lv in order if counts[lv]) + ".")
         out.append("")
-        for n, f in enumerate(sorted(findings, key=lambda f: order[f["level"]]), 1):
+        ordered = sorted(findings, key=lambda f: order[f["level"]])
+        for n, f in enumerate(ordered, 1):
             out += [f"{n}. **{f['level']}** `{_one_line(f['file'])}:{f['line']}`",
                     f"   - **Scenario:** {_one_line(f['scenario'])}",
                     f"   - **Expected:** {_one_line(f['expected'])}",
                     f"   - **Fix:** {_one_line(f['fix'])}"]
+    # Rendered here, never asked of the model, so a malformed line cannot leave the report unparsed (errors.py).
+    # The answer carries no confidence, and a finding read from code and not run is `likely` by the review class's
+    # own definition.
+    out.append("")
+    out += ([review_lines.finding_line(f"F{n}", f["level"], "likely", _one_line(f["file"]), f["scenario"], f["line"])
+             for n, f in enumerate(ordered, 1)] if findings else [review_lines.NO_FINDINGS])
     return "\n".join(out) + "\n"
 
 

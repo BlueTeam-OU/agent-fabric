@@ -41,7 +41,7 @@ fixed headings: Mode, Repository, Range, Objective, Requirements,
 Invariants, Compatibility, Threat model, Scope, Out of scope,
 Project review card (the project's text; no instruction files),
 Lenses, and on a re-review Previous findings, Re-review diff and
-Locators. Everything under them is a FACT about what must be true: a
+Locators, then Report lines (the machine lines below). Everything above them is a FACT about what must be true: a
 requirement, an invariant, a target environment, a boundary. A prose
 brief without the headings is still valid: take the range and the
 repository; the rest is fact only where it is one. Read a contract, record or requirement it names.
@@ -210,6 +210,32 @@ four sections, each present even when empty (say so):
    would settle it.
 4. **Brief notes** — what the brief asserted that you set aside (the
    verdict rule), what it lacked, lenses applied.
+
+**Machine lines.** A tool reads the report's counts from these, not
+from your prose, so end the report with one block of them, each at the
+start of its own line (no list marker, quote or fence), the summary on
+one line, the path without a space. In a review, one per numbered
+finding of section 1 and none for a pre-existing problem or a risk
+(`certain` is confirmed):
+
+```text
+Finding: F1 | P2 | certain | tools/fabric/errors.py:120 | a repeated label leaves the report unparsed
+Finding: F2 | P3 | likely | - | the README names a flag the CLI lacks
+```
+
+No findings on the change: the one line `Finding: none`. On a
+re-review, or when asked to judge a finding, one `Judgement:` line per
+finding by its number, then `Finding: none` unless the fix range
+introduced a new one (a `Finding:` line under a number not used before):
+
+```text
+Judgement: F1 | fixed | the label is checked before the split (errors.py:131)
+Judgement: F2 | not-real | the caller guards the empty list (run.py:40)
+Finding: none
+```
+
+Verdicts: real, not-real, partly, fixed, not-fixed. A malformed line
+discards the whole report's counts.
 
 Say explicitly when a severity level is empty. **Zero findings is a
 valid report**: say what you examined and the argument that makes each

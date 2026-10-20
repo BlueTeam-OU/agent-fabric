@@ -959,7 +959,7 @@ def case_i18n_dictionary_is_complete_and_keeps_its_identifiers() -> None:
         # A control character in a value reaches a session's context. A
         # NEWLINE most of all: it prints a second line there, which the
         # reader cannot tell from a line the tool itself wrote.
-        for bad in ("\x07", "\n", "\t", "\u009b", "\u2028", "\u202e"):
+        for bad in ("\x07", "\n", "\t", "\u009b", "\u2028", "\u202e", "\u200b", "\U000E0041"):
             write(ident(fabric, "locale", "ge", "ka-GE.json"),
                   json.dumps({**good, "inbox.others-header": f"ᲐᲠ ᲐᲠᲘᲡ{bad} (SPEC §17):"}, ensure_ascii=False))
             code, out = run_lint(fabric)

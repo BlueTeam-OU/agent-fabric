@@ -20,12 +20,12 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 AGENT = os.path.join(ROOT, "runtime", "claude-code", "agents", "code-review.md")
-SIZE_CAP = 13_000   # 12_288 until 2026-09-19: the owner's code-as-memory policy gave the reviewer one more section (agent-fabric ADR-015 §5 rule 7)
+SIZE_CAP = 13_500   # 12_288 until 2026-09-19: the owner's code-as-memory policy gave the reviewer one more section (agent-fabric ADR-015 §5 rule 7); 13_000 until j296 gave it the machine lines errors.py reads
 
 # The headings a rendered brief carries; the constitution names each.
 BRIEF_HEADINGS = ["Mode", "Repository", "Range", "Objective", "Requirements", "Invariants",
                   "Compatibility", "Threat model", "Scope", "Out of scope", "Project review card", "Lenses", "Previous findings",
-                  "Re-review diff", "Locators"]
+                  "Re-review diff", "Locators", "Report lines"]
 # The report sections the constitution requires, in order.
 REPORT_SECTIONS = ["Findings on the change", "Pre-existing problems", "Risks (unproven)", "Brief notes"]
 

@@ -56,6 +56,8 @@ import uuid
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runtime"))
 
+import review_lines  # noqa: E402
+
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 LENSES_DIR = os.path.join(FABRIC_ROOT, "runtime", "claude-code", "review", "lenses")
@@ -696,6 +698,10 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
         out.append("## Brief notes (dispatcher-asserted, not facts)")
         out.append("The dispatcher rendered these with --allow-rationale; they are the author's conclusions, not evidence — set them aside and say so:")
         out += [f"- {field}: {sentence}" for field, sentence, _ in rationale]
+    if engine == "claude":
+        # Codex's body is rendered by our code from its structured answer (review_codex.render_review), and the
+        # brief it gets adds only its answer shape (ADR-053 rule 1).
+        out += ["## Report lines"] + review_lines.report_rules(mode)
     return "\n".join(out) + "\n"
 
 

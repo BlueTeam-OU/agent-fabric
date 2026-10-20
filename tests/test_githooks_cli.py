@@ -214,6 +214,8 @@ def run() -> None:
     # the hooks' module beside commit_kind.py (ADR-040 rule 5: a fixture that copies the scripts copies their modules)
     shutil.copy2(f"{FABRIC}/tools/fabric/guards/commit_hooks.py", f"{REPO}/tools/fabric/guards/")
     shutil.copy2(f"{FABRIC}/tools/fabric/roots.py", f"{REPO}/tools/fabric/")   # which commit_hooks.py spells its policy path with
+    for m in ("agent_text.py", "hidden_unicode.py"):   # the hidden-text check commit_hooks.py runs for every committer
+        shutil.copy2(f"{FABRIC}/tools/fabric/{m}", f"{REPO}/tools/fabric/")
     git("config", "core.hooksPath", f"{REPO}/policies/githooks")
     git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "hooks in place")
     check("backend-dev bound: a code change in the fabric is refused",

@@ -442,6 +442,13 @@ class PermissionRules(Base):
         self.assertEqual([r for r in perm["allow"] if r.startswith("Bash(moli")], ["Bash(moli fetch *)"])
         self.assertIn("Bash(moli serve *)", perm.get("ask", []))
 
+    def test_memory_tools_allowed_by_name(self) -> None:
+        # Mutation: rules() ignores tools_allowed, and a plan-mode session asks for every memory lookup.
+        allow = self.written()["allow"]
+        for tool in ("memory_find", "memory_read", "memory_index", "memory_mark"):
+            self.assertIn(f"mcp__fabric-memory__{tool}", allow)
+        self.assertNotIn("_comment", allow)
+
     def test_permissions_second_run_changes_nothing(self) -> None:
         self.written()
         self.assertTrue(self.run_s(self.s).startswith("  =  "))

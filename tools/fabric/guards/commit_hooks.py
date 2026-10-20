@@ -16,6 +16,15 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             locale-paths                              the staged paths to judge, one per line; exit 0
             <fabric-root> is where the hook file lives (the forwarder works it out from its own real path), which is
             NOT where this module lives: a test, or a checkout the hooks serve, holds its own policies/authority.json.
+  itself    "agent-fabric itself" is ONE predicate, same_repository(<fabric-root>), for every decision that asks it (the
+            guard's scope and label, the contributor carve-out, the decision-record check, the hidden-text scope): the
+            repository's toplevel is <fabric-root>, or its git common directory is <fabric-root>'s, so a linked worktree of
+            the fabric is the fabric. Every other repository is a managed project, whose guarded set is .agent-fabric/.
+  hidden    pre-commit also refuses, for EVERY committer (the coordinator, both carve-outs, an unbound session), a staged
+            file that tools/fabric/agent_text.py calls text an agent reads (in agent-fabric itself: any *.md, *.md/*.json
+            under identities/ and .agent-fabric/; in a managed project: .agent-fabric/ only) whose STAGED blob holds
+            a character tools/fabric/hidden_unicode.py refuses. Exit 1, one `<path>:<line>:<col>: U+XXXX NAME (kind)` per
+            character.
   env       AGENT_FABRIC_STATE_DIR etc. are read by runtime/identity.py, which runs for the binding's role;
             AGENT_FABRIC_PYTHON is read by the forwarders only. The login is `id -un`, never the password database.
   stdout    only the three library verbs print on stdout; the hooks speak on stderr (and the decision-record check's
@@ -46,7 +55,9 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.dont_write_bytecode = True
 sys.path.insert(0, HERE)
 sys.path.insert(1, os.path.dirname(HERE))
+import agent_text  # noqa: E402  the one predicate for text an agent reads (lint judges the same files)
 import commit_kind  # noqa: E402
+import hidden_unicode  # noqa: E402  the one definition of what such text may not hide
 import roots  # noqa: E402  the hook's own checkout is the root it is given; roots spells the policy's path (test_roots_seam)
 
 ITSELF = "agent-fabric itself"
@@ -109,6 +120,57 @@ def toplevel() -> str:
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+def _common_dir_of(checkout: str) -> str:
+    """The git common directory of the checkout at `checkout` as git lays it out on disk, "" when it has none: its own
+    .git directory, or, for a linked worktree, what its gitdir's `commondir` names. Read from the files, because a hook
+    asks git of its cwd only (`_git`) and the root is not where it runs."""
+    dot_git = os.path.join(checkout, ".git")
+    if os.path.isdir(dot_git):
+        return _real(dot_git)
+    try:
+        with open(dot_git, encoding="utf-8") as f:
+            first = f.readline().strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    if not first.startswith("gitdir:"):
+        return ""
+    gitdir = os.path.join(checkout, first[len("gitdir:"):].strip())
+    try:
+        with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as f:
+            return _real(os.path.join(gitdir, f.read().strip()))
+    except (OSError, UnicodeDecodeError):
+        return _real(gitdir)
+
+
+def same_repository(root: str) -> bool:
+    """The commit is made in agent-fabric itself: its toplevel is the root, or it shares the root's git common directory
+    (a linked worktree of the root's repository, or the root a worktree of the clone being committed in). Most fabric work
+    is committed in a worktree, whose toplevel is never the root while it inherits the root's hooks path; asked of the
+    toplevel alone, the fence took such a commit for a managed project's and guarded only .agent-fabric/ (j320)."""
+    top = toplevel()
+    if not top:
+        # Not in a work tree: nothing is committed here, and the library answers a project's empty set outside a repository.
+        return False
+    if _real(top) == _real(root):
+        return True
+    fabric = _common_dir_of(root)
+    if not fabric:
+        return False  # the root is no git checkout (an installed copy): nothing can be a worktree of it
+    # git's own answer first, since GIT_DIR/GIT_COMMON_DIR outrank the layout. Not --path-format=absolute (git 2.31): an
+    # older git echoes an option it does not know and exits 0, and so does a git older than 2.5 for --git-common-dir,
+    # which is why an answer that is an option is no answer. Without one the toplevel's own layout is read: it names this
+    # commit's repository whichever it is, so neither side of the question is guessed. A fence that fails open when it
+    # cannot tell is the defect this predicate exists for, and taking a project for the fabric would lock the fleet out
+    # of its projects: when neither source answers, the hook cannot judge and refuses.
+    r = _git("rev-parse", "--git-common-dir")
+    answer = r.stdout.strip() if r.returncode == 0 else ""
+    here = _real(answer) if answer and "\n" not in answer and not answer.startswith("-") else _common_dir_of(top)
+    if not here:
+        raise Refuse("commit hooks: cannot tell whether this commit is made in agent-fabric (no git common directory for "
+                     f"{top}) — not committed")
+    return here == fabric
+
+
 def merge_head() -> str:
     r = _git("rev-parse", "-q", "--verify", "MERGE_HEAD")
     return r.stdout.strip() if r.returncode == 0 else ""
@@ -148,8 +210,7 @@ def _names(*args: str) -> list[str]:
 def guarded_change(fabric_root: str) -> tuple[str, list[str]]:
     """(label, guarded paths) of the commit being made: what the staged tree changes of its OWN under the fabric-coordinator
     role's guard. A merge changes only what differs from the clean three-way merge of its parents."""
-    top = toplevel()
-    itself = _real(top) == _real(fabric_root)
+    itself = same_repository(fabric_root)
     what, prefix = (ITSELF, "") if itself else (AGENT_FABRIC_DIR, AGENT_FABRIC_DIR)
     scope = ["--", prefix] if prefix else []
     guarded = _names("diff", "--cached", "--no-renames", "--name-only", "--diff-filter=ACDMRT", *scope)
@@ -229,7 +290,7 @@ def _contributor_exit(root: str, role: str, quiet: bool) -> int | None:
 def _check_decision_records(root: str) -> None:
     """In agent-fabric itself, a commit staging anything under docs/adr/ leaves the records consistent in what it
     COMMITS: the staged tree is checked, not the working tree."""
-    if _real(toplevel()) != _real(root) or _git("diff", "--cached", "--quiet", "--no-renames", "--", "docs/adr/").returncode == 0:
+    if not same_repository(root) or _git("diff", "--cached", "--quiet", "--no-renames", "--", "docs/adr/").returncode == 0:
         return
     try:
         scratch = tempfile.mkdtemp(prefix="pre-commit-adr.")
@@ -248,8 +309,52 @@ def _check_decision_records(root: str) -> None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def _check_hidden_unicode(root: str) -> None:
+    """Before any carve-out is consulted: hidden text is refused whoever commits it, the coordinator included. The staged
+    blob is judged, not the work tree. Every staged path that differs from HEAD is judged, a merge included: the authority
+    fence may take a merged-in commit as judged when it was made, a content check cannot (a --no-verify commit, a web
+    edit, a branch from before this hook). Names are read NUL-separated: git's default output quotes and octal-escapes a non-ASCII
+    name, which then no longer ends in .md and was never judged (review of #346, F1). A question git does
+    not answer refuses: judging nothing would admit."""
+    itself = same_repository(root)
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
+    if r.returncode != 0:
+        raise Refuse("pre-commit: cannot list the staged files to check them for hidden Unicode — not committed")
+    judged = [p for p in r.stdout.split("\0") if p and agent_text.is_agent_text(p, itself=itself)]
+    # Each blob by the object id the index holds for the path, never by `:<path>`: that is revision syntax, and a file
+    # named `0:README.md` read as `:0:README.md` is README.md's stage-0 blob (re-review of #346).
+    oids: dict[str, str] = {}
+    if judged:
+        idx = _git("ls-files", "-s", "-z", "--full-name")
+        if idx.returncode != 0:
+            raise Refuse("pre-commit: cannot read the index to check staged files for hidden Unicode — not committed")
+        for entry in (e for e in idx.stdout.split("\0") if e):
+            meta, _, name = entry.partition("\t")
+            fields = meta.split()
+            if len(fields) == 3 and fields[2] == "0":
+                oids[name] = fields[1]
+    lines: list[str] = []
+    for path in judged:
+        if path not in oids:
+            raise Refuse(f"pre-commit: {path} is staged but has no stage-0 entry in the index — not committed")
+        blob = subprocess.run(["git", "cat-file", "blob", oids[path]], capture_output=True, timeout=GIT_TIMEOUT_S,
+                              stdin=subprocess.DEVNULL)
+        if blob.returncode != 0:
+            raise Refuse(f"pre-commit: cannot read the staged {path} to check it for hidden Unicode — not committed")
+        try:
+            text = blob.stdout.decode("utf-8")
+        except UnicodeDecodeError:
+            lines.append(f"{path}: not UTF-8")
+            continue
+        lines += [f"{path}:{f.line}:{f.column}: U+{f.codepoint:04X} {f.name} ({f.kind})" for f in hidden_unicode.scan(text)]
+    if lines:
+        raise Refuse("\n".join(lines) + "\npre-commit: staged text an agent reads holds characters the reader does not see "
+                     "— not committed. What is refused, and what is allowed, is defined in tools/fabric/hidden_unicode.py.")
+
+
 def pre_commit(root: str) -> int:
     _check_decision_records(root)
+    _check_hidden_unicode(root)
     what, staged = guarded_change(root)
     if not staged:
         return 0

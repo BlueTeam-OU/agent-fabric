@@ -59,6 +59,14 @@ class Repo:
         self.write(rel, text, append=True)
         self.git("add", "-A")
 
+    def worktree(self, branch: str, name: str = "wt") -> "Repo":
+        """A linked worktree of this repository on a new branch, under the same temporary root, so it goes with it. It shares the
+        repository's config, core.hooksPath included, as a worktree of agent-fabric shares the clone's."""
+        wt = Repo.__new__(Repo)
+        wt.root, wt.path = self.root, os.path.join(self.root, name)
+        self.git("worktree", "add", "-q", "-b", branch, wt.path)
+        return wt
+
 
 def call_library(lib: str, repo_path: str, script: str, *args: str, path: str = "/usr/bin:/bin", ceiling: str = "") -> subprocess.CompletedProcess:
     """`bash -c 'set -u; . LIB; SCRIPT' bash ARGS` from inside the repository: the way pre-commit and commit-msg source the library
