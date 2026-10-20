@@ -241,6 +241,25 @@ class Hints(Tree):
         self.assertIn("+    return 2", self.calls()[0]["stdin"], "the history shown is that of the file that holds the symbol")
         self.assertNotIn("something_else", self.calls()[0]["stdin"])
 
+    def test_a_named_anchor_shows_the_history_of_the_named_projects_file_never_the_origins(self):
+        gzapp = os.path.join(self.base, "gzapp")
+        self.write("tools/fabric/runner.py", "def run_it():\n    return 1\n", root=gzapp)
+        git(gzapp, "init", "-q")
+        git(gzapp, "add", "-A")
+        git(gzapp, "commit", "-q", "-m", "the first state", date="2026-03-01")
+        self.write("tools/fabric/runner.py", "def run_it():\n    return 7_000_001\n", root=gzapp)
+        git(gzapp, "commit", "-q", "-am", "gzapp changes the answer", date="2026-03-20")
+        self.slice("n", ("named", anchored("run_it returns 1 in gzapp.", ["gzapp:tools/fabric/runner.py::run_it"], observed="2026-03-10")))
+        self.flags = memory_flags.flags_from_rows("agent-fabric", memory_check.check(self.corpus, self.tree), "memory/")
+        self.sources = {"agent-fabric": {"corpus": self.corpus, "trees": [self.tree], "tree": self.tree, "own_project": "agent-fabric"}}
+        self.mode("ok")
+        report, _said = self.hinted()
+        self.assertGreaterEqual(report["hinted"], 1)
+        shown = [c["stdin"] for c in self.calls() if "gzapp changes the answer" in c["stdin"]]
+        self.assertEqual(len(shown), 1, "the named anchor's section is asked about with gzapp's history")
+        self.assertIn("7_000_001", shown[0])
+        self.assertEqual(memory_hint.anchor_path("gzapp:tools/fabric/runner.py::run_it"), "tools/fabric/runner.py")
+
     def test_holder_tree_follows_judge_anchor_for_a_fifo_and_for_a_file_past_the_size_limit(self):
         fifo_tree = os.path.join(self.base, "fifo-checkout")
         os.makedirs(os.path.join(fifo_tree, "tools", "fabric"))
