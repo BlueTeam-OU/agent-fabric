@@ -211,6 +211,71 @@ def test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_th
     assert len(report["anchor_warnings"]) >= 7, report.get("anchor_warnings")
 
 
+def write_head(d: str, name: str, head: str) -> None:
+    with open(os.path.join(d, f"{name}.md"), "w", encoding="utf-8") as fh:
+        fh.write(f"---\nname: {name}\ndescription: d\n{head}---\n\nThe fact.\n")
+
+
+def test_an_anchors_block_list_is_read_like_the_inline_form(tmp: str) -> None:
+    """A memory the harness normalises comes back with `anchors:` as a YAML block list, beside keys it adds; it parses to the
+    same anchors, with the same validation and problems, and a form that cannot be read is said, never silently no anchors."""
+    mem, out = os.path.join(tmp, "bl"), os.path.join(tmp, "obl")
+    os.makedirs(mem)
+    harness = "  node_type: memory\n  originSessionId: 5b6473a3\n  modified: 2026-10-20T10:00:00Z\n"
+    write_head(mem, "nested", "metadata:\n  type: project\n  roles_class: solution\n  anchors:\n    - tools/a.py::run\n"
+                              "    - \"docs/b.md::a literal, with a comma\"\n    - tools/a.py::run\n" + harness)
+    write_head(mem, "toplevel", "anchors:\n- tools/c.py::main\n- 'gzapp:src/x.py::it''s'\nmetadata:\n  type: project\n  roles_class: workflow\n")
+    write_head(mem, "malformed", "metadata:\n  type: project\n  roles_class: solution\n  anchors:\n    - /etc/passwd::x\n    - nosuchproject:a.py\n    - tools/ok.py::fine\n"
+                                  "    -\n")
+    write_head(mem, "bare", "metadata:\n  type: project\n  roles_class: solution\n  anchors:\n  modified: 2026-10-20\n")
+    write_head(mem, "emptystr", "anchors: \"\"\nmetadata:\n  type: project\n  roles_class: solution\n")
+    write_head(mem, "scalar", "metadata:\n  type: project\n  roles_class: solution\n  anchors: tools/a.py\n")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    got = {c["topic"]: c.get("anchors") for c in claims_of(out)}
+    assert got["nested"] == ["tools/a.py::run", "docs/b.md::a literal, with a comma"], got["nested"]
+    assert got["toplevel"] == ["tools/c.py::main", "gzapp:src/x.py::it's"], got["toplevel"]
+    assert got["malformed"] == ["tools/ok.py::fine"], got["malformed"]
+    assert got["bare"] is None and got["scalar"] is None, got
+    for needle in ("malformed.md: anchor '/etc/passwd::x'", "malformed.md: anchor 'nosuchproject:a.py'", "malformed.md: anchor ''",
+                   "scalar.md: anchors is no inline list", "emptystr.md: anchors is no inline list"):
+        assert needle in r.stderr, (needle, r.stderr)
+    assert "bare.md" not in r.stderr, "a bare `anchors:` with nothing under it is no anchors, not a problem"
+    leak = os.path.join(tmp, "bll")
+    os.makedirs(leak)
+    write_head(leak, "leaky", "metadata:\n  type: project\n  roles_class: solution\n  anchors:\n    - cfg/a.py::ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8\n")
+    r2 = run(leak, os.path.join(tmp, "obll"))
+    assert r2.returncode == 1 and "leaky.md: an anchor carries a" in r2.stderr, (r2.returncode, r2.stderr)
+
+
+def test_a_block_list_a_dumper_wrapped_or_commented_is_read_whole_and_a_block_scalar_is_said(tmp: str) -> None:
+    """The forms a YAML dumper writes: an item wrapped onto a second line, a comment between items, a block scalar. None may
+    cut an item short or drop the items after it without a word; a top-level key after the list is the key itself."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("harvest", os.path.join(ROOT, "tools", "fabric", "harvest_memory.py"))
+    harvest = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harvest)
+
+    def parsed(name: str, head: str) -> dict:
+        write_head(tmp, name, head)
+        return harvest.parse_memory(os.path.join(tmp, f"{name}.md"))
+    nested = "metadata:\n  type: project\n  roles_class: solution\n"
+    wrapped = parsed("wrapped", nested + "  anchors:\n  - tools/a.py::a literal long enough that a dumper folds it onto a second line\n    here\n  - tools/b.py::second\n")
+    assert wrapped["anchors"] == ["tools/a.py::a literal long enough that a dumper folds it onto a second line here", "tools/b.py::second"], wrapped
+    assert wrapped["anchor_problems"] == [], wrapped["anchor_problems"]
+    commented = parsed("commented", nested + "  anchors:\n    # the code\n    - tools/a.py::run\n    # and its test\n    - tests/t.py\n")
+    assert commented["anchors"] == ["tools/a.py::run", "tests/t.py"] and commented["anchor_problems"] == [], commented
+    scalar_item = parsed("scalaritem", nested + "  anchors:\n    - >-\n      tools/a.py::run\n    - tools/b.py\n")
+    assert scalar_item["anchors"] == ["tools/b.py"], scalar_item["anchors"]
+    assert any("YAML block scalar" in p for p in scalar_item["anchor_problems"]), scalar_item["anchor_problems"]
+    after = parsed("after", "anchors:\n- tools/a.py::run\ndescription: the cue\nmetadata:\n  type: project\n  roles_class: solution\n")
+    assert (after["anchors"], after["description"]) == (["tools/a.py::run"], "the cue"), after
+    after_meta = parsed("aftermeta", nested + "description: the cue\n")
+    assert after_meta["description"] == "the cue" and after_meta["roles_class"] == "solution", after_meta
+    both_top = parsed("bothtop", "anchors: [tools/a.py]\nmetadata:\n  type: project\n  roles_class: solution\n  anchors:\n    - tools/b.py\n")
+    assert both_top["anchors"] == ["tools/a.py"] and any("inline and as a block list" in p for p in both_top["anchor_problems"]), both_top
+
+
 def test_a_named_anchor_travels_when_the_registry_names_the_project_and_is_refused_said_when_not(tmp: str) -> None:
     """ADR-050 rule 1 (2026-10-20): `<project>:<path>::<symbol>` keeps the prefix in the claim when the project is
     a projects/registry.json id; an id the registry lacks, or a prefix that is no id, drops that anchor with a
@@ -1120,6 +1185,8 @@ def main() -> int:
         test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim,
         test_an_applied_correction_is_not_harvested_again_and_the_original_it_replaced_is_named,
         test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays,
+        test_an_anchors_block_list_is_read_like_the_inline_form,
+        test_a_block_list_a_dumper_wrapped_or_commented_is_read_whole_and_a_block_scalar_is_said,
         test_a_named_anchor_travels_when_the_registry_names_the_project_and_is_refused_said_when_not,
         test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused,
         test_an_anchor_that_carries_a_credential_refuses_the_drain_and_a_doubled_single_quote_is_one_quote,

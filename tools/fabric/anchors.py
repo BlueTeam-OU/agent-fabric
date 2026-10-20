@@ -8,7 +8,8 @@ projects/registry.json id (ADR-050 rule 1 as amended 2026-10-20): `other-project
 
     anchors: [tools/fabric/harvest_memory.py::parse_memory, "memory/README.md::a literal, with a comma"]
 
-and a slice's section carries them on a line of its own (`*Anchors: `a::b`, `c`*`). An anchor never holds a backtick
+or as the YAML block list a harness that normalises front matter writes back (`anchors:` and `- item` lines, a wrapped item
+joined back onto one line), and a slice's section carries them on a line of its own (`*Anchors: `a::b`, `c`*`). An anchor never holds a backtick
 or a line break, which the section's rendering could not carry, and is bounded in number and length.
 """
 from __future__ import annotations
@@ -85,6 +86,19 @@ def split_inline_list(value: str) -> list[str] | None:
     return [x for x in items if x]
 
 
+def read_list(inline: str | None, block: list[str] | None) -> tuple[list[str] | None, str | None]:
+    """(the items, the raw text they came from) of an `anchors:` value in either YAML form: `anchors: [a, "b"]` (inline) or
+    `anchors:` followed by `- a` lines (block, which a harness that normalises a memory's front matter writes back). The items
+    are None when the value is neither, which the caller says; a block item is one anchor, so it is not split on commas.
+    An inline value wins when both appear (the caller says the block was not read). The raw text is what the credential fence reads; None says the
+    key is absent (or bare, with nothing under it), which is no anchors and not a problem."""
+    if inline:
+        return split_inline_list(inline), inline
+    if block:
+        return list(block), "\n".join(block)
+    return None, inline
+
+
 def problem(anchor: str) -> str | None:
     """Why `anchor` is not `[<project>:]<repository path>` or that with `::<symbol or literal>`, or None. The path is
     relative and stays inside its tree; the part after `::` is non-empty; and nothing in it is a backtick, a
@@ -93,6 +107,8 @@ def problem(anchor: str) -> str | None:
     sep = "::" in anchor
     if len(anchor) > ANCHOR_MAX_LEN:
         return f"longer than {ANCHOR_MAX_LEN} characters"
+    if re.match(r"[|>][+-]?[0-9]?(\s|$)", anchor):
+        return "reads as a YAML block scalar (`|` or `>`): write the anchor on one line"
     if "`" in anchor or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in anchor):
         return "holds a backtick or a control character"
     if ":" in path:
