@@ -27,7 +27,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import anchors as anchor_syntax  # noqa: E402
 import committed_tree  # noqa: E402
+import layout  # noqa: E402
 from assembler.slices import OBSERVED_RE, anchors_of, parse_slice  # noqa: E402
 
 K1, B = 1.5, 0.75
@@ -90,6 +92,9 @@ class Section:
     projects: tuple[str, ...]
     observed: str
     text: str
+    # The project an unnamed path of a slice with no `origin` belongs to: the fabric's for memory/, the working copy's for
+    # .agent-fabric/memory/. "" when it cannot be told, which gives such a path no project and so no link to a named one.
+    home_project: str = ""
 
     @property
     def tokens(self) -> int:
@@ -130,7 +135,7 @@ def band(score: float, coverage: float, margin: float) -> str:
 
 
 # Linked sections (a spike, ADR-049 follow-up): two sections are linked when they share what they are about without sharing
-# words. A section carries a few normalised keys: path:<p> for a path it is anchored to or cites in backticks, symbol:<name>
+# words. A section carries a few normalised keys: path:<project>:<p> for a path it is anchored to or cites in backticks (the project an anchor names, else the slice's origin or home project), symbol:<name>
 # for the part after :: of an anchor, link:<name> for each [[name]] it links, name:<name> for its own slice's file name (as the
 # memory it was drained from was called), topic:<role>/<topic>. The edges are of five kinds: "direct" (one links the memory the
 # other is named for), "cocite" (both link the same third), "path", "symbol" and "topic" (the same key held). A key held by
@@ -149,15 +154,26 @@ EDGE_WEIGHT = {"direct": 4.0, "cocite": 1.0, "path": 3.0, "symbol": 3.0, "topic"
 EXPAND_FROM, PER_HIT, MAX_NEIGHBOURS = 3, 2, 4
 
 
+def path_keys(s: Section, project: str | None, path: str) -> set[str]:
+    """`path:<project>:<path>`, the project an anchor resolves to: the one it names, else the slice's origin project(s), else its
+    home. A slice drained from two projects gives an unnamed path a key for each, as memory_check judges it in each; a path whose
+    project is unknown keeps the bare `path:<path>`, which no named anchor shares."""
+    path = path.removeprefix("./")
+    owners = (project,) if project else (s.projects or ((s.home_project,) if s.home_project else ()))
+    return {f"path:{o}:{path}" for o in owners} or {"path:" + path}
+
+
 def section_keys(s: Section) -> frozenset[str]:
     """The normalised keys of one section (see above)."""
     keys: set[str] = set()
     for anchor in anchors_of(s.text):
-        path, _, symbol = anchor.partition("::")
-        keys.add("path:" + path.removeprefix("./"))
+        project, path, symbol = anchor_syntax.split(anchor)
+        keys |= path_keys(s, project, path)
         if symbol.strip():
             keys.add("symbol:" + symbol.strip().lower())
-    keys.update("path:" + m.group(1).removeprefix("./") for m in CITED_PATH.finditer(s.text) if ".." not in m.group(1).split("/"))
+    for m in CITED_PATH.finditer(s.text):
+        if ".." not in m.group(1).split("/"):
+            keys |= path_keys(s, None, m.group(1))
     stem = os.path.basename(s.slice_id).removesuffix(".md").lower()
     own = {stem, CLASS_PREFIX.sub("", stem)}            # a project slice's file name carries its class
     keys.update("link:" + m.group(1).lower() for m in LINK.finditer(s.text) if m.group(1).lower() not in own)
@@ -346,7 +362,7 @@ def _as_list(value: object) -> tuple[str, ...]:
     return tuple(str(v) for v in value) if isinstance(value, list) else ()
 
 
-def _load_root(corpus: Index, files: dict[str, bytes], prefix: str) -> None:
+def _load_root(corpus: Index, files: dict[str, bytes], prefix: str, home_project: str = "") -> None:
     """The slices among a root's committed files (path relative to the root -> bytes), in a fixed order."""
     for rel in sorted(files):
         if not rel.endswith(".md") or os.path.basename(rel) in SKIP:
@@ -367,7 +383,7 @@ def _load_root(corpus: Index, files: dict[str, bytes], prefix: str) -> None:
                 slice_id=slice_id, heading=heading, cue=str(meta.get("description", "")), kind=kind, scope=_scope(slice_id),
                 role=str(meta.get("role", "")), title=str(meta.get("topic", "")).replace("-", " "), position=position,
                 shared_with=_as_list(meta.get("shared_with")), projects=projects,
-                observed=found.group(1) if found else "", text=text))
+                observed=found.group(1) if found else "", text=text, home_project=home_project))
 
 
 def _committed(corpus: Index, directory: str, what: str) -> dict[str, bytes] | None:
@@ -381,6 +397,16 @@ def _committed(corpus: Index, directory: str, what: str) -> dict[str, bytes] | N
         return None
 
 
+def _project_of(working_copy: str) -> str:
+    """The registry project a checkout is, or "" when the registry cannot say (a marker naming an unknown project is an error
+    there): unknown stays unknown, so no project is guessed from the directory's name."""
+    try:
+        import workingcopy
+        return str(workingcopy.resolve(working_copy).get("project") or "")
+    except Exception:  # noqa: BLE001 — any failure of the lookup is "not known", never a default
+        return ""
+
+
 def build(memory_dir: str, working_copy: str | None) -> Index:
     """memory_dir is the fabric's memory/ (roots.memory_dir()); working_copy the session's checkout, or None. Both are read
     from git's committed tree (ADR-049 rule 6), never from the working tree."""
@@ -388,13 +414,13 @@ def build(memory_dir: str, working_copy: str | None) -> Index:
     if os.path.isdir(memory_dir):
         files = _committed(corpus, memory_dir, "the fabric's memory/")
         if files is not None:
-            _load_root(corpus, files, "memory")
+            _load_root(corpus, files, "memory", layout.FABRIC_PROJECT_ID)
     if working_copy:
         wc_memory = os.path.join(working_copy, ".agent-fabric", "memory")
         if os.path.isdir(wc_memory):
             files = _committed(corpus, wc_memory, "the working copy's .agent-fabric/memory/")
             if files is not None:
-                _load_root(corpus, files, ".agent-fabric/memory")
+                _load_root(corpus, files, ".agent-fabric/memory", _project_of(working_copy))
                 for rel in sorted(files):
                     role, _, name = rel.partition("/")
                     if name == "INDEX.md":

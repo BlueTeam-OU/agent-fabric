@@ -86,6 +86,40 @@ def main() -> int:
     same = index_of(section("one", "[[two]]", position=1), section("one", "x", heading="other cue", position=2), section("two", "y"))
     check("a second section of the same slice is linked like any other (the find, not the graph, keeps one per slice)", 2 in same._edges().get(0, {}))
 
+    print("a named anchor and the same file anchored unnamed (ADR-050 rule 1, 2026-10-20)")
+    import dataclasses
+    named = dataclasses.replace(section("fabric-note", "*Anchors: `gzapp:lib/a.dart::Widget`*", topic="tn", directory="memory/domains/dev/domain"), home_project="agent-fabric")
+    unnamed = dataclasses.replace(section("gzapp-note", "*Anchors: `lib/a.dart::Widget`*", topic="tu", directory=".agent-fabric/memory/dev"), projects=("gzapp",))
+    homed = dataclasses.replace(section("gzapp-home", "See `lib/a.py`.", topic="th", directory=".agent-fabric/memory/dev"), home_project="gzapp")
+    other = dataclasses.replace(section("other-note", "*Anchors: `lib/a.dart::Widget`*", topic="to", directory=".agent-fabric/memory/dev"), projects=("blueteam.ee",))
+    same_project = dataclasses.replace(section("fabric-own", "*Anchors: `agent-fabric:lib/a.dart::Widget`*", topic="tf"), home_project="agent-fabric")
+    check("a named anchor and an unnamed one of a slice from that project hold one path key",
+          mi.section_keys(named) & mi.section_keys(unnamed) >= {"path:gzapp:lib/a.dart"}, (sorted(mi.section_keys(named)), sorted(mi.section_keys(unnamed))))
+    check("a path cited in backticks takes the slice's home project when it has no origin", "path:gzapp:lib/a.py" in mi.section_keys(homed), sorted(mi.section_keys(homed)))
+    check("an unnamed anchor in a slice with no origin and no home project keeps the bare path, which no named anchor shares",
+          mi.section_keys(section("n", "*Anchors: `lib/a.dart`*")) & {"path:lib/a.dart"} and not mi.section_keys(named) & {"path:lib/a.dart"})
+    check("a named anchor of the slice's own project is the unnamed one", mi.section_keys(same_project) >= {"path:agent-fabric:lib/a.dart"})
+    pair = index_of(named, unnamed)
+    got = pair.neighbours([hit(named)], kinds=("path",))
+    check("from the slice naming the project, the slice of that project is a neighbour by the shared path",
+          [mi.section_id(n.section) for n in got] == [mi.section_id(unnamed)] and got[0].via == ("path:gzapp:lib/a.dart",), got)
+    back = pair.neighbours([hit(unnamed)], kinds=("path",))
+    check("…and the other way round", [mi.section_id(n.section) for n in back] == [mi.section_id(named)], back)
+    apart = index_of(named, other)
+    check("the same relative path in two different projects stays two nodes: no path edge (the shared symbol still links them)",
+          apart.neighbours([hit(named)], kinds=("path",)) == [] and [n.via for n in apart.neighbours([hit(named)], kinds=mi.KEY_KINDS)] == [("symbol:widget",)])
+    check("memory_find's default expansion follows direct links only, so it does not add a path-linked section (DEFAULT_KINDS, measured)",
+          pair.neighbours([hit(named)]) == [])
+
+    loaded = mi.Index()
+    files = {"dev/domain/x.md": b"---\nrole: dev\nclass: domain\ntopic: x\n---\n\n## a cue\n\nBody.\n\n*Anchors: `lib/a.py::Widget`*\n"}
+    mi._load_root(loaded, files, "memory", "agent-fabric")
+    mi._load_root(loaded, files, ".agent-fabric/memory")
+    check("a slice loaded from the fabric's memory/ is the fabric's project; one from a working copy of unknown project is none",
+          [s.home_project for s in loaded.sections] == ["agent-fabric", ""] and "path:agent-fabric:lib/a.py" in mi.section_keys(loaded.sections[0])
+          and "path:lib/a.py" in mi.section_keys(loaded.sections[1]), [(s.home_project, sorted(mi.section_keys(s))) for s in loaded.sections])
+    check("a checkout the registry cannot place is no project, never a guess", mi._project_of("/nonexistent/for/this/test") == "")
+
     print("the neighbours of the hits")
     seed = hit(cited)
     got = ix.neighbours([seed])
