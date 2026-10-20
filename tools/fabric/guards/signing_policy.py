@@ -1,18 +1,25 @@
 """tools/fabric/guards/signing_policy.py — policies/signing.json read one way for
 its three readers: bootstrap (the git settings a working copy signs with), the
-checker (ban_unsigned_commits.py: which format a repository admits and from
-which commit rule 5 applies) and lint (agent-fabric ADR-057 §5 rules 1, 3, 5).
+checker (ban_unsigned_commits.py: which format a repository admits, from
+which commit rule 5 applies, which keys are the forge's) and lint
+(agent-fabric ADR-057 §5 rules 1, 3, 5, 8).
 
 CONTRACT
   file      {"default": {"format", "since"}, "repositories": {"<owner>/<name>":
-            {"format"?, "since"?}}}; identities/schemas/signing.schema.json is
-            its shape. A repository entry's missing key is the default's.
+            {"format"?, "since"?}}, "forge_keys"?: {"<FINGERPRINT>": "<what>"}};
+            identities/schemas/signing.schema.json is its shape. A repository
+            entry's missing key is the default's.
   format    "ssh" | "openpgp": the one format git signs in there and the one
             the checker admits.
   since     the full sha, on the repository's default branch, that ends the
             old signing: it and what it reaches keep their signatures, rule 5
             judges everything else. null: not cut over, nothing is refused
             under rule 5.
+  forge_keys  the keys the forge signs its own commits with (rule 8), each by
+            its full uppercase primary-key fingerprint, its public key
+            committed as policies/forge-keys/<FINGERPRINT>.asc. Absent or
+            empty: no forge commit passes rule 5. Fleet-wide, not per
+            repository: one forge signs for every repository on it.
   covered   a repository is covered when an entry names it, by any of its
             project's registry remotes (projects/registry.json); an uncovered
             one gets the default and bootstrap leaves its working copies'
@@ -28,10 +35,15 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 from typing import Any
 
 FORMATS = ("ssh", "openpgp")
 SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+# The full fingerprint, never a key id: a 16-hex id can be collided at will,
+# and the key is pinned, not trusted by its name (ADR-057 §5 rule 8).
+FPR_RE = re.compile(r"^[0-9A-F]{40}\Z")
+FORGE_KEYS_DIR = "forge-keys"
 SLUG_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 FLEET_DEFAULT = {"format": "ssh", "since": None}
 # Where fabric-sign's proofs are kept as notes (signing/notes.py REF); bootstrap
@@ -78,13 +90,22 @@ def shape_problems(doc: object) -> list[str]:
     lint would refuse."""
     if not isinstance(doc, dict):
         return ["not an object"]
-    out = [f"unknown key {k!r}" for k in sorted(doc) if k not in ("$schema", "description", "default", "repositories")]
+    out = [f"unknown key {k!r}" for k in sorted(doc) if k not in ("$schema", "description", "default", "repositories", "forge_keys")]
     out += _entry_problems("default", doc.get("default"), partial=False)
     default = doc.get("default")
     if isinstance(default, dict) and default.get("since") is not None:
         # A sha is one repository's cut-over; as the default it would apply to
         # every repository no entry names, whose history it is not on.
         out.append("default: since must be null (a cut-over commit belongs to one repository)")
+    forge = doc.get("forge_keys", {})
+    if not isinstance(forge, dict):
+        out.append("forge_keys is not an object")
+    else:
+        for fpr, what in sorted(forge.items()):
+            if not FPR_RE.match(fpr):
+                out.append(f"forge_keys: {fpr!r} is not a full uppercase 40-hex OpenPGP fingerprint")
+            if not isinstance(what, str):
+                out.append(f"forge_keys[{fpr}] is not a string")
     repos = doc.get("repositories", {})
     if not isinstance(repos, dict):
         return out + ["repositories is not an object"]
@@ -92,6 +113,23 @@ def shape_problems(doc: object) -> list[str]:
         if not SLUG_RE.match(slug):
             out.append(f"repositories: {slug!r} is not <owner>/<name>")
         out += _entry_problems(f"repositories[{slug}]", entry, partial=True)
+    return out
+
+
+def key_file_primaries(path: str, home: str, timeout: int = 60) -> list[str]:
+    """The primary-key fingerprints an armored key file holds, read by gpg
+    without importing it (`--import-options show-only`) in the throwaway
+    homedir `home`; [] when gpg reads no key there. Raises OSError or
+    subprocess.SubprocessError when gpg cannot run."""
+    p = subprocess.run(["gpg", "--homedir", home, "--batch", "--no-tty", "--with-colons", "--import-options", "show-only",
+                        "--import", path], capture_output=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    out, after_pub = [], False
+    for line in p.stdout.decode(errors="replace").splitlines():
+        f = line.split(":")
+        if f[0] == "fpr" and after_pub and len(f) > 9:
+            out.append(f[9].upper())
+        # Only the fpr straight after a pub: a subkey's fpr follows its sub.
+        after_pub = f[0] == "pub"
     return out
 
 

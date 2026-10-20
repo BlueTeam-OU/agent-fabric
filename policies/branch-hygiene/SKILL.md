@@ -64,9 +64,9 @@ are **not** on the default branch:
 
 The same sweep removes the scratch of this login's ended Claude Code
 sessions, judged by the harness's own session registry; when that
-cannot be read it keeps all the scratch and says so, and a worktree a
-live session stands in is then kept only if `AGENT_FABRIC_BRANCHES_KEEP`
-names it. `--sweep --all` does
+cannot be read it keeps all the scratch and every worktree it would
+have removed, each listed as "session registry unreadable", and says
+so. `--sweep --all` does
 all of it in every working copy of the login; `fabric-jobs switch` runs
 the worktree half for the job it leaves.
 

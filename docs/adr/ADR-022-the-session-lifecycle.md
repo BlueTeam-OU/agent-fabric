@@ -159,8 +159,8 @@ the same command asks on one account and not on another.
     sweep removes the scratch of the login's ended Claude Code sessions:
     a session is live while the harness's own session registry lists
     its process alive. A registry that cannot be read keeps all the
-    scratch, and the sweep says so; the worktree half then knows a live
-    session's worktree only through `AGENT_FABRIC_BRANCHES_KEEP`.
+    scratch and every worktree the sweep would have removed, each named
+    with that reason, and the sweep says so (A 2026-10-20).
     Never another login's. What it keeps it names with the reason, what it removes
     with its size (A 2026-10-19). Local only: no remote branch is deleted or pushed.
     At a job's end `fabric-jobs switch` runs the worktree half
@@ -241,3 +241,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-10-10 | The watch is a background command, not a Monitor | §2, §5 rules 1, 2, 6: `gzcoord-inbox --until-delivery` exits on each delivery; no 30-minute expiry |
 | 2026-10-11 | Every job starts in a fresh session | §5 rule 12: `next` gives a fresh session whenever this session has worked a job; in place only for one that has worked none |
 | 2026-10-19 | Stale worktrees and ended sessions' scratch are swept | §5 rule 11: a clean worktree whose commits are on a branch the remote still has goes, `--sweep --all` covers every working copy, ended sessions' scratch goes, and `fabric-jobs switch` runs the worktree half at a job's end |
+| 2026-10-20 | An unreadable session registry keeps every worktree | §5 rule 11: no worktree is removed when the registry cannot be read, not only the ones `AGENT_FABRIC_BRANCHES_KEEP` names (#337) |
