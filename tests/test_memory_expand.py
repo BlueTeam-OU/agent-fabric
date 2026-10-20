@@ -86,6 +86,84 @@ def main() -> int:
     same = index_of(section("one", "[[two]]", position=1), section("one", "x", heading="other cue", position=2), section("two", "y"))
     check("a second section of the same slice is linked like any other (the find, not the graph, keeps one per slice)", 2 in same._edges().get(0, {}))
 
+    print("a named anchor and the same file anchored unnamed (ADR-050 rule 1, 2026-10-20)")
+    import dataclasses
+    named = dataclasses.replace(section("fabric-note", "*Anchors: `gzapp:lib/a.dart::Widget`*", topic="tn", directory="memory/domains/dev/domain"), home_project="agent-fabric")
+    unnamed = dataclasses.replace(section("gzapp-note", "*Anchors: `lib/a.dart::Widget`*", topic="tu", directory=".agent-fabric/memory/dev"), projects=("gzapp",))
+    homed = dataclasses.replace(section("gzapp-home", "See `lib/a.py`.", topic="th", directory=".agent-fabric/memory/dev"), home_project="gzapp")
+    other = dataclasses.replace(section("other-note", "*Anchors: `lib/a.dart::Widget`*", topic="to", directory=".agent-fabric/memory/dev"), projects=("blueteam.ee",))
+    same_project = dataclasses.replace(section("fabric-own", "*Anchors: `agent-fabric:lib/a.dart::Widget`*", topic="tf"), home_project="agent-fabric")
+    check("a named anchor and an unnamed one of a slice from that project hold one path key",
+          mi.section_keys(named) & mi.section_keys(unnamed) >= {"path:gzapp:lib/a.dart"}, (sorted(mi.section_keys(named)), sorted(mi.section_keys(unnamed))))
+    check("a path cited in backticks takes the slice's home project when it has no origin", "path:gzapp:lib/a.py" in mi.section_keys(homed), sorted(mi.section_keys(homed)))
+    check("an unnamed anchor in a slice with no origin and no home project keeps the bare path, which no named anchor shares",
+          mi.section_keys(section("n", "*Anchors: `lib/a.dart`*")) & {"path:lib/a.dart"} and not mi.section_keys(named) & {"path:lib/a.dart"})
+    check("a named anchor of the slice's own project is the unnamed one", mi.section_keys(same_project) >= {"path:agent-fabric:lib/a.dart"})
+    pair = index_of(named, unnamed)
+    got = pair.neighbours([hit(named)], kinds=("path",))
+    check("from the slice naming the project, the slice of that project is a neighbour by the shared path",
+          [mi.section_id(n.section) for n in got] == [mi.section_id(unnamed)] and got[0].via == ("path:gzapp:lib/a.dart",), got)
+    back = pair.neighbours([hit(unnamed)], kinds=("path",))
+    check("…and the other way round", [mi.section_id(n.section) for n in back] == [mi.section_id(named)], back)
+    apart = index_of(named, other)
+    check("the same relative path in two different projects stays two nodes: no path edge (the shared symbol still links them)",
+          apart.neighbours([hit(named)], kinds=("path",)) == [] and [n.via for n in apart.neighbours([hit(named)], kinds=mi.KEY_KINDS)] == [("symbol:widget",)])
+    check("memory_find's default expansion follows direct links only, so it does not add a path-linked section (DEFAULT_KINDS, measured)",
+          pair.neighbours([hit(named)]) == [])
+
+    loaded = mi.Index()
+    files = {"dev/domain/x.md": b"---\nrole: dev\nclass: domain\ntopic: x\n---\n\n## a cue\n\nBody.\n\n*Anchors: `lib/a.py::Widget`*\n"}
+    mi._load_root(loaded, files, "memory", "agent-fabric")
+    mi._load_root(loaded, files, ".agent-fabric/memory")
+    check("a slice loaded from the fabric's memory/ is the fabric's project; one from a working copy of unknown project is none",
+          [s.home_project for s in loaded.sections] == ["agent-fabric", ""] and "path:agent-fabric:lib/a.py" in mi.section_keys(loaded.sections[0])
+          and "path:lib/a.py" in mi.section_keys(loaded.sections[1]), [(s.home_project, sorted(mi.section_keys(s))) for s in loaded.sections])
+    import shutil
+    import subprocess
+    import tempfile
+    repo = tempfile.mkdtemp(prefix="memexp-")
+    try:
+        os.makedirs(os.path.join(repo, "memory", "dev", "domain"))
+        with open(os.path.join(repo, "memory", "dev", "domain", "x.md"), "wb") as fh:
+            fh.write(files["dev/domain/x.md"])
+        genv = {"PATH": "/usr/bin:/bin", "HOME": repo, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        for argv in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false", "-c", "gc.auto=0",
+                                                     "-c", "maintenance.auto=false", "commit", "-q", "-m", "x"]):
+            subprocess.run(["git", "-C", repo, *argv], env=genv, check=True, capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+        built = mi.build(os.path.join(repo, "memory"), None)
+        check("build() gives the fabric's memory/ slices the fabric's project, so their unnamed paths resolve",
+              [s.home_project for s in built.sections] == ["agent-fabric"] and "path:agent-fabric:lib/a.py" in mi.section_keys(built.sections[0]),
+              [(s.home_project, sorted(mi.section_keys(s))) for s in built.sections])
+    finally:
+        shutil.rmtree(repo, True)
+    def _check_markers(files, genv, check) -> None:
+        for marker, expected, why in (("fixtureproj", "fixtureproj", "a marker naming a registry project"), ("no-such-project", "", "a marker the registry does not know"), ("", "", "an empty marker")):
+            wc = tempfile.mkdtemp(prefix="memexp-wc-")
+            try:
+                os.makedirs(os.path.join(wc, ".agent-fabric", "memory", "dev", "domain"))
+                with open(os.path.join(wc, ".agent-fabric", "memory", "dev", "domain", "x.md"), "wb") as fh:
+                    fh.write(files["dev/domain/x.md"])
+                with open(os.path.join(wc, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+                    fh.write(marker + "\n")
+                for argv in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false", "-c", "gc.auto=0",
+                                                             "-c", "maintenance.auto=false", "commit", "-q", "-m", "x"]):
+                    subprocess.run(["git", "-C", wc, *argv], env=genv, check=True, capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+                try:
+                    got_homes = [s.home_project for s in mi.build(os.path.join(wc, "no-fabric-memory"), wc).sections]
+                except SystemExit as e:
+                    got_homes = f"build() ended with SystemExit: {e}"
+                check(f"build() gives a working copy's slices its registry project, or none when the marker cannot say: {why}", got_homes == [expected], got_homes)
+            finally:
+                shutil.rmtree(wc, True)
+    import workingcopy
+    real_registry = workingcopy.load_registry
+    workingcopy.load_registry = lambda path=None: {"version": 1, "projects": {"fixtureproj": {}}}   # the instance's registry is not a fixture
+    try:
+        _check_markers(files, genv, check)
+    finally:
+        workingcopy.load_registry = real_registry
+    check("a checkout the registry cannot place is no project, never a guess", mi._project_of("/nonexistent/for/this/test") == "")
+
     print("the neighbours of the hits")
     seed = hit(cited)
     got = ix.neighbours([seed])
