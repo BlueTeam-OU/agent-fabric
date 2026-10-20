@@ -1248,6 +1248,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One checker: admitted format, lineage-certified key, role held, proof
   present — hooks, CI, suite (§5 rule 5). Keys on GitHub as signing keys;
   one shared author stays (§5 rules 6-7).
+- A 2026-10-20 — a forge-signed commit passes rule 5 only as a clean merge or a Dependabot workflows-only bump (§5 rule 8).
+- Keywords: signing, fabric-sign, since, rule 5, forge, web-flow, Update branch, Dependabot.
 
 ### ADR-058 — A reflection pass turns an agent's own messages into memory candidates (Accepted)
 

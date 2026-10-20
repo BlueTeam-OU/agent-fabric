@@ -75,7 +75,7 @@ judged.
    default branch that ends the old signing (`since`): `since` and
    every commit reachable from it keep the signatures they have, rule 5
    applies to every commit not reachable from it, and nothing else is
-   exempt. Once every repository the fleet commits to has its `since`,
+   exempt but the forge's own commits rule 8 admits. Once every repository the fleet commits to has its `since`,
    the shared key is removed from every account.
 2. `fabric-sign` is git's signing program for both formats
    (`gpg.program` and `gpg.ssh.program`); it signs with the subkey in
@@ -117,6 +117,24 @@ judged.
    provisioning, a revoked one's removed.
 7. The git author stays the one shared author (ADR-056 §5 rule 8); the
    signature, not the author, names the agent.
+8. A commit the forge makes — signed by a key `policies/signing.json`
+   lists under `forge_keys` (GitHub's web-flow key, its public key
+   committed beside the policy) — names no agent, and any account
+   pushing through the shared GitHub account can have the forge make
+   one. Rule 5 admits it, with no `Fabric-Role:` trailer and no proof,
+   only where it carries nothing an agent should have signed:
+   (a) a merge of two parents whose tree is the clean merge of them
+   (`git merge-tree --write-tree`) — the forge's "Update branch", whose
+   content is its parents', each judged where the branch adds it; or
+   (b) a commit authored `dependabot[bot]`, not a merge, that changes
+   only `.github/workflows/` — the action-pin carve-out of
+   `policies/AUTHORITY.md`, a tripwire like it, since an author is
+   text. Every other forge-signed commit — an edit or a suggestion
+   committed on the web, a conflict resolved in the web editor, a
+   squash, an octopus — is refused: it is re-made in a working copy and
+   signed by its agent. A forge key is listed by its full fingerprint;
+   a rotated key is a policy change, and until it lands the forge's
+   commits are refused.
 
 ## 6. Consequences
 
@@ -149,3 +167,11 @@ shared key.
 - ADR-038 (agent keys, lineage), ADR-039 (agent id), ADR-056 §5 rule 8
   (authorship stays).
 - `tools/fabric/guards/ban_unsigned_commits.py`, `identities/keys/`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-057-amendments.md](history/ADR-057-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-20 | A commit the forge makes | §5 rule 8 (new), rule 1: a commit signed by a listed forge key passes rule 5 only as a clean two-parent merge or a Dependabot workflows-only commit; every other forge-signed commit refused |
