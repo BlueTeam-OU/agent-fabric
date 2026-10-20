@@ -22,7 +22,7 @@ The ledger is telemetry. A write that fails (full disk, a state directory
 that does not exist) never fails or changes the call it describes, and says
 nothing: the call's own result is what the caller acts on.
 
-  fabric-gh-ledger [--since 1h] [--all-logins] [--calls]   per-caller counts
+  fabric-gh-ledger [--since 1h] [--calls]                  per-caller counts
   fabric-gh-ledger --rate                                  the budget, now
 
 The summary reads this login's file only; the fleet's total is the sum of
@@ -50,7 +50,7 @@ MAX_BYTES = 8 * 1024 * 1024
 RATE_MAX_AGE_S = 30.0
 RATE_TIMEOUT_S = 20
 
-# gh search rides REST; gh gist is not classified here (nothing in the fabric calls it).
+# gh search rides REST; gh gist falls to REST by default, unverified (nothing in the fabric calls it).
 _GRAPHQL_SUBCOMMANDS = {"pr", "issue", "repo", "project"}
 _DIGITS = re.compile(r"\d+")
 _SHA = re.compile(r"\b[0-9a-f]{40}\b|\b[0-9a-f]{7,12}\b")
@@ -164,7 +164,7 @@ def _read_snapshot(path: str) -> dict | None:
         return None
 
 
-def rate_limit(*, max_age: float = RATE_MAX_AGE_S, now=time.time) -> dict | None:
+def rate_limit(*, max_age: float = RATE_MAX_AGE_S, now=time.time, persist: bool = True) -> dict | None:
     """GitHub's rate-limit resources ({"core": {"limit", "remaining",
     "reset", "used"}, "graphql": …}) as `gh api rate_limit` last said, at
     most `max_age` seconds old; None when it cannot be read. Never a guess:
@@ -185,11 +185,12 @@ def rate_limit(*, max_age: float = RATE_MAX_AGE_S, now=time.time) -> dict | None
         doc = json.loads(r.stdout) if r.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired, ValueError):
         status, doc = "error", None
-    record(["api", "rate_limit"], "gh_ledger", status, time.monotonic() - started)
+    if persist:
+        record(["api", "rate_limit"], "gh_ledger", status, time.monotonic() - started)
     resources = doc.get("resources") if isinstance(doc, dict) else None
     if not isinstance(resources, dict):
         return None
-    if path:
+    if path and persist:
         try:
             os.makedirs(directory, mode=0o700, exist_ok=True)
             tmp = f"{path}.{os.getpid()}"
@@ -295,7 +296,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--rate", action="store_true", help="print the budget now (free) and exit")
     args = ap.parse_args(argv)
     if args.rate:
-        res = rate_limit(max_age=0)
+        # A person asking reads and prints only: no snapshot, no ledger row (the command is allowed unasked).
+        res = rate_limit(max_age=0, persist=False)
         if res is None:
             print("fabric-gh-ledger: the rate limit could not be read", file=sys.stderr)
             return 1

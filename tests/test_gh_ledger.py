@@ -306,6 +306,13 @@ def main() -> int:
         check("a state directory that cannot be written never fails the call", out == {}, str(out))
         os.environ["AGENT_FABRIC_STATE_DIR"] = state
 
+        before_rows, had_snapshot = len(rows()), os.path.exists(os.path.join(gh_ledger.state_dir(), gh_ledger.RATE))
+        os.remove(os.path.join(gh_ledger.state_dir(), gh_ledger.RATE)) if had_snapshot else None
+        shown = gh_ledger.main(["--rate"])
+        check("`fabric-gh-ledger --rate` reads and prints only: it writes no snapshot and no ledger row",
+              shown == 0 and not os.path.exists(os.path.join(gh_ledger.state_dir(), gh_ledger.RATE)) and len(rows()) == before_rows,
+              str((shown, len(rows()) - before_rows)))
+
         print("the pace between looks")
         import poll_pace
         pace = poll_pace.Pace(30)
