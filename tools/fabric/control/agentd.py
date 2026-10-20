@@ -225,11 +225,14 @@ ACCOUNTS_CACHE_MS = 5 * 60 * 1000
 # minutes, and the loop must keep answering behind it. `gateway` hashes
 # the installed binary and runs it, up to ten seconds; `branches` asks git of every working copy of the account
 # (a status per copy and per linked worktree), up to a minute each.
-BESIDE_LOOP_OPS = ["disk", "gateway", "branches"]
+BESIDE_LOOP_OPS = ["disk", "gateway", "branches", "drift"]
 # One disk scan per daemon, shared by every request that arrives while it
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).
 DISK_CACHE_MS = 60000
+# `drift` runs bootstrap.py --dry-run, a few seconds of the account's own children, and is as open to
+# any placed account as `disk` is: one run per minute per daemon, whoever asks.
+DRIFT_CACHE_MS = 60000
 RETRY_S = 30
 POLL_S = 55
 QUIET_S = 2          # a pull writes several files; one restart for one pull
@@ -754,9 +757,11 @@ def main(argv: list[str] | None = None) -> int:
             return usage_state["last"]
     keeper = accounts_keeper()
     disk_keeper = accounts_keeper(lambda: ops.disk(), cache_ms=DISK_CACHE_MS)
+    drift_keeper = accounts_keeper(lambda: ops.drift_report(), cache_ms=DRIFT_CACHE_MS)
     # no `who`: identity() resolves it per request
     ctx: dict[str, Any] = {"me": me, "started": started, "usage_cached": usage_cached,
-                           "accounts_cached": keeper.cached, "disk_cached": disk_keeper.cached}
+                           "accounts_cached": keeper.cached, "disk_cached": disk_keeper.cached,
+                           "drift_cached": drift_keeper.cached}
     if self_only:
         r = answer({"id": "self", "op": "status"}, ctx)
         r.pop("_followups", None)
