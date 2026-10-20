@@ -403,7 +403,8 @@ def _project_of(working_copy: str) -> str:
     try:
         import workingcopy
         return str(workingcopy.resolve(working_copy).get("project") or "")
-    except Exception:  # noqa: BLE001 — any failure of the lookup is "not known", never a default
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — workingcopy.resolve exits on a bad marker; a key helper must not end the server
+        print(f"fabric-memory: the project of {working_copy} is not known ({e}); its unnamed paths are not linked to a named project", file=sys.stderr)
         return ""
 
 
