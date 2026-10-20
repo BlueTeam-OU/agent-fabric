@@ -486,7 +486,10 @@ class Sweep(unittest.TestCase):
     def test_a_marker_that_is_a_link_keeps_nothing(self):
         wt = self.worktree("marker-link", pushed=True)
         git_dir = self.git(wt, "rev-parse", "--absolute-git-dir").strip()
-        os.symlink(f"/proc/{self.harness()}/cmdline", os.path.join(git_dir, "fabric-in-use"))
+        target = os.path.join(self.t, "live-pid")
+        with open(target, "w", encoding="utf-8") as fh:
+            fh.write(f"{self.harness()}\n")                # what a regular marker would say: a live pid
+        os.symlink(target, os.path.join(git_dir, "fabric-in-use"))
         rc, out, err = self.sweep()
         self.assertFalse(os.path.isdir(wt), out)
 
