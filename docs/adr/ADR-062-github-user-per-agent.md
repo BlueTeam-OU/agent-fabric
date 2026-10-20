@@ -146,8 +146,9 @@ recorded user would push and review as someone else.
    user are the owner's, the human answerable for it, and none of them is
    in any agent's store. The agent holds only its token: a gh OAuth
    token or a classic token with the scopes `repo`, `workflow` and
-   `read:org`, and no `admin:` scope. A token with any other scope is
-   refused at sync (rule 11).
+   `read:org` (and `gist`, which `gh auth login` always adds). A token
+   holding an `admin:` scope, `user` or `delete_repo` is refused at sync
+   (rule 11).
 6. Access: each machine user is a member of both organizations, and a
    member of one team, `fleet`, in each. The team has write on the
    managed repositories, and read on the settings and gateway
@@ -185,8 +186,8 @@ recorded user would push and review as someone else.
 11. A login is **cut over** when its store holds its own token, `sync`
     has logged gh in with it, and `gh api user` answers the numeric id
     `lineage.json` records. Sync makes that check every run. It refuses,
-    naming both ids, a token that answers another user, and one with a
-    scope rule 5 excludes. Until a login is cut over, `fabric-status`
+    naming both ids, a token that answers another user, and one holding a
+    scope rule 5 refuses. Until a login is cut over, `fabric-status`
     names it as still on the shared account. After the last cut-over:
     `GH_TOKEN` and the SSH key pair leave `SHARED_NAMES`, the owner
     revokes the shared token, and both organizations turn on their
@@ -238,8 +239,12 @@ recorded user would push and review as someone else.
 
 ## 8. Decision Status
 
-Proposed. It waits on the owner's acceptance and on the owner's
-settling of §5 rule 2. On acceptance, ADR-012 §5 rules 4 and 8, ADR-018
+Proposed, and parked. Its cost, about thirty Enterprise seats and
+thirty paid plans, was judged too high, and the shared account stays.
+The draft is kept for the day the quota or the cost changes. Until then
+the quota is answered by spending less: the j74 ledger and budget-aware
+polling. If taken up, it waits on the owner's acceptance and on the
+owner's settling of §5 rule 2. On acceptance, ADR-012 §5 rules 4 and 8, ADR-018
 §1, ADR-019 §5 rule 6, ADR-020 §5 rules 6 and 7, ADR-038 §5 rules 3 and
 10, and ADR-057 §5 rule 6 are amended to point here. The owner's steps
 are `docs/github-machine-users.md`. The tool changes are requested of

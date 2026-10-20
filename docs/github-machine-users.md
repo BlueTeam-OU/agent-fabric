@@ -45,8 +45,9 @@ A tool cannot do these steps: GitHub refuses automated sign-up.
    to the `fleet` team. The owner sends them, because inviting takes org
    admin.
 5. Make the token. Either run `gh auth login --web` as that user with
-   scopes `repo,workflow,read:org`, or make a classic token with those
-   three scopes. No `admin:` scope.
+   scopes `repo,workflow,read:org` (gh adds `gist` itself), or make a
+   classic token with those three scopes. No `admin:` scope, no `user`,
+   no `delete_repo`: sync refuses them.
 6. Hand it over at a terminal, on the line fabric-coordinator gives. It
    pipes the token into the login's store on stdin
    (`provision github <login>`, still to be built, step 3.3).
