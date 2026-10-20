@@ -46,7 +46,8 @@ are **not** on the default branch:
 - **0**: everything on it is on the default branch. `--sweep` deletes it, re-counting
   at deletion. A worktree at 0 is removed only when it has no changes
   (untracked files included), no ignored files (a `.env`, a build that
-  removal would delete) and no lock, and is not the one you run in; the
+  removal would delete) and no lock, and is neither the one you run in
+  nor one a live session stands in; the
   others are listed with the reason they stay. You do this without
   asking; losing nothing is provable.
 - **More than 0**: kept, and listed with its commits and its pull
@@ -55,15 +56,17 @@ are **not** on the default branch:
 - **Tracks another agent's branch**: a local copy only. Deleting it at 0
   is fine. Never delete their remote branch, and never push to it.
 - **A worktree above 0 whose commit is on the remote**: `--sweep`
-  removes it too, under the same conditions as at 0, when its HEAD is
-  the tip of a branch `git ls-remote` still shows, by name and commit
-  (a pushed job branch, a detached review head), and no live session
-  stands in it. Its commits stay on the remote; the branch itself is
+  removes it too, under the same conditions as at 0, when every commit
+  of its HEAD is on a branch `git ls-remote` still shows, by name and
+  commit (a pushed job branch, a review head, an older commit of
+  either). Its commits stay on the remote; the branch itself is
   kept and counted as above.
 
 The same sweep removes the scratch of this login's ended Claude Code
 sessions, judged by the harness's own session registry; when that
-cannot be read it keeps everything and says so. `--sweep --all` does
+cannot be read it keeps all the scratch and says so, and a worktree a
+live session stands in is then kept only if `AGENT_FABRIC_BRANCHES_KEEP`
+names it. `--sweep --all` does
 all of it in every working copy of the login; `fabric-jobs switch` runs
 the worktree half for the job it leaves.
 

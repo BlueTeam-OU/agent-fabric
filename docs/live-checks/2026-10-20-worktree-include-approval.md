@@ -23,7 +23,7 @@ In a linked worktree `claude -p` reads the external-include approval of the **ma
 
 - A worktree of a checkout bootstrap approved loads the fabric's rules with no approval of its own: `workspace_trust.py` need not write the approval for worktrees. Whether the trust key needs a worktree entry is not shown (below).
 - The entries for worktree paths in an account's `.claude.json` are inert for this key. They do no harm and need no sweep.
-- A checkout with no approval (absent; `false` was not run) disables the fabric's rules in **every** worktree of it, whatever the worktree's own entry says. The fix is the checkout's entry (bootstrap's `trust` step for registered copies), never a worktree's.
+- A checkout with no approval (absent; `false` was not run) disables the fabric's rules in **every** worktree of it, even with the worktree's own approval set (the one value run). The fix is the checkout's entry (bootstrap's `trust` step for registered copies), never a worktree's.
 
 ## Not verified
 

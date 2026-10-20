@@ -100,7 +100,7 @@ took only worktrees whose commit was on the default branch, so pushed
 but unmerged work and detached review heads stayed. Two agents asked to
 clear their own ended sessions' scratch by hand were refused by the
 auto-mode classifier, which is why that is a command and not an rm
-rule. A worktree whose HEAD is the tip of a branch the remote still has
+rule. A worktree whose HEAD is on a branch the remote still has
 loses nothing when removed: its commits stay on the remote. The proof
 is `git ls-remote`, not the local remote-tracking ref, which a fetch
 without prune keeps after the host deleted the branch; and liveness is
