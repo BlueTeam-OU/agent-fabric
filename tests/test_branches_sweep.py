@@ -438,6 +438,66 @@ class Sweep(unittest.TestCase):
         self.assertTrue(os.path.isdir(wt), out)
         self.assertIn("in use", out)
 
+    def test_a_worktree_a_process_stands_in_is_kept_and_named_with_it(self):
+        wt = self.worktree("cwd-held", pushed=True)
+        sub = os.path.join(wt, "deep")
+        os.makedirs(sub)
+        p = subprocess.Popen(["sleep", "300"], cwd=sub, env=self.env())
+        self.procs.append(p)
+        rc, out, err = self.sweep()
+        self.assertTrue(os.path.isdir(wt), out)
+        self.assertIn(f"in use: process {p.pid} stands in it", out)
+        p.kill()
+        p.wait()
+        rc, out, err = self.sweep()                       # the positive control: the same worktree, nobody in it, goes
+        self.assertFalse(os.path.isdir(wt), out)
+
+    def write_marker(self, wt, text) -> None:
+        with open(os.path.join(wt, ".fabric-in-use"), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_a_live_marker_keeps_a_worktree_and_a_dead_one_does_not(self):
+        live = self.worktree("marked-live", pushed=True)
+        dead = self.worktree("marked-dead", pushed=True)
+        alive = self.harness()
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        self.write_marker(live, f"{alive}\nthe dispatching session\n")
+        self.write_marker(dead, f"{gone.pid}\n")
+        rc, out, err = self.sweep()
+        self.assertTrue(os.path.isdir(live), out)
+        self.assertIn(f".fabric-in-use names live process {alive}", out)
+        self.assertFalse(os.path.isdir(dead), "a dead pid keeps nothing, and the marker is no uncommitted change: " + out)
+
+    def test_a_marker_that_is_no_pid_of_ours_keeps_nothing(self):
+        wts = {name: self.worktree(name, pushed=True) for name in ("empty", "text", "zero", "negative", "foreign")}
+        for name in ("empty", "text", "zero", "negative"):
+            self.write_marker(wts[name], {"empty": "", "text": "not a pid\n", "zero": "0\n", "negative": "-1\n"}[name])
+        # pid 1 is alive and another uid's, unless this runs as that uid
+        if os.stat("/proc/1").st_uid != os.getuid():
+            self.write_marker(wts["foreign"], "1\n")
+        else:
+            self.write_marker(wts["foreign"], "")
+        rc, out, err = self.sweep()
+        for name, wt in wts.items():
+            self.assertFalse(os.path.isdir(wt), f"{name}: {out}")
+
+    def test_a_link_of_that_name_is_no_marker_and_a_change_like_any_other(self):
+        wt = self.worktree("marker-link", pushed=True)
+        os.symlink(f"/proc/{self.harness()}/cmdline", os.path.join(wt, ".fabric-in-use"))
+        rc, out, err = self.sweep()
+        self.assertTrue(os.path.isdir(wt), out)
+        self.assertIn("1 uncommitted change(s)", out)
+        self.assertNotIn("names live process", out)
+
+    def test_json_names_the_marker_as_the_reason(self):
+        wt = self.worktree("marked-json", pushed=True)
+        self.write_marker(wt, f"{self.harness()}\n")
+        out = subprocess.run([CMD, "--json"], cwd=self.wc, env=self.env(), capture_output=True, text=True, timeout=300).stdout
+        why = [w["kept_because"] for w in json.loads(out)["worktrees"] if w["path"] == wt]
+        self.assertEqual(len(why), 1, out)
+        self.assertIn(".fabric-in-use names live process", why[0])
+
     def test_a_link_and_other_names_are_not_followed(self):
         self.registry()                                   # a registry that lists no live session: the scratch is judged
         outside = os.path.join(self.t, "precious")
