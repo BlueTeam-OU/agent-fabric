@@ -17,7 +17,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             <fabric-root> is where the hook file lives (the forwarder works it out from its own real path), which is
             NOT where this module lives: a test, or a checkout the hooks serve, holds its own policies/authority.json.
   hidden    pre-commit also refuses, for EVERY committer (the coordinator, both carve-outs, an unbound session), a staged
-            file that tools/fabric/agent_text.py calls text an agent reads (in agent-fabric: any *.md, and *.md/*.json
+            file that tools/fabric/agent_text.py calls text an agent reads (in agent-fabric or a worktree of it: any *.md, *.md/*.json
             under identities/ and .agent-fabric/; in a managed project: .agent-fabric/ only) whose STAGED blob holds
             a character tools/fabric/hidden_unicode.py refuses. Exit 1, one `<path>:<line>:<col>: U+XXXX NAME (kind)` per
             character.
@@ -255,11 +255,21 @@ def _check_decision_records(root: str) -> None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def _same_repository(root: str) -> bool:
+    """The commit is made in agent-fabric itself: its toplevel is the root, or it is a linked worktree of the root's
+    repository. Most fabric work is committed in a worktree, whose toplevel is never the root (the hooks path the root's
+    config sets is inherited by every worktree); a toplevel test alone judges such a commit as a managed project's."""
+    if _real(toplevel()) == _real(root):
+        return True
+    r = _git("rev-parse", "--path-format=absolute", "--git-common-dir")
+    return r.returncode == 0 and _real(r.stdout.strip()) == _real(os.path.join(root, ".git"))
+
+
 def _check_hidden_unicode(root: str) -> None:
     """Before any carve-out is consulted: hidden text is refused whoever commits it, the coordinator included. The staged
     blob is judged, not the work tree; a merge is judged as the rest of pre_commit does, by what the result changes against
     the merged-in side."""
-    itself = _real(toplevel()) == _real(root)
+    itself = _same_repository(root)
     against = [merge_head()] if merge_head() else []
     lines: list[str] = []
     for path in _names("diff", "--cached", "--no-renames", "--name-only", "--diff-filter=ACMRT", *against):

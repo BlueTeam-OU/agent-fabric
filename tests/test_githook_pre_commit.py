@@ -36,7 +36,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from githook_fixtures import HOST, LOGIN, ROOT, Fabric  # noqa: E402
+from githook_fixtures import HOST, LOGIN, ROOT, Fabric, Repo  # noqa: E402
 from instance_fixtures import write_registry  # noqa: E402
 
 GENERIC_TAIL = "agent-fabric is read-only for every role but fabric-coordinator; in a managed\nproject, .agent-fabric/ is."
@@ -371,6 +371,18 @@ class HiddenUnicode(PreCommit):
                 self.assertEqual(r.returncode, 1, r.stderr)
                 self.assertIn("docs/x.md:1:6: U+202E RIGHT-TO-LEFT OVERRIDE (bidi)", r.stderr)
                 self.assertIn("tools/fabric/hidden_unicode.py", r.stderr)
+
+    def test_a_worktree_of_the_fabric_is_judged_as_the_fabric_itself(self):
+        # Mutation: _check_hidden_unicode asks the toplevel alone, and a worktree's docs/ goes unjudged as a project's.
+        repo = self.fabric.itself()
+        wt = Repo.__new__(Repo)
+        wt.root, wt.path = repo.root, os.path.join(repo.root, "wt")
+        repo.git("worktree", "add", "-q", "-b", "feat", wt.path)
+        wt.stage("docs/x.md", self.RLO)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(wt)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("docs/x.md:1:6: U+202E RIGHT-TO-LEFT OVERRIDE (bidi)", r.stderr)
 
     def test_nothing_is_committed_when_it_is_refused(self):
         repo = self.fabric.itself()

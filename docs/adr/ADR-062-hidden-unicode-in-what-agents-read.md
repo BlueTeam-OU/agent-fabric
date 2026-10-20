@@ -106,6 +106,6 @@ lint, the hook and the i18n move land with this record.
 ## References
 
 - `tools/fabric/hidden_unicode.py`, `tests/test_hidden_unicode.py` (#338).
-- `tools/fabric/lint_rules/hidden.py`, `tools/fabric/guards/commit_hooks.py`.
+- `tools/fabric/agent_text.py`, `tools/fabric/lint_rules/hidden.py`, `tools/fabric/guards/commit_hooks.py`.
 - ADR-018 (authority and its guards), ADR-060 (holder addenda).
 - microsoft/apm, install-time hidden-Unicode scan (MIT), the approach adapted.
