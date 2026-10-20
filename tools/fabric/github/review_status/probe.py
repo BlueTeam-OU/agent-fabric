@@ -85,6 +85,10 @@ class Probe:
 
 
 def head_born(repo: str, pr: str, head: str, head_ref: str) -> str:
+    return head_born_sourced(repo, pr, head, head_ref)[0]
+
+
+def head_born_sourced(repo: str, pr: str, head: str, head_ref: str) -> tuple[str, bool]:
     """WHEN THE HEAD BECAME THE HEAD, which is not when its commit was
     written.
 
@@ -213,12 +217,13 @@ def head_born(repo: str, pr: str, head: str, head_ref: str) -> str:
         born = min(dates) if dates else ""
     except (gh.GhError, ValueError, TypeError, AttributeError):
         born = ""
-    if not born:
-        try:
-            born = gh.api(f"repos/{repo}/commits/{head}")["commit"]["committer"]["date"] or ""
-        except (gh.GhError, ValueError, TypeError, KeyError):
-            born = ""
-    return born
+    if born:
+        return born, True
+    try:
+        born = gh.api(f"repos/{repo}/commits/{head}")["commit"]["committer"]["date"] or ""
+    except (gh.GhError, ValueError, TypeError, KeyError):
+        born = ""
+    return born, False
 
 
 def formal_request_at(repo: str, pr: str, pending_logins: list[str]) -> str:
@@ -272,6 +277,7 @@ def probe(ctx: "Ctx") -> Probe | None:
     carry that."""
     cfg = ctx.cfg
     p = Probe()
+    ctx.limited_until = None
     try:
         meta = gh.pr_view(ctx.pr, PR_FIELDS, repo=ctx.repo)
         p.head = ctx.head = jstr(meta.get("headRefOid"))
@@ -300,14 +306,17 @@ def probe(ctx: "Ctx") -> Probe | None:
         # silently lost the rest — plausible here precisely because this
         # script documents that thread replies create review objects, so the
         # count climbs with correspondence rather than with coverage.
-        reviews = gh.api(f"repos/{ctx.repo}/pulls/{ctx.pr}/reviews", paginate=True) or []
+        reviews = gh.api_list(f"repos/{ctx.repo}/pulls/{ctx.pr}/reviews") or []
         p.buckets = classify(reviews, ctx.author, cfg)
 
         # VERDICT COMMENTS. Unreadable rather than empty, for the same reason
         # the reviews call is: a swallowed failure here would report a clean
         # review as no review, which is the whole defect this fetch fixes.
-        comments = gh.api(f"repos/{ctx.repo}/issues/{ctx.pr}/comments", paginate=True) or []
-    except (gh.GhError, ValueError, TypeError, AttributeError):
+        comments = gh.api_list(f"repos/{ctx.repo}/issues/{ctx.pr}/comments") or []
+    except (gh.GhError, ValueError, TypeError, AttributeError) as e:
+        # A call refused on the rate limit is not an unreadable PR: the caller waits for the reset
+        # rather than count it toward "could not read".
+        ctx.limited_until = e.reset if isinstance(e, gh.GhError) else None
         return None
 
     p.verdicts = verdicts_of(comments, ctx.author, cfg)
@@ -377,7 +386,15 @@ def probe(ctx: "Ctx") -> Probe | None:
     # Fetched only when there IS an ask, so the common path keeps its three
     # calls.
     if p.request_at:
-        born = head_born(ctx.repo, ctx.pr, p.head, head_ref)
+        # A head's birth never changes: asked once per head, a poll that finds the same ask asks nothing.
+        key = (p.head, head_ref)
+        born = ctx.born.get(key)
+        if not born:
+            born, from_suite = head_born_sourced(ctx.repo, ctx.pr, p.head, head_ref)
+            # Only the check suite's date is the push's: the commit-date fallback can predate the push by
+            # a rebase's age, and the suite may simply not be registered yet. A fallback is asked again.
+            if born and from_suite:
+                ctx.born[key] = born
         if not born or p.request_at > born:
             p.request_pending = True
         # A refusal that arrived after the ask still answers it.

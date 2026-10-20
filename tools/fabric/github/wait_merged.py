@@ -135,6 +135,7 @@ import time
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+import poll_pace  # noqa: E402
 from github import actions_health, arm, landed  # noqa: E402
 from github.review_status.base import Die  # noqa: E402
 # These stay importable from here, where the unit suite reaches them.
@@ -218,6 +219,11 @@ class Watch:
     def __init__(self, opts: dict, repo: str):
         self.pr, self.repo, self.quiet = opts["pr"], repo, opts["quiet"]
         self.interval, self.timeout, self.idle_threshold = opts["interval"], opts["timeout"], opts["idle_reads"]
+        # The wait between looks grows while the PR reads the same (poll_pace.py); a call refused on the
+        # rate limit sets limited_until, and the next look is at the reset, not a failure to read.
+        self.pace = poll_pace.Pace(self.interval)
+        self.last_reading = None
+        self.limited_until: float | None = None
         self.arm = arm_command()
         self.checks_why = ""   # why the last checks lookup was unreadable, for the note
         self.eviction_note = eviction_note()
@@ -415,6 +421,8 @@ class Watch:
         failures = check_failures = unreadable_total = 0
         empty_polls = polls_read = idle_reads = 0
         while True:
+            changed = True
+            self.limited_until = None
             payload = self.view()
             if payload is not None:
                 failures = 0
@@ -422,11 +430,19 @@ class Watch:
                 state = payload.get("state") or ""
                 merge_state = payload.get("mergeStateStatus") or ""
                 checks = self.required_checks()
+                reading = (state, merge_state, json.dumps(checks, sort_keys=True) if isinstance(checks, list) else None)
+                changed = reading != self.last_reading
+                self.last_reading = reading
                 # A LOOKUP THAT FAILED IS NOT "NOTHING IS FAILING": the exit
                 # status cannot tell (gh exits non-zero precisely when a
                 # check fails), whether the answer is a JSON array can.
                 readable = isinstance(checks, list)
-                if not readable:
+                if not readable and poll_pace.until_reset(self.limited_until, time.time()) is not None:
+                    # Refused on the rate limit: the lookup was not made, not unreadable.
+                    self.note(f"#{pr} checks: rate limited until {poll_pace.reset_clock(self.limited_until)}")
+                    unreadable_total += 1   # a failing check may have been hidden by this poll, as by an unreadable one
+                    failing = ""
+                elif not readable:
                     check_failures += 1
                     unreadable_total += 1
                     self.note(f"could not read #{pr} checks ({check_failures}/{MAX_CONSECUTIVE_FAILURES}): "
@@ -516,6 +532,9 @@ class Watch:
                     # The probe did not run: readings either side of the gap
                     # are not CONSECUTIVE.
                     idle_reads = 0
+            elif poll_pace.until_reset(self.limited_until, time.time()) is not None:
+                idle_reads = 0
+                self.note(f"#{pr}: rate limited until {poll_pace.reset_clock(self.limited_until)}")
             else:
                 failures += 1
                 # A poll that read nothing observed nothing: it continues no
@@ -530,7 +549,14 @@ class Watch:
                 self.expire(empty_polls, polls_read, idle_reads, unreadable_total)
             # Never sleep past the deadline, and never cut the watch short
             # of it: the nap is clamped to what is left.
-            time.sleep(min(self.interval, remaining))
+            nap = min(self.pace.nap(changed), remaining)
+            quiet_for = poll_pace.until_reset(self.limited_until, time.time())
+            budget = gh.budget_wait() if quiet_for is None else 0
+            if budget > 0:
+                quiet_for = int(budget) or 1
+            if quiet_for is not None:
+                nap = min(max(nap, quiet_for), remaining)
+            time.sleep(nap)
 
     def expire(self, empty_polls: int, polls_read: int, idle_reads: int, unreadable_total: int) -> None:
         # The emptiness must describe the WHOLE watch — every poll that read
@@ -562,7 +588,8 @@ class Watch:
     def view(self) -> dict | None:
         try:
             doc = gh.pr_view(int(self.pr), ["state", "mergeStateStatus"], repo=self.repo)
-        except (gh.GhError, ValueError):
+        except (gh.GhError, ValueError) as e:
+            self.limited_until = e.reset if isinstance(e, gh.GhError) else None
             return None
         return doc if isinstance(doc, dict) and doc else None
 
@@ -581,6 +608,8 @@ class Watch:
         except gh.GhError as e:
             if gh.no_checks_reported(e):
                 return []
+            if e.reset is not None:
+                self.limited_until = e.reset
             if e.code is None:
                 # gh never ran or never answered: there was no stdout to call
                 # not-JSON.

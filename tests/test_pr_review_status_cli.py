@@ -70,8 +70,16 @@ esac
 # out of $2 and made a positional match fall through to the catch-all
 # `exit 0` — an empty body that reads as zero reviews, i.e. the suite would
 # have gone green on a script that fetched nothing at all.
+# A list the poll reads conditionally (`api -i <path>?per_page=100`) is answered as gh prints it with -i:
+# the status line and headers, a blank line, then the page itself (one list, not a list of pages).
+if [[ "$1" == "api" && "$2" == "-i" ]]; then
+  printf 'HTTP/2.0 200 OK\r\nEtag: W/"mock"\r\n\r\n'
+  OPEN='['; CLOSE=']'
+else
+  OPEN='[['; CLOSE=']]'
+fi
 if [[ "$1" == "api" && "$*" == *"/reviews"* ]]; then
-  printf '[['
+  printf '%s' "$OPEN"
   first=1
   # The author is OWNER; any other account a MEMBER, a trusted reviewer.
   while IFS=, read -r login commit at; do
@@ -82,12 +90,12 @@ if [[ "$1" == "api" && "$*" == *"/reviews"* ]]; then
     printf '{"user":{"login":"%s"},"author_association":"%s","state":"COMMENTED","commit_id":"%s","submitted_at":"%s","body":""}' \
       "$login" "$assoc" "$commit" "$at"
   done < "$S/reviews"
-  printf ']]\n'
+  printf '%s\n' "$CLOSE"
   exit 0
 fi
 
 if [[ "$1" == "api" && "$*" == *"/comments"* ]]; then
-  echo '[[]]'; exit 0
+  echo "$OPEN$CLOSE"; exit 0
 fi
 exit 0
 '''
@@ -112,7 +120,8 @@ def main() -> int:
         os.chmod(f"{sandbox}/bin/gh", 0o755)
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
-        base.update(PATH=f"{sandbox}/bin:{base.get('PATH', '')}", GH_MOCK_STATE=state)
+        base.update(PATH=f"{sandbox}/bin:{base.get('PATH', '')}", GH_MOCK_STATE=state,
+                    AGENT_FABRIC_STATE_DIR=f"{sandbox}/agent-state")   # the ledger and the ETag cache stay here
 
         def put(name: str, text: str) -> None:
             with open(f"{state}/{name}", "w", encoding="utf-8") as fh:

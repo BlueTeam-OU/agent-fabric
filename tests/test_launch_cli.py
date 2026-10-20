@@ -200,7 +200,7 @@ def main() -> int:
             # install-agent-files.sh is a shim for its module, which imports
             # fabric_writes (ADR-040 §5 rule 5).
             for f in ("routing.py", "workingcopy.py", "jobs.py", "layout.py", "launch_prompt.py",
-                      "install_agent_files.py", "fabric_writes.py", "launch_locale.py", "roots.py", "git.py", "gh.py"):   # git.py and gh.py: jobsparts/vcs.py loads them
+                      "install_agent_files.py", "fabric_writes.py", "launch_locale.py", "roots.py", "git.py", "gh.py", "gh_ledger.py"):   # git.py and gh.py: jobsparts/vcs.py loads them (gh.py imports gh_ledger.py)
                 shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fabric}/tools/fabric/")
             shutil.copytree(f"{ROOT}/tools/fabric/jobsparts", f"{fabric}/tools/fabric/jobsparts", ignore=shutil.ignore_patterns("__pycache__"))   # jobs.py's parts
             # The role's system prompt: the assembler, the shared sections and
