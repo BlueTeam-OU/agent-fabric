@@ -409,8 +409,7 @@ class Sweep(unittest.TestCase):
                 continue
             with open(path, encoding="utf-8") as fh:
                 text = fh.read()
-            # "branches": another command's --sweep flag (fabric-ctl drift's) runs no fabric-branches sweep
-            if '"--sweep"' in text and "branches" in text and "claude-config" not in text:
+            if '"--sweep"' in text and "claude-config" not in text:
                 missing.append(name)
         self.assertEqual(missing, [], "these run a sweep with this login's own registry and cache")
 

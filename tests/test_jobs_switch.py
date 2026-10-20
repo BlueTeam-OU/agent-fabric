@@ -958,16 +958,42 @@ def main() -> int:
         def branches_of(w: World) -> str:
             return subprocess.run(["git", "-C", w.repo, "branch", "--format=%(refname:short)"], capture_output=True, text=True).stdout
 
+        # A registry the sweep can read, that lists no session: it removes a worktree only then, and reads every scratch directory
+        # under $TMPDIR as an ended session's, so the suite gives it a $TMPDIR of its own.
+        readable = {"CLAUDE_CONFIG_DIR": os.path.join(tmp, "claude-config"), "TMPDIR": os.path.join(tmp, "scratch-tmp")}
+        os.makedirs(os.path.join(readable["CLAUDE_CONFIG_DIR"], "sessions"))
+        os.makedirs(readable["TMPDIR"])
+
+        def with_readable_registry(fn):
+            saved = {k: os.environ.get(k) for k in readable}
+            os.environ.update(readable)
+            try:
+                return fn()
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+
         w = World()
         j1, left = left_behind(w, push=True)
         j2 = w.add("second thing")
         rc, out, err = w.switch()
-        check("the worktree the left job leaves, clean and on the remote, is removed, said, with its size",
-              rc == 0 and not os.path.exists(left) and f"removed worktree {left}" in out and "freed" in out, out + err)
+        check("a registry that cannot be read keeps the clean pushed worktree the left job leaves, with that reason, and the switch goes on",
+              rc == 0 and os.path.isdir(left) and "session registry unreadable" in out and "removed worktree" not in out, out + err)
         check("…no branch is deleted: a queued job's branch may sit at the default branch's tip", "queued-at-tip" in branches_of(w), branches_of(w))
         check("…and what the command said of itself on stderr (no session registry here) reaches the person though it exited 0",
               "fabric-branches: the sessions of this login cannot be listed" in out, out + err)
         check("…and the next job's own worktree is made after the sweep, and stays", os.path.isdir(w.job(j2)["worktree"]) and w.job(j2)["worktree"] != left, out + err)
+
+        w = World()
+        j1, left = left_behind(w, push=True)
+        j2 = w.add("second thing")
+        rc, out, err = with_readable_registry(w.switch)
+        check("the worktree the left job leaves, clean and on the remote, is removed, said, with its size, when the registry is readable",
+              rc == 0 and not os.path.exists(left) and f"removed worktree {left}" in out and "freed" in out, out + err)
+        check("…no branch is deleted there either", "queued-at-tip" in branches_of(w), branches_of(w))
 
         w = World()
         j1, left = left_behind(w, push=False)
@@ -988,7 +1014,7 @@ def main() -> int:
         w = World()
         j1, left = left_behind(w, push=True)
         w.add("second thing")
-        rc, out, err = w.switch("--json")
+        rc, out, err = with_readable_registry(lambda: w.switch("--json"))
         check("--json: stdout is the one object, the sweep's report is on stderr", rc == 0 and json.loads(out)["job"] and f"removed worktree {left}" in err
               and "removed worktree" not in out, out + err)
 
