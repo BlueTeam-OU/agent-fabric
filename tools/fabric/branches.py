@@ -377,14 +377,14 @@ def is_marker_file(path: str) -> bool:
 def marker_pid(path: str) -> int | None:
     """The pid in the worktree's in-use marker when it is alive and this uid's, else None. A marker that is a link, not a
     regular file, empty, not a number or of a dead or foreign process keeps nothing. Liveness is /proc, not kill(2): a pid of
-    0 or a negative one would signal a group, and a process of another uid answers "alive" to a permission error."""
+    0 would signal a group, and a process of another uid answers "alive" to a permission error."""
     marker = os.path.join(path, IN_USE_MARKER)
     try:
         if not stat.S_ISREG(os.lstat(marker).st_mode):
             return None
         with open(marker, "rb") as fh:
             first = fh.readline(32).decode("ascii", "replace").strip()
-        if not re.fullmatch(r"[0-9]+", first) or int(first) == 0:
+        if not re.fullmatch(r"[0-9]+", first):
             return None
         pid = int(first)
         return pid if os.stat(f"/proc/{pid}").st_uid == os.getuid() else None

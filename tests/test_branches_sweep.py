@@ -490,6 +490,16 @@ class Sweep(unittest.TestCase):
         self.assertIn("1 uncommitted change(s)", out)
         self.assertNotIn("names live process", out)
 
+    def test_only_processes_of_this_uid_count(self):
+        import unittest.mock
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        import branches
+        self.harness()
+        mine = branches.process_cwds()
+        self.assertTrue(mine, "positive control: the process just started is listed")
+        with unittest.mock.patch.object(branches.os, "getuid", return_value=os.getuid() + 1):
+            self.assertEqual(branches.process_cwds(), [])
+
     def test_json_names_the_marker_as_the_reason(self):
         wt = self.worktree("marked-json", pushed=True)
         self.write_marker(wt, f"{self.harness()}\n")
