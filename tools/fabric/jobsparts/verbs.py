@@ -10,6 +10,7 @@ import time
 from fabric_jobs import vcs
 from fabric_jobs.settle import settle
 from fabric_jobs.leave_sweep import after_leaving
+from fabric_jobs.leave_targets import clean_targets
 from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
 from fabric_jobs.base import MESSAGE_ID, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
@@ -262,6 +263,14 @@ def switch_job(args) -> int:
         discard(choice)
         raise
     verdict, job = verdict_for["verdict"], verdict_for["job"]
+    # Only now: the job has really been left (a refusal above leaves it, and its targets, as they were). The sweep above has had its
+    # turn first; a worktree it removed is gone and has nothing to clear.
+    if old and old["id"] != nxt["id"] and not args.keep_targets:
+        others = tuple(p for j in listed["jobs"] if j["id"] != old["id"] for p in (j.get("working_copy"), j.get("worktree")))
+        # The next job may be on the very branch the old one was (an open pull request, its own branch): `choose` then hands it the
+        # old worktree, which the snapshot of the list above does not yet show as its own.
+        others += (choice.worktree,)
+        swept = clean_targets(old.get("worktree"), old.get("working_copy"), others) + swept
     if args.json:
         for said in swept:
             print(said, file=sys.stderr)      # stdout is the one JSON object
@@ -271,6 +280,8 @@ def switch_job(args) -> int:
     print(line(job) + verdict_for["was_cleared"])
     if choice.kind == "blocked":
         print(f"  blocked, not started: {choice.note}. It waits on pr:{choice.repo}#{choice.pr}; run fabric-jobs switch again for another job.")
+        for said in swept:
+            print(f"    {said}")
         return 0
     if verdict_for["resumed"]:
         print(f"  resumes paused work: {verdict_for['resumed']}")

@@ -1308,6 +1308,342 @@ def main() -> int:
         rc, out, err = w.switch()
         check("a dangling link in the memory directory is not a change and not a failure", rc == 0, err)
 
+        print("leaving a job clears its worktree's cargo targets (j75): only that worktree, never a held, live, linked or configured-out one")
+        import fcntl
+
+        def cargo_job(w: World, *layout: str) -> tuple[str, str]:
+            """A job started with a worktree of its own (under the home, which the step requires) holding `layout`: a path ending
+            in / is a directory with a file in it, else a file."""
+            j = w.add("with a build")
+            assert w.switch()[0] == 0
+            left = w.job(j)["worktree"]
+            for rel in layout:
+                path = os.path.join(left, rel)
+                os.makedirs(os.path.dirname(path) if not rel.endswith("/") else path, exist_ok=True)
+                if not rel.endswith("/"):
+                    with open(path, "w") as fh:
+                        fh.write("x" * 2048)
+            commit_all(left)
+            return j, left
+
+        def commit_all(left: str) -> None:
+            """What a real checkout has: the sources committed, the build output ignored (a settled job has no uncommitted change)."""
+            with open(os.path.join(left, ".gitignore"), "w") as fh:
+                fh.write("target\n")
+            git_in(left, "add", "-A")
+            git_in(left, "commit", "-q", "-m", "sources")
+
+        def leave(w: World, j: str, how: str = "drop", *flags: str) -> tuple[int, str, str]:
+            if how == "drop":
+                assert w.sw("drop", j, "x")[0] == 0
+            else:
+                left = w.job(j)["worktree"]
+                branch = w.job(j)["branch"]
+                git_in(left, "push", "-q", "origin", f"HEAD:{branch}")
+                git_in(left, "fetch", "-q", "origin")
+                assert w.sw("pause", j, "later")[0] == 0
+            nxt = w.add("next one")
+            return w.switch(nxt, *flags)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "app/Cargo.toml", "app/target/release/x", "docs/target/y", "a/b/c/Cargo.toml", "a/b/c/target/z", "a/b/c/d/Cargo.toml", "a/b/c/d/target/z")
+        rc, out, err = leave(w, j)
+        check("a target beside a Cargo.toml is removed, at the top and below, and said with its size",
+              rc == 0 and not os.path.exists(os.path.join(left, "target")) and not os.path.exists(os.path.join(left, "app", "target"))
+              and re.search(rf"removed {re.escape(left)}/target \(\d+(\.\d)? (B|KB)\)", out) and f"removed {left}/app/target" in out, out + err)
+        check("…a target at the 4th level is removed, one at the 5th is kept",
+              not os.path.exists(os.path.join(left, "a/b/c/target")) and os.path.exists(os.path.join(left, "a/b/c/d/target/z")), out + err)
+        check("…a target beside no Cargo.toml, and one deeper than 4 levels, stay; so does the source",
+              os.path.exists(os.path.join(left, "docs", "target", "y")) and os.path.exists(os.path.join(left, "a/b/c/d/target/z"))
+              and os.path.exists(os.path.join(left, "Cargo.toml")), out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        rc, out, err = leave(w, j, "pause")
+        check("a job left paused pays too: its target is removed", rc == 0 and not os.path.exists(os.path.join(left, "target")), out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        rc, out, err = leave(w, j, "drop", "--keep-targets")
+        check("--keep-targets skips the step: the target stays and nothing is said of it",
+              rc == 0 and os.path.exists(os.path.join(left, "target", "debug", "big.o")) and "target" not in out.split("branch ")[0], out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        standing = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], cwd=os.path.join(left, "target", "debug"))
+        try:
+            time.sleep(0.2)      # exec'd: /proc/<pid>/cwd is the child's, not ours
+            rc, out, err = leave(w, j)
+        finally:
+            standing.kill()
+            standing.wait()
+        check("a target with this uid's process standing in it is kept, and says so",
+              rc == 0 and os.path.exists(os.path.join(left, "target", "debug", "big.o")) and f"kept {left}/target: a process of this uid stands in it" in out, out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "target/debug/.cargo-lock")
+        holder = os.open(os.path.join(left, "target", "debug", ".cargo-lock"), os.O_RDONLY)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        try:
+            rc, out, err = leave(w, j)
+            kept_held = os.path.exists(os.path.join(left, "target", "debug", "big.o"))
+        finally:
+            os.close(holder)
+        check("a target whose .cargo-lock is held is kept, and says a build is running",
+              rc == 0 and kept_held and f"kept {left}/target: its .cargo-lock is held" in out, out + err)
+        rc, out, err = w.sw("show", j)
+        w2 = w.add("again")      # the positive control: the same tree, the lock let go, is removed
+        w.sw("start", w2)
+        shutil_target = os.path.join(left, "target")
+        from fabric_jobs.leave_targets import clean_targets as _clean
+        said = _clean(left, w.repo)
+        check("…and the same target, the lock released, is removed", not os.path.exists(shutil_target) and said and said[0].startswith("removed "), said)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "real/keep.o")
+        os.symlink(os.path.join(left, "real"), os.path.join(left, "target"))
+        rc, out, err = leave(w, j)
+        check("a symlinked target is not followed, nor removed", rc == 0 and os.path.exists(os.path.join(left, "real", "keep.o"))
+              and os.path.islink(os.path.join(left, "target")) and f"kept {left}/target: a link" in out, out + err)
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        outer = os.path.join(tmp, "outside-target")
+        os.makedirs(outer)
+        with open(os.path.join(outer, "precious"), "w") as fh:
+            fh.write("x")
+        os.symlink(outer, os.path.join(left, "target", "inner"))
+        rc, out, err = leave(w, j)
+        check("a link inside a target is removed as a link: what it points at is untouched",
+              rc == 0 and not os.path.exists(os.path.join(left, "target")) and os.path.exists(os.path.join(outer, "precious")), out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", ".cargo/config.toml")
+        with open(os.path.join(left, ".cargo", "config.toml"), "w") as fh:
+            fh.write('[build]\ntarget-dir = "../../elsewhere"\n')
+        commit_all(left)
+        rc, out, err = leave(w, j)
+        check("a cargo configuration sending the target directory outside the worktree keeps the target, and says where",
+              rc == 0 and os.path.exists(os.path.join(left, "target", "debug", "big.o")) and "kept" in out and "sends the target directory to" in out, out + err)
+        with open(os.path.join(left, ".cargo", "config.toml"), "w") as fh:
+            fh.write('[env]\nCARGO_TARGET_DIR = "target-in"\n')
+        said = _clean(left, w.repo)
+        check("…the same tree with the directory named inside the worktree is removed", said and said[0].startswith("removed "), said)
+        os.makedirs(os.path.join(left, "target"))
+        with open(os.path.join(left, "Cargo.toml"), "w") as fh:
+            fh.write("")
+        with open(os.path.join(left, ".cargo", "config.toml"), "w") as fh:
+            fh.write("[build\n")
+        said = _clean(left, w.repo)
+        check("…and a configuration that cannot be parsed keeps it (unknown is not free)", said and said[0].startswith("kept ") and "cannot be read" in said[0], said)
+
+        w = World(under=home)
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "on the pull request"], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+        gh_says(open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        rc, out, err = leave(w, j)
+        check("the next job takes the left job's open-pull-request branch, hence its worktree: the targets there are not cleared",
+              rc == 0 and f"cargo targets: {left} is, holds or lies in a checkout" in out and os.path.isdir(os.path.join(left, "target", "debug")),
+              out + err + repr(w.job(j)))
+        gh_says()
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "sub/keep")
+        w.add("holds the checkout", "--working-copy", os.path.join(left, "sub"))
+        rc, out, err = leave(w, j)
+        check("a switch passes the other jobs' working copies: one inside the left worktree keeps its targets, said",
+              rc == 0 and "left alone" in out and os.path.isdir(os.path.join(left, "target")), out + err)
+        lt0 = sys.modules["fabric_jobs"].leave_targets
+        tdir = os.path.join(left, "target")
+        check("a target on another filesystem than the worktree's is kept whole, said",
+              lt0.one(tdir, left, -1, [], "") == f"kept {tdir}: another filesystem")
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "q/Cargo.toml", "q/target/z")
+        w.add("next one")
+        racing_choose = sys.modules["fabric_jobs"].verbs.choose
+        w.sw("drop", j, "x")
+
+        def racing2(job, **kw):
+            made = racing_choose(job, **kw)
+            w.sw("add", "a high one that appeared meanwhile", "--working-copy", w.repo, "--priority", "high")
+            return made
+        sys.modules["fabric_jobs"].verbs.choose = racing2
+        try:
+            rc, out, err = w.switch()
+        finally:
+            sys.modules["fabric_jobs"].verbs.choose = racing_choose
+        check("a switch that refuses afterwards (the list changed) leaves the targets as they were: the job was not left",
+              rc == 1 and "list changed" in err and os.path.exists(os.path.join(left, "target", "debug", "big.o")), out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/a")
+        os.link(os.path.join(left, "target", "debug", "a"), os.path.join(left, "target", "debug", "b"))
+        with open(os.path.join(left, "target", "debug", "a"), "w") as fh:
+            fh.write("y" * 1_000_000)
+        said = _clean(left, w.repo)
+        check("a file hard-linked inside a target is counted once in the size", said and re.search(r"\(9\d\d\.\d KB\)|\(1\.0 MB\)", said[0]) and "2.0 MB" not in said[0], said)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        other = os.path.join(home, f"other-{w.n}")
+        os.makedirs(os.path.join(other, "proj", "target"))
+        for name in ("Cargo.toml",):
+            open(os.path.join(other, "proj", name), "w").close()
+        open(os.path.join(other, "proj", "target", "o"), "w").close()
+        said = _clean(home, w.repo, (os.path.join(other, "proj"),))
+        check("a worktree field above another job's working copy is refused, and nothing under it is touched",
+              said and "left alone" in said[0] and os.path.exists(os.path.join(other, "proj", "target", "o")), said)
+        os.makedirs(os.path.join(left, "inner", "target"))
+        open(os.path.join(left, "inner", "Cargo.toml"), "w").close()
+        said = _clean(os.path.join(left, "inner"), left, ())
+        check("a worktree field inside a checkout (not a linked worktree) is refused", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "inner", "target")), said)
+        said = _clean(left, w.repo, (left,))
+        check("a worktree another job also names is refused", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        os.makedirs(os.path.join(left, "sub"))
+        said = _clean(left, w.repo, (os.path.join(left, "sub"),))
+        check("a worktree that holds another job's working copy is refused (below)", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        said = _clean(left, w.repo, (home,))
+        check("a worktree that lies inside another job's working copy is refused (above)", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        os.rmdir(os.path.join(left, "sub"))
+        said = _clean(left, w.repo, (other,))
+        check("…and the same worktree with unrelated other jobs is cleared (the positive control)", said and said[0].startswith("removed "), said)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        os.makedirs(os.path.join(home, ".cargo"), exist_ok=True)
+        elsewhere = os.path.join(tmp, "elsewhere-target")
+        with open(os.path.join(home, ".cargo", "config.toml"), "w") as fh:
+            fh.write(f'[build]\ntarget-dir = "{elsewhere}"\n')
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            os.unlink(os.path.join(home, ".cargo", "config.toml"))
+            os.rmdir(os.path.join(home, ".cargo"))
+        check("a configuration above the worktree ($CARGO_HOME) that sends the target outside keeps it",
+              said and said[0].startswith("kept ") and elsewhere in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        # …found by the walk up the parents alone (CARGO_HOME names another place), and by CARGO_HOME alone (no parent has one)
+        saved_ch = os.environ.get("CARGO_HOME")
+        os.makedirs(os.path.join(home, ".cargo"), exist_ok=True)
+        with open(os.path.join(home, ".cargo", "config.toml"), "w") as fh:
+            fh.write(f'[build]\ntarget-dir = "{elsewhere}"\n')
+        os.environ["CARGO_HOME"] = os.path.join(tmp, "no-cargo-home")
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            os.unlink(os.path.join(home, ".cargo", "config.toml"))
+            os.rmdir(os.path.join(home, ".cargo"))
+        check("…also when only a parent directory's .cargo holds it", said and said[0].startswith("kept ") and elsewhere in said[0], said)
+        ch = os.path.join(tmp, "cargo-home")
+        os.makedirs(ch, exist_ok=True)
+        with open(os.path.join(ch, "config.toml"), "w") as fh:
+            fh.write(f'[build]\ntarget-dir = "{elsewhere}"\n')
+        os.environ["CARGO_HOME"] = ch
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            if saved_ch is None:
+                os.environ.pop("CARGO_HOME", None)
+            else:
+                os.environ["CARGO_HOME"] = saved_ch
+        check("…and when only $CARGO_HOME does", said and said[0].startswith("kept ") and elsewhere in said[0], said)
+        plain = os.path.join(home, f"plain-{w.n}")
+        os.makedirs(os.path.join(plain, "target"))
+        open(os.path.join(plain, "Cargo.toml"), "w").close()
+        said = _clean(plain, None)
+        check("a directory that is no linked worktree (no .git file) is refused though nothing else overlaps it",
+              said and "not a linked worktree" in said[0] and os.path.isdir(os.path.join(plain, "target")), said)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "bad/Cargo.toml", "bad/target/z", "bad/.cargo/config.toml", "ok/Cargo.toml", "ok/target/z")
+        with open(os.path.join(left, "bad", ".cargo", "config.toml"), "wb") as fh:
+            fh.write(b"[build]\ntarget-dir = '\xff\xfe'\n")
+        said = _clean(left, w.repo)
+        check("a configuration that is not UTF-8 keeps only its own target: the others are still judged and said",
+              len(said) == 3 and sum(l.startswith("removed ") for l in said) == 2 and any(l.startswith("kept ") and "/bad/target" in l for l in said)
+              and os.path.isdir(os.path.join(left, "bad", "target")), said)
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", ".cargo/config.toml")
+        os.chmod(os.path.join(left, ".cargo"), 0)
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            os.chmod(os.path.join(left, ".cargo"), 0o755)
+        check("a .cargo directory that cannot be looked into keeps the target: unknown is not absent",
+              said and said[0].startswith("kept ") and os.path.isdir(os.path.join(left, "target")), said)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        lt = sys.modules["fabric_jobs"].leave_targets
+        real_cwds = lt.live_cwds
+
+        def blind():
+            raise lt.Unknown("processes cannot be listed")
+        lt.live_cwds = blind
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            lt.live_cwds = real_cwds
+        check("a process list that cannot be read keeps every target", said and said[0].startswith("kept ") and "cannot be listed" in said[0]
+              and os.path.isdir(os.path.join(left, "target")), said)
+        real_listdir = os.listdir
+
+        def no_proc(path="."):
+            if path == "/proc":
+                raise PermissionError(13, "Permission denied")
+            return real_listdir(path)
+        os.listdir = no_proc
+        try:
+            try:
+                lt.live_cwds()
+                listed_ok = True
+            except lt.Unknown:
+                listed_ok = False
+        finally:
+            os.listdir = real_listdir
+        check("a /proc that cannot be listed is Unknown, never nobody", not listed_ok)
+        unreadable = os.path.join(left, "target", "debug", "locked")
+        os.makedirs(unreadable)
+        os.chmod(unreadable, 0)
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            os.chmod(unreadable, 0o755)
+        check("a directory in the target that cannot be read keeps it", said and said[0].startswith("kept ") and "cannot be read" in said[0], said)
+        try:
+            lt.scan(os.path.join(left, "target"), -1)
+            crossed = False
+        except lt.Unknown:
+            crossed = True
+        check("a target on another filesystem than the worktree's is Unknown (scan), never removed", crossed)
+
+        w = World(under=home)
+        j1 = w.working("shared checkout")
+        os.makedirs(os.path.join(w.repo, "target", "debug"))
+        for name in ("Cargo.toml", os.path.join("target", "debug", "o")):
+            with open(os.path.join(w.repo, name), "w") as fh:
+                fh.write("x")
+        with open(os.path.join(w.repo, ".gitignore"), "w") as fh:
+            fh.write("target\nCargo.toml\n")
+        git_in(w.repo, "add", ".gitignore")
+        git_in(w.repo, "commit", "-q", "-m", "ignore")
+        w.sw("drop", j1, "x")
+        said = _clean(w.repo, w.repo)
+        check("the job's working copy is never touched, though the worktree field names it", said and "left alone" in said[0] and os.path.exists(os.path.join(w.repo, "target", "debug", "o")), said)
+        w.add("n")
+        rc, out, err = w.switch()
+        check("…and a switch from a job whose worktree is unset or gone touches nothing and does not fail",
+              rc == 0 and os.path.exists(os.path.join(w.repo, "target", "debug", "o")), out + err)
+        outside = os.path.join(tmp, "not-in-home")
+        os.makedirs(os.path.join(outside, "target"))
+        with open(os.path.join(outside, "Cargo.toml"), "w") as fh:
+            fh.write("")
+        said = _clean(outside, None)
+        check("a worktree outside the home is left alone", said and "left alone" in said[0] and os.path.isdir(os.path.join(outside, "target")), said)
+        check("an unset field, and a directory that is gone, say nothing", _clean(None, None) == [] and _clean(os.path.join(home, "gone"), None) == [])
+
         print("a session that has worked no job takes the first in place, with its branch")
         w = World()
         j1 = w.add("first")

@@ -17,7 +17,7 @@ behind bin/fabric-jobs.
     fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
     fabric-jobs drop <id> "<why>"
     fabric-jobs show <id> [--json]
-    fabric-jobs switch [<id>] [--json] [--type feat|fix|docs|chore|test|refactor] [--needs-merged]
+    fabric-jobs switch [<id>] [--json] [--type feat|fix|docs|chore|test|refactor] [--needs-merged] [--keep-targets]
     fabric-jobs next [<id>] ...                                  alias of switch
     fabric-jobs pool-list [--role R] [--json]
     fabric-jobs pool-claim <pool id> [--topic T] [--working-copy W]
@@ -139,6 +139,15 @@ check that failed and changing nothing:
      fetched default branch. Each is checked out in a worktree beside the job's working copy, which stays where it is; the
      job keeps `branch` and `worktree`, and the opening prompt of its fresh session names them. Two open pull requests of this
      login, no working copy, or an origin that cannot be asked are refused.
+  Once the switch has committed (a refusal leaves everything as it was) and the sweep of what the job left has run, `switch` clears
+  the cargo targets of the left job's `worktree` (j75, the owner 2026-10-21: a target is 60 to 75 GB and every worktree builds its
+  own), in every state it is left in: each `target` beside a Cargo.toml, at most 4 levels below that worktree. Only a linked worktree
+  under the home is cleared: a field that is a plain directory, or is at, above or below the working copy or worktree of this or
+  another job, is refused and said. No link is followed, no filesystem crossed. One target is kept, and
+  the line says why, when a process of this uid stands in it, its `.cargo-lock` is held, or a cargo configuration (the directory
+  and every parent up to the root, `$CARGO_HOME`) sends the target directory outside the worktree; what cannot be told is kept. One
+  line per directory; a failure is a warning, never a refusal. `--keep-targets` skips it, for a job to be resumed within the hour (a
+  paused or blocked job pays a rebuild).
 Each switch appends one line to the old and one to the new job's log: the outcome and its evidence, and the branch.
 `switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
 cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued offers the pool's.
@@ -236,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         n.add_argument("id", nargs="?")
         n.add_argument("--json", action="store_true")
         n.add_argument("--type", choices=TYPES, default="feat", help="the kind of a new branch's name (default feat)")
+        n.add_argument("--keep-targets", action="store_true", help="do not clear the left job's cargo target directories (a job resumed within the hour)")
         n.add_argument("--needs-merged", action="store_true", help="the job needs this agent's open pull request merged first: if it cannot take more commits, block on it")
     pl = sub.add_parser("pool-list", help="the open jobs of a role's pool (default: the bound role)")
     pl.add_argument("--role")
