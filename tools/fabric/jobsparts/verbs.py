@@ -15,7 +15,7 @@ from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
 from fabric_jobs.base import MESSAGE_ID, Job, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
-from fabric_jobs.records import active, fetch_message, find, listed_request, new_job, request_ids_in, request_job, session_id, session_worked, transition
+from fabric_jobs.records import active, fetch_message, find, listed_request, new_job, request_id_of, request_job, session_id, session_worked, transition
 from fabric_jobs.queue import stream_waits
 from fabric_jobs.pool import Unanswered, ask_pool, claimed_job, pool_job, pool_line, pool_offer, printable
 from fabric_jobs.render import blockers_note, line, show, summary
@@ -52,9 +52,8 @@ def add(args) -> int:
             # sender's jobs-add reaches here at the same moment the addressee's
             # inbox queues the same message, and only this check, under the lock,
             # can see both.
-            for mid in request_ids_in(args.title):
-                if listed := listed_request(doc, mid):
-                    return listed, False
+            if (mid := request_id_of(args.title)) and (listed := listed_request(doc, mid)):
+                return listed, False
             return new_job(doc, args.title, topic=args.topic, project=args.project,
                            working_copy=args.working_copy, source=source, priority=args.priority), True
 

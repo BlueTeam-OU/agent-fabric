@@ -30,6 +30,7 @@ from gzcoord import intake  # noqa: E402
 
 MID = "01a15af3-e63c-7e3e-9a35-96df28f028fb"
 OTHER = "01a15af3-e63c-7e3e-9a35-96df28f028fc"
+FOLLOW = "01a15af3-e63c-7e3e-9a35-96df28f028fd"
 ME = "host-a/dev-01"
 SUBJECT = "a request for the addressee"
 TITLE = intake.title_for(SUBJECT, MID)
@@ -112,9 +113,18 @@ def sequential() -> None:
         r = jobs_add(state, intake.title_for(SUBJECT, OTHER))
         check("another request's title is another job: the check is by id, not by subject",
               r.get("status") == "added" and len(listing(state)) == 2, (r, listing(state)))
+        # A follow-up's SUBJECT names the earlier request (blind review F1): the id that counts is the title's last.
+        follow = intake.title_for(f"see (REQUEST {MID}) follow-up", FOLLOW)
+        r = jobs_add(state, follow)
+        check("a SUBJECT that names a listed request does not make its own request vanish",
+              r.get("status") == "added" and len(listing(state)) == 3, (r, listing(state)))
+        queued, err = inbox(state, MID)
+        check("...the first request's redelivery still finds its own job", queued == [] and len(listing(state)) == 3, (queued, err))
+        queued, err = inbox(state, FOLLOW)
+        check("...and the follow-up's delivery finds its own job by its id", queued == [] and len(listing(state)) == 3, (queued, err))
         r = jobs_add(state, "a title that names no request, twice")
         r = jobs_add(state, "a title that names no request, twice")
-        check("a title naming no request is added each time, as before", len(listing(state)) == 4, listing(state))
+        check("a title naming no request is added each time, as before", len(listing(state)) == 5, listing(state))
 
 
 def person_adds_the_message() -> None:
@@ -131,6 +141,11 @@ def person_adds_the_message() -> None:
     except jobs.Refused as e:
         check("`add --request` for a message the sender's job holds is refused by name",
               "already j1" in str(e) and len(doc["jobs"]) == 1, str(e))
+    forged = {"jobs": [{"id": "j1", "state": "queued", "title": f"see (REQUEST {MID}) (REQUEST {OTHER})", "source": {"kind": "request", "message_id": OTHER}}]}
+    check("a job whose subject names this request is not this request's job",
+          jobs.listed_request(forged, MID) is None and jobs.listed_request(forged, OTHER) is not None, jobs.listed_request(forged, MID))
+    check("a title's trailing whitespace is not part of the id's place (a stored title is collapsed; a title on the command line is not)",
+          jobs.request_id_of(f"s (REQUEST {MID}) \n") == MID and jobs.request_id_of(f"s (REQUEST {MID}) x") is None)
     check("...and quietly under --auto, as the intake wants", jobs.request_job(doc, msg, auto=True) is None and len(doc["jobs"]) == 1)
 
 

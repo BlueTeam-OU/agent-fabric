@@ -75,12 +75,13 @@ def title_for(subject: str, message_id: str) -> str:
 
 
 def named_in(title: str, message_id: str) -> bool:
-    return f"(REQUEST {message_id})" in title
+    """records.request_id_of's rule on a listing row: the id is the title's last words, never one in the subject."""
+    return title.rstrip().endswith(f"(REQUEST {message_id})")
 
 
-def listed(doc: dict, message_id: str) -> bool:
+def listed(doc: dict, message_id: str, jobs: Any) -> bool:
     """jobs.py's own check, the one `fabric-jobs add` makes too: one rule for what a REQUEST already on the list is."""
-    return _jobs().listed_request(doc, message_id) is not None
+    return jobs.listed_request(doc, message_id) is not None
 
 
 def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: Any = None) -> list[str]:
@@ -107,7 +108,7 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
             title = title_for(meta.get("SUBJECT") or f"message {mid}", mid)
 
             def add(doc: dict, source: dict = source, project: Any = project, title: str = title, mid: str = mid) -> Any:
-                return None if listed(doc, mid) else jobs.new_job(doc, title, project=project, source=source)
+                return None if listed(doc, mid, jobs) else jobs.new_job(doc, title, project=project, source=source)
 
             job = jobs.mutate(add)
         except BaseException as e:  # noqa: BLE001 — any failure is a line; the delivery stands (SystemExit: identity's refusals)

@@ -197,12 +197,15 @@ def fetch_message(which: str) -> dict:
 
 
 # The title a job gets when it is added by title and not from the message (the
-# sender's jobs-add takes nothing but a title, ADR-040 §7): the id rides in it.
-TITLE_NAMES_REQUEST = re.compile(r"\(REQUEST (" + MESSAGE_ID.pattern + r")\)", re.ASCII)
+# sender's jobs-add takes nothing but a title, ADR-040 §7): the id rides in it,
+# last. Only the last one is the job's: a SUBJECT is the sender's free text and
+# may mention another request's id, which must not make this one vanish.
+TITLE_NAMES_REQUEST = re.compile(r"\(REQUEST (" + MESSAGE_ID.pattern + r")\)\Z", re.ASCII)
 
 
-def request_ids_in(title: str) -> list[str]:
-    return TITLE_NAMES_REQUEST.findall(title)
+def request_id_of(title: str) -> str | None:
+    found = TITLE_NAMES_REQUEST.search(title.rstrip())
+    return found.group(1) if found else None
 
 
 def listed_request(doc: dict, message_id: str) -> Job | None:
@@ -211,7 +214,7 @@ def listed_request(doc: dict, message_id: str) -> Job | None:
     add of a request checks here, under the list's lock, so the inbox's intake,
     the sender's jobs-add and a person's `add --request` give one job."""
     return next((j for j in doc["jobs"] if (j.get("source") or {}).get("message_id") == message_id
-                 or message_id in request_ids_in(str(j.get("title", "")))), None)
+                 or request_id_of(str(j.get("title", ""))) == message_id), None)
 
 
 def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False,

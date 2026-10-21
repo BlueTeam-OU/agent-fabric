@@ -24,6 +24,7 @@ import test_gzcoord_protocol as P  # noqa: E402 — its relay stub, scratch work
 
 ME = "host-a/dev-01"
 MID = "01a11f64-ba5d-75f8-aa8d-4e755dc0f76e"
+OTHER = "01a11f64-ba5d-75f8-aa8d-4e755dc0f76f"
 HOSTS = {"hosts": {"host-a": {"operator": "boss"}}}
 CASES: list[tuple[str, Callable[[], None]]] = []
 
@@ -53,11 +54,18 @@ class FakeJobs:
     def __init__(self, doc: dict | None = None, refuse: str | None = None):
         self.doc = doc if doc is not None else {"jobs": []}
         self.refuse = refuse
+        self.consulted = 0
 
     def mutate(self, fn: Callable[[dict], Any]) -> Any:
         if self.refuse:
             raise Refused(self.refuse)
         return fn(self.doc)
+
+    def listed_request(self, doc: dict, message_id: str) -> Any:
+        """jobs.py's rule at its edge: the message as a job's source, or as the last words of its title."""
+        self.consulted += 1
+        return next((j for j in doc["jobs"] if (j.get("source") or {}).get("message_id") == message_id
+                     or str(j.get("title", "")).endswith(f"(REQUEST {message_id})")), None)
 
     def new_job(self, doc: dict, title: str, *, project: Any = None, source: Any = None) -> dict:
         job = {"id": f"j{len(doc['jobs']) + 1}", "title": title, "project": project, "source": source}
@@ -301,14 +309,24 @@ def _():
             os.environ["AGENT_FABRIC_STATE_DIR"] = saved
 
 
+@case("the intake asks the jobs module it was given whether the request is listed, never another copy of jobs.py (blind review F2)")
+def _():
+    jobs = FakeJobs()
+    lines, err = receive([delivery()], jobs)
+    check(len(lines) == 1 and jobs.consulted == 1 and err == "", (lines, jobs.consulted, err))
+
+
 @case("a MESSAGE-ID that is not an id is said and not queued; a short id is never found inside another title")
 def _():
     jobs = FakeJobs({"jobs": [{"id": "j1", "title": "fix a bug", "source": {"kind": "self"}}]})
     for bad in ("a", "1", "01a11f64", "x" * 200):
         lines, err = receive([delivery(mid=bad)], jobs)
         check(lines == [] and err.count("\n") == 1 and "MESSAGE-ID is not an id" in err and len(jobs.doc["jobs"]) == 1, (bad, lines, err))
-    check(not intake.listed(jobs.doc, "a") and not intake.listed(jobs.doc, MID))
-    check(intake.listed({"jobs": [{"title": f"s (REQUEST {MID})"}]}, MID))
+    check(not intake.listed(jobs.doc, "a", jobs) and not intake.listed(jobs.doc, MID, jobs))
+    check(intake.listed({"jobs": [{"title": f"s (REQUEST {MID})"}]}, MID, jobs))
+    check(intake.named_in(f"s (REQUEST {MID})", MID) and not intake.named_in(f"s (REQUEST {MID}) and more", MID),
+          "the sender's pre-check reads the id as the last words, as jobs.py does")
+    check(not intake.named_in(f"see (REQUEST {MID}) (REQUEST {OTHER})", MID), "...never one named in the subject")
 
 
 @case("a PROJECT that is not a registry id is said and not queued, on either side; the default project never stands in")
