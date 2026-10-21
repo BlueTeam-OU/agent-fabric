@@ -50,7 +50,8 @@ its esac, an
 interpreter run with -c, -s or a flag taking an argument, and a member
 reached only through a member itself reached only so. A script with a
 <<, a backtick (outside single quotes), a quote that does not close
-on its line or a ( that closes on a later one is not read at all; a member
+on its line, a ( that closes on a later one or a case beside a ( is not
+read at all; a member
 it names is reported unwired, with a line on stderr saying why. Rules 2
 and 3 are unchanged: such a helper still needs its own self-test, and a
 workflow must run that.
@@ -342,14 +343,14 @@ _ASSIGN = re.compile(r"(?:(?:local|readonly|declare|typeset|export)(?:\s+-\w+)*\
 # "$(dirname "$0")/x" as shlex leaves it: the inner quotes gone, a space kept.
 _DIRNAME_WORD = re.compile(r"\$\(dirname\s+(--\s+)?" + _SELF + r"\s*\)/(.+)", re.S)
 _INTERPRETERS = {"bash", "sh", "python3", "python"}
-_SEPARATORS = {";", ";;", "&", "&&", "|", "||", "|&"}
+_SEPARATORS = {";", ";;", ";&", ";;&", "&", "&&", "|", "||", "|&"}
 # A ( or ) bounds no simple command this reads: a case pattern, an array,
 # a subshell. A command beside one is not read.
 _GROUPING = {"(", ")"}
 _SAFE_FLAGS = {"bash": set("euxvE"), "sh": set("euxvE"), "python3": set("uBEIsS"), "python": set("uBEIsS")}
 
 
-_OPERATORS = ("<<<", ";;", "&&", "||", "|&", ">>", ">&", "<&", "&>", ">|", "<<", ";", "&", "|", "(", ")", "<", ">")
+_OPERATORS = ("<<<", ";;&", ";;", ";&", "&&", "||", "|&", ">>", ">&", "<&", "&>", ">|", "<<", ";", "&", "|", "(", ")", "<", ">")
 
 
 def _operators(token: str) -> list[str]:
@@ -455,6 +456,9 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
         # (an array's elements) or commands this cannot place (a subshell).
         if _opens_past_line(code):
             return [], f"line {start}: a ( that closes on a later line"
+        # A case pattern's ) would close a ( the scan above counts open.
+        if "case" in tokens and "(" in tokens:
+            return [], f"line {start}: a case beside a ("
         lines.append((code, tokens))
     return lines, ""
 
@@ -539,15 +543,17 @@ def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
     own = os.path.dirname(rel)
     out = set()
     in_case = 0
-    for code_line, tokens in lines:
+    for _code_line, tokens in lines:
         # Between case and esac a line is a pattern or an arm: not read.
-        # Any case token opens one, which can only skip too much; only a
-        # bare esac at the line's start or after ;; closes one, read on
-        # the raw text, so a pattern spelt esac ("esac", a|esac) closes
-        # nothing.
+        # Any case token opens one, which can only skip too much; only an
+        # esac token first on its line or after a ; ;; ;& ;;& closes one,
+        # and not one a ) or | follows (a pattern spelt esac). Tokens, not
+        # the raw text: an esac inside a quoted string closes nothing.
         opened = tokens.count("case")
         if in_case or opened:
-            closed = len(re.findall(r"(?:^|;;)\s*esac(?=\s*(?:$|[;&|}]))", code_line))
+            closed = sum(1 for k, t in enumerate(tokens)
+                         if t == "esac" and (k == 0 or tokens[k - 1] in (";", ";;", ";&", ";;&"))
+                         and tokens[k + 1:k + 2] not in ([")"], ["|"]))
             in_case = max(0, in_case + opened - closed)
             continue
         command_tokens: list[list[str]] = [[]]
