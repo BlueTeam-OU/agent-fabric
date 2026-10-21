@@ -10,12 +10,18 @@ Contract held: a subagent, a command that neither commits nor publishes, an unbo
 active job's working copy or worktree (a clone's .claude/worktrees/ included) pass silently; a commit or publish that
 acts in a directory outside them (the cwd, a `cd`, a `git -C`) is denied; a session that has worked a job which left
 active is denied every commit, the session that switched included; a list that cannot be read asks, but only for a
-command that commits or publishes.
+command that commits or publishes. Git pointed elsewhere through GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR (a prefix,
+`env`, `export`) or --git-dir/--work-tree is judged like a cd; a repository named by `gh pr … -R`, `fabric-pr --repo`
+or GH_REPO is inside only when it is a remote of the job copy, and a copy whose remotes cannot be read asks; only an
+unquoted `<<` opens a heredoc, a body that acts is judged unless it is a quoted-delimiter commit message; the git
+lookups stop at a budget and ask (review round 1 of #348).
 
 Mutations each case set fails on: the agent_id test removed; `cd` or `-C` targets not collected; the prefix test made
 a plain string prefix (proj-other would pass as proj); "worked the active job" counted as allowed (the switching
 session); the `last` fallback used without a session id; the list read before the command is parsed; the ask on an
-unreadable list replaced by an allow.
+unreadable list replaced by an allow; assignment words not read; the repository judgement skipped; the heredoc scan
+made blind to quotes or to comments; a body that acts left unread; the commit-message exception widened to every
+body; the budget never raised.
 """
 from __future__ import annotations
 
@@ -61,6 +67,11 @@ class Guard(unittest.TestCase):
         cls.agent_tree = os.path.join(cls.proj, ".claude", "worktrees", "agent-x")   # a subagent's, under the clone
         git("-C", cls.proj, "worktree", "add", "-q", "-b", "agent-x", cls.agent_tree)
         os.makedirs(os.path.join(cls.agent_tree, "sub"))
+        # The job copy's remotes, in two of the URL shapes the guard normalises; the worktree shares them.
+        git("-C", cls.proj, "remote", "add", "origin", "git@github.com:Acme/Proj.git")
+        git("-C", cls.proj, "remote", "add", "mirror", "https://github.com/acme/proj-mirror")
+        cls.plain = os.path.join(projects, "plain")               # a working copy that is no repository: no remotes to read
+        os.makedirs(cls.plain)
 
     @classmethod
     def tearDownClass(cls):
@@ -244,6 +255,122 @@ class Guard(unittest.TestCase):
             with self.subTest(stdin=stdin):
                 r = hook_harness.run(ENTRY, stdin, hook_harness.env(self.home, AGENT_FABRIC_ROOT=hook_harness.ROOT), cwd=self.proj)
                 self.assertEqual((r.rc, r.out), (0, ""))
+
+    def test_git_pointed_at_another_copy_through_the_environment_is_denied(self):
+        self.active_j7()
+        o, p = self.other, self.proj
+        for cmd in (f"GIT_DIR={o}/.git git commit -m x", f"env -i GIT_DIR={o}/.git GIT_WORK_TREE={o} git push",
+                    f"export GIT_DIR={o}/.git; git commit -m x", f"GIT_WORK_TREE={o} git commit -m x",
+                    f"declare -x GIT_COMMON_DIR={o}/.git && git commit -m x", f"env -u X GIT_DIR={o}/.git git push",
+                    f"export GIT_DIR={o}/.git\ncd {p}\ngit commit -m x", "GIT_DIR=$OTHER git commit -m x",
+                    "export GIT_DIR; git commit -m x", f"env -C {o} git commit -m x"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, p), "deny")
+        for cmd in (f"GIT_DIR={p}/.git git commit -m x", f"env -i GIT_DIR={p}/.git GIT_WORK_TREE={p} git push",
+                    f"export GIT_DIR={p}/.git; git commit -m x", f"GIT_WORK_TREE={self.worktree} git commit -m x",
+                    f"GIT_DIR={p}/.git; export GIT_DIR; git commit -m x"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, p), "allow")
+        self.assertIn(f"{o}/.git", self.reason(f"GIT_DIR={o}/.git git commit -m x", p))
+
+    def test_git_dir_and_work_tree_options(self):
+        self.active_j7()
+        for cmd in (f"git --git-dir={self.other}/.git commit -m x", f"git --git-dir {self.other}/.git push",
+                    f"git --work-tree={self.other} commit -m x", f"git --work-tree {self.other} commit -m x"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+        self.assertEqual(self.decision(f"git --git-dir={self.proj}/.git --work-tree={self.proj} commit -m x", self.proj), "allow")
+
+    def test_eval_and_command_substitution_are_read(self):
+        self.active_j7()
+        for cmd in (f"eval \"cd {self.other} && git commit -m x\"", f"echo \"$(cd {self.other} && git push)\"",
+                    f"x=$(git -C {self.other} commit -m y)", f"echo `git -C {self.other} push`"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+        self.assertEqual(self.decision("eval \"git commit -m x\"", self.proj), "allow")
+        self.assertEqual(self.decision(f"x=$(git -C {self.worktree} commit -m y)", self.proj), "allow")
+
+    def test_a_publish_to_a_named_repository_is_judged_against_the_copy_s_remotes(self):
+        self.active_j7()
+        for cmd in ("gh pr merge 5 -R acme/proj", "gh pr merge 5 -Racme/proj", "gh pr create --repo Acme/Proj --fill",
+                    "gh pr create --repo=github.com/acme/proj --fill", "gh pr merge -R https://github.com/acme/proj.git 5",
+                    "gh pr merge --hostname github.com -R acme/proj-mirror 5", "fabric-pr --repo acme/proj arm 12",
+                    "fabric-pr arm 12 --repo=ACME/proj", "fabric-pr --repo proj arm 12", "GH_REPO=acme/proj gh pr merge 5",
+                    "gh pr view -R acme/other 5 && git commit -m x", "fabric-pr gate --repo acme/other"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.worktree), "allow")
+        for cmd in ("gh pr merge 5 -R acme/other", "gh pr create --repo acme/other --fill", "fabric-pr --repo acme/other arm 12",
+                    "fabric-pr arm 12 --repo=other-owner/proj", "fabric-pr --repo another-project arm 12",
+                    "GH_REPO=acme/other gh pr create --fill", "export GH_REPO=acme/other; gh pr merge 3",
+                    "GH_REPO=acme/other fabric-pr arm 3", "gh pr merge -R gitlab.com/acme/proj 5",
+                    "GH_HOST=gitlab.com gh pr merge -R acme/proj 5", "gh pr merge -R $REPO 5", "gh pr merge -R a/b/c/d 5"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.worktree), "deny")
+        r = self.reason("gh pr merge 5 -R acme/other", self.worktree)
+        for fact in ("acme/other", "github.com/acme/proj", "gh pr merge", "j7"):
+            self.assertIn(fact, r)
+
+    def test_a_copy_whose_remotes_cannot_be_read_asks_for_a_named_repository(self):
+        self.write_jobs(self.job("j7", "active", sessions=(OLD,), working_copy=self.plain))
+        self.assertEqual(self.decision("gh pr merge 1 -R acme/proj", self.plain), "ask")
+        self.assertIn("could not read the remotes", self.reason("gh pr merge 1 -R acme/proj", self.plain))
+        self.assertEqual(self.decision("gh pr merge 1", self.plain), "allow", "no repository named: no remotes read")
+
+    def test_only_an_unquoted_heredoc_operator_opens_a_heredoc(self):
+        self.active_j7()
+        o = self.other
+        for cmd in (f"echo '<<X'\ncd {o}\ngit commit -m x\nX", f"echo \"a <<X\"\ncd {o}\ngit commit -m x\nX",
+                    f"echo a \\<<X\ncd {o}\ngit commit -m x\nX", f"echo hi # <<X\ncd {o}\ngit commit -m x\nX",
+                    f"echo 'two\nlines <<X'\ncd {o}\ngit commit -m x\nX"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+        # The hidden lines hold only the cd and the act follows the "terminator": the act-word backstop would not
+        # see these, so they hold the quote-aware scan itself.
+        for cmd in (f"echo '<<X'\ncd {o}\nX\ngit commit -m x", f"echo 'a <<X b'\ncd {o}\nX\ngit commit -m x",
+                    f"echo hi # <<X\ncd {o}\nX\ngit commit -m x",
+                    f"echo \"<<-X\"\ncd {o}\nX\ngit push"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+
+    def test_a_heredoc_body_that_acts_is_judged_unless_it_is_a_commit_message(self):
+        self.active_j7()
+        o = self.other
+        self.assertEqual(self.decision(f"git commit -F - <<'EOF'\nsubject\n\nthen git push from cd {o}\nEOF", self.proj),
+                         "allow", "a commit message stays data")
+        self.assertEqual(self.decision(f"git commit -F /dev/stdin <<'EOF'\ngit -C {o} push\nEOF", self.proj), "allow")
+        self.assertEqual(self.decision(f"cat <<'EOF' > notes\ncd {o}\nEOF\ngit commit -m x", self.proj), "allow",
+                         "a body that names no act is data")
+        self.assertEqual(self.decision(f"cat <<EOF > notes\ncd {o}\ngit commit -m x\nEOF", self.proj), "deny",
+                         "a body that acts is judged as if it ran")
+        self.assertEqual(self.decision(f"git commit -F - <<EOF\ncd {o}\ngit push\nEOF", self.proj), "deny",
+                         "an unquoted delimiter is no commit-message exception")
+
+    def test_the_git_lookup_budget_asks(self):
+        import importlib.util
+        from unittest import mock
+        self.active_j7()
+        spec = importlib.util.spec_from_file_location("job_copy_guard_under_test", os.path.join(os.path.dirname(ENTRY), "job-copy-guard.py"))
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        self.addCleanup(sys.modules.pop, "fabric_jobs", None)
+        self.addCleanup(sys.modules.pop, "fabric_jobs.records", None)
+
+        def clock(step: float):
+            now = [0.0]
+
+            def tick() -> float:
+                now[0] += step
+                return now[0]
+            return tick
+
+        env = {"HOME": self.home, "XDG_STATE_HOME": os.path.join(self.home, ".state"), "CLAUDE_CODE_SESSION_ID": SESSION}
+        payload = {"tool_name": "Bash", "cwd": self.agent_tree, "tool_input": {"command": "cd sub && git commit -m x"}}
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+            self.assertIsNone(guard.decide(payload, clock=clock(0.0)), "inside, with time to spare")
+            verdict = guard.decide(payload, clock=clock(4.0))      # each lookup "takes" 4 s: the second passes 6 s
+        self.assertEqual(verdict[0], "ask")
+        self.assertIn("6 s budget", verdict[1])
 
     def test_it_stays_fast(self):
         self.active_j7()
