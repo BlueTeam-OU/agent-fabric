@@ -463,7 +463,15 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
     while n < len(physical):
         # A backslash-newline joins the next line; n names the first.
         start, line = n + 1, physical[n]
-        while line.endswith("\\") and n + 1 < len(physical):
+        while n + 1 < len(physical):
+            # Only an odd run of backslashes ending the code continues it:
+            # an even run is literal backslashes, and one in a comment is
+            # the comment's (strip_comment has taken it off). Inside a single
+            # quote the join only merges the string's text, which no rule
+            # here reads.
+            code = strip_comment(line)
+            if (len(code) - len(code.rstrip("\\"))) % 2 == 0:
+                break
             n += 1
             # The shell removes a backslash-newline whole: a space here
             # would split a $( or a $' that the line spells across it.
