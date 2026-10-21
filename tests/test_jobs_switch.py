@@ -1438,7 +1438,7 @@ def main() -> int:
 
         w = World(under=home)
         j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "q/Cargo.toml", "q/target/z")
-        nxt = w.add("next one")
+        w.add("next one")
         racing_choose = sys.modules["fabric_jobs"].verbs.choose
         w.sw("drop", j, "x")
 
