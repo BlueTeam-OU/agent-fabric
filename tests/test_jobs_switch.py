@@ -1445,7 +1445,7 @@ def main() -> int:
         lt0 = sys.modules["fabric_jobs"].leave_targets
         tdir = os.path.join(left, "target")
         check("a target on another filesystem than the worktree's is kept whole, said",
-              lt0.one(tdir, left, -1, [], "").startswith(f"kept {tdir}: another filesystem"))
+              lt0.one(tdir, left, -1, [], "") == f"kept {tdir}: another filesystem")
 
         w = World(under=home)
         j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "q/Cargo.toml", "q/target/z")

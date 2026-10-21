@@ -143,7 +143,7 @@ check that failed and changing nothing:
   the cargo targets of the left job's `worktree` (j75, the owner 2026-10-21: a target is 60 to 75 GB and every worktree builds its
   own), in every state it is left in: each `target` beside a Cargo.toml, at most 4 levels below that worktree. Only a linked worktree
   under the home is cleared: a field that is a plain directory, or is at, above or below the working copy or worktree of this or
-  another job (the next job's included), is refused and said. No link is followed, no filesystem crossed. One target is kept, and
+  another job, is refused and said. No link is followed, no filesystem crossed. One target is kept, and
   the line says why, when a process of this uid stands in it, its `.cargo-lock` is held, or a cargo configuration (the directory
   and every parent up to the root, `$CARGO_HOME`) sends the target directory outside the worktree; what cannot be told is kept. One
   line per directory; a failure is a warning, never a refusal. `--keep-targets` skips it, for a job to be resumed within the hour (a
