@@ -488,6 +488,23 @@ def _self_dir_vars(lines: list[tuple[str, list[str]]]) -> set[str]:
     return out
 
 
+def _closers(code: str) -> int:
+    """How many case blocks the line closes: each token that is literally
+    esac — read with its quotes and backslashes kept, since 'esac', "esac"
+    and \\esac run as commands — first on the line or after ; ;; ;& ;;&
+    (a|esac and (esac) follow no separator, and bash refuses a bare esac
+    as a pattern). A line this cannot lex
+    so closes nothing, which can only skip too much."""
+    lex = shlex.shlex(code, posix=False, punctuation_chars=True)
+    lex.whitespace_split, lex.commenters = True, ""
+    try:
+        raw = [op for t in lex for op in _operators(t)]
+    except ValueError:
+        return 0
+    return sum(1 for k, t in enumerate(raw)
+               if t == "esac" and (k == 0 or raw[k - 1] in (";", ";;", ";&", ";;&")))
+
+
 def _run_path(tokens: list[str]) -> str | None:
     """The script a simple command runs: an interpreter's first operand, or
     the command word itself. Leading assignments, keywords and redirections
@@ -549,19 +566,10 @@ def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
         # Between case and esac a line is a pattern or an arm: not read.
         # Any case token opens one, which can only skip too much; only an
         # esac token first on its line or after a ; ;; ;& ;;& closes one,
-        # and not one a ) or | follows (a pattern spelt esac). Tokens, not
-        # the raw text, so a ;; esac inside a string closes nothing.
+        # as _closers reads it.
         opened = tokens.count("case")
         if in_case or opened:
-            # shlex unquotes 'esac' and \esac into the token esac, which the
-            # shell runs as a command, and two counts cannot say which word
-            # is the closer: a line whose esac tokens are not all bare in its
-            # own syntax closes nothing, which can only skip too much.
-            bare_esac = len(re.findall(r"(?<![\w\"'\\-])esac(?![\w\"'-])", _outside_single_quotes(code_line)))
-            closed = 0 if bare_esac != tokens.count("esac") else sum(
-                1 for k, t in enumerate(tokens)
-                if t == "esac" and (k == 0 or tokens[k - 1] in (";", ";;", ";&", ";;&"))
-                and tokens[k + 1:k + 2] not in ([")"], ["|"]))
+            closed = _closers(code_line)
             in_case = max(0, in_case + opened - closed)
             continue
         command_tokens: list[list[str]] = [[]]
