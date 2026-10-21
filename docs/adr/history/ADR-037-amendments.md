@@ -48,3 +48,21 @@ The owner, 2026-10-16, reading devex-tooling's tab in the fleet deck, took its j
 ### Amendment 2026-10-18 — Work that leaves no artifact closes with a reason
 
 Rule 10's `done` test accepted only a merged pull request or a commit on the default branch, and `drop` refuses a closed job, so a job whose work lands nothing in a repository could be closed but never left: three agents (edge-hosting, rust-services-dev-02, flutter-dev-02) hit it the same day, after a coordinator broadcast asked each to record its disk cleanup as a job. Such work now closes with `fabric-jobs done <id> --no-artifact "<what was done>"`: the reason is required, recorded on the job and shown, and `switch` accepts it as that job's evidence; the same command settles a job already closed done without evidence. A reason never stands in for evidence the job does have: an open pull request or an unfolded branch still refuses (agent-fabric #299).
+
+### Amendment 2026-10-20 — A session works one job's working copy
+
+The owner reported it through architect-cto-01 on 2026-10-20. A session launched for an InterWeave job closed that job and then took a gzapp question that expected a reply. It changed into its gzapp checkout and committed there (gzapp 9fbb51030) without running `fabric-jobs switch`. Its own reasoning named rule 3 and carried on. Prose had not held, so rule 3 gets a fence.
+
+The fence is a PreToolUse hook on Bash. It runs session-side because the fact it needs, which job this session worked, lives in the job log under the harness session id, and CI never sees that. The hook refuses a command that commits or publishes (git commit, push, merge, rebase, cherry-pick or am; a pull request opened or merged) when it acts in a directory outside the session's job copies. When the session's job has left `active`, it refuses every such command.
+
+Reads in other copies stay allowed, because diagnosing anywhere is every role's right. A session with no job is left alone, which covers the owner's own sessions. The hook reads directories by over-reporting: any `cd`, `pushd` or `git -C` target outside the copies, or one it cannot resolve, counts as outside. A false refusal costs a rephrase; a false allowance is the incident.
+
+The inbox path needs no change. Intake already queues a delivered REQUEST as a job (rule 11), and this fence is what stops the session acting on it in place. When the hook cannot read the job list or the tree, it asks rather than allows.
+
+### Amendment 2026-10-21 — Leaving a job cleans its build output
+
+/home on the fleet's host filled twice between 2026-10-20 and 2026-10-21. The first time it reached 98%, and other logins' runs failed with ENOSPC. The second time the owner added 100G. `fabric-ctl all disk` put almost all of it in cargo `target` directories of 60 to 75G each, one per job worktree, left behind after the job moved on. Asked by message, the agents freed about 270G the first time, and three of the directories were back within hours.
+
+The owner approved cleaning on leaving a job: `fabric-jobs switch` is to remove the old job's worktree targets once the job is settled, whatever the outcome. python-dev-03 builds it (its j75); this record was written before the code landed.
+
+One shared target directory per login was proposed and withdrawn before anything was built. InterWeave binaries bake in `CARGO_MANIFEST_DIR`, and cargo does not rebuild for another worktree with the same sources. A shared target therefore runs binaries that point at the first worktree's paths, which failed all of xtask's checks once on 2026-10-07 (rust-ui-dev's slice shared-target-worktree). How large a project's builds are is the project's own decision (InterWeave: architect-cto, asked 2026-10-21).

@@ -91,7 +91,17 @@
         "tests/test_trial_merge.py",
         "tests/test_trial_merge_cli.py",
         "tests/test_pr_counts.py",
-        "tests/test_fabric_pr.py"
+        "tests/test_fabric_pr.py",
+        "tests/test_actions_health_cli.py",
+        "tests/test_guards_wired.py",
+        "tests/test_owed_supply_cli.py",
+        "tests/test_pr_compliance_cli.py",
+        "tests/test_repo_policy.py",
+        "tests/test_repo_settings_cli.py",
+        "tests/test_run_suite.py",
+        "tests/test_semantic_collisions.py",
+        "tests/test_wait_merged.py",
+        "tests/test_workflows_lint.py"
       ],
       "excluding": [
         "tools/fabric/guards/",

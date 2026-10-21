@@ -828,20 +828,22 @@ its record disagree, the record wins. Look it up, never read it whole:
   `runtime/identity.py`); seven states, one active at a time (§5 rules 1–2).
 - `fabric-jobs switch` (alias `next`): after a worked job, the next starts
   in a fresh session (`fabric-fresh --job <id>`); else in place (§5 rule 3).
-- Jobs come from the agent, the owner (`fabric-ctl <login> jobs-add`) and
-  a delivered REQUEST (§5 rules 4–5, 11).
-- The owner reads every list: `fabric-ctl <login|all> jobs` (§5 rule 6).
-- A 2026-10-08 — priority orders `next`, never preempting; a job others
-  wait on ranks blocking; a role pool; take the next (§5 rules 7–10).
-- A 2026-10-09 — a stale waiter still ranks blocking (§5 rule 8).
+- Jobs come from the agent, the owner and a delivered REQUEST (§5 rules
+  4–5, 11).
+- The owner reads every list (`fabric-ctl jobs`, §5 rule 6).
+- A 2026-10-08 — priority, never preempting; blocking rank; a role pool;
+  take the next (§5 rules 7–10).
+- A 2026-10-09 — a stale waiter still blocks (§5 rule 8).
 - A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
 - A 2026-10-09 — a job may be a plan's step (§5 rule 11).
 - A 2026-10-11 — every job after a worked one starts fresh (§5 rule 3).
-- A 2026-10-12 — checkable blockers; a cleared job is taken first (§5 rule 8).
+- A 2026-10-12 — checkable blockers (§5 rule 8).
 - A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
-- A 2026-10-15 — intake and `paused` read as built.
-- A 2026-10-16 — landed delivered jobs swept to done hourly (§5 rule 12).
-- A 2026-10-18 — a no-artifact job closes with a reason (§5 rule 10).
+- A 2026-10-15 — text reads as built.
+- A 2026-10-16 — landed delivered jobs swept to done (§5 rule 12).
+- A 2026-10-18 — no-artifact close with a reason (§5 rule 10).
+- A 2026-10-20 — commits fenced to the session's job copies (§5 rule 3).
+- A 2026-10-21 — switch to clean targets, unbuilt (§5 rule 10).
 - Keywords: job, jobs.json, fabric-jobs, next, switch, paused, fresh
   session, intake, priority, pool, claim, sweep.
 
