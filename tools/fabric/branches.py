@@ -49,8 +49,10 @@ checkouts piled up, 39 and 530 MB on one login in a day):
     and ${TMPDIR:-/tmp}/claude-<uid>, each swept)/…/<session id>), unless the harness of this login's registry (~/.claude/sessions/<pid>.json) names it for a harness
     that is live by plan_hold's rule for its own markers, or it is the session running the command. A registry that
     cannot be read or understood calls no session ended, and is said: no worktree is then removed, each is kept with the
-    reason "session registry unreadable". A worktree a live session stands in is in use otherwise. Never
-    another login's path, never a symlink.
+    reason "session registry unreadable". A worktree a live session stands in is in use otherwise, and so is one that any
+    process of this uid has as its cwd (/proc), or whose `fabric-in-use` file in its own git directory (first line: a pid)
+    names a live process of this uid; a dead pid or no file keeps nothing. /proc that cannot be listed keeps every
+    worktree, said. Never another login's path, never a symlink.
 What a sweep keeps it says with the reason (changes, commits on no remote, ignored files, lock, this one, in use,
 live session, session registry unreadable); what it removes, with its size.
 
@@ -337,6 +339,74 @@ def keep_paths() -> set[str]:
     return {p for p in os.environ.get("AGENT_FABRIC_BRANCHES_KEEP", "").split("\n") if p}
 
 
+# The dispatcher that pins a review worktree (review_brief.py, written on its side) names its own session in this file of the
+# worktree's own git directory (first line: a pid), so the sweep finds it in use before any process has stood in it. Not in the tree: a reviewer would read it as part of the head, and
+# git worktree remove takes it away with the rest of the administrative directory.
+IN_USE_MARKER = "fabric-in-use"
+
+
+def process_cwds() -> list[tuple[int, str]] | None:
+    """(pid, cwd) of every process of this uid, from /proc; None when /proc cannot be listed, which is not "no process stands
+    anywhere". A process that ends, or whose cwd cannot be read, between the listing and the read is skipped: it is gone or
+    not ours to ask."""
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return None
+    me = os.getuid()
+    found: list[tuple[int, str]] = []
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            if os.stat(f"/proc/{name}").st_uid != me:
+                continue
+            found.append((int(name), os.readlink(f"/proc/{name}/cwd")))
+        except OSError:
+            continue
+    return found
+
+
+def marker_pid(path: str) -> int | None:
+    """The pid in the worktree's in-use marker when it is alive and this uid's, else None. A marker that is a link, not a
+    regular file, empty, not a number or of a dead or foreign process keeps nothing. Liveness is /proc, not kill(2): a pid of
+    0 would signal a group, and a process of another uid answers "alive" to a permission error."""
+    try:
+        git_dir = git.run(path, "rev-parse", "--absolute-git-dir", check=False)
+        if git_dir.returncode != 0:
+            return None
+        marker = os.path.join(git_dir.stdout.strip(), IN_USE_MARKER)
+        # Opened without following a link or blocking, then judged by the descriptor: a same-uid writer could swap the file for a
+        # FIFO between a path check and the open, and the sweep would hang on it.
+        fd = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return None
+            first = os.read(fd, 32).split(b"\n", 1)[0].decode("ascii", "replace").strip()
+        finally:
+            os.close(fd)
+        if not re.fullmatch(r"[0-9]+", first):
+            return None
+        pid = int(first)
+        return pid if os.stat(f"/proc/{pid}").st_uid == os.getuid() else None
+    except (OSError, ValueError, git.GitError):
+        return None
+
+
+def in_use_by(path: str) -> str:
+    """Why a process holds the worktree ("" when none does): a process of this uid has its cwd at or under it, or its marker
+    names a live process of this uid. The cwd is compared both as git lists it and with links resolved, as /proc gives it."""
+    roots = {path, os.path.realpath(path)}
+    cwds = process_cwds()
+    if cwds is None:
+        return "process list unreadable"
+    for pid, cwd in cwds:
+        if any(cwd == r or cwd.startswith(r + "/") for r in roots):
+            return f"process {pid} stands in it"
+    pid = marker_pid(path)
+    return f"{IN_USE_MARKER} names live process {pid}" if pid is not None else ""
+
+
 def is_bytecode(path: str) -> bool:
     """An ignored path that is Python bytecode: any run regenerates it, so it never keeps a worktree
     (a `__pycache__/` directory is listed as one path, with its trailing slash)."""
@@ -405,6 +475,11 @@ def worktree_state(wt: dict, base: str, top: str, refs: list[str] | None = None)
         why = f"{why + ', ' if why else ''}this one"
     if path in keep_paths() or any(c == path or c.startswith(path + "/") for c in LIVE_CWDS):
         why = f"{why + ', ' if why else ''}in use"
+    held = in_use_by(path)
+    if held:
+        # One "in use": the live-session clause above already said it when the same process is also the one found here.
+        earlier = why[:-len("in use")].rstrip(", ") if why.endswith("in use") else why
+        why = f"{earlier + ', ' if earlier else ''}in use: {held}"
     if not why and REGISTRY_UNREADABLE:
         why = "session registry unreadable"
     return n, why
