@@ -495,7 +495,10 @@ def _closers(code: str) -> int:
     its closing quote or brace lands in what follows and spoils it, and an
     escaped ; leaves a ; the shell reads as one too. Any other shape
     (`a) x; esac`, `esac; }`) closes nothing, which skips too much and is
-    said on stderr."""
+    said on stderr. So does a line still holding a #: the shell starts a
+    comment right after ;; too, and strip_comment does not."""
+    if "#" in code:
+        return 0
     return int(re.split(r";;&|;;|;&", code)[-1].strip() in ("esac", "esac;"))
 
 
