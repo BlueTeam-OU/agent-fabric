@@ -35,6 +35,30 @@ With package_scripts, a `pnpm --filter <pkg> <script>` a workflow runs
 reaches that package script's body, one hop, the filter resolved through
 a for-loop over a matrix.
 
+For rule 1 only, a member is also RUN when a shell member a workflow
+runs itself runs it: one hop, as the script of a simple command —
+bash, sh, python3 or python's first operand, or the command word itself
+— past leading assignments, keywords and redirections; written as the
+repository-relative path, under a variable the script sets to its own
+directory on a line of its own and names nowhere else
+(`here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`, then
+"$here/<name>"), or as "$(dirname "$0")/<name>". Nothing else counts: a
+path an echo, printf, test or cat is handed, one in a comment or a
+string, one under any other variable or used before its assignment, a
+command beside a ( or ) (an array, a subshell), any line from a case to
+the line that closes it (one holding no # whose text after its last ;;
+;& or ;;& is exactly esac; a case not seen to close is said on stderr),
+a line with a # straight after an operator, a $' ' string or a # beside
+a $( ) (each refuses the script), an
+interpreter run with -c, -s or a flag taking an argument, and a member
+reached only through a member itself reached only so. A script with a
+<<, a backtick (outside single quotes), a quote that does not close
+on its line, a ( that closes on a later one or a case beside a ( is not
+read at all; a member
+it names is reported unwired, with a line on stderr saying why. Rules 2
+and 3 are unchanged: such a helper still needs its own self-test, and a
+workflow must run that.
+
 NOT checked here: whether the paths a guard protects trigger the job
 that runs it. "Runs at all" and "runs on the right changes" are
 different failures with different fixes.
@@ -52,7 +76,8 @@ Exit codes:
   1  a guard or self-test is unreachable or untested, or a self-test is
      run without the runner
   2  invocation problem (no workflows directory, no exemption list, a
-     workflow or package script that cannot be read, no config)
+     workflow or package script that cannot be read, a wired shell
+     member that cannot be read, no config)
 """
 # The docstring is --help, whole. Ported from two managed projects'
 # tools/checks/check_guards_are_wired.sh (ADR-040; both suites, run
@@ -80,6 +105,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -298,6 +324,335 @@ def package_commands(root: str, workflows: str, excludes: set[str]) -> list[str]
     return out
 
 
+# ── one hop: what a wired shell member itself runs ───────────────────
+#
+# Deliberately NOT a shell parser. Two rounds of review found a new way
+# for a permissive reader to take printed text for a command each time
+# (a ; in a string, a heredoc inside "$( )", the & of >&2, a binder in a
+# case arm), so the reading is an allow-list: a script is read only when
+# every line of its code is one shlex reads whole, with no heredoc and no
+# backtick, and only an interpreter's script argument, or a command word
+# that is itself a path, counts. Anything else the script does wires
+# nothing, which reports a helper rather than passing it.
+
+# The value of an assignment that names the script's own directory and
+# nothing else, its quotes and spaces removed: $(dirname "$0"), or the
+# same inside $(cd … && pwd). `/..` or any other suffix is another
+# directory, and fails the match.
+_SELF = r"(\$0|\$\{0\}|\$BASH_SOURCE|\$\{BASH_SOURCE\}|\$\{BASH_SOURCE\[0\]\})"
+_SELF_DIR = re.compile(r"\$\(dirname(--)?" + _SELF + r"\)")
+_SELF_VALUE = re.compile(r"\$\(cd(--)?" + _SELF_DIR.pattern + r"&&pwd(-P)?\)|" + _SELF_DIR.pattern)
+_ASSIGN = re.compile(r"(?:(?:local|readonly|declare|typeset|export)(?:\s+-\w+)*\s+)?([A-Za-z_]\w*)=(.*)", re.S)
+# "$(dirname "$0")/x" as shlex leaves it: the inner quotes gone, a space kept.
+_DIRNAME_WORD = re.compile(r"\$\(dirname\s+(--\s+)?" + _SELF + r"\s*\)/(.+)", re.S)
+_INTERPRETERS = {"bash", "sh", "python3", "python"}
+_SEPARATORS = {";", ";;", ";&", ";;&", "&", "&&", "|", "||", "|&"}
+# A ( or ) bounds no simple command this reads: a case pattern, an array,
+# a subshell. A command beside one is not read.
+_GROUPING = {"(", ")"}
+_SAFE_FLAGS = {"bash": set("euxvE"), "sh": set("euxvE"), "python3": set("uBEIsS"), "python": set("uBEIsS")}
+
+
+_OPERATORS = ("<<<", ";;&", ";;", ";&", "&&", "||", "|&", ">>", ">&", "<&", "&>", ">|", "<<", ";", "&", "|", "(", ")", "<", ">")
+
+
+def _operators(token: str) -> list[str]:
+    """shlex hands a run of punctuation over as one token (`);`, `)&&`):
+    split it into the shell's operators, longest first. A word is itself."""
+    if not re.fullmatch(r"[();<>|&]+", token):
+        return [token]
+    out, i = [], 0
+    while i < len(token):
+        op = next(o for o in _OPERATORS if token.startswith(o, i))
+        out.append(op)
+        i += len(op)
+    return out
+
+
+def _hash_after_operator(code: str) -> bool:
+    """Whether the line holds an unquoted # straight after an unescaped
+    ; & | ( ) < >. The shell starts a comment there after an operator but
+    not after the ) that closes a $( … ), nor inside [[ … =~ … ]]; which
+    one it is cannot be told here, and cutting the line could hide a <<
+    or a case after it, so such a line refuses the script."""
+    quote, after_op, i = "", False, 0
+    while i < len(code):
+        c = code[i]
+        if c == "\\" and quote != "'":
+            i, after_op = i + 2, False
+            continue
+        if quote:
+            if c == quote:
+                quote = ""
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and after_op:
+            return True
+        after_op = c in ";&|()<>"
+        i += 1
+    return False
+
+
+def _opens_past_line(code: str) -> bool:
+    """Whether the line leaves a ( , $( , ${ or " open, read with the
+    nesting the shell gives them: quotes start again inside $( … ), and a
+    paren inside ${ … } is pattern text. A ) that closes nothing (a case
+    pattern's) is passed over."""
+    stack, i = [""], 0
+    while i < len(code):
+        c, top = code[i], stack[-1]
+        if c == "\\":
+            i += 2
+            continue
+        if top == '"':
+            if c == '"':
+                stack.pop()
+            elif code.startswith("$(", i) or code.startswith("${", i):
+                stack.append(code[i:i + 2])
+                i += 1
+        elif top == "${":
+            if c == "}":
+                stack.pop()
+            elif c == '"':
+                stack.append('"')
+        else:
+            if c == "'":
+                end = code.find("'", i + 1)
+                if end < 0:
+                    return True
+                i = end
+            elif c == '"':
+                stack.append('"')
+            elif code.startswith("$(", i) or code.startswith("${", i):
+                stack.append(code[i:i + 2])
+                i += 1
+            elif c == "(":
+                stack.append("(")
+            elif c == ")" and top in ("(", "$("):
+                stack.pop()
+        i += 1
+    return len(stack) > 1
+
+
+def _outside_single_quotes(code: str) -> str:
+    """The line without its single-quoted spans and escaped characters, as
+    the shell's own quoting reads it (a \\' outside quotes opens nothing).
+    Double-quoted text is kept: a ` or a $( … <<  inside it still runs."""
+    out, quote, i = [], "", 0
+    while i < len(code):
+        c = code[i]
+        if quote == "'":
+            if c == "'":
+                quote = ""
+        elif c == "\\":
+            i += 1
+        elif c == "'" and not quote:
+            quote = "'"
+        else:
+            if c == '"':
+                quote = "" if quote == '"' else '"'
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
+    """Each line of code, its comment stripped, with its tokens; or, for a
+    script outside the subset this reads, no lines and why."""
+    lines, physical, n = [], text.split("\n"), 0
+    while n < len(physical):
+        # A backslash-newline joins the next line; n names the first.
+        start, line = n + 1, physical[n]
+        while n + 1 < len(physical):
+            # Only an odd run of backslashes ending the code continues it:
+            # an even run is literal backslashes, and one in a comment is
+            # the comment's (strip_comment has taken it off). Inside a single
+            # quote the join only merges the string's text, which no rule
+            # here reads.
+            code = strip_comment(line)
+            if (len(code) - len(code.rstrip("\\"))) % 2 == 0:
+                break
+            n += 1
+            # The shell removes a backslash-newline whole: a space here
+            # would split a $( or a $' that the line spells across it.
+            line = line[:-1] + physical[n]
+        n += 1
+        code = strip_comment(line).strip()
+        if _hash_after_operator(code):
+            return [], f"line {start}: a # straight after an operator"
+        # $' … ' honours \' inside it, which no reader here does; and a #
+        # inside a double-quoted $( … ) may start a comment there, which
+        # the scans above, skipping double-quoted text, do not look for.
+        if "$'" in code:
+            return [], f"line {start}: a $' ' string"
+        # The # is looked for in the raw line: inside "$( … )" a ' is a
+        # real quote, which the flat single-quote reading cannot know.
+        if "$(" in _outside_single_quotes(code) and "#" in code:
+            return [], f"line {start}: a # beside a $( )"
+        bare = _outside_single_quotes(code)
+        if "`" in bare:
+            return [], f"line {start}: a backtick"
+        if re.search(r"(?<!<)<<(?!<)", bare):
+            return [], f"line {start}: a << (a heredoc, or a shift)"
+        lex = shlex.shlex(code, posix=True, punctuation_chars=True)
+        lex.whitespace_split, lex.commenters = True, ""
+        try:
+            tokens = [op for t in lex for op in _operators(t)]
+        except ValueError:
+            return [], f"line {start}: a quote that does not close on its line"
+        # A ( that closes on a later line holds lines that are no commands
+        # (an array's elements) or commands this cannot place (a subshell).
+        if _opens_past_line(code):
+            return [], f"line {start}: a ( that closes on a later line"
+        # A case pattern's ) would close a ( the scan above counts open.
+        # Read on the line's syntax, not shlex's tokens: a case inside a
+        # double-quoted "$( … )" is no token of its own.
+        if re.search(r"(?<![\w-])case(?![\w-])", bare) and "(" in bare:
+            return [], f"line {start}: a case beside a ("
+        lines.append((code, tokens))
+    return lines, ""
+
+
+def _self_dir_vars(lines: list[tuple[str, list[str]]]) -> set[str]:
+    """The variables assigned the script's own directory on a line of their
+    own, and named nowhere else as anything but $var or ${var}: a for,
+    a read, a let, a second assignment, ${var:=…} — any other mention —
+    unresolves it, and so does a use before its first assignment."""
+    own, first = {}, {}
+    for k, (code, _tokens) in enumerate(lines):
+        m = _ASSIGN.fullmatch(code)
+        if m and _SELF_VALUE.fullmatch(re.sub(r"[\s\"']", "", m.group(2))):
+            own.setdefault(m.group(1), set()).add(code)
+            first.setdefault(m.group(1), k)
+    rest = "\n".join(code for code, _t in lines)
+    out = set()
+    for var in own:
+        others = "\n".join(c for c, _t in lines if c not in own[var])
+        mentions = re.findall(r"(?<![\w$])(?<!\$\{)" + var + r"\b", others)
+        before = "\n".join(c for c, _t in lines[:first[var]])
+        used_first = re.search(r"\$\{?" + var + r"\b", before)
+        if not mentions and not used_first and not re.search(r"\$\{" + var + r":?[=?]", rest):
+            out.add(var)
+    return out
+
+
+def _closers(code: str) -> int:
+    """Whether the line closes a case block: what follows its last ;; ;&
+    or ;;& (the whole line, if it has none) is exactly esac. Nothing is
+    lexed. A ;; that a quote or a ${ … } hides must close on the line, so
+    its closing quote or brace lands in what follows and spoils it, and an
+    escaped ; leaves a ; the shell reads as one too. Any other shape
+    (`a) x; esac`, `esac; }`) closes nothing, which skips too much and is
+    said on stderr. So does a line still holding a #: the shell starts a
+    comment right after ;; too, and strip_comment does not."""
+    if "#" in code:
+        return 0
+    return int(re.split(r";;&|;;|;&", code)[-1].strip() in ("esac", "esac;"))
+
+
+def _run_path(tokens: list[str]) -> str | None:
+    """The script a simple command runs: an interpreter's first operand, or
+    the command word itself. Leading assignments, keywords and redirections
+    are passed over; an interpreter flag other than a harmless one (-e, -u,
+    -x for a shell; -u, -B for Python) reads nothing."""
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t in KEYWORDS or re.fullmatch(r"[A-Za-z_]\w*=.*", t, re.S):
+            i += 1
+        elif t.isdigit() and i + 1 < len(tokens) and re.fullmatch(r"[<>&|]*[<>][<>&|]*", tokens[i + 1]):
+            i += 3
+        elif re.fullmatch(r"[<>&|]*[<>][<>&|]*", t):
+            i += 2
+        else:
+            break
+    if i >= len(tokens):
+        return None
+    interpreter = os.path.basename(tokens[i])
+    if interpreter not in _INTERPRETERS:
+        return tokens[i]
+    for t in tokens[i + 1:]:
+        if not t.startswith("-"):
+            return t
+        # Only a flag that changes nothing about which file runs: -c, -s,
+        # -m and anything taking an argument read no script operand.
+        if not (re.fullmatch(r"-[A-Za-z]+", t) and set(t[1:]) <= _SAFE_FLAGS[interpreter]):
+            return None
+    return None
+
+
+def _mentions(root: str, script: str, name: str) -> bool:
+    with open(os.path.join(root, script), encoding="utf-8") as fh:
+        return name in fh.read()
+
+
+def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
+    """The repository-relative paths the shell member `rel` runs, by the
+    readings the docstring lists; and, for a script outside the subset
+    read here, nothing and why."""
+    path = os.path.join(root, rel)
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        # A member that is not shell is not read as shell, nor decoded.
+        if not (rel.endswith(".sh") or re.match(rb"#!\S*(/|\s)(ba)?sh\b", raw)):
+            return set(), ""
+        text = raw.decode("utf-8")
+    except (OSError, ValueError) as e:
+        # A wired member this cannot read would wire nothing, so a helper
+        # it runs would read as unreachable: refused, never guessed.
+        raise Refused(f"could not read a wired member: {path}: {_why(e)}") from None
+    lines, why = _code(text)
+    selfvars = _self_dir_vars(lines)
+    own = os.path.dirname(rel)
+    out = set()
+    in_case = 0
+    for code_line, tokens in lines:
+        # Between case and esac a line is a pattern or an arm: not read.
+        # Any case token opens one, which can only skip too much; only an
+        # esac token first on its line or after a ; ;; ;& ;;& closes one,
+        # as _closers reads it.
+        opened = tokens.count("case")
+        if in_case or opened:
+            closed = _closers(code_line)
+            in_case = max(0, in_case + opened - closed)
+            continue
+        command_tokens: list[list[str]] = [[]]
+        spoilt = [False]
+        for t in tokens:
+            if t in _SEPARATORS:
+                command_tokens.append([])
+                spoilt.append(False)
+            elif t in _GROUPING:
+                spoilt[-1] = True
+                command_tokens.append([])
+                spoilt.append(True)
+            else:
+                command_tokens[-1].append(t)
+        for cmd, bad in zip(command_tokens, spoilt):
+            if bad:
+                continue
+            w = _run_path(cmd)
+            if not w:
+                continue
+            m = re.fullmatch(r"\$\{?([A-Za-z_]\w*)\}?/(.+)", w, re.S)
+            d = _DIRNAME_WORD.fullmatch(w)
+            if m and m.group(1) in selfvars:
+                target = os.path.join(own, m.group(2))
+            elif d:
+                target = os.path.join(own, d.group(3))
+            elif "/" in w and not w.startswith("$") and not os.path.isabs(w) and not GLOB_CHARS.search(w):
+                target = w
+            else:
+                continue
+            target = os.path.normpath(target)
+            if not target.startswith("..") and os.path.isfile(os.path.join(root, target)):
+                out.add(target)
+    if in_case and not why:
+        why = "a case block it did not see close"
+    return out, why
+
+
 # ── is it run, and how ───────────────────────────────────────────────
 
 
@@ -425,6 +780,19 @@ def check(root: str, cfg: dict) -> dict:
     def is_exempt(rel: str) -> bool:
         return any(e == rel or ("/" not in e and e == os.path.basename(rel)) for e in exempt)
 
+    # Rule 1's one hop: what the members a workflow runs themselves run.
+    # Read from the directly wired only, so a second hop never counts.
+    hop: set[str] = set()
+    unread: dict[str, str] = {}
+    for d in cfg["dirs"]:
+        for name in _files(os.path.join(root, d["dir"])):
+            rel = f"{d['dir']}/{name}"
+            if not name.startswith("test_") and d["members"].search(name) and runs.wired(rel):
+                found, why = invoked_members(root, rel)
+                hop |= found
+                if why:
+                    unread[rel] = why
+
     f = {"events": [], "unwired": [], "untested": [], "unwired_tests": [], "bare": [], "guards": 0,
          "exempt": len(exempt)}
     scanned = set()
@@ -454,9 +822,15 @@ def check(root: str, cfg: dict) -> dict:
                 f["untested"].append(shown)
                 f["events"].append(("member_untested", rel, d["dir"]))
             if d["role"] in ("guard", "ci") and not (cfg["exempt_excuses_wiring"] and is_exempt(rel)) \
-                    and not runs.wired(rel):
+                    and not runs.wired(rel) and rel not in hop:
                 f["unwired"].append(shown)
                 f["events"].append(("member_unwired", rel, d["dir"]))
+                # A wired script this did not read, naming the member: say
+                # so, or "unwired" sits beside a script that plainly runs it.
+                for script, why in sorted(unread.items()):
+                    if _mentions(root, script, name):
+                        print(f"{PROG}: {script} was not read for what it runs ({why}), and names {rel}",
+                              file=sys.stderr)
     # EVERY OTHER test_*.sh IN THE TREE: a list of directories is the same
     # narrowness one level out, and the next self-test put somewhere new
     # would be invisible again. Hidden directories are not walked, as
