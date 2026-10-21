@@ -368,6 +368,28 @@ def _operators(token: str) -> list[str]:
     return out
 
 
+def _cut_operator_comment(code: str) -> str:
+    """The line up to a comment the shell starts right after an operator
+    (true;# …, a)#…), which strip_comment, cutting only after a space,
+    leaves in: an unquoted # straight after an unescaped ; & | ( ) < >."""
+    quote, after_op, i = "", False, 0
+    while i < len(code):
+        c = code[i]
+        if c == "\\" and quote != "'":
+            i, after_op = i + 2, False
+            continue
+        if quote:
+            if c == quote:
+                quote = ""
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and after_op:
+            return code[:i]
+        after_op = c in ";&|()<>"
+        i += 1
+    return code
+
+
 def _opens_past_line(code: str) -> bool:
     """Whether the line leaves a ( , $( , ${ or " open, read with the
     nesting the shell gives them: quotes start again inside $( … ), and a
@@ -442,7 +464,7 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
             n += 1
             line = line[:-1] + " " + physical[n]
         n += 1
-        code = strip_comment(line).strip()
+        code = _cut_operator_comment(strip_comment(line)).strip()
         bare = _outside_single_quotes(code)
         if "`" in bare:
             return [], f"line {start}: a backtick"
@@ -452,14 +474,6 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
         lex.whitespace_split, lex.commenters = True, ""
         try:
             tokens = [op for t in lex for op in _operators(t)]
-            # The shell starts a comment at a # that begins a word, right
-            # after an operator too (true;# …), which strip_comment does
-            # not: the rest of the line is dropped from the first token
-            # opening with #, a quoted one ("#x") included, which can only
-            # read too little.
-            hashed = next((k for k, t in enumerate(tokens) if t.startswith("#")), None)
-            if hashed is not None:
-                tokens = tokens[:hashed]
         except ValueError:
             return [], f"line {start}: a quote that does not close on its line"
         # A ( that closes on a later line holds lines that are no commands
