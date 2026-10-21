@@ -457,7 +457,9 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
         if _opens_past_line(code):
             return [], f"line {start}: a ( that closes on a later line"
         # A case pattern's ) would close a ( the scan above counts open.
-        if "case" in tokens and "(" in tokens:
+        # Read on the line's syntax, not shlex's tokens: a case inside a
+        # double-quoted "$( … )" is no token of its own.
+        if re.search(r"(?<![\w-])case(?![\w-])", bare) and "(" in bare:
             return [], f"line {start}: a case beside a ("
         lines.append((code, tokens))
     return lines, ""
@@ -543,17 +545,21 @@ def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
     own = os.path.dirname(rel)
     out = set()
     in_case = 0
-    for _code_line, tokens in lines:
+    for code_line, tokens in lines:
         # Between case and esac a line is a pattern or an arm: not read.
         # Any case token opens one, which can only skip too much; only an
         # esac token first on its line or after a ; ;; ;& ;;& closes one,
         # and not one a ) or | follows (a pattern spelt esac). Tokens, not
-        # the raw text: an esac inside a quoted string closes nothing.
+        # the raw text, so a ;; esac inside a string closes nothing.
         opened = tokens.count("case")
         if in_case or opened:
-            closed = sum(1 for k, t in enumerate(tokens)
+            # shlex unquotes 'esac' and \esac into the token esac, which the
+            # shell runs as a command: a closer must also stand bare in the
+            # line's own syntax.
+            bare_esac = len(re.findall(r"(?<![\w\"'\\-])esac(?![\w\"'-])", _outside_single_quotes(code_line)))
+            closed = min(bare_esac, sum(1 for k, t in enumerate(tokens)
                          if t == "esac" and (k == 0 or tokens[k - 1] in (";", ";;", ";&", ";;&"))
-                         and tokens[k + 1:k + 2] not in ([")"], ["|"]))
+                         and tokens[k + 1:k + 2] not in ([")"], ["|"])))
             in_case = max(0, in_case + opened - closed)
             continue
         command_tokens: list[list[str]] = [[]]
