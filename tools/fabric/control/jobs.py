@@ -21,7 +21,7 @@ CONTRACT, frozen from jobs.mjs:
                              failed list is JobsError
   check_job_args(args)       None, or why the arguments are refused
   jobs_add(request, home, root, run)
-                             {"status": "added", "job", ["warning"]} or
+                             {"status": "added" or "listed", "job", ["warning"]} or
                              {"status": "refused", "reason"}
 
 The arguments are judged as JavaScript judged them, since a request may
@@ -193,7 +193,10 @@ def jobs_add(request: dict, home: str | None = None, root: str | None = None, ru
     # What fabric-jobs says on stderr of a job it added (no working copy
     # of the project found) is the owner's to read, not dropped.
     warning = js.SPACES.sub(" ", js.trim(r.stderr or ""))
-    return {"status": "added", "job": re.sub(f"^added[{js.SPACE}]+", "", out),
+    # "already listed": the title names a REQUEST the list holds (fabric-jobs add),
+    # so nothing was added; the job it names is the answer.
+    listed = out.startswith("already listed")
+    return {"status": "listed" if listed else "added", "job": re.sub(f"^(added|already listed)[{js.SPACE}]+", "", out),
             **({"warning": js.slice(warning, 300)} if warning else {})}
 
 

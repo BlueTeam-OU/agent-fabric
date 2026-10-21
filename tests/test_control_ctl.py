@@ -957,6 +957,16 @@ class Actions(unittest.TestCase):
         self.assertRegex(settings[1], r"\snone\s+settings refreshed$", "the settings refresh is in the row")
         self.assertRegex(settings[2], r"\snone\s+r; settings not refreshed: defaults unreadable$", "…after the reason, and a failed one says why")
 
+    def test_jobs_add_listed_is_a_success_row_and_not_a_failed_action(self):
+        # jobs-add answers "listed" when the title names a REQUEST the list already holds (one request, one job):
+        # nothing failed, so the run exits 0 as for "added".
+        r = reply("db-admin", "jobs-add", {"jobs-add": {"status": "listed", "job": "j4 queued normal x: s"}})
+        row = ctl.table("jobs-add", ctl.rows(placed("db-admin"), [r])).split("\n")
+        self.assertRegex(row[0], r"^db-admin\s+listed\s+j4 queued", "the row names the job it found")
+        self.assertIn("listed", ctl.ACTION_OK["jobs-add"], "a listed answer is not a failed action")
+        self.assertIn("added", ctl.ACTION_OK["jobs-add"], "the control: an added answer still is not")
+        self.assertNotIn("refused", ctl.ACTION_OK["jobs-add"], "the control: a refusal still fails the run")
+
     def test_upgrade_fabric_no_version_its_own_wait_a_current_row_names_main_the_commit_sent_is_origin_main_never_head(self):
         a = ctl.parse_args(["all", "upgrade", "fabric"])
         self.assertEqual([a["piece"], a["timeout"]], ["fabric", FABRIC_UPGRADE_BUDGET_S])

@@ -640,7 +640,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
 
 
 # What counts as success for each action; anything else fails the run.
-ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added"], "local-prune": ["pruned", "clean"],
+ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added", "listed"], "local-prune": ["pruned", "clean"],
              "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"],
              "gateway-install": ["installed", "current"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
 

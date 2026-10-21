@@ -444,6 +444,9 @@ def main() -> int:
                                            "from": "other-host/sender", "seq": 11}, p.stdout + p.stderr + repr(got))
             p = run("add", "--request", "11")
             check("the same message twice is refused by name", p.returncode == 1 and "already j1" in p.stderr, p.stderr)
+            p = run("add", "--", "build the thing (REQUEST 01a09fc1-0000-7000-8000-00000000000a)")
+            check("a title naming a REQUEST the list holds adds nothing and names the job",
+                  p.returncode == 0 and p.stdout.startswith("already listed j1 ") and len(jobs()) == 1, p.stdout + p.stderr)
             p = run("add", "--request", "12")
             check("a message not addressed to this login is refused", p.returncode == 1
                   and "not addressed to this login" in p.stderr and len(jobs()) == 1, p.stderr)

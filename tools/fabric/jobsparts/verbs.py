@@ -13,9 +13,9 @@ from fabric_jobs.leave_sweep import after_leaving
 from fabric_jobs.leave_targets import clean_targets
 from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
-from fabric_jobs.base import MESSAGE_ID, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
+from fabric_jobs.base import MESSAGE_ID, Job, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
-from fabric_jobs.records import active, fetch_message, find, new_job, request_job, session_id, session_worked, transition
+from fabric_jobs.records import active, fetch_message, find, listed_request, new_job, request_id_of, request_job, session_id, session_worked, transition
 from fabric_jobs.queue import stream_waits
 from fabric_jobs.pool import Unanswered, ask_pool, claimed_job, pool_job, pool_line, pool_offer, printable
 from fabric_jobs.render import blockers_note, line, show, summary
@@ -46,10 +46,21 @@ def add(args) -> int:
         if not args.title:
             raise Refused("add needs a title, or --request <MESSAGE-ID>")
         source = {"kind": "owner", "from": args.owner} if args.owner else None
-        job = mutate(lambda doc: new_job(doc, args.title, topic=args.topic, project=args.project,
-                                         working_copy=args.working_copy, source=source,
-                                         priority=args.priority))
-        print(f"added {line(job)}")
+
+        def add_titled(doc: dict) -> tuple[Job, bool]:
+            # A title that names a REQUEST already on the list adds nothing: the
+            # sender's jobs-add reaches here at the same moment the addressee's
+            # inbox queues the same message, and only this check, under the lock,
+            # can see both.
+            if (mid := request_id_of(args.title)) and (listed := listed_request(doc, mid)):
+                return listed, False
+            return new_job(doc, args.title, topic=args.topic, project=args.project,
+                           working_copy=args.working_copy, source=source, priority=args.priority), True
+
+        job, added = mutate(add_titled)
+        print(f"{'added' if added else 'already listed'} {line(job)}")
+        if not added:
+            return 0
         if not job.get("working_copy"):
             print(f"  no working copy of {job.get('project') or 'its project'} found beside this one: "
                   f"fabric-fresh would start it in the wrong directory; re-add it with --working-copy to fix",
