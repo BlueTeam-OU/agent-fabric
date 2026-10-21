@@ -25,9 +25,12 @@ on stderr, never a failed delivery or a failed post:
             reaches a session whose watch has lapsed at its next start. The
             id is in the title because jobs-add takes nothing else (control
             plane frozen, ADR-040 §7), and it is the only thing the two
-            halves share: the check and the add are not atomic, so two
-            near-simultaneous halves can still make two jobs; a person
-            drops one.
+            halves share. The sender's check is only a courtesy that spares
+            a control round trip: the check that makes it one job is
+            `fabric-jobs add`'s own, under the list's lock (jobs.py
+            listed_request), which a title naming a listed REQUEST passes
+            as "already listed jN" and adds nothing — so the order the two
+            halves run in, or running at once, gives one job.
 
 Not TO-ROLE, not BROADCAST, not any other type: only an assignment names
 one login (SPEC §13), and only an assignment is work."""
@@ -45,7 +48,7 @@ from . import paths
 TITLE_MAX = 300           # tools/fabric/control/jobs.py TITLE_MAX: jobs-add refuses a longer title
 CTL = os.path.join(paths.CHECKOUT, "bin", "fabric-ctl")
 CTL_TIMEOUT_S = 30
-_ADDED = re.compile(r"\badded\s+(j[1-9][0-9]*)\b", re.ASCII)
+_ADDED = re.compile(r"\b(added|listed)\s+(j[1-9][0-9]*)\b", re.ASCII)
 MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)   # jobs.py's
 PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)       # tools/fabric/control/jobs.py's: a registry id
 
@@ -76,8 +79,8 @@ def named_in(title: str, message_id: str) -> bool:
 
 
 def listed(doc: dict, message_id: str) -> bool:
-    return any((j.get("source") or {}).get("message_id") == message_id or named_in(str(j.get("title", "")), message_id)
-               for j in doc.get("jobs", []))
+    """jobs.py's own check, the one `fabric-jobs add` makes too: one rule for what a REQUEST already on the list is."""
+    return _jobs().listed_request(doc, message_id) is not None
 
 
 def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: Any = None) -> list[str]:
@@ -146,7 +149,8 @@ def addressee_lists(login: str, message_id: str, run: Callable[..., Any]) -> boo
 
 def queue_for_addressee(msg: dict, *, sender: str, hosts: Any, run: Callable[..., Any] = subprocess.run,
                         err: Any = None) -> str | None:
-    """Ask the addressee's control agent for the job; its id, or None. Only
+    """Ask the addressee's control agent for the job; the id of the job it
+    added, or None (nothing added: not asked, already listed, or failed). Only
     the host's operator signs a control action, so any other sender asks
     nothing."""
     err = err or sys.stderr
@@ -170,7 +174,7 @@ def queue_for_addressee(msg: dict, *, sender: str, hosts: Any, run: Callable[...
         if r.returncode != 0 or not found:
             said = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
             raise RuntimeError(said[-1] if said else f"fabric-ctl exit {r.returncode}")
-        return found.group(1)
+        return found.group(2) if found.group(1) == "added" else None
     except subprocess.TimeoutExpired:
         why = f"fabric-ctl did not answer in {CTL_TIMEOUT_S} s"
     except OSError as e:

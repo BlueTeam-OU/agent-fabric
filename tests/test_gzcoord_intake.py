@@ -190,6 +190,13 @@ def _():
                         [intake.CTL, "dev-01", "jobs-add", "--project", "agent-fabric", "--", f"a subject (REQUEST {MID})"]], ctl.calls)
 
 
+@case("the control plane's answer 'listed' (the job was already on the list) adds nothing: no id is claimed, nothing is said")
+def _():
+    job, err = sent(FakeCtl("dev-01   listed  j4 queued    normal   agent-fabric: a subject\n"))
+    check(job is None and err == "", (job, err))
+    check(sent(FakeCtl("dev-01   added  j4 queued normal x"))[0] == "j4", "the control: 'added' is still the id")
+
+
 @case("a long SUBJECT is cut to jobs-add's limit and the id is kept")
 def _():
     ctl = FakeCtl("dev-01 added j2")

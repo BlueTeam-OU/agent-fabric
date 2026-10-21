@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import subprocess
-from fabric_jobs.base import DEFAULT_PRIORITY, FABRIC_ROOT, Job, Refused, TERMINAL, identity
+from fabric_jobs.base import DEFAULT_PRIORITY, FABRIC_ROOT, Job, MESSAGE_ID, Refused, TERMINAL, identity
 
 
 def find(doc: dict, job_id: str) -> Job:
@@ -195,13 +196,31 @@ def fetch_message(which: str) -> dict:
     return json.loads(p.stdout)
 
 
+# The title a job gets when it is added by title and not from the message (the
+# sender's jobs-add takes nothing but a title, ADR-040 §7): the id rides in it.
+TITLE_NAMES_REQUEST = re.compile(r"\(REQUEST (" + MESSAGE_ID.pattern + r")\)", re.ASCII)
+
+
+def request_ids_in(title: str) -> list[str]:
+    return TITLE_NAMES_REQUEST.findall(title)
+
+
+def listed_request(doc: dict, message_id: str) -> Job | None:
+    """The job already made for this REQUEST, by whichever path added it: one
+    that holds the message as its source, or one whose title names it. Every
+    add of a request checks here, under the list's lock, so the inbox's intake,
+    the sender's jobs-add and a person's `add --request` give one job."""
+    return next((j for j in doc["jobs"] if (j.get("source") or {}).get("message_id") == message_id
+                 or message_id in request_ids_in(str(j.get("title", "")))), None)
+
+
 def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False,
                 priority=DEFAULT_PRIORITY) -> Job | None:
     meta = msg.get("metadata") or {}
     mid = meta.get("MESSAGE-ID") or str(msg.get("seq"))
     if auto and msg.get("type") != "REQUEST":
         return None
-    listed = next((j for j in doc["jobs"] if (j.get("source") or {}).get("message_id") == mid), None)
+    listed = listed_request(doc, mid)
     if listed:
         if auto:
             return None
