@@ -23,13 +23,18 @@ DECISIONS, in order, with their exact words:
      It commits or publishes when it holds `git commit|push|merge|rebase|cherry-pick|am` (git's global options,
      `-C <dir>` among them, may come before the subcommand), `gh pr create|merge`, or `fabric-pr <verb>` for any
      verb but the read-only ones in READ_ONLY_PR_VERBS (an unknown verb counts). Found anywhere in the command,
-     a `bash -c`/`sh -c`/`eval`/`env -S` script and a heredoc fed to a shell included. Only an unquoted `<<`
+     a `bash -c`/`sh -c`/`eval`/`env -S` script and a command substitution included. Only an unquoted `<<`
      outside a comment opens a heredoc (a quote-aware scan, never a regex on the raw line: a quoted `'<<X'` and a
-     later line `X` must not hide the lines between). A heredoc body not fed to a shell is data, but it is still
-     read, and one that holds an act is judged as if it ran; the one exception is a commit message, the body of
-     `git commit -F -` (or `-F /dev/stdin`) under a quoted delimiter, which stays data: the fabric writes every
-     commit message that way and its text often names git commands. The job list is not read before this point,
-     so a command that does not commit or publish never asks.
+     later line `X` must not hide the lines between; a `$(` or backquote inside double quotes is command text
+     again, so `git commit -m "$(cat <<'EOF'` opens one). A heredoc body is read as commands only when it is
+     executed: the pipeline holding its redirect (never the whole line) has a word that runs its stdin — `sh`,
+     `bash`, `dash`, `zsh`, `ksh` (with or without `-s`), `eval`, `source`, `.`, `xargs` or `env -S` — or the
+     redirect is inside a `$(…)`, backquote or `(…)` whose own pipeline has one, or a substitution that stands in a
+     command's place. Any other body is data: under a quoted delimiter all of it, whatever commands its text names
+     (a commit message, a review posted with `fabric-pr post-review`, a `gh pr create --body-file -` body, a `cat`);
+     under an unquoted delimiter the shell expands it, so its `$(…)` and backquotes run and are read, and its
+     plain text stays data. The job list is not read before this point, so a command that does not commit or
+     publish never asks.
   4. the job list or the module that reads it cannot be read                           -> ask:
        "The job copy guard could not read this login's job list (<what failed>). Approve only if this command
        does not commit or publish outside the working copy of this session's job (agent-fabric ADR-037 rule 3)."
@@ -74,12 +79,16 @@ DECISIONS, in order, with their exact words:
  14. otherwise                                                                          -> nothing
 
 THE DIRECTORIES A COMMAND ACTS IN, over-reported rather than modelled: the payload's cwd, every `cd`/`pushd` target
-anywhere in the command (a bare `cd` is $HOME), every `git -C <dir>`, `--git-dir` and `--work-tree`, every `env -C`
+anywhere in the command (a bare `cd` is $HOME), every `git -C <dir>`, `--git-dir` and `--work-tree`, every
+`git -c core.worktree=<dir>` (and `--config-env core.worktree=<var>`, whose value is a variable), every `env -C`
 (`--chdir`), and every way of setting git's repository or work tree through the environment: a word
 `GIT_DIR=<dir>`, `GIT_WORK_TREE=<dir>` or `GIT_COMMON_DIR=<dir>` wherever it stands — a prefix assignment, after
 `env` and its options, after `export`/`declare -x`, or anywhere earlier in the same command text (an export
 anywhere counts for every git in the command, and so does such a word that is only text). An `export`/`declare`
-of one of those names with no value this command sets counts as a directory it cannot resolve. A relative one is
+of one of those names with no value this command sets counts as a directory it cannot resolve, and so does any
+setting or export of a variable that hands git configuration in (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT,
+GIT_CONFIG_KEY_<n>, GIT_CONFIG_VALUE_<n>, GIT_CONFIG, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM), since any of them can
+carry core.worktree and the guard does not read what they hold. A relative one is
 resolved against the cwd and against every `cd` target before it (a chain `cd a && cd b` is caught either way),
 then to its git toplevel (a git directory, `/x/.git`, is no work tree and stands as itself, so it is inside only
 under J's copy). A value holding `$`, a backquote or a glob, and `cd -`, cannot be resolved and counts as outside.
@@ -88,7 +97,9 @@ clone is inside. Execution order is not modelled: a commit in the job copy follo
 `cd /elsewhere` is denied. A false deny costs a rephrase; a false allow is the incident.
 
 THE REPOSITORIES A COMMAND PUBLISHES TO, when it names one: `gh pr create|merge -R/--repo <repo>` (with
-`--hostname` or GH_HOST as its host when given), `fabric-pr --repo <repo> <verb>` for a writing verb, and GH_REPO
+`--hostname` or GH_HOST as its host when given), a pull request URL among its arguments
+(`https://<host>/<owner>/<repo>/pull/<n>`, a deeper path after it included, the URL's host its host), on which gh
+acts whatever the cwd, `fabric-pr --repo <repo> <verb>` for a writing verb, and GH_REPO
 set (as a word, as for GIT_DIR) in a command that runs either. The job copy's remotes are read
 (`git -C <copy> remote -v`, inside the budget), each URL normalised to owner/repo, lowercased, without .git, from
 https, ssh:// or scp-style; the named repository (owner/repo, host/owner/repo or a URL) is inside only when it is
@@ -114,7 +125,8 @@ QUESTION, an OBSERVATION with REPLY-EXPECTED) is not queued: the deny says to ad
 
 WHAT IT DOES NOT FENCE: reads of any working copy (git log/diff/status/fetch, cat, grep); a subagent (the clone
 guard's lane); a commit a hook or a script makes without the command naming it (`make release`, a git alias such
-as `git ci`); `git pull`, `git revert`, `git tag`, `gh api` writes. It is a fence for the incident's shape, not a
+as `git ci`); `git pull`, `git revert`, `git tag`, `gh api` writes; a heredoc body kept as data and run by a later
+command (`cat <<'X' > f.sh; sh f.sh`, `x=$(cat <<'X' …); eval "$x"`). It is a fence for the incident's shape, not a
 sandbox: the git hooks are the place for enforcement at the point of the commit.
 
 THE SESSION ID: CLAUDE_CODE_SESSION_ID, else the payload's session_id (one value, two carriers). With neither, the
@@ -150,7 +162,12 @@ GIT_VALUE_OPTIONS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--c
                      "--attr-source", "--list-cmds")
 GIT_DIR_OPTIONS = ("-C", "--git-dir", "--work-tree")
 GH_VALUE_OPTIONS = ("-R", "--repo", "--hostname")
+PR_URL = re.compile(r"https?://([^/\s]+)/([^/\s]+)/([^/\s]+)/pull/\d+(?:/\S*)?")
 SHELLS = ("bash", "sh", "zsh", "dash", "ksh")
+# What runs the stdin a heredoc feeds it: a shell (with or without -s), eval, source, `.`, xargs (env -S apart).
+STDIN_RUNNERS = SHELLS + ("eval", "source", ".", "xargs")
+# What may stand before a substitution that is then run as the command: assignments, a quote, a wrapper.
+COMMAND_PLACE = re.compile(r"\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|exec|command|nohup|time|sudo|env)\s+)*\"?")
 CD_OPTION = re.compile(r"-[LPe@]+")
 UNRESOLVABLE = re.compile(r"[$`*?\[]")
 # The variables that point git at a repository or a work tree, and the two that point gh at a repository. A word
@@ -159,6 +176,10 @@ UNRESOLVABLE = re.compile(r"[$`*?\[]")
 GIT_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
 GH_ENV = ("GH_REPO", "GH_HOST")
 ASSIGNMENT = re.compile(r"(%s)=(.*)" % "|".join(GIT_ENV + GH_ENV), re.S)
+# The variables that hand git configuration, core.worktree among it, from the environment. Whatever they hold, the
+# guard does not read it: set or exported in a command that acts, they count as a directory it cannot resolve.
+GIT_CONFIG_ENV = re.compile(r"(GIT_CONFIG_PARAMETERS|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+|"
+                            r"GIT_CONFIG|GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM)(=.*)?", re.S)
 EXPORTERS = ("export", "declare", "typeset", "local", "readonly")
 # env's own options: those that take a value, and the two that matter here (-C changes the directory, -S is a
 # command line of its own).
@@ -173,30 +194,37 @@ HOME_MARK = "\0home"   # a bare `cd`: the target is $HOME
 NAME_PART = re.compile(r"[A-Za-z0-9_.-]+")
 
 
-def heredoc_operators(line: str, quote: str | None) -> tuple[list[tuple[bool, str, bool]], str | None]:
-    """The heredocs `line` opens, each (strip tabs, delimiter, delimiter quoted), and the quote still open at its
-    end (a quoted string can run over lines). Only an unquoted `<<` outside a comment is an operator: a `<<` inside
-    quotes is text, and reading it as an operator would hide the lines up to its "terminator" (review F3 on #348)."""
-    ops: list[tuple[bool, str, bool]] = []
+def heredoc_operators(line: str, levels: list[list]) -> list[tuple[bool, str, bool, int]]:
+    """The heredocs `line` opens, each (strip tabs, delimiter, delimiter quoted, where the operator's word ends in
+    `line`). `levels` is the scan's state, carried from line to line and updated in place: one [closer, open quote]
+    per nesting, the command text first, then each `$(`, backquote or `(` the line is inside (a quoted string and a
+    substitution can run over lines). Only an unquoted `<<` outside a comment is an operator: a `<<` inside quotes is
+    text, and reading it as an operator would hide the lines up to its "terminator" (review F3 on #348). A `$(` or a
+    backquote inside double quotes opens unquoted command text again, so the `<<` of `git commit -m "$(cat <<'EOF'`
+    is an operator."""
+    ops: list[tuple[bool, str, bool, int]] = []
     i, n, word_start = 0, len(line), True
     while i < n:
         c = line[i]
-        if quote == "'":
-            quote = None if c == "'" else quote
-            i += 1
-            continue
-        if quote == '"':
-            if c == "\\":
-                i += 2
-                continue
-            quote = None if c == '"' else quote
+        level = levels[-1]
+        if level[1] == "'":
+            level[1] = None if c == "'" else level[1]
             i += 1
             continue
         if c == "\\":
             i, word_start = i + 2, False
             continue
+        if level[1] == '"':
+            if c == '"':
+                level[1] = None
+            elif line.startswith("$(", i) or c == "`":
+                levels.append([c if c == "`" else ")", None])
+                i, word_start = i + (1 if c == "`" else 2), True
+                continue
+            i += 1
+            continue
         if c in "'\"":
-            quote, word_start = c, False
+            level[1], word_start = c, False
             i += 1
             continue
         if c == "#" and word_start:
@@ -212,15 +240,19 @@ def heredoc_operators(line: str, quote: str | None) -> tuple[list[tuple[bool, st
                 j += 1
             word, quoted, end = delimiter(line, j)
             if word:
-                ops.append((strip, word, quoted))
+                ops.append((strip, word, quoted, end))
                 i = end
             else:
                 i = j                              # no word it can read: what follows is scanned as text
             word_start = False
             continue
-        word_start = c in " \t;&|()<>"
+        if c in ")`" and len(levels) > 1 and level[0] == c:
+            levels.pop()
+        elif c == "`" or c == "(":
+            levels.append([c if c == "`" else ")", None])
+        word_start = c in " \t;&|()<>`"
         i += 1
-    return ops, quote
+    return ops
 
 
 def delimiter(line: str, j: int) -> tuple[str, bool, int]:
@@ -248,59 +280,193 @@ def delimiter(line: str, j: int) -> tuple[str, bool, int]:
     return ("" if quote else "".join(out)), quoted, j
 
 
-def message_from_stdin(line: str) -> bool:
-    """Whether `line` runs `git commit` reading its message from stdin (`-F -`, `-F /dev/stdin`, `--file=-`…)."""
-    for seg in segments(tokens(line)):
-        for i, word in enumerate(seg):
-            if os.path.basename(word) != "git":
-                continue
-            rest = seg[i + 1:]
-            k = 0
-            while k < len(rest) and rest[k].startswith("-"):
-                k += 2 if rest[k] in GIT_VALUE_OPTIONS else 1
-            if k >= len(rest) or rest[k] != "commit":
-                continue
-            args = rest[k + 1:]
-            for a, b in zip(args, args[1:] + [""]):
-                if a in ("-F", "--file") and b in ("-", "/dev/stdin") or a in ("-F-", "-F/dev/stdin", "--file=-",
-                                                                               "--file=/dev/stdin"):
-                    return True
+def runs_stdin(text: str) -> bool:
+    """Whether a pipeline's text holds a word that executes what it reads: a shell (`-s` or not), eval, source, `.`,
+    xargs, or env with -S. Any word counts, not only a command's (over-reporting); a quoted argument stays one word,
+    so `--title "fix sh"` is no shell."""
+    words = tokens(text)
+    for i, w in enumerate(words):
+        name = w if w == "." else os.path.basename(w)
+        if name in STDIN_RUNNERS:
+            return True
+        if name == "env" and any(x in ("-S", "--split-string") or x.startswith(("-S", "--split-string="))
+                                 for x in words[i + 1:]):
+            return True
     return False
 
 
-def without_heredocs(text: str) -> tuple[str, list[str], list[str]]:
-    """(the command without its heredoc bodies, the bodies fed to a shell, the other bodies but a commit message).
-    A body fed to a shell (the line that opens it runs one) is a script and is read as one. The body of a commit
-    message (`git commit -F -` with a quoted delimiter) is data: the fabric writes every commit message that way,
-    and its text names git commands. Any other body is data to the shell, but the caller still reads it for what
-    it commits or publishes (over-reporting: a heredoc this scan misreads must not hide a command)."""
-    lines = text.split("\n")
-    kept, scripts, probes = [], [], []
+class _Frame:
+    """One level of stdin_executed's scan: the top, or a `$(`, `<(`, `>(`, `(` or backquote it is inside."""
+
+    def __init__(self, closer: str, at: int, quote: str | None, in_place: bool):
+        self.closer, self.quote, self.in_place = closer, quote, in_place
+        self.pipe_start = self.cmd_start = at
+        self.pending: list[int] = []      # marks in this frame's current pipeline, nested frames' included
+        self.inner: list[int] = []        # every mark inside this frame
+
+
+def stdin_executed(text: str, marks: list[int]) -> set[int]:
+    """The indexes of `marks` (offsets of heredoc operators in `text`, the bodies removed) whose body is executed:
+    the pipeline holding the redirect runs its stdin (runs_stdin), or so does the pipeline around a substitution or
+    subshell the redirect is inside, or that substitution stands in a command's place (`"$(cat <<'X' …)"`). The
+    scope is the pipeline, never the line: in `git commit -F - <<'M' && source /dev/stdin <<'S'` only S runs."""
+    order = sorted(range(len(marks)), key=marks.__getitem__)
+    nxt, executed = 0, set()
+    frames = [_Frame("", 0, None, False)]
     quote: str | None = None
-    i = 0
+
+    def close_pipeline(f: _Frame, at: int, width: int = 1) -> None:
+        if f.pending and runs_stdin(text[f.pipe_start:at]):
+            executed.update(f.pending)
+        f.pending = []
+        f.pipe_start = f.cmd_start = at + width
+
+    def pop(at: int) -> str | None:
+        f = frames.pop()
+        close_pipeline(f, at)
+        if f.in_place:
+            executed.update(f.inner)
+        frames[-1].pending += f.inner      # the pipeline around it holds it too
+        frames[-1].inner += f.inner
+        return f.quote
+
+    def push(closer: str, at: int, width: int, substitution: bool) -> None:
+        in_place = substitution and bool(COMMAND_PLACE.fullmatch(text[frames[-1].cmd_start:at]))
+        frames.append(_Frame(closer, at + width, quote, in_place))
+
+    i, n = 0, len(text)
+    while i < n:
+        while nxt < len(order) and marks[order[nxt]] <= i:
+            frames[-1].pending.append(order[nxt])
+            frames[-1].inner.append(order[nxt])
+            nxt += 1
+        c = text[i]
+        top = frames[-1]
+        if quote == "'":
+            quote = None if c == "'" else quote
+            i += 1
+        elif c == "\\":
+            i += 2
+        elif quote == '"':
+            if c == '"':
+                quote = None
+            elif text.startswith("$(", i) or c == "`":
+                width = 1 if c == "`" else 2
+                push(c if c == "`" else ")", i, width, True)
+                quote = None
+                i += width - 1
+            i += 1
+        elif c in "'\"":
+            quote = c
+            i += 1
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
+            while i < n and text[i] != "\n":
+                i += 1
+        elif text.startswith(("$(", "<(", ">("), i):
+            push(")", i, 2, c == "$")
+            i += 2
+        elif c == "(":
+            push(")", i, 1, False)
+            i += 1
+        elif c in ")`" and len(frames) > 1 and top.closer == c:
+            quote = pop(i)
+            i += 1
+        elif c == "`":
+            push("`", i, 1, True)
+            i += 1
+        elif text.startswith(("&&", "||"), i):
+            close_pipeline(top, i, 2)
+            i += 2
+        elif c in ";\n" or (c == "&" and text[i - 1:i] not in ("<", ">") and text[i + 1:i + 2] != ">"):
+            close_pipeline(top, i)
+            i += 1
+        else:
+            if c == "|" and text[i - 1:i] != ">":
+                top.cmd_start = i + 1          # a pipe: the same pipeline, its next command
+            i += 1
+    while nxt < len(order):
+        frames[-1].pending.append(order[nxt])
+        frames[-1].inner.append(order[nxt])
+        nxt += 1
+    while len(frames) > 1:
+        pop(n)
+    close_pipeline(frames[0], n)
+    return executed
+
+
+def substitutions(body: str) -> list[str]:
+    """The command substitutions in an unquoted-delimiter body, which the shell runs when it expands the body:
+    `$(…)` (quote-aware inside, as the shell reads it) and backquotes. An unclosed one runs to the end."""
+    out, i, n = [], 0, len(body)
+    while i < n:
+        if body[i] == "\\":
+            i += 2
+            continue
+        if body.startswith("$(", i):
+            depth, j, quote = 1, i + 2, None
+            while j < n and depth:
+                c = body[j]
+                if c == "\\":
+                    j += 2
+                    continue
+                if quote:
+                    quote = None if c == quote else quote
+                elif c in "'\"":
+                    quote = c
+                else:
+                    depth += {"(": 1, ")": -1}.get(c, 0)
+                j += 1
+            out.append(body[i + 2:j - 1 if depth == 0 else n])
+            i = j
+            continue
+        if body[i] == "`":
+            j = i + 1
+            while j < n and body[j] != "`":
+                j += 2 if body[j] == "\\" else 1
+            out.append(body[i + 1:j])
+            i = j + 1
+            continue
+        i += 1
+    return out
+
+
+def without_heredocs(text: str) -> tuple[str, list[str]]:
+    """(the command without its heredoc bodies, the scripts those bodies hold). A body its pipeline executes
+    (stdin_executed) is a script, whatever its delimiter. Any other body is data: under a quoted delimiter all of it
+    (a commit message, a review posted with fabric-pr, a PR body, a `cat` of notes, whatever commands its text
+    names); under an unquoted one the shell expands it, so its command substitutions run and are its scripts, and
+    its plain text stays data."""
+    lines = text.split("\n")
+    kept: list[str] = []
+    bodies: list[tuple[int, bool, str]] = []        # (operator offset in the kept text, quoted, body)
+    levels: list[list] = [["", None]]
+    pos, i = 0, 0
     while i < len(lines):
         line = lines[i]
         i += 1
         kept.append(line)
-        opened, quote = heredoc_operators(line, quote)
-        if not opened:
-            continue
-        runs_shell = any(os.path.basename(w) in SHELLS or w == "eval" for w in re.split(r"[\s;&|()]+", line))
-        message = not runs_shell and message_from_stdin(line)
-        for strip, word, quoted in opened:
+        start, pos = pos, pos + len(line) + 1
+        opened = heredoc_operators(line, levels)
+        for strip, word, quoted, end in opened:
             body = []
             while i < len(lines) and (lines[i].lstrip("\t") if strip else lines[i]) != word:
                 body.append(lines[i])
                 i += 1
             if i >= len(lines):
                 kept.extend(body)   # no terminator: what followed is read as commands
+                pos += sum(len(b) + 1 for b in body)
                 break
             i += 1
-            if runs_shell:
-                scripts.append("\n".join(body))
-            elif not (message and quoted):
-                probes.append("\n".join(body))
-    return "\n".join(kept), scripts, probes
+            bodies.append((start + end, quoted, "\n".join(body)))
+    stripped = "\n".join(kept)
+    executed = stdin_executed(stripped, [b[0] for b in bodies])
+    scripts: list[str] = []
+    for k, (_, quoted, body) in enumerate(bodies):
+        if k in executed:
+            scripts.append(body)
+        elif not quoted:
+            scripts.extend(substitutions(body))
+    return stripped, scripts
 
 
 def tokens(text: str) -> list[str]:
@@ -361,32 +527,22 @@ class Reading:
         self.exported: set[str] = set()       # GIT_DIR-like names an export/declare names without a value
 
     def read(self, text: str, depth: int = 0) -> None:
-        text, scripts, probes = without_heredocs(text)
+        text, scripts = without_heredocs(text)
         for seg in segments(tokens(text)):
             self.segment(seg, depth)
         if depth < MAX_DEPTH:
             for script in scripts:
                 self.read(script, depth + 1)
-            for probe in probes:
-                trial = Reading()
-                trial.read(probe, depth + 1)
-                if trial.acts:                    # a body that names an act is judged as if it ran
-                    self.merge(trial)
-
-    def merge(self, other: "Reading") -> None:
-        self.acts += other.acts
-        self.dirs += other.dirs
-        self.repos += other.repos
-        for k, v in other.env.items():
-            self.env.setdefault(k, []).extend(v)
-        self.exported |= other.exported
 
     def segment(self, seg: list[str], depth: int) -> None:
         exporting = False
         for i, word in enumerate(seg):
             name = os.path.basename(word)
             assigned = ASSIGNMENT.fullmatch(word)
-            if assigned:
+            configured = GIT_CONFIG_ENV.fullmatch(word)
+            if configured and (configured.group(2) is not None or exporting):
+                self.dirs.append(("git", f"${configured.group(1)}"))     # config from the environment: unresolvable
+            elif assigned:
                 var, value = assigned.groups()
                 self.env.setdefault(var, []).append(value)
                 if var in GIT_ENV:
@@ -441,12 +597,16 @@ class Reading:
             if w in GIT_VALUE_OPTIONS:
                 if w in GIT_DIR_OPTIONS and i + 1 < len(rest):
                     self.dirs.append(("git", rest[i + 1]))
+                elif w in ("-c", "--config-env") and i + 1 < len(rest):
+                    self.git_config(w, rest[i + 1])
                 i += 2
                 continue
             if w.startswith("--") and "=" in w:
                 opt, value = w.split("=", 1)
                 if opt in GIT_DIR_OPTIONS:
                     self.dirs.append(("git", value))
+                elif opt == "--config-env":
+                    self.git_config(opt, value)
                 i += 1
                 continue
             if w.startswith("-"):
@@ -456,8 +616,15 @@ class Reading:
                 self.acts.append(f"git {w}")
             return
 
+    def git_config(self, option: str, setting: str) -> None:
+        """`-c core.worktree=V` is a --work-tree V; `--config-env core.worktree=VAR` takes it from a variable, which
+        cannot be resolved. Config keys are case-insensitive. Any other setting is no directory."""
+        key, _, value = setting.partition("=")
+        if key.strip().lower() == "core.worktree":
+            self.dirs.append(("git", value if option == "-c" else f"${value}"))
+
     def gh(self, rest: list[str]) -> None:
-        words, repos, host, i = [], [], None, 0
+        words, repos, urls, host, i = [], [], [], None, 0
         while i < len(rest):
             value, nxt = option_value(rest, i, GH_VALUE_OPTIONS)
             if value is not None:
@@ -469,10 +636,14 @@ class Reading:
                 continue
             if not rest[i].startswith("-") and len(words) < 2:
                 words.append(rest[i])
+            elif url := PR_URL.fullmatch(rest[i]):
+                # gh acts on a PR URL's repository whatever the cwd: a -R of its own, its host with it.
+                urls.append((rest[i], url.group(1).lower(), f"{url.group(2)}/{url.group(3)}"))
             i += 1
         if len(words) == 2 and words[0] == "pr" and words[1] in GH_ACTS:
             self.acts.append(f"gh pr {words[1]}")
             self.repos += [(spelled, host, value, "gh") for spelled, value in repos]
+            self.repos += [(spelled, url_host, value, "gh") for spelled, url_host, value in urls]
 
     def fabric_pr(self, rest: list[str]) -> None:
         # --repo stands anywhere (fabric_pr.take_repo); the verb is the first other word.
