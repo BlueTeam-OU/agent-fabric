@@ -280,4 +280,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-16 | A delivered job whose evidence landed is swept to done | §5 rule 12 added: `fabric-jobs sweep` closes a delivered job by rule 10's `done` test, and each account's control agent runs it hourly |
 | 2026-10-18 | Work that leaves no artifact closes with a reason | §5 rule 10: a `done` job is settled by a recorded `--no-artifact` reason when its work lands nothing in a repository |
 | 2026-10-20 | A session works one job's working copy | §5 rule 3: a PreToolUse hook refuses a commit or a publish outside the session's job copies, and refuses everything after the session's job has left `active`; reads stay allowed |
-| 2026-10-21 | Leaving a job cleans its build output | §5 rule 10 step 1: once the old job is settled, its worktree's cargo targets are removed, except one in use; `--keep-targets` skips it |
+| 2026-10-21 | Leaving a job cleans its build output | §5 rule 10 step 1, decided and unbuilt (python-dev's j75): once the old job is settled, its worktree's cargo targets are to be removed, except one in use, with `--keep-targets` to skip it |
