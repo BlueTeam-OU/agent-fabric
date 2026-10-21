@@ -175,6 +175,8 @@ SHELLS = ("bash", "sh", "zsh", "dash", "ksh", "fish", "ash", "mksh", "csh", "tcs
 # What runs the stdin a heredoc feeds it: a shell (with or without -s), eval, source, `.`, xargs, busybox (whose
 # applets include shells: `busybox sh`, `busybox hush`), and env -S apart.
 STDIN_RUNNERS = SHELLS + ("eval", "source", ".", "xargs", "busybox")
+# The words after which a command starts, so a `.` there is the dot command and not a path argument.
+COMMAND_KEYWORDS = ("then", "do", "else", "elif", "time", "exec", "command", "builtin", "nohup", "sudo")
 # What may stand before a substitution that is then run as the command: assignments, a quote, a wrapper.
 COMMAND_PLACE = re.compile(r"\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|exec|command|nohup|time|sudo|env)\s+)*\"?")
 CD_OPTION = re.compile(r"-[LPe@]+")
@@ -295,10 +297,15 @@ def delimiter(line: str, j: int) -> tuple[str, bool, int]:
 def runs_stdin(text: str) -> bool:
     """Whether a pipeline's text holds a word that executes what it reads: a shell (`-s` or not), eval, source, `.`,
     xargs, busybox, or env with -S. Any word counts, not only a command's (over-reporting); a quoted argument stays one word,
-    so `--title "fix sh"` is no shell."""
+    so `--title "fix sh"` is no shell. The one exception is `.`: it is the path every `git add .` names, so it counts
+    only where a command starts (first, or after an operator or a keyword that opens one), never as an argument."""
     words = tokens(text)
     for i, w in enumerate(words):
-        name = w if w == "." else os.path.basename(w)
+        if w == ".":
+            if i == 0 or set(words[i - 1]) <= set(";&|(){}!`") or words[i - 1] in COMMAND_KEYWORDS:
+                return True
+            continue
+        name = os.path.basename(w)
         if name in STDIN_RUNNERS:
             return True
         if name == "env" and any(x in ("-S", "--split-string") or x.startswith(("-S", "--split-string="))

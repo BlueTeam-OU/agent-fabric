@@ -415,9 +415,15 @@ class Guard(unittest.TestCase):
                     f"while read -r l; do eval \"$l\"; done <<'X'\n{acting}\nX",
                     f"if true; then bash; fi <<'X'\n{acting}\nX", f"fish <<'X'\n{acting}\nX",
                     *(f"cat <<'X' | {shell}\n{acting}\nX" for shell in ("fish", "ash", "mksh", "csh", "tcsh", "yash")),
-                    f"cat <<'X' | busybox hush\n{acting}\nX"):
+                    f"cat <<'X' | busybox hush\n{acting}\nX", f"true && . /dev/stdin <<'X'\n{acting}\nX",
+                    f"if true; then . /dev/stdin; fi <<'X'\n{acting}\nX"):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.proj), "deny")
+        # `.` as a path argument is no runner: the commit message every `git add .` precedes stays data.
+        for cmd in (f"git add . && git commit -F - <<'M'\nsubject\n\n{acting}\nM",
+                    f"git add -- . ; fabric-pr post-review 5 <<'EOF'\n{acting}\nEOF"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "allow")
 
     def test_stdin_executed_reads_a_pipe_and_stderr_as_a_pipe(self):
         # `|&` keeps the pipeline open: the whole-command fallback hides this from decide, so the model is held here.
