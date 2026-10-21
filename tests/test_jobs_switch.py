@@ -1437,6 +1437,17 @@ def main() -> int:
         check("…and a configuration that cannot be parsed keeps it (unknown is not free)", said and said[0].startswith("kept ") and "cannot be read" in said[0], said)
 
         w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "sub/keep")
+        w.add("holds the checkout", "--working-copy", os.path.join(left, "sub"))
+        rc, out, err = leave(w, j)
+        check("a switch passes the other jobs' working copies: one inside the left worktree keeps its targets, said",
+              rc == 0 and "left alone" in out and os.path.isdir(os.path.join(left, "target")), out + err)
+        lt0 = sys.modules["fabric_jobs"].leave_targets
+        tdir = os.path.join(left, "target")
+        check("a target on another filesystem than the worktree's is kept whole, said",
+              lt0.one(tdir, left, -1, [], "").startswith(f"kept {tdir}: another filesystem"))
+
+        w = World(under=home)
         j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "q/Cargo.toml", "q/target/z")
         w.add("next one")
         racing_choose = sys.modules["fabric_jobs"].verbs.choose
@@ -1478,6 +1489,12 @@ def main() -> int:
         check("a worktree field inside a checkout (not a linked worktree) is refused", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "inner", "target")), said)
         said = _clean(left, w.repo, (left,))
         check("a worktree another job also names is refused", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        os.makedirs(os.path.join(left, "sub"))
+        said = _clean(left, w.repo, (os.path.join(left, "sub"),))
+        check("a worktree that holds another job's working copy is refused (below)", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        said = _clean(left, w.repo, (home,))
+        check("a worktree that lies inside another job's working copy is refused (above)", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        os.rmdir(os.path.join(left, "sub"))
         said = _clean(left, w.repo, (other,))
         check("…and the same worktree with unrelated other jobs is cleared (the positive control)", said and said[0].startswith("removed "), said)
 
