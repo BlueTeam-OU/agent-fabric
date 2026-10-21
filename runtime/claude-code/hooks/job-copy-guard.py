@@ -23,8 +23,13 @@ DECISIONS, in order, with their exact words:
      It commits or publishes when it holds `git commit|push|merge|rebase|cherry-pick|am` (git's global options,
      `-C <dir>` among them, may come before the subcommand), `gh pr create|merge`, or `fabric-pr <verb>` for any
      verb but the read-only ones in READ_ONLY_PR_VERBS (an unknown verb counts). Found anywhere in the command,
-     a `bash -c`/`sh -c`/`eval` script and a heredoc fed to a shell included. The job list is not read before
-     this point, so a command that does not commit or publish never asks.
+     a `bash -c`/`sh -c`/`eval`/`env -S` script and a heredoc fed to a shell included. Only an unquoted `<<`
+     outside a comment opens a heredoc (a quote-aware scan, never a regex on the raw line: a quoted `'<<X'` and a
+     later line `X` must not hide the lines between). A heredoc body not fed to a shell is data, but it is still
+     read, and one that holds an act is judged as if it ran; the one exception is a commit message, the body of
+     `git commit -F -` (or `-F /dev/stdin`) under a quoted delimiter, which stays data: the fabric writes every
+     commit message that way and its text often names git commands. The job list is not read before this point,
+     so a command that does not commit or publish never asks.
   4. the job list or the module that reads it cannot be read                           -> ask:
        "The job copy guard could not read this login's job list (<what failed>). Approve only if this command
        does not commit or publish outside the working copy of this session's job (agent-fabric ADR-037 rule 3)."
@@ -44,24 +49,52 @@ DECISIONS, in order, with their exact words:
   8. job J active, recording neither a working copy nor a worktree                      -> ask:
        "Job J records no working copy, so the job copy guard cannot tell where this session may commit or publish.
        Approve only if this command acts in the working copy of job J (agent-fabric ADR-037 rule 3)."
-  9. a directory the command acts in whose git toplevel lookup timed out                -> ask:
+  9. the git lookups of steps 10 to 13 together passed GIT_BUDGET_S (6 s)               -> ask:
+       "The job copy guard spent its 6 s budget for git lookups (<n> run, <s> s) before it could decide, and
+       stopped short of the harness's 10 s hook limit, which would read as an allow. Approve only if this command
+       does not commit or publish outside job J's working copy <copies> (agent-fabric ADR-037 rule 3)."
+     Each lookup has its own 2 s timeout as well; the harness reads a hook it killed as no objection, so the sum
+     is what keeps the guard's answer inside the 10 s.
+ 10. a directory the command acts in whose git toplevel lookup timed out                -> ask:
        "The job copy guard could not resolve <dir> to its checkout (git rev-parse timed out). Approve only if
        this command does not commit or publish outside job J's working copy <copies> (agent-fabric ADR-037 rule 3)."
- 10. any directory the command acts in lies outside J's working copy and worktree       -> deny:
+ 11. any directory the command acts in lies outside J's working copy and worktree       -> deny:
        "This session works job J in <copies>; this command commits or publishes (<what>) in <dir>, outside it. A
        session works one job's working copy (agent-fabric ADR-037 rule 3): finish or block this job, run
        `fabric-jobs switch`, and let the next job (or a REQUEST that asked for this, which intake already queued
        as a job; anything else, add it with `fabric-jobs add`) run in the fresh session switch prints. Reading
        other working copies is allowed."
- 11. otherwise                                                                          -> nothing
+ 12. the command names a target repository (see THE REPOSITORIES below) and the remotes of J's copies cannot
+     be read (`git -C <copy> remote -v` fails or times out for every copy)                  -> ask:
+       "The job copy guard could not read the remotes of job J's working copy <copies> (git remote -v did not
+       answer), so it cannot tell whether <repo> is one of them. Approve only if …"
+ 13. a target repository that is not one of those remotes, or cannot be read as owner/repo -> deny:
+       "This session works job J in <copies>; this command commits or publishes (<what>) to <repo>, which is not a
+       remote of that working copy (its remotes: <host/owner/repo, …>). A session works one job's working copy …"
+ 14. otherwise                                                                          -> nothing
 
 THE DIRECTORIES A COMMAND ACTS IN, over-reported rather than modelled: the payload's cwd, every `cd`/`pushd` target
-anywhere in the command (a bare `cd` is $HOME), every `git -C <dir>`, `--git-dir` and `--work-tree`. A relative
-one is resolved against the cwd and against every `cd` target before it (a chain `cd a && cd b` is caught either
-way), then to its git toplevel. A target holding `$`, a backquote or a glob, and `cd -`, cannot be resolved and
-counts as outside. Inside means equal to, or under, J's `working_copy` or J's `worktree`: a subagent's
-.claude/worktrees/<x> under the clone is inside. Execution order is not modelled: a commit in the job copy
-followed by an unrelated `cd /elsewhere` is denied. A false deny costs a rephrase; a false allow is the incident.
+anywhere in the command (a bare `cd` is $HOME), every `git -C <dir>`, `--git-dir` and `--work-tree`, every `env -C`
+(`--chdir`), and every way of setting git's repository or work tree through the environment: a word
+`GIT_DIR=<dir>`, `GIT_WORK_TREE=<dir>` or `GIT_COMMON_DIR=<dir>` wherever it stands — a prefix assignment, after
+`env` and its options, after `export`/`declare -x`, or anywhere earlier in the same command text (an export
+anywhere counts for every git in the command, and so does such a word that is only text). An `export`/`declare`
+of one of those names with no value this command sets counts as a directory it cannot resolve. A relative one is
+resolved against the cwd and against every `cd` target before it (a chain `cd a && cd b` is caught either way),
+then to its git toplevel (a git directory, `/x/.git`, is no work tree and stands as itself, so it is inside only
+under J's copy). A value holding `$`, a backquote or a glob, and `cd -`, cannot be resolved and counts as outside.
+Inside means equal to, or under, J's `working_copy` or J's `worktree`: a subagent's .claude/worktrees/<x> under the
+clone is inside. Execution order is not modelled: a commit in the job copy followed by an unrelated
+`cd /elsewhere` is denied. A false deny costs a rephrase; a false allow is the incident.
+
+THE REPOSITORIES A COMMAND PUBLISHES TO, when it names one: `gh pr create|merge -R/--repo <repo>` (with
+`--hostname` or GH_HOST as its host when given), `fabric-pr --repo <repo> <verb>` for a writing verb, and GH_REPO
+set (as a word, as for GIT_DIR) in a command that runs either. The job copy's remotes are read
+(`git -C <copy> remote -v`, inside the budget), each URL normalised to owner/repo, lowercased, without .git, from
+https, ssh:// or scp-style; the named repository (owner/repo, host/owner/repo or a URL) is inside only when it is
+one of them, on the same host when it names one. An ssh host alias in a remote (`gh-agent:owner/repo`) does not
+equal `github.com`: a host named beside the repository then denies. fabric-pr's project-id form (`--repo <project>`)
+is inside when it is the job's recorded `project`, and outside otherwise: the guard does not read the registry.
 
 WHY "worked a job other than the active one", and not "worked the active one": `fabric-jobs switch` activates the
 next job in the session that runs it (verbs.switch_job, then prints `fabric-fresh --job J`), so the old session's
@@ -98,6 +131,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 
 sys.dont_write_bytecode = True   # the job module it loads leaves no __pycache__ in the tree
 
@@ -119,37 +153,154 @@ GH_VALUE_OPTIONS = ("-R", "--repo", "--hostname")
 SHELLS = ("bash", "sh", "zsh", "dash", "ksh")
 CD_OPTION = re.compile(r"-[LPe@]+")
 UNRESOLVABLE = re.compile(r"[$`*?\[]")
-# `<<WORD`, `<<-WORD`, `<<'WORD'`, `<<"WORD"`; never `<<<` (a here-string: its word is the data, on the same line).
-HEREDOC = re.compile(r"(?<!<)<<(?!<)(-?)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+# The variables that point git at a repository or a work tree, and the two that point gh at a repository. A word
+# `NAME=value` is read wherever it stands (a prefix assignment, after `env`, `export`, `declare -x`, `sudo`, or as
+# text): over-reported, never modelled.
+GIT_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
+GH_ENV = ("GH_REPO", "GH_HOST")
+ASSIGNMENT = re.compile(r"(%s)=(.*)" % "|".join(GIT_ENV + GH_ENV), re.S)
+EXPORTERS = ("export", "declare", "typeset", "local", "readonly")
+# env's own options: those that take a value, and the two that matter here (-C changes the directory, -S is a
+# command line of its own).
+ENV_VALUE_OPTIONS = ("-u", "--unset", "-C", "--chdir", "-S", "--split-string")
 OPERATOR = re.compile(r"[;&|()`]+")
-TOPLEVEL_TIMEOUT_S = 2.0
+GIT_TIMEOUT_S = 2.0
+# The harness kills a hook at 10 s and reads that as no objection; git lookups stop at this sum, with room left for
+# the interpreter's start and the job list.
+GIT_BUDGET_S = 6.0
 MAX_DEPTH = 3
 HOME_MARK = "\0home"   # a bare `cd`: the target is $HOME
+NAME_PART = re.compile(r"[A-Za-z0-9_.-]+")
 
 
-def without_heredocs(text: str) -> tuple[str, list[str]]:
-    """(the command without its heredoc bodies, the bodies fed to a shell). A body is data — a commit message,
-    a file — unless the line that opens it runs a shell, when it is a script and is read as one."""
-    kept, scripts, pending = [], [], []
-    body: list[str] = []
-    for line in text.split("\n"):
-        if pending:
-            strip, word, shell = pending[0]
-            if (line.lstrip("\t") if strip else line) == word:
-                pending.pop(0)
-                if shell:
-                    scripts.append("\n".join(body))
-                body = []
-            else:
-                body.append(line)
+def heredoc_operators(line: str, quote: str | None) -> tuple[list[tuple[bool, str, bool]], str | None]:
+    """The heredocs `line` opens, each (strip tabs, delimiter, delimiter quoted), and the quote still open at its
+    end (a quoted string can run over lines). Only an unquoted `<<` outside a comment is an operator: a `<<` inside
+    quotes is text, and reading it as an operator would hide the lines up to its "terminator" (review F3 on #348)."""
+    ops: list[tuple[bool, str, bool]] = []
+    i, n, word_start = 0, len(line), True
+    while i < n:
+        c = line[i]
+        if quote == "'":
+            quote = None if c == "'" else quote
+            i += 1
             continue
+        if quote == '"':
+            if c == "\\":
+                i += 2
+                continue
+            quote = None if c == '"' else quote
+            i += 1
+            continue
+        if c == "\\":
+            i, word_start = i + 2, False
+            continue
+        if c in "'\"":
+            quote, word_start = c, False
+            i += 1
+            continue
+        if c == "#" and word_start:
+            break                                  # a comment: nothing after it is an operator
+        if line.startswith("<<<", i):              # a here-string: its word is the data, on this line
+            i, word_start = i + 3, False
+            continue
+        if line.startswith("<<", i):
+            j = i + 2
+            strip = j < n and line[j] == "-"
+            j += 1 if strip else 0
+            while j < n and line[j] in " \t":
+                j += 1
+            word, quoted, end = delimiter(line, j)
+            if word:
+                ops.append((strip, word, quoted))
+                i = end
+            else:
+                i = j                              # no word it can read: what follows is scanned as text
+            word_start = False
+            continue
+        word_start = c in " \t;&|()<>"
+        i += 1
+    return ops, quote
+
+
+def delimiter(line: str, j: int) -> tuple[str, bool, int]:
+    """(the heredoc delimiter at line[j:] with its quotes removed, whether any of it was quoted, where it ends);
+    ("", …) when it has no word or a quote that does not close on this line."""
+    out, quoted, quote = [], False, None
+    while j < len(line):
+        c = line[j]
+        if quote:
+            if c == quote:
+                quote = None
+            else:
+                out.append(c)
+        elif c in "'\"":
+            quote, quoted = c, True
+        elif c == "\\" and j + 1 < len(line):
+            quoted = True
+            out.append(line[j + 1])
+            j += 1
+        elif c in " \t;&|()<>":
+            break
+        else:
+            out.append(c)
+        j += 1
+    return ("" if quote else "".join(out)), quoted, j
+
+
+def message_from_stdin(line: str) -> bool:
+    """Whether `line` runs `git commit` reading its message from stdin (`-F -`, `-F /dev/stdin`, `--file=-`…)."""
+    for seg in segments(tokens(line)):
+        for i, word in enumerate(seg):
+            if os.path.basename(word) != "git":
+                continue
+            rest = seg[i + 1:]
+            k = 0
+            while k < len(rest) and rest[k].startswith("-"):
+                k += 2 if rest[k] in GIT_VALUE_OPTIONS else 1
+            if k >= len(rest) or rest[k] != "commit":
+                continue
+            args = rest[k + 1:]
+            for a, b in zip(args, args[1:] + [""]):
+                if a in ("-F", "--file") and b in ("-", "/dev/stdin") or a in ("-F-", "-F/dev/stdin", "--file=-",
+                                                                               "--file=/dev/stdin"):
+                    return True
+    return False
+
+
+def without_heredocs(text: str) -> tuple[str, list[str], list[str]]:
+    """(the command without its heredoc bodies, the bodies fed to a shell, the other bodies but a commit message).
+    A body fed to a shell (the line that opens it runs one) is a script and is read as one. The body of a commit
+    message (`git commit -F -` with a quoted delimiter) is data: the fabric writes every commit message that way,
+    and its text names git commands. Any other body is data to the shell, but the caller still reads it for what
+    it commits or publishes (over-reporting: a heredoc this scan misreads must not hide a command)."""
+    lines = text.split("\n")
+    kept, scripts, probes = [], [], []
+    quote: str | None = None
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
         kept.append(line)
-        opened = HEREDOC.findall(line)
+        opened, quote = heredoc_operators(line, quote)
+        if not opened:
+            continue
         runs_shell = any(os.path.basename(w) in SHELLS or w == "eval" for w in re.split(r"[\s;&|()]+", line))
-        pending.extend((dash == "-", word, runs_shell) for dash, _, word in opened)
-    if pending:
-        kept.extend(body)     # no terminator: the `<<` was text (a quoted word), and what followed is read as commands
-    return "\n".join(kept), scripts
+        message = not runs_shell and message_from_stdin(line)
+        for strip, word, quoted in opened:
+            body = []
+            while i < len(lines) and (lines[i].lstrip("\t") if strip else lines[i]) != word:
+                body.append(lines[i])
+                i += 1
+            if i >= len(lines):
+                kept.extend(body)   # no terminator: what followed is read as commands
+                break
+            i += 1
+            if runs_shell:
+                scripts.append("\n".join(body))
+            elif not (message and quoted):
+                probes.append("\n".join(body))
+    return "\n".join(kept), scripts, probes
 
 
 def tokens(text: str) -> list[str]:
@@ -182,27 +333,72 @@ def segments(words: list[str]) -> list[list[str]]:
     return out
 
 
+def option_value(rest: list[str], i: int, names: tuple[str, ...]) -> tuple[str | None, int]:
+    """(the value of the option at rest[i] if it is one of `names`, the index after it): `-R x`, `-Rx`,
+    `--repo x`, `--repo=x`. (None, i) when rest[i] is none of them."""
+    w = rest[i]
+    if w in names:
+        return (rest[i + 1] if i + 1 < len(rest) else ""), i + 2
+    for name in names:
+        if name.startswith("--") and w.startswith(name + "="):
+            return w[len(name) + 1:], i + 1
+        if not name.startswith("--") and w.startswith(name) and len(w) > len(name):
+            return w[len(name):], i + 1
+    return None, i
+
+
 class Reading:
-    """What a command commits or publishes (`acts`) and the directory words it names, in order (`dirs`, each
-    (kind, word): kind "cd" for a cd/pushd target, "git" for a git -C/--git-dir/--work-tree)."""
+    """What a command commits or publishes (`acts`), the directory words it names, in order (`dirs`, each
+    (kind, word): kind "cd" for a cd/pushd target, "git" for a git -C/--git-dir/--work-tree, a GIT_DIR-like
+    variable or env -C), the repositories its publishes name (`repos`, each (spelled, host or None, value, kind):
+    kind "gh" or "fabric-pr"), and the GH_REPO/GH_HOST values it sets (`env`)."""
 
     def __init__(self):
         self.acts: list[str] = []
         self.dirs: list[tuple[str, str]] = []
+        self.repos: list[tuple[str, str | None, str, str]] = []
+        self.env: dict[str, list[str]] = {}
+        self.exported: set[str] = set()       # GIT_DIR-like names an export/declare names without a value
 
     def read(self, text: str, depth: int = 0) -> None:
-        text, scripts = without_heredocs(text)
+        text, scripts, probes = without_heredocs(text)
         for seg in segments(tokens(text)):
             self.segment(seg, depth)
         if depth < MAX_DEPTH:
             for script in scripts:
                 self.read(script, depth + 1)
+            for probe in probes:
+                trial = Reading()
+                trial.read(probe, depth + 1)
+                if trial.acts:                    # a body that names an act is judged as if it ran
+                    self.merge(trial)
+
+    def merge(self, other: "Reading") -> None:
+        self.acts += other.acts
+        self.dirs += other.dirs
+        self.repos += other.repos
+        for k, v in other.env.items():
+            self.env.setdefault(k, []).extend(v)
+        self.exported |= other.exported
 
     def segment(self, seg: list[str], depth: int) -> None:
+        exporting = False
         for i, word in enumerate(seg):
             name = os.path.basename(word)
-            if word in ("cd", "pushd"):
+            assigned = ASSIGNMENT.fullmatch(word)
+            if assigned:
+                var, value = assigned.groups()
+                self.env.setdefault(var, []).append(value)
+                if var in GIT_ENV:
+                    self.dirs.append(("git", value))
+            elif exporting and word in GIT_ENV:
+                self.exported.add(word)
+            elif word in EXPORTERS:
+                exporting = True
+            elif word in ("cd", "pushd"):
                 self.cd(seg[i + 1:])
+            elif name == "env":
+                self.env_command(seg[i + 1:], depth)
             elif name == "git":
                 self.git(seg[i + 1:])
             elif name == "gh":
@@ -222,6 +418,21 @@ class Reading:
     def cd(self, rest: list[str]) -> None:
         args = [w for w in rest if not CD_OPTION.fullmatch(w) and w != "--"]
         self.dirs.append(("cd", args[0] if args else HOME_MARK))
+
+    def env_command(self, rest: list[str], depth: int) -> None:
+        """env's options: -C/--chdir is a directory the command runs in, -S/--split-string a command line. Its
+        NAME=value words are read by segment, wherever they stand."""
+        i = 0
+        while i < len(rest) and rest[i].startswith("-") and rest[i] != "--":
+            value, nxt = option_value(rest, i, ENV_VALUE_OPTIONS)
+            if value is None:
+                i += 1
+                continue
+            if rest[i].startswith(("-C", "--chdir")):
+                self.dirs.append(("git", value))
+            elif rest[i].startswith(("-S", "--split-string")) and depth < MAX_DEPTH:
+                self.read(value, depth + 1)
+            i = nxt
 
     def git(self, rest: list[str]) -> None:
         i = 0
@@ -246,29 +457,81 @@ class Reading:
             return
 
     def gh(self, rest: list[str]) -> None:
-        words, i = [], 0
-        while i < len(rest) and len(words) < 2:
-            w = rest[i]
-            if w in GH_VALUE_OPTIONS:
-                i += 2
+        words, repos, host, i = [], [], None, 0
+        while i < len(rest):
+            value, nxt = option_value(rest, i, GH_VALUE_OPTIONS)
+            if value is not None:
+                if rest[i].startswith("--hostname"):
+                    host = value
+                else:
+                    repos.append((f"{rest[i]} {value}" if nxt == i + 2 else rest[i], value))
+                i = nxt
                 continue
-            if not w.startswith("-"):
-                words.append(w)
+            if not rest[i].startswith("-") and len(words) < 2:
+                words.append(rest[i])
             i += 1
         if len(words) == 2 and words[0] == "pr" and words[1] in GH_ACTS:
             self.acts.append(f"gh pr {words[1]}")
+            self.repos += [(spelled, host, value, "gh") for spelled, value in repos]
 
     def fabric_pr(self, rest: list[str]) -> None:
-        i = 0
-        while i < len(rest) and (rest[i] == "--repo" or rest[i].startswith("--repo=")):
-            i += 2 if rest[i] == "--repo" else 1
-        verb = rest[i] if i < len(rest) else "help"
+        # --repo stands anywhere (fabric_pr.take_repo); the verb is the first other word.
+        repos, verb, i = [], None, 0
+        while i < len(rest):
+            value, nxt = option_value(rest, i, ("--repo",))
+            if value is not None:
+                repos.append((f"--repo {value}" if nxt == i + 2 else rest[i], value))
+                i = nxt
+                continue
+            if verb is None:
+                verb = rest[i]
+            i += 1
+        verb = verb if verb is not None else "help"
         if verb not in READ_ONLY_PR_VERBS:
             self.acts.append(f"fabric-pr {verb}")
+            self.repos += [(spelled, None, value, "fabric-pr") for spelled, value in repos]
+
+    def publishes_by_gh(self) -> bool:
+        return any(a.startswith(("gh ", "fabric-pr ")) for a in self.acts)
 
 
 class Undecided(Exception):
     """A directory's checkout could not be found in time: the guard asks."""
+
+
+class OverBudget(Exception):
+    """The git lookups together passed GIT_BUDGET_S: the guard stops and asks before the harness's kill."""
+
+
+class Git:
+    """Every git the guard runs, timed against one budget. `clock` is injectable (time.monotonic by default) so a
+    test can spend the budget without waiting for it."""
+
+    def __init__(self, clock=time.monotonic, budget: float = GIT_BUDGET_S):
+        self.clock, self.budget, self.spent, self.calls = clock, budget, 0.0, 0
+
+    def run(self, args: list[str]) -> subprocess.CompletedProcess:
+        """git `args`; raises OverBudget once the sum passes the budget, subprocess.TimeoutExpired on a single
+        lookup's timeout, OSError when git cannot be run."""
+        if self.spent >= self.budget:
+            raise OverBudget()
+        env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")}
+        timeout = max(0.05, min(GIT_TIMEOUT_S, self.budget - self.spent))
+        start = self.clock()
+        self.calls += 1
+        try:
+            r = subprocess.run(["git", *args], capture_output=True, text=True, timeout=timeout, env=env,
+                               stdin=subprocess.DEVNULL, check=False)
+        except (subprocess.TimeoutExpired, OSError):
+            self.charge(start)              # over budget wins over the lookup's own error
+            raise
+        self.charge(start)
+        return r
+
+    def charge(self, start: float) -> None:
+        self.spent += self.clock() - start
+        if self.spent > self.budget:
+            raise OverBudget()
 
 
 def candidates(cwd: str, dirs: list[tuple[str, str]]) -> list[tuple[str, str | None]]:
@@ -294,21 +557,71 @@ def candidates(cwd: str, dirs: list[tuple[str, str]]) -> list[tuple[str, str | N
     return out
 
 
-def toplevel(path: str) -> str:
+def toplevel(path: str, git: Git) -> str:
     """The checkout `path` is in, as a real path; the path itself when it is no directory or in no checkout."""
     real = os.path.realpath(path)
     if not os.path.isdir(real):
         return real
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")}
     try:
-        r = subprocess.run(["git", "-C", real, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                           timeout=TOPLEVEL_TIMEOUT_S, env=env, stdin=subprocess.DEVNULL, check=False)
+        r = git.run(["-C", real, "rev-parse", "--show-toplevel"])
     except subprocess.TimeoutExpired:
         raise Undecided(path) from None
     except OSError:
         return real
     top = r.stdout.strip()
     return os.path.realpath(top) if r.returncode == 0 and top else real
+
+
+def repo_of_url(url: str) -> tuple[str, str] | None:
+    """(host, owner/repo), lowercased and without .git, of a remote URL: https, ssh:// or scp-style
+    (git@host:owner/repo); None for any other (a local path, a deeper path)."""
+    m = re.fullmatch(r"[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]+@)?([^/:]+)(?::\d*)?/(.+)", url) \
+        or re.fullmatch(r"(?:[^@/:]+@)?([^/:]+):(?!/)(.+)", url)
+    if not m:
+        return None
+    path = owner_repo(m.group(2))
+    return (m.group(1).lower(), path) if path else None
+
+
+def owner_repo(path: str) -> str | None:
+    parts = path.strip("/").removesuffix(".git").split("/")
+    if len(parts) != 2 or not all(NAME_PART.fullmatch(p) for p in parts):
+        return None
+    return "/".join(parts).lower()
+
+
+def repo_named(value: str, host: str | None) -> tuple[str | None, str] | None:
+    """(host or None, owner/repo) of a repository a command names: `owner/repo`, `host/owner/repo` or a URL, with
+    the --hostname/GH_HOST given beside it; None when it cannot be read so (it counts as outside)."""
+    if "://" in value or re.fullmatch(r"[^/:]+@[^/:]+:.+", value):
+        found = repo_of_url(value)
+        return found if found and (host is None or host.lower() == found[0]) else None
+    parts = value.strip("/").split("/")
+    if len(parts) == 3 and NAME_PART.fullmatch(parts[0]):
+        named_host = parts[0].lower()
+        if host is not None and host.lower() != named_host:
+            return None
+        host, parts = named_host, parts[1:]
+    path = owner_repo("/".join(parts))
+    return (host.lower() if host else None, path) if path else None
+
+
+def remotes(copy: str, git: Git) -> set[tuple[str, str]] | None:
+    """The (host, owner/repo) of every remote of `copy`; None when git does not answer."""
+    try:
+        r = git.run(["-C", copy, "remote", "-v"])
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if r.returncode != 0:
+        return None
+    found = set()
+    for line in r.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 2:
+            repo = repo_of_url(fields[1])
+            if repo:
+                found.add(repo)
+    return found
 
 
 def inside(path: str, copies: list[str]) -> bool:
@@ -339,7 +652,7 @@ NEXT_JOB = ("let the next job (or a REQUEST that asked for this, which intake al
             "else, add it with `fabric-jobs add`) run in the fresh session switch prints")
 
 
-def decide(payload: dict) -> tuple[str, str] | None:
+def decide(payload: dict, clock=time.monotonic) -> tuple[str, str] | None:
     if payload.get("agent_id"):
         return None                               # a subagent: the clone guard's lane
     if payload.get("tool_name") not in (None, "", "Bash"):
@@ -389,22 +702,70 @@ def decide(payload: dict) -> tuple[str, str] | None:
     copies = list(dict.fromkeys(os.path.realpath(os.path.expanduser(p)) for p in copies_named))
     shown = " and ".join(copies_named)
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) and payload.get("cwd") else os.getcwd()
-    for word, path in candidates(cwd, reading.dirs):
-        if path is None:
-            where = f"{word} (a directory this guard does not resolve: a variable, a substitution, a glob or `cd -` counts as outside)"
+    approve = (f"Approve only if this command does not commit or publish outside job {jid}'s working copy {shown} "
+               "(agent-fabric ADR-037 rule 3).")
+    outside = (f"A session works one job's working copy (agent-fabric ADR-037 rule 3): finish or block this job, run "
+               f"`fabric-jobs switch`, and {NEXT_JOB}. Reading other working copies is allowed.")
+    git = Git(clock)
+    # An export of a GIT_DIR-like name whose value this command does not set: a value from elsewhere, unresolvable.
+    dirs = reading.dirs + [("git", f"${name}") for name in sorted(reading.exported) if name not in reading.env]
+    try:
+        for word, path in candidates(cwd, dirs):
+            if path is None:
+                where = f"{word} (a directory this guard does not resolve: a variable, a substitution, a glob or `cd -` counts as outside)"
+            else:
+                try:
+                    top = toplevel(path, git)
+                except Undecided:
+                    return ("ask", f"The job copy guard could not resolve {word} to its checkout (git rev-parse timed out). {approve}")
+                if inside(top, copies):
+                    continue
+                where = word if os.path.normpath(word) == top else f"{word} ({top})"
+            return ("deny", f"This session works job {jid} in {shown}; this command commits or publishes ({what}) in {where}, "
+                            f"outside it. {outside}")
+        return judge_repos(reading, current, copies, git, what, shown, approve, outside)
+    except OverBudget:
+        return ("ask", f"The job copy guard spent its {GIT_BUDGET_S:g} s budget for git lookups ({git.calls} run, "
+                       f"{git.spent:.1f} s) before it could decide, and stopped short of the harness's 10 s hook limit, "
+                       f"which would read as an allow. {approve}")
+
+
+def judge_repos(reading: Reading, current: dict, copies: list[str], git: Git, what: str, shown: str, approve: str,
+                outside: str) -> tuple[str, str] | None:
+    """The repositories the command's publishes name (`gh pr … -R`, `fabric-pr --repo`, GH_REPO for either) against
+    the remotes of the job's copies: inside only when the named one is among them (and on the host named, when one
+    is). A remote list git does not give asks; a value that cannot be read as owner/repo is outside."""
+    targets = list(reading.repos)
+    if reading.publishes_by_gh():
+        targets += [(f"GH_REPO={v}", None, v, "gh") for v in reading.env.get("GH_REPO", [])]
+    hosts = reading.env.get("GH_HOST", [])
+    if hosts:                                     # gh's host for a repository named without one; every value is judged
+        targets = [t for s, h, v, k in targets
+                   for t in ([(s, g, v, k) for g in hosts] if h is None and k == "gh" else [(s, h, v, k)])]
+    if not targets:
+        return None
+    project = str(current.get("project") or "").lower()
+    known: set[tuple[str, str]] | None = None
+    for spelled, host, value, kind in targets:
+        if kind == "fabric-pr" and "/" not in value and project and value.lower() == project:
+            continue                              # fabric-pr's project-id form, naming this job's project
+        if known is None:
+            answers = [r for r in (remotes(c, git) for c in copies) if r is not None]
+            if not answers:
+                return ("ask", f"The job copy guard could not read the remotes of job {current['id']}'s working copy "
+                               f"{shown} (git remote -v did not answer), so it cannot tell whether {spelled} is one of "
+                               f"them. {approve}")
+            known = set().union(*answers)
+        named = repo_named(value, host) if not UNRESOLVABLE.search(value) else None
+        if named is None:
+            where = f"{spelled} (a repository this guard cannot read as owner/repo counts as outside)"
+        elif any(repo == named[1] and named[0] in (None, h) for h, repo in known):
+            continue
         else:
-            try:
-                top = toplevel(path)
-            except Undecided:
-                return ("ask", f"The job copy guard could not resolve {word} to its checkout (git rev-parse timed out). "
-                               f"Approve only if this command does not commit or publish outside job {jid}'s working copy "
-                               f"{shown} (agent-fabric ADR-037 rule 3).")
-            if inside(top, copies):
-                continue
-            where = word if os.path.normpath(word) == top else f"{word} ({top})"
-        return ("deny", f"This session works job {jid} in {shown}; this command commits or publishes ({what}) in {where}, "
-                        "outside it. A session works one job's working copy (agent-fabric ADR-037 rule 3): finish or "
-                        f"block this job, run `fabric-jobs switch`, and {NEXT_JOB}. Reading other working copies is allowed.")
+            remote_list = ", ".join(sorted(f"{h}/{r}" for h, r in known)) or "none"
+            where = f"{spelled}, which is not a remote of that working copy (its remotes: {remote_list})"
+        return ("deny", f"This session works job {current['id']} in {shown}; this command commits or publishes ({what}) "
+                        f"to {where}. {outside}")
     return None
 
 
