@@ -494,7 +494,12 @@ def _closers(code: str) -> int:
     and \\esac run as commands — first on the line or after ; ;; ;& ;;&
     (a|esac and (esac) follow no separator, and bash refuses a bare esac
     as a pattern). A line this cannot lex
-    so closes nothing, which can only skip too much."""
+    so, or one holding a backslash or a ${, closes nothing, which can only
+    skip too much."""
+    # This lexer honours no backslash, and neither it nor the other sees a
+    # ${ … } as one word: a line holding either closes nothing.
+    if "\\" in code or "${" in code:
+        return 0
     lex = shlex.shlex(code, posix=False, punctuation_chars=True)
     lex.whitespace_split, lex.commenters = True, ""
     try:
