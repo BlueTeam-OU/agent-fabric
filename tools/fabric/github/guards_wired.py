@@ -489,25 +489,14 @@ def _self_dir_vars(lines: list[tuple[str, list[str]]]) -> set[str]:
 
 
 def _closers(code: str) -> int:
-    """How many case blocks the line closes: each token that is literally
-    esac — read with its quotes and backslashes kept, since 'esac', "esac"
-    and \\esac run as commands — first on the line or after ; ;; ;& ;;&
-    (a|esac and (esac) follow no separator, and bash refuses a bare esac
-    as a pattern). A line this cannot lex
-    so, or one holding a backslash or a ${, closes nothing, which can only
-    skip too much."""
-    # This lexer honours no backslash, and neither it nor the other sees a
-    # ${ … } as one word: a line holding either closes nothing.
-    if "\\" in code or "${" in code:
-        return 0
-    lex = shlex.shlex(code, posix=False, punctuation_chars=True)
-    lex.whitespace_split, lex.commenters = True, ""
-    try:
-        raw = [op for t in lex for op in _operators(t)]
-    except ValueError:
-        return 0
-    return sum(1 for k, t in enumerate(raw)
-               if t == "esac" and (k == 0 or raw[k - 1] in (";", ";;", ";&", ";;&")))
+    """Whether the line closes a case block: what follows its last ;; ;&
+    or ;;& (the whole line, if it has none) is exactly esac. Nothing is
+    lexed. A ;; that a quote or a ${ … } hides must close on the line, so
+    its closing quote or brace lands in what follows and spoils it, and an
+    escaped ; leaves a ; the shell reads as one too. Any other shape
+    (`a) x; esac`, `esac; }`) closes nothing, which skips too much and is
+    said on stderr."""
+    return int(re.split(r";;&|;;|;&", code)[-1].strip() in ("esac", "esac;"))
 
 
 def _run_path(tokens: list[str]) -> str | None:
@@ -608,6 +597,8 @@ def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
             target = os.path.normpath(target)
             if not target.startswith("..") and os.path.isfile(os.path.join(root, target)):
                 out.add(target)
+    if in_case and not why:
+        why = "a case block it did not see close"
     return out, why
 
 
