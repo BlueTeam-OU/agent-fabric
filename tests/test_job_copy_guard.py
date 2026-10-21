@@ -422,12 +422,19 @@ class Guard(unittest.TestCase):
                     f"<<'X' . /dev/stdin\n{acting}\nX", f"time -p . /dev/stdin <<'X'\n{acting}\nX",
                     f"> /tmp/log . /dev/stdin <<'X'\n{acting}\nX",
                     # A command word the guard cannot read may be a shell.
-                    f"cat <<'X' | $SHELL\n{acting}\nX", f"cat <<'X' | \"$0\"\n{acting}\nX"):
+                    f"cat <<'X' | $SHELL\n{acting}\nX", f"cat <<'X' | \"$0\"\n{acting}\nX",
+                    # Round 5: fd duplication splits into three words; a launcher runs the word after it.
+                    f"x=1 2>&1 . /dev/stdin <<'X'\n{acting}\nX", f"> /tmp/l 2>&1 . /dev/stdin <<'X'\n{acting}\nX",
+                    f"x=1 0<&3 . /dev/stdin <<'X'\n{acting}\nX", f"command -p . /dev/stdin <<'X'\n{acting}\nX",
+                    f"cat <<'X' | env $SHELL\n{acting}\nX"):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.proj), "deny")
         # `.` as a path argument is no runner: the commit message every `git add .` precedes stays data.
         for cmd in (f"git add . && git commit -F - <<'M'\nsubject\n\n{acting}\nM",
-                    f"git add -- . ; fabric-pr post-review 5 <<'EOF'\n{acting}\nEOF"):
+                    f"git add -- . ; fabric-pr post-review 5 <<'EOF'\n{acting}\nEOF",
+                    # An expansion that is plainly an argument is no runner.
+                    f"[ -n \"$X\" ] && git commit -F - <<'M'\nsubject\n\n{acting}\nM",
+                    f"echo \"$HOME\"; git status | tee $LOG; git commit -F - <<'M'\nsubject\n\n{acting}\nM"):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.proj), "allow")
 
