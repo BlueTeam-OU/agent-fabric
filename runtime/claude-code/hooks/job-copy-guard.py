@@ -26,15 +26,17 @@ DECISIONS, in order, with their exact words:
      a `bash -c`/`sh -c`/`eval`/`env -S` script and a command substitution included. Only an unquoted `<<`
      outside a comment opens a heredoc (a quote-aware scan, never a regex on the raw line: a quoted `'<<X'` and a
      later line `X` must not hide the lines between; a `$(` or backquote inside double quotes is command text
-     again, so `git commit -m "$(cat <<'EOF'` opens one). A heredoc body is read as commands only when it is
-     executed: the pipeline holding its redirect (never the whole line) has a word that runs its stdin — `sh`,
-     `bash`, `dash`, `zsh`, `ksh` (with or without `-s`), `eval`, `source`, `.`, `xargs` or `env -S` — or the
-     redirect is inside a `$(…)`, backquote or `(…)` whose own pipeline has one, or a substitution that stands in a
-     command's place. Any other body is data: under a quoted delimiter all of it, whatever commands its text names
-     (a commit message, a review posted with `fabric-pr post-review`, a `gh pr create --body-file -` body, a `cat`);
-     under an unquoted delimiter the shell expands it, so its `$(…)` and backquotes run and are read, and its
-     plain text stays data. The job list is not read before this point, so a command that does not commit or
-     publish never asks.
+     again, so `git commit -m "$(cat <<'EOF'` opens one). Every heredoc body in the command is read as commands
+     when the command text, its bodies removed and a quoted string kept as one word, holds a word that runs
+     stdin anywhere — a shell (`sh`, `bash`, `dash`, `zsh`, `ksh`, `fish`, `ash`, `mksh`, `csh`, `tcsh`, `yash`,
+     with or without `-s`), `busybox`, `eval`, `source`, `.`, `xargs` or `env -S`. Where its stdin goes is not
+     modelled (`|&`, `{ bash; } <<X`, a `while … eval` loop, `if …; then bash; fi <<X`): a command that both runs a
+     shell and publishes a body is over-reported, and costs a rephrase. With no such word, a body is still read as
+     commands when the substitution holding its redirect stands in a command's place (`"$(cat <<'X' …)"`). Any
+     other body is data: under a quoted delimiter all of it, whatever commands its text names (a commit message, a
+     review posted with `fabric-pr post-review`, a `gh pr create --body-file -` body, a `cat`); under an unquoted
+     delimiter the shell expands it, so its `$(…)` and backquotes run and are read, and its plain text stays data.
+     The job list is not read before this point, so a command that does not commit or publish never asks.
   4. the job list or the module that reads it cannot be read                           -> ask:
        "The job copy guard could not read this login's job list (<what failed>). Approve only if this command
        does not commit or publish outside the working copy of this session's job (agent-fabric ADR-037 rule 3)."
@@ -87,8 +89,11 @@ anywhere in the command (a bare `cd` is $HOME), every `git -C <dir>`, `--git-dir
 anywhere counts for every git in the command, and so does such a word that is only text). An `export`/`declare`
 of one of those names with no value this command sets counts as a directory it cannot resolve, and so does any
 setting or export of a variable that hands git configuration in (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT,
-GIT_CONFIG_KEY_<n>, GIT_CONFIG_VALUE_<n>, GIT_CONFIG, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM), since any of them can
-carry core.worktree and the guard does not read what they hold. A relative one is
+GIT_CONFIG_KEY_<n>, GIT_CONFIG_VALUE_<n>, GIT_CONFIG, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM) or chooses which config
+files or repository git finds (HOME, XDG_CONFIG_HOME, GIT_CONFIG_NOSYSTEM, GIT_CEILING_DIRECTORIES), and every
+`git -c include.path=…` or `-c includeIf.<cond>.path=…` (an included file), since any of them can carry
+core.worktree and the guard does not read config files (`-c user.name=…` and other plain keys are no directory). A
+relative one is
 resolved against the cwd and against every `cd` target before it (a chain `cd a && cd b` is caught either way),
 then to its git toplevel (a git directory, `/x/.git`, is no work tree and stands as itself, so it is inside only
 under J's copy). A value holding `$`, a backquote or a glob, and `cd -`, cannot be resolved and counts as outside.
@@ -98,7 +103,8 @@ clone is inside. Execution order is not modelled: a commit in the job copy follo
 
 THE REPOSITORIES A COMMAND PUBLISHES TO, when it names one: `gh pr create|merge -R/--repo <repo>` (with
 `--hostname` or GH_HOST as its host when given), a pull request URL among its arguments
-(`https://<host>/<owner>/<repo>/pull/<n>`, a deeper path after it included, the URL's host its host), on which gh
+(`http(s)://<host>/<owner>/<repo>/pull/<n>`, a deeper path, a query or a fragment after it included, the URL's host
+without userinfo or port its host), on which gh
 acts whatever the cwd, `fabric-pr --repo <repo> <verb>` for a writing verb, and GH_REPO
 set (as a word, as for GIT_DIR) in a command that runs either. The job copy's remotes are read
 (`git -C <copy> remote -v`, inside the budget), each URL normalised to owner/repo, lowercased, without .git, from
@@ -125,8 +131,9 @@ QUESTION, an OBSERVATION with REPLY-EXPECTED) is not queued: the deny says to ad
 
 WHAT IT DOES NOT FENCE: reads of any working copy (git log/diff/status/fetch, cat, grep); a subagent (the clone
 guard's lane); a commit a hook or a script makes without the command naming it (`make release`, a git alias such
-as `git ci`); `git pull`, `git revert`, `git tag`, `gh api` writes; a heredoc body kept as data and run by a later
-command (`cat <<'X' > f.sh; sh f.sh`, `x=$(cat <<'X' …); eval "$x"`). It is a fence for the incident's shape, not a
+as `git ci`); `git pull`, `git revert`, `git tag`, `gh api` writes; a heredoc body run by a later command when the command
+names no runner word (`cat <<'X' > f.sh` and `sh f.sh` as two commands; a runner named in a program the command
+starts, `python3 run.py <<'X'`). It is a fence for the incident's shape, not a
 sandbox: the git hooks are the place for enforcement at the point of the commit.
 
 THE SESSION ID: CLAUDE_CODE_SESSION_ID, else the payload's session_id (one value, two carriers). With neither, the
@@ -144,6 +151,7 @@ import shlex
 import subprocess
 import sys
 import time
+import urllib.parse
 
 sys.dont_write_bytecode = True   # the job module it loads leaves no __pycache__ in the tree
 
@@ -162,10 +170,11 @@ GIT_VALUE_OPTIONS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--c
                      "--attr-source", "--list-cmds")
 GIT_DIR_OPTIONS = ("-C", "--git-dir", "--work-tree")
 GH_VALUE_OPTIONS = ("-R", "--repo", "--hostname")
-PR_URL = re.compile(r"https?://([^/\s]+)/([^/\s]+)/([^/\s]+)/pull/\d+(?:/\S*)?")
-SHELLS = ("bash", "sh", "zsh", "dash", "ksh")
-# What runs the stdin a heredoc feeds it: a shell (with or without -s), eval, source, `.`, xargs (env -S apart).
-STDIN_RUNNERS = SHELLS + ("eval", "source", ".", "xargs")
+PR_PATH = re.compile(r"/([^/]+)/([^/]+)/pull/\d+(?:/.*)?", re.S)
+SHELLS = ("bash", "sh", "zsh", "dash", "ksh", "fish", "ash", "mksh", "csh", "tcsh", "yash")
+# What runs the stdin a heredoc feeds it: a shell (with or without -s), eval, source, `.`, xargs, busybox (whose
+# applets include shells: `busybox sh`, `busybox hush`), and env -S apart.
+STDIN_RUNNERS = SHELLS + ("eval", "source", ".", "xargs", "busybox")
 # What may stand before a substitution that is then run as the command: assignments, a quote, a wrapper.
 COMMAND_PLACE = re.compile(r"\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|exec|command|nohup|time|sudo|env)\s+)*\"?")
 CD_OPTION = re.compile(r"-[LPe@]+")
@@ -178,8 +187,11 @@ GH_ENV = ("GH_REPO", "GH_HOST")
 ASSIGNMENT = re.compile(r"(%s)=(.*)" % "|".join(GIT_ENV + GH_ENV), re.S)
 # The variables that hand git configuration, core.worktree among it, from the environment. Whatever they hold, the
 # guard does not read it: set or exported in a command that acts, they count as a directory it cannot resolve.
+# HOME and XDG_CONFIG_HOME move the global config file, GIT_CONFIG_NOSYSTEM drops the system one, and
+# GIT_CEILING_DIRECTORIES changes which repository git finds: the guard reads no config file, so it over-reports them.
 GIT_CONFIG_ENV = re.compile(r"(GIT_CONFIG_PARAMETERS|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+|"
-                            r"GIT_CONFIG|GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM)(=.*)?", re.S)
+                            r"GIT_CONFIG|GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|GIT_CONFIG_NOSYSTEM|"
+                            r"GIT_CEILING_DIRECTORIES|HOME|XDG_CONFIG_HOME)(=.*)?", re.S)
 EXPORTERS = ("export", "declare", "typeset", "local", "readonly")
 # env's own options: those that take a value, and the two that matter here (-C changes the directory, -S is a
 # command line of its own).
@@ -282,7 +294,7 @@ def delimiter(line: str, j: int) -> tuple[str, bool, int]:
 
 def runs_stdin(text: str) -> bool:
     """Whether a pipeline's text holds a word that executes what it reads: a shell (`-s` or not), eval, source, `.`,
-    xargs, or env with -S. Any word counts, not only a command's (over-reporting); a quoted argument stays one word,
+    xargs, busybox, or env with -S. Any word counts, not only a command's (over-reporting); a quoted argument stays one word,
     so `--title "fix sh"` is no shell."""
     words = tokens(text)
     for i, w in enumerate(words):
@@ -308,8 +320,9 @@ class _Frame:
 def stdin_executed(text: str, marks: list[int]) -> set[int]:
     """The indexes of `marks` (offsets of heredoc operators in `text`, the bodies removed) whose body is executed:
     the pipeline holding the redirect runs its stdin (runs_stdin), or so does the pipeline around a substitution or
-    subshell the redirect is inside, or that substitution stands in a command's place (`"$(cat <<'X' …)"`). The
-    scope is the pipeline, never the line: in `git commit -F - <<'M' && source /dev/stdin <<'S'` only S runs."""
+    subshell the redirect is inside, or that substitution stands in a command's place (`"$(cat <<'X' …)"`). `|&` is
+    a pipe. This is one way a body counts as executed, not the only one: without_heredocs reads every body when the
+    whole command holds a runner word, since a model of where stdin goes misses `{ bash; } <<X` and its kin."""
     order = sorted(range(len(marks)), key=marks.__getitem__)
     nxt, executed = 0, set()
     frames = [_Frame("", 0, None, False)]
@@ -377,6 +390,9 @@ def stdin_executed(text: str, marks: list[int]) -> set[int]:
         elif text.startswith(("&&", "||"), i):
             close_pipeline(top, i, 2)
             i += 2
+        elif text.startswith("|&", i):
+            top.cmd_start = i + 2              # `|&` is `2>&1 |`: a pipe, never the `&` that ends a pipeline
+            i += 2
         elif c in ";\n" or (c == "&" and text[i - 1:i] not in ("<", ">") and text[i + 1:i + 2] != ">"):
             close_pipeline(top, i)
             i += 1
@@ -431,8 +447,9 @@ def substitutions(body: str) -> list[str]:
 
 
 def without_heredocs(text: str) -> tuple[str, list[str]]:
-    """(the command without its heredoc bodies, the scripts those bodies hold). A body its pipeline executes
-    (stdin_executed) is a script, whatever its delimiter. Any other body is data: under a quoted delimiter all of it
+    """(the command without its heredoc bodies, the scripts those bodies hold). Every body is a script when the
+    command holds a runner word anywhere (runs_stdin on the whole text: over-reported, never modelled), and so is a
+    body stdin_executed finds executed, whatever its delimiter. Any other body is data: under a quoted delimiter all of it
     (a commit message, a review posted with fabric-pr, a PR body, a `cat` of notes, whatever commands its text
     names); under an unquoted one the shell expands it, so its command substitutions run and are its scripts, and
     its plain text stays data."""
@@ -460,6 +477,11 @@ def without_heredocs(text: str) -> tuple[str, list[str]]:
             bodies.append((start + end, quoted, "\n".join(body)))
     stripped = "\n".join(kept)
     executed = stdin_executed(stripped, [b[0] for b in bodies])
+    if bodies and runs_stdin(stripped):
+        # The fallback under stdin_executed's model: a runner word anywhere in the command makes every body a
+        # script. A command that both runs a shell and publishes a body is over-reported; one with no runner word
+        # keeps its data.
+        executed = set(range(len(bodies)))
     scripts: list[str] = []
     for k, (_, quoted, body) in enumerate(bodies):
         if k in executed:
@@ -618,10 +640,16 @@ class Reading:
 
     def git_config(self, option: str, setting: str) -> None:
         """`-c core.worktree=V` is a --work-tree V; `--config-env core.worktree=VAR` takes it from a variable, which
-        cannot be resolved. Config keys are case-insensitive. Any other setting is no directory."""
+        cannot be resolved. `include.path` and `includeIf.<cond>.path` make git read a file that can set
+        core.worktree, and the guard reads no file: a directory it cannot resolve. Config keys are case-insensitive.
+        Any other setting is no directory."""
         key, _, value = setting.partition("=")
-        if key.strip().lower() == "core.worktree":
+        key = key.strip()
+        lowered = key.lower()
+        if lowered == "core.worktree":
             self.dirs.append(("git", value if option == "-c" else f"${value}"))
+        elif lowered == "include.path" or (lowered.startswith("includeif.") and lowered.endswith(".path")):
+            self.dirs.append(("git", f"${key}"))
 
     def gh(self, rest: list[str]) -> None:
         words, repos, urls, host, i = [], [], [], None, 0
@@ -636,9 +664,9 @@ class Reading:
                 continue
             if not rest[i].startswith("-") and len(words) < 2:
                 words.append(rest[i])
-            elif url := PR_URL.fullmatch(rest[i]):
+            elif url := pr_url(rest[i]):
                 # gh acts on a PR URL's repository whatever the cwd: a -R of its own, its host with it.
-                urls.append((rest[i], url.group(1).lower(), f"{url.group(2)}/{url.group(3)}"))
+                urls.append((rest[i], *url))
             i += 1
         if len(words) == 2 and words[0] == "pr" and words[1] in GH_ACTS:
             self.acts.append(f"gh pr {words[1]}")
@@ -741,6 +769,20 @@ def toplevel(path: str, git: Git) -> str:
         return real
     top = r.stdout.strip()
     return os.path.realpath(top) if r.returncode == 0 and top else real
+
+
+def pr_url(word: str) -> tuple[str, str] | None:
+    """(host, owner/repo) of a pull request URL, `http(s)://<host>/<owner>/<repo>/pull/<n>[/...]` whatever its query
+    or fragment; the host lowercased, without userinfo or port. None for any other word."""
+    try:
+        parts = urllib.parse.urlsplit(word)
+        host = parts.hostname
+    except ValueError:
+        return None
+    m = PR_PATH.fullmatch(parts.path)
+    if parts.scheme.lower() not in ("http", "https") or not host or not m:
+        return None
+    return host, f"{m.group(1)}/{m.group(2)}"
 
 
 def repo_of_url(url: str) -> tuple[str, str] | None:

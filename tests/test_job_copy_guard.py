@@ -17,7 +17,10 @@ unquoted `<<` opens a heredoc; the git lookups stop at a budget and ask (review 
 read as commands only when its pipeline executes it, and an unquoted one's substitutions always; a quoted body that
 is only read or published (cat, a commit message, fabric-pr post-review, gh pr create --body-file -) never asks; a
 pull request URL names its repository; `-c core.worktree`, `--config-env` and the GIT_CONFIG_* variables count as a
-work tree (review round 2 of #348).
+work tree (review round 2 of #348). A runner word anywhere in the command reads every body, whatever pipeline
+holds it; `|&` is a pipe; a PR URL names its repository whatever its query or fragment; `-c include.path`,
+`-c includeIf.<cond>.path` and HOME, XDG_CONFIG_HOME, GIT_CONFIG_NOSYSTEM, GIT_CEILING_DIRECTORIES count as a work
+tree the guard cannot resolve (review round 3 of #348).
 
 Mutations each case set fails on: the agent_id test removed; `cd` or `-C` targets not collected; the prefix test made
 a plain string prefix (proj-other would pass as proj); "worked the active job" counted as allowed (the switching
@@ -27,7 +30,8 @@ made blind to quotes or to comments; every quoted body read as commands; source 
 the executed test scoped to the line instead of the pipeline; substitutions or pipelines around a redirect not
 followed; an unquoted body's substitutions left unread, or its plain text read; a `$(` inside double quotes not
 reopening command text; PR URLs not read; core.worktree or the GIT_CONFIG_* variables not read; the budget never
-raised.
+raised; the whole-command runner fallback removed; `|&` read as the end of a pipeline; any new runner word dropped;
+PR URLs read with a fullmatch again (query, fragment); include.path, includeIf or the HOME-like variables not read.
 """
 from __future__ import annotations
 
@@ -337,10 +341,15 @@ class Guard(unittest.TestCase):
         self.active_j7()
         for cmd in ("gh pr merge https://github.com/acme/other/pull/5", "gh pr merge https://github.com/acme/other/pull/5/files",
                     "gh pr merge --squash http://github.com/acme/other/pull/5", "gh pr merge https://gitlab.com/acme/proj/pull/5",
-                    "GH_REPO=acme/proj gh pr merge https://github.com/acme/other/pull/5"):
+                    "GH_REPO=acme/proj gh pr merge https://github.com/acme/other/pull/5",
+                    "gh pr merge https://github.com/acme/other/pull/5#issuecomment-1",
+                    "gh pr merge https://github.com/acme/other/pull/5?x=1",
+                    "gh pr merge https://u@GitLab.com:8443/acme/proj/pull/5"):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.worktree), "deny")
         for cmd in ("gh pr merge https://github.com/Acme/Proj/pull/5", "gh pr merge --squash https://github.com/acme/proj-mirror/pull/7/checks",
+                    "gh pr merge https://github.com/acme/proj/pull/5#issuecomment-1",
+                    "gh pr merge https://user@GitHub.com:443/acme/proj/pull/5?x=1",
                     "gh pr view https://github.com/acme/other/pull/5"):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.worktree), "allow")
@@ -380,9 +389,13 @@ class Guard(unittest.TestCase):
                     f"fabric-pr post-review 5 <<'EOF'\nFinding: {acting}\nEOF",
                     f"gh pr create --title 'fix sh quoting' --body-file - <<'EOF'\n{acting}\nEOF",
                     f"x=$(cat <<'X'\n{acting}\nX\n)",
-                    f"bash <<'S' && git commit -F - <<'M'\necho hi\nS\n{acting}\nM"):
+                    "git commit -F - <<'M'\nsubject\nM",
+                    f"git add . && git commit -F - <<'M'\nsubject, git push\nM"):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.proj), "allow")
+        # Review round 3 of #348: a runner word anywhere reads every body; publishing a body beside a shell is
+        # over-reported, accepted.
+        self.assertEqual(self.decision(f"bash <<'S' && git commit -F - <<'M'\necho hi\nS\n{acting}\nM", self.proj), "deny")
         for cmd in (f"bash <<'X'\n{acting}\nX", f"sh -s <<'X'\n{acting}\nX", f"source /dev/stdin <<'X'\n{acting}\nX",
                     f". /dev/stdin <<'X'\n{acting}\nX", f"cat <<'X' 2>&1 | dash\n{acting}\nX",
                     f"xargs -0 <<'X'\n{acting}\nX", f"env -S'bash -s' <<'X'\n{acting}\nX",
@@ -392,6 +405,40 @@ class Guard(unittest.TestCase):
                     f"git commit -F - <<'M' && source /dev/stdin <<'S'\nsubject\nM\n{acting}\nS"):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.proj), "deny")
+
+    def test_a_runner_word_anywhere_reads_every_body(self):
+        # Review round 3 of #348, F6: where stdin goes is not modelled; a runner word anywhere is enough.
+        self.active_j7()
+        o = self.other
+        acting = f"cd {o} && git commit -m y\ngit -C {o} push"
+        for cmd in (f"cat <<'X' |& bash\n{acting}\nX", f"{{ bash; }} <<'X'\n{acting}\nX",
+                    f"while read -r l; do eval \"$l\"; done <<'X'\n{acting}\nX",
+                    f"if true; then bash; fi <<'X'\n{acting}\nX", f"fish <<'X'\n{acting}\nX",
+                    *(f"cat <<'X' | {shell}\n{acting}\nX" for shell in ("fish", "ash", "mksh", "csh", "tcsh", "yash")),
+                    f"cat <<'X' | busybox hush\n{acting}\nX"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+
+    def test_stdin_executed_reads_a_pipe_and_stderr_as_a_pipe(self):
+        # `|&` keeps the pipeline open: the whole-command fallback hides this from decide, so the model is held here.
+        guard = self.load_guard()
+        text = "cat <<X |& bash"
+        self.assertEqual(guard.stdin_executed(text, [len("cat <<X")]), {0})
+        text = "cat x |& \"$(cat <<X)\""
+        self.assertEqual(guard.stdin_executed(text, [text.index("<<X") + 3]), {0}, "a substitution after |& stands in command place")
+
+    def test_git_reading_configuration_from_elsewhere_is_unresolvable(self):
+        # Review round 3 of #348: an included file or a moved global config can set core.worktree.
+        self.active_j7()
+        for cmd in ("git -c include.path=/tmp/c commit -m x", "git -c includeIf.gitdir:/x/.path=/tmp/c push",
+                    "git --config-env=include.path=V commit -m x", "HOME=/tmp/h git commit -m x",
+                    "export XDG_CONFIG_HOME=/x; git push", "GIT_CONFIG_NOSYSTEM=1 git commit -m x",
+                    "GIT_CEILING_DIRECTORIES=/x git commit -m x"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+        for cmd in ("git -c user.name=x commit -m y", "git -c includes.paths=x commit -m y", "HOME=/tmp/h git log"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "allow")
 
     def test_an_unquoted_heredoc_body_runs_only_its_substitutions(self):
         self.active_j7()
@@ -406,15 +453,19 @@ class Guard(unittest.TestCase):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.proj), "deny")
 
-    def test_the_git_lookup_budget_asks(self):
+    def load_guard(self):
         import importlib.util
-        from unittest import mock
-        self.active_j7()
         spec = importlib.util.spec_from_file_location("job_copy_guard_under_test", os.path.join(os.path.dirname(ENTRY), "job-copy-guard.py"))
         guard = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(guard)
         self.addCleanup(sys.modules.pop, "fabric_jobs", None)
         self.addCleanup(sys.modules.pop, "fabric_jobs.records", None)
+        return guard
+
+    def test_the_git_lookup_budget_asks(self):
+        from unittest import mock
+        self.active_j7()
+        guard = self.load_guard()
 
         def clock(step: float):
             now = [0.0]
