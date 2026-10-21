@@ -512,6 +512,38 @@ class Sweep(unittest.TestCase):
         with unittest.mock.patch.object(branches.os, "getuid", return_value=os.getuid() + 1):
             self.assertEqual(branches.process_cwds(), [])
 
+    def test_an_unreadable_process_list_is_not_no_process(self):
+        import unittest.mock
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        import branches
+        real = os.listdir
+
+        def listdir(path="."):
+            if path == "/proc":
+                raise PermissionError(13, "denied")
+            return real(path)
+        with unittest.mock.patch.object(branches.os, "listdir", listdir):
+            self.assertIsNone(branches.process_cwds())
+            self.assertEqual(branches.in_use_by(self.t), "process list unreadable")
+        self.assertEqual(branches.in_use_by(self.t), "", "positive control: the list reads, and nobody stands in the scratch root")
+
+    def test_a_marker_that_is_a_fifo_does_not_hang_the_sweep(self):
+        wt = self.worktree("marker-fifo", pushed=True)
+        git_dir = self.git(wt, "rev-parse", "--absolute-git-dir").strip()
+        os.mkfifo(os.path.join(git_dir, "fabric-in-use"))
+        rc, out, err = self.sweep()
+        self.assertFalse(os.path.isdir(wt), out)
+
+    def test_a_session_and_a_process_in_the_same_worktree_say_in_use_once(self):
+        wt = self.worktree("twice", pushed=True)
+        p = subprocess.Popen(["sleep", "300"], cwd=wt, env=self.env())
+        self.procs.append(p)
+        self.registry((LIVE, p.pid, wt))
+        rc, out, err = self.sweep()
+        self.assertTrue(os.path.isdir(wt), out)
+        self.assertIn(f"in use: process {p.pid} stands in it", out)
+        self.assertNotIn("in use, in use", out)
+
     def test_json_names_the_marker_as_the_reason(self):
         wt = self.worktree("marked-json", pushed=True)
         self.write_marker(wt, f"{self.harness()}\n")

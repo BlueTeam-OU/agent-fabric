@@ -339,8 +339,8 @@ def keep_paths() -> set[str]:
     return {p for p in os.environ.get("AGENT_FABRIC_BRANCHES_KEEP", "").split("\n") if p}
 
 
-# A pinned review worktree names the session that dispatched it in this file of its own git directory (first line: a pid), so the
-# sweep finds it in use before any process has stood in it. Not in the tree: a reviewer would read it as part of the head, and
+# The dispatcher that pins a review worktree (review_brief.py, written on its side) names its own session in this file of the
+# worktree's own git directory (first line: a pid), so the sweep finds it in use before any process has stood in it. Not in the tree: a reviewer would read it as part of the head, and
 # git worktree remove takes it away with the rest of the administrative directory.
 IN_USE_MARKER = "fabric-in-use"
 
@@ -348,7 +348,7 @@ IN_USE_MARKER = "fabric-in-use"
 def process_cwds() -> list[tuple[int, str]] | None:
     """(pid, cwd) of every process of this uid, from /proc; None when /proc cannot be listed, which is not "no process stands
     anywhere". A process that ends, or whose cwd cannot be read, between the listing and the read is skipped: it is gone or
-    not ours to ask. A deleted cwd (" (deleted)") is no worktree."""
+    not ours to ask."""
     try:
         names = os.listdir("/proc")
     except OSError:
@@ -376,10 +376,15 @@ def marker_pid(path: str) -> int | None:
         if git_dir.returncode != 0:
             return None
         marker = os.path.join(git_dir.stdout.strip(), IN_USE_MARKER)
-        if not stat.S_ISREG(os.lstat(marker).st_mode):
-            return None
-        with open(marker, "rb") as fh:
-            first = fh.readline(32).decode("ascii", "replace").strip()
+        # Opened without following a link or blocking, then judged by the descriptor: a same-uid writer could swap the file for a
+        # FIFO between a path check and the open, and the sweep would hang on it.
+        fd = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return None
+            first = os.read(fd, 32).split(b"\n", 1)[0].decode("ascii", "replace").strip()
+        finally:
+            os.close(fd)
         if not re.fullmatch(r"[0-9]+", first):
             return None
         pid = int(first)
@@ -472,7 +477,9 @@ def worktree_state(wt: dict, base: str, top: str, refs: list[str] | None = None)
         why = f"{why + ', ' if why else ''}in use"
     held = in_use_by(path)
     if held:
-        why = f"{why + ', ' if why else ''}in use: {held}"
+        # One "in use": the live-session clause above already said it when the same process is also the one found here.
+        earlier = why[:-len("in use")].rstrip(", ") if why.endswith("in use") else why
+        why = f"{earlier + ', ' if earlier else ''}in use: {held}"
     if not why and REGISTRY_UNREADABLE:
         why = "session registry unreadable"
     return n, why
