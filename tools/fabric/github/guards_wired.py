@@ -48,7 +48,8 @@ string, one under any other variable or used before its assignment, a
 command beside a ( or ) (an array, a subshell), any line from a case to
 the line that closes it (one holding no # whose text after its last ;;
 ;& or ;;& is exactly esac; a case not seen to close is said on stderr),
-a line with a # straight after an operator (it refuses the script), an
+a line with a # straight after an operator, a $' ' string or a # beside
+a $( ) (each refuses the script), an
 interpreter run with -c, -s or a flag taking an argument, and a member
 reached only through a member itself reached only so. A script with a
 <<, a backtick (outside single quotes), a quote that does not close
@@ -469,6 +470,13 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
         code = strip_comment(line).strip()
         if _hash_after_operator(code):
             return [], f"line {start}: a # straight after an operator"
+        # $' … ' honours \' inside it, which no reader here does; and a #
+        # inside a double-quoted $( … ) may start a comment there, which
+        # the scans above, skipping double-quoted text, do not look for.
+        if "$'" in code:
+            return [], f"line {start}: a $' ' string"
+        if "$(" in _outside_single_quotes(code) and "#" in _outside_single_quotes(code):
+            return [], f"line {start}: a # beside a $( )"
         bare = _outside_single_quotes(code)
         if "`" in bare:
             return [], f"line {start}: a backtick"
