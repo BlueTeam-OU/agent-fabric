@@ -1455,9 +1455,9 @@ def main() -> int:
               rc == 1 and "list changed" in err and os.path.exists(os.path.join(left, "target", "debug", "big.o")), out + err)
 
         w = World(under=home)
-        j, left = cargo_job(w, "Cargo.toml", "big/a", "target/debug/a")
-        os.link(os.path.join(left, "big", "a"), os.path.join(left, "target", "debug", "b"))
-        with open(os.path.join(left, "big", "a"), "w") as fh:
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/a")
+        os.link(os.path.join(left, "target", "debug", "a"), os.path.join(left, "target", "debug", "b"))
+        with open(os.path.join(left, "target", "debug", "a"), "w") as fh:
             fh.write("y" * 1_000_000)
         said = _clean(left, w.repo)
         check("a file hard-linked inside a target is counted once in the size", said and re.search(r"\(9\d\d\.\d KB\)|\(1\.0 MB\)", said[0]) and "2.0 MB" not in said[0], said)
@@ -1494,6 +1494,37 @@ def main() -> int:
             os.rmdir(os.path.join(home, ".cargo"))
         check("a configuration above the worktree ($CARGO_HOME) that sends the target outside keeps it",
               said and said[0].startswith("kept ") and elsewhere in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        # …found by the walk up the parents alone (CARGO_HOME names another place), and by CARGO_HOME alone (no parent has one)
+        saved_ch = os.environ.get("CARGO_HOME")
+        os.makedirs(os.path.join(home, ".cargo"), exist_ok=True)
+        with open(os.path.join(home, ".cargo", "config.toml"), "w") as fh:
+            fh.write(f'[build]\ntarget-dir = "{elsewhere}"\n')
+        os.environ["CARGO_HOME"] = os.path.join(tmp, "no-cargo-home")
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            os.unlink(os.path.join(home, ".cargo", "config.toml"))
+            os.rmdir(os.path.join(home, ".cargo"))
+        check("…also when only a parent directory's .cargo holds it", said and said[0].startswith("kept ") and elsewhere in said[0], said)
+        ch = os.path.join(tmp, "cargo-home")
+        os.makedirs(ch, exist_ok=True)
+        with open(os.path.join(ch, "config.toml"), "w") as fh:
+            fh.write(f'[build]\ntarget-dir = "{elsewhere}"\n')
+        os.environ["CARGO_HOME"] = ch
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            if saved_ch is None:
+                os.environ.pop("CARGO_HOME", None)
+            else:
+                os.environ["CARGO_HOME"] = saved_ch
+        check("…and when only $CARGO_HOME does", said and said[0].startswith("kept ") and elsewhere in said[0], said)
+        plain = os.path.join(home, f"plain-{w.n}")
+        os.makedirs(os.path.join(plain, "target"))
+        open(os.path.join(plain, "Cargo.toml"), "w").close()
+        said = _clean(plain, None)
+        check("a directory that is no linked worktree (no .git file) is refused though nothing else overlaps it",
+              said and "not a linked worktree" in said[0] and os.path.isdir(os.path.join(plain, "target")), said)
 
         w = World(under=home)
         j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "bad/Cargo.toml", "bad/target/z", "bad/.cargo/config.toml", "ok/Cargo.toml", "ok/target/z")
@@ -1527,6 +1558,22 @@ def main() -> int:
             lt.live_cwds = real_cwds
         check("a process list that cannot be read keeps every target", said and said[0].startswith("kept ") and "cannot be listed" in said[0]
               and os.path.isdir(os.path.join(left, "target")), said)
+        real_listdir = os.listdir
+
+        def no_proc(path="."):
+            if path == "/proc":
+                raise PermissionError(13, "Permission denied")
+            return real_listdir(path)
+        os.listdir = no_proc
+        try:
+            try:
+                lt.live_cwds()
+                listed_ok = True
+            except lt.Unknown:
+                listed_ok = False
+        finally:
+            os.listdir = real_listdir
+        check("a /proc that cannot be listed is Unknown, never nobody", not listed_ok)
         unreadable = os.path.join(left, "target", "debug", "locked")
         os.makedirs(unreadable)
         os.chmod(unreadable, 0)

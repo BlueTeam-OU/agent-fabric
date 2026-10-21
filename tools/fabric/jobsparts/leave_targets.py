@@ -86,8 +86,6 @@ def scan(target: str, dev: int) -> tuple[int, list[str]]:
     errors: list[OSError] = []
     base = target.rstrip(os.sep).count(os.sep)
     for dirpath, dirnames, filenames in os.walk(target, followlinks=False, onerror=errors.append):
-        if os.lstat(dirpath).st_dev != dev:
-            raise Unknown("another filesystem is mounted in it")
         for name in filenames:
             path = os.path.join(dirpath, name)
             try:
