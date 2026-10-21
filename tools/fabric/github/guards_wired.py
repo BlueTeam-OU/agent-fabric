@@ -46,7 +46,9 @@ directory on a line of its own and names nowhere else
 path an echo, printf, test or cat is handed, one in a comment or a
 string, one under any other variable or used before its assignment, a
 command beside a ( or ) (an array, a subshell), any line from a case to
-its esac, an
+the line that closes it (one holding no # whose text after its last ;;
+;& or ;;& is exactly esac; a case not seen to close is said on stderr),
+anything after a # that opens a word, an
 interpreter run with -c, -s or a flag taking an argument, and a member
 reached only through a member itself reached only so. A script with a
 <<, a backtick (outside single quotes), a quote that does not close
@@ -450,6 +452,14 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
         lex.whitespace_split, lex.commenters = True, ""
         try:
             tokens = [op for t in lex for op in _operators(t)]
+            # The shell starts a comment at a # that begins a word, right
+            # after an operator too (true;# …), which strip_comment does
+            # not: the rest of the line is dropped from the first token
+            # opening with #, a quoted one ("#x") included, which can only
+            # read too little.
+            hashed = next((k for k, t in enumerate(tokens) if t.startswith("#")), None)
+            if hashed is not None:
+                tokens = tokens[:hashed]
         except ValueError:
             return [], f"line {start}: a quote that does not close on its line"
         # A ( that closes on a later line holds lines that are no commands
