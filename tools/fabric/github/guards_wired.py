@@ -554,12 +554,14 @@ def invoked_members(root: str, rel: str) -> tuple[set[str], str]:
         opened = tokens.count("case")
         if in_case or opened:
             # shlex unquotes 'esac' and \esac into the token esac, which the
-            # shell runs as a command: a closer must also stand bare in the
-            # line's own syntax.
+            # shell runs as a command, and two counts cannot say which word
+            # is the closer: a line whose esac tokens are not all bare in its
+            # own syntax closes nothing, which can only skip too much.
             bare_esac = len(re.findall(r"(?<![\w\"'\\-])esac(?![\w\"'-])", _outside_single_quotes(code_line)))
-            closed = min(bare_esac, sum(1 for k, t in enumerate(tokens)
-                         if t == "esac" and (k == 0 or tokens[k - 1] in (";", ";;", ";&", ";;&"))
-                         and tokens[k + 1:k + 2] not in ([")"], ["|"])))
+            closed = 0 if bare_esac != tokens.count("esac") else sum(
+                1 for k, t in enumerate(tokens)
+                if t == "esac" and (k == 0 or tokens[k - 1] in (";", ";;", ";&", ";;&"))
+                and tokens[k + 1:k + 2] not in ([")"], ["|"]))
             in_case = max(0, in_case + opened - closed)
             continue
         command_tokens: list[list[str]] = [[]]
