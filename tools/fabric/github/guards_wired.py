@@ -48,7 +48,7 @@ string, one under any other variable or used before its assignment, a
 command beside a ( or ) (an array, a subshell), any line from a case to
 the line that closes it (one holding no # whose text after its last ;;
 ;& or ;;& is exactly esac; a case not seen to close is said on stderr),
-anything after a # that opens a word, an
+a line with a # straight after an operator (it refuses the script), an
 interpreter run with -c, -s or a flag taking an argument, and a member
 reached only through a member itself reached only so. A script with a
 <<, a backtick (outside single quotes), a quote that does not close
@@ -368,10 +368,12 @@ def _operators(token: str) -> list[str]:
     return out
 
 
-def _cut_operator_comment(code: str) -> str:
-    """The line up to a comment the shell starts right after an operator
-    (true;# …, a)#…), which strip_comment, cutting only after a space,
-    leaves in: an unquoted # straight after an unescaped ; & | ( ) < >."""
+def _hash_after_operator(code: str) -> bool:
+    """Whether the line holds an unquoted # straight after an unescaped
+    ; & | ( ) < >. The shell starts a comment there after an operator but
+    not after the ) that closes a $( … ), nor inside [[ … =~ … ]]; which
+    one it is cannot be told here, and cutting the line could hide a <<
+    or a case after it, so such a line refuses the script."""
     quote, after_op, i = "", False, 0
     while i < len(code):
         c = code[i]
@@ -384,10 +386,10 @@ def _cut_operator_comment(code: str) -> str:
         elif c in "'\"":
             quote = c
         elif c == "#" and after_op:
-            return code[:i]
+            return True
         after_op = c in ";&|()<>"
         i += 1
-    return code
+    return False
 
 
 def _opens_past_line(code: str) -> bool:
@@ -464,7 +466,9 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
             n += 1
             line = line[:-1] + " " + physical[n]
         n += 1
-        code = _cut_operator_comment(strip_comment(line)).strip()
+        code = strip_comment(line).strip()
+        if _hash_after_operator(code):
+            return [], f"line {start}: a # straight after an operator"
         bare = _outside_single_quotes(code)
         if "`" in bare:
             return [], f"line {start}: a backtick"
