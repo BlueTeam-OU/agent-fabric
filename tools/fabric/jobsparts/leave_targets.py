@@ -2,8 +2,8 @@
 2026-10-21: /home filled twice in a day, one project's target is 60 to 75 GB and every job worktree builds its own).
 A part of tools/fabric/jobs.py, whose docstring is the contract.
 
-Contract. Only the old job's `worktree` field is read: never its `working copy` (a main checkout other jobs share, also when
-the field names the same directory), nothing outside the login's home, nothing when the field is unset or the directory is
+Contract. Only the old job's `worktree` field is read: never its `working copy` or another job's (a main checkout other jobs share:
+a field at, above or below one is refused), only a linked worktree, nothing outside the login's home, nothing when the field is unset or the directory is
 gone. In it, each directory named `target` beside a Cargo.toml, at most 4 levels below the worktree, is removed — links are
 never followed (a `target` that is one is kept), and a filesystem boundary is never crossed (a `target` holding another mount
 is kept whole). One is kept, with the reason, when a process of this uid stands in it, when its `.cargo-lock` is held (a build
@@ -81,6 +81,7 @@ def scan(target: str, dev: int) -> tuple[int, list[str]]:
     """(the bytes the tree holds, the `.cargo-lock` files in it); Unknown when another filesystem is mounted in it or a directory
     cannot be read."""
     total = 0
+    seen: set[tuple[int, int]] = set()      # cargo hard-links its artifacts out of deps/: one inode is freed once
     locks: list[str] = []
     errors: list[OSError] = []
     base = target.rstrip(os.sep).count(os.sep)
@@ -90,9 +91,12 @@ def scan(target: str, dev: int) -> tuple[int, list[str]]:
         for name in filenames:
             path = os.path.join(dirpath, name)
             try:
-                total += os.lstat(path).st_size
+                st = os.lstat(path)
             except OSError:
-                pass
+                continue
+            if (st.st_dev, st.st_ino) not in seen:
+                seen.add((st.st_dev, st.st_ino))
+                total += st.st_blocks * 512
             if name == ".cargo-lock" and dirpath.count(os.sep) - base <= LOCK_DEPTH:
                 locks.append(path)
         for d in dirnames:
@@ -106,40 +110,61 @@ def scan(target: str, dev: int) -> tuple[int, list[str]]:
     return total, locks
 
 
-def outside_config(target: str, worktree: str) -> str | None:
-    """The cargo configuration at or above `target`'s directory (up to the worktree) that sends the target directory out of the
-    worktree: the path it names, else None. A configuration that cannot be read is Unknown."""
+def config_dirs(target: str, worktree: str) -> list[str]:
+    """The directories whose `.cargo/` cargo reads for a build in `target`'s directory: it and every parent up to the root (above
+    the worktree too), then $CARGO_HOME, whose files are `config.toml` directly."""
+    dirs = []
     here = os.path.dirname(target)
     while True:
-        for name in CONFIGS:
-            conf = os.path.join(here, name)
-            if not os.path.isfile(conf):
-                continue
-            try:
-                with open(conf, "rb") as fh:
-                    doc = tomllib.load(fh)
-            except (OSError, tomllib.TOMLDecodeError) as e:
-                raise Unknown(f"{conf} cannot be read ({type(e).__name__})") from None
-            named = []
-            build = doc.get("build")
-            if isinstance(build, dict) and isinstance(build.get("target-dir"), str):
-                named.append(os.path.join(here, build["target-dir"]))      # relative to the directory holding .cargo
-            env = doc.get("env")
-            if isinstance(env, dict) and "CARGO_TARGET_DIR" in env:
-                v = env["CARGO_TARGET_DIR"]
-                value = v.get("value") if isinstance(v, dict) else v
-                if not isinstance(value, str):
-                    raise Unknown(f"{conf} has a CARGO_TARGET_DIR that is not a path")
-                relative = isinstance(v, dict) and v.get("relative") is True
-                named.append(os.path.join(here, value) if relative else value)
-            for p in named:
-                p = os.path.expanduser(p)
-                p = os.path.realpath(p if os.path.isabs(p) else os.path.join(worktree, p))
-                if not (p == worktree or inside(p, worktree)):
-                    return p
-        if here == worktree or not inside(here, worktree):
-            return None
-        here = os.path.dirname(here)
+        dirs.append(here)
+        up = os.path.dirname(here)
+        if up == here:
+            break
+        here = up
+    return dirs
+
+
+def config_files(target: str, worktree: str) -> list[tuple[str, str]]:
+    """(file, directory its relative paths are taken from), nearest first."""
+    files = [(os.path.join(d, name), d) for d in config_dirs(target, worktree) for name in CONFIGS]
+    home = os.environ.get("CARGO_HOME") or os.path.join(os.path.expanduser("~"), ".cargo")
+    files += [(os.path.join(home, name), os.path.dirname(home)) for name in ("config.toml", "config")]
+    return files
+
+
+def outside_config(target: str, worktree: str) -> str | None:
+    """The path a cargo configuration that applies to `target` sends the target directory to when that is outside the worktree,
+    else None. A configuration that exists and cannot be read is Unknown: only a file that is not there is absent."""
+    for conf, base in config_files(target, worktree):
+        try:
+            os.lstat(conf)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except OSError as e:
+            raise Unknown(f"{conf} cannot be looked at ({e.strerror})") from None
+        try:
+            with open(conf, "rb") as fh:
+                doc = tomllib.load(fh)
+        except (OSError, ValueError) as e:      # a TOML error and bytes that are not UTF-8 are both ValueErrors
+            raise Unknown(f"{conf} cannot be read ({type(e).__name__})") from None
+        named = []
+        build = doc.get("build")
+        if isinstance(build, dict) and isinstance(build.get("target-dir"), str):
+            named.append(os.path.join(base, build["target-dir"]))      # relative to the directory holding .cargo
+        env = doc.get("env")
+        if isinstance(env, dict) and "CARGO_TARGET_DIR" in env:
+            v = env["CARGO_TARGET_DIR"]
+            value = v.get("value") if isinstance(v, dict) else v
+            if not isinstance(value, str):
+                raise Unknown(f"{conf} has a CARGO_TARGET_DIR that is not a path")
+            relative = isinstance(v, dict) and v.get("relative") is True
+            named.append(os.path.join(base, value) if relative else value)
+        for p in named:
+            p = os.path.expanduser(p)
+            p = os.path.realpath(p if os.path.isabs(p) else os.path.join(worktree, p))
+            if not (p == worktree or inside(p, worktree)):
+                return p
+    return None
 
 
 def lock_held(locks: list[str]) -> tuple[bool, list[int]]:
@@ -168,11 +193,17 @@ def lock_held(locks: list[str]) -> tuple[bool, list[int]]:
     return False, fds
 
 
+def overlaps(path: str, root: str) -> bool:
+    """Whether `path` is the root, inside it or above it: a checkout that is any of these is not the job's to clear."""
+    return path == root or inside(path, root) or inside(root, path)
+
+
 def clean_targets(worktree: str | None, working_copy: str | None, others: tuple[str | None, ...] = ()) -> list[str]:
     """The lines the clearing says: one per `target`, removed or kept with the reason; a warning, not an exception, on a failure.
-    `others` are the working copies of the other jobs of the list: a worktree that is one of them is a checkout shared."""
+    `others` are the working copies and worktrees of the other jobs of the list: a worktree at, above or below one is shared."""
     if not worktree:
         return []
+    lines: list[str] = []
     try:
         home = os.path.realpath(os.path.expanduser("~"))
         if not os.path.isdir(worktree):
@@ -180,24 +211,30 @@ def clean_targets(worktree: str | None, working_copy: str | None, others: tuple[
         root = os.path.realpath(worktree)
         if not inside(root, home):
             return [f"cargo targets: {worktree} is not under {home}; left alone"]
-        if any(c and os.path.realpath(c) == root for c in (working_copy, *others)):
-            return [f"cargo targets: {worktree} is a working copy, not the job's own worktree; left alone"]
+        # A linked worktree has a `.git` file; a main checkout a directory. Whatever else the field names (a parent of several
+        # checkouts, a directory inside one) is not the job's own worktree.
+        if not os.path.isfile(os.path.join(root, ".git")):
+            return [f"cargo targets: {worktree} is not a linked worktree; left alone"]
+        for c in (working_copy, *others):
+            if c and os.path.lexists(c) and overlaps(os.path.realpath(c), root):
+                return [f"cargo targets: {worktree} is, holds or lies in a checkout of this or another job ({c}); left alone"]
         found, links = find_targets(root)
         lines = [f"kept {t}: a link, not followed" for t in links]
         if not found:
             return lines
         dev = os.lstat(root).st_dev
         try:
-            cwds = live_cwds()
+            cwds, why_blind = live_cwds(), ""
         except Unknown as e:
             cwds, why_blind = [], str(e)
-        else:
-            why_blind = ""
         for t in found:
-            lines.append(one(t, root, dev, cwds, why_blind))
+            try:
+                lines.append(one(t, root, dev, cwds, why_blind))
+            except Exception as e:      # one target's failure is its own line: the others are still judged
+                lines.append(f"warning: {t} not cleared: {type(e).__name__}: {e}")
         return lines
     except Exception as e:      # the settlement already happened: nothing here refuses the switch
-        return [f"warning: cargo targets of {worktree} not cleared: {type(e).__name__}: {e}"]
+        return lines + [f"warning: cargo targets of {worktree} not cleared: {type(e).__name__}: {e}"]
 
 
 def one(target: str, root: str, dev: int, cwds: list[str], why_blind: str) -> str:

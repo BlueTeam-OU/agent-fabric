@@ -225,11 +225,7 @@ def switch_job(args) -> int:
         settled = f"{old['state']}: " + "; ".join(evidence)
         # Before the next job's worktree is made: the sweep would take a fresh one for finished (clean, on the remote). Said, never
         # a reason to stay: what it cannot do it reports.
-        # First: the sweep may take the whole worktree, and a failed sweep must not leave the targets (tens of GB) behind.
-        if not args.keep_targets:
-            swept = clean_targets(old.get("worktree"), old.get("working_copy"),
-                                  tuple(j.get("working_copy") for j in listed["jobs"] if j["id"] != old["id"]))
-        swept += after_leaving(old.get("working_copy"), here)
+        swept = after_leaving(old.get("working_copy"), here)
     choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged)
     verdict_for = {}
 
@@ -267,6 +263,12 @@ def switch_job(args) -> int:
         discard(choice)
         raise
     verdict, job = verdict_for["verdict"], verdict_for["job"]
+    # Only now: the job has really been left (a refusal above leaves it, and its targets, as they were). The sweep above has had its
+    # turn first; a worktree it removed is gone and has nothing to clear.
+    if old and old["id"] != nxt["id"] and not args.keep_targets:
+        others = tuple(p for j in listed["jobs"] if j["id"] != old["id"] for p in (j.get("working_copy"), j.get("worktree")))
+        others += (choice.worktree,)
+        swept = clean_targets(old.get("worktree"), old.get("working_copy"), others) + swept
     if args.json:
         for said in swept:
             print(said, file=sys.stderr)      # stdout is the one JSON object
@@ -276,6 +278,8 @@ def switch_job(args) -> int:
     print(line(job) + verdict_for["was_cleared"])
     if choice.kind == "blocked":
         print(f"  blocked, not started: {choice.note}. It waits on pr:{choice.repo}#{choice.pr}; run fabric-jobs switch again for another job.")
+        for said in swept:
+            print(f"    {said}")
         return 0
     if verdict_for["resumed"]:
         print(f"  resumes paused work: {verdict_for['resumed']}")
