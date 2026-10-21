@@ -177,6 +177,9 @@ SHELLS = ("bash", "sh", "zsh", "dash", "ksh", "fish", "ash", "mksh", "csh", "tcs
 STDIN_RUNNERS = SHELLS + ("eval", "source", ".", "xargs", "busybox")
 # The words after which a command starts, so a `.` there is the dot command and not a path argument.
 COMMAND_KEYWORDS = ("then", "do", "else", "elif", "time", "exec", "command", "builtin", "nohup", "sudo")
+# What a simple command may open with before its command word: an assignment, a redirection operator on its own.
+ASSIGN_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?\+?=")
+REDIRECT_OP = re.compile(r"\d*(?:<<?<?-?|>>?|<>|>\||[<>]&|&>>?)")
 # What may stand before a substitution that is then run as the command: assignments, a quote, a wrapper.
 COMMAND_PLACE = re.compile(r"\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|exec|command|nohup|time|sudo|env)\s+)*\"?")
 CD_OPTION = re.compile(r"-[LPe@]+")
@@ -294,15 +297,36 @@ def delimiter(line: str, j: int) -> tuple[str, bool, int]:
     return ("" if quote else "".join(out)), quoted, j
 
 
+def command_starts_at(words: list[str], i: int) -> bool:
+    """Whether words[i] is a command word: what stands before it, once the assignments (`x=1`) and redirections
+    (`2>/dev/null`, `<<X`, `> file`) a simple command may open with are stepped over, is nothing, an operator, or a
+    keyword that opens a command (`then`, `do`, `time` and its options …). One word of lookback was review F7 on
+    #348: `x=1 . /dev/stdin <<X` runs the dot command."""
+    j = i - 1
+    while j >= 0:
+        w = words[j]
+        if j >= 1 and REDIRECT_OP.fullmatch(words[j - 1]):
+            j -= 2                                  # `> file`: the operand, then its operator
+        elif ASSIGN_WORD.match(w) or REDIRECT_OP.fullmatch(w) or (("<" in w or ">" in w) and not w.startswith("-")):
+            j -= 1
+        elif w.startswith("-") and "time" in words[:j]:
+            j -= 1                                  # `time -p .`: time's own options
+        else:
+            break
+    return j < 0 or set(words[j]) <= set(";&|(){}!`") or words[j] in COMMAND_KEYWORDS
+
+
 def runs_stdin(text: str) -> bool:
     """Whether a pipeline's text holds a word that executes what it reads: a shell (`-s` or not), eval, source, `.`,
     xargs, busybox, or env with -S. Any word counts, not only a command's (over-reporting); a quoted argument stays one word,
     so `--title "fix sh"` is no shell. The one exception is `.`: it is the path every `git add .` names, so it counts
-    only where a command starts (first, or after an operator or a keyword that opens one), never as an argument."""
+    only where a command starts, never as an argument. A command word the guard cannot read (`$SHELL`, `"$0"`) counts
+    as a runner too, as an unresolvable directory counts as outside."""
     words = tokens(text)
     for i, w in enumerate(words):
-        if w == ".":
-            if i == 0 or set(words[i - 1]) <= set(";&|(){}!`") or words[i - 1] in COMMAND_KEYWORDS:
+        expansion = "$" in w and not ASSIGN_WORD.match(w) and "<" not in w and ">" not in w
+        if w == "." or expansion:
+            if command_starts_at(words, i):
                 return True
             continue
         name = os.path.basename(w)

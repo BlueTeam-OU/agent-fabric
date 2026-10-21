@@ -416,7 +416,13 @@ class Guard(unittest.TestCase):
                     f"if true; then bash; fi <<'X'\n{acting}\nX", f"fish <<'X'\n{acting}\nX",
                     *(f"cat <<'X' | {shell}\n{acting}\nX" for shell in ("fish", "ash", "mksh", "csh", "tcsh", "yash")),
                     f"cat <<'X' | busybox hush\n{acting}\nX", f"true && . /dev/stdin <<'X'\n{acting}\nX",
-                    f"if true; then . /dev/stdin; fi <<'X'\n{acting}\nX"):
+                    f"if true; then . /dev/stdin; fi <<'X'\n{acting}\nX",
+                    # Review round 4 of #348, F7: a simple command may open with assignments and redirections.
+                    f"x=1 . /dev/stdin <<'X'\n{acting}\nX", f"2>/dev/null . /dev/stdin <<'X'\n{acting}\nX",
+                    f"<<'X' . /dev/stdin\n{acting}\nX", f"time -p . /dev/stdin <<'X'\n{acting}\nX",
+                    f"> /tmp/log . /dev/stdin <<'X'\n{acting}\nX",
+                    # A command word the guard cannot read may be a shell.
+                    f"cat <<'X' | $SHELL\n{acting}\nX", f"cat <<'X' | \"$0\"\n{acting}\nX"):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.proj), "deny")
         # `.` as a path argument is no runner: the commit message every `git add .` precedes stays data.
