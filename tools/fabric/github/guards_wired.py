@@ -465,7 +465,9 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
         start, line = n + 1, physical[n]
         while line.endswith("\\") and n + 1 < len(physical):
             n += 1
-            line = line[:-1] + " " + physical[n]
+            # The shell removes a backslash-newline whole: a space here
+            # would split a $( or a $' that the line spells across it.
+            line = line[:-1] + physical[n]
         n += 1
         code = strip_comment(line).strip()
         if _hash_after_operator(code):
@@ -475,7 +477,9 @@ def _code(text: str) -> tuple[list[tuple[str, list[str]]], str]:
         # the scans above, skipping double-quoted text, do not look for.
         if "$'" in code:
             return [], f"line {start}: a $' ' string"
-        if "$(" in _outside_single_quotes(code) and "#" in _outside_single_quotes(code):
+        # The # is looked for in the raw line: inside "$( … )" a ' is a
+        # real quote, which the flat single-quote reading cannot know.
+        if "$(" in _outside_single_quotes(code) and "#" in code:
             return [], f"line {start}: a # beside a $( )"
         bare = _outside_single_quotes(code)
         if "`" in bare:
