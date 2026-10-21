@@ -267,6 +267,9 @@ def switch_job(args) -> int:
     # turn first; a worktree it removed is gone and has nothing to clear.
     if old and old["id"] != nxt["id"] and not args.keep_targets:
         others = tuple(p for j in listed["jobs"] if j["id"] != old["id"] for p in (j.get("working_copy"), j.get("worktree")))
+        # The next job may be on the very branch the old one was (an open pull request, its own branch): `choose` then hands it the
+        # old worktree, which the snapshot of the list above does not yet show as its own.
+        others += (choice.worktree,)
         swept = clean_targets(old.get("worktree"), old.get("working_copy"), others) + swept
     if args.json:
         for said in swept:

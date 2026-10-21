@@ -1437,6 +1437,19 @@ def main() -> int:
         check("…and a configuration that cannot be parsed keeps it (unknown is not free)", said and said[0].startswith("kept ") and "cannot be read" in said[0], said)
 
         w = World(under=home)
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "on the pull request"], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+        gh_says(open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        rc, out, err = leave(w, j)
+        check("the next job takes the left job's open-pull-request branch, hence its worktree: the targets there are not cleared",
+              rc == 0 and f"cargo targets: {left} is, holds or lies in a checkout" in out and os.path.isdir(os.path.join(left, "target", "debug")),
+              out + err + repr(w.job(j)))
+        gh_says()
+
+        w = World(under=home)
         j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "sub/keep")
         w.add("holds the checkout", "--working-copy", os.path.join(left, "sub"))
         rc, out, err = leave(w, j)
