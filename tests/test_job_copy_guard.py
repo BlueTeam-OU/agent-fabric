@@ -13,15 +13,21 @@ active is denied every commit, the session that switched included; a list that c
 command that commits or publishes. Git pointed elsewhere through GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR (a prefix,
 `env`, `export`) or --git-dir/--work-tree is judged like a cd; a repository named by `gh pr … -R`, `fabric-pr --repo`
 or GH_REPO is inside only when it is a remote of the job copy, and a copy whose remotes cannot be read asks; only an
-unquoted `<<` opens a heredoc, a body that acts is judged unless it is a quoted-delimiter commit message; the git
-lookups stop at a budget and ask (review round 1 of #348).
+unquoted `<<` opens a heredoc; the git lookups stop at a budget and ask (review round 1 of #348). A heredoc body is
+read as commands only when its pipeline executes it, and an unquoted one's substitutions always; a quoted body that
+is only read or published (cat, a commit message, fabric-pr post-review, gh pr create --body-file -) never asks; a
+pull request URL names its repository; `-c core.worktree`, `--config-env` and the GIT_CONFIG_* variables count as a
+work tree (review round 2 of #348).
 
 Mutations each case set fails on: the agent_id test removed; `cd` or `-C` targets not collected; the prefix test made
 a plain string prefix (proj-other would pass as proj); "worked the active job" counted as allowed (the switching
 session); the `last` fallback used without a session id; the list read before the command is parsed; the ask on an
 unreadable list replaced by an allow; assignment words not read; the repository judgement skipped; the heredoc scan
-made blind to quotes or to comments; a body that acts left unread; the commit-message exception widened to every
-body; the budget never raised.
+made blind to quotes or to comments; every quoted body read as commands; source or `.` not counted as running stdin;
+the executed test scoped to the line instead of the pipeline; substitutions or pipelines around a redirect not
+followed; an unquoted body's substitutions left unread, or its plain text read; a `$(` inside double quotes not
+reopening command text; PR URLs not read; core.worktree or the GIT_CONFIG_* variables not read; the budget never
+raised.
 """
 from __future__ import annotations
 
@@ -281,6 +287,22 @@ class Guard(unittest.TestCase):
                 self.assertEqual(self.decision(cmd, self.proj), "deny")
         self.assertEqual(self.decision(f"git --git-dir={self.proj}/.git --work-tree={self.proj} commit -m x", self.proj), "allow")
 
+    def test_a_work_tree_set_through_git_config_is_judged(self):
+        # Review round 2 of #348, P-a: core.worktree is a --work-tree by another name.
+        self.active_j7()
+        for cmd in (f"git -c core.worktree={self.other} commit -m x", f"git -c Core.WorkTree={self.other} push",
+                    "git -c core.worktree=$W commit -m x", "git --config-env=core.worktree=W commit -m x",
+                    "git --config-env core.worktree=W push", "GIT_CONFIG_PARAMETERS=\"'core.worktree'='/x'\" git commit -m x",
+                    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.worktree GIT_CONFIG_VALUE_0=/x git commit -m x",
+                    "export GIT_CONFIG_GLOBAL=/tmp/cfg; git push", "export GIT_CONFIG; git commit -m x",
+                    "env GIT_CONFIG_SYSTEM=/tmp/cfg git commit -m x"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+        for cmd in ("git -c user.name=x commit -m y", f"git -c core.worktree={self.proj} commit -m x",
+                    "GIT_CONFIG_COUNT=1 git log", "git --config-env=user.name=N commit -m x"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "allow")
+
     def test_eval_and_command_substitution_are_read(self):
         self.active_j7()
         for cmd in (f"eval \"cd {self.other} && git commit -m x\"", f"echo \"$(cd {self.other} && git push)\"",
@@ -310,6 +332,20 @@ class Guard(unittest.TestCase):
         for fact in ("acme/other", "github.com/acme/proj", "gh pr merge", "j7"):
             self.assertIn(fact, r)
 
+    def test_a_pull_request_url_names_its_repository(self):
+        # Review round 2 of #348, F2: gh acts on a URL's repository whatever the cwd.
+        self.active_j7()
+        for cmd in ("gh pr merge https://github.com/acme/other/pull/5", "gh pr merge https://github.com/acme/other/pull/5/files",
+                    "gh pr merge --squash http://github.com/acme/other/pull/5", "gh pr merge https://gitlab.com/acme/proj/pull/5",
+                    "GH_REPO=acme/proj gh pr merge https://github.com/acme/other/pull/5"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.worktree), "deny")
+        for cmd in ("gh pr merge https://github.com/Acme/Proj/pull/5", "gh pr merge --squash https://github.com/acme/proj-mirror/pull/7/checks",
+                    "gh pr view https://github.com/acme/other/pull/5"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.worktree), "allow")
+        self.assertIn("acme/other/pull/5", self.reason("gh pr merge https://github.com/acme/other/pull/5", self.worktree))
+
     def test_a_copy_whose_remotes_cannot_be_read_asks_for_a_named_repository(self):
         self.write_jobs(self.job("j7", "active", sessions=(OLD,), working_copy=self.plain))
         self.assertEqual(self.decision("gh pr merge 1 -R acme/proj", self.plain), "ask")
@@ -332,18 +368,43 @@ class Guard(unittest.TestCase):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.proj), "deny")
 
-    def test_a_heredoc_body_that_acts_is_judged_unless_it_is_a_commit_message(self):
+    def test_a_quoted_heredoc_body_is_data_unless_it_is_executed(self):
+        # Review round 2 of #348, F5: a body that is only read or published, however much it names, never asks.
         self.active_j7()
         o = self.other
-        self.assertEqual(self.decision(f"git commit -F - <<'EOF'\nsubject\n\nthen git push from cd {o}\nEOF", self.proj),
-                         "allow", "a commit message stays data")
-        self.assertEqual(self.decision(f"git commit -F /dev/stdin <<'EOF'\ngit -C {o} push\nEOF", self.proj), "allow")
-        self.assertEqual(self.decision(f"cat <<'EOF' > notes\ncd {o}\nEOF\ngit commit -m x", self.proj), "allow",
-                         "a body that names no act is data")
-        self.assertEqual(self.decision(f"cat <<EOF > notes\ncd {o}\ngit commit -m x\nEOF", self.proj), "deny",
-                         "a body that acts is judged as if it ran")
-        self.assertEqual(self.decision(f"git commit -F - <<EOF\ncd {o}\ngit push\nEOF", self.proj), "deny",
-                         "an unquoted delimiter is no commit-message exception")
+        acting = f"cd {o} && git commit -m y\ngit -C {o} push"
+        for cmd in (f"git commit -F - <<'EOF'\nsubject\n\nthen git push from cd {o}\nEOF",
+                    f"git commit -F /dev/stdin <<'EOF'\ngit -C {o} push\nEOF",
+                    f"git commit -m \"$(cat <<'EOF'\nsubject\n\n{acting}\nEOF\n)\"",
+                    f"cat <<'X'\n{acting}\nX", f"cat <<'EOF' > notes\ncd {o}\nEOF\ngit commit -m x",
+                    f"fabric-pr post-review 5 <<'EOF'\nFinding: {acting}\nEOF",
+                    f"gh pr create --title 'fix sh quoting' --body-file - <<'EOF'\n{acting}\nEOF",
+                    f"x=$(cat <<'X'\n{acting}\nX\n)",
+                    f"bash <<'S' && git commit -F - <<'M'\necho hi\nS\n{acting}\nM"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "allow")
+        for cmd in (f"bash <<'X'\n{acting}\nX", f"sh -s <<'X'\n{acting}\nX", f"source /dev/stdin <<'X'\n{acting}\nX",
+                    f". /dev/stdin <<'X'\n{acting}\nX", f"cat <<'X' 2>&1 | dash\n{acting}\nX",
+                    f"xargs -0 <<'X'\n{acting}\nX", f"env -S'bash -s' <<'X'\n{acting}\nX",
+                    f"eval \"$(cat <<'X'\n{acting}\nX\n)\"", f"bash -c \"$(cat <<'X'\n{acting}\nX\n)\"",
+                    f"\"$(cat <<'X'\n{acting}\nX\n)\"",
+                    # P-b: a commit message beside a body fed to source excuses only itself.
+                    f"git commit -F - <<'M' && source /dev/stdin <<'S'\nsubject\nM\n{acting}\nS"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+
+    def test_an_unquoted_heredoc_body_runs_only_its_substitutions(self):
+        self.active_j7()
+        o = self.other
+        for cmd in ("cat <<EOF\nthen cd x; git push\nEOF", f"git commit -F - <<EOF\ncd {o}\ngit push\nEOF",
+                    f"cat <<EOF\nescaped \\$(cd {o} && git push)\nEOF"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "allow")
+        for cmd in (f"cat <<EOF > notes\n$(cd {o} && git commit -m x)\nEOF",
+                    f"git commit -F - <<EOF\nsubject `git -C {o} push`\nEOF",
+                    f"cat <<EOF\n$(echo \")\"; cd {o} && git push)\nEOF"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
 
     def test_the_git_lookup_budget_asks(self):
         import importlib.util
