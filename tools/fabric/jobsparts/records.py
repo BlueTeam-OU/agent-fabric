@@ -204,7 +204,8 @@ TITLE_NAMES_REQUEST = re.compile(r"\(REQUEST (" + MESSAGE_ID.pattern + r")\)\Z",
 
 
 def request_id_of(title: str) -> str | None:
-    found = TITLE_NAMES_REQUEST.search(title.rstrip())
+    # Collapsed as new_job stores it: a title typed with a tab or newline names the id it will be stored with.
+    found = TITLE_NAMES_REQUEST.search(" ".join(title.split()))
     return found.group(1) if found else None
 
 

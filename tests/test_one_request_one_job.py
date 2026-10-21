@@ -146,6 +146,8 @@ def person_adds_the_message() -> None:
           jobs.listed_request(forged, MID) is None and jobs.listed_request(forged, OTHER) is not None, jobs.listed_request(forged, MID))
     check("a title's trailing whitespace is not part of the id's place (a stored title is collapsed; a title on the command line is not)",
           jobs.request_id_of(f"s (REQUEST {MID}) \n") == MID and jobs.request_id_of(f"s (REQUEST {MID}) x") is None)
+    check("...nor is a tab inside it: new_job stores the title collapsed, so the check reads it so",
+          jobs.request_id_of(f"s (REQUEST\t{MID})") == MID and jobs.request_id_of(f"s\n(REQUEST  {MID})") == MID)
     check("...and quietly under --auto, as the intake wants", jobs.request_job(doc, msg, auto=True) is None and len(doc["jobs"]) == 1)
 
 
