@@ -1903,17 +1903,23 @@ def case_every_registered_project_declares_a_gzcoord_config() -> None:
         write(cfg("lacks"), json.dumps({"relay_url": "http://127.0.0.1:8765"}))
         assert any("needs a relay_url and a channel" in f for f in lint.gzcoord_declared_findings(root)), \
             "a config without a channel is what the inbox reads as not configured"
+        write(cfg("lacks"), json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": ""}))
+        assert any("needs a relay_url and a channel" in f for f in lint.gzcoord_declared_findings(root)), \
+            "an empty channel is not configured either"
         write(cfg("lacks"), "{ not json")
         assert any("unreadable" in f for f in lint.gzcoord_declared_findings(root)), "an unreadable config is named"
         write(cfg("lacks"), json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "x:control"}))
         assert any("control channel" in f for f in lint.gzcoord_declared_findings(root)), "a control channel is refused"
         write(os.path.join(root, "projects", "registry.json"), "{ not json")
         assert lint.gzcoord_declared_findings(root) == [], "an unreadable registry is reported elsewhere"
+    with tempfile.TemporaryDirectory() as plain:
+        write(os.path.join(plain, "projects", "registry.json"), json.dumps({"projects": {"lacks": {}}}))
+        assert lint.gzcoord_declared_findings(plain) == [], "not a git checkout: absence proves nothing"
 
 
 def case_instance_files_are_read_from_the_operator_tree() -> None:
     """An exported AGENT_FABRIC_OPERATOR outranks the engine tree for a
-    project's arm.json and for the committed keys (ADR-045)."""
+    project's arm.json, its gzcoord config and the committed keys (ADR-045)."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
     lint = importlib.util.module_from_spec(spec)
@@ -1926,13 +1932,23 @@ def case_instance_files_are_read_from_the_operator_tree() -> None:
         write(os.path.join(engine, "projects", "demo", "integration", "gh", "arm.json"), good)
         g("init", "-q", "-b", "main")
         g("add", "-A")
+        write(os.path.join(engine, "projects", "registry.json"), json.dumps({"projects": {"demo": {}}}))
+        write(os.path.join(engine, "projects", "demo", "integration", "gzcoord", "config.json"),
+              json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "a:gzcoord"}))
+        g("add", "-A")
+        write(os.path.join(operator, "projects", "registry.json"), json.dumps({"projects": {"demo": {}}}))
         write(os.path.join(operator, "projects", "demo", "integration", "gh", "arm.json"), "{}")
+        write(os.path.join(operator, "projects", "demo", "integration", "gzcoord", "config.json"),
+              json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "a:control"}))
         write(os.path.join(operator, "identities", "keys", "lineage.json"), "[]")
         saved = os.environ.get("AGENT_FABRIC_OPERATOR")
         try:
             os.environ.pop("AGENT_FABRIC_OPERATOR", None)
             assert lint.arm_boundary_findings(engine, base_ref="no-such-ref") == [], "the engine's own arm.json is usable"
+            assert lint.gzcoord_declared_findings(engine) == [], "the engine's own gzcoord config is usable"
             os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            got = lint.gzcoord_declared_findings(engine)
+            assert any("control channel" in f for f in got), ("the operator's gzcoord config was not the one read", got)
             got = lint.arm_boundary_findings(engine, base_ref="no-such-ref")
             assert any("not a usable arm.json" in f for f in got), ("the operator's arm.json was not the one read", got)
             if shutil.which("gpg"):

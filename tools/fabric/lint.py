@@ -385,7 +385,9 @@ def gzcoord_declared_findings(root: str) -> list[str]:
                             "(not configured) in its working copy, and its sessions neither hear nor send")
             continue
         try:
-            with open(os.path.join(root, rel), encoding="utf-8") as fh:
+            # The file integration_config reads: instance data, so the
+            # operator's when one is exported (ADR-045), as arm.json is.
+            with open(roots.project_integration(p, "gzcoord", "config.json", engine=root), encoding="utf-8") as fh:
                 cfg = json.load(fh)
         except (OSError, ValueError) as e:
             findings.append(f"{rel}: unreadable ({type(e).__name__})")
