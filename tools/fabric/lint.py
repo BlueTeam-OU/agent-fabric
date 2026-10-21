@@ -361,6 +361,43 @@ def arm_declared_findings(root: str) -> list[str]:
             "fabric-pr arm refuses to arm a PR of a project whose security boundary it cannot read"
             for p in registered if p not in declared]
 
+def gzcoord_declared_findings(root: str) -> list[str]:
+    """Every project in projects/registry.json has a GZCoord integration
+    with a relay and a channel. The inbox fails closed without one (exit 3,
+    "not configured"), so a session in that project's working copy hears
+    nothing and learns it only when it arms its watch: three projects were
+    registered without one (devex-tooling, 01a15cd0; j332). The control channel is
+    assert_not_control_channel's to refuse at run time; here a config that
+    names one is a finding too, since no project's sessions may use it."""
+    try:
+        with open(roots.projects_registry(engine=root), encoding="utf-8") as fh:
+            registered = sorted((json.load(fh).get("projects") or {}))
+    except (OSError, ValueError, AttributeError):
+        return []   # as arm_declared_findings: an unreadable registry is reported elsewhere
+    tracked = _tracked(root)
+    if not tracked:
+        return []
+    findings = []
+    for p in registered:
+        rel = f"projects/{p}/integration/gzcoord/config.json"
+        if rel not in tracked:
+            findings.append(f"projects/registry.json: project {p!r} has no {rel}; gzcoord-inbox exits 3 "
+                            "(not configured) in its working copy, and its sessions neither hear nor send")
+            continue
+        try:
+            # The file integration_config reads: instance data, so the
+            # operator's when one is exported (ADR-045), as arm.json is.
+            with open(roots.project_integration(p, "gzcoord", "config.json", engine=root), encoding="utf-8") as fh:
+                cfg = json.load(fh)
+        except (OSError, ValueError) as e:
+            findings.append(f"{rel}: unreadable ({type(e).__name__})")
+            continue
+        if not isinstance(cfg, dict) or not all(isinstance(cfg.get(k), str) and cfg.get(k) for k in ("relay_url", "channel")):
+            findings.append(f"{rel}: needs a relay_url and a channel, or the inbox reads it as not configured")
+        elif cfg["channel"].endswith(":control"):
+            findings.append(f"{rel}: channel {cfg['channel']!r} is a control channel, which no session drains or sends on")
+    return findings
+
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
 # ending in "/" is a directory, any other one file, as in an entry. The
 # guards and what they import (git.py) or run in CI (the suite runners:
@@ -638,6 +675,7 @@ def main() -> int:
     findings += arm_boundary_findings(root)
     findings += arm_direct_findings(root)
     findings += arm_declared_findings(root)
+    findings += gzcoord_declared_findings(root)
 
     # --- a session started in this clone gets the workspace's hooks ---------
     findings += fabric_settings_findings(root)
