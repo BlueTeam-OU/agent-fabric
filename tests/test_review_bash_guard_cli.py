@@ -24,10 +24,14 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import resource
+import shutil
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = os.path.abspath(os.environ.get("REVIEW_BASH_GUARD") or os.path.join(
@@ -241,6 +245,84 @@ def in_time() -> None:
     check("a budget of zero is the late deny, through the shim", got == "deny:slow", got)
 
 
+def budget() -> None:
+    # judged() forks, so a stand-in verdict set on the loaded module is what the child runs; no shim, no load on the
+    # outcome beyond the stand-in's own behaviour.
+    print("the verdict's budget is the child's CPU time under a wall ceiling: a starved child is judged, a spinning one is late")
+    spec = importlib.util.spec_from_file_location("review_bash_guard_budget", GUARD_PY)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    real = mod.verdict
+    pidfile = os.path.join(tempfile.mkdtemp(prefix="guard-budget-"), "pid")
+
+    def starve() -> None:
+        # Stop the verdict child for longer than the old 3 s wall budget, then let it go on.
+        for _ in range(500):
+            if os.path.exists(pidfile) and os.path.getsize(pidfile):
+                break
+            time.sleep(0.01)
+        pid = int(open(pidfile).read())
+        os.kill(pid, signal.SIGSTOP)
+        time.sleep(3.5)
+        os.kill(pid, signal.SIGCONT)
+
+    def waits_a_while(cmd: str) -> None:
+        with open(pidfile, "w") as fh:
+            fh.write(str(os.getpid()))
+        time.sleep(0.5)
+        return None
+
+    def spins(cmd: str) -> None:
+        end = time.process_time() + 3.6
+        while time.process_time() < end:
+            pass
+        return None
+
+    def reports_limit(cmd: str) -> str | None:
+        return "git" if resource.getrlimit(resource.RLIMIT_CPU) == (3, 3) else "install"
+
+    def killed(cmd: str) -> None:
+        os.kill(os.getpid(), signal.SIGKILL)
+
+    def stuck(cmd: str) -> None:
+        time.sleep(30)
+
+    try:
+        mod.verdict = waits_a_while
+        helper = threading.Thread(target=starve)
+        helper.start()
+        started = time.monotonic()
+        got = mod.judged("x")
+        helper.join()
+        check("a verdict child stopped for 3.5 s of wall (starved) is still judged, not denied as slow",
+              got is None and time.monotonic() - started >= 3.5, f"{got!r} after {time.monotonic() - started:.1f} s")
+        mod.verdict = spins
+        started = time.monotonic()
+        got = mod.judged("x")
+        check("a verdict that spins on CPU past 3 s is denied as slow, well under the wall ceiling",
+              got == "slow" and time.monotonic() - started < mod.BUDGET_S, f"{got!r} after {time.monotonic() - started:.1f} s")
+        mod.verdict = reports_limit
+        check("the child runs the verdict under RLIMIT_CPU (3, 3)", mod.judged("x") == "git", "limit not set in the child")
+        mod.verdict = killed
+        check("a child killed by another signal answers nothing and is an error, never an allow", mod.judged("x") == "error")
+        mod.verdict = lambda cmd: 1 / 0
+        check("a verdict that raises is an error", mod.judged("x") == "error")
+        mod.verdict = stuck
+        os.environ["AGENT_FABRIC_REVIEW_GUARD_BUDGET"] = "0.5"
+        started = time.monotonic()
+        got = mod.judged("x")
+        check("a child that answers nothing within the (shortened) wall ceiling is slow",
+              got == "slow" and time.monotonic() - started < 3, f"{got!r}")
+        os.environ["AGENT_FABRIC_REVIEW_GUARD_BUDGET"] = "100"
+        mod.verdict = real
+        check("the environment cannot lengthen the ceiling (positive control: the real verdict is allowed)",
+              mod.BUDGET_S == 8.0 and mod.judged("ls") is None)
+    finally:
+        os.environ.pop("AGENT_FABRIC_REVIEW_GUARD_BUDGET", None)
+        mod.verdict = real
+        shutil.rmtree(os.path.dirname(pidfile), ignore_errors=True)
+
+
 def clean_environment() -> None:
     # The structural half of the fence: whatever a spelling slips past the
     # patterns, the command it is in runs without the account's secrets
@@ -299,6 +381,7 @@ def fails_closed() -> None:
 def main() -> int:
     table()
     in_time()
+    budget()
     clean_environment()
     fails_closed()
     print()
