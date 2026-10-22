@@ -790,7 +790,9 @@ class ArmRun(unittest.TestCase):
         ran = []
 
         def reader(head, args, timeout=600):
-            what = " ".join(head)
+            # The program's name and verb, never its directory: a checkout whose path holds
+            # "fabric-ctl" (a worktree named for its job) made every reader the presence one.
+            what = " ".join([os.path.basename(head[0]), *head[1:]])
             if "gzcoord-inbox" in what:
                 reads.append(("replay", list(args)))
                 return replay if replay is not None else (1, "")
