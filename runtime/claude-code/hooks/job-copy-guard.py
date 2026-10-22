@@ -184,6 +184,9 @@ ASSIGN_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?\+?=")
 REDIRECT_OP = re.compile(r"\d*(?:<<?<?-?|>>?|<>|>\|)")
 # The words after which a command starts again, with nothing of their own to skip: a `.` there is the dot command.
 COMMAND_KEYWORDS = ("then", "do", "else", "elif", "if", "while", "until", "!", "{")
+# What `coproc [NAME]` may be followed by when NAME is there: bash reads the word after `coproc` as a name only when a
+# compound command follows it (`coproc NAME { …; }`, `coproc NAME (…)`); `coproc . /dev/stdin` is a simple command.
+COMPOUND_START = ("{", "if", "while", "until", "for", "case", "select", "[[")
 # The launchers that run a command of their own after their options and operands, each as (the short option letters
 # that take a value, the long ones that do, how many operands come before the command). Others (flock, ssh, watch,
 # chroot, strace, ...) are not followed: their operands stand as arguments.
@@ -205,8 +208,6 @@ LAUNCHERS = {
     "nohup": ("", (), 0),
     "time": ("fo", ("--format", "--output"), 0),
 }
-# What may stand before a substitution that is then run as the command: assignments, a quote, a wrapper.
-COMMAND_PLACE = re.compile(r"\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|exec|command|nohup|time|sudo|env)\s+)*\"?")
 CD_OPTION = re.compile(r"-[LPe@]+")
 UNRESOLVABLE = re.compile(r"[$`*?\[]")
 # The variables that point git at a repository or a work tree, and the two that point gh at a repository. A word
@@ -333,7 +334,9 @@ def launched(words: list[str], i: int, name: str) -> int:
         if w == "--":
             i += 1
             break
-        if w.startswith("--"):
+        if w == "-" and name == "env":                  # `env - cmd`: the same as -i
+            i += 1
+        elif w.startswith("--"):
             i += 2 if w in longs else 1
         elif w.startswith("-") and len(w) > 1:
             cluster = w[1:]
@@ -362,12 +365,22 @@ def command_words(words: list[str]) -> set[int]:
         elif REDIRECT_OP.match(w):
             if not REDIRECT_OP.fullmatch(w):
                 i += 1                                  # a fused `2>log` has its operand in it
-            else:                                       # the operand, behind the `&` or `|` of `2>&1`, `>|`
-                i += 3 if words[i + 1:i + 2] in (["&"], ["|"]) else 2
+            else:
+                # The operand, behind the `&` or `|` of `2>&1`, `>|`. An operator word is never an operand: the `(` of
+                # `>(…)` / `<(…)` opens a process substitution whose body is commands (review F1, #354).
+                i += 2 if words[i + 1:i + 2] in (["&"], ["|"]) else 1
+                if i < n and not OPERATOR.fullmatch(words[i]):
+                    i += 1
         elif not expecting:
             i += 1
         elif ASSIGN_WORD.match(w) or w in COMMAND_KEYWORDS:
             i += 1
+        elif w == "function":                           # `function NAME [()] {`: NAME is no command, `{` opens the body
+            i += 2
+        elif w == "coproc":
+            named = (i + 2 < n and (words[i + 2] in COMPOUND_START or words[i + 2].startswith("("))
+                     and words[i + 1] not in COMPOUND_START and not OPERATOR.fullmatch(words[i + 1]))
+            i += 2 if named else 1
         elif os.path.basename(w) in LAUNCHERS:
             i = launched(words, i + 1, os.path.basename(w))
         else:
@@ -399,6 +412,17 @@ def runs_stdin(text: str) -> bool:
                                  for x in words[i + 1:]):
             return True
     return False
+
+
+def in_command_place(before: str) -> bool:
+    """Whether a substitution that follows `before` (the text from its command's start, possibly ending in the quote
+    that opens `"$(`) stands where the command's name does: after assignments, redirections and any LAUNCHER with its
+    options (`time`, `env -i`, `nice -n 5`, `timeout 10`), by the same reading as runs_stdin."""
+    opened = before.removesuffix('"')
+    if opened and not opened[-1].isspace():
+        return False                                    # glued to a word (`x=$(`, `a$(`): part of it, not a name
+    words = tokens(opened + " x")
+    return len(words) - 1 in command_words(words)
 
 
 class _Frame:
@@ -438,7 +462,7 @@ def stdin_executed(text: str, marks: list[int]) -> set[int]:
         return f.quote
 
     def push(closer: str, at: int, width: int, substitution: bool) -> None:
-        in_place = substitution and bool(COMMAND_PLACE.fullmatch(text[frames[-1].cmd_start:at]))
+        in_place = substitution and in_command_place(text[frames[-1].cmd_start:at])
         frames.append(_Frame(closer, at + width, quote, in_place))
 
     i, n = 0, len(text)
