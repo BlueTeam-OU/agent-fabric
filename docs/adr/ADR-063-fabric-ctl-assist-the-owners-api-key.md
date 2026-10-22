@@ -3,7 +3,7 @@
 **Date:** 2026-10-22
 **Status:** Proposed
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** `fabric-ctl assist "<question>"`, the module that implements it, the `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM` entry in the host operator's store, and every other path by which that key could be spent
+**Scope:** `fabric-ctl assist "<question>"`, the module that implements it, the login pattern of `runtime/hosts/schema/hosts.schema.json`, the `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM` entry in the host operator's store, and every other path by which that key could be spent
 **Pillar:** P5
 
 ## 1. Context and Problem
@@ -87,8 +87,10 @@ guessing it.
    path, profile or agent file reads a `CLAUDE_APIKEY_*` entry.
 2. **The owner's terminal only.** Assist refuses, before reading the store
    and with a reason on stderr and exit status 2: a process with any of
-   `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `AGENT_FABRIC_LAUNCH_AGENT` or a
-   `CODEX_` variable in its environment; standard input or standard output
+   `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` or `AGENT_FABRIC_LAUNCH_AGENT`
+   (which the fabric's launcher sets for every harness) in its
+   environment — exact names, never a prefix, so a tool setting of the
+   owner's own shell does not refuse the owner; standard input or standard output
    not a terminal; a login that is not its host's `operator` in
    `runtime/hosts/registry.json`. Each refusal has a test that also shows
    no request was attempted.
@@ -99,7 +101,10 @@ guessing it.
    Python standard library only (ADR-040).
 4. **The model is a class.** Assist asks the `code-medium` class, resolved
    at call time from the `anthropic` provider of
-   `routing/capabilities.json`; it takes no model option.
+   `routing/capabilities.json`; it takes no model option. A null pin
+   (which the schema allows: the harness's own model, and assist has no
+   harness) is refused naming the class, before the store is read;
+   assist never substitutes a model.
 5. **Grounded and bounded.** The request carries, in this order and cut
    from the end to 48 KiB: `fabric-ctl`'s verb table and each verb's
    `--help`; the DIGEST's lookup table; the DIGEST entries `fabric-adr
@@ -124,8 +129,9 @@ guessing it.
    that replaces it; 429 and 529 follow ADR-055's retries (10, 20, 60
    seconds) and then report. No fallback to another key or account.
 9. **`assist` is a reserved first word.** `fabric-ctl assist` takes the
-   verb where other verbs take a login; no login may be named `assist`,
-   and the account-creation path refuses it.
+   verb where other verbs take a login; no login may be named `assist`.
+   `runtime/hosts/schema/hosts.schema.json` refuses it as a placed login,
+   so neither the registry nor an account created from it can hold one.
 
 ## 6. Consequences
 
@@ -142,7 +148,8 @@ guessing it.
 
 - Built after `fabric-ctl`'s per-verb help (#355) lands, which rule 5
   grounds on: a REQUEST to python-dev with this record's rules as the
-  acceptance, the refusal tests of rule 2 first.
+  acceptance, the refusal tests of rule 2 first; the schema change of
+  rule 9 is fabric-coordinator's, in the same pull request.
 - If answers prove too thin, the grounding grows by rule 5's budget, not
   by tools. A follow-up question (a conversation) would be an amendment.
 - If the fleet gains a non-subscription path of its own (ADR-036's broker

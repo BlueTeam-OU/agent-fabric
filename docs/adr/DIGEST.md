@@ -1365,7 +1365,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   accident, the rule a budget one (§4, §5 rule 2).
 - Works with the fleet down: no agentd, relay or subscription token;
   stdlib only; the key never leaves the process (§5 rule 3).
-- `code-medium` from routing, 48 KiB of ranked grounding, 2,048 output
+- `code-medium` from routing (a null pin refused), 48 KiB of ranked grounding, 2,048 output
   tokens, no tools; advice printed, never run; every spend logged to
   `assist.jsonl` without the question (§5 rules 4-7).
 - Builds after #355; waits on the owner's acceptance (§7, §8).
