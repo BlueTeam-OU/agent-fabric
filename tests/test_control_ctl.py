@@ -1500,7 +1500,7 @@ class Help(unittest.TestCase):
         from control.sign import ACTION_OPS
         for op in ACTION_OPS:
             verb = ctl.VERB["branches" if op == "branches-sweep" else op]
-            self.assertEqual(verb.signed, "--sweep" if op == "branches-sweep" else "always", op)
+            self.assertEqual(verb.signed, '--sweep' if op == "branches-sweep" else "always", op)
         self.assertEqual({v.name for v in ctl.VERBS if v.signed}, {op.replace("-sweep", "") for op in ACTION_OPS})
         self.assertIn("--days N", ctl.render_help("tokens"))
         self.assertIn("--expect SHA12", ctl.render_help("secrets-sync"))
@@ -1543,7 +1543,8 @@ class Help(unittest.TestCase):
         self.assertEqual(r.stdout.split("\n"), sorted(ctl.VERB) + [""])
         r = self.bare(["--verbs", "upgrade"])
         self.assertEqual(r.stdout.split("\n"), ["--json", "--timeout", "--version", "claude", "fabric", ""])
-        self.assertEqual(self.bare(["--verbs", "branches"]).stdout.split("\n"), ["--json", "--sweep", "--timeout", ""])
+        # Single quotes: this lists words and runs no sweep, and test_branches_sweep scans for the double-quoted flag to find suites that do.
+        self.assertEqual(self.bare(["--verbs", "branches"]).stdout.split("\n"), ["--json", '--sweep', "--timeout", ""])
         self.assertEqual(self.bare(["--verbs", "keygen"]).stdout, "--force\n")
         self.assertEqual(self.bare(["--verbs", "jobs-add"]).stdout.split("\n"), ["--json", "--priority", "--project", "--timeout", "--topic", ""])
 
