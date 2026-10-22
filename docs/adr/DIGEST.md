@@ -64,6 +64,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | lessons in messages; reflection pass; fabric-reflect; turning the journal into memory | ADR-058 |
 | personal data in AI tools; Max plan; client data; privacy notice; sub-processor | ADR-059 |
 | a holder's own specialization of a role; charter or brief addendum; holder.json; jurisdiction of a legal holder; locale chosen per holder | ADR-060 |
+| fabric-ctl assist; asking about the fabric with the fleet down; the claude-pzhuy API key; who may spend an API key | ADR-063 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1352,3 +1353,21 @@ its record disagree, the record wins. Look it up, never read it whole:
   4-5). Waits on the owner's acceptance (§8).
 - Keywords: hidden unicode, bidi, zero-width, tag characters, control
   characters, prompt injection, lint, pre-commit, skills, slices, apm.
+
+### ADR-063 — fabric-ctl assist: the owner's questions on the claude-pzhuy API key (Proposed)
+
+- `fabric-ctl assist "<question>"` answers from committed fabric text in
+  one Messages API request on `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM`, that
+  key's only spend path; no other launcher or account path reads a
+  `CLAUDE_APIKEY_*` (§2, §5 rule 1).
+- Refused, before the store is read, in an agent session, without a
+  terminal, or for a login not the host's operator; a fence against
+  accident, the rule a budget one (§4, §5 rule 2).
+- Works with the fleet down: no agentd, relay or subscription token;
+  stdlib only; the key never leaves the process (§5 rule 3).
+- `code-medium` from routing, 48 KiB of ranked grounding, 2,048 output
+  tokens, no tools; advice printed, never run; every spend logged to
+  `assist.jsonl` without the question (§5 rules 4-7).
+- Builds after #355; waits on the owner's acceptance (§7, §8).
+- Keywords: assist, fabric-ctl, API key, claude-pzhuy, credit, owner,
+  fleet down, spend, reserve, P5.
