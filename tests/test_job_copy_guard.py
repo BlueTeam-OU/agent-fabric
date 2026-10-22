@@ -469,6 +469,47 @@ class Guard(unittest.TestCase):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.proj), "deny")
 
+    def test_an_operator_word_is_never_an_operand_and_restarts_command_position(self):
+        # Review round 1 of #354, F1 and F2: the redirect-operand skip ate the `(` of `>(` / `<(`, and `{` after
+        # `function NAME` or `coproc [NAME]` was read as an argument; bash runs the body in both.
+        self.active_j7()
+        o = self.other
+        acting = f"cd {o} && git commit -m y\ngit -C {o} push"
+        for runner in (". /dev/stdin", "$SHELL", '"$0"'):
+            for shape in ("tee >({r}) >/dev/null", "tee >({r})", "{{ cat <({r}); }}", "cat < <({r})",
+                          "function f {{ {r}; }}; f", "function f() {{ {r}; }}; f", "coproc {{ {r}; }}",
+                          "coproc NAME {{ {r}; }}", "coproc {r}", "env - {r}", "time env - {r}"):
+                cmd = shape.format(r=runner) + f" <<'X'\n{acting}\nX"
+                with self.subTest(command=cmd):
+                    self.assertEqual(self.decision(cmd, self.proj), "deny")
+        # A substitution in command place, behind any launcher, runs what it prints.
+        for before in ("nice -n 5 ", "env -i A=1 ", "timeout 10 ", "sudo -u root "):
+            cmd = f"{before}\"$(cat <<'X'\n{acting}\nX\n)\""
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+        # The controls: the same shapes with a data word where the runner stood are in-copy publishes.
+        for cmd in (f"tee >(cat) >/dev/null; git commit -F - <<'M'\n{acting}\nM",
+                    f"git commit -F - <<'M' 2>&1 | tee >(cat >\"$LOG\")\n{acting}\nM",
+                    f"function f {{ git add .; }}; f; git commit -F - <<'M'\n{acting}\nM",
+                    f"coproc NAME {{ git add .; }}; git commit -F - <<'M'\n{acting}\nM",
+                    f"echo \"$(date)\" > out; git commit -F - <<'M'\n{acting}\nM"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "allow")
+                self.assertEqual(self.decision(cmd, o), "deny")
+        guard = self.load_guard()
+        for text, names in (("tee >(. x) >/dev/null", ["tee", "."]), ("cat <(x y)", ["cat", "x"]),
+                            ("cmd 2>&1 . x", ["cmd"]), ("function f { x; }", ["x"]), ("coproc N { x; }", ["x"]),
+                            ("coproc x y", ["x"]), ("env - x", ["x"])):
+            with self.subTest(text=text):
+                words = guard.tokens(text)
+                self.assertEqual([words[i] for i in sorted(guard.command_words(words))
+                                  if words[i] not in ("}",)], names)
+        for before, place in (("", True), ("time ", True), ("nice -n 5 ", True), ("env - ", True), ("echo ", False),
+                              ("x=", False),
+                              ('echo "', False), ("git commit -m ", False)):
+            with self.subTest(before=before):
+                self.assertEqual(guard.in_command_place(before), place)
+
     def test_a_launcher_is_stepped_through_to_its_command(self):
         # Review round 6 of #348, F9: a launcher's option operands (`-n 5`, `-u root`) and its own operand (`timeout
         # 10`) are not the command it runs.
