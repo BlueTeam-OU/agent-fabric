@@ -54,6 +54,7 @@ import select
 import shlex
 import signal
 import sys
+import time
 
 # Python's re backtracks where grep did not, so a quantified group whose
 # pieces can match the same text is exponential on a crafted command (CodeQL
@@ -170,9 +171,12 @@ WRITE = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?(sed[\s]+(-[a-zA-Z]*i|--in-place)|tee|rm|
 # making it wrong, and a wall bound would deny a legitimate command as "slow".
 # BUDGET_S is only the wall ceiling under the hook timeout, for a child that
 # is starved past it or answers nothing. AGENT_FABRIC_REVIEW_GUARD_BUDGET may
-# only shorten the ceiling (the tests' seam).
+# only shorten the ceiling (the tests' seam). The ceiling counts from the
+# module's start, not from the fork: import, payload parse and the answer's
+# output sit inside it too, so the hook's total stays near BUDGET_S.
 CPU_BUDGET_S = 3
 BUDGET_S = 8.0
+STARTED = time.monotonic()
 
 REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
@@ -367,6 +371,7 @@ def judged(cmd: str) -> str | None:
         budget = min(budget, float(os.environ.get("AGENT_FABRIC_REVIEW_GUARD_BUDGET", budget)))
     except ValueError:
         pass
+    budget -= time.monotonic() - STARTED
     if not budget > 0:
         return "slow"
     r, w = os.pipe()
