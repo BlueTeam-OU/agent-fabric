@@ -354,7 +354,8 @@ def bootstrap(acct: Account, *args: str, env: dict[str, str] | None = None, cwd:
     e = env if env is not None else acct.env()
     # The one guard that matters before anything runs: nothing points at
     # this account's own home or configuration.
-    for k in ("HOME", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "TMPDIR"):
+    for k in ("HOME", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "TMPDIR",
+              "XDG_DATA_HOME", "BASH_COMPLETION_USER_DIR"):
         if k in e and not os.path.realpath(e[k]).startswith(T + "/"):
             sys.exit(f"test: refusing to run: {k}={e[k]} is outside {T}")
     if not os.path.realpath(e["HOME"]).startswith(T + "/") or os.path.realpath(e["HOME"]) == os.path.realpath(REAL_HOME):
@@ -577,8 +578,12 @@ def first_run() -> None:
           i >= 0 and L[i + 1:i + 1 + len(cmds)] == want, "\n".join(L[i + 1:i + 1 + len(cmds)]))
     check("…each a symlink to the checkout's script, by absolute path",
           all(os.path.islink(f"{LB}/{n}") and os.readlink(f"{LB}/{n}") == f"{FR}/{rel}" for n, rel in cmds))
+    comp = f"{H}/.local/share/bash-completion/completions/fabric-ctl"
+    check("fabric-ctl's completion: linked after the commands, under bash-completion's user directory",
+          i >= 0 and L[i + 1 + len(cmds)] == f"  +  {comp} -> {FR}/tools/fabric/control/completion.bash"
+          and os.readlink(comp) == f"{FR}/tools/fabric/control/completion.bash", L[i + 1 + len(cmds):i + 2 + len(cmds)])
     us = f"  +  {CH}/settings.json fabric user settings"
-    check("the user settings: said after the links", i >= 0 and L[i + 1 + len(cmds)] == us, L[i + 1 + len(cmds):i + 2 + len(cmds)])
+    check("the user settings: said after the links", i >= 0 and L[i + 2 + len(cmds)] == us, L[i + 2 + len(cmds):i + 3 + len(cmds)])
     doc = json.load(open(f"{CH}/settings.json"))
     check("…the attribution reminder off at its source",
           doc.get("attribution") == {"commit": "", "pr": "", "sessionUrl": False}, doc.get("attribution"))
@@ -591,7 +596,7 @@ def first_run() -> None:
     check("…mode 600", mode(f"{CH}/settings.json") == 0o600, oct(mode(f"{CH}/settings.json")))
     check("…asked of claude once: auto-mode defaults", a.calls("claude") == [["claude", "auto-mode", "defaults"]], a.calls("claude"))
 
-    j = i + 2 + len(cmds)
+    j = i + 3 + len(cmds)
     want = [f"  +  {CH}/skills/{n}/SKILL.md" for n, _ in SKILLS]
     check("every skill: one line each, in order", L[j:j + len(SKILLS)] == want, "\n".join(L[j:j + len(SKILLS)]))
     for n, src in SKILLS:
@@ -668,7 +673,7 @@ def first_run() -> None:
 
     # The summary counts the script's own puts, links, the user settings and
     # step 5's lines; the agent files, steps 4, 5b and 7 are not in it.
-    n_written = 2 + 2 + len(cmds) + 1 + len(SKILLS) + 2 + 1 + 2
+    n_written = 2 + 2 + len(cmds) + 1 + 1 + len(SKILLS) + 2 + 1 + 2
     check("the summary counts what was written",
           L[k + 6:] == [f"bootstrap: {n_written} written, 2 already current.",
                         f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 6:]))
@@ -685,7 +690,7 @@ def first_run() -> None:
     check("second run: the tree is unchanged (paths, modes, content)", before == after, diff(before, after))
     plus = [x for x in r2.lines if x.startswith("  +  ") or x.startswith("  -  ")]
     check("second run: nothing said written or removed", plus == [], "\n".join(plus))
-    n_same = 2 + 2 + len(cmds) + 1 + len(SKILLS) + 4 + 1 + 2
+    n_same = 2 + 2 + len(cmds) + 1 + 1 + len(SKILLS) + 4 + 1 + 2
     check("second run: the summary says all of it current",
           f"bootstrap: 0 written, {n_same} already current." in r2.lines, r2.out)
     check("second run: step 4 says =", f"  =  {FR}: core.hooksPath = {HOOK_REL}" in r2.lines)
@@ -711,6 +716,8 @@ def dry_run() -> None:
                  f"  +  {CH}/hooks/review-bash-guard.py (would write)",
                  f"  +  {CH}/hooks/review-bash-guard.sh (would write)",
                  f"  +  {a.lb}/fabric-status -> {FR}/bin/fabric-status (would link)",
+                 f"  +  {a.home}/.local/share/bash-completion/completions/fabric-ctl -> "
+                 f"{FR}/tools/fabric/control/completion.bash (would link)",
                  f"  +  {CH}/settings.json fabric user settings (would write)",
                  f"  +  {FR}: core.hooksPath = {HOOK_REL}",
                  f"  +  {a.wc['alpha']} (alpha): core.hooksPath = {FR}/{HOOK_REL}",
@@ -897,6 +904,35 @@ def local_bin_override() -> None:
     check("exit 0", r.rc == 0, r)
     check("the links go there, not to ~/.local/bin",
           os.path.islink(f"{lb}/fabric-status") and not os.path.lexists(f"{a.lb}/fabric-status"))
+
+
+def completion_dir() -> None:
+    print("bootstrap: fabric-ctl's completion, where bash-completion looks")
+    default = "{}/.local/share/bash-completion/completions/fabric-ctl"
+    a = Account("compxdg", wcs=False)
+    r = bootstrap(a, env=a.env(XDG_DATA_HOME=f"{a.root}/data"))
+    check("XDG_DATA_HOME: the link under it, none under ~/.local/share",
+          r.rc == 0 and os.path.islink(f"{a.root}/data/bash-completion/completions/fabric-ctl")
+          and not os.path.lexists(default.format(a.home)), r)
+    b = Account("compuser", wcs=False)
+    r = bootstrap(b, env=b.env(XDG_DATA_HOME=f"{b.root}/data", BASH_COMPLETION_USER_DIR=f"{b.root}/bc"))
+    check("BASH_COMPLETION_USER_DIR wins over XDG_DATA_HOME, as in bash-completion",
+          r.rc == 0 and os.readlink(f"{b.root}/bc/completions/fabric-ctl") == f"{b.fr}/tools/fabric/control/completion.bash"
+          and not os.path.lexists(f"{b.root}/data/bash-completion"), r)
+    c = Account("compmine", wcs=False)
+    mine = default.format(c.home)
+    put(mine, "complete -W mine fabric-ctl\n")
+    r = bootstrap(c)
+    check("a person's own completion file left alone, said on stderr, counted NOT written",
+          r.rc == 0 and read(mine) == "complete -W mine fabric-ctl\n"
+          and r.err.splitlines() == [f"  !  {mine} is not a link this fabric made — left alone; fabric-ctl has no tab completion"]
+          and r.lines[-2].endswith(", 1 NOT written (above)."), r)
+    os.remove(mine)
+    os.symlink("/elsewhere/agent-fabric/tools/fabric/control/completion.bash", mine)
+    r = bootstrap(c)
+    check("…another checkout's link of ours refreshed to this one",
+          r.rc == 0 and os.readlink(mine) == f"{c.fr}/tools/fabric/control/completion.bash"
+          and f"  +  {mine} -> {c.fr}/tools/fabric/control/completion.bash" in r.lines, r)
 
 
 def user_manager() -> None:
@@ -1166,7 +1202,7 @@ def failures() -> None:
 # its own with its own scratch fabric: the same cases, the wall time of the longest group. Balanced by what each costs on a
 # loaded host (every case is a run of the script, and `failures` and `relay` are the long ones).
 GROUPS = ((failures,), (relay, user_manager), (first_run, record_current, journal, store_trust_base),
-          (arguments, existing_files, no_config_dir, local_bin_override, dry_run, fabric_worktree))
+          (arguments, existing_files, no_config_dir, local_bin_override, completion_dir, dry_run, fabric_worktree))
 
 
 def main() -> int:
