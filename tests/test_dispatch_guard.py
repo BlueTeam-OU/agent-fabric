@@ -77,7 +77,6 @@ def main() -> int:
               or rv["hookSpecificOutput"]["permissionDecision"] == "allow")
 
     print("a supplier dispatches no review of its own part (ADR-020 §5 rule 11)")
-    import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         def repo(branch: str) -> str:
             d = os.path.join(tmp, branch.replace("/", "_"))
