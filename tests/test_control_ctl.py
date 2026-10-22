@@ -1448,5 +1448,88 @@ class Refusals(unittest.TestCase):
         self.assertRegex(dead.stderr, f"fabric-ctl: the relay is unreachable at {re.escape(url)}")
 
 
+class Help(unittest.TestCase):
+    # `fabric-ctl <login|all> <verb> --help`, `help <verb>` and `--verbs` read the verb table (ctl.VERBS) and nothing else: no registry,
+    # no relay, no token. The golden usage text is the one the verbs had before the table (tests/fixtures/ctl-usage.txt).
+    NOT_VERBS = {"pool-list", "pool-claim", "branches-sweep"}   # ops the parser refuses or reaches through branches --sweep
+
+    def bare(self, args: list[str]) -> subprocess.CompletedProcess:
+        home = tempfile.mkdtemp(prefix="ctl-help-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(home, ignore_errors=True))
+        return subprocess.run([sys.executable, CTL, *args], capture_output=True, text=True, env={"PATH": "/nonexistent", "HOME": home}, cwd=home,
+                              timeout=60, stdin=subprocess.DEVNULL, check=False)
+
+    def test_the_table_has_every_verb_the_ops_and_the_unit_ops_and_keygen_have(self):
+        from control.ops import OPS
+        from control import units
+        expected = (set(OPS) - self.NOT_VERBS) | {"states", "keygen", *units.UNIT_OPS}
+        self.assertEqual(set(ctl.VERB), expected)
+
+    def test_usage_is_the_rendered_table_byte_for_byte_as_before_the_table(self):
+        with open(os.path.join(HERE, "tests", "fixtures", "ctl-usage.txt"), encoding="utf-8") as fh:
+            self.assertEqual(ctl.USAGE, fh.read())
+
+    def test_every_verb_has_help_on_stdout_exit_0_with_no_registry_relay_or_token(self):
+        for name in ctl.VERB:
+            for args in (["all", name, "--help"], ["all", name, "-h"], ["help", name]):
+                r = self.bare(args)
+                self.assertEqual((r.returncode, r.stderr), (0, ""), args)
+                self.assertEqual(r.stdout, ctl.render_help(name) + "\n", args)
+                self.assertRegex(r.stdout, rf"(?m)^usage: fabric-ctl .*\b{re.escape(name)}\b", args)
+                self.assertRegex(r.stdout, r"(?m)^action: ")
+                self.assertRegex(r.stdout, r"(?m)^example:\n  fabric-ctl ")
+
+    def test_help_names_every_option_the_verb_takes_and_whether_it_is_signed(self):
+        from control.sign import ACTION_OPS
+        for op in ACTION_OPS:
+            verb = ctl.VERB["branches" if op == "branches-sweep" else op]
+            self.assertEqual(verb.signed, "--sweep" if op == "branches-sweep" else "always", op)
+        self.assertEqual({v.name for v in ctl.VERBS if v.signed}, {op.replace("-sweep", "") for op in ACTION_OPS})
+        self.assertIn("--days N", ctl.render_help("tokens"))
+        self.assertIn("--expect SHA12", ctl.render_help("secrets-sync"))
+        self.assertIn("yes, signed", ctl.render_help("restart"))
+        self.assertIn("no, a read", ctl.render_help("drift"))
+        self.assertIn("only with --sweep", ctl.render_help("branches"))
+
+    def test_every_option_the_table_lists_is_one_the_parser_takes(self):
+        for v in ctl.VERBS:
+            for flag, _ in v.options:
+                if flag == "--":
+                    continue
+                name, *value = flag.split()
+                try:
+                    ctl.parse_args(["x", v.name, name, *(["1"] if value else [])])
+                except ctl.CtlError as e:
+                    self.assertNotRegex(str(e), r"^unknown option", f"{v.name} {flag}")
+        with self.assertRaisesRegex(ctl.CtlError, "unknown option --nope"):   # the positive control: the check can fail
+            ctl.parse_args(["x", "status", "--nope"])
+
+    def test_the_full_usage_stays_on_stderr_for_help_without_a_verb(self):
+        for args in (["--help"], ["all", "--help"], ["help"]):
+            r = self.bare(args)
+            self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ctl.USAGE + "\n"), args)
+
+    def test_an_unknown_verb_is_said_and_exits_2_with_nothing_on_stdout(self):
+        for args in (["all", "bogus", "--help"], ["help", "bogus"], ["--verbs", "bogus"]):
+            r = self.bare(args)
+            self.assertEqual((r.returncode, r.stdout), (2, ""), args)
+            self.assertEqual(r.stderr, "fabric-ctl: unknown verb 'bogus' (fabric-ctl --verbs lists them)\n", args)
+
+    def test_a_title_after_dashes_is_not_a_help_request(self):
+        self.assertIsNone(ctl.help_request(["db-admin", "jobs-add", "--", "--help"]))
+        self.assertEqual(ctl.help_request(["db-admin", "jobs-add", "--help"]), ("help", "jobs-add"))
+        self.assertEqual(ctl.help_request(["all", "--timeout", "status", "--help"]), ("usage", None))   # the value of --timeout is not a word
+
+    def test_verbs_lists_names_sorted_one_per_line_and_a_verbs_options_and_fixed_words(self):
+        r = self.bare(["--verbs"])
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        self.assertEqual(r.stdout.split("\n"), sorted(ctl.VERB) + [""])
+        r = self.bare(["--verbs", "upgrade"])
+        self.assertEqual(r.stdout.split("\n"), ["--json", "--timeout", "--version", "claude", "fabric", ""])
+        self.assertEqual(self.bare(["--verbs", "branches"]).stdout.split("\n"), ["--json", "--sweep", "--timeout", ""])
+        self.assertEqual(self.bare(["--verbs", "keygen"]).stdout, "--force\n")
+        self.assertEqual(self.bare(["--verbs", "jobs-add"]).stdout.split("\n"), ["--json", "--priority", "--project", "--timeout", "--topic", ""])
+
+
 if __name__ == "__main__":
     unittest.main()
