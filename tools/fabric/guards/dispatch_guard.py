@@ -34,8 +34,10 @@ TWO CLASSES OF DISPATCH, decided in this order:
   REVIEW class    -> subagent_type "code-review" AND description
                      beginning "review" / "re-review" (any word
                      form: Reviewing, Re-review of ...) AND model
-                     "fable" AND NO isolation. All four, or denied --
-                     never asked. Standing authorisation for the
+                     "fable" AND NO isolation AND a session not on a
+                     <host>/<login>/for/ branch (a supplier reviews
+                     nothing of its own part, ADR-020 §5 rule 11). All
+                     five, or denied -- never asked. Standing authorisation for the
                      class: a review's failure mode is not a retry,
                      it is a green PR that merges, so no per-dispatch
                      prompt and no dropping to a cheaper tier because
