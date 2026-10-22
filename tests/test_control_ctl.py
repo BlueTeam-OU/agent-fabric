@@ -1523,7 +1523,10 @@ class Help(unittest.TestCase):
         return True
 
     def test_the_options_a_verb_lists_are_exactly_the_scoped_options_the_parser_takes_with_it(self):
-        scoped = ["--sweep", "--follow", "--include-self", "--days", "--version", "--expect", "--restart", "--topic", "--project", "--priority", "--role"]
+        # Every flag the table lists for any verb, bar the title separator and those parse_args takes on every verb (--force and --out are
+        # accepted and ignored everywhere, which the parser cannot tell apart from "omitted"): a flag added to one verb's row joins the
+        # check by itself, instead of a list kept by hand.
+        scoped = sorted({f.split()[0] for v in ctl.VERBS for f, _ in v.options} - {"--json", "--timeout", "--force", "--out", "--"})
         for v in ctl.VERBS:
             listed = {f.split()[0] for f, _ in v.options}
             for flag in listed - {"--"}:
@@ -1532,7 +1535,7 @@ class Help(unittest.TestCase):
                 self.assertEqual(flag in listed, self.takes(v.name, flag), f"{v.name} {flag}: the table and the parser disagree")
         with self.assertRaisesRegex(ctl.CtlError, "unknown option --nope"):   # the positive control: the parser can refuse
             ctl.parse_args(["x", "status", "--nope"])
-        self.assertFalse(self.takes("tokens", "--sweep"))   # …and a scoped option on the wrong verb is refused, which the first loop would catch
+        self.assertFalse(self.takes("tokens", '--sweep'))   # …and a scoped option on the wrong verb is refused, which the first loop would catch
 
     def test_the_full_usage_stays_on_stderr_for_help_without_a_verb(self):
         for args in (["--help"], ["all", "--help"], ["help"]):
