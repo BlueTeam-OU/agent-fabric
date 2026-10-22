@@ -255,6 +255,11 @@ def budget() -> None:
     real = mod.verdict
     pidfile = os.path.join(tempfile.mkdtemp(prefix="guard-budget-"), "pid")
 
+    def fresh(cmd: str) -> str | None:
+        # The ceiling counts from the module's start; a test that wants the verdict judged on its own terms starts the clock.
+        mod.STARTED = time.monotonic()
+        return mod.judged(cmd)
+
     def starve() -> None:
         # Stop the verdict child for longer than the old 3 s wall budget, then let it go on.
         for _ in range(500):
@@ -292,31 +297,44 @@ def budget() -> None:
         helper = threading.Thread(target=starve)
         helper.start()
         started = time.monotonic()
-        got = mod.judged("x")
+        got = fresh("x")
         helper.join()
         check("a verdict child stopped for 3.5 s of wall (starved) is still judged, not denied as slow",
               got is None and time.monotonic() - started >= 3.5, f"{got!r} after {time.monotonic() - started:.1f} s")
         mod.verdict = spins
         started = time.monotonic()
-        got = mod.judged("x")
+        got = fresh("x")
         check("a verdict that spins on CPU past 3 s is denied as slow, well under the wall ceiling",
               got == "slow" and time.monotonic() - started < mod.BUDGET_S, f"{got!r} after {time.monotonic() - started:.1f} s")
         mod.verdict = reports_limit
-        check("the child runs the verdict under RLIMIT_CPU (3, 3)", mod.judged("x") == "git", "limit not set in the child")
+        check("the child runs the verdict under RLIMIT_CPU (3, 3)", fresh("x") == "git", "limit not set in the child")
         mod.verdict = killed
-        check("a child killed by another signal answers nothing and is an error, never an allow", mod.judged("x") == "error")
+        check("a child killed by another signal answers nothing and is an error, never an allow", fresh("x") == "error")
         mod.verdict = lambda cmd: 1 / 0
-        check("a verdict that raises is an error", mod.judged("x") == "error")
+        check("a verdict that raises is an error", fresh("x") == "error")
         mod.verdict = stuck
         os.environ["AGENT_FABRIC_REVIEW_GUARD_BUDGET"] = "0.5"
         started = time.monotonic()
-        got = mod.judged("x")
+        got = fresh("x")
         check("a child that answers nothing within the (shortened) wall ceiling is slow",
               got == "slow" and time.monotonic() - started < 3, f"{got!r}")
         os.environ["AGENT_FABRIC_REVIEW_GUARD_BUDGET"] = "100"
         mod.verdict = real
-        check("the environment cannot lengthen the ceiling (positive control: the real verdict is allowed)",
-              mod.BUDGET_S == 8.0 and mod.judged("ls") is None)
+        check("the environment's longer budget leaves the ceiling (positive control: the real verdict is allowed)",
+              mod.BUDGET_S == 8.0 and fresh("ls") is None)
+        mod.verdict = stuck
+        started = time.monotonic()
+        got = fresh("x")
+        check("the environment cannot lengthen the ceiling: a 30 s verdict under a budget of 100 is slow in under 9 s",
+              got == "slow" and time.monotonic() - started < 9, f"{got!r} after {time.monotonic() - started:.1f} s")
+        os.environ.pop("AGENT_FABRIC_REVIEW_GUARD_BUDGET")
+        mod.STARTED = time.monotonic() - 7.0
+        started = time.monotonic()
+        got = mod.judged("x")
+        check("the ceiling counts from the module's start: 7 s spent before judged() leaves the child about 1 s",
+              got == "slow" and time.monotonic() - started < 2, f"{got!r} after {time.monotonic() - started:.1f} s")
+        mod.STARTED = time.monotonic() - 9.0
+        check("a start more than the ceiling ago is slow without a fork", mod.judged("ls") == "slow")
     finally:
         os.environ.pop("AGENT_FABRIC_REVIEW_GUARD_BUDGET", None)
         mod.verdict = real
