@@ -3,7 +3,7 @@
 **Date:** 2026-10-22
 **Status:** Proposed
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** `fabric-ctl assist "<question>"`, the module that implements it, the login pattern of `runtime/hosts/schema/hosts.schema.json`, the `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM` entry in the host operator's store, and every other path by which that key could be spent
+**Scope:** `fabric-ctl assist "<question>"`, the module that implements it, the login pattern of `runtime/hosts/schema/hosts.schema.json` and `tools/fabric/new_agent.py`, the `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM` entry in the host operator's store, and every other path by which that key could be spent
 **Pillar:** P5
 
 ## 1. Context and Problem
@@ -130,8 +130,10 @@ guessing it.
    seconds) and then report. No fallback to another key or account.
 9. **`assist` is a reserved first word.** `fabric-ctl assist` takes the
    verb where other verbs take a login; no login may be named `assist`.
-   `runtime/hosts/schema/hosts.schema.json` refuses it as a placed login,
-   so neither the registry nor an account created from it can hold one.
+   `tools/fabric/new_agent.py` refuses the name before it makes anything,
+   and `runtime/hosts/schema/hosts.schema.json` refuses it as a placed
+   login, so no account can be made under it and the registry cannot
+   place one.
 
 ## 6. Consequences
 
@@ -148,8 +150,9 @@ guessing it.
 
 - Built after `fabric-ctl`'s per-verb help (#355) lands, which rule 5
   grounds on: a REQUEST to python-dev with this record's rules as the
-  acceptance, the refusal tests of rule 2 first; the schema change of
-  rule 9 is fabric-coordinator's, in the same pull request.
+  acceptance, the refusal tests of rule 2 first, and `new_agent.py`'s
+  refusal of rule 9; the schema change of rule 9 is fabric-coordinator's,
+  in the same pull request.
 - If answers prove too thin, the grounding grows by rule 5's budget, not
   by tools. A follow-up question (a conversation) would be an amendment.
 - If the fleet gains a non-subscription path of its own (ADR-036's broker
