@@ -1523,10 +1523,12 @@ class Help(unittest.TestCase):
         return True
 
     def test_the_options_a_verb_lists_are_exactly_the_scoped_options_the_parser_takes_with_it(self):
-        # Every flag the table lists for any verb, bar the title separator and those parse_args takes on every verb (--force and --out are
-        # accepted and ignored everywhere, which the parser cannot tell apart from "omitted"): a flag added to one verb's row joins the
-        # check by itself, instead of a list kept by hand.
-        scoped = sorted({f.split()[0] for v in ctl.VERBS for f, _ in v.options} - {"--json", "--timeout", "--force", "--out", "--"})
+        # Every flag parse_args knows, read from its own source, so a flag the table leaves out of every row is still judged; bar the title
+        # separator and those it takes on every verb (--force and --out are accepted and ignored everywhere, which the parser cannot tell
+        # apart from "omitted").
+        import inspect
+        scoped = sorted(set(re.findall(r'a == "(--[a-z-]+)"', inspect.getsource(ctl.parse_args))) - {"--json", "--timeout", "--force", "--out"})
+        self.assertIn("--follow", scoped)   # the read found the parser's flags: an empty or short list would pass the loop below for nothing
         for v in ctl.VERBS:
             listed = {f.split()[0] for f, _ in v.options}
             for flag in listed - {"--"}:
