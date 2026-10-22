@@ -38,6 +38,8 @@ Writes, idempotently, and only machine-local files:
                                      the dispatch policy as a loadable skill, from policies/
   ~/.local/bin/<name>                every command a session runs, by name
                                      (runtime/claude-code/commands.json)
+  <completions>/fabric-ctl           a link to tools/fabric/control/completion.bash, where
+                                     bash-completion loads a user's own on the first <TAB>
   <working copy>/.git/config         core.hooksPath; and, where policies/signing.json names the
                                      copy's repository (agent-fabric ADR-057), gpg.format,
                                      gpg.program and gpg.ssh.program = ~/.local/bin/fabric-sign,
@@ -65,7 +67,10 @@ Writes, idempotently, and only machine-local files:
   <state>/agents/<login>/episodic.db this account's GZCoord history, imported once through the
                                      relay as itself (episodic.py gzcoord-import --if-needed,
                                      agent-fabric ADR-041 rule 9), best effort
-where <units> is $XDG_CONFIG_HOME/systemd/user, else ~/.config/systemd/user.
+where <units> is $XDG_CONFIG_HOME/systemd/user, else ~/.config/systemd/user,
+and <completions> is $BASH_COMPLETION_USER_DIR/completions, else
+$XDG_DATA_HOME/bash-completion/completions, else
+~/.local/share/bash-completion/completions (bash-completion's own order).
 
 Nothing here names an agent: the hooks ask the OS who is running at
 session start. Nothing here makes projects/ a git repository. A managed
@@ -89,6 +94,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                (the user manager's bus; set to /run/user/<uid> for the
                children when unset, outside a dry run);
                AGENT_FABRIC_LOCAL_BIN (else ~/.local/bin);
+               BASH_COMPLETION_USER_DIR, XDG_DATA_HOME (<completions>);
                AGENT_FABRIC_DEFER_AGENTD_RESTART (non-empty: a changed
                control-agent unit is not restarted, and the line says so);
                the collation locale (LC_ALL / LC_COLLATE / LANG), which
@@ -511,6 +517,7 @@ class Bootstrap:
         self.put_file(os.path.join(self.claude_home, "hooks", "review-bash-guard.sh"),
                       "runtime/claude-code/hooks/review-bash-guard.sh")
         self.link_commands()
+        self.link_completion()
         self.user_settings()
         # The dispatch policy is a skill the project CLAUDE.md files tell a session
         # to load (`subagent-dispatch`); user-scope, so no project needs a copy.
@@ -671,35 +678,53 @@ class Bootstrap:
             self.failed += 1
             commands, replaces = [], {}
         for name, rel in commands:
-            if not name:
-                continue
-            target, link = self.src(rel), os.path.join(local_bin, name)
-            current = os.readlink(link) if os.path.islink(link) else None
-            if current == target:
-                say(f"  =  {link}")
-                self.same += 1
-                continue
-            ours = current is not None and any(current.endswith("/" + r) for r in [rel, *replaces.get(name, [])])
-            if os.path.lexists(link) and not ours:
-                warn(f"  !  {link} is not a link this fabric made — left alone; {name} is not on PATH")
-                self.failed += 1
-                continue
-            if self.dry_run:
-                say(f"  +  {link} -> {target} (would link)")
-                continue
-            try:
-                os.makedirs(local_bin, exist_ok=True)
-                tmp = os.path.join(local_bin, f".{name}.bootstrap-link")
-                if os.path.lexists(tmp):
-                    os.unlink(tmp)
-                os.symlink(target, tmp)
-                os.replace(tmp, link)
-            except OSError:
-                warn(f"  !  {link}: could not link")
-                self.failed += 1
-                continue
-            say(f"  +  {link} -> {target}")
-            self.changed += 1
+            if name:
+                self.link(os.path.join(local_bin, name), rel, replaces.get(name, []), f"{name} is not on PATH")
+
+    def completion_dir(self) -> str:
+        # Where bash-completion's lazy loader looks for a user's own file named
+        # after the command, the same precedence it applies itself.
+        data = os.environ.get("XDG_DATA_HOME") or os.path.join(self.home, ".local", "share")
+        return os.environ.get("BASH_COMPLETION_USER_DIR") or os.path.join(data, "bash-completion")
+
+    def link_completion(self) -> None:
+        # fabric-ctl's tab completion (owner, 2026-10-22): a link, not a copy, so
+        # a pulled checkout's new verbs complete without another bootstrap.
+        self.link(os.path.join(self.completion_dir(), "completions", "fabric-ctl"),
+                  "tools/fabric/control/completion.bash", [], "fabric-ctl has no tab completion")
+
+    def link(self, link: str, rel: str, earlier: list[str], lost: str) -> None:
+        """Point link at the checkout's rel. A link this fabric made — to this
+        checkout, another one's same path, or an earlier rel — is refreshed;
+        anything else there is the account's, refused and said with what is lost."""
+        target = self.src(rel)
+        current = os.readlink(link) if os.path.islink(link) else None
+        if current == target:
+            say(f"  =  {link}")
+            self.same += 1
+            return
+        ours = current is not None and any(current.endswith("/" + r) for r in [rel, *earlier])
+        if os.path.lexists(link) and not ours:
+            warn(f"  !  {link} is not a link this fabric made — left alone; {lost}")
+            self.failed += 1
+            return
+        if self.dry_run:
+            say(f"  +  {link} -> {target} (would link)")
+            return
+        try:
+            d = os.path.dirname(link)
+            os.makedirs(d, exist_ok=True)
+            tmp = os.path.join(d, f".{os.path.basename(link)}.bootstrap-link")
+            if os.path.lexists(tmp):
+                os.unlink(tmp)
+            os.symlink(target, tmp)
+            os.replace(tmp, link)
+        except OSError:
+            warn(f"  !  {link}: could not link")
+            self.failed += 1
+            return
+        say(f"  +  {link} -> {target}")
+        self.changed += 1
 
     def user_settings(self) -> None:
         # Linked BEFORE the settings are written: an allow rule is granted only for
