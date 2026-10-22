@@ -21,6 +21,7 @@ Module, called directly:
 from __future__ import annotations
 
 import os
+import subprocess
 import stat
 import sys
 
@@ -123,6 +124,32 @@ class Direct(unittest.TestCase):
         self.assertTrue(ch.FABRIC_ROLE_RE.match("\u2003Fabric-Role: x"))
         for lead in ("\u00a0", "\u2007", "\u202f", "\x1c", "\x85"):
             self.assertFalse(ch.FABRIC_ROLE_RE.match(lead + "Fabric-Role: x"), repr(lead))
+
+    def test_the_role_stamp_matches_what_grep_i_matches_for_every_code_point(self):
+        # mutation: re.I alone, which Python folds U+0130 and U+0131 into "i" under where grep -i, the shell hooks' test, does not
+        # (#329 round 3). Each code point stands in the lead and in the place of each letter of the name, one line apiece (the hyphen and colon too), and
+        # grep and the pattern must agree on every line. A lone surrogate has no UTF-8 spelling and a newline ends the line.
+        name = "Fabric-Role: x"
+        places = [None, *range(len("Fabric-Role:"))]
+        grep_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C.UTF-8"}
+        disagreements = []
+        checked = 0
+        for block in range(0, 0x110000, 0x10000):
+            lines = []
+            for cp in range(block, block + 0x10000):
+                if cp == 0x0A or 0xD800 <= cp <= 0xDFFF:
+                    continue
+                for place in places:
+                    lines.append(chr(cp) + name if place is None else name[:place] + chr(cp) + name[place + 1:])
+            r = subprocess.run(["grep", "-a", "-n", "-i", "-E", "^[[:space:]]*Fabric-Role:"], input=("\n".join(lines) + "\n").encode(),
+                               capture_output=True, env=grep_env, timeout=300)    # bytes: text mode would turn a \r into a line end
+            self.assertIn(r.returncode, (0, 1), r.stderr)
+            theirs = {int(l.split(b":", 1)[0]) - 1 for l in r.stdout.split(b"\n") if l[:1].isdigit()}
+            ours = {i for i, line in enumerate(lines) if ch.FABRIC_ROLE_RE.match(line)}
+            disagreements += [repr(lines[i]) for i in sorted(ours ^ theirs)]
+            checked += len(lines)
+        self.assertGreater(checked, 14_000_000, "the pipe covered every code point")
+        self.assertEqual(disagreements[:5], [], f"{len(disagreements)} line(s) where grep -i and FABRIC_ROLE_RE disagree")
 
     def test_a_locale_path_is_the_whole_path(self):
         ok = "identities/roles/language-culture/locale/ge/a.md"
