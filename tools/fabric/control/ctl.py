@@ -117,33 +117,197 @@ from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, V
 import roots
 
 UNDEFINED = js.UNDEFINED
-USAGE = (
-    "usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n"
-    "       fabric-ctl <login|all> tokens [--days N]\n"
-    "       fabric-ctl <login|all> memory --out <dir>\n"
-    "       fabric-ctl <login|all> upgrade claude [--version V]\n"
-    "       fabric-ctl <login|all> upgrade fabric   (every account to this checkout's origin/main, then bootstrap)\n"
-    "       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n"
-    "       fabric-ctl <login|all> presence   (any placed account may ask)\n"
-    "       fabric-ctl <login|all> jobs\n"
-    "       fabric-ctl <login|all> tools   (each account: its missing required tools, from its hourly report)\n"
-    "       fabric-ctl <login|all> tools-install <tool>   (an action: install the tool its registry pin names, on the accounts with a working copy of a project that declares it)\n"
-    "       fabric-ctl <login|all> restart   (an action: stop the account's running session so its launcher resumes it on the current fabric; one account at a time for all; refused while an upgrade or a secrets-sync runs)\n"
-    "       fabric-ctl <login|all> gateway   (each account: the gateway binary it has, its version and digest)\n"
-    "       fabric-ctl <login|all> gateway-install --version V   (an action: install the gateway release the reviewed pin names, SHA-256 checked; a running gateway is never stopped)\n"
-    "       fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] \"<title>\"\n"
-    "       fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] \"<title>\"\n"
-    "       fabric-ctl <login|all> secrets-selftest\n"
-    "       fabric-ctl <login|all> local\n"
-    "       fabric-ctl <login|all> local-prune\n"
-    "       fabric-ctl <login|all> branches   (each account, per working copy: the last sweep, its local branches and worktrees, how many are wholly on the default branch; no fetch, nothing changed)\n"
-    "       fabric-ctl <login|all> branches --sweep   (an action: the account runs fabric-branches --sweep in each working copy with no uncommitted change and no build or suite running in it)\n"
-    "       fabric-ctl <login|all> drift   (each account: the files the fabric wrote there that are edited or missing, and what bootstrap --dry-run would change that the record does not explain; nothing changed)\n"
-    "       fabric-ctl <login|all> states [--follow] [--json]\n"
-    "       fabric-ctl <coordinator> switch   (the account switch controller's mode and move log, ADR-052; any other account has none)\n"
-    "       fabric-ctl <login|all> control-start [--json]   (starts each account's stopped control agent through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60)\n"
-    "       fabric-ctl <login|all> control-stop [--json] [--include-self]   (stops it, the unit staying enabled; this session's own account's agent only with --include-self)\n"
-    "       fabric-ctl keygen [--force]")
+
+
+# ── the verbs ───────────────────────────────────────────────────────
+#
+# One table: USAGE, `<verb> --help` and `--verbs` are all rendered from it, so
+# they cannot drift. Help reads this table and nothing else (no registry, no
+# relay, no token): it has to work with the fleet and the control agents down.
+
+class Verb:
+    """What a person and a completion need to know about one verb."""
+
+    def __init__(self, name: str, about: str, example: str, *, usage: tuple = (), target: str = "<login|all>", args: str = "",
+                 options: tuple = (), words: tuple = (), signed: str = "", read: bool = False) -> None:
+        self.name = name
+        self.about = about
+        self.example = example
+        self.usage = usage       # (synopsis after "fabric-ctl ", note or None) lines this verb contributes to USAGE, in order
+        self.target = target
+        self.args = args        # the words after the verb, as the synopsis shows them
+        self.options = options   # (flag as written, what it does)
+        self.words = words       # fixed words that follow the verb (upgrade claude)
+        self.signed = signed     # "" a read; "always" an action; else the option that makes it one
+        self.read = read         # one of the verbs USAGE's first line folds into an alternation
+
+
+JSON_OPT = ("--json", "one JSON object per line instead of the table")
+TIMEOUT_OPT = ("--timeout S", "seconds to wait for the answers (a positive number; each verb has its own default)")
+COMMON = (JSON_OPT, TIMEOUT_OPT)
+JOB_OPTS = (("--topic T", "the job's topic"), ("--project P", "the project the job is for"), ("--priority P", "the job's priority"))
+
+
+def _read(name: str, about: str) -> Verb:
+    return Verb(name, about, f"fabric-ctl all {name}", options=COMMON, read=True)
+
+
+VERBS: tuple[Verb, ...] = (
+    _read("status", "Everything at once: identity, usage, keys, fabric head, sessions, harness and inbox. The verb when none is given."),
+    _read("usage", "Each account's Claude usage windows."),
+    _read("identity", "Who each account is and which Claude account its sessions run on."),
+    _read("keys", "Each account's key state: Claude credentials, the operator signing secret, the store and the Codex sign-in. Never a value."),
+    _read("fabric", "The fabric checkout each account runs on: head, branch, how far behind origin/main, and whether the tree is clean."),
+    _read("session", "Each account's sessions."),
+    _read("script", "The writing scripts and languages in each account's last 24 hours of session text."),
+    _read("recall", "What each account's last 24 hours of session records recall."),
+    _read("host", "The machine, one row per host: load, memory and the Xen balloon, disks, the leases held, the largest processes."),
+    _read("disk", "Each account's own home, largest first: total, its largest entry, the target/ directories under ~/projects."),
+    _read("accounts", "Each observed Claude account's windows: session, weekly, per-model weekly."),
+    _read("ping", "Whether each control agent answers, and how fast. Waits 5 s by default."),
+    Verb("tokens", "Each login's spend from its own session records, grouped by Claude account with its share.", "fabric-ctl all tokens --days 7",
+         usage=(("<login|all> tokens [--days N]", None),), args="[--days N]",
+         options=(("--days N", "the window, a positive number of days"),) + COMMON),
+    Verb("memory", "The drain: each account's memory bundles, written to <dir>/<login>/<working copy>.tar.", "fabric-ctl all memory --out ./drain",
+         usage=(("<login|all> memory --out <dir>", None),), args="--out <dir>",
+         options=(("--out DIR", "where the bundles are written (required)"),) + COMMON),
+    Verb("upgrade", "Move each account's harness (claude) or fabric checkout (fabric) to the pin, then resume a running session on it.",
+         "fabric-ctl all upgrade fabric", usage=(("<login|all> upgrade claude [--version V]", None),
+                                                 ("<login|all> upgrade fabric", "every account to this checkout's origin/main, then bootstrap")),
+         args="claude [--version V] | fabric", signed="always", words=("claude", "fabric"),
+         options=(("--version V", "digits.digits.digits; with claude only (fabric takes none: it moves to this checkout's origin/main)"),) + COMMON),
+    Verb("secrets-sync", "Re-apply each login's own secret store, prove it, and resume a session.", "fabric-ctl db-admin secrets-sync --restart",
+         usage=(("<login|all> secrets-sync [--expect SHA12] [--restart]", None),), args="[--expect SHA12] [--restart]", signed="always",
+         options=(("--expect SHA12", "the 12-hex setup-token fingerprint the account must hold (fabric-accounts templates)"),
+                  ("--restart", "resume a session on the result")) + COMMON),
+    Verb("presence", "Whether each account has a session running, since when, as which role.", "fabric-ctl all presence",
+         usage=(("<login|all> presence", "any placed account may ask"),), options=COMMON),
+    Verb("jobs", "Each account's stored job list.", "fabric-ctl all jobs", usage=(("<login|all> jobs", None),), options=COMMON),
+    Verb("tools", "Each account's missing required tools, from its hourly report.", "fabric-ctl all tools",
+         usage=(("<login|all> tools", "each account: its missing required tools, from its hourly report"),), options=COMMON),
+    Verb("tools-install", "Install the tool its registry pin names, on the accounts with a working copy of a project that declares it.",
+         "fabric-ctl all tools-install shellcheck",
+         usage=(("<login|all> tools-install <tool>", "an action: install the tool its registry pin names, on the accounts with a working copy of a project that declares it"),),
+         args="<tool>", signed="always", options=COMMON),
+    Verb("restart", "Stop the account's running session so its launcher resumes it on the current fabric. One account at a time for all; refused while an upgrade or a secrets-sync runs.",
+         "fabric-ctl db-admin restart",
+         usage=(("<login|all> restart", "an action: stop the account's running session so its launcher resumes it on the current fabric; one account at a time for all; refused while an upgrade or a secrets-sync runs"),),
+         signed="always", options=COMMON),
+    Verb("gateway", "Each account's gateway binary, its version and digest.", "fabric-ctl all gateway",
+         usage=(("<login|all> gateway", "each account: the gateway binary it has, its version and digest"),), options=COMMON),
+    Verb("gateway-install", "Install the gateway release the reviewed pin names, SHA-256 checked. A running gateway is never stopped.",
+         "fabric-ctl all gateway-install --version 1.2.3",
+         usage=(("<login|all> gateway-install --version V", "an action: install the gateway release the reviewed pin names, SHA-256 checked; a running gateway is never stopped"),),
+         args="--version V", signed="always", options=(("--version V", "digits.digits.digits: the release (required)"),) + COMMON),
+    Verb("jobs-add", "Add a job to one agent's list. A job is one agent's, never the fleet's.", 'fabric-ctl db-admin jobs-add --project agent-fabric "port the thing"',
+         usage=(('<login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<login>",
+         args='[--topic T] [--project P] [--priority P] [--] "<title>"', signed="always",
+         options=JOB_OPTS + (("--", "ends the options: the next word is the title even if it starts with a dash"),) + COMMON),
+    Verb("pool-add", "Add a job to a role's pool, through the account that holds the pool.", 'fabric-ctl pool-holder pool-add --role python-dev "port the thing"',
+         usage=(('<holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<holder>",
+         args='--role R [--topic T] [--project P] [--priority P] [--] "<title>"', signed="always",
+         options=(("--role R", "the role whose pool receives the job (required)"),) + JOB_OPTS
+         + (("--", "ends the options: the next word is the title even if it starts with a dash"),) + COMMON),
+    Verb("secrets-selftest", "An own secret set, used and removed on each account (fabric-secrets selftest); pass or fail per step.", "fabric-ctl all secrets-selftest",
+         usage=(("<login|all> secrets-selftest", None),), signed="always", options=COMMON),
+    Verb("local", "Each account's per-clone settings.local.json: names only, never a value.", "fabric-ctl all local", usage=(("<login|all> local", None),), options=COMMON),
+    Verb("local-prune", "Remove from each clone's settings.local.json env the entries that duplicate a synced secret.", "fabric-ctl all local-prune", usage=(("<login|all> local-prune", None),),
+         signed="always", options=COMMON),
+    Verb("branches", "Each account, per working copy: the last sweep, its local branches and worktrees, how many are wholly on the default branch. No fetch, nothing changed; with --sweep the account runs fabric-branches --sweep.",
+         "fabric-ctl all branches --sweep",
+         usage=(("<login|all> branches", "each account, per working copy: the last sweep, its local branches and worktrees, how many are wholly on the default branch; no fetch, nothing changed"),
+                ("<login|all> branches --sweep", "an action: the account runs fabric-branches --sweep in each working copy with no uncommitted change and no build or suite running in it")),
+         args="[--sweep]", signed="--sweep",
+         options=(("--sweep", "an action (signed): sweep the branches that are wholly on the default branch"),) + COMMON),
+    Verb("drift", "Each account: the files the fabric wrote there that are edited or missing, and what bootstrap --dry-run would change that the record does not explain. Nothing changed.",
+         "fabric-ctl all drift", usage=(("<login|all> drift", "each account: the files the fabric wrote there that are edited or missing, and what bootstrap --dry-run would change that the record does not explain; nothing changed"),),
+         options=COMMON),
+    Verb("states", "What each account's sessions are doing (working, blocked, idle), from agentd's state records. Reads the channel; no request is sent.",
+         "fabric-ctl all states --follow", usage=(("<login|all> states [--follow] [--json]", None),), args="[--follow] [--json]",
+         options=(("--follow", "keep waiting and print an account's row whenever it changes"), JSON_OPT)),
+    Verb("switch", "The account switch controller's mode and move log (ADR-052). Any other account has none.", "fabric-ctl fabric-coordinator switch",
+         usage=(("<coordinator> switch", "the account switch controller's mode and move log, ADR-052; any other account has none"),),
+         target="<coordinator>", options=COMMON),
+    Verb("control-start", "Start each account's stopped control agent through the host executor, read back by is-active. Sends no request.",
+         "fabric-ctl all control-start",
+         usage=(("<login|all> control-start [--json]", "starts each account's stopped control agent through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60"),),
+         args="[--json]", options=COMMON),
+    Verb("control-stop", "Stop each account's control agent, the unit staying enabled. This session's own account's only with --include-self. Sends no request.",
+         "fabric-ctl db-admin control-stop", usage=(("<login|all> control-stop [--json] [--include-self]", "stops it, the unit staying enabled; this session's own account's agent only with --include-self"),),
+         args="[--json] [--include-self]", options=COMMON + (("--include-self", "also stop the agent of the account this session runs under"),)),
+    Verb("keygen", "Make the operator signing key an action needs. Takes no login.", "fabric-ctl keygen", usage=(("keygen [--force]", None),),
+         target="", args="[--force]", options=(("--force", "replace an existing key"),)),
+)
+VERB = {v.name: v for v in VERBS}
+assert len(VERB) == len(VERBS), "a verb is in the table once"
+
+
+def _line(synopsis: str, note: str | None) -> str:
+    return f"fabric-ctl {synopsis}" + (f"   ({note})" if note else "")
+
+
+def render_usage() -> str:
+    """The whole usage text. The read verbs fold into the one alternation on its first line, in table order."""
+    lines = [f"fabric-ctl <login|all> [{'|'.join(v.name for v in VERBS if v.read)}] [--json] [--timeout S]"]
+    lines += [_line(*u) for v in VERBS for u in v.usage]
+    return "usage: " + "\n       ".join(lines)
+
+
+def render_help(verb: str) -> str:
+    v = VERB[verb]
+    head = " ".join(w for w in ("fabric-ctl", v.target, v.name, v.args) if w)
+    out = [f"usage: {head}", "", v.about, "",
+           "action: " + {"": "no, a read; nothing is signed", "always": "yes, signed with the operator key (an unsigned one is refused by every agent)"}.get(
+               v.signed, f"only with {v.signed}, which is signed with the operator key; without it a read")]
+    if v.options:
+        out += ["", "options:"] + [f"  {flag:<16}{what}" for flag, what in v.options]
+    out += ["", "example:", f"  {v.example}"]
+    return "\n".join(out)
+
+
+def verbs_listing(verb: str | None = None) -> list[str]:
+    """What `--verbs [verb]` prints, one per line: the verb names, sorted; or one verb's options and fixed words."""
+    if verb is None:
+        return sorted(VERB)
+    v = VERB[verb]
+    return sorted({f.split()[0] for f, _ in v.options if f != "--"} | set(v.words))
+
+
+USAGE = render_usage()
+
+VALUE_OPTIONS = ("--timeout", "--out", "--days", "--version", "--expect", "--topic", "--project", "--priority", "--role")
+
+
+def help_request(argv: list[str]) -> tuple[str, str | None] | None:
+    """What a help or verb-list word in argv asks for, decided from argv alone (no registry, no relay, no token):
+    ("verbs", verb or None), ("usage", None), ("help", verb) or ("unknown", the word). None when argv asks for none of them."""
+    if argv[:1] == ["--verbs"]:
+        return ("verbs", argv[1] if len(argv) > 1 else None)
+    words: list[str] = []
+    asked = False
+    skip = False
+    for a in argv:
+        if skip:
+            skip = False
+        elif a == "--":
+            break   # what follows is a jobs-add or pool-add title, never an option
+        elif a in ("-h", "--help"):
+            asked = True
+        elif a in VALUE_OPTIONS:
+            skip = True
+        elif not a.startswith("-"):
+            words.append(a)
+    if words[:1] == ["help"]:
+        asked, words = True, words[1:]
+        return ("help", words[0]) if words and words[0] in VERB else ("unknown", words[0]) if words else ("usage", None)
+    if not asked:
+        return None
+    found = next((w for w in words if w in VERB), None)
+    if found:
+        return ("help", found)
+    # `<target> <word>` is the one shape that names a verb we do not know. A lone word is a target; more words may be several
+    # targets (`alice bob --help`), and no registry is read here to tell a login from a verb: the whole usage is the help.
+    return ("unknown", words[1]) if len(words) == 2 else ("usage", None)
 
 FETCH_TIMEOUT_S = 60
 
@@ -1691,11 +1855,27 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
          now: Callable[[], float] = time.time, who: dict | None = None, token: str | None = None,
          units_run: units.Run | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    asked = help_request(argv)
+    if asked is not None:
+        kind, word = asked
+        if kind == "usage":
+            err(USAGE)   # where the whole usage has always gone; only a verb's own help is on stdout
+            return 0
+        if word is not None and word not in VERB:
+            err(f"fabric-ctl: unknown verb {word!r} (fabric-ctl --verbs lists them)")
+            return 2
+        if kind == "verbs":
+            for line in verbs_listing(word):
+                out(line)
+        else:
+            out(render_help(word))
+        return 0
     try:
         args = parse_args(argv)
     except CtlError as e:
         err(f"fabric-ctl: {e}")
         return 2
+    # A help flag the early scan did not see (after the `--` of a jobs-add title) still stops the run, as it always did: the action is not sent.
     if args.get("help") or (not args["targets"] and args["op"] != "keygen"):
         err(USAGE)
         return 0 if args.get("help") else 2
