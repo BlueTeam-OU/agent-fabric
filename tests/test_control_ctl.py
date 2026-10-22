@@ -1479,6 +1479,23 @@ class Help(unittest.TestCase):
                 self.assertRegex(r.stdout, r"(?m)^action: ")
                 self.assertRegex(r.stdout, r"(?m)^example:\n  fabric-ctl ")
 
+    def test_help_reads_neither_the_registry_nor_the_relay_nor_the_token(self):
+        # The registry is a file that is not JSON, the relay call and the identity raise: any of them read would fail the run.
+        reg = os.path.join(tempfile.mkdtemp(prefix="ctl-help-reg-"), "registry.json")
+        self.addCleanup(lambda: __import__("shutil").rmtree(os.path.dirname(reg), ignore_errors=True))
+        with open(reg, "w", encoding="utf-8") as fh:
+            fh.write("{ not json")
+
+        def boom(*a, **k):
+            raise AssertionError("help touched the relay or the identity")
+        for argv in (["all", "upgrade", "--help"], ["help", "keygen"], ["--verbs"], ["--verbs", "tokens"]):
+            seen: list[str] = []
+            rc = ctl.main(argv, registry=reg, call=boom, who=boom, token=None, out=seen.append, err=seen.append, sleep=boom)
+            self.assertEqual(rc, 0, argv)
+            self.assertTrue(seen, argv)
+        with self.assertRaises(Exception):   # the positive control: this registry does fail a run that reads it
+            ctl.main(["all", "ping"], registry=reg, call=boom, who={"host": "h", "agent": "a"}, token="t", out=lambda m: None, err=lambda m: None)
+
     def test_help_names_every_option_the_verb_takes_and_whether_it_is_signed(self):
         from control.sign import ACTION_OPS
         for op in ACTION_OPS:
