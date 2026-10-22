@@ -141,7 +141,8 @@ this for a Python developer sharing the port of the fabric's bash
   against the entry **as the base has it**: a branch that widens its
   own entry is judged by main's.
 - **The contributor opens no pull request** unless its entry carries
-  `"merges": true`. Otherwise it tells fabric-coordinator the branch is
+  `"merges": true`, and dispatches no review of what it supplies (ADR-020
+  §5 rule 11). Otherwise it tells fabric-coordinator the branch is
   ready; the coordinator folds it unrebased into its own pull request,
   the blind review covers it, and the coordinator merges. A finding on a
   contributed hunk goes back to the contributor. A role that merges

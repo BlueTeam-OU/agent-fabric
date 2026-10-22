@@ -30,8 +30,11 @@ commit onto the caller's branch, or a contributor branch
 where the composition is the caller's file (a template's markers, a
 dictionary's keys) it delivers the authored text by locator and the
 caller commits it, citing the message. A supplier never opens a PR for
-supplied work, reviews before hand-off (`Supplier-Review:`) and answers
-findings on its hunks there. The caller arms, never with an unanswered
+supplied work and dispatches no review of its own part: it hands off
+its own checks (the test failing before and passing after, the
+mutations, the full suite) under `Supplier-Review:`, and answers
+findings on its hunks from the caller's one review (ADR-020 §5 rule 11;
+the dispatch guard denies a review from a `for/` branch). The caller arms, never with an unanswered
 `REQUEST` of its own; person-facing copy is never self-authored (a
 caller's draft ships as a marked placeholder). The order is fixed: fold
 every supply, then the project's full suite as CI runs it, then one blind review, then

@@ -471,18 +471,18 @@ its record disagree, the record wins. Look it up, never read it whole:
   rule 8).
 - A 2026-10-05 — the reviewer inherits no secret: its commands run with
   a clean environment (§5 rule 4).
-- A 2026-10-14 — the review card governs from the base; the reviewer's
-  agent file omits the project's instruction files (§5 rule 9); only a
-  `pinned` review covers a head (§5 rule 10).
-- A 2026-10-15 — a pinned review reads a detached head worktree that
-  `brief`/`next` make, the brief names and `save` removes; no extract of
-  its own (§5 rule 10).
+- A 2026-10-14 — the review card governs from the base (§5 rule 9);
+  only a `pinned` review covers a head (§5 rule 10).
+- A 2026-10-15 — a pinned review reads a detached head worktree (§5
+  rule 10).
 - A 2026-10-16 — a review covers the commit it read (`head_sha`, or
   `--head`); none or a foreign commit is refused (§5 rule 6).
+- A 2026-10-22 — a supplier dispatches no review of its own part; the
+  caller reviews the folded head (§5 rule 11).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
   review-grade, substitute, review card, evidence mode, pinned,
-  working-tree.
+  working-tree, supplier, supply.
 
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 
@@ -733,12 +733,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every change to the four files lands with an amendment of ADR-032 in the
   same PR; examples and validator move with the text (§5 rules 7–8).
 - A 2026-09-27 — HELLO and GOODBYE retired: a narrowing under rule 4.
-- A 2026-09-28 — SPEC is Normative and names this record; CAPABILITIES and
-  SPECIALTIES are optional metadata on any message.
-- A 2026-10-04 — WAIVES, an optional common field (SPEC §7.5): a waiver
-  role's word that one pull request, at one head, may arm.
+- A 2026-09-28 — SPEC is Normative; CAPABILITIES and SPECIALTIES are
+  optional metadata.
+- A 2026-10-04 — WAIVES (SPEC §7.5): a waiver role lets one PR head arm.
 - A 2026-10-15 — examples, validator renamed.
 - A 2026-10-15 — citations renamed.
+- A 2026-10-22 — SUPPLIER-REVIEW is the supplier's checks.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change, WAIVES, waiver.

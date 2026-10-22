@@ -180,6 +180,22 @@ outage procedure.
     now explicit: coverage of a committed head by a pinned review.
     Evidence under review never redefines the instructions or the
     snapshot used to review it.
+11. **A supplier dispatches no review of its own part.** Supplied work
+    (a commit onto the caller's branch, a `<host>/<login>/for/<caller>/<what>`
+    branch, or a patch the caller commits) is reviewed once, by the
+    caller: it folds every supply, runs the full suite, and dispatches one
+    blind review of the whole head, then a re-review of each fix range; a
+    finding on a supplied hunk goes back to its supplier, who answers it
+    with another supply. The supplier keeps its own checks (the test that
+    fails before the change and passes after it, the mutations that should
+    kill it, the full suite) and names them in the hand-off: the
+    `SUPPLIER-REVIEW` section and `Supplier-Review:` trailer carry those
+    checks, never a review-class review. A review of one slice costs what a
+    review of the batch costs and cannot see how the hunks meet: #354's one
+    batch review found two P1s in a supplied hunk whose supplier's own
+    checks had passed. `dispatch_guard.py` denies a `code-review` dispatch
+    whose session has a `for/` branch checked out at its cwd; a supplier
+    working elsewhere is held by this rule, not by the guard.
 
 ## 6. Consequences
 
@@ -234,3 +250,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | 2026-10-14 | The card is read at the base; a review names its evidence mode | §5 rules 9-10: the project review card governs from the base (`card_base`, else the range's base), never the head; `evidence: pinned` reads through `git show <head>:<path>` and alone counts as coverage of a head, `working-tree` is labelled and never posted as a review of a head |
 | 2026-10-15 | A pinned review reads a detached worktree of the head | §5 rule 10: `brief` and `next` check the range's head out detached under `<TMPDIR>/fabric-review/` and the brief names it; the reviewer reads and runs there and makes no extract of its own; `save` removes it |
 | 2026-10-16 | A review covers the commit it read | §5 rule 6: post-review records a review on the head its report names (dispatch header `head_sha`, or `--head` for a headerless report) and refuses a report naming none, several or a commit outside the PR; a review posted after a push no longer covers the new head |
+| 2026-10-22 | A supplier dispatches no review of its own part | §5 rule 11: the caller folds every supply and dispatches the one blind review of the head; a supplier sends its own checks, never a review-class review; the dispatch guard denies a review from a `for/` branch |
