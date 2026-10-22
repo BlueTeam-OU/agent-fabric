@@ -1961,6 +1961,62 @@ def case_instance_files_are_read_from_the_operator_tree() -> None:
                 os.environ["AGENT_FABRIC_OPERATOR"] = saved
 
 
+def case_presence_is_judged_in_the_tree_the_file_is_read_from() -> None:
+    """With AGENT_FABRIC_OPERATOR exported, arm.json and the gzcoord config
+    are read from the operator's tree, so their presence is judged there
+    (j337): a project the operator declares and the engine lacks is no
+    finding; one the operator lacks and the engine has is (#352 review)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    good = json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "x:gzcoord"})
+    arm = lambda tree: os.path.join(tree, "projects", "demo", "integration", "gh", "arm.json")
+    cfg = lambda tree: os.path.join(tree, "projects", "demo", "integration", "gzcoord", "config.json")
+    registry = lambda tree: write(os.path.join(tree, "projects", "registry.json"), json.dumps({"projects": {"demo": {}}}))
+
+    def findings() -> list[str]:
+        return lint.arm_declared_findings(engine) + lint.gzcoord_declared_findings(engine)
+
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    try:
+        for operator_is_git in (True, False):
+            with tempfile.TemporaryDirectory() as root:
+                engine, operator = os.path.join(root, "engine"), os.path.join(root, "operator")
+                g = lambda tree, *a: subprocess.run(["git", "-C", tree, *a], check=True, capture_output=True, env=git_env())
+                registry(engine)
+                g_init = lambda tree: (os.makedirs(tree, exist_ok=True), g(tree, "init", "-q", "-b", "main"))
+                g_init(engine)
+                g(engine, "add", "-A")
+                registry(operator)
+                write(arm(operator), "{}")
+                write(cfg(operator), good)
+                if operator_is_git:
+                    g_init(operator)
+                    g(operator, "add", "-A")
+                kind = "git" if operator_is_git else "non-git"
+                os.environ["AGENT_FABRIC_OPERATOR"] = operator
+                assert findings() == [], (kind, "the operator declares what the engine lacks", findings())
+                # positive control: the engine declares them, the operator does not
+                write(arm(engine), "{}")
+                write(cfg(engine), good)
+                g(engine, "add", "-A")
+                os.remove(arm(operator))
+                os.remove(cfg(operator))
+                if operator_is_git:
+                    g(operator, "add", "-A")
+                got = findings()
+                assert any("has no projects/demo/integration/gh/arm.json" in f for f in got), (kind, got)
+                assert any("has no projects/demo/integration/gzcoord/config.json" in f for f in got), (kind, got)
+                os.environ.pop("AGENT_FABRIC_OPERATOR")
+                assert findings() == [], (kind, "no operator: the engine's own index, unchanged", findings())
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
 def case_bash_over_160_lines_needs_the_allowlist() -> None:
     """ADR-040 §5 rule 2: a tracked bash script over 160 lines is a finding
     unless the allowlist names it; an entry whose script is gone or short
@@ -2587,6 +2643,7 @@ def main() -> int:
         case_quoted_description_round_trips,
         case_the_callers_operator_is_not_part_of_a_fixture,
         case_instance_files_are_read_from_the_operator_tree,
+        case_presence_is_judged_in_the_tree_the_file_is_read_from,
         case_payload_is_exempt,
         case_hygiene_still_runs_over_payload,
         case_secrets_are_refused_by_shape,
