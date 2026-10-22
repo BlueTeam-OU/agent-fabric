@@ -76,6 +76,34 @@ def main() -> int:
         check(f"U+{ord(sep):04X} is whitespace to both", rv is None
               or rv["hookSpecificOutput"]["permissionDecision"] == "allow")
 
+    print("a supplier dispatches no review of its own part (ADR-020 §5 rule 11)")
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        def repo(branch: str) -> str:
+            d = os.path.join(tmp, branch.replace("/", "_"))
+            subprocess.run(["git", "init", "-q", "-b", branch, d], check=True, capture_output=True, timeout=30,
+                           env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+            return d
+        review = {"subagent_type": "code-review", "model": "fable", "description": "review the batch"}
+
+        def denied(rv) -> bool:
+            return rv is not None and rv["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+        rv = dg.decide({"tool_input": review, "cwd": repo("host/python-dev-03/for/user/j334-fix")})
+        check("a review from a for/ branch: denied, naming the rule",
+              denied(rv) and "§5 rule 11" in rv["hookSpecificOutput"]["permissionDecisionReason"])
+        for label, cwd in (("the integrator's own branch", repo("host/user/fix/guard-batch")),
+                           ("a branch named for/ at its root", repo("for/user/x")),
+                           ("a directory git does not know", tmp), ("no cwd at all", None)):
+            rv = dg.decide({"tool_input": review, **({"cwd": cwd} if cwd else {})})
+            check(f"{label}: this rule says nothing", not (denied(rv) and "rule 11" in
+                  rv["hookSpecificOutput"]["permissionDecisionReason"]))
+        rv = dg.decide({"tool_input": {"subagent_type": "code-medium", "model": "sonnet", "isolation": "worktree",
+                                       "description": "write the test"},
+                        "cwd": repo("host/python-dev-01/for/user/j337-x")})
+        check("a writing dispatch from a for/ branch: not this rule's", not (denied(rv) and "rule 11" in
+              rv["hookSpecificOutput"]["permissionDecisionReason"]))
+
     print("a fault inside the guard asks")
     import io
 
