@@ -305,8 +305,9 @@ def help_request(argv: list[str]) -> tuple[str, str | None] | None:
     found = next((w for w in words if w in VERB), None)
     if found:
         return ("help", found)
-    # `<target> <word>`: the word is meant as a verb; one word alone is a target, and the whole usage is the help.
-    return ("unknown", words[-1]) if len(words) > 1 else ("usage", None)
+    # `<target> <word>` is the one shape that names a verb we do not know. A lone word is a target; more words may be several
+    # targets (`alice bob --help`), and no registry is read here to tell a login from a verb: the whole usage is the help.
+    return ("unknown", words[1]) if len(words) == 2 else ("usage", None)
 
 FETCH_TIMEOUT_S = 60
 
@@ -1874,9 +1875,10 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     except CtlError as e:
         err(f"fabric-ctl: {e}")
         return 2
-    if not args["targets"] and args["op"] != "keygen":
+    # A help flag the early scan did not see (after the `--` of a jobs-add title) still stops the run, as it always did: the action is not sent.
+    if args.get("help") or (not args["targets"] and args["op"] != "keygen"):
         err(USAGE)
-        return 2
+        return 0 if args.get("help") else 2
     if args["op"] == "keygen":
         return keygen(args, registry=registry, who=who, out=out, err=err)
     agentd = _agentd()

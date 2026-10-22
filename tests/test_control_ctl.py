@@ -1508,18 +1508,31 @@ class Help(unittest.TestCase):
         self.assertIn("no, a read", ctl.render_help("drift"))
         self.assertIn("only with --sweep", ctl.render_help("branches"))
 
-    def test_every_option_the_table_lists_is_one_the_parser_takes(self):
+    # What a verb needs beside the option under test for parse_args to accept the line, and a value each option takes.
+    NEEDS = {"upgrade": ["claude"], "memory": ["--out", "d"], "gateway-install": ["--version", "1.2.3"], "jobs-add": ["a title"],
+             "pool-add": ["--role", "python-dev", "a title"], "tools-install": ["shellcheck"]}
+    VALUES = {"--timeout": "5", "--days": "3", "--version": "1.2.3", "--expect": "0123456789ab", "--out": "d", "--topic": "t", "--project": "p",
+              "--priority": "normal", "--role": "python-dev"}
+
+    def takes(self, verb: str, flag: str) -> bool:
+        argv = ["alice", verb, *self.NEEDS.get(verb, [])]
+        try:
+            ctl.parse_args([*argv, flag, *([self.VALUES[flag]] if flag in self.VALUES else [])])
+        except ctl.CtlError:
+            return False
+        return True
+
+    def test_the_options_a_verb_lists_are_exactly_the_scoped_options_the_parser_takes_with_it(self):
+        scoped = ["--sweep", "--follow", "--include-self", "--days", "--version", "--expect", "--restart", "--topic", "--project", "--priority", "--role"]
         for v in ctl.VERBS:
-            for flag, _ in v.options:
-                if flag == "--":
-                    continue
-                name, *value = flag.split()
-                try:
-                    ctl.parse_args(["x", v.name, name, *(["1"] if value else [])])
-                except ctl.CtlError as e:
-                    self.assertNotRegex(str(e), r"^unknown option", f"{v.name} {flag}")
-        with self.assertRaisesRegex(ctl.CtlError, "unknown option --nope"):   # the positive control: the check can fail
+            listed = {f.split()[0] for f, _ in v.options}
+            for flag in listed - {"--"}:
+                self.assertTrue(self.takes(v.name, flag), f"{v.name} lists {flag}, which parse_args refuses with it")
+            for flag in scoped:
+                self.assertEqual(flag in listed, self.takes(v.name, flag), f"{v.name} {flag}: the table and the parser disagree")
+        with self.assertRaisesRegex(ctl.CtlError, "unknown option --nope"):   # the positive control: the parser can refuse
             ctl.parse_args(["x", "status", "--nope"])
+        self.assertFalse(self.takes("tokens", "--sweep"))   # …and a scoped option on the wrong verb is refused, which the first loop would catch
 
     def test_the_full_usage_stays_on_stderr_for_help_without_a_verb(self):
         for args in (["--help"], ["all", "--help"], ["help"]):
@@ -1531,6 +1544,22 @@ class Help(unittest.TestCase):
             r = self.bare(args)
             self.assertEqual((r.returncode, r.stdout), (2, ""), args)
             self.assertEqual(r.stderr, "fabric-ctl: unknown verb 'bogus' (fabric-ctl --verbs lists them)\n", args)
+
+    def test_a_help_flag_after_a_title_stops_the_run_and_sends_nothing(self):
+        # The early scan stops at `--`; the flag after the title reaches parse_args, and main must still stop on it.
+        def boom(*a, **k):
+            raise AssertionError("a help request reached the registry, the relay or the identity")
+        for argv in (["db-admin", "jobs-add", "--", "fix the thing", "--help"], ["db-admin", "jobs-add", "--", "fix", "-h"],
+                     ["holder", "pool-add", "--role", "python-dev", "--", "fix", "--help"]):
+            self.assertIsNone(ctl.help_request(argv), argv)
+            seen: list[str] = []
+            rc = ctl.main(argv, registry="/nonexistent/registry.json", call=boom, who=boom, token="t", out=seen.append, err=seen.append, sleep=boom)
+            self.assertEqual((rc, seen), (0, [ctl.USAGE]), argv)
+
+    def test_two_words_before_help_name_a_verb_and_more_are_targets(self):
+        self.assertEqual(ctl.help_request(["alice", "bogus", "--help"]), ("unknown", "bogus"))
+        self.assertEqual(ctl.help_request(["alice", "bob", "carol", "--help"]), ("usage", None))
+        self.assertEqual(ctl.help_request(["alice", "bob", "status", "--help"]), ("help", "status"))
 
     def test_a_title_after_dashes_is_not_a_help_request(self):
         self.assertIsNone(ctl.help_request(["db-admin", "jobs-add", "--", "--help"]))
