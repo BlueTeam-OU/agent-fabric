@@ -338,6 +338,24 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     return findings
 
 
+def _present_in_read_tree(root: str):
+    """A predicate over the absolute paths a roots.* call returned: is the
+    file there? Judged in the tree those calls read from (the operator's
+    when AGENT_FABRIC_OPERATOR is exported, ADR-045), never the engine's
+    index: an operator that declares a project's files the engine lacks is
+    not missing them (#352 review). "There" is tracked in that tree's git
+    index, or, when it is not a git checkout, existing. None when the tree
+    is the engine and not a git checkout: there absence proves nothing."""
+    tree = roots.operator_root(engine=root)
+    r = _git().run(tree, "ls-files", "-z", check=False, timeout=60)
+    if r.returncode == 0:
+        tracked = {f for f in r.stdout.split("\0") if f}
+        return lambda path: os.path.relpath(path, tree) in tracked
+    if os.path.realpath(tree) == os.path.realpath(root):
+        return None
+    return os.path.isfile
+
+
 def arm_declared_findings(root: str) -> list[str]:
     """Every project in projects/registry.json has an arm.json. Without one
     fabric-pr arm refuses to arm any PR of the project ("the security
@@ -352,11 +370,11 @@ def arm_declared_findings(root: str) -> list[str]:
         # registry's own checks' to report; naming every project missing
         # from a registry nobody could read would bury that.
         return []
-    tracked = _tracked(root)
-    if not tracked:
+    present = _present_in_read_tree(root)
+    if present is None:
         return []   # not a git checkout: nothing is tracked, so absence proves nothing
-    declared = {r.split("/")[1] for r in tracked
-                if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
+    declared = {p for p in registered
+                if present(roots.project_integration(p, "gh", "arm.json", engine=root))}
     return [f"projects/registry.json: project {p!r} has no projects/{p}/integration/gh/arm.json; "
             "fabric-pr arm refuses to arm a PR of a project whose security boundary it cannot read"
             for p in registered if p not in declared]
@@ -374,13 +392,13 @@ def gzcoord_declared_findings(root: str) -> list[str]:
             registered = sorted((json.load(fh).get("projects") or {}))
     except (OSError, ValueError, AttributeError):
         return []   # as arm_declared_findings: an unreadable registry is reported elsewhere
-    tracked = _tracked(root)
-    if not tracked:
+    present = _present_in_read_tree(root)
+    if present is None:
         return []
     findings = []
     for p in registered:
         rel = f"projects/{p}/integration/gzcoord/config.json"
-        if rel not in tracked:
+        if not present(roots.project_integration(p, "gzcoord", "config.json", engine=root)):
             findings.append(f"projects/registry.json: project {p!r} has no {rel}; gzcoord-inbox exits 3 "
                             "(not configured) in its working copy, and its sessions neither hear nor send")
             continue
