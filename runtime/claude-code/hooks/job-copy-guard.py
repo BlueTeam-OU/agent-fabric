@@ -29,7 +29,11 @@ DECISIONS, in order, with their exact words:
      again, so `git commit -m "$(cat <<'EOF'` opens one). Every heredoc body in the command is read as commands
      when the command text, its bodies removed and a quoted string kept as one word, holds a word that runs
      stdin anywhere — a shell (`sh`, `bash`, `dash`, `zsh`, `ksh`, `fish`, `ash`, `mksh`, `csh`, `tcsh`, `yash`,
-     with or without `-s`), `busybox`, `eval`, `source`, `.`, `xargs` or `env -S`. Where its stdin goes is not
+     with or without `-s`), `busybox`, `eval`, `source`, `.`, `xargs` or `env -S`; `.` and an expansion (`$SHELL`,
+     `"$0"`) count only as a command's name, after its assignments, redirections, `!`/`if`/`then`-like keywords and the
+     options and operands of the launchers in LAUNCHERS (`timeout 10`, `nice -n 5`, `sudo -u root`, `env -u NAME`), and
+     as an argument (`git add .`, `tee "$LOG"`, `--title "Fix it" .`) they run nothing; a launcher not in that table
+     is not followed, so `flock f $SHELL` is not seen. Where its stdin goes is not
      modelled (`|&`, `{ bash; } <<X`, a `while … eval` loop, `if …; then bash; fi <<X`): a command that both runs a
      shell and publishes a body is over-reported, and costs a rephrase. With no such word, a body is still read as
      commands when the substitution holding its redirect stands in a command's place (`"$(cat <<'X' …)"`). Any
@@ -175,16 +179,35 @@ SHELLS = ("bash", "sh", "zsh", "dash", "ksh", "fish", "ash", "mksh", "csh", "tcs
 # What runs the stdin a heredoc feeds it: a shell (with or without -s), eval, source, `.`, xargs, busybox (whose
 # applets include shells: `busybox sh`, `busybox hush`), and env -S apart.
 STDIN_RUNNERS = SHELLS + ("eval", "source", ".", "xargs", "busybox")
-# The words after which a command starts, so a `.` there is the dot command and not a path argument.
-COMMAND_KEYWORDS = ("then", "do", "else", "elif", "time", "exec", "command", "builtin", "nohup", "sudo")
-# An assignment word, a redirection operator, a plain word (a command name or an ordinary argument), and the
-# launchers that run the word after them as a command (plain_argument).
+# An assignment word and a redirection operator (a whole word, or the front of one: `2>/dev/null`).
 ASSIGN_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?\+?=")
 REDIRECT_OP = re.compile(r"\d*(?:<<?<?-?|>>?|<>|>\|)")
-PLAIN_WORD = re.compile(r"[A-Za-z0-9_./+@:,=%\[\]-]+")
-LAUNCHERS = ("env", "nice", "timeout", "stdbuf", "setsid", "chrt", "ionice", "taskset", "doas", "xargs")
-# What may stand before a substitution that is then run as the command: assignments, a quote, a wrapper.
-COMMAND_PLACE = re.compile(r"\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|exec|command|nohup|time|sudo|env)\s+)*\"?")
+# The words after which a command starts again, with nothing of their own to skip: a `.` there is the dot command.
+COMMAND_KEYWORDS = ("then", "do", "else", "elif", "if", "while", "until", "!", "{")
+# What `coproc [NAME]` may be followed by when NAME is there: bash reads the word after `coproc` as a name only when a
+# compound command follows it (`coproc NAME { …; }`, `coproc NAME (…)`); `coproc . /dev/stdin` is a simple command.
+COMPOUND_START = ("{", "if", "while", "until", "for", "case", "select", "[[")
+# The launchers that run a command of their own after their options and operands, each as (the short option letters
+# that take a value, the long ones that do, how many operands come before the command). Others (flock, ssh, watch,
+# chroot, strace, ...) are not followed: their operands stand as arguments.
+LAUNCHERS = {
+    "env": ("uCSa", ("--unset", "--chdir", "--split-string", "--argv0"), 0),
+    "nice": ("n", ("--adjustment",), 0),
+    "timeout": ("sk", ("--signal", "--kill-after"), 1),
+    "stdbuf": ("ioe", ("--input", "--output", "--error"), 0),
+    "setsid": ("", (), 0),
+    "chrt": ("TPD", (), 1),
+    "ionice": ("cnpPu", ("--class", "--classdata", "--pid", "--pgid", "--uid"), 0),
+    "taskset": ("", (), 1),
+    "sudo": ("ughprtUCDRTc", ("--user", "--group", "--host", "--prompt", "--role", "--type", "--other-user",
+                              "--close-from", "--chdir", "--chroot", "--command-timeout"), 0),
+    "doas": ("uC", (), 0),
+    "command": ("", (), 0),
+    "builtin": ("", (), 0),
+    "exec": ("a", (), 0),
+    "nohup": ("", (), 0),
+    "time": ("fo", ("--format", "--output"), 0),
+}
 CD_OPTION = re.compile(r"-[LPe@]+")
 UNRESOLVABLE = re.compile(r"[$`*?\[]")
 # The variables that point git at a repository or a work tree, and the two that point gh at a repository. A word
@@ -300,37 +323,86 @@ def delimiter(line: str, j: int) -> tuple[str, bool, int]:
     return ("" if quote else "".join(out)), quoted, j
 
 
-def plain_argument(words: list[str], i: int) -> bool:
-    """Whether words[i] is plainly an argument of an ordinary command: the nearest word before it, its options
-    (`-x`, `--`) stepped over, is a plain command name or argument (`git add .`, `echo "$HOME"`, `tee $LOG`). Anything
-    else (nothing, an operator, an assignment, a redirection or its operand, a keyword or a launcher that runs the
-    next word) leaves words[i] possibly a command word. Inverted on purpose: recognising where a command starts
-    missed `x=1 .` (review F7, round 4) and then `2>&1 .`, which the tokenizer splits into `2>`, `&`, `1` (round 5);
-    a shape this misreads now counts as a runner, which over-reports and never lets a sourced body through."""
-    j = i - 1
-    while j >= 0 and words[j].startswith("-") and words[j] != "-":
-        j -= 1
-    if j < 0:
-        return False
-    w, before = words[j], words[j - 1] if j >= 1 else ""
-    if before and (before[-1] in "<>&" or REDIRECT_OP.fullmatch(before)):
-        return False                                # a redirection's operand (`> out`, `2>&1`)
-    if w in COMMAND_KEYWORDS or w in LAUNCHERS or ASSIGN_WORD.match(w):
-        return False
-    return bool(PLAIN_WORD.fullmatch(w))
+def launched(words: list[str], i: int, name: str) -> int:
+    """The index of the command a launcher runs: `words[i]` is the word after the launcher `name`, and its options
+    (a value taken fused or from the next word), its NAME=value words and its operands (`timeout 10`, `chrt 5`) are
+    stepped over."""
+    shorts, longs, operands = LAUNCHERS[name]
+    n = len(words)
+    while i < n and not OPERATOR.fullmatch(words[i]):
+        w = words[i]
+        if w == "--":
+            i += 1
+            break
+        if w == "-" and name == "env":                  # `env - cmd`: the same as -i
+            i += 1
+        elif w.startswith("--"):
+            i += 2 if w in longs else 1
+        elif w.startswith("-") and len(w) > 1:
+            cluster = w[1:]
+            take = next((k for k, c in enumerate(cluster) if c in shorts), None)
+            i += 2 if take is not None and take == len(cluster) - 1 else 1
+        elif ASSIGN_WORD.match(w):
+            i += 1
+        else:
+            break
+    return min(n, i + operands)
+
+
+def command_words(words: list[str]) -> set[int]:
+    """The indexes of the words that stand as a simple command's name: the first word of each command after its
+    assignments, redirections (`> out`, `2>&1`, `<<X`: the tokenizer splits a duplication into `2>`, `&`, `1`),
+    COMMAND_KEYWORDS and a LAUNCHER's options and operands. Only these can be a `.` or a `$SHELL` that runs a body;
+    every other word is an argument (review F8, round 6: deciding it from the word before it read `"Fix it" .` and
+    `> "$LOG"` as a command)."""
+    found: set[int] = set()
+    i, n, expecting = 0, len(words), True
+    while i < n:
+        w = words[i]
+        if OPERATOR.fullmatch(w):
+            expecting = True
+            i += 1
+        elif REDIRECT_OP.match(w):
+            if not REDIRECT_OP.fullmatch(w):
+                i += 1                                  # a fused `2>log` has its operand in it
+            else:
+                # The operand, behind the `&` or `|` of `2>&1`, `>|`. An operator word is never an operand: the `(` of
+                # `>(…)` / `<(…)` opens a process substitution whose body is commands (review F1, #354).
+                i += 2 if words[i + 1:i + 2] in (["&"], ["|"]) else 1
+                if i < n and not OPERATOR.fullmatch(words[i]):
+                    i += 1
+        elif not expecting:
+            i += 1
+        elif ASSIGN_WORD.match(w) or w in COMMAND_KEYWORDS:
+            i += 1
+        elif w == "function":                           # `function NAME [()] {`: NAME is no command, `{` opens the body
+            i += 2
+        elif w == "coproc":
+            named = (i + 2 < n and (words[i + 2] in COMPOUND_START or words[i + 2].startswith("("))
+                     and words[i + 1] not in COMPOUND_START and not OPERATOR.fullmatch(words[i + 1]))
+            i += 2 if named else 1
+        elif os.path.basename(w) in LAUNCHERS:
+            i = launched(words, i + 1, os.path.basename(w))
+        else:
+            found.add(i)
+            expecting = False
+            i += 1
+    return found
 
 
 def runs_stdin(text: str) -> bool:
     """Whether a pipeline's text holds a word that executes what it reads: a shell (`-s` or not), eval, source, `.`,
     xargs, busybox, or env with -S. Any word counts, not only a command's (over-reporting); a quoted argument stays one word,
-    so `--title "fix sh"` is no shell. The one exception is `.`: it is the path every `git add .` names, so it counts
-    only where it is not plainly an argument (plain_argument). A command word the guard cannot read (`$SHELL`, `"$0"`) counts
-    as a runner too, as an unresolvable directory counts as outside."""
+    so `--title "fix sh"` is no shell. The exceptions are `.` and an expansion: `git add .` and `tee "$LOG"` name a
+    path, so they count only as a command's name (command_words), where `. /dev/stdin`, `$SHELL` and `"$0"` run
+    whatever they hold, as an unresolvable directory counts as outside. A launcher it knows (LAUNCHERS) is stepped
+    through to its command; one it does not know hides a `$SHELL` after its operands."""
     words = tokens(text)
+    commands = command_words(words)
     for i, w in enumerate(words):
         expansion = "$" in w and not ASSIGN_WORD.match(w) and "<" not in w and ">" not in w
         if w == "." or expansion:
-            if not plain_argument(words, i):
+            if i in commands:
                 return True
             continue
         name = os.path.basename(w)
@@ -340,6 +412,17 @@ def runs_stdin(text: str) -> bool:
                                  for x in words[i + 1:]):
             return True
     return False
+
+
+def in_command_place(before: str) -> bool:
+    """Whether a substitution that follows `before` (the text from its command's start, possibly ending in the quote
+    that opens `"$(`) stands where the command's name does: after assignments, redirections and any LAUNCHER with its
+    options (`time`, `env -i`, `nice -n 5`, `timeout 10`), by the same reading as runs_stdin."""
+    opened = before.removesuffix('"')
+    if opened and not opened[-1].isspace():
+        return False                                    # glued to a word (`x=$(`, `a$(`): part of it, not a name
+    words = tokens(opened + " x")
+    return len(words) - 1 in command_words(words)
 
 
 class _Frame:
@@ -379,7 +462,7 @@ def stdin_executed(text: str, marks: list[int]) -> set[int]:
         return f.quote
 
     def push(closer: str, at: int, width: int, substitution: bool) -> None:
-        in_place = substitution and bool(COMMAND_PLACE.fullmatch(text[frames[-1].cmd_start:at]))
+        in_place = substitution and in_command_place(text[frames[-1].cmd_start:at])
         frames.append(_Frame(closer, at + width, quote, in_place))
 
     i, n = 0, len(text)

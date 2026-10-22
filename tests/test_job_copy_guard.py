@@ -31,7 +31,9 @@ the executed test scoped to the line instead of the pipeline; substitutions or p
 followed; an unquoted body's substitutions left unread, or its plain text read; a `$(` inside double quotes not
 reopening command text; PR URLs not read; core.worktree or the GIT_CONFIG_* variables not read; the budget never
 raised; the whole-command runner fallback removed; `|&` read as the end of a pipeline; any new runner word dropped;
-PR URLs read with a fullmatch again (query, fragment); include.path, includeIf or the HOME-like variables not read.
+PR URLs read with a fullmatch again (query, fragment); include.path, includeIf or the HOME-like variables not read; a
+`.` or an expansion read as a command wherever the word before it is not plain; a launcher's option or operand (`-n 5`,
+`-u root`, `timeout 10`) read as the command it runs; the `&` of `2>&1` read as the end of the command.
 """
 from __future__ import annotations
 
@@ -437,6 +439,98 @@ class Guard(unittest.TestCase):
                     f"echo \"$HOME\"; git status | tee $LOG; git commit -F - <<'M'\nsubject\n\n{acting}\nM"):
             with self.subTest(command=cmd):
                 self.assertEqual(self.decision(cmd, self.proj), "allow")
+
+    def test_a_dot_or_an_expansion_runs_a_body_only_as_a_command_word(self):
+        # Review round 6 of #348, F8: deciding it from the word before read `"Fix it" .`, `!=`, `~/x .`, a backslash
+        # and a `> "$LOG"` target as a command, and refused an in-copy publish whose body names an outside directory.
+        self.active_j7()
+        o = self.other
+        acting = f"cd {o} && git commit -m y\ngit -C {o} push"
+        publishes = (f"gh pr create --title \"Fix it\" --base \"$BASE\" --body-file - <<'M'\n{acting}\nM",
+                     f"git add 'my file' . && git commit -F - <<'M'\n{acting}\nM",
+                     f"git add ~/x . && git commit -F - <<'M'\n{acting}\nM",
+                     f"[ \"$a\" != \"$b\" ] && git commit -F - <<'M'\n{acting}\nM",
+                     f"printf '%s\\n' \"$x\"; git commit -F - <<'M'\n{acting}\nM",
+                     f"git commit -F - <<'M' > \"$LOG\"\n{acting}\nM",
+                     f"git commit -F - <<'M' 2>&1 | tee \"$LOG\"\n{acting}\nM",
+                     f"for f in $FILES; do git add \"$f\"; done; git commit -F - <<'M'\n{acting}\nM",
+                     f"timeout 10 git add . && git commit -F - <<'M'\n{acting}\nM")
+        for cmd in publishes:
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "allow")
+                # The control: the same command, acting outside the job copy, is still refused.
+                self.assertEqual(self.decision(cmd, o), "deny")
+        # And a command word that is a dot or an expansion still reads the body, behind the same shapes.
+        for cmd in (f"git add 'my file' && . /dev/stdin <<'M'\n{acting}\nM",
+                    f"[ \"$a\" != \"$b\" ] && $SHELL <<'M'\n{acting}\nM",
+                    f"cat <<'M' > \"$LOG\" ; \"$0\"\n{acting}\nM",
+                    f"if true; then . /dev/stdin; fi <<'M'\n{acting}\nM",
+                    f"! $SHELL <<'M'\n{acting}\nM"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+
+    def test_an_operator_word_is_never_an_operand_and_restarts_command_position(self):
+        # Review round 1 of #354, F1 and F2: the redirect-operand skip ate the `(` of `>(` / `<(`, and `{` after
+        # `function NAME` or `coproc [NAME]` was read as an argument; bash runs the body in both.
+        self.active_j7()
+        o = self.other
+        acting = f"cd {o} && git commit -m y\ngit -C {o} push"
+        for runner in (". /dev/stdin", "$SHELL", '"$0"'):
+            for shape in ("tee >({r}) >/dev/null", "tee >({r})", "{{ cat <({r}); }}", "cat < <({r})",
+                          "function f {{ {r}; }}; f", "function f() {{ {r}; }}; f", "coproc {{ {r}; }}",
+                          "coproc NAME {{ {r}; }}", "coproc {r}", "env - {r}", "time env - {r}"):
+                cmd = shape.format(r=runner) + f" <<'X'\n{acting}\nX"
+                with self.subTest(command=cmd):
+                    self.assertEqual(self.decision(cmd, self.proj), "deny")
+        # A substitution in command place, behind any launcher, runs what it prints.
+        for before in ("nice -n 5 ", "env -i A=1 ", "timeout 10 ", "sudo -u root "):
+            cmd = f"{before}\"$(cat <<'X'\n{acting}\nX\n)\""
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+        # The controls: the same shapes with a data word where the runner stood are in-copy publishes.
+        for cmd in (f"tee >(cat) >/dev/null; git commit -F - <<'M'\n{acting}\nM",
+                    f"git commit -F - <<'M' 2>&1 | tee >(cat >\"$LOG\")\n{acting}\nM",
+                    f"function f {{ git add .; }}; f; git commit -F - <<'M'\n{acting}\nM",
+                    f"coproc NAME {{ git add .; }}; git commit -F - <<'M'\n{acting}\nM",
+                    f"echo \"$(date)\" > out; git commit -F - <<'M'\n{acting}\nM"):
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "allow")
+                self.assertEqual(self.decision(cmd, o), "deny")
+        guard = self.load_guard()
+        for text, names in (("tee >(. x) >/dev/null", ["tee", "."]), ("cat <(x y)", ["cat", "x"]),
+                            ("cmd 2>&1 . x", ["cmd"]), ("function f { x; }", ["x"]), ("coproc N { x; }", ["x"]),
+                            ("coproc x y", ["x"]), ("env - x", ["x"])):
+            with self.subTest(text=text):
+                words = guard.tokens(text)
+                self.assertEqual([words[i] for i in sorted(guard.command_words(words))
+                                  if words[i] not in ("}",)], names)
+        for before, place in (("", True), ("time ", True), ("nice -n 5 ", True), ("env - ", True), ("echo ", False),
+                              ("x=", False),
+                              ('echo "', False), ("git commit -m ", False)):
+            with self.subTest(before=before):
+                self.assertEqual(guard.in_command_place(before), place)
+
+    def test_a_launcher_is_stepped_through_to_its_command(self):
+        # Review round 6 of #348, F9: a launcher's option operands (`-n 5`, `-u root`) and its own operand (`timeout
+        # 10`) are not the command it runs.
+        self.active_j7()
+        acting = f"cd {self.other} && git commit -m y\ngit -C {self.other} push"
+        for launch in ("timeout 10 $SHELL", "nice -n 5 $SHELL", "nice -n5 $SHELL", "nice -5 $SHELL",
+                       "sudo -u root $SHELL", "sudo -Eu root $SHELL", "sudo -uroot $SHELL", "env -u FOO $SHELL",
+                       "env -i FOO=1 $SHELL", "env -C /tmp $SHELL", "timeout -s KILL 10 $SHELL",
+                       "timeout --kill-after 5 10 $SHELL", "stdbuf -oL $SHELL", "ionice -c 3 $SHELL",
+                       "doas -u root $SHELL", "taskset 0x1 $SHELL", "chrt 5 $SHELL", "setsid -w $SHELL",
+                       "nohup nice -n 5 timeout 10 $SHELL", "nice -n 5 . /dev/stdin", "timeout 10 \"$0\""):
+            cmd = f"cat <<'X' | {launch}\n{acting}\nX"
+            with self.subTest(command=cmd):
+                self.assertEqual(self.decision(cmd, self.proj), "deny")
+        guard = self.load_guard()
+        for text, command in (("timeout 10 $SHELL", "$SHELL"), ("nice -n 5 x", "x"), ("sudo -u root x", "x"),
+                              ("env -u FOO x", "x"), ("env -i A=1 -- x", "x"), ("timeout -s KILL 10 x", "x"),
+                              ("x=1 2>&1 nice -n 5 x", "x"), ("cat | timeout 10 sudo -u u env -u N x", "x")):
+            with self.subTest(text=text):
+                words = guard.tokens(text)
+                self.assertEqual([words[i] for i in sorted(guard.command_words(words))][-1], command)
 
     def test_stdin_executed_reads_a_pipe_and_stderr_as_a_pipe(self):
         # `|&` keeps the pipeline open: the whole-command fallback hides this from decide, so the model is held here.

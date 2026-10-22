@@ -49,10 +49,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import resource
 import select
 import shlex
 import signal
 import sys
+import time
 
 # Python's re backtracks where grep did not, so a quantified group whose
 # pieces can match the same text is exponential on a crafted command (CodeQL
@@ -163,10 +165,18 @@ ESCAPE = (r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?(eval|exec|(ba|z|da|k)?sh[\s]+-[a-zA-Z]
 WRITE = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?(sed[\s]+(-[a-zA-Z]*i|--in-place)|tee|rm|mv|cp|truncate|chmod|chown|ln|install|patch|rsync)([\s]|$)'
 
 # A hook that runs past the agent file's timeout (10 s) is not a refusal, so
-# the verdict runs in a child given this budget, and a child that is late,
-# dies or answers nothing is a deny. AGENT_FABRIC_REVIEW_GUARD_BUDGET may only
-# shorten it (the tests' seam).
-BUDGET_S = 3.0
+# the verdict runs in a child, and a child that is late, dies or answers
+# nothing is a deny. What the verdict may cost is CPU time (CPU_BUDGET_S, a
+# kernel limit on the child): a host that starves the child delays it without
+# making it wrong, and a wall bound would deny a legitimate command as "slow".
+# BUDGET_S is only the wall ceiling under the hook timeout, for a child that
+# is starved past it or answers nothing. AGENT_FABRIC_REVIEW_GUARD_BUDGET may
+# only shorten the ceiling (the tests' seam). The ceiling counts from the
+# module's start, not from the fork: import, payload parse and the answer's
+# output sit inside it too, so the hook's total stays near BUDGET_S.
+CPU_BUDGET_S = 3
+BUDGET_S = 8.0
+STARTED = time.monotonic()
 
 REASONS = {
     "slow": "The review-class bash guard could not judge this command within its time budget, so it is denied. Split it into simpler commands.",
@@ -361,6 +371,7 @@ def judged(cmd: str) -> str | None:
         budget = min(budget, float(os.environ.get("AGENT_FABRIC_REVIEW_GUARD_BUDGET", budget)))
     except ValueError:
         pass
+    budget -= time.monotonic() - STARTED
     if not budget > 0:
         return "slow"
     r, w = os.pipe()
@@ -368,6 +379,7 @@ def judged(cmd: str) -> str | None:
     if pid == 0:
         os.close(r)
         try:
+            resource.setrlimit(resource.RLIMIT_CPU, (CPU_BUDGET_S, CPU_BUDGET_S))
             answer = verdict(cmd) or "allow"
         except BaseException:
             answer = "error"
@@ -380,7 +392,13 @@ def judged(cmd: str) -> str | None:
         os.waitpid(pid, 0)
         return "slow"
     answer = os.read(r, 64).decode(errors="replace")
-    os.waitpid(pid, 0)
+    _, status, usage = os.wait4(pid, 0)
+    # Equal soft and hard limits end the child by SIGKILL, not SIGXCPU, so the
+    # CPU it used tells the budget from a kill for another reason (the OOM
+    # killer) that stays an error.
+    if (not answer and os.WIFSIGNALED(status) and os.WTERMSIG(status) in (signal.SIGXCPU, signal.SIGKILL)
+            and usage.ru_utime + usage.ru_stime >= CPU_BUDGET_S - 0.1):
+        return "slow"
     if answer == "allow":
         return None
     return answer if answer in REASONS else "error"

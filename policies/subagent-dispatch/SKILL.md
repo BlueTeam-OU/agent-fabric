@@ -125,7 +125,7 @@ at the keyboard on every review — a standing exception that still asks
 is not one, and the ask arrived at the least useful moment, mid-review-
 loop.
 
-So the carve-out is structural, and it is a CLASS with four conditions,
+So the carve-out is structural, and it is a CLASS with five conditions,
 enforced by `runtime/claude-code/hooks/agent-dispatch-guard.sh`, which the
 workspace settings bootstrap writes register (the `PreToolUse` hook for `Agent`; decision table in `tests/test_agent_dispatch_guard_cli.py`):
 
@@ -135,9 +135,13 @@ workspace settings bootstrap writes register (the `PreToolUse` hook for `Agent`;
 2. `description` that BEGINS with `review` or `re-review`;
 3. `model: "fable"` — the review class's alias, checked and then, under
    a fabric launch, removed so the agent file's pinned model applies;
-4. **no `isolation`** at all.
+4. **no `isolation`** at all;
+5. a session **not on a `<host>/<login>/for/` branch**: a supplier
+   dispatches no review of its own part, the integrator's review covers
+   it (ADR-020 §5 rule 11). The guard reads the dispatching session's
+   branch; a supplier on a detached HEAD is held by the rule alone.
 
-All four, or the dispatch is **denied** — never asked. These were
+All five, or the dispatch is **denied** — never asked. These were
 learned one at a time, and each was load-bearing on its own:
 
 - **The model condition was missing when this first shipped.** Keyed on

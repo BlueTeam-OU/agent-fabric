@@ -34,8 +34,10 @@ TWO CLASSES OF DISPATCH, decided in this order:
   REVIEW class    -> subagent_type "code-review" AND description
                      beginning "review" / "re-review" (any word
                      form: Reviewing, Re-review of ...) AND model
-                     "fable" AND NO isolation. All four, or denied --
-                     never asked. Standing authorisation for the
+                     "fable" AND NO isolation AND a session not on a
+                     <host>/<login>/for/ branch (a supplier reviews
+                     nothing of its own part, ADR-020 §5 rule 11). All
+                     five, or denied -- never asked. Standing authorisation for the
                      class: a review's failure mode is not a retry,
                      it is a green PR that merges, so no per-dispatch
                      prompt and no dropping to a cheaper tier because
@@ -130,6 +132,25 @@ READ_ONLY = re.compile(r"^(Explore|Plan|claude-code-guide)$")
 PREMIUM = re.compile(r"opus|fable")
 CANNOT_RUN = ("The dispatch guard could not run ({why}). Approve only if you have checked model and isolation "
               "yourself. " + SKILL)
+
+
+# A supplier's branch (ADR-019, the pull-requests skill): <host>/<login>/for/<caller>/<what>.
+SUPPLY_BRANCH = re.compile(r"^[^/]+/[^/]+/for/")
+
+
+def supply_branch(cwd) -> str:
+    """The branch checked out at the call's cwd when it is a supplier's
+    for/ branch, else "". A cwd git cannot answer for is no supplier: this
+    rule reads one fact and decides nothing on a guess (ADR-020 §5 rule 11)."""
+    if not isinstance(cwd, str) or not cwd:
+        return ""
+    try:
+        r = subprocess.run(["git", "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD"],
+                           capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    branch = r.stdout.strip() if r.returncode == 0 else ""
+    return branch if SUPPLY_BRANCH.match(branch) else ""
 
 
 class Malformed(Exception):
@@ -286,6 +307,14 @@ def decide(call) -> dict | None:
                     "subagent_type: code-review (the capability class, like code-low/medium/high/plan), everything "
                     "else unchanged. " + SKILL)
     if kind == "code-review":
+        supplier = supply_branch(call.get("cwd"))
+        if supplier:
+            return deny(f"Review dispatch from the supplier branch {supplier}. A supplier dispatches no review of its "
+                        "own part: the integrator folds every supply, runs the full suite and dispatches one blind "
+                        "review of the whole head, then re-reviews each fix range, and a finding on your hunk comes "
+                        "back to you (agent-fabric ADR-020 §5 rule 11). Keep your own checks -- the test failing "
+                        "before and passing after, the mutations, tests/run.sh -- and send them with the supply. "
+                        + SKILL)
         if not review_desc:
             return deny("code-review dispatch whose description does not BEGIN with review or re-review. The review "
                         "class is read-only and unisolated; a writing task under this type would run in the session "

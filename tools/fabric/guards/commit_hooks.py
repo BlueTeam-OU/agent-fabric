@@ -76,7 +76,7 @@ FOOTER_RE = re.compile(r"Generated with\s+\[Claude Code|claude\.ai/code/session_
 # as a trailer (an NBSP before it). glibc's [[:space:]] under C.UTF-8, measured with grep on 2026-10-19: it leaves out
 # U+001C-001F, U+0085, U+00A0, U+2007 and U+202F (review of #329, round 2).
 GREP_SPACE = "\t\v\f\r \u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000"
-FABRIC_ROLE_RE = re.compile(rf"^[{GREP_SPACE}]*Fabric-Role:", re.I)
+FABRIC_ROLE_RE = re.compile(rf"^[{GREP_SPACE}]*Fabric-Role:", re.I | re.ASCII)
 HEX_TREE = re.compile(r"[0-9a-f]{40,64}")
 ADR_CHECK_TIMEOUT_S = 600
 SHORT_TIMEOUT_S = 30

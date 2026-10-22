@@ -144,8 +144,7 @@ def arm_direct_findings(root: str) -> list[str]:
     compiles, and cases (paths that must need a PR) it actually matches.
     A project without the key is not judged."""
     findings = []
-    for rel in sorted(r for r in _tracked(root)
-                      if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)):
+    for rel in _arm_jsons_in_read_tree(root):
         try:
             project = rel.split("/")[1]
             doc = json.load(open(roots.project_integration(project, "gh", "arm.json", engine=root), encoding="utf-8"))
@@ -206,8 +205,7 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     then needs a visible record, which the fold and the blind review see;
     before, a shrunk regex failed nothing (reviews of #89 and #90)."""
     findings = []
-    for rel in sorted(r for r in _tracked(root)
-                      if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)):
+    for rel in _arm_jsons_in_read_tree(root):
         try:
             # The tracked list names the project; its integration/ is instance data (ADR-045).
             project = rel.split("/")[1]
@@ -317,7 +315,7 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
         listed = _git().run(root, "ls-tree", "-r", "--name-only", since, "--", "projects/", check=False, timeout=60)
         before = {r for r in listed.stdout.splitlines()
                   if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)} if listed.returncode == 0 else set()
-        now = {r for r in _tracked(root) if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
+        now = set(_arm_jsons_in_read_tree(root))
         removed = sorted(before - now)
         try:
             with open(roots.projects_registry(engine=root), encoding="utf-8") as fh:
@@ -338,6 +336,59 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     return findings
 
 
+def _read_tree_files(root: str):
+    """(tree, tracked) for the tree roots.* reads instance data from (the
+    operator's when AGENT_FABRIC_OPERATOR is exported, ADR-045), never the
+    engine's index: an operator that declares a project's files the engine
+    lacks is not missing them (#352 review). `tracked` is that tree's git
+    index when the tree is a git checkout, meaning its own work tree's root
+    (`rev-parse --show-toplevel`): a tree untracked inside a larger repository
+    would read every file as missing, so it is judged by existence, `tracked`
+    None. None altogether when absence proves nothing: the engine that is
+    not a checkout, or a checkout whose index is empty (nothing tracked
+    proves nothing; the answer before j147)."""
+    tree = roots.operator_root(engine=root)
+    top = _git().run(tree, "rev-parse", "--show-toplevel", check=False, timeout=60)
+    if top.returncode == 0 and os.path.realpath(top.stdout.strip()) == os.path.realpath(tree):
+        r = _git().run(tree, "ls-files", "-z", check=False, timeout=60)
+        if r.returncode == 0:
+            tracked = {f for f in r.stdout.split("\0") if f}
+            return (tree, tracked) if tracked else None
+    if os.path.realpath(tree) == os.path.realpath(root):
+        return None
+    return tree, None
+
+
+def _present_in_read_tree(root: str):
+    """A predicate over the absolute paths a roots.* call returned: is the
+    file there, in the tree those calls read from (_read_tree_files)? None
+    when absence proves nothing."""
+    read = _read_tree_files(root)
+    if read is None:
+        return None
+    tree, tracked = read
+    if tracked is None:
+        return os.path.isfile
+    return lambda path: os.path.relpath(path, tree) in tracked
+
+
+def _arm_jsons_in_read_tree(root: str) -> list[str]:
+    """Every projects/<p>/integration/gh/arm.json of the tree the rules open
+    them from, as paths relative to it, sorted. [] when absence proves nothing."""
+    read = _read_tree_files(root)
+    if read is None:
+        return []
+    tree, tracked = read
+    if tracked is None:
+        try:
+            projects = os.listdir(roots.projects_dir(engine=root))
+        except OSError:
+            return []
+        tracked = {f"projects/{p}/integration/gh/arm.json" for p in projects
+                   if os.path.isfile(roots.project_integration(p, "gh", "arm.json", engine=root))}
+    return sorted(r for r in tracked if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r))
+
+
 def arm_declared_findings(root: str) -> list[str]:
     """Every project in projects/registry.json has an arm.json. Without one
     fabric-pr arm refuses to arm any PR of the project ("the security
@@ -352,11 +403,11 @@ def arm_declared_findings(root: str) -> list[str]:
         # registry's own checks' to report; naming every project missing
         # from a registry nobody could read would bury that.
         return []
-    tracked = _tracked(root)
-    if not tracked:
+    present = _present_in_read_tree(root)
+    if present is None:
         return []   # not a git checkout: nothing is tracked, so absence proves nothing
-    declared = {r.split("/")[1] for r in tracked
-                if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
+    declared = {p for p in registered
+                if present(roots.project_integration(p, "gh", "arm.json", engine=root))}
     return [f"projects/registry.json: project {p!r} has no projects/{p}/integration/gh/arm.json; "
             "fabric-pr arm refuses to arm a PR of a project whose security boundary it cannot read"
             for p in registered if p not in declared]
@@ -374,13 +425,13 @@ def gzcoord_declared_findings(root: str) -> list[str]:
             registered = sorted((json.load(fh).get("projects") or {}))
     except (OSError, ValueError, AttributeError):
         return []   # as arm_declared_findings: an unreadable registry is reported elsewhere
-    tracked = _tracked(root)
-    if not tracked:
+    present = _present_in_read_tree(root)
+    if present is None:
         return []
     findings = []
     for p in registered:
         rel = f"projects/{p}/integration/gzcoord/config.json"
-        if rel not in tracked:
+        if not present(roots.project_integration(p, "gzcoord", "config.json", engine=root)):
             findings.append(f"projects/registry.json: project {p!r} has no {rel}; gzcoord-inbox exits 3 "
                             "(not configured) in its working copy, and its sessions neither hear nor send")
             continue

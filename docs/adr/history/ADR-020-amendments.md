@@ -89,3 +89,19 @@ not one of the PR's (read from the PR's commit list, failing closed when
 it cannot be read or is truncated) is refused before anything is posted,
 `--dry-run` included. The gate's coverage test is unchanged: it already
 compared a review's commit with the head.
+
+### Amendment 2026-10-22 — A supplier dispatches no review of its own part
+
+The pull-requests skill told a supplier to review before hand-off
+(`Supplier-Review:`), and suppliers read it as a review-class review of
+their own slice: on #354 (four python-dev patches folded into one
+coordinator PR) each supplier's slice was reviewable on its own while the
+caller's one blind review of the folded head was what the gate counted.
+The owner ruled on 2026-10-22 that the caller folds first and runs one
+full review: a slice's review costs what the batch's costs and cannot see
+the hunks together, and the batch review of #354 found two P1s (process
+substitution and function/coproc bodies in the job-copy guard) that the
+supplier's own tests had passed. §5 rule 11 now says so; the
+`SUPPLIER-REVIEW` section and trailer keep their names and carry the
+supplier's own checks; `dispatch_guard.py` denies a code-review dispatch
+from a session with a `for/` branch checked out, with a suite case.
