@@ -2017,6 +2017,102 @@ def case_presence_is_judged_in_the_tree_the_file_is_read_from() -> None:
             os.environ["AGENT_FABRIC_OPERATOR"] = saved
 
 
+def case_read_tree_listing_and_its_two_edges() -> None:
+    """j147 (#354 round 1): the arm rules list arm.json from the tree they
+    open it from, so one only the operator has is checked; a checkout with
+    an empty index keeps the old answer (nothing tracked proves nothing);
+    an operator tree untracked inside a larger repository is judged by
+    existence, not by an index that is not its own."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    cfg = json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "x:gzcoord"})
+    registry = json.dumps({"projects": {"demo": {}}})
+    unusable = json.dumps({"boundary": {"paths": "("}, "direct": []})
+    arm = lambda tree: os.path.join(tree, "projects", "demo", "integration", "gh", "arm.json")
+    gz = lambda tree: os.path.join(tree, "projects", "demo", "integration", "gzcoord", "config.json")
+    git = lambda tree, *a: subprocess.run(["git", "-C", tree, *a], check=True, capture_output=True, env=git_env())
+
+    def both(engine: str) -> list[str]:
+        return (lint.arm_boundary_findings(engine, base_ref="no-such-ref") + lint.arm_direct_findings(engine)
+                + lint.arm_declared_findings(engine) + lint.gzcoord_declared_findings(engine))
+
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    try:
+        os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        # 1. only the operator has an arm.json: both arm rules check it
+        for operator_is_git in (True, False):
+            with tempfile.TemporaryDirectory() as root:
+                engine, operator = os.path.join(root, "engine"), os.path.join(root, "operator")
+                write(os.path.join(engine, "projects", "registry.json"), registry)
+                git_init = lambda tree: (os.makedirs(tree, exist_ok=True), git(tree, "init", "-q", "-b", "main"))
+                git_init(engine)
+                git(engine, "add", "-A")
+                write(os.path.join(operator, "projects", "registry.json"), registry)
+                write(arm(operator), json.dumps({"boundary": {"paths": "^src/", "cases": ["src/a"]}, "direct": []}))
+                write(gz(operator), cfg)
+                if operator_is_git:
+                    git_init(operator)
+                    git(operator, "add", "-A")
+                os.environ["AGENT_FABRIC_OPERATOR"] = operator
+                kind = "git" if operator_is_git else "non-git"
+                assert any("direct must be an object" in f for f in lint.arm_direct_findings(engine)), \
+                    (kind, "arm_direct_findings never listed the operator's arm.json", lint.arm_direct_findings(engine))
+                write(arm(operator), unusable)
+                if operator_is_git:
+                    git(operator, "add", "-A")
+                got = lint.arm_boundary_findings(engine, base_ref="no-such-ref")
+                assert any("not a usable arm.json" in f for f in got), \
+                    (kind, "arm_boundary_findings never listed the operator's arm.json", got)
+                os.environ.pop("AGENT_FABRIC_OPERATOR")
+                assert lint.arm_direct_findings(engine) == [], (kind, "no operator: the engine has none to check")
+
+        # 2. empty index: the old answer, [] , in the engine and as the operator
+        for as_operator in (False, True):
+            with tempfile.TemporaryDirectory() as root:
+                tree = os.path.join(root, "tree")
+                write(os.path.join(tree, "projects", "registry.json"), registry)
+                git(tree, "init", "-q", "-b", "main")
+                engine = os.path.join(root, "engine") if as_operator else tree
+                if as_operator:
+                    write(os.path.join(engine, "projects", "registry.json"), registry)
+                    git(engine, "init", "-q", "-b", "main")
+                    git(engine, "add", "-A")
+                    os.environ["AGENT_FABRIC_OPERATOR"] = tree
+                assert both(engine) == [], (as_operator, "nothing tracked proves nothing", both(engine))
+                # positive control: the same tree with one file tracked is judged
+                git(tree, "add", "-A")
+                got = both(engine)
+                assert any("has no projects/demo/integration/gh/arm.json" in f for f in got), (as_operator, got)
+                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+
+        # 3. an operator tree untracked inside a larger repository
+        with tempfile.TemporaryDirectory() as root:
+            engine, outer = os.path.join(root, "engine"), os.path.join(root, "outer")
+            operator = os.path.join(outer, "ops")
+            write(os.path.join(engine, "projects", "registry.json"), registry)
+            git(engine, "init", "-q", "-b", "main")
+            git(engine, "add", "-A")
+            write(os.path.join(outer, "README"), "x")
+            git(outer, "init", "-q", "-b", "main")
+            git(outer, "add", "-A")      # the operator tree below is not added: untracked
+            write(os.path.join(operator, "projects", "registry.json"), registry)
+            write(arm(operator), unusable)
+            write(gz(operator), cfg)
+            os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            got = both(engine)
+            assert not any("has no projects/demo" in f for f in got), ("existence, not the outer index", got)
+            assert any("not a usable arm.json" in f for f in got), ("and its arm.json is listed and read", got)
+            os.remove(gz(operator))      # positive control: a file really missing is still found
+            assert any("has no projects/demo/integration/gzcoord/config.json" in f for f in both(engine)), both(engine)
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
 def case_bash_over_160_lines_needs_the_allowlist() -> None:
     """ADR-040 §5 rule 2: a tracked bash script over 160 lines is a finding
     unless the allowlist names it; an entry whose script is gone or short
@@ -2644,6 +2740,7 @@ def main() -> int:
         case_the_callers_operator_is_not_part_of_a_fixture,
         case_instance_files_are_read_from_the_operator_tree,
         case_presence_is_judged_in_the_tree_the_file_is_read_from,
+        case_read_tree_listing_and_its_two_edges,
         case_payload_is_exempt,
         case_hygiene_still_runs_over_payload,
         case_secrets_are_refused_by_shape,
