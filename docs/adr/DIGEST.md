@@ -64,6 +64,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 | lessons in messages; reflection pass; fabric-reflect; turning the journal into memory | ADR-058 |
 | personal data in AI tools; Max plan; client data; privacy notice; sub-processor | ADR-059 |
 | a holder's own specialization of a role; charter or brief addendum; holder.json; jurisdiction of a legal holder; locale chosen per holder | ADR-060 |
+| errors per actor; review findings and red CI counted the same for people and agents | ADR-061 |
+| hidden Unicode; bidi, zero-width, tag characters in skills, slices and charters | ADR-062 |
 | fabric-ctl assist; asking about the fabric with the fleet down; the claude-pzhuy API key; who may spend an API key | ADR-063 |
 
 ### ADR-000 — The enduring organization (Accepted)
