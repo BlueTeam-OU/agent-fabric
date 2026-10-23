@@ -47,9 +47,11 @@ def clean_env(source: dict[str, str] | None = None, guard: str = GUARD) -> dict[
 
 
 def git_env(source: dict[str, str] | None = None) -> dict[str, str]:
-    """CLEAN_ENV and the switches that keep git off every config but the repository's, and off a lock a read would take."""
+    """CLEAN_ENV and the switches that keep git off every config but the repository's, off a lock a read would take, and off the
+    network: in a partial (promisor) clone git fetches a missing object on its own, and no tool of this server fetches. gittools.git_argv
+    says the same on the command line, so neither the argv nor the environment is the only thing that holds it."""
     return {**clean_env(source), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_OPTIONAL_LOCKS": "0",
-            "GIT_TERMINAL_PROMPT": "0"}
+            "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1"}
 
 
 def field(name: str, value: object, required: bool = True) -> str:

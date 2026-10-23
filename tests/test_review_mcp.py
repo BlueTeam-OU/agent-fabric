@@ -428,6 +428,12 @@ def main() -> int:
     else:
         sandbox_cases(server, call, head, base, clone, evidence, scratch, home, secret_file, ssh_file, marks)
 
+    print("-- a partial clone: a missing object is refused, never fetched (ADR-065: no tool fetches)")
+    partial_cases(scratch, home, srv, gittools, scope)
+
+    print("-- no bytecode is written into the install tree")
+    bytecode_cases(scratch, home)
+
     print("-- the server over stdio")
     env = {"PATH": "/usr/bin:/bin", "CLAUDE_PROJECT_DIR": clone, "HOME": home, "AGENT_FABRIC_PYTHON": sys.executable}
     msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
@@ -452,6 +458,118 @@ def main() -> int:
 
     print("test_review_mcp:", "OK" if not fails else f"{fails} FAILED")
     return 1 if fails else 0
+
+
+def fetch_children(trace: str) -> int:
+    """How many `git fetch` children the GIT_TRACE file at `trace` shows git to have started."""
+    if not os.path.exists(trace):
+        return 0
+    with open(trace, encoding="utf-8", errors="replace") as fh:
+        return sum(1 for ln in fh if "run_command" in ln and " fetch" in ln)
+
+
+def partial_cases(scratch, home, server_mod, gittools_mod, scope_mod) -> None:
+    """A --filter=blob:none clone has commits and no blobs; a commit the origin gained afterwards is missing altogether. Git fetches either
+    from the promisor remote on its own, through a `git fetch` child, which protocol.allow=never makes fail but does not prevent."""
+    origin, part = os.path.join(scratch, "promisor-origin"), os.path.join(scratch, "promisor-clone")
+    sh(["git", "init", "-q", "-b", "main", origin], scratch)
+    sh(["git", "config", "uploadpack.allowFilter", "true"], origin)
+    sh(["git", "config", "uploadpack.allowAnySHA1InWant", "true"], origin)
+    with open(os.path.join(origin, "f.txt"), "w") as fh:
+        fh.write("one\n")
+    sh(["git", "add", "."], origin)
+    sh(["git", "commit", "-q", "-m", "first"], origin)
+    sh(["git", "clone", "-q", "--no-checkout", "--filter=blob:none", "file://" + origin, part], scratch)
+    with open(os.path.join(origin, "f.txt"), "w") as fh:
+        fh.write("two\n")
+    sh(["git", "commit", "-q", "-am", "second"], origin)
+    have, missing = sh(["git", "rev-parse", "HEAD~1"], origin), sh(["git", "rev-parse", "HEAD"], origin)
+    trace = os.path.join(scratch, "partial.trace")
+
+    def trial(argv_flag: bool, env_flag: bool) -> list[tuple[str, bool, str]]:
+        """Each tool on the partial clone, with GIT_TRACE added to the children's environment and the argv or the environment switch
+        taken out as asked: (tool, refused, text)."""
+        real_env, real_argv = scope_mod.git_env, gittools_mod.git_argv
+
+        def traced_env(source=None):
+            e = {**real_env(source), "GIT_TRACE": trace}
+            if not env_flag:
+                del e["GIT_NO_LAZY_FETCH"]
+            return e
+
+        def argv(repository, *args):
+            a = real_argv(repository, *args)
+            return a if argv_flag else [x for x in a if x != "--no-lazy-fetch"]
+        scope_mod.git_env, gittools_mod.git_argv = traced_env, argv
+        os.environ["CLAUDE_PROJECT_DIR"] = part
+        try:
+            srv = server_mod.Server()
+            out = []
+            for tool, args in (("review_show", {"rev": missing}), ("review_log", {"head": missing}),
+                               ("review_show", {"rev": have, "path": "f.txt"}), ("review_log", {"head": have, "patch": True}),
+                               ("review_diff", {"base": have, "head": missing})):
+                r = srv.call(tool, args)
+                out.append((tool + " " + " ".join(f"{k}={str(v)[:7]}" for k, v in args.items()), r["isError"], r["content"][0]["text"]))
+            return out
+        finally:
+            scope_mod.git_env, gittools_mod.git_argv = real_env, real_argv
+            os.environ["CLAUDE_PROJECT_DIR"] = os.path.join(home, "work", "clone")
+
+    cfg = os.path.join(part, ".git", "config")
+    before = (open(cfg, "rb").read(), os.stat(cfg).st_mtime_ns)
+    for label, argv_flag, env_flag in (("both switches", True, True), ("the argv switch alone", True, False), ("the environment switch alone", False, True)):
+        if os.path.exists(trace):
+            os.remove(trace)
+        results = trial(argv_flag, env_flag)
+        check(f"{label}: resolve, show and log of an absent commit or blob are refused, none gives content",
+              all(err for _, err, _ in results[:4]), str(results))
+        check(f"{label}: git started no fetch child", fetch_children(trace) == 0, open(trace).read() if os.path.exists(trace) else "")
+        check(f"{label}: the partial clone's .git/config is the same bytes with the same mtime",
+              (open(cfg, "rb").read(), os.stat(cfg).st_mtime_ns) == before)
+    # Positive control: with neither switch, the very same calls do start the fetch child, so a count of 0 above can fail.
+    if os.path.exists(trace):
+        os.remove(trace)
+    trial(False, False)
+    check("positive control: without either switch the same calls start a fetch child", fetch_children(trace) > 0)
+    check("git_argv carries --no-lazy-fetch and git_env GIT_NO_LAZY_FETCH=1 whatever the caller passes",
+          "--no-lazy-fetch" in gittools_mod.git_argv(part, "log") and scope_mod.git_env({"PATH": "/x"}).get("GIT_NO_LAZY_FETCH") == "1")
+
+
+def bytecode_cases(scratch, home) -> None:
+    """The server, started on a copy of the tree that has no __pycache__, leaves none, by the launcher (-B) and by the module alone (the
+    line before its imports); a copy whose server.py lacks that line and is started without -B does leave one, so the check can fail."""
+    def pycaches(tree: str) -> list[str]:
+        return [d for d, names, _ in os.walk(tree) if "__pycache__" in names]
+
+    def tree(name: str, mutate=None) -> str:
+        root = os.path.join(scratch, name)
+        shutil.copytree(HERE, root, ignore=shutil.ignore_patterns("__pycache__", ".git", "*.pyc"), symlinks=True)
+        if mutate:
+            mutate(root)
+        return root
+
+    def start(argv: list[str]) -> subprocess.CompletedProcess:
+        env = {"PATH": "/usr/bin:/bin", "HOME": home, "CLAUDE_PROJECT_DIR": os.path.join(home, "work", "clone"), "AGENT_FABRIC_PYTHON": sys.executable}
+        return subprocess.run(argv, input='{"jsonrpc":"2.0","id":1,"method":"ping"}\n', env=env, capture_output=True, text=True, timeout=60)
+
+    def drop_line(root: str) -> None:
+        f = os.path.join(root, "tools", "fabric", "review_mcp", "server.py")
+        with open(f, encoding="utf-8") as fh:
+            text = fh.read()
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(ln for ln in text.split("\n") if "dont_write_bytecode" not in ln))
+
+    launcher = tree("bytecode-launcher")
+    r = start([os.path.join(launcher, "bin", "fabric-review-mcp")])
+    check("the launcher serves a ping on a tree with no caches", '"result"' in r.stdout, r.stdout + r.stderr)
+    check("and leaves no __pycache__ in the tree", pycaches(launcher) == [], str(pycaches(launcher)))
+    alone = tree("bytecode-module")
+    r = start([sys.executable, "-I", os.path.join(alone, "tools", "fabric", "review_mcp", "server.py")])
+    check("the module started by `python -I` alone serves a ping and leaves no __pycache__", '"result"' in r.stdout and pycaches(alone) == [], str(pycaches(alone)))
+    control = tree("bytecode-control", drop_line)
+    r = start([sys.executable, "-I", os.path.join(control, "tools", "fabric", "review_mcp", "server.py")])
+    check("positive control: without the line, and without -B, the same start does write a __pycache__",
+          '"result"' in r.stdout and pycaches(control) != [], r.stdout + r.stderr)
 
 
 def ast_clean_env() -> tuple[str, ...]:
