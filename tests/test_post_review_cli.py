@@ -561,7 +561,7 @@ def main() -> int:
             ("a block that is not JSON", report + f"```{rcov.BLOCK_INFO}\nnot json\n```\n", None, "not JSON"),
             ("duplicate keys in the block", report + f'```{rcov.BLOCK_INFO}\n{{"paths": {{}}, "paths": {{}}, "lenses": {{}}}}\n```\n', None, "each key once"),
             ("a second coverage block", report + cover("a.py", "sub/c.py") + cover("a.py", "sub/c.py"), None, "more than one"),
-            ("a second block quoted in a longer fence", report + cover("a.py", "sub/c.py") + "\n````text\n" + cover("a.py") + "````\n", None, "more than one"),
+            ("a second block quoted in a longer fence", report + cover("a.py", "sub/c.py") + "\n````text\n" + cover("a.py") + "````\n", None, "lines open a coverage block"),
             ("a marker-like line later in the body", f"{want}\n" + report + cover("a.py", "sub/c.py"), None, "looks like a review marker"),
             ("a v1 marker line in the body", "<!-- agent-fabric-review v1 -->\n" + report + cover("a.py", "sub/c.py"), None, "looks like a review marker"),
             ("a block with a path not read and no reason", report + f'```{rcov.BLOCK_INFO}\n{{"paths": {{"a.py": {{"status": "not read"}}, "sub/c.py": {{"status": "read"}}}}, "lenses": {{}}}}\n```\n', None, "needs a reason"),

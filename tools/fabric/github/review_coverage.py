@@ -184,13 +184,14 @@ def read_block(body: str) -> tuple[Coverage, tuple[int, int]]:
     if not blocks:
         raise CoverageError("the report carries no coverage block (a fenced block whose info string is "
                             f"`{BLOCK_INFO}`)")
-    if len(blocks) > 1 or named > 1:
-        raise CoverageError(f"the report carries more than one coverage block ({max(len(blocks), named)} lines open one)")
+    if len(blocks) > 1:
+        raise CoverageError(f"the report carries more than one coverage block ({len(blocks)} lines open one)")
     start, close = blocks[0]
     if close >= len(lines):
         raise CoverageError("the coverage block is never closed")
     if named != 1:
-        raise CoverageError("a line names the coverage block in a form this reader does not take for the block")
+        # A second opener the structural scan did not take for a block (quoted, listed, inside another fence).
+        raise CoverageError(f"{named} lines open a coverage block, and only one is a block of its own")
     return parse_block("\n".join(lines[start + 1:close])), (start, close)
 
 
