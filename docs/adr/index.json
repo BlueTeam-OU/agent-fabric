@@ -590,7 +590,7 @@
       "number": "065",
       "file": "ADR-065-the-reviewer-reads-through-pinned-tools.md",
       "title": "The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-23",
       "pillar": "P3",
       "amendments": 0

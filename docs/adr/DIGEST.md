@@ -1403,20 +1403,20 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: InterWeave, carrier, transport, relay, dual run, parity,
   PeerId, roster, allowlist, loopback, one host, P5.
 
-### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Proposed)
+### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
 
 - The review class loses Bash; it reads through `Read`, `Glob`, `Grep`
   and a stdlib review server whose tools run git with a fixed argv, no
   shell and a clean environment (§2 A, §5 rules 1–2).
-- It runs only the checks its project's review card declares, by name, in
-  the head worktree (§2 B, §5 rule 3).
+- Its checks run one argv at a time in a bubblewrap sandbox: read-only
+  filesystem, fresh `/tmp`, no network, proved by a start probe and a
+  refused write per review; unproved, nothing runs (§2 B, §5 rule 3).
 - A posted review carries a `v2` marker (base, head, config hash) and a
-  coverage block naming every path of the range; a re-review's base is
-  derived from the last marker, fail-closed (§2 C, §5 rules 4–5).
+  coverage block naming every path of the range; a path `not read`
+  uncounts it, and a re-review's base is derived from the last marker,
+  fail-closed (§2 C, §5 rules 4–5).
 - The session posts the report; `review-bash-guard` stays only for other
   unisolated classes (§5 rules 6–7).
-- Proposed: the owner decides declared checks vs dispatcher-run checks,
-  and whether a `not read` path uncounts a review (§8).
 - Keywords: review class, reviewer, Bash guard, pinned tools, MCP,
-  read-only, checks, coverage manifest, checkpoint marker, re-review,
-  card_base, open-code-review, P3.
+  read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
+  marker, re-review, card_base, open-code-review, P3.

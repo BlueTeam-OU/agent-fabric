@@ -1,9 +1,10 @@
 # ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped
 
 **Date:** 2026-10-23
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-23, in the session, answering §8's questions: checks run in a sandboxed shell ("Sandboxed shell"), a `not read` path uncounts the review ("Uncount it"), and the record is accepted and built ("Accept and build")
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the review class's tools (`runtime/claude-code/agents/code-review.md`), a read-only review tool server beside `tools/fabric/memory_mcp/`, the checks a project lets its reviewer run, the posted review object (`tools/fabric/github/post_review.py` and its readers), the re-review range (`tools/fabric/review_brief.py` `card_base`), and the arm's reading of a review; the Codex engine (ADR-053) only where it posts through the same object
+**Scope:** the review class's tools (`runtime/claude-code/agents/code-review.md`), a read-only review tool server beside `tools/fabric/memory_mcp/`, the sandbox the reviewer's checks run in, the posted review object (`tools/fabric/github/post_review.py` and its readers), the re-review range (`tools/fabric/review_brief.py` `card_base`), and the arm's reading of a review; the Codex engine (ADR-053) only where it posts through the same object
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -49,10 +50,14 @@ alibaba/open-code-review (`ocr`, read 2026-10-21 at the owner's request;
 not adopted, §3) does each of these three things differently, and the
 three ideas below are taken from it.
 
+The sandbox §2 B relies on was read back on develop-qzapp on 2026-10-23:
+bubblewrap 0.12.0 at `/usr/bin/bwrap`, and
+`bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net` refused a
+`touch` under the home.
+
 ## 2. Decision
 
-**Proposed, in three parts, built in that order, each its own commit
-range under one PR per part.**
+**Three parts, built in that order, as commit ranges on one PR.**
 
 **A. Pinned read tools in place of the reviewer's Bash.** The review class
 loses `Bash`. It keeps `Read, Glob, Grep`, and gains the tools of a
@@ -66,7 +71,7 @@ shape as `memory_mcp`, ADR-040, ADR-049):
 | `review_show` | `git show <rev>:<path>` and `git show <rev>` | any commit the clone has |
 | `review_blame` | `git blame <rev> -- <path>` with a line span | any commit the clone has |
 | `review_grep` | `git grep <pattern> <rev> -- <pathspec>` | any commit the clone has |
-| `review_check` | one check the project declares, by name | the head worktree, §2 C |
+| `review_check` | an argv the reviewer gives | a proved read-only sandbox over the head worktree, §2 B |
 
 Each tool builds a fixed argv and calls `git` with no shell, a clean
 environment (the guard's `CLEAN_ENV`), `--no-pager`, no external diff or
@@ -76,15 +81,20 @@ when it was cut. Arguments are data: a revision is resolved by
 after `--`, and no argument may start with `-`. Nothing in the server can
 write, fetch or change a ref, because nothing in it names a verb that does.
 
-**B. Checks are declared, not composed.** A project lists the checks its
-reviewer may run in its review card (`.agent-fabric/review-card.md`'s
-front matter, or a sibling `review-checks.json`): a name, an argv, a
-working directory relative to the head worktree, a timeout. `review_check`
-runs one by name in the head worktree with the clean environment and no
-network namespace where the host allows one; a check the card does not
-declare is reported as not run, with its reason, and the dispatcher runs
-it. The fabric's own card declares `tests/run.sh` per suite and
-`tools/fabric/lint.py`.
+**B. Checks run in a proved read-only sandbox.** `review_check` takes an
+argv from the reviewer, not a shell line, and runs it under bubblewrap:
+the whole filesystem bound read-only, a fresh tmpfs at `/tmp` and as
+`TMPDIR`, no network (`--unshare-net`), a new session and process group,
+the clean environment, the head worktree as its working directory, and a
+time budget after which the whole group is ended. Before the first check
+of a review the server proves the sandbox as the Codex engine does
+(`review_codex.prove_sandbox`): it must start, and it must refuse a write
+at a fresh random path in the head worktree; a sandbox that cannot be
+proved runs nothing, with one line saying why, and there is no fallback
+to a wider one. A check that needs to write outside `/tmp` — an install,
+a restore, a build into the tree — fails inside the sandbox and is
+reported as not run; the dispatcher runs it. The host's bubblewrap was
+read back before this was decided (§1).
 
 **C. The report says what it covered, and the next round reads it.**
 
@@ -121,19 +131,22 @@ secrets a shell can read, or an install that writes outside the worktree.
 It also gives the reviewer a writable tree, which ADR-020 deliberately
 does not.
 
-**A sandbox around Bash (bubblewrap, read-only bind).** What the Codex
-engine does (ADR-053 rule 2, `prove_sandbox`). It is the strongest fence,
-and the fallback for part B if declared checks prove too narrow. Not
-chosen first: Claude Code's Bash has no sandbox the fabric can prove at
-dispatch time on every host, and a sandbox still leaves the reviewer a
-shell whose output the guard would have to stop reading as a decision.
+**Declared checks: the project's card lists them, the reviewer names
+one.** The narrowest surface. Not chosen: every project
+would have to write and keep a check list before its reviewer could run
+anything, and the check nobody declared is the one a finding needed. The
+sandbox makes the argv harmless, so it need not be enumerated.
+
+**Bubblewrap around Claude Code's own Bash.** No sandbox the fabric can
+prove at dispatch time wraps the harness's Bash tool, and the reviewer
+would keep a shell whose every line the guard still had to read. The
+sandbox goes around one argv, inside a tool the fabric owns.
 
 **No checks at all; the dispatcher runs the suite and hands over the log.**
-Simplest, and it keeps the reviewer purely a reader. Rejected as the
-default because "run this and see" is often the decisive evidence for a
-finding (the agent file says so), and a log the author's session produced
-is the author's material. It is the owner's call if part B is judged too
-much surface (§8).
+Simplest, and it keeps the reviewer purely a reader. Not chosen because
+"run this and see" is often the decisive evidence for a finding (the
+agent file says so), and a log the author's session produced is the
+author's material.
 
 **Adopt `ocr`.** A second LLM key and a second posting path, and its
 `--background` passes the author's reasoning to the reviewer, which ADR-020
@@ -144,8 +157,11 @@ forbids. Its ideas are taken, not its tool.
 A fence that reads a language is only as good as its reading of that
 language. A fence that offers verbs has no reading to get wrong: what the
 reviewer can do is the list in §2, and a new need is a new tool, reviewed
-once. The cost moves from an open-ended pattern list to a closed tool list
-plus a per-project check list, both of which a review can read whole.
+once. Where the reviewer does need to run something, the fence is the
+kernel's (a read-only mount namespace, proved before use), not a reading
+of the command. The cost moves from an open-ended pattern list to a
+closed tool list and one sandbox proof, both of which a review can read
+whole.
 
 The manifest and the marker turn two claims the gate takes on trust ("I
 read it all", "this is the fix range") into records the gate can check.
@@ -161,8 +177,11 @@ means a full review.
    shell, in the clean environment, and refuses an argument that starts
    with `-` or a revision `rev-parse --verify` does not resolve to a
    commit. A tool that can write, fetch or change a ref is not added.
-3. `review_check` runs only a check the project's card declares, by name,
-   in the head worktree; it never takes an argv from the reviewer.
+3. `review_check` runs one argv, never a shell line, under a bubblewrap
+   sandbox that binds the filesystem read-only, gives a fresh `/tmp`, has
+   no network, and was proved by a start probe and a refused write for
+   this review; an unproved sandbox runs nothing, and nothing names a
+   wider one.
 4. A posted review carries the `v2` marker and a coverage block naming
    every path of its range. `post-review` refuses a block that omits one;
    a review with a path `not read` is not coverage of its head.
@@ -178,12 +197,12 @@ means a full review.
 
 ## 6. Consequences
 
-- The reviewer cannot run an ad-hoc command. Anything not in the tool list
-  or the project's declared checks is reported as not run, and the
-  dispatcher runs it. Expect a short period of "not run" lines while
-  projects declare their checks.
-- Each managed project with a review card gains a check list; that is the
-  project's to write (its remit), and the fabric supplies the shape.
+- The reviewer runs any check that can run read-only with a scratch
+  `/tmp`; anything that must write the tree, restore or reach the network
+  is reported as not run, and the dispatcher runs it.
+- A host without unprivileged user namespaces (CI's Ubuntu 24.04, as for
+  the Codex engine) runs no checks in review: the review reads, and says
+  so. Every developer host is read back before the part B commit.
 - The `v1` marker stays readable: a `v1` review counts as coverage of its
   head as today, and never as a checkpoint, so the first review after the
   change is a full one.
@@ -196,22 +215,19 @@ means a full review.
 
 ## 7. Future Evolution
 
-- If declared checks prove too narrow, a bubblewrap-proved `review_check`
-  that takes an argv inside a read-only bind (the Codex engine's proof,
-  reused) is the next step, by amendment.
+- The sandbox proof is shared code with the Codex engine; if the two
+  diverge, one module serves both, by amendment.
 - The other two `ocr` ideas wait on this one: a narrow fact-check pass
   that may only flag a finding the diff contradicts, and per-path review
   lenses in the card. Each is its own record if adopted.
 
 ## 8. Decision Status
 
-Proposed, for the owner's word. Two questions are the owner's:
-
-1. Part B (declared checks) or the dispatcher runs every check (§3).
-2. Whether the arm uncounts a review with a path `not read` (§5 rule 4),
-   or only shows it.
-
-Nothing is built before both are answered.
+Accepted on the owner's word (the Ratified line). The two
+questions this record left open were answered then: checks run in the
+proved sandbox of §2 B rather than from a declared list or by the
+dispatcher alone, and a review with a path `not read` is not counted as
+coverage of its head (§5 rule 4).
 
 ## References
 
