@@ -1371,7 +1371,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - `code-medium` from routing (a null pin refused), 48 KiB of ranked grounding, 2,048 output
   tokens, no tools; advice printed, never run; every spend logged to
   `assist.jsonl` without the question (§5 rules 4-7).
-- Builds after #355; waits on the owner's acceptance (§7, §8).
+- #355 has merged; waits on the owner's acceptance (§7, §8).
 - Keywords: assist, fabric-ctl, API key, claude-pzhuy, credit, owner,
   fleet down, spend, reserve, P5.
 

@@ -107,11 +107,12 @@ guessing it.
    assist never substitutes a model.
 5. **Grounded and bounded.** The request carries, in this order and cut
    from the end to 48 KiB: `fabric-ctl`'s verb table and each verb's
-   `--help`; the DIGEST's lookup table; the DIGEST entries `fabric-adr
-   lookup` returns for the question's words; each skill's name and
+   `--help`; the DIGEST's lookup table; the DIGEST entries ranked by how many of the question's words each
+   contains, stopwords dropped, best first; each skill's name and
    description; the bodies of at most two skills whose description best
-   matches the question. Selection is word overlap, deterministic, no
-   index or embedding. The answer is capped at 2,048 output tokens.
+   matches the question by the same count. Selection is that word
+   overlap, deterministic, with no index or embedding; it is not
+   `fabric-adr lookup`, which matches only an entry holding every word. The answer is capped at 2,048 output tokens.
 6. **Advice, never action.** One request, no tools, no conversation state.
    The system prompt tells the model to answer only from the supplied
    text, to quote commands exactly as the text writes them, to cite the
@@ -148,7 +149,7 @@ guessing it.
 
 ## 7. Future Evolution
 
-- Built after `fabric-ctl`'s per-verb help (#355) lands, which rule 5
+- Built on `fabric-ctl`'s per-verb help (#355, merged), which rule 5
   grounds on: a REQUEST to python-dev with this record's rules as the
   acceptance, the refusal tests of rule 2 first, and `new_agent.py`'s
   refusal of rule 9; the schema change of rule 9 is fabric-coordinator's,
@@ -161,7 +162,7 @@ guessing it.
 ## 8. Decision Status
 
 Proposed; waits on the owner's acceptance. Nothing is built yet: the
-implementation waits on #355 and on this record.
+implementation waits on this record alone, #355 having merged.
 
 ## References
 
