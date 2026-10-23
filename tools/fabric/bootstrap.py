@@ -192,9 +192,9 @@ bash behaved, fixed here with its case changed:
      reads 3 as "websearch-locale not configured": it says the line on
      both streams and carries on, so the run reaches user-settings.py's
      own refusal, counted NOT written, on every login. The fabric-memory
-     installer (runtime/mcp/fabric-memory/install.py) answers the same
+     and fabric-review installers (runtime/mcp/*/install.py) answer the same
      file the same way (exit 3, also for mode 000 or a directory), and
-     memory_search reads it as "fabric-memory not configured". Any other non-zero
+     mcp_entry reads it as "not configured". Any other non-zero
      status is a fault and ends the agent files step.
   4. put() re-made a .before-agent-fabric backup each time a fabric file
      carrying no "agent-fabric" marker changed (the guard, three of the

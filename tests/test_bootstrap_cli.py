@@ -558,10 +558,12 @@ def first_run() -> None:
     guard_line = f"  +  {CH}/hooks/review-bash-guard.sh"
     block = between(L, f"  +  {P}/.claude/settings.json", f"  +  {CH}/hooks/review-bash-guard.py")
     agent_lines = [f"  +  {CH}/agents/{c}.md" for c in ("code-low", "code-medium", "code-high", "code-plan", "code-review")]
-    # The fabric-memory MCP entry is the sixth thing the installer writes (ADR-049): its line, then the summary counting it.
-    check("the capability-class agent files: installed and said, then the memory server's entry, then the installer's summary",
+    # The fabric-memory MCP entry is the sixth thing the installer writes (ADR-049) and fabric-review's the seventh
+    # (ADR-065): their lines, then the summary counting them.
+    check("the capability-class agent files: installed and said, then the memory and review servers' entries, then the installer's summary",
           block[:5] == agent_lines and block[5] == f"  +  {CH}/.claude.json mcpServers.fabric-memory"
-          and block[-1] == "agent files (anthropic): 6 written, 0 already current.", "\n".join(block))
+          and block[6] == f"  +  {CH}/.claude.json mcpServers.fabric-review"
+          and block[-1] == "agent files (anthropic): 7 written, 0 already current.", "\n".join(block))
     for c in ("code-low", "code-medium", "code-high", "code-plan", "code-review"):
         check(f"…{c}.md under CLAUDE_CONFIG_DIR/agents, mode 644",
               os.path.isfile(f"{CH}/agents/{c}.md") and mode(f"{CH}/agents/{c}.md") == 0o644)

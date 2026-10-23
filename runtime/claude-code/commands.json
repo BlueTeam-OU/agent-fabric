@@ -31,6 +31,7 @@
     "fabric-reflect-jobs": "bin/fabric-reflect-jobs",
     "fabric-memory-check": "bin/fabric-memory-check",
     "fabric-memory-mcp": "bin/fabric-memory-mcp",
+    "fabric-review-mcp": "bin/fabric-review-mcp",
     "fabric-secret-run": "bin/fabric-secret-run",
     "fabric-resume": "bin/fabric-resume",
     "fabric-tools": "bin/fabric-tools",
@@ -55,11 +56,17 @@
     "moli fetch": "reads one web page to stdout (ADR-051). No command of the fabric and not linked by bootstrap: the tool is installed by fabric-tools. `moli serve` is deliberately absent: it opens a CDP port with no authentication, so it asks"
   },
   "tools_allowed": {
-    "_comment": "Tools that are not Bash commands, allowed by name as they are: the fabric's own MCP server, registered by runtime/mcp/fabric-memory/install.py. Every session is told to ask memory_find before changing code, config or a decision; in auto mode the classifier passed these unseen, but a session in plan or default mode asked for each lookup (architect-cto-01, 2026-10-20). memory_mark writes only the login's own memory-marks.jsonl, never the corpus.",
+    "_comment": "Tools that are not Bash commands, allowed by name as they are: the fabric's own MCP servers, registered by runtime/mcp/<server>/install.py: fabric-memory and fabric-review (the review class's read-only tools, ADR-065). Every session is told to ask memory_find before changing code, config or a decision; in auto mode the classifier passed these unseen, but a session in plan or default mode asked for each lookup (architect-cto-01, 2026-10-20). memory_mark writes only the login's own memory-marks.jsonl, never the corpus.",
     "mcp__fabric-memory__memory_find": "ranked hits from the memory corpus (ADR-049)",
     "mcp__fabric-memory__memory_read": "sections by id (ADR-049)",
     "mcp__fabric-memory__memory_index": "what the corpus holds (ADR-049)",
-    "mcp__fabric-memory__memory_mark": "a verdict on a section, to the login's own marks file (ADR-049)"
+    "mcp__fabric-memory__memory_mark": "a verdict on a section, to the login's own marks file (ADR-049)",
+    "mcp__fabric-review__review_diff": "git diff over the dispatch's range, optionally over paths (ADR-065)",
+    "mcp__fabric-review__review_log": "git log over the range or a path (ADR-065)",
+    "mcp__fabric-review__review_show": "a commit, or a file at a revision (ADR-065)",
+    "mcp__fabric-review__review_blame": "git blame of a path at a revision, with a line span (ADR-065)",
+    "mcp__fabric-review__review_grep": "git grep of a pattern at a revision (ADR-065)",
+    "mcp__fabric-review__review_check": "one argv run in a read-only sandbox with a fresh /tmp and no network (ADR-065)"
   },
   "also_asked": {
     "moli serve": "opens a CDP port with no authentication (ADR-051 rule 3): an explicit ask rule, because in auto mode a command no rule names is decided by the classifier, which could approve it unseen"

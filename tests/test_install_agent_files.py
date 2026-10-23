@@ -60,6 +60,8 @@ if os.path.exists(out):
 
 # The fabric-memory installer is called as <claude.json> set [--dry-run]; logged apart so the locale checks stay as they are.
 MEMORY_STUB = INSTALL_STUB.replace('"tool": "install"', '"tool": "memory-install"')
+# fabric-review's is called the same way, after fabric-memory's.
+REVIEW_STUB = INSTALL_STUB.replace('"tool": "install"', '"tool": "review-install"')
 
 
 def main() -> int:
@@ -81,14 +83,15 @@ def main() -> int:
             n += 1
             base = os.path.join(scratch, f"f{n}")
             root, home, cfg = (os.path.join(base, x) for x in ("fabric", "home", "cfg"))
-            for d in (home, cfg, os.path.join(root, "tools", "fabric"), os.path.join(root, "runtime", "mcp", "websearch-locale"), os.path.join(root, "runtime", "mcp", "fabric-memory")):
+            for d in (home, cfg, os.path.join(root, "tools", "fabric"), os.path.join(root, "runtime", "mcp", "websearch-locale"), os.path.join(root, "runtime", "mcp", "fabric-memory"), os.path.join(root, "runtime", "mcp", "fabric-review")):
                 os.makedirs(d)
             shutil.copy(MODULE, os.path.join(root, "tools", "fabric", "install_agent_files.py"))
             for sibling in ("fabric_writes.py", "launch_locale.py", "roots.py"):
                 shutil.copy(os.path.join(os.path.dirname(MODULE), sibling), os.path.join(root, "tools", "fabric"))
             shutil.copytree(AGENTS, os.path.join(root, "runtime", "claude-code", "agents"))
             for rel, body in (("tools/fabric/routing.py", ROUTING_STUB), ("runtime/identity.py", IDENTITY_STUB),
-                              ("runtime/mcp/websearch-locale/install.py", INSTALL_STUB), ("runtime/mcp/fabric-memory/install.py", MEMORY_STUB)):
+                              ("runtime/mcp/websearch-locale/install.py", INSTALL_STUB), ("runtime/mcp/fabric-memory/install.py", MEMORY_STUB),
+                              ("runtime/mcp/fabric-review/install.py", REVIEW_STUB)):
                 with open(os.path.join(root, rel), "w") as f:
                     f.write(body)
             put(root, "tools/fabric/pins.txt", "code-review fable claude-pinned-model\n")
@@ -283,6 +286,10 @@ def main() -> int:
         r = run(root, home, cfg)
         check("a login with no role: fabric-memory install.py <claude.json> set, nothing more",
               memory_calls(root) == [[os.path.join(cfg, ".claude.json"), "set"]], str(memory_calls(root)))
+        check("fabric-review (ADR-065) is installed the same way, after it",
+              [c["tool"] for c in calls(root) if c["tool"].endswith("-install") and c["tool"] != "install"] == ["memory-install", "review-install"]
+              and [c["argv"] for c in calls(root) if c["tool"] == "review-install"] == [[os.path.join(cfg, ".claude.json"), "set"]],
+              str(calls(root)))
         check("its lines are printed and counted (+ written, = current)",
               "  +  m mcpServers.fabric-memory" in r.stdout and r.stdout.splitlines()[-1] == "agent files (anthropic): 6 written, 1 already current.", r.stdout)
         r = run(root, home, cfg, "--dry-run")
@@ -314,6 +321,7 @@ def main() -> int:
                 continue
             root, home, cfg = fixture()
             shutil.copy(os.path.join(HERE, "runtime", "mcp", "fabric-memory", "install.py"), os.path.join(root, "runtime", "mcp", "fabric-memory", "install.py"))
+            shutil.copy(os.path.join(HERE, "runtime", "mcp", "stdio_entry.py"), os.path.join(root, "runtime", "mcp", "stdio_entry.py"))
             cj = os.path.join(cfg, ".claude.json")
             if label == "a directory":
                 os.mkdir(cj)
