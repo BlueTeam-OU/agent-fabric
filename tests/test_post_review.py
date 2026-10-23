@@ -285,7 +285,7 @@ def main() -> int:
         finally:
             held.stdin.close()
         check(f"{' '.join(args)} exits {want} with stdin still open", rc == want)
-    print("--help's examples: the review class's form is the one its guard admits (review of #283, F2)")
+    print("--help's examples: the review class's form, and that the guard no longer exempts it (review of #283, F2; ADR-065)")
     spec = importlib.util.spec_from_file_location(
         "review_bash_guard", os.path.join(HERE, "runtime", "claude-code", "hooks", "review-bash-guard.py"))
     guard = importlib.util.module_from_spec(spec)
@@ -305,11 +305,10 @@ def main() -> int:
     if len(examples) == 2:
         check("the first opens its body with an agent-fabric-dispatch v1 block",
               examples[0].splitlines()[1] == f"```{review_brief.DISPATCH_VERSION}")
-        check("the review class's guard admits the first", guard.posted_review(examples[0]) is not None)
-        # With a real sha for the placeholder: a guard widened to exempt a 40-hex --head must fail this.
-        real = examples[1].replace("<full sha of the commit reviewed>", "a" * 40)
-        check("and gives the second, the --head path outside the review class, no exemption",
-              "<" not in real.splitlines()[0].split("<<")[0] and guard.posted_review(real) is None)
+        # The session posts (ADR-065 §5 rule 6): the guard keeps no exemption
+        # for the review class's form, which its ordinary rules refuse.
+        check("the guard has no review-post exemption, and refuses the review class's form",
+              not hasattr(guard, "posted_review") and guard.verdict(examples[0]) is not None)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 
