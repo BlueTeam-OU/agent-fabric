@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 import results  # noqa: E402
 import review_brief  # noqa: E402
-from github import post_review, pr_reply, pr_review_status  # noqa: E402
+from github import post_review, pr_reply, pr_review_status, review_coverage  # noqa: E402
 
 LOC = "identities/roles/language-culture/locale/ge/team.md"
 
@@ -220,6 +220,45 @@ def main() -> int:
             os.environ.pop("GH_REPO", None)
         else:
             os.environ["GH_REPO"] = real_repo
+
+    print("the range the headers name: one v2 marker, or none (agent-fabric ADR-065 §5 rule 4)")
+    B, H, C, K = "1" * 40, "2" * 40, "3" * 40, "4" * 64
+
+    def ranged(**over) -> str:
+        fields = {"evidence_mode": "pinned", "base_sha": B, "head_sha": H, "card_base": C, "config": K, **over}
+        return "```agent-fabric-dispatch v1\n" + json.dumps({k: v for k, v in fields.items() if v != "-"}) + "\n```\n"
+
+    want = review_coverage.Marker(B, H, C, K)
+    check("every header naming the same four: the marker", post_review.report_range(ranged() + "F1") == (want, ""))
+    check("the same range twice is one", post_review.report_range(ranged() + "x\n" + ranged()) == (want, ""))
+    check("a header from before the fields: no marker, no refusal (v1)", post_review.report_range(ranged(card_base="-", config="-") + "F1") == (None, ""))
+    check("no header: no marker", post_review.report_range("F1") == (None, ""))
+    for label, text, why in (
+        ("a different config", ranged() + ranged(config="5" * 64), "different ranges"),
+        ("a different base", ranged() + ranged(base_sha=C), "different ranges"),
+        ("a different card", ranged() + ranged(card_base=B), "different ranges"),
+        ("one with the fields and one without", ranged() + ranged(card_base="-", config="-"), "some of its dispatch headers"),
+        ("no card_base", ranged(card_base="-"), "card_base"), ("no config but a card_base", ranged(config="-"), "config"),
+        ("no base_sha", ranged(base_sha="-"), "base_sha"), ("a null base_sha", ranged(base_sha=None), "base_sha"),
+        ("an abbreviated head", ranged(head_sha=H[:12]), "head_sha"), ("a number for the config", ranged(config=7), "config"),
+        ("a sha256-length base", ranged(base_sha="1" * 64), "base_sha"),
+    ):
+        got, refusal = post_review.report_range(text + "F1")
+        check(f"{label}: refused", got is None and why in refusal)
+    check("first_dispatch_header gives the fenced block as written", post_review.first_dispatch_header("x\n" + ranged() + "y") == ranged().rstrip("\n"))
+    check("…and nothing for none, or for one never closed", post_review.first_dispatch_header("x") == ""
+          and post_review.first_dispatch_header("```agent-fabric-dispatch v1\n{}") == "")
+
+    one = f"```{review_coverage.BLOCK_INFO}\n" + json.dumps({"paths": {"a.py": {"status": "read"}}, "lenses": {}}) + "\n```"
+    rest, cov = post_review.v2_report("findings\n\n" + one + "\n")
+    check("v2_report: the report without its block, and the block read", rest == "findings" and list(cov.paths) == ["a.py"])
+    for label, text in (("a marker-like line", "<!-- agent-fabric-review v2 -->\n" + one), ("a second block", one + "\n" + one),
+                        ("no block", "findings"), ("only a block", one)):
+        try:
+            post_review.v2_report(text)
+            check(f"v2_report: {label}: refused", False)
+        except post_review.Refused:
+            check(f"v2_report: {label}: refused", True)
 
     print("--help and a usage error never wait on an open stdin (review of #71)")
     shim = [os.path.join(HERE, "bin", "fabric-pr"), "post-review"]
