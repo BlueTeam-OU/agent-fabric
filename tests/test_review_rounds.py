@@ -144,6 +144,11 @@ def main() -> int:
         elsewhere = os.path.join(tmp, "work", "otherrepo")
         os.makedirs(elsewhere)
         subprocess.run(["git", "init", "-q", elsewhere], env=env, check=True, timeout=30)
+        serve([], [head1, head2])
+        r = run("next", req, "--pr", "7", cwd=elsewhere)
+        check("a PR with no v2 review: refused with the full-review line, nothing written (the control is the next call)",
+              r.returncode == 1 and "render a full review" in r.stderr
+              and not os.path.exists(os.path.join(tmp, "scratch", "REQUEST-rr2.json")), (r.returncode, r.stderr))
         serve([posted_review(round1, head1, "2026-10-23T10:00:00Z")], [head1, head2])
         r = run("next", req, "--pr", "7", cwd=elsewhere)
         nxt_path = os.path.join(tmp, "scratch", "REQUEST-rr2.json")
