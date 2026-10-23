@@ -748,6 +748,44 @@ def test_the_config_fingerprint_follows_the_card_and_the_agent_file(tmp: str) ->
     assert len({a, b, gone, rb.config_fingerprint(repo, one)}) == 4, "the agent file's text and its absence move it"
 
 
+def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
+    """ADR-065 §5 rule 5: a PR's re-review base and card come from its last v2
+    review; no checkpoint is a full review, and a typed value that disagrees
+    is refused, never silently replaced."""
+    repo = mkrepo(tmp, "checkpointed")
+    base, mid = g(repo, "rev-parse", "main"), g(repo, "rev-parse", "HEAD")
+    commit(repo, "fix", {"a.txt": "b\n"})
+    head = g(repo, "rev-parse", "HEAD")
+    asked = []
+    saved = rb.checkpoint
+    try:
+        def none(pr, h, r):
+            asked.append((pr, h)); return None
+        rb.checkpoint = none
+        req = {**base_request(repo), "mode": "re-review", "range": f"{mid}..HEAD", "pr": 9}
+        info, refused = rb.resolve_range(req)
+        assert info is None and any("has no review a re-review can start from" in r for r in refused), refused
+        assert asked == [(9, head)], asked
+        rb.checkpoint = lambda pr, h, r: (base, mid, base)
+        info, refused = rb.resolve_range(req)
+        assert not refused and info == {"base_sha": mid, "head_sha": head, "card_base": base}, (info, refused)
+        info, refused = rb.resolve_range({**req, "range": f"{base}..HEAD"})
+        assert info is None and any("starts at its last review's head" in r for r in refused), refused
+        info, refused = rb.resolve_range({**req, "card_base": mid})
+        assert info is None and any("read the card at" in r for r in refused), refused
+        info, refused = rb.resolve_range({**req, "card_base": base})
+        assert not refused and info["card_base"] == base, refused
+        # no PR: nothing posted to read, the typed range stands and nothing is asked
+        asked.clear(); rb.checkpoint = none
+        info, refused = rb.resolve_range({**{k: v for k, v in req.items() if k != "pr"}, "card_base": base})
+        assert not refused and info["base_sha"] == mid and not asked, (info, refused, asked)
+        # a first review never asks
+        info, refused = rb.resolve_range({**req, "mode": "review", "card_base": base})
+        assert not refused and not asked, (refused, asked)
+    finally:
+        rb.checkpoint = saved
+
+
 def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
@@ -757,7 +795,8 @@ def main() -> int:
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
-             test_the_readme_example_renders_as_documented, test_the_config_fingerprint_follows_the_card_and_the_agent_file]
+             test_the_readme_example_renders_as_documented, test_the_config_fingerprint_follows_the_card_and_the_agent_file,
+             test_a_prs_re_review_starts_at_its_last_checkpoint]
     failures = 0
     # Removed when the run ends, however it ends: tests/run.sh names every
     # entry a run leaves under the temporary directory as a failure.

@@ -310,6 +310,13 @@ def _default_tip(repo: object) -> str | None:
     return _commit_of(repo, ref) if ref else None
 
 
+def checkpoint(pr: int, head_sha: str, repo: str) -> tuple[str, str, str] | None:
+    """(base, head, card) of the PR's last review a re-review may start from,
+    or None. A seam: tests replace it, since the real one asks GitHub."""
+    from github.review_checkpoint import last_checkpoint
+    return last_checkpoint(pr, head_sha, lambda card: config_fingerprint(repo, card), cwd=repo)
+
+
 def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
     """({base_sha, head_sha, card_base}, refusals) for a ranged request: both
     ends resolved now, and the card's base (the request's `card_base`, which
@@ -327,6 +334,24 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
     card_base = _commit_of(repo, wanted) if isinstance(wanted, str) and wanted else base_sha
     if not card_base:
         return None, [f"card_base: {wanted!r} is not a commit in {repo}"]
+    pr = _count(req.get("pr"))
+    if req.get("mode") == "re-review" and pr:
+        # A PR's re-review starts where its last posted review stopped, read
+        # from that review's v2 marker, never from what the dispatcher typed
+        # (agent-fabric ADR-065 §5 rule 5). Without a PR there is no posted
+        # review to read, and the typed range stands.
+        cp = checkpoint(pr, head_sha, repo)
+        if cp is None:
+            return None, [f"re-review: #{pr} has no review a re-review can start from (a v2 review, every path read, of an "
+                          f"ancestor of {head_sha[:12]}, under today's config); render a full review (mode: review)"]
+        _, cp_head, cp_card = cp
+        if base_sha != cp_head:
+            return None, [f"range: a re-review of #{pr} starts at its last review's head {cp_head[:12]}, not {base!r} "
+                          f"({base_sha[:12]}); the range is {cp_head}..{head}"]
+        if wanted and card_base != cp_card:
+            return None, [f"card_base: #{pr}'s last review read the card at {cp_card[:12]}, not {wanted!r}; leave card_base "
+                          f"out and it is taken from that review"]
+        card_base = cp_card
     ref = default_ref(repo)
     if ref is None:
         return None, [f"range: the default branch of {repo} cannot be found, so base {base!r} cannot be checked against it"]
