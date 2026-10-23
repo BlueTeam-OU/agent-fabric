@@ -567,6 +567,24 @@
       "date": "2026-10-20",
       "pillar": "P3",
       "amendments": 0
+    },
+    {
+      "number": "063",
+      "file": "ADR-063-fabric-ctl-assist-the-owners-api-key.md",
+      "title": "fabric-ctl assist: the owner's questions on the claude-pzhuy API key",
+      "status": "Proposed",
+      "date": "2026-10-22",
+      "pillar": "P5",
+      "amendments": 0
+    },
+    {
+      "number": "064",
+      "file": "ADR-064-gzcoord-over-interweave-one-host-dual-run.md",
+      "title": "GZCoord carried over InterWeave: one host, beside the relay",
+      "status": "Accepted",
+      "date": "2026-10-23",
+      "pillar": "P5",
+      "amendments": 0
     }
   ]
 }

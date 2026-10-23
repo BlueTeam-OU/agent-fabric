@@ -64,6 +64,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 | lessons in messages; reflection pass; fabric-reflect; turning the journal into memory | ADR-058 |
 | personal data in AI tools; Max plan; client data; privacy notice; sub-processor | ADR-059 |
 | a holder's own specialization of a role; charter or brief addendum; holder.json; jurisdiction of a legal holder; locale chosen per holder | ADR-060 |
+| errors per actor; review findings and red CI counted the same for people and agents | ADR-061 |
+| hidden Unicode; bidi, zero-width, tag characters in skills, slices and charters | ADR-062 |
+| fabric-ctl assist; asking about the fabric with the fleet down; the claude-pzhuy API key; who may spend an API key | ADR-063 |
+| GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1352,3 +1356,49 @@ its record disagree, the record wins. Look it up, never read it whole:
   4-5). Waits on the owner's acceptance (§8).
 - Keywords: hidden unicode, bidi, zero-width, tag characters, control
   characters, prompt injection, lint, pre-commit, skills, slices, apm.
+
+### ADR-063 — fabric-ctl assist: the owner's questions on the claude-pzhuy API key (Proposed)
+
+- `fabric-ctl assist "<question>"` answers from committed fabric text in
+  one Messages API request on `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM`, that
+  key's only spend path; no other launcher or account path reads a
+  `CLAUDE_APIKEY_*` (§2, §5 rule 1).
+- Refused, before the store is read, in an agent session, without a
+  terminal, or for a login not the host's operator; a fence against
+  accident, the rule a budget one (§4, §5 rule 2).
+- Works with the fleet down: no agentd, relay or subscription token;
+  stdlib only; the key never leaves the process (§5 rule 3).
+- `code-medium` from routing (a null pin refused), 48 KiB of ranked grounding, 2,048 output
+  tokens, no tools; advice printed, never run; every spend logged to
+  `assist.jsonl` without the question (§5 rules 4-7).
+- #355 has merged; waits on the owner's acceptance (§7, §8).
+- Keywords: assist, fabric-ctl, API key, claude-pzhuy, credit, owner,
+  fleet down, spend, reserve, P5.
+
+### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)
+
+- One host, loopback only, until InterWeave ADR-0034 §7 and SPIKE-004's
+  deferred limits close; the control plane stays on the relay (§5 rules
+  1, 12).
+- Dual run: every message by both carriers, the relay the transport of
+  record and ADR-033 rule 7 unchanged; the journal collapses by
+  MESSAGE-ID; a switch is an ADR-033 amendment on the owner's word over a
+  parity report (§5 rule 11).
+- The carrier is the fabric's own long-lived client per account under
+  InterWeave's client unit, not `interweave-human` (exclusive lease, human
+  retention) nor `claude-channel` (session-bound) (§2, §3, §5 rule 5).
+- A committed roster keyed by agent id, each row signed by its login and
+  countersigned by the coordinator, renders every profile's
+  deny-by-default allowlist; keys minted in their own account; programs
+  from a tagged, pinned release (§5 rules 2-4).
+- One direct send per recipient, no GossipSub; the carrier's own
+  per-recipient record waits for the receiving carrier's receipt,
+  retried under one message_id, never given up without its operator; compress then chunk past 48 KiB; FROM
+  checked against the PeerId's address; no transport value as metadata
+  (§5 rules 6-10).
+- The soak's report, from each inbox's per-copy arrival log, names
+  missed, duplicate and offline-delivered counts and a rollback drill
+  (§5 rule 11).
+- Accepted; the build waits on a tagged InterWeave release (§8).
+- Keywords: InterWeave, carrier, transport, relay, dual run, parity,
+  PeerId, roster, allowlist, loopback, one host, P5.
