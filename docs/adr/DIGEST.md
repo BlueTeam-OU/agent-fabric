@@ -1387,12 +1387,17 @@ its record disagree, the record wins. Look it up, never read it whole:
 - The carrier is the fabric's own long-lived client per account under
   InterWeave's client unit, not `interweave-human` (exclusive lease, human
   retention) nor `claude-channel` (session-bound) (§2, §3, §5 rule 5).
-- Committed roster of PeerId, endpoint and port renders every profile's
+- A committed roster keyed by agent id, each row signed by its login and
+  countersigned by the coordinator, renders every profile's
   deny-by-default allowlist; keys minted in their own account; programs
   from a tagged, pinned release (§5 rules 2-4).
-- One direct send per recipient, no GossipSub; one transport message_id
-  per message; over 48 KiB goes by the relay only; FROM checked against
-  the PeerId's address; no transport value as metadata (§5 rules 6-10).
+- One direct send per recipient, no GossipSub; pending until the
+  receiving carrier's own receipt, retried under one message_id, never
+  given up without its operator; compress then chunk past 48 KiB; FROM
+  checked against the PeerId's address; no transport value as metadata
+  (§5 rules 6-10).
+- The soak's report names missed, duplicate and offline-delivered
+  counts and a rollback drill (§5 rule 11).
 - Waits on the owner's acceptance and a tagged InterWeave release (§8).
 - Keywords: InterWeave, carrier, transport, relay, dual run, parity,
   PeerId, roster, allowlist, loopback, one host, P5.

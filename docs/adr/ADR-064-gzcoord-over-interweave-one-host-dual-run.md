@@ -32,6 +32,17 @@ against both trees on 2026-10-23:
   account from the four programs to a running `interweave-daemon@<profile>`
   user unit, with a recorded run (2026-10-22). `transportctl identity init`
   mints a key with no daemon (decision 4).
+- **The owner's words of 2026-10-19 bind it.** InterWeave is to be the
+  fleet's transport, and nothing of GZCoord enters the InterWeave
+  repository, which stays general-purpose; GZCoord's records go to a
+  repository of their own. Asked about the carrier's
+  shape, the owner answered for a dual-write soak and a roster signed by
+  the login and the coordinator. architect-cto's answers of that day
+  (REPLY 01a15326) stand as transport facts: a receipt is the carrier's
+  own, above the socket; the 48 KiB ceiling does not rise, so the
+  carrier compresses and then chunks; a PeerId is bound by attestation,
+  never derived (InterWeave ADR-0033). Two messages in the fabric's
+  journal then exceeded 48 KiB, the largest 58 KB.
 - **No InterWeave release is tagged.** The notices PR the request named as
   the last piece (InterWeave #381) merged on 2026-10-22; the repository
   carries no tag. Tagging is the owner's.
@@ -65,10 +76,14 @@ relay, and nothing further:
   client unit template that `BindsTo=` its daemon (decision 6). It carries
   what decision 3 says a client owes itself, and the send and inbox
   adapters reach it rather than the socket.
-- **The roster is committed, the keys never are.** Each login's PeerId,
-  endpoint and port are in the fabric's roster; each profile's
+- **The roster is committed and signed, the keys never are.** Each
+  agent's PeerId, endpoint and port are in the fabric's roster, each row
+  signed by that login and by the coordinator; each profile's
   `config.yaml` is rendered from it with every other roster PeerId
   allowlisted and nothing else, deny by default.
+- **Delivery is the carrier's receipt, not `AcceptedV2`.** A sent message
+  stays pending until the receiving carrier, after its journal append,
+  answers with a receipt of its own media type naming the `MESSAGE-ID`.
 - **The grammar does not move.** The carrier adds no field and needs none
   (ADR-033 rule 1). Once it runs, it is the automated transport ADR-032
   §7 waits for; what it observes may later reopen ADR-032 rule 3, by an
@@ -93,6 +108,13 @@ relay, and nothing further:
   2), and the relay delivers every message to every reader today
   (ADR-033 §6). One direct send per roster member is decision 3's
   fan-out, with refusals the sender sees.
+- **`AcceptedV2` as delivery.** Not taken: it is queue admission, and the
+  window between it and the receiving carrier's append — a carrier dying
+  between drain and append, or closed as wedged — loses a message no one
+  is told about. The receipt covers that window by the sender's retry.
+- **Messages over 48 KiB left to the relay.** Not taken: the fleet's own
+  journal already holds messages past it (58 KB the largest, §1), and a carrier that cannot carry them could never become
+  the transport of record.
 - **Switch now, relay as fallback only.** Not taken: nothing has measured
   InterWeave carrying the fleet's own traffic, and the relay is the only
   carrier with a record of its past.
@@ -118,13 +140,20 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    roster fixes for it, one profile per account (InterWeave ADR-0055
    decision 5).
 2. The roster (`runtime/interweave/roster.json`) is the only source of a
-   login's PeerId, endpoint and port. A profile's `config.yaml` is
-   rendered from it, never hand-edited: its allowlist is every other
-   roster PeerId and nothing else, its static bootstrap their loopback
-   addresses, its connectivity server roles off.
+   login's PeerId, endpoint and port. A row is keyed by agent id
+   (ADR-039) and carries its login, PeerId, endpoint and port; it counts
+   only when signed by that login's ADR-038 signing subkey over what
+   `transportctl identity show` prints, and countersigned by the
+   coordinator's key. A row that fails either signature renders nothing.
+   The roster allocates the ports, from a range it states. A
+   profile's `config.yaml` is rendered from it, never hand-edited: its
+   allowlist is every other valid roster PeerId and nothing else, its
+   static bootstrap their loopback addresses, its connectivity server
+   roles off.
 3. A transport key is minted in its own account by `transportctl identity
    init` and never leaves that account; the roster records the PeerId the
-   command prints and nothing secret.
+   command prints and nothing secret. A re-keyed login's old PeerId is
+   removed from the roster and revoked on every profile.
 4. The InterWeave programs are installed per account from a tagged
    InterWeave release archive whose version the fabric pins, by the
    archive's own `install.sh`; never from a checkout build.
@@ -136,13 +165,20 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    endpoint, a `TO-ROLE` or broadcast to every other roster member, each
    inbox filtering as it does today. GossipSub carries nothing in this
    phase.
-7. A message keeps one transport `message_id` across every retry, held
-   beside its journal pending row (ADR-041 rule 3). A send that has not
-   reached `AcceptedV2` by its deadline is recorded failed on this
-   carrier, never retried under a new id.
-8. A message larger than the 48 KiB payload ceiling is not sent over
-   InterWeave; the relay carries it, and the parity report counts it
-   apart. No chunking in this phase.
+7. A message keeps one transport `message_id` per recipient across every
+   retry, held beside its journal pending row (ADR-041 rule 3). The row
+   stays pending until the recipient's receipt arrives. The receipt is a
+   direct message of the carrier's own media type, naming the
+   `MESSAGE-ID`, sent by the receiving carrier after its journal append.
+   It is never a GZCoord message. A send is retried until its receipt
+   and is never given up without its operator. The receiving carrier
+   journals only what ADR-041 rule 2 admits, and collapses a repeat by
+   `MESSAGE-ID` (rule 5).
+8. A message whose payload exceeds the 48 KiB ceiling is compressed
+   first (`;ce=br`, the content-encoding InterWeave's human facade
+   defines), and chunked under the carrier's own framing only if it
+   still exceeds it, reassembled before the journal append. With the
+   journal off (ADR-041 rule 10) the route is the relay alone.
 9. A delivery carries the address the roster maps its PeerId to. A message
    whose `FROM` differs from it is journaled and shown with the mismatch,
    never as from its `FROM`; a PeerId absent from the roster is never
@@ -155,7 +191,12 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     word. That word is given on a parity report in `docs/live-checks/`:
     every (`MESSAGE-ID`, addressee) pair either carrier's journal rows
     hold over a stated window, each pair one carrier missed listed with
-    its cause, the rule-8 exclusions apart.
+    its cause; missed and duplicate counts per carrier; messages
+    delivered while their addressee was offline, direct and broadcast
+    apart; the messages compressed and the messages chunked. The soak
+    includes a rollback drill (the InterWeave carrier switched off
+    mid-window, nothing lost), and one `TO-ROLE` recipient among its
+    logins.
 12. The control plane (`fabric:control`, ADR-029) stays on the relay;
     this carrier carries GZCoord application messages only.
 13. Before the dual run starts, the carrier is validated with at least
@@ -167,12 +208,14 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
 ## 6. Consequences
 
 - Every message is posted twice and every account runs two more user
-  units, a daemon and a carrier; the relay keeps its single point of
+  units, a daemon and a carrier. Every recipient answers with a receipt,
+  so a broadcast costs two direct messages per roster member; the relay keeps its single point of
   failure until the switch, but stops being the only one.
 - The fleet gets its first authenticated sender (rule 9), which the
   relay cannot give (ADR-033 §6, §7).
 - The roster becomes provisioning's input: a new login on the host needs
-  a key minted in its account, a port, a roster entry, and a render of
+  a key minted in its account, a port, a roster row signed by the login
+  and countersigned by the coordinator, and a render of
   every other profile's allowlist; a retired one, its entry removed and
   the renders repeated, or a `transportctl trust revoke` until then.
 - Agents on another host — none today — stay on the relay alone.
@@ -187,10 +230,12 @@ to the contributor holders `policies/authority.json` names for that code
 at the time; rule 13's two-instance check; the dual run; the parity
 report; the owner's word. A second host reopens rule 1 once InterWeave's
 gate closes. The carrier's observations of ordering, loss and concurrency
-are ADR-032 §7's evidence. If the owner accepts the split of GZCoord into
-its own repository (`docs/split/agent-fabric-coord.md`), the mapping in
-§5 rules 6 to 10 moves there with ADR-032 and ADR-033, and the roster,
-provisioning and adapters stay here.
+are ADR-032 §7's evidence. The mapping in §5 rules 6 to 10 belongs to
+GZCoord's own repository, which the owner asked for (§1;
+`docs/split/agent-fabric-coord.md`). Until that repository exists, it
+is in this series. When it is created, the mapping moves there with
+ADR-032 and ADR-033; the roster, the provisioning and the adapters stay
+here.
 
 ## 8. Decision Status
 
@@ -199,9 +244,11 @@ InterWeave release.
 
 ## References
 
-- ADR-029, ADR-032, ADR-033, ADR-037, ADR-041.
+- ADR-029, ADR-032, ADR-033, ADR-037, ADR-038, ADR-039, ADR-041.
+- architect-cto's transport facts, REPLY 01a15326 and 01a1536d
+  (2026-10-19).
 - InterWeave: `architecture/adr/0055-automated-clients-are-first-party-consumers-above-a-general-purpose-transport.md`
-  (decisions 1 to 7), ADR-0034 §7, ADR-0044,
+  (decisions 1 to 7), ADR-0033, ADR-0034 §7, ADR-0044,
   `architecture/roadmap/SPIKES.md` (SPIKE-004),
   `packaging/linux/DEPLOYING.md`, `apps/human-cli/README.md` (the
   lease and exit 4), `apps/claude-channel/README.md`,
