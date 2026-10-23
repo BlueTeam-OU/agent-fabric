@@ -210,7 +210,11 @@ def main() -> int:
     # The repository is named, never read from the checkout's origin (a copy without a remote has none).
     os.environ["GH_REPO"] = "o/r"
     try:
-        post_review.run(["552", "--head", "a" * 40], "findings")
+        # A v2 report, since a report without a range is refused before the PR is read; its range is checked later.
+        header = json.dumps({"evidence_mode": "pinned", "base_sha": "b" * 40, "head_sha": "a" * 40, "card_base": "c" * 40,
+                             "config": "d" * 64})
+        post_review.run(["552"], f"```{review_brief.DISPATCH_VERSION}\n{header}\n```\nfindings\n\n"
+                                 f"```{review_coverage.BLOCK_INFO}\n{{\"paths\": {{}}, \"lenses\": {{}}}}\n```\n")
         check("refused", False)
     except post_review.Refused as e:
         check("refused, naming the branch", "head branch" in str(e))
@@ -221,6 +225,20 @@ def main() -> int:
         else:
             os.environ["GH_REPO"] = real_repo
 
+    print("the read-back compares what the shared parser finds with what was validated")
+    mk = review_coverage.Marker("b" * 40, "a" * 40, "c" * 40, "d" * 64)
+    cov = review_coverage.Coverage({"x.py": ("read", "")}, {})
+    whole = mk.line() + "\nreport\n\n" + review_coverage.render_block(cov) + "\n"
+    check("a body that reads as the validated marker and coverage: no refusal", post_review.readback_refusal(whole, mk, cov) == "")
+    check("another coverage: refused",
+          "another range or another coverage" in post_review.readback_refusal(
+              whole, mk, review_coverage.Coverage({"y.py": ("read", "")}, {})))
+    check("another marker: refused",
+          "another range or another coverage" in post_review.readback_refusal(
+              whole, review_coverage.Marker("e" * 40, "a" * 40, "c" * 40, "d" * 64), cov))
+    check("a block swallowed by an open fence: refused",
+          "does not read back" in post_review.readback_refusal(
+              mk.line() + "\nreport\n```text\n" + review_coverage.render_block(cov) + "\n", mk, cov))
     print("the range the headers name: one v2 marker, or none (agent-fabric ADR-065 §5 rule 4)")
     B, H, C, K = "1" * 40, "2" * 40, "3" * 40, "4" * 64
 
@@ -299,11 +317,10 @@ def main() -> int:
             if line == "  EOF":
                 examples.append("\n".join(cur))
                 cur = None
-    check(f"two examples, the first without --head and the second with it ({len(examples)} found)",
-          len(examples) == 2 and "--head" not in examples[0].splitlines()[0]
-          and "--head" in examples[1].splitlines()[0])
-    if len(examples) == 2:
-        check("the first opens its body with an agent-fabric-dispatch v1 block",
+    check(f"one example, the review class's form: no --head, and no header-less form is shown ({len(examples)} found)",
+          len(examples) == 1 and "--head" not in examples[0].splitlines()[0])
+    if len(examples) == 1:
+        check("it opens its body with an agent-fabric-dispatch v1 block",
               examples[0].splitlines()[1] == f"```{review_brief.DISPATCH_VERSION}")
         # The session posts (ADR-065 §5 rule 6): the guard keeps no exemption
         # for the review class's form, which its ordinary rules refuse.

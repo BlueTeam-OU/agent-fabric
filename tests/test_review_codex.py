@@ -211,6 +211,8 @@ if a[:1] == ["pr"]:
 if a[:1] == ["api"]:
     path = a[1]
     method = a[a.index("--method") + 1] if "--method" in a else "POST" if "--input" in a else "GET"  # gh's own default
+    if method == "GET" and "/compare/" in path:   # post-review ties the range's base to the PR: --jq .merge_base_commit.sha
+        sys.stdout.write(open(os.path.join(S, "mergebase")).read()); sys.exit(0)
     if method == "GET":
         with open(os.path.join(S, "reads"), "a") as f:
             f.write(path + "\\n")
@@ -453,7 +455,10 @@ def main() -> int:
 
         def set_pr(oid: str = head) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
-                json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid}, f)
+                json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid,
+                           "baseRefName": "main"}, f)
+            with open(os.path.join(state, "mergebase"), "w") as f:
+                f.write(base)
             for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode",
                       "reviews.json", "read-fails", "post-fails", "reads"):
                 if os.path.exists(os.path.join(state, n)):
