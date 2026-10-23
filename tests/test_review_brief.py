@@ -766,9 +766,16 @@ def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
         info, refused = rb.resolve_range(req)
         assert info is None and any("has no review a re-review can start from" in r for r in refused), refused
         assert asked == [(9, head)], asked
-        rb.checkpoint = lambda pr, h, r: (base, mid, base)
+        rb.checkpoint = lambda pr, h, r: (base, mid, base, "<!-- marker -->\nPOSTED REPORT\n")
         info, refused = rb.resolve_range(req)
-        assert not refused and info == {"base_sha": mid, "head_sha": head, "card_base": base}, (info, refused)
+        assert not refused and info == {"base_sha": mid, "head_sha": head, "card_base": base,
+                                        "previous_report": "<!-- marker -->\nPOSTED REPORT\n"}, (info, refused)
+        # the previous report is the posted body, and a typed one is refused
+        out = rb.render(req)
+        assert "## Previous findings" in out and "POSTED REPORT" in out, out[-600:]
+        report = os.path.join(tmp, "typed-report.md"); open(report, "w").write("TYPED\n")
+        assert any("leave previous_findings out" in r for r in refusals({**req, "previous_findings": report})), \
+            refusals({**req, "previous_findings": report})
         info, refused = rb.resolve_range({**req, "range": f"{base}..HEAD"})
         assert info is None and any("starts at its last review's head" in r for r in refused), refused
         info, refused = rb.resolve_range({**req, "card_base": mid})

@@ -152,9 +152,11 @@ def main() -> int:
         nxt = json.load(open(nxt_path)) if os.path.exists(nxt_path) else {}
         check("a moved head: REQUEST-rr2.json beside the request",
               r.returncode == 0 and os.path.isfile(nxt_path), r.stderr)
-        check("…mode re-review, range old head..new head, the saved report as previous findings",
+        # With a PR the previous report is its last posted review, which the
+        # brief reads; a typed copy would be refused (ADR-065 §5 rule 5).
+        check("…mode re-review, range old head..new head, no typed previous findings beside the PR",
               nxt.get("mode") == "re-review" and nxt.get("range") == f"{head1[:12]}..{head2[:12]}"
-              and nxt.get("previous_findings") == saved, nxt)
+              and nxt.get("pr") and "previous_findings" not in nxt, nxt)
         check("…lenses narrowed to general, everything else carried",
               nxt.get("lenses") == ["general"] and nxt.get("requirements") == ["It exists."]
               and nxt.get("repository") == repo, nxt)
@@ -171,7 +173,7 @@ def main() -> int:
         nxt3 = json.load(open(os.path.join(tmp, "scratch", "REQUEST-rr3.json"))) if r.returncode == 0 else {}
         check("from a round's own request: REQUEST-rr3.json, range from that round's head, --report taken",
               r.returncode == 0 and nxt3["range"] == f"{head2[:12]}..{head3[:12]}"
-              and nxt3["previous_findings"] == report2, (r.stderr, nxt3))
+              and "previous_findings" not in nxt3, (r.stderr, nxt3))
         check("…the first round's base is carried as card_base, so the card stays the first round's",
               nxt.get("card_base") == base and nxt3.get("card_base") == base, (nxt.get("card_base"), nxt3.get("card_base"), base))
         check("…review_round counts up from 1 and the review_id and pr are filled",

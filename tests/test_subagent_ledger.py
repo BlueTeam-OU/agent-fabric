@@ -281,7 +281,10 @@ def main() -> int:
                   all(v is not None for v in produced.values()), json.dumps(produced))
             _, row = fresh(variant(f"rendered{mode}", brief("\n".join(rendered) + "\n\n# Review brief")))
             renamed = {"evidence_mode": "evidence"}
-            want = {renamed.get(k, k): v for k, v in produced.items() if k != "engine"}
+            # card_base and config are what a review read and under which config
+            # (ADR-065 §2 C): the review's marker carries them, not a cost row,
+            # whose v1 key set stays as it is.
+            want = {renamed.get(k, k): v for k, v in produced.items() if k not in ("engine", "card_base", "config")}
             want["repository"] = produced["repository"].split("/", 1)[1] if produced["repository"] else None
             got = {k: row.get(k, "<absent>") for k in want}
             check(f"every field review_brief writes reaches the row (evidence_mode {mode})",

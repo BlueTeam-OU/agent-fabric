@@ -366,6 +366,10 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
     # which the default branch does not contain (agent-fabric ADR-020).
     if pr and "pr" not in nxt:
         nxt["pr"] = pr
+    # A PR's previous report is its last posted review, which the brief reads
+    # itself and refuses a typed copy of (ADR-065 §5 rule 5).
+    if review_brief._count(nxt.get("pr")):
+        nxt.pop("previous_findings", None)
     # A symbolic first base (main, origin/main) resolves to where it is when
     # `next` runs, not where round 1 rendered its card, so round 2 could read
     # another card than round 1: refused unless the request pins card_base.

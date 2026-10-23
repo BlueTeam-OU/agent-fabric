@@ -310,11 +310,11 @@ def _default_tip(repo: object) -> str | None:
     return _commit_of(repo, ref) if ref else None
 
 
-def checkpoint(pr: int, head_sha: str, repo: str) -> tuple[str, str, str] | None:
-    """(base, head, card) of the PR's last review a re-review may start from,
-    or None. A seam: tests replace it, since the real one asks GitHub."""
-    from github.review_checkpoint import last_checkpoint
-    return last_checkpoint(pr, head_sha, lambda card: config_fingerprint(repo, card), cwd=repo)
+def checkpoint(pr: int, head_sha: str, repo: str) -> tuple[str, str, str, str] | None:
+    """(base, head, card, posted body) of the PR's last review a re-review may
+    start from, or None. A seam: tests replace it, since the real one asks GitHub."""
+    from github.review_checkpoint import last_checkpoint_review
+    return last_checkpoint_review(pr, head_sha, lambda card: config_fingerprint(repo, card), cwd=repo)
 
 
 def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
@@ -344,7 +344,7 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
         if cp is None:
             return None, [f"re-review: #{pr} has no review a re-review can start from (a v2 review, every path read, of an "
                           f"ancestor of {head_sha[:12]}, under today's config); render a full review (mode: review)"]
-        _, cp_head, cp_card = cp
+        _, cp_head, cp_card, cp_body = cp
         if base_sha != cp_head:
             return None, [f"range: a re-review of #{pr} starts at its last review's head {cp_head[:12]}, not {base!r} "
                           f"({base_sha[:12]}); the range is {cp_head}..{head}"]
@@ -352,6 +352,14 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
             return None, [f"card_base: #{pr}'s last review read the card at {cp_card[:12]}, not {wanted!r}; leave card_base "
                           f"out and it is taken from that review"]
         card_base = cp_card
+        return _on_default_branch(repo, base, base_sha, head_sha, card_base, wanted, cp_body)
+    return _on_default_branch(repo, base, base_sha, head_sha, card_base, wanted, None)
+
+
+def _on_default_branch(repo: str, base: str, base_sha: str, head_sha: str, card_base: str, wanted: object,
+                       previous: str | None) -> tuple[dict | None, list[str]]:
+    """resolve_range's last check, the card's commit on the default branch,
+    and its answer; `previous` is a PR re-review's previous report."""
     ref = default_ref(repo)
     if ref is None:
         return None, [f"range: the default branch of {repo} cannot be found, so base {base!r} cannot be checked against it"]
@@ -359,7 +367,10 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
         return None, [f"range: base {base!r} ({card_base[:12]}) is not an ancestor of {ref}; the project review card is read from "
                       f"the base, and only a commit the default branch contains may govern a review"
                       + ("" if wanted else "; name card_base (a full commit id the default branch contains, the first round's base) in the request")]
-    return {"base_sha": base_sha, "head_sha": head_sha, "card_base": card_base}, []
+    info = {"base_sha": base_sha, "head_sha": head_sha, "card_base": card_base}
+    if previous is not None:
+        info["previous_report"] = previous
+    return info, []
 
 
 def card(repo: object, base_sha: str | None) -> tuple[str | None, str | None]:
@@ -447,7 +458,14 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
         # render reads a diff file's card at the default tip and drops the
         # refusal, so an over-cap card would silently render as none.
         problems.append(refusal)
-    if mode == "re-review" or "previous_findings" in req:
+    if mode == "re-review" and _count(req.get("pr")):
+        if "previous_findings" in req:
+            # Read from the PR's last posted review instead (ADR-065 §5 rule 5):
+            # a typed file is refused, never compared, since the post wraps the
+            # report it was given in its own lines.
+            problems.append("previous_findings: a PR's re-review reads the previous report from its last posted "
+                            "review; leave previous_findings out")
+    elif mode == "re-review" or "previous_findings" in req:
         pf = req.get("previous_findings")
         if mode not in ("re-review", "finding-adjudication"):
             problems.append("previous_findings: only on a re-review (mode: re-review) or a finding-adjudication")
@@ -774,7 +792,8 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
         # level, and verbatim inside a fence is still verbatim. The fence
         # is longer than any backtick run in the report (every conforming
         # report quotes hunks in ``` blocks), so it closes where we close it.
-        report = open(req["previous_findings"], encoding="utf-8").read().rstrip()
+        report = (info or {}).get("previous_report")
+        report = (report if report is not None else open(req["previous_findings"], encoding="utf-8").read()).rstrip()
         fence = "`" * max(3, max((len(m) for m in re.findall(r"`+", report)), default=0) + 1)
         if mode == "re-review":
             out += ["## Previous findings", "Start from the range above and these findings, answering each by number."]
