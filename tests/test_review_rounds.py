@@ -15,8 +15,7 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
-import review_brief  # noqa: E402
+TOOLS = os.path.join(HERE, "tools", "fabric")
 REVIEW = os.path.join(HERE, "bin", "fabric-review")
 GIT = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_AUTHOR_NAME": "t",
        "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
@@ -78,10 +77,21 @@ def main() -> int:
             return subprocess.run([REVIEW, *args], env=env, input=stdin, capture_output=True, text=True,
                                   cwd=cwd, timeout=60)
 
+        def config_of(card: str) -> str:
+            """The fingerprint the child (bin/fabric-review, under `env`) computes: asked of a child under the same
+            env, never in this process, whose AGENT_FABRIC_ROOT (a fleet session's) would hash another checkout's
+            agent file instead of the tree under test."""
+            r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import review_brief; "
+                                "print(review_brief.config_fingerprint(sys.argv[2], sys.argv[3]))", TOOLS, repo, card],
+                               env=env, capture_output=True, text=True, timeout=60)
+            if r.returncode or len(r.stdout.strip()) != 64:
+                raise RuntimeError(f"config_fingerprint failed: {r.stderr}")
+            return r.stdout.strip()
+
         def review_body(rbase: str, rhead: str, card: str, finding: str) -> str:
             """A posted v2 review: the marker line, the report, the coverage block of a range that changed no path."""
             marker = (f"<!-- agent-fabric-review v2 base={rbase} head={rhead} card={card} "
-                      f"config={review_brief.config_fingerprint(repo, card)} -->")
+                      f"config={config_of(card)} -->")
             return (f"{marker}\n<!-- model: codex -->\n**Blind review**\n\n{finding}\n\n"
                     f"```agent-fabric-coverage v1\n{json.dumps({'paths': {}, 'lenses': {}})}\n```\n")
 
