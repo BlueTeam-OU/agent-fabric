@@ -494,7 +494,7 @@ def partial_cases(scratch, home, server_mod, gittools_mod, scope_mod) -> None:
         def traced_env(source=None):
             e = {**real_env(source), "GIT_TRACE": trace}
             if not env_flag:
-                del e["GIT_NO_LAZY_FETCH"]
+                e.pop("GIT_NO_LAZY_FETCH")
             return e
 
         def argv(repository, *args):
