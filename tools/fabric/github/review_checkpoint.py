@@ -13,6 +13,8 @@ default: an API error is not "no review yet", it is "not known", which the calle
 NEWEST means newest by submission time among the trusted v2 reviews, and the newest one decides: when it fails a
 check there is no fallback to an older one (two reviews with the same time are a doubt too). v1 reviews are never a
 checkpoint, and a v2 marker from any other account is not read at all.
+
+`config_for` is the caller's: an exception it raises is not caught here (it is a bug of the caller's, not a doubt about the PR).
 """
 from __future__ import annotations
 
