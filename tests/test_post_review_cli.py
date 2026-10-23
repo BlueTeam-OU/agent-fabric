@@ -734,6 +734,12 @@ def main() -> int:
         check("a re-review from the head of a whole checkpoint posts (the chain)", rc == 0 and posted(), f"rc={rc}\n{out}")
         v2_pr(c2, listed=(c0, c1, c2))
         put("reviews.json", json.dumps([checkpoint_review()]))
+        rc, out = v2_post(report + cover("a.py", "b.py", "sub/c.py"),
+                          header=fence_header(base_sha=HEAD, head_sha=c2))
+        check("a base that is neither the merge-base nor the checkpoint's head, with a whole checkpoint there: refused",
+              rc == 2 and not posted() and f"({c1[:12]})" in out, f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("reviews.json", json.dumps([checkpoint_review()]))
         rc, out = v2_post(report + cover("a.py", "sub/c.py"), header=fence_header(base_sha=c0, head_sha=c2))
         check("…and a base that is the merge-base posts with the checkpoint there too", rc == 0 and posted(), f"rc={rc}\n{out}")
         v2_pr(c2, listed=(c0, c1, c2))
