@@ -210,7 +210,11 @@ def main() -> int:
     # The repository is named, never read from the checkout's origin (a copy without a remote has none).
     os.environ["GH_REPO"] = "o/r"
     try:
-        post_review.run(["552", "--head", "a" * 40], "findings")
+        # A v2 report, since a report without a range is refused before the PR is read; its range is checked later.
+        header = json.dumps({"evidence_mode": "pinned", "base_sha": "b" * 40, "head_sha": "a" * 40, "card_base": "c" * 40,
+                             "config": "d" * 64})
+        post_review.run(["552"], f"```{review_brief.DISPATCH_VERSION}\n{header}\n```\nfindings\n\n"
+                                 f"```{review_coverage.BLOCK_INFO}\n{{\"paths\": {{}}, \"lenses\": {{}}}}\n```\n")
         check("refused", False)
     except post_review.Refused as e:
         check("refused, naming the branch", "head branch" in str(e))
@@ -299,11 +303,10 @@ def main() -> int:
             if line == "  EOF":
                 examples.append("\n".join(cur))
                 cur = None
-    check(f"two examples, the first without --head and the second with it ({len(examples)} found)",
-          len(examples) == 2 and "--head" not in examples[0].splitlines()[0]
-          and "--head" in examples[1].splitlines()[0])
-    if len(examples) == 2:
-        check("the first opens its body with an agent-fabric-dispatch v1 block",
+    check(f"one example, the review class's form: no --head, and no header-less form is shown ({len(examples)} found)",
+          len(examples) == 1 and "--head" not in examples[0].splitlines()[0])
+    if len(examples) == 1:
+        check("it opens its body with an agent-fabric-dispatch v1 block",
               examples[0].splitlines()[1] == f"```{review_brief.DISPATCH_VERSION}")
         # The session posts (ADR-065 §5 rule 6): the guard keeps no exemption
         # for the review class's form, which its ordinary rules refuse.
