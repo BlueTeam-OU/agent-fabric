@@ -111,8 +111,15 @@ shapes, vocabularies and writers are `tools/fabric/review_lines.py`, and
 | This fixes the PATH reset on Debian. | A command run as the account finds the tools the worker put on PATH, on Fedora and on Debian. |
 | I think the dangerous part is the retry. | A retry after a dropped connection converges; nothing is done twice. |
 
-**A re-review** carries `mode: re-review`, the range of the *fix commits
-only*, and `previous_findings: <the previous report, a file>`; the
+**A re-review** carries `mode: re-review` and the range of the *fix
+commits only*. For a PR (`pr` set) the range must start at the head of
+the PR's last posted v2 review, every path read, and the previous report
+is that review's posted body, read by the renderer: a typed
+`previous_findings` or `card_base` that disagrees is refused, and so is
+a diff file, which names no commits to look it up against; no such
+review means a full review (agent-fabric ADR-065 §5 rule 5). Without a
+PR, `previous_findings: <the previous report, a file>` is given as
+before. The
 constitution then starts from those hunks and findings, answering by
 number, and widens only to establish the fix's semantics or to detect a
 regression, saying what it widened to and why. A re-review carries only the lenses it names — `general`
@@ -123,7 +130,7 @@ Derive it rather than edit it: `bin/fabric-review save <PR> <round> <
 report` keeps a round's report under this account's state, and
 `bin/fabric-review next REQUEST --pr <PR>` writes `REQUEST-rr<N>.json`
 from the previous request (mode, the range from its head to `HEAD`, that
-report as `previous_findings`, `general` alone unless `--keep-lenses`)
+report as `previous_findings` when the request names no PR, `general` alone unless `--keep-lenses`)
 and renders it, with the new head's worktree; it refuses when the head has not moved
 (`tools/fabric/review_rounds.py`). The rendered re-review also embeds the
 range's exact diff (up to 64 KB, else its `--stat` and a note) and
@@ -190,8 +197,9 @@ unchanged, so the mode travels with the report: `fabric-pr post-review`
 refuses a report whose header says `working-tree` (only a pinned review
 covers a head) and records the review on the header's `head_sha`, the
 commit it read, never the PR's head at posting time (agent-fabric
-ADR-020 §5 rule 6; a headerless report, the second engine's, names it
-with `--head`), and `fabric-review save` records each round's mode in
+ADR-020 §5 rule 6). A report without the v2 header (`base_sha`,
+`head_sha`, `card_base`, `config`) and a coverage block naming every path
+of its range is refused (ADR-065 §5 rule 4), Codex's included, and `fabric-review save` records each round's mode in
 `round-<N>.json` beside `round-<N>.md` (`null` when the report has no
 header). A re-review request carries `evidence` over from the previous
 one.
