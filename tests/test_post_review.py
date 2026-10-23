@@ -245,6 +245,17 @@ def main() -> int:
     ):
         got, refusal = post_review.report_range(text + "F1")
         check(f"{label}: refused", got is None and why in refusal)
+    # The producer's own header (review_brief.dispatch_header) for a ranged request: once it carries card_base and
+    # config, post-review reads exactly those into the marker; before, it names a v1 report. Either way the two agree.
+    info = {"base_sha": B, "head_sha": H, "card_base": C}
+    made = "\n".join(review_brief.dispatch_header({"mode": "review", "repository": "/nowhere", "range": f"{B}..{H}"}, info,
+                                                  "claude", None, "d-1", "2026-10-14T00:00:00Z"))
+    fields = json.loads(made.split("\n", 1)[1].rsplit("\n", 1)[0])
+    got, refusal = post_review.report_range(made + "\nF1")
+    if "config" in fields:
+        check("the renderer's own header is read into the v2 marker", refusal == "" and got == review_coverage.Marker(B, H, C, fields["config"]))
+    else:
+        check("a renderer whose header lacks the fields posts v1", (got, refusal) == (None, ""))
     check("first_dispatch_header gives the fenced block as written", post_review.first_dispatch_header("x\n" + ranged() + "y") == ranged().rstrip("\n"))
     check("…and nothing for none, or for one never closed", post_review.first_dispatch_header("x") == ""
           and post_review.first_dispatch_header("```agent-fabric-dispatch v1\n{}") == "")
