@@ -66,7 +66,7 @@ shape as `memory_mcp`, ADR-040, ADR-049):
 
 | tool | runs | bound |
 |---|---|---|
-| `review_diff` | `git diff <base>..<head> [-- <paths>]` | the dispatch's range only |
+| `review_diff` | `git diff <base>..<head> [-- <paths>]` | any two commits the clone has |
 | `review_log` | `git log` over the range or a path, any depth | read-only history |
 | `review_show` | `git show <rev>:<path>` and `git show <rev>` | any commit the clone has |
 | `review_blame` | `git blame <rev> -- <path>` with a line span | any commit the clone has |

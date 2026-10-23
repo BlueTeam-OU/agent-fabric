@@ -54,13 +54,14 @@ WHY THE GUARD EXISTS, the bash's header kept:
 A capability-class subagent running in the SESSION CLONE is read-only. Where a subagent runs is what tells a
 writer from a reader. Every writing dispatch carries isolation worktree and works under .claude/worktrees/ — the
 dispatch guard (agent-dispatch-guard.sh) refuses one that does not — and the one class that runs unisolated in the
-clone is the review class, whose agent file lists no writing tool and fences its Bash (review-bash-guard.sh). That
+clone is the review class, whose agent file lists no writing tool and no Bash (it reads through the fabric-review
+tools, agent-fabric ADR-065). That
 leaves the dispatches the dispatch guard never sees: an agent() call inside a Workflow script (its tool input is
 script text, and both fields default the wrong way — isolation to the clone), and a launch that resolves a class
 natively rather than through the Agent tool. This hook is the backstop at the point of the write: a class subagent
 whose cwd is not under .claude/worktrees/ may not write, and its Bash gets the review fence (no state-changing git,
-no installs, no shell escapes, no redirection into the tree). For the review class it duplicates what the agent
-file already says; for everything else it is the only fence. Every unisolated subagent's allowed Bash is
+no installs, no shell escapes, no redirection into the tree). For the review class it backs the agent file's
+tool list; for everything else it is the only fence. Every unisolated subagent's allowed Bash is
 rewritten by the fence to run with a clean environment (no secret inherited, the session markers kept).
 
 SCOPE, deliberately narrow: only when the hook input carries an agent_id (a subagent — the main session is never
