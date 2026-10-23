@@ -559,9 +559,9 @@ def bytecode_cases(scratch, home) -> None:
         with open(f, "w", encoding="utf-8") as fh:
             fh.write("\n".join(ln for ln in text.split("\n") if "dont_write_bytecode" not in ln))
 
-    launcher = tree("bytecode-launcher")
+    launcher = tree("bytecode-launcher", drop_line)      # without the module's own line, so -B in the launcher is what is proved
     r = start([os.path.join(launcher, "bin", "fabric-review-mcp")])
-    check("the launcher serves a ping on a tree with no caches", '"result"' in r.stdout, r.stdout + r.stderr)
+    check("the launcher serves a ping on a tree with no caches, whose server.py has no bytecode line", '"result"' in r.stdout, r.stdout + r.stderr)
     check("and leaves no __pycache__ in the tree", pycaches(launcher) == [], str(pycaches(launcher)))
     alone = tree("bytecode-module")
     r = start([sys.executable, "-I", os.path.join(alone, "tools", "fabric", "review_mcp", "server.py")])
