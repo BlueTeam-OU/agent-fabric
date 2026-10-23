@@ -1,8 +1,10 @@
 """tools/fabric/github/review_checkpoint.py — where the next review of a PR starts (agent-fabric ADR-065 §2 C, §5 rule 5).
 
     last_checkpoint(pr, current_head, config_for) -> (base, head, card) | None
+    last_checkpoint_review(pr, current_head, config_for) -> (base, head, card, body) | None
 
-for review_brief, which derives `card_base` and the re-review's base from it. The answer is the range of the newest v2
+for review_brief, which derives `card_base` and the re-review's base from it, and (the second) the previous findings:
+the checkpoint review's posted body is the previous report (ADR-065 §2 C). The two answer from the same checks. The answer is the range of the newest v2
 review on the PR when EVERY check holds, and None, a full review, on any doubt: the review is not by an account
 pr_review_status trusts (the PR's author or AGENT_FABRIC_REVIEW_POSTERS), its marker or block does not read, a path
 is "not read" (a partial review is no checkpoint: the paths it skipped would never be read), its marker names another
@@ -38,11 +40,22 @@ def last_checkpoint(pr: int | str, current_head: str, config_for, *, repo: str |
     """`config_for(card)` is the config fingerprint today for a project card read at `card`; `cwd` is a clone that
     holds the PR's commits (the ancestry questions are asked there); `repo` is owner/name, the working copy's when
     omitted."""
+    found = last_checkpoint_review(pr, current_head, config_for, repo=repo, cwd=cwd, environ=environ, capped=False)
+    return found[:3] if found else None
+
+
+def last_checkpoint_review(pr: int | str, current_head: str, config_for, *, repo: str | None = None, cwd: str | None = None,
+                           environ=None, capped: bool = True) -> tuple[str, str, str, str] | None:
+    """last_checkpoint's (base, head, card) and the body of that review as posted, marker line included. A body over
+    the cap post_review applies to a report is None, never cut: a cut report would read as a whole one."""
     try:
-        return _checkpoint(int(pr), current_head, config_for, repo, cwd or os.getcwd(),
-                           os.environ if environ is None else environ)
+        found = _checkpoint(int(pr), current_head, config_for, repo, cwd or os.getcwd(),
+                            os.environ if environ is None else environ)
     except (gh.GhError, Die, review_coverage.CoverageError, ValueError, TypeError, AttributeError, KeyError, OSError):
         return None
+    if found is None or (capped and len(found[3]) > review_coverage.MAX_REVIEW_CHARS):
+        return None
+    return found
 
 
 def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: str, environ):
@@ -76,4 +89,4 @@ def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: s
         return None
     if config_for(marker.card) != marker.config:
         return None
-    return marker.base, marker.head, marker.card
+    return marker.base, marker.head, marker.card, newest.get("body") or ""

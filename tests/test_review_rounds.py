@@ -15,9 +15,27 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import review_brief  # noqa: E402
 REVIEW = os.path.join(HERE, "bin", "fabric-review")
 GIT = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_AUTHOR_NAME": "t",
        "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+# What a re-review of a PR starts from is the PR's last v2 review, read from GitHub (agent-fabric ADR-065 §2 C): a gh
+# that answers the three calls the checkpoint makes from the case's state file, and refuses any other.
+FAKE_GH = r"""#!%(python)s
+import json, os, sys
+state = json.load(open(os.environ["GH_STATE_FILE"]))
+a = sys.argv[1:]
+if a[:2] == ["pr", "view"] and "author" in a:
+    print(json.dumps({"author": {"login": "me"}}))
+elif a[:2] == ["api", "-i"] and a[2].split("?")[0].endswith("/pulls/7/reviews"):
+    sys.stdout.write("HTTP/2.0 200 OK\r\n\r\n" + json.dumps(state["reviews"]))
+elif a[:2] == ["api", "-i"] and a[2].split("?")[0].endswith("/pulls/7/commits"):
+    sys.stdout.write("HTTP/2.0 200 OK\r\n\r\n" + json.dumps([{"sha": c} for c in state["commits"]]))
+else:
+    print("fake gh: unhandled " + " ".join(a), file=sys.stderr); sys.exit(1)
+"""
 
 
 def main() -> int:
@@ -34,6 +52,13 @@ def main() -> int:
         env.update(GIT, AGENT_FABRIC_STATE_DIR=os.path.join(tmp, "state"), HOME=os.path.join(tmp, "home"),
                    TMPDIR=os.path.join(tmp, "tmpdir"))
         os.makedirs(env["TMPDIR"])
+        fakebin = os.path.join(tmp, "bin")
+        os.makedirs(fakebin)
+        with open(os.path.join(fakebin, "gh"), "w") as f:
+            f.write(FAKE_GH % {"python": sys.executable})
+        os.chmod(os.path.join(fakebin, "gh"), 0o755)
+        gh_state = os.path.join(tmp, "gh-state.json")
+        env.update(PATH=f"{fakebin}:{env.get('PATH', '')}", GH_STATE_FILE=gh_state, GH_REPO="o/r")
         repo = os.path.join(tmp, "work", "myrepo")
         os.makedirs(repo)
 
@@ -53,6 +78,21 @@ def main() -> int:
             return subprocess.run([REVIEW, *args], env=env, input=stdin, capture_output=True, text=True,
                                   cwd=cwd, timeout=60)
 
+        def review_body(rbase: str, rhead: str, card: str, finding: str) -> str:
+            """A posted v2 review: the marker line, the report, the coverage block of a range that changed no path."""
+            marker = (f"<!-- agent-fabric-review v2 base={rbase} head={rhead} card={card} "
+                      f"config={review_brief.config_fingerprint(repo, card)} -->")
+            return (f"{marker}\n<!-- model: codex -->\n**Blind review**\n\n{finding}\n\n"
+                    f"```agent-fabric-coverage v1\n{json.dumps({'paths': {}, 'lenses': {}})}\n```\n")
+
+        def serve(reviews: list[dict], commits: list[str]) -> None:
+            with open(gh_state, "w") as fh:
+                json.dump({"reviews": reviews, "commits": commits}, fh)
+
+        def posted_review(text: str, rhead: str, at: str) -> dict:
+            return {"user": {"login": "me"}, "commit_id": rhead, "submitted_at": at, "body": text}
+
+        round1 = review_body(base, head1, base, "## Round 1\n\n1. **P2:** a finding.")
         req = os.path.join(tmp, "scratch", "REQUEST.yaml")
         os.makedirs(os.path.dirname(req))
         with open(req, "w") as f:
@@ -61,7 +101,7 @@ def main() -> int:
                     "lenses:\n  - general\n  - security\n")
 
         print("save")
-        r = run("save", "7", "1", stdin="## Round 1\n\n1. **P2:** a finding.\n")
+        r = run("save", "7", "1", stdin=round1)
         saved = r.stdout.strip()
         check("a round is kept under the account's state, by repository and PR",
               r.returncode == 0 and saved == os.path.join(tmp, "state", "agents", os.environ.get("USER") or
@@ -104,6 +144,7 @@ def main() -> int:
         elsewhere = os.path.join(tmp, "work", "otherrepo")
         os.makedirs(elsewhere)
         subprocess.run(["git", "init", "-q", elsewhere], env=env, check=True, timeout=30)
+        serve([posted_review(round1, head1, "2026-10-23T10:00:00Z")], [head1, head2])
         r = run("next", req, "--pr", "7", cwd=elsewhere)
         nxt_path = os.path.join(tmp, "scratch", "REQUEST-rr2.json")
         check("--pr finds the round by the request's repository, not the cwd's (review of #89)",
@@ -120,11 +161,14 @@ def main() -> int:
         check("…and the brief is rendered to stdout, the saved report in it",
               "## Mode\nre-review" in r.stdout and "a finding." in r.stdout, r.stdout[:300])
         head3 = commit("fix 2")
+        round2 = review_body(head1, head2, base, "## Round 2\n\nclean")
+        serve([posted_review(round1, head1, "2026-10-23T10:00:00Z"), posted_review(round2, head2, "2026-10-23T11:00:00Z")],
+              [head1, head2, head3])
         report2 = os.path.join(tmp, "scratch", "report-2.md")
         with open(report2, "w") as f:
             f.write("## Round 2\n\nclean\n")
         r = run("next", nxt_path, "--report", report2, "--keep-lenses")
-        nxt3 = json.load(open(os.path.join(tmp, "scratch", "REQUEST-rr3.json")))
+        nxt3 = json.load(open(os.path.join(tmp, "scratch", "REQUEST-rr3.json"))) if r.returncode == 0 else {}
         check("from a round's own request: REQUEST-rr3.json, range from that round's head, --report taken",
               r.returncode == 0 and nxt3["range"] == f"{head2[:12]}..{head3[:12]}"
               and nxt3["previous_findings"] == report2, (r.stderr, nxt3))
@@ -175,6 +219,9 @@ def main() -> int:
             json.dump({**nxt3, "previous_findings": gone}, f)
         os.remove(gone)
         head4 = commit("fix 3")
+        round3 = review_body(head2, head3, base, "## Round 3\n\nclean")
+        serve([posted_review(round1, head1, "2026-10-23T10:00:00Z"), posted_review(round2, head2, "2026-10-23T11:00:00Z"),
+               posted_review(round3, head3, "2026-10-23T12:00:00Z")], [head1, head2, head3, head4])
         r = run("next", chain, "--report", report2)
         check("an earlier round's report deleted since does not refuse the chain (review of #89)",
               r.returncode == 0 and json.load(open(os.path.join(tmp, "scratch", "CHAIN-rr3.json")))["range"]
