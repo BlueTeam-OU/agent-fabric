@@ -45,7 +45,7 @@ MAX_LENSES = 100
 GIT_TIMEOUT_S = 60
 
 # CommonMark: up to three spaces, a run of three or more backticks or tildes, then the info string.
-_FENCE = re.compile(r"^ {0,3}(?P<run>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*?)[ \t]*$")
+_FENCE = re.compile(r" {0,3}(?P<run>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*?)[ \t]*")
 # Any line that names the block behind quote and list markers, as post_review's STRAY_FENCE does for the dispatch
 # header: whatever a markdown renderer might take for a block of ours.
 _LOOKALIKE = re.compile(r"^[ \t]*(?:>[ \t]*|(?:[*+-]|\d{1,9}[.)])[ \t]+)*(?:`{3,}|~{3,})[ \t]*" + re.escape(BLOCK_INFO.split()[0]))
@@ -157,7 +157,7 @@ def find_blocks(lines: list[str]) -> list[tuple[int, int]]:
     document, as markdown renders it, and is returned with its end as len(lines)."""
     found, i = [], 0
     while i < len(lines):
-        m = _FENCE.match(lines[i])
+        m = _FENCE.fullmatch(lines[i])
         if not m or (m["run"][0] == "`" and "`" in m["info"]):
             i += 1
             continue
