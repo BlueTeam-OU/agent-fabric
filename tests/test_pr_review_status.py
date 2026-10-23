@@ -22,6 +22,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 from github import pr_review_status as rs  # noqa: E402
+from github import review_coverage as rcov  # noqa: E402
 
 HEAD = "abc123def4567890"
 
@@ -336,7 +337,7 @@ def main() -> int:
     x = rs.Extras([{"path": "a.sh", "isOutdated": True}], 1, 2, 1)
     doc = json.loads(rs.render_json(ctx, rs.Probe(head=HEAD, state="OPEN", mergest="CLEAN", buckets=rs.Buckets(blind=[review("me")])), x, "head-moved", ""))
     check("the --json keys are the contract, in order",
-          list(doc) == ["pr", "state", "merge_state", "head", "head_reviewed", "independent", "blind", "unavailable", "not_trusted",
+          list(doc) == ["pr", "state", "merge_state", "head", "head_reviewed", "independent", "blind", "unavailable", "partial", "not_trusted",
                         "no_review_coming", "marked_by_others", "verdicts", "self", "unresolved_threads", "unresolved_paths", "checks"])
     check("pr is a number, a cause carries a null reason", doc["pr"] == 77 and doc["no_review_coming"] == {"cause": "head-moved", "reason": None})
     check("rows carry the 8-character sha", doc["blind"]["rows"] == [{"login": "me", "commit_sha8": "abc123de", "at": "2026-08-07T10:00:00Z", "engine": "claude"}])
@@ -723,6 +724,61 @@ def main() -> int:
     r = go("-q", polls=ff, reviews=[rev("reviewer-a", commit="aaaaaaaaaa", at="2026-08-25T11:50:00Z")],
            comments=[ask("2026-08-25T12:10:00Z")], head_date="2026-08-25T11:48:37Z", suites=[pushed])
     check("no diagnostic output escapes under -q on the head-birth path", r.err == "")
+
+    print("v2 reviews: complete coverage counts, partial is shown and not counted (agent-fabric ADR-065 §5 rule 4)")
+    H40, B40 = "a" * 40, "b" * 40
+    mk = f"<!-- agent-fabric-review v2 base={B40} head={H40} card={'c' * 40} config={'d' * 64} -->"
+
+    def v2body(statuses=("read",), marker=mk, extra="", model=None, count=1):
+        paths = {f"p{i}.py": ({"status": s} if s == "read" else {"status": s, "reason": "too big"}) for i, s in enumerate(statuses)}
+        block = f"```{rcov.BLOCK_INFO}\n{json.dumps({'paths': paths, 'lenses': {}})}\n```\n" * count
+        head = marker + ("\n<!-- model: codex -->" if model else "")
+        return f"{head}\n**Blind review**\n\n{extra}{block}"
+
+    def sort(reviews, author="me", **kw):
+        return rs.classify(reviews, author, cfg(**kw))
+
+    full = sort([review("me", commit=H40, body=v2body())])
+    check("a complete v2 review of its head is a blind review", len(full.blind) == 1 and not full.partial and not full.self_)
+    check("…and is coverage of the head", rs.head_covered(H40, [], full.qualifying))
+    part = sort([review("me", commit=H40, body=v2body(("read", "not read")))])
+    check("one path not read: shown as partial, not blind, not self, not qualifying",
+          len(part.partial) == 1 and not part.blind and not part.self_ and not part.qualifying and not rs.head_covered(H40, [], part.qualifying))
+    check("…and why is a short line", rs.uncounted_v2(part.partial[0]) == "partial coverage: 1 path(s) not read")
+    check("the same by a configured poster", len(sort([review("ci", commit=H40, body=v2body(("not read",)))], AGENT_FABRIC_REVIEW_POSTERS='["ci"]').partial) == 1)
+    other = sort([review("rando", commit=H40, body=v2body(), assoc="NONE")])
+    check("a v2 review by another account: marked, other login; not blind, not independent, not partial",
+          len(other.marked_others) == 1 and not other.blind and not other.independent and not other.outsiders and not other.partial)
+    check("a v2 review by a trusted member is still not independent coverage", not sort([review("member", commit=H40, body=v2body(), assoc="MEMBER")]).independent)
+    other_commit = sort([review("me", commit="e" * 40, body=v2body())])
+    check("a marker naming another head than the review's commit is not counted", len(other_commit.partial) == 1 and not other_commit.blind)
+    check("…saying so", "marker names head" in rs.uncounted_v2(other_commit.partial[0]))
+    for label, body in (("an unreadable marker", v2body(marker=mk.replace(H40, "z" * 40))),
+                        ("the bare v2 prefix", v2body(marker="<!-- agent-fabric-review v2 -->")),
+                        ("a block that does not read", mk + "\n```agent-fabric-coverage v1\n{\n```\n"),
+                        ("no block", mk + "\nfindings"),
+                        ("two blocks", v2body(count=2)),
+                        ("a block with a duplicate key", mk + f"\n```{rcov.BLOCK_INFO}\n{{\"paths\": {{}}, \"paths\": {{}}, \"lenses\": {{}}}}\n```\n")):
+        got = sort([review("me", commit=H40, body=body)])
+        check(f"{label}: not counted, shown as partial", not got.blind and len(got.partial) == 1 and not got.self_)
+    check("a marker-like line later in the body does not make an unmarked review blind",
+          not sort([review("me", commit=H40, body="findings\n" + v2body())]).blind)
+    check("a v1 review counts as before, beside a v2 partial", len(sort([review("me", body=marked), review("me", commit=H40, body=v2body(("not read",)))]).blind) == 1)
+    check("engine_of reads the model line below the partial line",
+          rs.engine_of({"body": mk + "\npartial coverage: 1 path(s) not read\n<!-- model: codex -->\nx"}) == "codex")
+    check("…and below the marker of a complete one", rs.engine_of({"body": v2body(model=True)}) == "codex")
+    check("…but a v1 body still reads two lines only", rs.engine_of({"body": "<!-- agent-fabric-review v1 -->\nx\n<!-- model: codex -->"}) == "claude")
+    pdoc = json.loads(rs.render_json(ctx, rs.Probe(head=H40, state="OPEN", buckets=part), x, "", ""))
+    check("--json lists the partial review with why, and blind stays empty", pdoc["partial"]["count"] == 1 and pdoc["blind"]["count"] == 0
+          and pdoc["partial"]["rows"][0]["why"] == "partial coverage: 1 path(s) not read" and pdoc["partial"]["rows"][0]["commit_sha8"] == "aaaaaaaa")
+    # Through the whole command.
+    done = go("--json", polls=(("OPEN", H40, 0),), reviews=[rev("me", commit=H40, body=v2body())])
+    check("a complete v2 review of the head: exit 0", done.rc == 0 and json.loads(done.out)["blind"]["count"] == 1)
+    half = go("--json", polls=(("OPEN", H40, 0),), reviews=[rev("me", commit=H40, body=v2body(("read", "not read")))])
+    check("a partial one: the head is not reviewed (exit 1), and the report shows it",
+          half.rc == 1 and json.loads(half.out)["partial"]["count"] == 1 and json.loads(half.out)["head_reviewed"] == "no")
+    text = go(polls=(("OPEN", H40, 0),), reviews=[rev("me", commit=H40, body=v2body(("not read",)))])
+    check("the text report has a partial line saying NOT coverage", "partial reviews     : 1   (NOT coverage" in text.out and "partial coverage: 1 path(s) not read" in text.out)
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

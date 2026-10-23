@@ -780,10 +780,11 @@ class ArmRun(unittest.TestCase):
     def run_arm(self, policy, work, files=("docs/a.md",), basis="reviewed", body="", boundary_re=r"^policies/", classes=None,
                 load_error=None, extra=(), load_fn=None, drift=(), drift_error=None, role_trailers=None, checks="green", live=None,
                 replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x",
-                whoami=None):
+                whoami=None, review_doc=None):
         pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "headRefOid": self.HEAD, "body": body, "title": "t"}
         gate = [{"commits_known": True, "work_commits": work, "checks": checks}]
         review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}] if reviewed else []}, "unresolved_threads": unresolved}
+        review = review_doc if review_doc is not None else review
         self.reads = reads = []
         commits = [{"parents": [{}, {}], "commit": {"message": "Merge branch main"}} if r == "MERGE" else
                    {"parents": [{}], "commit": {"message": "c" + (f"\n\nFabric-Role: {r}" if r else "")}} for r in (role_trailers or [None])]
@@ -1599,6 +1600,40 @@ class ArmRun(unittest.TestCase):
                                whoami=whoami_of(), branch="h/dev/feat/x", **kw)
             self.assertTrue(str(rc).startswith("refused"), (kw, rc))
             self.assertEqual(self.reads, [])
+
+
+class ArmReadsV2Coverage(unittest.TestCase):
+    """The arm reads a review through pr-review-status --json, so a v2 review that is not complete never reaches
+    blind.rows: asserted here through the real classifier and renderer, not a hand-written row (agent-fabric
+    ADR-065 §5 rule 4)."""
+
+    HEAD = ArmRun.HEAD
+    run_arm = ArmRun.run_arm
+
+    def status_json(self, *statuses):
+        from github import pr_review_status as rs
+        from github import review_coverage as rcov
+        head = self.HEAD
+        paths = {f"p{i}.py": ({"status": s} if s == "read" else {"status": s, "reason": "too big"}) for i, s in enumerate(statuses)}
+        body = (f"<!-- agent-fabric-review v2 base={'b' * 40} head={head} card={'c' * 40} config={'d' * 64} -->\n**Blind review**\n\n"
+                f"```{rcov.BLOCK_INFO}\n{json.dumps({'paths': paths, 'lenses': {}})}\n```\n")
+        rows = [{"user": {"login": "me"}, "author_association": "OWNER", "state": "COMMENTED", "commit_id": head,
+                 "submitted_at": "2026-10-23T10:00:00Z", "body": body}]
+        probe = rs.Probe(head=head, state="OPEN", buckets=rs.classify(rows, "me", rs.read_config({})))
+        ctx = rs.Ctx("7", "o/r", rs.read_config({}), rs.Args())
+        return json.loads(rs.render_json(ctx, probe, rs.Extras([], 0, 0, 0), "", ""))
+
+    def test_a_complete_v2_review_arms_and_a_partial_one_does_not(self):
+        rc, out = self.run_arm(arm_policy.default(), 9, review_doc=self.status_json("read", "read"))
+        self.assertEqual(rc, 0, out)
+        for statuses in (("read", "not read"), ("not read",)):
+            rc, _ = self.run_arm(arm_policy.default(), 9, review_doc=self.status_json(*statuses))
+            self.assertTrue(str(rc).startswith("refused"), (statuses, rc))
+            self.assertFalse([r for r in self.ran if r[:2] == ["pr", "merge"]], statuses)
+
+    def test_the_engine_reading_of_rows_ignores_a_partial_review(self):
+        self.assertEqual(arm_policy.engines_on_head(self.status_json("read")["blind"]["rows"], self.HEAD), {"claude"})
+        self.assertEqual(arm_policy.engines_on_head(self.status_json("read", "not read")["blind"]["rows"], self.HEAD), set())
 
 
 if __name__ == "__main__":
