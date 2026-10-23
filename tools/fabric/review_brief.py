@@ -459,6 +459,11 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
         # refusal, so an over-cap card would silently render as none.
         problems.append(refusal)
     if mode == "re-review" and _count(req.get("pr")):
+        if not req.get("range"):
+            # The previous report and the range come from the PR's last
+            # posted review, which a diff file names no commits to look up.
+            problems.append("range: a PR's re-review needs a base..head range, which its last posted review is looked "
+                            "up against; a diff file has no commits")
         if "previous_findings" in req:
             # Read from the PR's last posted review instead (ADR-065 §5 rule 5):
             # a typed file is refused, never compared, since the post wraps the

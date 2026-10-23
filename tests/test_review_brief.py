@@ -782,6 +782,11 @@ def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
         assert info is None and any("read the card at" in r for r in refused), refused
         info, refused = rb.resolve_range({**req, "card_base": base})
         assert not refused and info["card_base"] == base, refused
+        # a diff file names no commits to look a checkpoint up against: refused, not a KeyError
+        diff = os.path.join(tmp, "pr.diff"); open(diff, "w").write("")
+        no_range = {k: v for k, v in req.items() if k != "range"}
+        assert any("needs a base..head range" in r for r in refusals({**no_range, "diff": diff})), \
+            refusals({**no_range, "diff": diff})
         # no PR: nothing posted to read, the typed range stands and nothing is asked
         asked.clear(); rb.checkpoint = none
         info, refused = rb.resolve_range({**{k: v for k, v in req.items() if k != "pr"}, "card_base": base})
