@@ -1,7 +1,8 @@
 # ADR-064 — GZCoord carried over InterWeave: one host, beside the relay
 
 **Date:** 2026-10-23
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-10-23, in the session ("adr 064 approved arm 356")
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the InterWeave carrier of GZCOORD/1 on the host the fleet shares: its roster (`runtime/interweave/roster.json`, to be built), each account's InterWeave profile and units, the carrier process, the send and inbox adapters in `tools/fabric/gzcoord/`, and the parity report that decides a switch; ADR-033's relay stays as it is
 **Pillar:** P5
@@ -239,8 +240,7 @@ here.
 
 ## 8. Decision Status
 
-Proposed. Waits on the owner's acceptance, and its build on a tagged
-InterWeave release.
+Accepted. Its build waits on a tagged InterWeave release (§5 rule 4).
 
 ## References
 

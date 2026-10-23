@@ -581,7 +581,7 @@
       "number": "064",
       "file": "ADR-064-gzcoord-over-interweave-one-host-dual-run.md",
       "title": "GZCoord carried over InterWeave: one host, beside the relay",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-10-23",
       "pillar": "P5",
       "amendments": 0

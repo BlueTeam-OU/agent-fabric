@@ -1375,7 +1375,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: assist, fabric-ctl, API key, claude-pzhuy, credit, owner,
   fleet down, spend, reserve, P5.
 
-### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Proposed)
+### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)
 
 - One host, loopback only, until InterWeave ADR-0034 §7 and SPIKE-004's
   deferred limits close; the control plane stays on the relay (§5 rules
@@ -1398,6 +1398,6 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 rules 6-10).
 - The soak's report names missed, duplicate and offline-delivered
   counts and a rollback drill (§5 rule 11).
-- Waits on the owner's acceptance and a tagged InterWeave release (§8).
+- Accepted; the build waits on a tagged InterWeave release (§8).
 - Keywords: InterWeave, carrier, transport, relay, dual run, parity,
   PeerId, roster, allowlist, loopback, one host, P5.
