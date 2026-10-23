@@ -42,7 +42,8 @@ against both trees on 2026-10-23:
   (REPLY 01a15326) stand as transport facts: a receipt is the carrier's
   own, above the socket; the 48 KiB ceiling does not rise, so the
   carrier compresses and then chunks; a PeerId is bound by attestation,
-  never derived (InterWeave ADR-0033). Two messages in the fabric's
+  never derived: who a PeerId is, is the deployment's attested record
+  (InterWeave ADR-0055 decision 3, ADR-0012). Two messages in the fabric's
   journal then exceeded 48 KiB, the largest 58 KB.
 - **No InterWeave release is tagged.** The notices PR the request named as
   the last piece (InterWeave #381) merged on 2026-10-22; the repository
@@ -129,8 +130,8 @@ relay, and nothing further:
 The smallest thing that moves P5 forward is the one InterWeave has already
 proved: one host, loopback, deny-by-default trust. Running beside the relay
 costs a second post per message and nothing in what a session reads,
-because ADR-041 rule 5 already keeps one row per `MESSAGE-ID` and records
-the carrier as provenance. It also gains something the relay never had: a
+because ADR-041 rule 5 already keeps one row per `MESSAGE-ID`; what the
+journal collapses, the arrival log keeps (rule 11). It also gains something the relay never had: a
 sender InterWeave authenticates by PeerId, which the roster turns into an
 address, where the relay's `sender` is a claim (ADR-033 §6).
 
@@ -145,7 +146,8 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    (ADR-039) and carries its login, PeerId, endpoint and port; it counts
    only when signed by that login's ADR-038 signing subkey over what
    `transportctl identity show` prints, and countersigned by the
-   coordinator's key. A row that fails either signature renders nothing.
+   coordinator's key over the whole row: agent id, login, PeerId,
+   endpoint and port. A row that fails either signature renders nothing.
    The roster allocates the ports, from a range it states. A
    profile's `config.yaml` is rendered from it, never hand-edited: its
    allowlist is every other valid roster PeerId and nothing else, its
@@ -166,32 +168,38 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    endpoint, a `TO-ROLE` or broadcast to every other roster member, each
    inbox filtering as it does today. GossipSub carries nothing in this
    phase.
-7. A message keeps one transport `message_id` per recipient across every
-   retry, held beside its journal pending row (ADR-041 rule 3). The row
-   stays pending until the recipient's receipt arrives. The receipt is a
-   direct message of the carrier's own media type, naming the
-   `MESSAGE-ID`, sent by the receiving carrier after its journal append.
-   It is never a GZCoord message. A send is retried until its receipt
-   and is never given up without its operator. The receiving carrier
-   journals only what ADR-041 rule 2 admits, and collapses a repeat by
-   `MESSAGE-ID` (rule 5).
+7. The carrier keeps its own delivery record, per recipient, in the
+   account's runtime state: the `MESSAGE-ID`, the recipient, one
+   transport `message_id` kept across every retry, and whether the
+   recipient's receipt has arrived. The receipt is a direct message of
+   the carrier's own media type, naming the `MESSAGE-ID`, sent by the
+   receiving carrier after its journal append; it is never a GZCoord
+   message. A send is retried until its receipt and is never given up
+   without its operator. The journal's row keeps ADR-041's meaning
+   unchanged: accepted when any carrier accepts the post, which in the
+   dual run is the relay's acceptance as today. The receiving carrier
+   journals only what ADR-041 rule 2 admits, and a repeat collapses by
+   `MESSAGE-ID` (ADR-041 rule 5).
 8. A message whose payload exceeds the 48 KiB ceiling is compressed
    first (`;ce=br`, the content-encoding InterWeave's human facade
    defines), and chunked under the carrier's own framing only if it
    still exceeds it, reassembled before the journal append. With the
    journal off (ADR-041 rule 10) the route is the relay alone.
 9. A delivery carries the address the roster maps its PeerId to. A message
-   whose `FROM` differs from it is journaled and shown with the mismatch,
-   never as from its `FROM`; a PeerId absent from the roster is never
-   admitted, by rule 2.
+   whose `FROM` differs from it is shown with the mismatch, never as from
+   its `FROM`, whichever carrier's copy reached the journal first; a
+   PeerId absent from the roster is never admitted, by rule 2.
 10. No transport-native value — PeerId, EndpointId, transport
     `message_id`, port — appears as GZCoord metadata (ADR-033 rule 1).
     Where a message needs one, as a reference, it is body text.
 11. The relay stays the transport of record and ADR-033 rule 7's fallback
     stands, until an amendment of ADR-033 says otherwise on the owner's
-    word. That word is given on a parity report in `docs/live-checks/`:
-    every (`MESSAGE-ID`, addressee) pair either carrier's journal rows
-    hold over a stated window, each pair one carrier missed listed with
+    word. That word is given on a parity report in `docs/live-checks/`,
+    computed from an arrival log each inbox keeps beside its journal:
+    one line per copy received, (`MESSAGE-ID`, addressee, carrier, time,
+    rule 9's verdict), written before the journal collapses the copy.
+    The report covers every (`MESSAGE-ID`, addressee) pair over a stated
+    window, each pair one carrier missed listed with
     its cause; missed and duplicate counts per carrier; messages
     delivered while their addressee was offline, direct and broadcast
     apart; the messages compressed and the messages chunked. The soak

@@ -1391,13 +1391,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   countersigned by the coordinator, renders every profile's
   deny-by-default allowlist; keys minted in their own account; programs
   from a tagged, pinned release (§5 rules 2-4).
-- One direct send per recipient, no GossipSub; pending until the
-  receiving carrier's own receipt, retried under one message_id, never
-  given up without its operator; compress then chunk past 48 KiB; FROM
+- One direct send per recipient, no GossipSub; the carrier's own
+  per-recipient record waits for the receiving carrier's receipt,
+  retried under one message_id, never given up without its operator; compress then chunk past 48 KiB; FROM
   checked against the PeerId's address; no transport value as metadata
   (§5 rules 6-10).
-- The soak's report names missed, duplicate and offline-delivered
-  counts and a rollback drill (§5 rule 11).
+- The soak's report, from each inbox's per-copy arrival log, names
+  missed, duplicate and offline-delivered counts and a rollback drill
+  (§5 rule 11).
 - Accepted; the build waits on a tagged InterWeave release (§8).
 - Keywords: InterWeave, carrier, transport, relay, dual run, parity,
   PeerId, roster, allowlist, loopback, one host, P5.
