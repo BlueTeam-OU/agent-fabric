@@ -274,7 +274,7 @@ def main() -> int:
             rendered = review_brief.dispatch_header(
                 {"mode": "re-review", "repository": repo, "range": "a..b", "evidence": mode, "pr": 251,
                  "review_round": 2, "job_id": "j7"},
-                {"base_sha": "ade76f23" * 5, "head_sha": "0123456789abcdef0123456789abcdef01234567"},
+                {"base_sha": "ade76f23" * 5, "head_sha": "0123456789abcdef0123456789abcdef01234567", "card_base": "ade76f23" * 5},
                 "claude", None, "d-1", "2026-10-14T09:59:00Z")
             produced = json.loads("\n".join(rendered[1:-1]))
             check(f"the producer sets every field it writes (evidence_mode {mode})",
