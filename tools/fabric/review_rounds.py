@@ -332,7 +332,11 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
     # may narrow the lenses, so an earlier report deleted since, or a lens
     # no longer there, must not refuse a chain (review of #89). A range with
     # no `..` still refuses here, as one line (it raised IndexError once).
-    shape = {**req, "mode": "re-review", "previous_findings": os.path.abspath(report)}
+    # Without the PR: a PR's re-review must start at its last posted review
+    # (ADR-065 §5 rule 5), which the SOURCE range no longer does once that
+    # round is posted; the derived range is checked when it is rendered.
+    shape = {**{k: v for k, v in req.items() if k != "pr"}, "mode": "re-review",
+             "previous_findings": os.path.abspath(report)}
     if not keep_lenses:
         shape["lenses"] = ["general"]
     problems = review_brief.validate(shape)
