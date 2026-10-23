@@ -36,8 +36,8 @@ goes to agent-fabric-coord; what makes the fabric's own agents speak it stays.**
 **Moves.** The four normative files and their examples; the adapter contract and the
 human-relay document; the transport history; the GZCOORD/1 decision records, re-issued
 in the new repository's own series; the conformance suite (below); the GZCoord-over-
-InterWeave mapping and the carrier's record, which have no home yet and were promised
-this one (InterWeave ADR-0055 keeps only what any machine client gets).
+InterWeave mapping, ADR-064 §5 rules 6 to 10, written in agent-fabric's series until this
+repository exists (InterWeave ADR-0055 keeps only what any machine client gets).
 
 **Stays, as a consumer.** The implementation, the relay unit, the hooks, the journal,
 intake into the job list, the i18n catalogue the implementation renders from, and the
@@ -97,7 +97,7 @@ The corpus is the contract's executable form; tests that exercise the fabric sta
 | Inbox and send | fabric | fabric, conforming at the pin |
 | Journal (ADR-041) | fabric state | fabric state; the record keeps "the carrier is provenance" and cites coord for MESSAGE-ID |
 | Relay hosting (ADR-033 §5 rules 5–6, the unit) | fabric | fabric: it is the operator's service and the control plane's channel. The adapter contract and the human relay move; which relay runs is an operational choice |
-| The InterWeave carrier | nowhere | its mapping and record in coord; where its code lives is that record's question |
+| The InterWeave carrier | ADR-064, here | its mapping (rules 6 to 10) moves to coord with ADR-032 and ADR-033; the roster, provisioning and adapters stay here |
 | ADR numbering | agent-fabric ADR-NNN | coord's own series, cited "agent-fabric-coord ADR-NNN", as the gateway's are; agent-fabric keeps each moved record's file as a stub naming its successor, so the 22 files that cite ADR-032 or ADR-033 still resolve, and `fabric-adr lookup` follows the stub |
 | Authority | the repository-wide trailer fence (`policies/AUTHORITY.md` row `communication/gzcoord/protocol/*`) | the coord repository's taxonomy gives its protocol and records to fabric-coordinator; the same commit hooks and CI check, installed as for any managed repository; the agent-fabric row retires with the directory |
 | i18n | the catalogue renders protocol words for the reader (ADR-028) | the catalogue stays (runtime); which words are protocol vocabulary is the contract's |
@@ -112,7 +112,7 @@ The corpus is the contract's executable form; tests that exercise the fabric sta
 | 3 | Re-issue the records in coord's series; stubs and DIGEST rows in agent-fabric; `fabric-adr lookup` follows a stub | fabric-coordinator; the lookup change to python-dev |
 | 4 | `CONTRACT.md`; classify, extract, split the validator, pin | fabric-coordinator writes the contract; python-dev the rest, one REQUEST |
 | 5 | Sweep every restatement: this role's charter ("amendment of agent-fabric ADR-032"), `AUTHORITY.md`, the gzcoord skills, each project's `integration/gzcoord/CLAUDE.md`, the remits, the slices | fabric-coordinator |
-| 6 | The carrier record, in coord | fabric-coordinator, with architect-cto-01's transport facts |
+| 6 | ADR-064's mapping, moved to coord | fabric-coordinator, with architect-cto-01's transport facts |
 
 Steps 2 and 3 land together: a protocol moved without its record would leave the
 amendment rule pointing at nothing. The grammar freeze is untouched — a move changes
