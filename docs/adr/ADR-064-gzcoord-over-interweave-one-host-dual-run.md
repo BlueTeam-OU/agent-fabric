@@ -83,9 +83,10 @@ relay, and nothing further:
   signed by that login and by the coordinator; each profile's
   `config.yaml` is rendered from it with every other roster PeerId
   allowlisted and nothing else, deny by default.
-- **Delivery is the carrier's receipt, not `AcceptedV2`.** A sent message
-  stays pending until the receiving carrier, after its journal append,
-  answers with a receipt of its own media type naming the `MESSAGE-ID`.
+- **Delivery is the carrier's receipt, not `AcceptedV2`.** The carrier's
+  own per-recipient record waits for the receiving carrier, after its
+  journal append, to answer with a receipt of its own media type naming
+  the `MESSAGE-ID`; the journal row keeps ADR-041's meaning.
 - **The grammar does not move.** The carrier adds no field and needs none
   (ADR-033 rule 1). Once it runs, it is the automated transport ADR-032
   §7 waits for; what it observes may later reopen ADR-032 rule 3, by an
@@ -176,8 +177,9 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    receiving carrier after its journal append; it is never a GZCoord
    message. A send is retried until its receipt and is never given up
    without its operator. The journal's row keeps ADR-041's meaning
-   unchanged: accepted when any carrier accepts the post, which in the
-   dual run is the relay's acceptance as today. The receiving carrier
+   unchanged: both adapters report their post's outcome to it, and it
+   is accepted when either carrier accepts the post, a failed row
+   included (`episodic.out_final`). The receiving carrier
    journals only what ADR-041 rule 2 admits, and a repeat collapses by
    `MESSAGE-ID` (ADR-041 rule 5).
 8. A message whose payload exceeds the 48 KiB ceiling is compressed
@@ -187,7 +189,9 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    journal off (ADR-041 rule 10) the route is the relay alone.
 9. A delivery carries the address the roster maps its PeerId to. A message
    whose `FROM` differs from it is shown with the mismatch, never as from
-   its `FROM`, whichever carrier's copy reached the journal first; a
+   its `FROM`. When the relay's copy was shown first, the InterWeave
+   copy that reveals the mismatch is shown again, flagged, naming the
+   message already shown; a
    PeerId absent from the roster is never admitted, by rule 2.
 10. No transport-native value — PeerId, EndpointId, transport
     `message_id`, port — appears as GZCoord metadata (ADR-033 rule 1).
@@ -256,7 +260,7 @@ Accepted. Its build waits on a tagged InterWeave release (§5 rule 4).
 - architect-cto's transport facts, REPLY 01a15326 and 01a1536d
   (2026-10-19).
 - InterWeave: `architecture/adr/0055-automated-clients-are-first-party-consumers-above-a-general-purpose-transport.md`
-  (decisions 1 to 7), ADR-0033, ADR-0034 §7, ADR-0044,
+  (decisions 1 to 7), ADR-0012, ADR-0034 §7, ADR-0044,
   `architecture/roadmap/SPIKES.md` (SPIKE-004),
   `packaging/linux/DEPLOYING.md`, `apps/human-cli/README.md` (the
   lease and exit 4), `apps/claude-channel/README.md`,
