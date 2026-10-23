@@ -67,6 +67,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | errors per actor; review findings and red CI counted the same for people and agents | ADR-061 |
 | hidden Unicode; bidi, zero-width, tag characters in skills, slices and charters | ADR-062 |
 | fabric-ctl assist; asking about the fabric with the fleet down; the claude-pzhuy API key; who may spend an API key | ADR-063 |
+| GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1373,3 +1374,25 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Builds after #355; waits on the owner's acceptance (§7, §8).
 - Keywords: assist, fabric-ctl, API key, claude-pzhuy, credit, owner,
   fleet down, spend, reserve, P5.
+
+### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Proposed)
+
+- One host, loopback only, until InterWeave ADR-0034 §7 and SPIKE-004's
+  deferred limits close; the control plane stays on the relay (§5 rules
+  1, 12).
+- Dual run: every message by both carriers, the relay the transport of
+  record and ADR-033 rule 7 unchanged; the journal collapses by
+  MESSAGE-ID; a switch is an ADR-033 amendment on the owner's word over a
+  parity report (§5 rule 11).
+- The carrier is the fabric's own long-lived client per account under
+  InterWeave's client unit, not `interweave-human` (exclusive lease, human
+  retention) nor `claude-channel` (session-bound) (§2, §3, §5 rule 5).
+- Committed roster of PeerId, endpoint and port renders every profile's
+  deny-by-default allowlist; keys minted in their own account; programs
+  from a tagged, pinned release (§5 rules 2-4).
+- One direct send per recipient, no GossipSub; one transport message_id
+  per message; over 48 KiB goes by the relay only; FROM checked against
+  the PeerId's address; no transport value as metadata (§5 rules 6-10).
+- Waits on the owner's acceptance and a tagged InterWeave release (§8).
+- Keywords: InterWeave, carrier, transport, relay, dual run, parity,
+  PeerId, roster, allowlist, loopback, one host, P5.
