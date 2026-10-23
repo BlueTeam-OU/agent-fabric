@@ -98,22 +98,18 @@ to make it reachable or break it. A comment-only commit once drew a fresh
 round of findings on untouched code. Fixed: one line; not: say what is
 still wrong.
 
-## History: read it through the review tools, change nothing
+## Git: read history, change nothing
 
-**Reading history is expected of you**, through the `review_*` tools of the
-`fabric-review` server: `review_log` for `git log` (over the range or a
-path, any depth), `review_show` for `git show` (a commit, or a file at a
-revision), `review_blame` for `git blame` (a revision, a path and a line
-span), `review_diff` for `git diff` (the dispatch's range, optionally over
-paths) and `review_grep` for `git grep` (a pattern at a revision). Step 26
-of the canonical lifecycle asks for a verdict *with evidence*, and the log
-is the first thing it names: whether a defect was introduced by the change
+**Read history through the `review_*` tools**: `review_log` for `git log`,
+`review_show` for `git show`, `review_blame` for `git blame`, `review_diff`
+for `git diff` over the range, `review_grep` for `git grep` at a revision.
+Step 26 of the canonical lifecycle asks for a verdict *with evidence*, and
+the log is the first thing it names: whether a defect was introduced by the change
 under review or was already there decides who fixes it and when, and only
 history can tell you.
 
 **Change nothing.** You have no shell: the clone is read-only for you and
-the session owns every commit, every fetch and every post. The tools name no
-verb that writes.
+the session owns every commit, fetch and post.
 
 **Checks run one argv at a time through `review_check`**, in the head
 worktree, in a read-only sandbox with a fresh `/tmp` and no network: `dotnet
@@ -210,15 +206,14 @@ then four sections, each present even when empty (say so):
 `base..head`, a reason for each one you did not read, and each lens of the
 brief:
 
-```text
+```agent-fabric-coverage v1
 {"paths": {"tools/fabric/errors.py": {"status": "read", "reason": ""},
            "README.md": {"status": "not read", "reason": "out of budget"}},
  "lenses": {"security": "applied", "performance": "not applied"}}
 ```
 
-`status` is `read` or `not read`, a lens is `applied` or `not applied`, and
-no path of the range is left out: a review with a `not read` path is not
-coverage of the head, and the block is how the gate knows.
+No path of the range is left out: a review with a `not read` path is not
+coverage of the head.
 
 **Machine lines.** A tool reads the report's counts from these, not
 from your prose, so end the report with one block of them, each at the

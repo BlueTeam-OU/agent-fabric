@@ -43,9 +43,10 @@ def test_frontmatter_is_what_the_guards_and_installer_expect() -> None:
     assert lines[0] == "name: code-review", lines[0]
     # install-agent-files.sh rewrites the FIRST `model:` line; the guard reads the same one.
     assert lines[2] == "model: fable", "model: fable must be the third frontmatter line (the pin rewrite hits the first model: line)"
-    assert "tools: Read, Glob, Grep, Bash" in front, "the tools allow-list is the write fence"
-    assert "Write" not in front.split("tools:")[1].split("\n")[0]
-    assert "review-bash-guard.sh" in front and "permissionDecision" in front, "the Bash fence hook must stay in the frontmatter"
+    tools = [t.strip() for t in front.split("tools:")[1].split("\n")[0].split(",")]
+    assert tools == ["Read", "Glob", "Grep"] + [f"mcp__fabric-review__review_{v}" for v in ("diff", "log", "show", "blame", "grep", "check")], \
+        "the tools allow-list is the write fence: no Bash, Write, Edit or NotebookEdit (ADR-065 §5 rule 1)"
+    assert "hooks:" not in front, "the review class has no Bash to fence"
     assert re.search(r"\nmodel: ", front.split("model: fable", 1)[1]) is None, "one model: line only"
 
 
@@ -66,7 +67,7 @@ def test_the_incident_rules_are_still_there() -> None:
     """Each of these was bought by an incident; a rewrite may not lose one."""
     _, body = read_agent()
     for rule in ("revert test", "Quote the hunk", "in full", "One PR per dispatch", "re-review",
-                 "git log", "Change nothing", "--no-restore", "Never `pub\nget`",
+                 "review_log", "Change nothing", "--no-restore", "`pub get`", "agent-fabric-coverage v1", "not run",
                  "single-line mutation", "P1", "P2", "P3", "Do not pad", "six weeks from now",
                  "Feature flags that are not rollbacks", "Silent-drop", "CHECK clauses"):
         assert rule in body, f"rule lost in the rewrite: {rule!r}"
