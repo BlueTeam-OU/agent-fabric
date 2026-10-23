@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-23
 **Status:** Accepted
-**Ratified:** owner, 2026-10-23, in the session ("adr 064 approved arm 356")
+**Ratified:** owner, 2026-10-23, in the session ("adr 064 approved arm 356"), and for the text after review rounds 1 and 2 in the same session ("Yes, arm on clean")
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the InterWeave carrier of GZCOORD/1 on the host the fleet shares: its roster (`runtime/interweave/roster.json`, to be built), each account's InterWeave profile and units, the carrier process, the send and inbox adapters in `tools/fabric/gzcoord/`, and the parity report that decides a switch; ADR-033's relay stays as it is
 **Pillar:** P5
@@ -179,7 +179,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    without its operator. The journal's row keeps ADR-041's meaning
    unchanged: both adapters report their post's outcome to it, and it
    is accepted when either carrier accepts the post, a failed row
-   included (`episodic.out_final`). The receiving carrier
+   included. The first carrier to accept sets its provenance, name and
+   sequence together; a later accept leaves them, which the adapters'
+   build makes `episodic.out_final` do. Each carrier's own outcome is
+   in its record and the arrival log. The receiving carrier
    journals only what ADR-041 rule 2 admits, and a repeat collapses by
    `MESSAGE-ID` (ADR-041 rule 5).
 8. A message whose payload exceeds the 48 KiB ceiling is compressed
