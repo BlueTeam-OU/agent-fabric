@@ -102,16 +102,17 @@ def answer(text, commands=1):
         f.write(text)
     ev({"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": text}})
     ev({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}})
+COV = {"paths": [{"path": "app.py", "status": "read", "reason": ""}], "lenses": []}   # the schema requires coverage
 if mode == "sleep":
     with open(os.path.join(S, "codex-sleeping"), "w") as f:
         f.write(str(os.getpid()))
     time.sleep(300)
 elif mode == "ok":
-    answer(json.dumps({"findings": [{"level": "P2", "file": "app.py", "line": 1, "scenario": "s", "expected": "e", "fix": "f"}]}))
+    answer(json.dumps({"coverage": COV, "findings": [{"level": "P2", "file": "app.py", "line": 1, "scenario": "s", "expected": "e", "fix": "f"}]}))
 elif mode == "prose":
     answer("Looks fine.")
 elif mode == "nocommand":
-    answer('{"findings": []}', commands=0)
+    answer(json.dumps({"coverage": COV, "findings": []}), commands=0)
 '''
 
 GH_MOCK = r"""#!/usr/bin/env bash

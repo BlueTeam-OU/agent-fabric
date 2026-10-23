@@ -70,13 +70,14 @@ def main() -> int:
             return {"user": {"login": login}, "commit_id": commit_id, "submitted_at": at, "body": text}
 
         seen: list[str] = []
+        bodies: list[str | None] = []
 
         def config_for(card: str) -> str:
             seen.append(card)
             return CONFIG
 
         def ask(reviews, *, current=c2, listed=None, cfg=config_for, author="me", cwd=tmp, environ=None, pr_error=None,
-                list_error=None, commits_error=None):
+                list_error=None, commits_error=None, over_cap=False):
             commits = [{"sha": c} for c in (listed if listed is not None else (c1, c2))]
 
             def api_list(path, **kw):
@@ -94,10 +95,31 @@ def main() -> int:
                 return {"author": {"login": author}}
 
             with mock.patch.object(cp.gh, "api_list", api_list), mock.patch.object(cp.gh, "pr_view", pr_view):
-                return cp.last_checkpoint(7, current, cfg, repo="o/r", cwd=cwd, environ={} if environ is None else environ)
+                kw = dict(repo="o/r", cwd=cwd, environ={} if environ is None else environ)
+                found = cp.last_checkpoint(7, current, cfg, **kw)
+                with_body = cp.last_checkpoint_review(7, current, cfg, **kw)
+            # The two answer from the same checks: every case below is also a case of last_checkpoint_review.
+            check("…last_checkpoint_review agrees: None where it is None, else the same three and a body",
+                  (with_body is None) if found is None or over_cap else (with_body is not None and with_body[:3] == found),
+                  (found, with_body))
+            bodies.append(with_body[3] if with_body else None)
+            return found
 
         print("last_checkpoint: the newest complete v2 review of the author, whose head the PR still holds")
         check("the control: (base, head, card) of the review", ask([rv(body())]) == (c0, c1, CARD))
+        text = body()
+        ask([rv(text)])
+        check("last_checkpoint_review: the review's body as posted, byte for byte, marker line included",
+              bodies[-1] == text and text.startswith("<!-- agent-fabric-review v2 "), bodies[-1])
+        newer = body(c1, c2) + "a newer report\n"
+        ask([rv(text, at="2026-10-23T09:00:00Z"), rv(newer, commit_id=c2, at="2026-10-23T11:00:00Z")], listed=(c1, c2))
+        check("…the newest trusted review's, not an older one's", bodies[-1] == newer, bodies[-1])
+        at_cap = text + "x" * (rcov.MAX_REVIEW_CHARS - len(text))
+        ask([rv(at_cap)])
+        check("…a body of exactly the cap is returned whole", bodies[-1] == at_cap and len(at_cap) == rcov.MAX_REVIEW_CHARS)
+        over = at_cap + "x"
+        check("…a body over the cap is None, never cut", ask([rv(over)], over_cap=True) == (c0, c1, CARD) and bodies[-1] is None,
+              (len(over), bodies[-1] and len(bodies[-1])))
         check("config_for is asked with the marker's own card", seen[-1] == CARD, seen)
         check("a review of the current head is a checkpoint too", ask([rv(body())], current=c1) == (c0, c1, CARD))
         check("the newest of several decides", ask([rv(body(c0, c1), at="2026-10-23T09:00:00Z"),
