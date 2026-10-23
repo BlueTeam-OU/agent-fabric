@@ -335,6 +335,19 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
     if not card_base:
         return None, [f"card_base: {wanted!r} is not a commit in {repo}"]
     pr = _count(req.get("pr"))
+    if req.get("mode") == "review" and pr:
+        # A PR's full review covers the whole PR, or a narrow range would
+        # count as one after a doubtful checkpoint (ADR-065 §2 C: any doubt
+        # is a full review, never a narrower one).
+        ref = default_ref(repo)
+        mb = _git(repo, "merge-base", ref, head_sha) if ref else None
+        start = mb.stdout.decode().strip() if mb is not None and mb.returncode == 0 else None
+        if start is None:
+            return None, [f"range: the merge-base of {head_sha[:12]} with the default branch of {repo} cannot be found, so a "
+                          f"full review of #{pr} cannot be held to the whole PR"]
+        if base_sha != start:
+            return None, [f"range: a full review of #{pr} starts at its merge-base with {ref}, {start[:12]}, not {base!r} "
+                          f"({base_sha[:12]}); the range is {start}..{head}"]
     if req.get("mode") == "re-review" and pr:
         # A PR's re-review starts where its last posted review stopped, read
         # from that review's v2 marker, never from what the dispatcher typed
