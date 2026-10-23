@@ -16,8 +16,20 @@ BUDGET_S = 30.0
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"       # git knows this object without it being stored; sha-256 repositories are refused below
 # A key that can run a program, or a setting that changes what a verb prints, pinned on the command line: a -c outranks the repository's
 # config, which a pull request cannot write but a hostile clone-local key might name (core.fsmonitor, diff.external, a pager).
+# Survey of git-config(1) for a key whose value names a FILE that diff, log, show, blame or grep reads (these run outside the sandbox, in
+# the session's clone, so a pull request's symlink at the named path would be followed and a parse error quotes the target's first line):
+#   blame.ignoreRevsFile   cannot be pinned by -c: the values accumulate and an empty one sorts first and clears nothing; blame is run
+#                          with --no-ignore-revs-file, which does clear the list (review_blame)
+#   mailmap.file, mailmap.blob   single-valued, so emptied here (a .mailmap symlink in the tree is refused by git itself, ELOOP)
+#   diff.orderFile         single-valued, set to /dev/null (an empty value is an error: "failed to read orderfile ''")
+#   core.attributesFile, core.excludesFile   /dev/null (attributes also come from the empty tree below)
+# Not a file read by these verbs: format.signatureFile (format-patch), gpg.ssh.* (signatures: log.showSignature is off), core.hooksPath
+# (pinned), include.path and includeIf (the repository's own config, which a pull request cannot write). A key found later goes here.
+# core.quotePath=false: a path is printed as written, not as "\303\251", because a reviewer copies paths from this output into a coverage
+# block that is compared with `git diff --name-only -z`. diff.renames=true is what review_coverage.diff_paths pins, for the same comparison.
 PINNED = ("core.fsmonitor=false", "core.hooksPath=/dev/null", "core.pager=cat", "core.attributesFile=/dev/null", "diff.external=",
-          "protocol.allow=never", "log.showSignature=false", "gc.auto=0", "core.warnAmbiguousRefs=true", "color.ui=never")
+          "protocol.allow=never", "log.showSignature=false", "gc.auto=0", "core.warnAmbiguousRefs=true", "color.ui=never",
+          "mailmap.file=", "mailmap.blob=", "diff.orderFile=/dev/null", "core.excludesFile=/dev/null", "core.quotePath=false", "diff.renames=true")
 GIT = "git"
 
 
@@ -131,7 +143,7 @@ def review_blame(args: dict) -> str:
     path = scope.path_field("path", args.get("path"))
     first = scope.whole("line_start", args.get("line_start"), 1, 10_000_000)
     last = scope.whole("line_end", args.get("line_end"), first, 10_000_000, first)
-    return _result(_checked(run_git(repo, "blame", "--no-textconv", "--date=short", "-L", f"{first},{last}", rev, "--", path), "git blame"))
+    return _result(_checked(run_git(repo, "blame", "--no-textconv", "--no-ignore-revs-file", "--date=short", "-L", f"{first},{last}", rev, "--", path), "git blame"))
 
 
 def review_grep(args: dict) -> str:
