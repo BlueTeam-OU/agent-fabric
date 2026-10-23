@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 """runtime/claude-code/hooks/review-bash-guard.py: the Bash fence around the
-review class. Claude Code PreToolUse hook on Bash, scoped to the code-review
-agent (declared in runtime/claude-code/agents/code-review.md frontmatter, so
-it runs ONLY while that agent is active), and called by
-subagent-clone-guard.sh for every other class dispatched unisolated.
-review-bash-guard.sh beside it is the path both call and finds the fleet's
-Python; bootstrap installs the pair user-scope under ~/.claude/hooks/, where
-the agent file looks after the launch project's .claude/.
+unisolated classes. Claude Code PreToolUse hook on Bash, called by
+subagent-clone-guard.sh for every class dispatched without a worktree except
+the review class, which has no Bash (it reads through the review_* tools).
+review-bash-guard.sh beside it is the path the clone guard calls and finds the
+fleet's Python; bootstrap installs the pair user-scope under ~/.claude/hooks/.
 
-WHY. The review class runs in the session's clone with no worktree, so the
-only thing between a reviewer and the session's branch is what it is allowed
-to run. Its charter says "read-only, no git writes" -- a promise. This is the
-fence: under this project's permissions `git push` is auto-allowed and
-unprompted, so a reviewer that pushed would push the session's real branch.
+WHY. A class dispatched without a worktree runs in the session's clone, so the
+only thing between it and the session's branch is what it is allowed to run.
+Its charter says "read-only, no git writes" -- a promise. This is the fence:
+under this project's permissions `git push` is auto-allowed and unprompted, so
+a subagent that pushed would push the session's real branch.
 And a build that runs an install rewrites tracked lockfiles (pubspec.lock,
 pnpm-lock.yaml), which `git add -A` in the session would then commit. Both
 denied here whatever the prompt said. This is a fence against the ROUTINE
@@ -185,7 +183,7 @@ REASONS = {
     "moved": "The review class may not use cd or pushd except as a plain `cd <dir>` of a relative path inside the clone (letters, digits, . _ - /; no .. component, no leading / or -): a cd's target cannot be judged from its spelling (a quote, a backslash, an expansion, a prefix such as builtin, a group, a case arm or a function body), so any other command containing the word cd or pushd is refused, echo cd and grep cd included. Name the path in the command, or use git -C <path>. A word bash would build by expansion is refused the same way: $'...', $IFS, an expansion glued to a word, and a brace expansion ({a,b}, {a..b}), even inside double quotes; write a pattern with braces in single quotes.",
     "cd-last": "A cd that ends a command does not last: each command the review class runs is its own shell, so the next one starts where this one did. Put the work after it in the same command (cd <dir> && git log ...), or name the directory (git -C <dir> ..., grep -rn x <dir>).",
     "escape": "The review class may not use shell escapes (eval, exec, sh -c): they carry a write past this guard. Run the command directly.",
-    "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead. A review is posted as: fabric-pr post-review <pr> [--model <name>] <<'EOF' … EOF (a quoted tag; nothing after the terminator).",
+    "write": "The review class runs in the session clone and is READ-ONLY: no in-place edits, no file writes, no redirection except to /dev/null. Report what you would have changed instead.",
     "git": "The review class runs in the session clone and is READ-ONLY: no state-changing git (push, commit, checkout, reset, stash, ...). Read-only history (log, show, diff, blame) is expected of you. Report what you would have changed instead.",
     "install": "The review class may not run installs or restores (pub get, pnpm install, dotnet restore, ...): they rewrite tracked lockfiles in the session clone. Build and test only with what is already restored (dotnet build/test --no-restore, pnpm --filter <app> test), or say the check needs an install and skip it.",
 }
@@ -239,35 +237,6 @@ def split_unquoted(cmd: str) -> tuple[list[str], bool]:
     return segments, trusted and not quote
 
 
-# The review class's one write is its review: `fabric-pr post-review <N>`
-# with the body on stdin as ONE heredoc whose tag is quoted, and only the
-# verb's own options, each at most once, in either order: --model <name>
-# (a label post_review.py records, not a routing choice, so any plain word)
-# and --dry-run. Quoting any part of the tag stops bash expanding the body;
-# only the whole 'TAG' and "TAG" forms are admitted, and not <<-, a second
-# shape nothing needs. The body is data, so the word and redirection rules
-# judge the command line alone, and the first line equal to the tag must be
-# the command's last: nothing runs after it.
-_MODEL = r"[ \t]+--model[ \t]+(?!-)[A-Za-z0-9._-]+"
-_DRY_RUN = r"[ \t]+--dry-run"
-POST_REVIEW = re.compile(r"[ \t]*((?:cd[ \t]+(?!-)[^\s;&|<>()`$'\"\\\[\]*?{}]+[ \t]+&&[ \t]+)?fabric-pr[ \t]+post-review[ \t]+[0-9]+"
-                         rf"(?:{_MODEL}(?:{_DRY_RUN})?|{_DRY_RUN}(?:{_MODEL})?)?)"
-                         r"[ \t]+<<[ \t]*(['\"])([A-Za-z0-9_]+)\2[ \t]*")
-
-
-def posted_review(cmd: str) -> str | None:
-    """The command line of a review posted in exactly that shape, else None."""
-    lines = cmd.split("\n")
-    # A blank line after the terminator runs nothing, so it does not make the
-    # terminator any less the command's last.
-    while len(lines) > 1 and not lines[-1].strip():
-        lines.pop()
-    m = POST_REVIEW.fullmatch(lines[0])
-    if not m or m.group(3) not in lines[1:]:
-        return None
-    return m.group(1) if lines.index(m.group(3), 1) == len(lines) - 1 else None
-
-
 def built_word(seg: str) -> bool:
     """Whether bash could build a word of the segment by expansion: the
     segment's unquoted-or-double-quoted text (double quotes do not stop an
@@ -314,9 +283,6 @@ def unexpanded(seg: str) -> str:
 
 
 def verdict(cmd: str) -> str | None:
-    head = posted_review(cmd)
-    if head is not None:
-        return verdict(head)
     segments, exempt = split_unquoted(cmd)
     secret = moved = False
     for seg in segments:

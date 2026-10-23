@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""The oracle for the review class's Bash fence: runtime/claude-code/hooks/
-review-bash-guard.sh (the shim) and review-bash-guard.py beside it, the fence
-around the review class, which runs unisolated in the session clone.
+"""The oracle for the Bash fence of the classes subagent-clone-guard runs unisolated
+in the session clone: runtime/claude-code/hooks/review-bash-guard.sh (the shim) and
+review-bash-guard.py beside it.
 
 Two things held still: state-changing git, installs and printing the
 environment or secret material are DENIED however they are spelled (leading
