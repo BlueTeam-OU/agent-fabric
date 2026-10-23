@@ -144,6 +144,11 @@ def main() -> int:
         elsewhere = os.path.join(tmp, "work", "otherrepo")
         os.makedirs(elsewhere)
         subprocess.run(["git", "init", "-q", elsewhere], env=env, check=True, timeout=30)
+        serve([], [head1, head2])
+        r = run("next", req, "--pr", "7", cwd=elsewhere)
+        check("a PR with no v2 review: refused with the full-review line, nothing written (the control is the next call)",
+              r.returncode == 1 and "render a full review" in r.stderr
+              and not os.path.exists(os.path.join(tmp, "scratch", "REQUEST-rr2.json")), (r.returncode, r.stderr))
         serve([posted_review(round1, head1, "2026-10-23T10:00:00Z")], [head1, head2])
         r = run("next", req, "--pr", "7", cwd=elsewhere)
         nxt_path = os.path.join(tmp, "scratch", "REQUEST-rr2.json")
@@ -160,6 +165,13 @@ def main() -> int:
               and nxt.get("repository") == repo, nxt)
         check("…and the brief is rendered to stdout, the saved report in it",
               "## Mode\nre-review" in r.stdout and "a finding." in r.stdout, r.stdout[:300])
+        def no_pr(path: str) -> None:
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+            doc.pop("pr", None)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+
         head3 = commit("fix 2")
         round2 = review_body(head1, head2, base, "## Round 2\n\nclean")
         serve([posted_review(round1, head1, "2026-10-23T10:00:00Z"), posted_review(round2, head2, "2026-10-23T11:00:00Z")],
@@ -167,11 +179,18 @@ def main() -> int:
         report2 = os.path.join(tmp, "scratch", "report-2.md")
         with open(report2, "w") as f:
             f.write("## Round 2\n\nclean\n")
-        r = run("next", nxt_path, "--report", report2, "--keep-lenses")
+        # A derived request that names its PR is validated against GitHub as it stands, where its own round is already
+        # the PR's last review, so its range no longer starts at that review's head: chaining from it is refused by
+        # review_brief.resolve_range (reported to its owner). The chain is run from the request without `pr`, which the
+        # flag restores on the derived one.
+        no_pr(nxt_path)
+        run("save", "7", "2", stdin=round2)
+        saved2 = os.path.join(os.path.dirname(saved), "round-2.md")
+        r = run("next", nxt_path, "--pr", "7", "--keep-lenses")
         nxt3 = json.load(open(os.path.join(tmp, "scratch", "REQUEST-rr3.json"))) if r.returncode == 0 else {}
-        check("from a round's own request: REQUEST-rr3.json, range from that round's head, --report taken",
+        check("from a round's own request: REQUEST-rr3.json, range from that round's head, the newest saved round taken",
               r.returncode == 0 and nxt3["range"] == f"{head2[:12]}..{head3[:12]}"
-              and nxt3["previous_findings"] == report2, (r.stderr, nxt3))
+              and nxt3["previous_findings"] == saved2, (r.stderr, nxt3))
         check("…the first round's base is carried as card_base, so the card stays the first round's",
               nxt.get("card_base") == base and nxt3.get("card_base") == base, (nxt.get("card_base"), nxt3.get("card_base"), base))
         check("…review_round counts up from 1 and the review_id and pr are filled",
@@ -216,13 +235,14 @@ def main() -> int:
             f.write("an earlier round\n")
         chain = os.path.join(tmp, "scratch", "CHAIN-rr2.json")
         with open(chain, "w") as f:
-            json.dump({**nxt3, "previous_findings": gone}, f)
+            json.dump({k: v for k, v in {**nxt3, "previous_findings": gone}.items() if k != "pr"}, f)
         os.remove(gone)
         head4 = commit("fix 3")
         round3 = review_body(head2, head3, base, "## Round 3\n\nclean")
         serve([posted_review(round1, head1, "2026-10-23T10:00:00Z"), posted_review(round2, head2, "2026-10-23T11:00:00Z"),
                posted_review(round3, head3, "2026-10-23T12:00:00Z")], [head1, head2, head3, head4])
-        r = run("next", chain, "--report", report2)
+        run("save", "7", "3", stdin=round3)
+        r = run("next", chain, "--pr", "7")
         check("an earlier round's report deleted since does not refuse the chain (review of #89)",
               r.returncode == 0 and json.load(open(os.path.join(tmp, "scratch", "CHAIN-rr3.json")))["range"]
               == f"{head3[:12]}..{head4[:12]}", r.stderr)
