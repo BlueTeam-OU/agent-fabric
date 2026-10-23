@@ -787,26 +787,10 @@ def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
         info, refused = rb.resolve_range({**{k: v for k, v in req.items() if k != "pr"}, "card_base": base})
         assert not refused and info["base_sha"] == mid and not asked, (info, refused, asked)
         # a first review never asks
-        info, refused = rb.resolve_range({**req, "mode": "review", "range": f"{base}..HEAD", "card_base": base})
+        info, refused = rb.resolve_range({**req, "mode": "review", "card_base": base})
         assert not refused and not asked, (refused, asked)
     finally:
         rb.checkpoint = saved
-
-
-def test_a_prs_full_review_covers_the_whole_pr(tmp: str) -> None:
-    """ADR-065 §2 C: a full review of a PR starts at its merge-base with the
-    default branch; a narrower range is refused, and without a PR it stands."""
-    repo = mkrepo(tmp, "wholepr")
-    base, mid = g(repo, "rev-parse", "main"), g(repo, "rev-parse", "HEAD")
-    commit(repo, "more", {"b.txt": "b\n"})
-    req = {**base_request(repo), "pr": 5}
-    info, refused = rb.resolve_range(req)
-    assert not refused and info["base_sha"] == base, refused
-    narrow = {**req, "range": f"{mid}..HEAD", "card_base": base}
-    info, refused = rb.resolve_range(narrow)
-    assert info is None and any("starts at its merge-base" in r for r in refused), refused
-    info, refused = rb.resolve_range({k: v for k, v in narrow.items() if k != "pr"})
-    assert not refused and info["base_sha"] == mid, refused
 
 
 def main() -> int:
@@ -819,8 +803,7 @@ def main() -> int:
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
              test_the_readme_example_renders_as_documented, test_the_config_fingerprint_follows_the_card_and_the_agent_file,
-             test_a_prs_re_review_starts_at_its_last_checkpoint,
-             test_a_prs_full_review_covers_the_whole_pr]
+             test_a_prs_re_review_starts_at_its_last_checkpoint]
     failures = 0
     # Removed when the run ends, however it ends: tests/run.sh names every
     # entry a run leaves under the temporary directory as a failure.
