@@ -75,6 +75,12 @@ echo "mock gh: unhandled $1" >&2; exit 1
 """
 
 
+def rs_cfg():
+    """The status reader's configuration for the account the cases post as: no posters, no verdict authors."""
+    from github.review_status.config import read_config
+    return read_config({})
+
+
 def reader_marker() -> str:
     """The reader's REVIEW_MARKER, from the one file of pr_review_status.py
     and its parts (tools/fabric/github/review_status/) that defines it;
@@ -464,6 +470,155 @@ def main() -> int:
         check("an empty URL is treated as NOT posted", rc == 2, out)
         check("  and says so", "NOT posted" in out, out)
         drop("api_empty")
+
+        print("post-review: a report whose headers name a range is posted as v2 (agent-fabric ADR-065 §2 C, §5 rule 4)")
+        genv = git_env()
+
+        def git(*args: str) -> str:
+            r = subprocess.run(["git", "-C", clone, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                               capture_output=True, text=True, env=genv, timeout=60)
+            if r.returncode:
+                raise RuntimeError(f"git {args}: {r.stderr}")
+            return r.stdout.strip()
+
+        def commit(msg: str, files: dict) -> str:
+            for name, text in files.items():
+                path = os.path.join(clone, name)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+            git("add", "-A")
+            git("commit", "-q", "-m", msg)
+            return git("rev-parse", "HEAD")
+
+        c0 = commit("c0", {"a.py": "one\n", "b.py": "two\n"})
+        c1 = commit("c1", {"a.py": "one\nmore\n", "sub/c.py": "three\n"})
+        c2 = commit("c2", {"sub/c.py": "three\nfour\n"})
+        git("checkout", "-q", "-b", "side", c0)
+        side = commit("side", {"d.py": "d\n"})
+        git("checkout", "-q", "-")
+        CARD, CONFIG = "5" * 40, "6" * 64
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        from github import review_coverage as rcov  # noqa: E402
+        from github.review_status import verdicts  # noqa: E402
+
+        def fence_header(**over) -> str:
+            h = {"evidence_mode": "pinned", "engine": "claude", "base_sha": c0, "head_sha": c1, "card_base": CARD,
+                 "config": CONFIG, **over}
+            return "```agent-fabric-dispatch v1\n" + json.dumps({k: v for k, v in h.items() if v != "-"}, indent=2) + "\n```\n"
+
+        def cover(*paths: str, bad: tuple = (), lenses: dict | None = None) -> str:
+            doc = {"paths": {p: ({"status": "not read", "reason": "too large"} if p in bad else {"status": "read"}) for p in paths},
+                   "lenses": {"security": "applied"} if lenses is None else lenses}
+            return f"```{rcov.BLOCK_INFO}\n{json.dumps(doc, indent=1)}\n```\n"
+
+        def v2_pr(head: str = c1, *, listed: tuple = (c0, c1)) -> None:
+            put("pr.json", json.dumps({"number": 552, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": head}) + "\n")
+            put("commits.json", json.dumps([[{"sha": c} for c in listed]]) + "\n")
+            put("calls", "")
+            drop("payload.json")
+
+        def v2_post(report: str, *args: str, header: str | None = None) -> tuple[int, str]:
+            return invoke((fence_header() if header is None else header) + report, "552", *args, head=None)
+
+        report = "Found a P2 in sub/c.py.\n\n"
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"))
+        check("a complete v2 report posts", rc == 0 and posted(), out)
+        want = f"<!-- agent-fabric-review v2 base={c0} head={c1} card={CARD} config={CONFIG} -->"
+        check("the first line is the marker the headers name", body_of().split("\n")[0] == want, body_of()[:300])
+        check("pinned to the head the headers name", payload().get("commit_id") == c1, json.dumps(payload())[:200])
+        check("no partial line, the blind review text follows the marker", body_of().split("\n")[1].startswith("**Blind review**"), body_of()[:300])
+        check("the findings survive and the dispatch header is taken out", "Found a P2 in sub/c.py." in body_of() and "agent-fabric-dispatch" not in body_of())
+        check("exactly one coverage block, at the end", body_of().count(rcov.BLOCK_INFO) == 1 and body_of().rstrip().endswith("```"), body_of()[-200:])
+        reading = rcov.read_review(body_of())
+        check("the readers' parser counts what was posted", reading is not None and reading.counts and reading.marker.head == c1, reading)
+        counted = verdicts.classify([{"user": {"login": "me"}, "commit_id": c1, "body": body_of(), "author_association": "NONE"}],
+                                    "me", rs_cfg())
+        check("…and the status classifier files it as coverage", len(counted.blind) == 1 and not counted.partial, counted)
+
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py", bad=("a.py",)), "--model", "codex")
+        check("a partial report posts", rc == 0 and posted(), out)
+        lines = body_of().split("\n")
+        check("the line after the marker says how many paths are not read", lines[1] == "partial coverage: 1 path(s) not read", lines[:4])
+        check("the model line follows it, so an engine is still read from the header", lines[2] == "<!-- model: codex -->"
+              and verdicts.engine_of({"body": body_of()}) == "codex", lines[:4])
+        check("a reader does not count it, and says why", verdicts.uncounted_v2({"body": body_of(), "commit_id": c1}) == "partial coverage: 1 path(s) not read")
+        partial = verdicts.classify([{"user": {"login": "me"}, "commit_id": c1, "body": body_of(), "author_association": "NONE"}], "me", rs_cfg())
+        check("…it is in the partial bucket, not the blind one", not partial.blind and len(partial.partial) == 1)
+
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"), "--dry-run")
+        check("--dry-run shows the v2 body and sends nothing", rc == 0 and not posted() and want in out and rcov.BLOCK_INFO in out, out)
+
+        print("post-review: v2 refusals — each leaves nothing posted")
+        for label, body, header, why in (
+            ("a block that omits a path of the range", report + cover("a.py"), None, "omits 1"),
+            ("a block that names a path outside the range", report + cover("a.py", "sub/c.py", "z.py"), None, "outside the range"),
+            ("a block naming a path of the PR but not of the range", report + cover("a.py", "sub/c.py", "b.py"), None, "outside the range"),
+            ("no coverage block", report, None, "no coverage block"),
+            ("a block that is not JSON", report + f"```{rcov.BLOCK_INFO}\nnot json\n```\n", None, "not JSON"),
+            ("duplicate keys in the block", report + f'```{rcov.BLOCK_INFO}\n{{"paths": {{}}, "paths": {{}}, "lenses": {{}}}}\n```\n', None, "each key once"),
+            ("a second coverage block", report + cover("a.py", "sub/c.py") + cover("a.py", "sub/c.py"), None, "more than one"),
+            ("a second block quoted in a longer fence", report + cover("a.py", "sub/c.py") + "\n````text\n" + cover("a.py") + "````\n", None, "lines open a coverage block"),
+            ("a marker-like line later in the body", f"{want}\n" + report + cover("a.py", "sub/c.py"), None, "looks like a review marker"),
+            ("a v1 marker line in the body", "<!-- agent-fabric-review v1 -->\n" + report + cover("a.py", "sub/c.py"), None, "looks like a review marker"),
+            ("a block with a path not read and no reason", report + f'```{rcov.BLOCK_INFO}\n{{"paths": {{"a.py": {{"status": "not read"}}, "sub/c.py": {{"status": "read"}}}}, "lenses": {{}}}}\n```\n', None, "needs a reason"),
+            ("a huge block", report + f"```{rcov.BLOCK_INFO}\n" + json.dumps({"paths": {f"p{i}" * 5: {"status": "read"} for i in range(9000)}, "lenses": {}}) + "\n```\n", None, "over the"),
+            ("a report too long for one review", "x" * 66000 + "\n" + cover("a.py", "sub/c.py"), None, "GitHub takes"),
+            ("headers that disagree on the config", report + cover("a.py", "sub/c.py"), fence_header() + fence_header(config="7" * 64), "different ranges"),
+            ("headers that disagree on the base", report + cover("a.py", "sub/c.py"), fence_header() + fence_header(base_sha=c1), "different"),
+            ("one header with the range's fields and one without", report + cover("a.py", "sub/c.py"), fence_header() + fence_header(card_base="-", config="-"), "some of its dispatch headers"),
+            ("a header with a config and no card_base", report + cover("a.py", "sub/c.py"), fence_header(card_base="-"), "card_base"),
+            ("a header with a config and no base_sha", report + cover("a.py", "sub/c.py"), fence_header(base_sha="-"), "base_sha"),
+            ("a short base", report + cover("a.py", "sub/c.py"), fence_header(base_sha=c0[:12]), "base_sha"),
+            ("a config that is not sha256 hex", report + cover("a.py", "sub/c.py"), fence_header(config="Z" * 64), "config"),
+            ("a base that is not an ancestor of the head", report + cover("a.py", "sub/c.py"), fence_header(base_sha=side), "not an ancestor"),
+            ("a base the clone does not have", report + cover("a.py", "sub/c.py"), fence_header(base_sha="9" * 40), "failed"),
+        ):
+            v2_pr()
+            rc, out = v2_post(body, header=header)
+            check(f"{label}: refused, nothing posted", rc == 2 and not posted() and why in out, f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c2))
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"))
+        check("a head that is not a commit of the PR: refused", rc == 2 and not posted() and "not a commit of PR #552" in out, out)
+        v2_pr(c2, listed=(c0, c1, c2))
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"))
+        check("an older head of the PR posts against it, saying it is not the head", rc == 0 and payload().get("commit_id") == c1
+              and f"the head {c2} of PR #552 is not covered by it" in out, out)
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"), "--head", c0)
+        check("a --head that names another commit: refused", rc == 2 and not posted(), out)
+
+        print("post-review: hostile paths of the PR")
+        evil = {"we\nird.py": "x\n", "tick```.py": "y\n"}
+        git("checkout", "-q", "-b", "evil", c1)
+        e1 = commit("evil", evil)
+        v2_pr(e1, listed=(c0, c1, e1))
+        h = fence_header(base_sha=c1, head_sha=e1)
+        rc, out = v2_post(report + cover("we\nird.py", "tick```.py"), header=h)
+        check("a path with a newline in the range refuses, even when the block names it", rc == 2 and not posted() and "control character" in out, out)
+        git("rm", "-q", "-f", "we\nird.py")
+        git("commit", "-q", "-m", "drop the newline path")
+        e2 = git("rev-parse", "HEAD")
+        v2_pr(e2, listed=(c0, c1, e1, e2))
+        h = fence_header(base_sha=c1, head_sha=e2)
+        rc, out = v2_post(report + cover("tick```.py"), header=h)
+        check("a path holding a backquote run posts", rc == 0 and posted(), out)
+        again = rcov.read_review(body_of())
+        check("…in a fence longer than the run, which still reads as one block", again is not None and again.counts and "tick```.py" in again.coverage.paths
+              and "\n````" + rcov.BLOCK_INFO in body_of(), body_of()[-300:])
+
+        print("post-review: a report with no dispatch header, or a header from before the range fields, is still v1")
+        v2_pr()
+        rc, out = invoke("findings", "552", head=c1)
+        check("no header: v1 with --head, as before", rc == 0 and body_of().split("\n")[0] == "<!-- agent-fabric-review v1 -->", out)
+        v2_pr()
+        old = fence_header(card_base="-", config="-")
+        rc, out = invoke(old + "findings", "552", head=None)
+        check("a header with no card_base and no config: v1, as before", rc == 0 and body_of().split("\n")[0] == "<!-- agent-fabric-review v1 -->", out)
+        check("…and its body is not changed by the coverage code", "agent-fabric-coverage" not in body_of())
 
         print("post-review: the marker matches the READER's, byte for byte")
         # THE CROSS-FILE CONTRACT. Two constants in two modules; a one-sided

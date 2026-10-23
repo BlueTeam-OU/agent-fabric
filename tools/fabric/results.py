@@ -57,7 +57,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import commit_class  # noqa: E402
+from github import commit_class, review_coverage  # noqa: E402
 from github.post_review import REVIEW_MARKER  # noqa: E402
 BAND_FLOOR = 8                                       # ADR-019: fewer work commits, the owner arms
 GREEN = {"SUCCESS", "SKIPPED", "NEUTRAL"}
@@ -99,14 +99,26 @@ def fixes_forward(n: int, later: list[dict], cls=classify, repo: str = "") -> li
     return [c for c in later if naming.search(c["subject"]) and cls(c["subject"], c["body"], n, repo) == "fix"]
 
 
+def covers_head(review: dict, head: str) -> bool:
+    """Whether a review, as `gh pr view --json reviews` gives it, is a posted review on `head`: a v1 marker, or a v2
+    marker whose coverage block reads with every path read and whose own head is `head` (agent-fabric ADR-065 §5
+    rule 4). A v2 review with a path not read, or a block that does not read, is not coverage of the head."""
+    body, oid = review.get("body") or "", (review.get("commit") or {}).get("oid")
+    if oid != head:
+        return False
+    if body.startswith(REVIEW_MARKER):
+        return True
+    v2 = review_coverage.read_review(body)
+    return bool(v2 and v2.counts and v2.marker.head == head)
+
+
 def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=classify, repo: str = "",
           folds=folds_of) -> dict:
     """One merged PR against the commits on main after its merge.
     `later` holds {sha, subject, body, when} for main's commits inside the window."""
     n, head = pr["number"], pr["headRefOid"]
     merged = dt.datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00"))
-    reviewed = any((rv.get("body") or "").startswith(REVIEW_MARKER) and (rv.get("commit") or {}).get("oid") == head
-                   for rv in pr.get("reviews") or [])
+    reviewed = any(covers_head(rv, head) for rv in pr.get("reviews") or [])
     checks = [c.get("conclusion") or c.get("state") for c in pr.get("statusCheckRollup") or []]
     green = bool(checks) and all(c in GREEN for c in checks)
     own = {c["oid"] for c in pr.get("commits") or []} | {(pr.get("mergeCommit") or {}).get("oid")}

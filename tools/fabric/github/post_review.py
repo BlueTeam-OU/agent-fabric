@@ -26,6 +26,16 @@ after it. A report with no header names its head with --head, or is refused
 (ADR-020 §5 rule 6): posted against the PR's head, a summary written for an
 older range read as the review of the head pushed after it.
 
+A REPORT WHOSE DISPATCH HEADERS NAME A RANGE IS POSTED AS v2 (agent-fabric ADR-065 §2 C, §5 rule 4): every header
+names the same base_sha, head_sha, card_base and config, or the report is refused, and the first line is
+<!-- agent-fabric-review v2 base=… head=… card=… config=… -->. The report then carries exactly one coverage block
+(review_coverage.py has its grammar), which is checked against `git diff --name-only base..head` run here, in the
+working copy: a path omitted, a path outside the range, a base that is not an ancestor of the head, a marker-like
+line in the body, a second block, or a block that is not that JSON refuses the report. A block with a path "not read"
+posts, and the line after the marker says so; no reader counts it as coverage of its head. The posted block is the
+parsed data re-written, not the model's text. A header with none of those fields (a report from before the change)
+and a report with no header keep posting v1.
+
 REVIEW_MARKER is the contract with every reader (pr-review-status, the
 gate, results.py): the first line of the body, versioned because a later
 field must not silently reclassify older reviews. test_post_review_cli.py
@@ -46,7 +56,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import review_brief  # noqa: E402
-from github import common, local  # noqa: E402
+from github import common, local, review_coverage  # noqa: E402
 
 REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"
 
@@ -123,6 +133,21 @@ an older head, posted after a push, is posted against that older commit,
 and says so on stdout: the gate counts it for that commit, not for the
 new head.
 
+A report whose headers name the range (base_sha, head_sha, card_base and config) is posted as a v2 review
+(agent-fabric ADR-065): the first line is <!-- agent-fabric-review v2 base=… head=… card=… config=… -->, and the report
+carries exactly one fenced block whose info string is `agent-fabric-coverage v1`:
+
+  ```agent-fabric-coverage v1
+  {"paths": {"<path>": {"status": "read"}, "<path>": {"status": "not read", "reason": "…"}},
+   "lenses": {"<lens>": "applied" | "not applied"}}
+  ```
+
+Its paths are exactly those of `git diff --name-only <base>..<head>`, which this tool computes in the working copy:
+a path omitted, a path outside the range, a base that is not an ancestor of the head, a second block, a marker-like
+line in the body, or a block that is not that JSON refuses the report. A path "not read" posts, and the line after the
+marker says "partial coverage: N path(s) not read"; the gate does not count a partial review as coverage of its head.
+A report with no header, or a header from before those fields, posts as v1 as above.
+
 Exit codes:
   0  posted
   2  invocation problem, a working-tree report, a report whose head is
@@ -141,6 +166,8 @@ FILE_LIST_CAP = 3000
 # The same for a pull request's commits, which GitHub lists up to 250 of.
 COMMIT_LIST_CAP = 250
 SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+SHA40 = re.compile(r"[0-9a-f]{40}")
+SHA256 = re.compile(r"[0-9a-f]{64}")
 # The dispatch header a brief opens with (review_brief.dispatch_header), when a report carries it: a fence of three
 # or more backticks or tildes whose info string is the header's version, closed by the same fence. CommonMark lets
 # spaces stand between a fence and its info string, and a model reformatting the header may write them: a spaced
@@ -271,6 +298,65 @@ def report_head(body: str) -> tuple[str | None, str]:
     return next(iter(heads), None), ""
 
 
+def report_range(body: str) -> tuple[review_coverage.Marker | None, str]:
+    """(the v2 marker the dispatch headers name, why the report may not be posted or ""); the marker is None for a
+    report whose headers name none of card_base and config (v1). Only after report_head, which has read every header
+    as a JSON object with a head_sha. Every header names the same four values or none: the first line of the posted
+    review is one range, and a report with two leaves which one the review read to a pick."""
+    lines = body.splitlines()
+    line_no = _newline_numbers(body)
+    seen: dict[tuple, int] = {}
+    plain = 0
+    for i, close in _dispatch_headers(lines):
+        header = json.loads("\n".join(lines[i + 1:close]))
+        where = f"the {review_brief.DISPATCH_VERSION} header at line {line_no[i]}"
+        if header.get("config") is None and header.get("card_base") is None:
+            plain += 1
+            continue
+        got = (header.get("base_sha"), header.get("head_sha"), header.get("card_base"), header.get("config"))
+        for name, value, pattern in zip(("base_sha", "head_sha", "card_base", "config"), got,
+                                        (SHA40, SHA40, SHA40, SHA256)):
+            if not isinstance(value, str) or not pattern.fullmatch(value):
+                return None, f"{where} names no usable {name}, which the v2 marker records"
+        seen.setdefault(got, line_no[i])
+    if not seen:
+        return None, ""
+    if plain:
+        return None, "some of its dispatch headers name the range's card_base and config and some do not"
+    if len(seen) > 1:
+        return None, f"its {review_brief.DISPATCH_VERSION} headers name different ranges (lines {', '.join(map(str, seen.values()))})"
+    base, head, card, config = next(iter(seen))
+    return review_coverage.Marker(base, head, card, config), ""
+
+
+def v2_report(body: str) -> tuple[str, review_coverage.Coverage]:
+    """(the report without its coverage block, the block read), or Refused. The report is model output: a line a
+    reader could take for a review marker is refused rather than left in the posted body to be argued about."""
+    stray = review_coverage.marker_like_lines(body)
+    if stray:
+        die(f"not posting this report: line {stray[0]} looks like a review marker, and a report posted as v2 holds "
+            "none: the marker is the posted review's first line, written by this tool. Take the line out of the report.")
+    try:
+        coverage, span = review_coverage.read_block(body)
+    except review_coverage.CoverageError as e:
+        die(f"not posting this report: {e}.")
+    rest = review_coverage.without_block(body, span)
+    if not rest.strip(" \t\n"):
+        die("the review body is empty once its coverage block is taken out.")
+    return rest, coverage
+
+
+def range_refusal(root: str, marker: review_coverage.Marker, coverage: review_coverage.Coverage) -> str:
+    """Why the coverage block does not account for the range the marker names, or "". The paths are this tool's own
+    `git diff --name-only`, never the report's claim of them."""
+    try:
+        if not review_coverage.is_ancestor(root, marker.base, marker.head):
+            return f"base {marker.base[:12]} is not an ancestor of head {marker.head[:12]}"
+        return review_coverage.check_paths(coverage, review_coverage.diff_paths(root, marker.base, marker.head))
+    except review_coverage.CoverageError as e:
+        return str(e)
+
+
 def pr_commit_refusal(repo: str, pr: str, sha: str) -> str:
     """Why sha is not known to be a commit of the PR, or "" when it is. FAILS CLOSED, as locale_only: a list not
     read, or one GitHub may have cut, does not say the sha is in it."""
@@ -314,6 +400,15 @@ def _dispatch_headers(lines: list[str]):
         if close is None:
             return
         i = close + 1
+
+
+def first_dispatch_header(text: str) -> str:
+    """The first dispatch header of a brief or report, fences included, as written; "" when it has none or never
+    closes it. review_codex puts the brief's own in front of the report it posts."""
+    lines = text.splitlines()
+    for i, close in _dispatch_headers(lines):
+        return "\n".join(lines[i:close + 1]) if close is not None else ""
+    return ""
 
 
 def without_dispatch_headers(body: str) -> str:
@@ -402,9 +497,15 @@ def run(argv: list[str], stdin) -> int:
         die(f"not posting this report: --head {given_head[:12]} is not the head_sha {reviewed[:12]} its dispatch "
             "header names.")
     reviewed = reviewed or given_head
+    marker, refusal = report_range(body)
+    if refusal:
+        die(f"not posting this report: {refusal}.")
     body = without_dispatch_headers(body)
     if not body.strip(" \t\n"):
         die("the review body is empty once its dispatch header is taken out.")
+    coverage = None
+    if marker:
+        body, coverage = v2_report(body)
 
     try:
         repo = gh.this_repo()
@@ -470,6 +571,10 @@ def run(argv: list[str], stdin) -> int:
         refusal = pr_commit_refusal(repo, pr, commit)
         if refusal:
             die(f"not posting this report: {refusal}.")
+    if marker:
+        refusal = range_refusal(root, marker, coverage)
+        if refusal:
+            die(f"not posting this report: {refusal}.")
     # Said on stdout with the URL, not as a warning: which commit the review is recorded on is the result.
     recorded = (f"recorded on {commit}, the head of PR #{pr}." if commit == head else
                 f"recorded on {commit}; the head {head} of PR #{pr} is not covered by it.")
@@ -477,7 +582,9 @@ def run(argv: list[str], stdin) -> int:
     # ── assemble ────────────────────────────────────────────────────
     # The marker goes FIRST so it survives any truncation a reader
     # applies, and so the first line identifies the review.
-    header = REVIEW_MARKER
+    header = marker.line() if marker else REVIEW_MARKER
+    if coverage and coverage.not_read:
+        header += "\n" + review_coverage.partial_line(coverage)
     if model:
         header += f"\n<!-- model: {model} -->"
     if carve_out:
@@ -492,6 +599,11 @@ brief of facts and none of the author's session context. Its findings
 are judged before they are answered; the judgement follows in the PR.
 
 {body}"""
+    if coverage:
+        full_body += "\n\n" + review_coverage.render_block(coverage) + "\n"
+        if len(full_body) > review_coverage.MAX_REVIEW_CHARS:
+            die(f"not posting this report: the review is {len(full_body)} characters, over the "
+                f"{review_coverage.MAX_REVIEW_CHARS} GitHub takes in one review.")
 
     if dry:
         print(f"would post a review to #{pr} ({state}), {recorded}")
