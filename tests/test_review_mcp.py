@@ -24,6 +24,7 @@ own_instance_tree()
 
 from review_mcp import gittools, runner, sandbox, scope, server as srv  # noqa: E402
 import review_brief  # noqa: E402
+from github import review_coverage  # noqa: E402
 
 BIN = os.path.join(HERE, "bin", "fabric-review-mcp")
 fails = 0
@@ -255,6 +256,82 @@ def main() -> int:
     check("git blame and git show of a file are run with --no-textconv",
           all("--no-textconv" in a for a in seen if a[0] in ("blame", "show")), str(seen))
 
+    print("-- config keys that name a FILE: a pull request's symlink at that path is not followed (round 1 C1)")
+    wt = os.path.join(home, "work", "wt")
+    leak_dir = os.path.join(scratch, "leak")
+    os.makedirs(leak_dir)
+    marker_rev, marker_map, marker_order = (os.path.join(leak_dir, n) for n in ("revs", "map", "order"))
+    with open(marker_rev, "w", encoding="utf-8") as fh:
+        fh.write("LEAKMARKER-REVS\n")
+    with open(marker_map, "w", encoding="utf-8") as fh:
+        fh.write("LEAKMARKER-NAME <t@e>\n")
+    with open(marker_order, "w", encoding="utf-8") as fh:
+        fh.write("b.txt\na.txt\n")
+    for name, target in (("pr-revs", marker_rev), ("pr-map", marker_map), ("pr-order", marker_order)):
+        os.symlink(target, os.path.join(clone, name))         # the pull request's tree, as its branch is checked out in the session's clone
+        os.symlink(target, os.path.join(wt, name))
+    for key, value in (("blame.ignoreRevsFile", "pr-revs"), ("mailmap.file", "pr-map"), ("diff.orderFile", "pr-order")):
+        sh(["git", "config", key, value], clone)       # a worktree shares the clone's config
+    for n in ("a.txt", "b.txt", "é a.txt", "sp ace.txt"):
+        with open(os.path.join(wt, n), "w", encoding="utf-8") as fh:
+            fh.write("x\n")
+    sh(["git", "add", "a.txt", "b.txt", "é a.txt", "sp ace.txt"], wt)
+    sh(["git", "commit", "-q", "-m", "files"], wt)
+    tip = sh(["git", "rev-parse", "HEAD"], wt)
+    plain_blame = subprocess.run(["git", "-C", clone, "blame", "-L1,1", head, "--", "f.txt"], capture_output=True, text=True, timeout=30)
+    check("control: plain git blame reads blame.ignoreRevsFile through the symlink and quotes its first line",
+          "LEAKMARKER-REVS" in plain_blame.stderr, plain_blame.stdout + plain_blame.stderr)
+    with open(marker_rev, "w", encoding="utf-8") as fh:
+        fh.write(f"{base}\n")
+    plain_blame = subprocess.run(["git", "-C", clone, "blame", "-L1,1", head, "--", "f.txt"], capture_output=True, text=True, timeout=30)
+    check("control: plain git blame shows the author name the symlinked mailmap.file gives", "LEAKMARKER-NAME" in plain_blame.stdout, plain_blame.stdout)
+    plain_order = sh(["git", "-C", wt, "diff", "--name-only", base, tip], scratch).splitlines()
+    check("control: plain git diff orders by the symlinked diff.orderFile", plain_order.index("b.txt") < plain_order.index("a.txt"), str(plain_order))
+    # The marker of the revs file is first an invalid object name (the error that quoted it), then a real commit (the ignore list that
+    # changes what blame shows); neither may be seen through the tool.
+    for shape in ("LEAKMARKER-REVS\n", f"{base}\n"):
+        with open(marker_rev, "w", encoding="utf-8") as fh:
+            fh.write(shape)
+        err, text = call("review_blame", rev=head, path="f.txt", line_start=1)
+        check(f"review_blame with blame.ignoreRevsFile at a symlink ({shape.strip()[:14]}): ok, the file is not read, no marker in the result",
+              not err and "LEAKMARKER" not in text and text.split()[0].lstrip("^").startswith(head[:7]), text)
+    err, text = call("review_blame", rev=head, path="f.txt", line_start=1)
+    check("review_blame with mailmap.file at a symlink: the mailmap name is not applied", not err and "LEAKMARKER-NAME" not in text, text)
+    err, text = call("review_log", head=head, base=base, patch=True)
+    check("review_log -p with mailmap.file at a symlink: the mailmap name is not applied", not err and "LEAKMARKER-NAME" not in text, text)
+    err, text = call("review_diff", base=base, head=tip, output="name-only", repository=wt)
+    check("review_diff with diff.orderFile at a symlink: the order file is not read (a.txt before b.txt)",
+          not err and text.splitlines().index("a.txt") < text.splitlines().index("b.txt"), text)
+    for tool, args in (("review_diff", {"base": base, "head": head}), ("review_log", {"head": head}), ("review_show", {"rev": head}),
+                       ("review_grep", {"rev": head, "pattern": "two"}), ("review_blame", {"rev": head, "path": "f.txt", "line_start": 1})):
+        err, text = call(tool, **args)
+        check(f"{tool}: no marker of the three symlinked files in its result", not err and "LEAKMARKER" not in text, text)
+    for key in ("mailmap.file=", "mailmap.blob=", "diff.orderFile=/dev/null", "core.excludesFile=/dev/null", "core.quotePath=false", "diff.renames=true"):
+        check(f"git is run with -c {key}", key in gittools.git_argv("/r", "log"), key)
+    seen.clear()
+    gittools.run_git = recording
+    try:
+        gittools.review_blame({"rev": head, "path": "f.txt", "line_start": 1})
+    finally:
+        gittools.run_git = real_run_git
+    check("git blame is run with --no-ignore-revs-file (a -c cannot clear the list)", any("--no-ignore-revs-file" in a for a in seen if a[0] == "blame"), str(seen))
+    for key in ("blame.ignoreRevsFile", "mailmap.file", "diff.orderFile"):
+        sh(["git", "config", "--unset", key], clone)
+
+    print("-- paths are printed as written, so a coverage block copied from the output is the set post-review compares (round 1 R3)")
+    wanted = set(review_coverage.diff_paths(wt, base, tip))
+    check("control: review_coverage.diff_paths holds the non-ASCII and the space-bearing path", {"é a.txt", "sp ace.txt"} <= wanted, str(wanted))
+    quoted = subprocess.run(["git", "-C", wt, "diff", "--name-only", base, tip], capture_output=True, text=True, timeout=30).stdout
+    check("control: plain git diff --name-only quotes the non-ASCII path", '"\\303\\251 a.txt"' in quoted, quoted)
+    err, text = call("review_diff", base=base, head=tip, output="name-only", repository=wt)
+    check("review_diff name-only lists exactly the paths diff_paths lists", not err and set(text.splitlines()) == wanted, text)
+    err, text = call("review_diff", base=base, head=tip, output="name-status", repository=wt)
+    check("review_diff name-status lists exactly the paths diff_paths lists", not err and {ln.split("\t", 1)[1] for ln in text.splitlines()} == wanted, text)
+    err, text = call("review_diff", base=base, head=tip, output="stat", repository=wt)
+    check("review_diff stat names the non-ASCII path as written", not err and "é a.txt" in text and "\\303" not in text, text)
+    err, text = call("review_grep", rev=tip, pattern="x", fixed=True, repository=wt)
+    check("review_grep names the non-ASCII path as written", not err and "é a.txt" in text and "\\303" not in text, text)
+
     print("-- the environment of a child")
     dump = os.path.join(scratch, "envdump")
     fake_git = os.path.join(scratch, "fake-git")
@@ -317,10 +394,17 @@ def main() -> int:
     print("-- review_check: the sandbox's arguments")
     common = subprocess.run(["git", "-C", clone, "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True,
                             timeout=30).stdout.strip()
-    argv = sandbox.bwrap_argv("bwrap", evidence, common, ["true"], 3)
+    own = subprocess.run(["git", "-C", evidence, "rev-parse", "--path-format=absolute", "--git-dir"], capture_output=True, text=True,
+                         timeout=30).stdout.strip()
+    argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"])
     for opt in ("--unshare-all", "--die-with-parent", "--new-session", "--clearenv"):
         check(f"the sandbox is run with {opt}", opt in argv, str(argv))
     check("no namespace is shared back: nothing names --share-net", not any(a.startswith("--share") for a in argv), str(argv))
+    check("the git directory is bound by an allowlist: no bind of the common directory itself, none of its config, hooks or logs",
+          common not in [argv[i + 2] for i, a in enumerate(argv) if a == "--ro-bind"] and
+          not any(os.path.join(common, n) == a for n in ("config", "config.worktree", "hooks", "logs", "info") for a in argv), str(argv))
+    check("and the objects, the refs and the worktree's own HEAD are bound read-only",
+          all(x in argv and argv[argv.index(x) - 1] == "--ro-bind" for x in (os.path.join(common, "objects"), os.path.join(common, "refs"), os.path.join(own, "HEAD"))), str(argv))
     check("TMPDIR is /tmp and /tmp, /dev and /proc are made new",
           argv[argv.index("TMPDIR") - 1:argv.index("TMPDIR") + 2] == ["--setenv", "TMPDIR", "/tmp"]
           and all(x in argv for x in ("--dev", "--proc")) and argv[argv.index("--tmpfs") + 1] == "/tmp", str(argv))
@@ -406,8 +490,28 @@ def sandbox_cases(server, call, head, base, clone, evidence, scratch, home, secr
     check("a write into the clone's own tree fails (it is not even there)", exit_of(text) != "exit 0" and not os.path.exists(f"{clone}/planted"), text)
     subprocess.run(["git", "-C", clone, "config", "remote.origin.url", "https://x-access-token:PLANTED-REMOTE-TOKEN@example.invalid/r.git"],
                    check=True, timeout=30)
-    err, text = run("cat", f"{common}/config")
-    check("the clone's config, where a remote's credential may sit, reads empty", "PLANTED" not in text and exit_of(text) == "exit 0", text)
+    own = subprocess.run(["git", "-C", evidence, "rev-parse", "--path-format=absolute", "--git-dir"], capture_output=True, text=True,
+                         timeout=30).stdout.strip()
+    # Each of these holds a marker outside the sandbox (the controls) and must not exist inside, while git log still works (the first case).
+    for rel in ("config.worktree", "hooks/planted-hook", "logs/planted-log", "info/planted-info", "worktrees/other/config.worktree"):
+        os.makedirs(os.path.dirname(os.path.join(common, rel)), exist_ok=True)
+        with open(os.path.join(common, rel), "w", encoding="utf-8") as fh:
+            fh.write("PLANTED-GITDIR\n")
+    with open(os.path.join(own, "config.worktree"), "w", encoding="utf-8") as fh:
+        fh.write("PLANTED-GITDIR\n")
+    for rel in ("config.worktree", "hooks/planted-hook", "logs/planted-log", "info/planted-info", "worktrees/other/config.worktree"):
+        check(f"control: {rel} of the clone is readable outside the sandbox", "PLANTED-GITDIR" in open(os.path.join(common, rel), encoding="utf-8").read())
+    check("control: the clone's config holds the remote credential outside the sandbox", "PLANTED-REMOTE-TOKEN" in open(os.path.join(common, "config"), encoding="utf-8").read())
+    for label, path in (("the config", f"{common}/config"), ("config.worktree", f"{common}/config.worktree"),
+                        ("the worktree's own config.worktree", f"{own}/config.worktree"), ("hooks/", f"{common}/hooks/planted-hook"),
+                        ("logs/", f"{common}/logs/planted-log"), ("info/", f"{common}/info/planted-info"),
+                        ("another worktree's directory", f"{common}/worktrees/other/config.worktree")):
+        err, text = run("cat", path)
+        check(f"{label} of the clone cannot be read from inside", exit_of(text) != "exit 0" and "PLANTED" not in text, text)
+    err, text = run("git", "rev-list", "--count", "HEAD")
+    check("git still reads history there: rev-list over the objects and refs", exit_of(text) == "exit 0" and text.split("\n")[2].strip().isdigit(), text)
+    err, text = run("git", "show", "--stat", "--format=%s", "HEAD")
+    check("and git show of the head works", exit_of(text) == "exit 0" and "head" in text, text)
     err, text = run("env")
     check("control: the process holds a secret", bool(os.environ.get("FABRIC_TEST_API_TOKEN")))
     check("a secret of the process is not in a check's environment", "hostile-secret-value" not in text and "FABRIC_TEST_API_TOKEN" not in text
