@@ -121,6 +121,8 @@ case "$1" in
   repo) echo "fixture-org/fixture"; exit 0 ;;
   pr)   cat "$S/pr.json"; exit 0 ;;
   api)
+    # post-review ties the range's base to the PR: `--jq .merge_base_commit.sha`
+    case "$2" in */compare/*) cat "$S/mergebase"; exit 0 ;; esac
     env > "$S/gh-env.txt"
     for a in "$@"; do
       [ "$prev" = "--input" ] && cp "$a" "$S/payload.json"
@@ -221,7 +223,10 @@ def main() -> int:
 
         def reset(gw_mode: str = "ok", codex_mode: str = "ok", version: str = STAGE6) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
-                json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": head}, f)
+                json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": head,
+                           "baseRefName": "main"}, f)
+            with open(os.path.join(state, "mergebase"), "w") as f:
+                f.write(base)
             for n in ("calls", "payload.json", "codex-run.json", "gw.log", "plan-seen.json", "gh-env.txt", "codex-sleeping"):
                 if os.path.exists(os.path.join(state, n)):
                     os.remove(os.path.join(state, n))
