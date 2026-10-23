@@ -793,6 +793,18 @@ def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
         rb.checkpoint = saved
 
 
+def test_the_report_lines_ask_for_the_coverage_block(tmp: str) -> None:
+    """ADR-065 §5 rule 4: post-review refuses a review without the block, so the
+    brief asks for it on a review and a re-review, never on an adjudication."""
+    repo = mkrepo(tmp, "covered")
+    out = rb.render(base_request(repo))
+    section = out.split("## Coverage\n", 1)[1].split("\n## ", 1)[0]
+    assert "`agent-fabric-coverage v1`" in section and out.index("## Coverage") < out.index("## Report lines"), out[-800:]
+    report = os.path.join(tmp, "judged.md"); open(report, "w").write("1. a finding\n")
+    adj = rb.render({**base_request(repo), "mode": "finding-adjudication", "previous_findings": report})
+    assert "## Coverage" not in adj and "agent-fabric-coverage" not in adj.split("## Findings to judge", 1)[0], adj[-400:]
+
+
 def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
@@ -803,7 +815,8 @@ def main() -> int:
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
              test_the_readme_example_renders_as_documented, test_the_config_fingerprint_follows_the_card_and_the_agent_file,
-             test_a_prs_re_review_starts_at_its_last_checkpoint]
+             test_a_prs_re_review_starts_at_its_last_checkpoint,
+             test_the_report_lines_ask_for_the_coverage_block]
     failures = 0
     # Removed when the run ends, however it ends: tests/run.sh names every
     # entry a run leaves under the temporary directory as a failure.

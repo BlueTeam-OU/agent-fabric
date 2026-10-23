@@ -592,6 +592,13 @@ def config_fingerprint(repo: str, card_base: str | None) -> str:
     return h.hexdigest()
 
 
+COVERAGE_RULE = (
+    "Before the machine lines, one fenced block whose info string is `agent-fabric-coverage v1`, holding JSON "
+    '{"paths": {"<path>": {"status": "read" or "not read", "reason": "<why, when not read>"}}, '
+    '"lenses": {"<lens>": "applied" or "not applied"}}: every path `git diff --name-only` lists for the range, '
+    "once, and every lens above. A path not read keeps the review from counting as coverage of the head.")
+
+
 class EvidenceRefused(Exception):
     """The head worktree cannot be made or reused; the message names why."""
 
@@ -824,6 +831,12 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     if engine == "claude":
         # Codex's body is rendered by our code from its structured answer (review_codex.render_review), and the
         # brief it gets adds only its answer shape (ADR-053 rule 1).
+        if mode in ("review", "re-review"):
+            # post-review refuses a review or re-review without it (ADR-065 §5
+            # rule 4), so the brief says it even to a reviewer whose agent file
+            # predates the rule. Its own section: the brief ends with the
+            # machine lines' rules (test_review_lines).
+            out += ["## Coverage", COVERAGE_RULE]
         out += ["## Report lines"] + review_lines.report_rules(mode)
     return "\n".join(out) + "\n"
 
