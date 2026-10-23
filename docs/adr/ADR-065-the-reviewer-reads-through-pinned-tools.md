@@ -105,15 +105,19 @@ read back before this was decided (§1).
   block omits one. A review with a `not read` path posts, says so in its
   first lines, and the arm does not count it as coverage of the head.
 - *Checkpoint marker.* The marker becomes
-  `<!-- agent-fabric-review v2 base=<sha> head=<sha> config=<sha256> -->`,
-  where `config` hashes the agent file, the project card and the brief
-  renderer's version. The next review of the same PR is a re-review from
-  that `head` only when every check holds: the review object was posted
-  by `post-review` on this PR, its `head` is an ancestor of the PR's
-  current head, and `config` matches today's. Any doubt — a force-push, a
-  changed card, an unreadable marker — is a full review. `card_base` and
-  `previous_findings` are then derived, not typed; a typed value that
-  disagrees is refused.
+  `<!-- agent-fabric-review v2 base=<sha> head=<sha> card=<sha> config=<sha256> -->`,
+  where `base..head` is the range that review read, `card` the commit
+  its project card was read at (`card_base`: the card is never read from
+  the range under review, so on a re-review it is not `base`), and
+  `config` hashes the review class's agent file, that card's text and
+  the brief renderer's versions. The next review of the same PR is a
+  re-review of `head..<current head>` with the card at `card` only when
+  every check holds: the review object was posted by `post-review` on
+  this PR, its `head` is an ancestor of the PR's current head, and
+  `config` computed today for the same `card` matches. Any doubt — a
+  force-push, a changed agent file, an unreadable marker — is a full
+  review. `card_base` and `previous_findings` (that review's body) are
+  then derived, not typed; a typed value that disagrees is refused.
 - *Posting is the dispatcher's.* The reviewer returns its report; the
   session posts it. The post-review admission in the guard goes, since the
   reviewer has no shell to post with.
@@ -185,10 +189,11 @@ means a full review.
 4. A posted review carries the `v2` marker and a coverage block naming
    every path of its range. `post-review` refuses a block that omits one;
    a review with a path `not read` is not coverage of its head.
-5. A re-review's base is the `head` of the last `v2` marker on the PR that
-   `post-review` posted, is an ancestor of the current head, and has the
-   same `config`; otherwise the review is a full one. A typed `card_base`
-   that disagrees is refused.
+5. A re-review's base is the `head`, and its `card_base` the `card`, of
+   the last `v2` marker on the PR that `post-review` posted, whose `head`
+   is an ancestor of the current head and whose `config` matches;
+   otherwise the review is a full one. A typed `card_base` that disagrees
+   is refused.
 6. The reviewer does not post. The session posts its report with
    `fabric-pr post-review`.
 7. `review-bash-guard` stays as the fence `subagent-clone-guard` applies to

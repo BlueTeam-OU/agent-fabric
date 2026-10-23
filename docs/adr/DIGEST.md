@@ -1411,7 +1411,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Its checks run one argv at a time in a bubblewrap sandbox: read-only
   filesystem, fresh `/tmp`, no network, proved by a start probe and a
   refused write per review; unproved, nothing runs (§2 B, §5 rule 3).
-- A posted review carries a `v2` marker (base, head, config hash) and a
+- A posted review carries a `v2` marker (base, head, card, config hash) and a
   coverage block naming every path of the range; a path `not read`
   uncounts it, and a re-review's base is derived from the last marker,
   fail-closed (§2 C, §5 rules 4–5).
