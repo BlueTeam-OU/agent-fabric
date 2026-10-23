@@ -116,8 +116,10 @@ read back before this was decided (§1).
   this PR, its `head` is an ancestor of the PR's current head, and
   `config` computed today for the same `card` matches. Any doubt — a
   force-push, a changed agent file, an unreadable marker — is a full
-  review. `card_base` and `previous_findings` (that review's body) are
-  then derived, not typed; a typed value that disagrees is refused.
+  review. `card_base` and `previous_findings` are then derived, not
+  typed: a typed `card_base` that disagrees is refused, and so is any
+  typed `previous_findings`, since the previous report is that review's
+  posted body.
 - *Posting is the dispatcher's.* The reviewer returns its report; the
   session posts it. The post-review admission in the guard goes, since the
   reviewer has no shell to post with.
@@ -193,7 +195,8 @@ means a full review.
    the last `v2` marker on the PR that `post-review` posted, whose `head`
    is an ancestor of the current head and whose `config` matches;
    otherwise the review is a full one. A typed `card_base` that disagrees
-   is refused.
+   is refused; the previous findings are that review's posted body, and a
+   typed `previous_findings` on a PR's re-review is refused.
 6. The reviewer does not post. The session posts its report with
    `fabric-pr post-review`.
 7. `review-bash-guard` stays as the fence `subagent-clone-guard` applies to
