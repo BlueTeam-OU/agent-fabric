@@ -257,7 +257,11 @@ def test_the_dispatch_header(tmp: str) -> None:
         assert h["base_sha"] == base and h["head_sha"] == head, h
         assert h["pr"] is None and h["review_round"] == 1 and h["evidence_mode"] == "pinned", h
         assert set(h) == {"dispatch_id", "parent_session_id", "job_id", "project", "repository", "pr", "review_id", "review_round",
-                          "purpose", "engine", "evidence_mode", "base_sha", "head_sha", "started_at"}, sorted(h)
+                          "purpose", "engine", "evidence_mode", "base_sha", "head_sha", "card_base", "config",
+                          "started_at"}, sorted(h)
+        # ADR-065 §2 C: the card's commit and the fingerprint the next round compares
+        assert h["card_base"] == base and re.fullmatch(r"[0-9a-f]{64}", h["config"]), h
+        assert _header(rb.render(base_request(repo)))["config"] == h["config"], "the fingerprint is stable"
         assert out.startswith("```agent-fabric-dispatch v1\n{"), "the header is the first block"
         # minted at render: two renders do not share an id
         assert _header(rb.render(base_request(repo)))["dispatch_id"] != _header(rb.render(base_request(repo)))["dispatch_id"]
@@ -275,6 +279,7 @@ def test_the_dispatch_header(tmp: str) -> None:
         diff = os.path.join(tmp, "x.diff"); open(diff, "w").write("")
         h = _header(rb.render({k: v for k, v in {**base_request(repo), "diff": diff}.items() if k != "range"}))
         assert h["base_sha"] is None and h["head_sha"] is None and h["evidence_mode"] == "working-tree", h
+        assert h["card_base"] is None and h["config"] is None, h
     finally:
         if env0["CLAUDE_CODE_SESSION_ID"] is None:
             os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
@@ -712,6 +717,36 @@ def test_a_diff_file_reads_the_card_at_the_default_branch_tip(tmp: str) -> None:
     assert any(str(rb.CARD_CAP + 1) in p and "cap" in p for p in problems), problems
 
 
+def test_the_config_fingerprint_follows_the_card_and_the_agent_file(tmp: str) -> None:
+    """ADR-065 §2 C: a re-review may start from an earlier head only while the
+    fingerprint is unchanged, so every part it covers must move it."""
+    repo = mkrepo(tmp, "fingerprint")
+    base = g(repo, "rev-parse", "main")
+    none = rb.config_fingerprint(repo, base)
+    assert none == rb.config_fingerprint(repo, base), "stable"
+    g(repo, "checkout", "-q", "main")
+    commit(repo, "card", {".agent-fabric/review-card.md": "rule one\n"})
+    one = g(repo, "rev-parse", "HEAD")
+    commit(repo, "card again", {".agent-fabric/review-card.md": "rule two\n"})
+    two = g(repo, "rev-parse", "HEAD")
+    commit(repo, "empty card", {".agent-fabric/review-card.md": ""})
+    empty = g(repo, "rev-parse", "HEAD")
+    prints = {rb.config_fingerprint(repo, c) for c in (base, one, two, empty)}
+    assert len(prints) == 4, "no card, two cards and an empty card are four fingerprints"
+    saved = rb.AGENT_FILE
+    try:
+        rb.AGENT_FILE = os.path.join(tmp, "agent.md")
+        open(rb.AGENT_FILE, "w").write("a\n")
+        a = rb.config_fingerprint(repo, one)
+        open(rb.AGENT_FILE, "w").write("b\n")
+        b = rb.config_fingerprint(repo, one)
+        os.unlink(rb.AGENT_FILE)
+        gone = rb.config_fingerprint(repo, one)
+    finally:
+        rb.AGENT_FILE = saved
+    assert len({a, b, gone, rb.config_fingerprint(repo, one)}) == 4, "the agent file's text and its absence move it"
+
+
 def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
@@ -721,7 +756,7 @@ def main() -> int:
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
-             test_the_readme_example_renders_as_documented]
+             test_the_readme_example_renders_as_documented, test_the_config_fingerprint_follows_the_card_and_the_agent_file]
     failures = 0
     # Removed when the run ends, however it ends: tests/run.sh names every
     # entry a run leaves under the temporary directory as a failure.

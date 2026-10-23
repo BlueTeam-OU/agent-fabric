@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -518,9 +519,34 @@ def dispatch_header(req: dict, info: dict | None, engine: str, purpose: str | No
         "evidence_mode": evidence_mode(req),
         "base_sha": info["base_sha"] if info else None,
         "head_sha": info["head_sha"] if info else None,
+        "card_base": info["card_base"] if info else None,
+        "config": config_fingerprint(repo, info["card_base"]) if info else None,
         "started_at": started_at or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     return _fence(json.dumps(header, indent=2), DISPATCH_VERSION)
+
+
+AGENT_FILE = os.path.join(FABRIC_ROOT, "runtime", "claude-code", "agents", "code-review.md")
+
+
+def config_fingerprint(repo: str, card_base: str | None) -> str:
+    """sha256 of what a review's verdict depends on besides the range: the
+    review class's agent file as committed here, the project card at
+    card_base, and this renderer's versions (agent-fabric ADR-065 §2 C). A
+    re-review may start from an earlier review's head only while this is
+    unchanged; any part missing or unreadable is hashed as its absence, so
+    it differs from a present one rather than matching an empty one."""
+    h = hashlib.sha256()
+    try:
+        agent = open(AGENT_FILE, "rb").read()
+    except OSError:
+        agent = None
+    text, refusal = card(repo, card_base)
+    for label, part in (("agent", agent), ("card", None if refusal else (text.encode() if text is not None else None)),
+                        ("brief", BRIEF_VERSION.encode()), ("dispatch", DISPATCH_VERSION.encode())):
+        # Length-prefixed, so no two different tuples of parts hash alike.
+        h.update(label.encode() + b"\0" + (b"-" if part is None else str(len(part)).encode() + b"\0" + part))
+    return h.hexdigest()
 
 
 class EvidenceRefused(Exception):

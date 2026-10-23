@@ -53,6 +53,8 @@ lenses: [protocol]
   "evidence_mode": "pinned",
   "base_sha": "…",
   "head_sha": "…",
+  "card_base": "…",
+  "config": "…",
   "started_at": "2026-10-14T10:00:00Z"
 }
 ```
@@ -156,7 +158,11 @@ commit id (`origin/main`) is refused unless the request pins `card_base`
 job), `project`, `repository`, `pr`, `review_id`, `review_round`,
 `purpose` (from `mode`: `primary-review`, `re-review`,
 `finding-adjudication`; the second engine writes `second-engine-review`
-itself), `engine`, `evidence_mode`, `base_sha`, `head_sha`, `started_at`.
+itself), `engine`, `evidence_mode`, `base_sha`, `head_sha`, `card_base`
+(the commit the card was read at), `config` (sha256 of the review
+class's agent file, that card and the renderer's versions: what a
+re-review compares before it starts from an earlier head, agent-fabric
+ADR-065 §2 C), `started_at`.
 The request takes `pr` and `job_id` as optional fields (and `review_id`,
 `review_round`, which `review_rounds.py next` fills: the id is kept, else
 `<repository>#<PR>`, and the round is the previous one plus one). A brief
