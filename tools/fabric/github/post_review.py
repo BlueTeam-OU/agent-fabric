@@ -22,9 +22,9 @@ with commit_id = their head_sha: every header names the same one, or the
 report is refused; a sha that is not a commit of the PR is refused; one that
 is no longer the head is posted against it all the same, saying so on
 stdout with the URL, so the gate counts it for that commit and never for the head pushed
-after it. A report with no header names its head with --head, or is refused
-(ADR-020 §5 rule 6): posted against the PR's head, a summary written for an
-older range read as the review of the head pushed after it.
+after it. A report with no header is refused (ADR-020 §5 rule 6, ADR-065 §5 rule 4):
+--head names the commit only beside a header, which carries the range and is what a v2 review is posted from; posted
+against the PR's head, a summary written for an older range read as the review of the head pushed after it.
 
 A REPORT WHOSE DISPATCH HEADERS NAME A RANGE IS POSTED AS v2 (agent-fabric ADR-065 §2 C, §5 rule 4): every header
 names the same base_sha, head_sha, card_base and config, or the report is refused, and the first line is
@@ -374,7 +374,8 @@ def readback_refusal(full_body: str, marker: review_coverage.Marker, coverage: r
 
 def base_refusal(root: str, repo: str, pr: str, base_branch: str, marker: review_coverage.Marker) -> str:
     """Why the marker's base is not one a v2 review of this PR may start from, or "": the PR's merge-base with its base
-    branch (a full review) or the head of the PR's last checkpoint review (a re-review). Anything else, a narrow range
+    branch (a full review) or the head of the PR's last checkpoint review (a re-review), or the base of a checkpoint review of this same head (the
+    other engine's review of the same round). Anything else, a narrow range
     posted as a full review, would count and chain. FAILS CLOSED: a lookup that fails refuses, and a checkpoint in
     doubt (review_checkpoint) is none, so the merge-base is the only start left."""
     try:
@@ -390,6 +391,10 @@ def base_refusal(root: str, repo: str, pr: str, base_branch: str, marker: review
     found = last_checkpoint_review(pr, marker.head, lambda card: review_brief.config_fingerprint(root, card),
                                    repo=repo, cwd=root)
     if found and found[1] == marker.base:
+        return ""
+    # The second engine of a re-review round: the first posted H1..H2, so the checkpoint is (H1, H2), and this one's
+    # H1..H2 is the same round. Nothing wider: another head (H1..H3) is a different range and is refused.
+    if found and found[0] == marker.base and found[1] == marker.head:
         return ""
     return (f"base {marker.base[:12]} is neither the merge-base {merge_base[:12]} of PR #{pr} with {base_branch} (a full "
             "review) nor the head of the PR's last checkpoint review "
@@ -535,8 +540,8 @@ def run(argv: list[str], stdin) -> int:
     if reviewed is None and not given_head:
         die("not posting this report: it has no dispatch header and no --head, so the commit it reviewed is "
             "unknown, and posted on the PR's head it would read as the review of whatever was pushed last. "
-            "Post the review class's report whole, its agent-fabric-dispatch v1 block first as the brief gave it, "
-            "or name the commit it read with --head.")
+            "Post the review class's report whole, its agent-fabric-dispatch v1 block first as the brief gave it: "
+            "--head alone posts nothing, because a review is posted as v2 and its range comes from that header.")
     if reviewed and given_head and given_head != reviewed:
         die(f"not posting this report: --head {given_head[:12]} is not the head_sha {reviewed[:12]} its dispatch "
             "header names.")

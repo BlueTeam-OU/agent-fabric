@@ -77,7 +77,7 @@ def main() -> int:
             return CONFIG
 
         def ask(reviews, *, current=c2, listed=None, cfg=config_for, author="me", cwd=tmp, environ=None, pr_error=None,
-                list_error=None, commits_error=None, over_cap=False):
+                list_error=None, commits_error=None, over_cap=False, exclude_head=None):
             commits = [{"sha": c} for c in (listed if listed is not None else (c1, c2))]
 
             def api_list(path, **kw):
@@ -95,7 +95,7 @@ def main() -> int:
                 return {"author": {"login": author}}
 
             with mock.patch.object(cp.gh, "api_list", api_list), mock.patch.object(cp.gh, "pr_view", pr_view):
-                kw = dict(repo="o/r", cwd=cwd, environ={} if environ is None else environ)
+                kw = dict(repo="o/r", cwd=cwd, environ={} if environ is None else environ, exclude_head=exclude_head)
                 found = cp.last_checkpoint(7, current, cfg, **kw)
                 with_body = cp.last_checkpoint_review(7, current, cfg, **kw)
             # The two answer from the same checks: every case below is also a case of last_checkpoint_review.
@@ -125,6 +125,19 @@ def main() -> int:
         check("the newest of several decides", ask([rv(body(c0, c1), at="2026-10-23T09:00:00Z"),
                                                     rv(body(c1, c2), commit_id=c2, at="2026-10-23T11:00:00Z")], listed=(c1, c2)) == (c1, c2, CARD))
         check("a named poster counts", ask([rv(body(), login="ci")], environ={"AGENT_FABRIC_REVIEW_POSTERS": '["ci"]'}) == (c0, c1, CARD))
+
+        print("last_checkpoint: exclude_head sets a head's reviews aside before the newest decides")
+        round1, round2 = (body(c0, c1), "2026-10-23T09:00:00Z"), (body(c1, c2), "2026-10-23T11:00:00Z")
+        pair = [rv(round1[0], at=round1[1]), rv(round2[0], commit_id=c2, at=round2[1])]
+        check("the control: without it the second engine's same-round review is the checkpoint",
+              ask(pair, listed=(c1, c2)) == (c1, c2, CARD))
+        check("with it the checkpoint is the one before: (H0, H1) and its own body",
+              ask(pair, listed=(c1, c2), exclude_head=c2) == (c0, c1, CARD) and bodies[-1] == round1[0], bodies[-1])
+        check("…a head nothing was reviewed at changes nothing", ask(pair, listed=(c1, c2), exclude_head=c0) == (c1, c2, CARD))
+        check("…and with nothing left it is None, a full review", ask([rv(round2[0], commit_id=c2)], listed=(c1, c2), exclude_head=c2) is None)
+        check("…every other check stays: the older one is partial, so None",
+              ask([rv(body(c0, c1, ("not read",)), at=round1[1]), rv(round2[0], commit_id=c2, at=round2[1])],
+                  listed=(c1, c2), exclude_head=c2) is None)
 
         print("last_checkpoint: any doubt is a full review")
         check("no review at all", ask([]) is None)

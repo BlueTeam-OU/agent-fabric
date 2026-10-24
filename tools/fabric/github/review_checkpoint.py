@@ -1,7 +1,7 @@
 """tools/fabric/github/review_checkpoint.py — where the next review of a PR starts (agent-fabric ADR-065 §2 C, §5 rule 5).
 
-    last_checkpoint(pr, current_head, config_for) -> (base, head, card) | None
-    last_checkpoint_review(pr, current_head, config_for) -> (base, head, card, body) | None
+    last_checkpoint(pr, current_head, config_for, exclude_head=None) -> (base, head, card) | None
+    last_checkpoint_review(pr, current_head, config_for, exclude_head=None) -> (base, head, card, body) | None
 
 for review_brief, which derives `card_base` and the re-review's base from it, and (the second) the previous findings:
 the checkpoint review's posted body is the previous report (ADR-065 §2 C). The two answer from the same checks. The answer is the range of the newest v2
@@ -36,21 +36,26 @@ COMMIT_LIST_CAP = 250
 
 
 def last_checkpoint(pr: int | str, current_head: str, config_for, *, repo: str | None = None, cwd: str | None = None,
-                    environ=None) -> tuple[str, str, str] | None:
+                    environ=None, exclude_head: str | None = None) -> tuple[str, str, str] | None:
     """`config_for(card)` is the config fingerprint today for a project card read at `card`; `cwd` is a clone that
     holds the PR's commits (the ancestry questions are asked there); `repo` is owner/name, the working copy's when
-    omitted."""
-    found = last_checkpoint_review(pr, current_head, config_for, repo=repo, cwd=cwd, environ=environ, capped=False)
+    omitted. `exclude_head` is last_checkpoint_review's."""
+    found = last_checkpoint_review(pr, current_head, config_for, repo=repo, cwd=cwd, environ=environ, capped=False,
+                                   exclude_head=exclude_head)
     return found[:3] if found else None
 
 
 def last_checkpoint_review(pr: int | str, current_head: str, config_for, *, repo: str | None = None, cwd: str | None = None,
-                           environ=None, capped: bool = True) -> tuple[str, str, str, str] | None:
+                           environ=None, capped: bool = True,
+                           exclude_head: str | None = None) -> tuple[str, str, str, str] | None:
     """last_checkpoint's (base, head, card) and the body of that review as posted, marker line included. A body over
-    the cap post_review applies to a report is None, never cut: a cut report would read as a whole one."""
+    the cap post_review applies to a report is None, never cut: a cut report would read as a whole one.
+    `exclude_head` sets aside the reviews whose marker head is that commit BEFORE the newest decides: the checkpoint
+    as it stood before a head was reviewed. The brief of the second engine of a round asks so, because the first
+    engine's same-round review is not that engine's previous findings (blind review, ADR-020)."""
     try:
         found = _checkpoint(int(pr), current_head, config_for, repo, cwd or os.getcwd(),
-                            os.environ if environ is None else environ)
+                            os.environ if environ is None else environ, exclude_head)
     except (gh.GhError, Die, review_coverage.CoverageError, ValueError, TypeError, AttributeError, KeyError, OSError):
         return None
     if found is None or (capped and len(found[3]) > review_coverage.MAX_REVIEW_CHARS):
@@ -58,7 +63,13 @@ def last_checkpoint_review(pr: int | str, current_head: str, config_for, *, repo
     return found
 
 
-def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: str, environ):
+def _marker_head(review: dict) -> str | None:
+    marker = review_coverage.parse_marker(review.get("body") or "")
+    return marker.head if marker else None
+
+
+def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: str, environ,
+                exclude_head: str | None = None):
     repo = repo or gh.this_repo(cwd)
     cfg = read_config(environ)
     meta = gh.pr_view(pr, ["author"], repo=repo)
@@ -67,7 +78,8 @@ def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: s
         return None
     reviews = gh.api_list(f"repos/{repo}/pulls/{pr}/reviews")
     posted = [r for r in reviews if isinstance(r, dict) and (r.get("body") or "").startswith(review_coverage.V2_PREFIX)
-              and (login_of(r) == author or login_of(r) in cfg.review_posters)]
+              and (login_of(r) == author or login_of(r) in cfg.review_posters)
+              and not (exclude_head and _marker_head(r) == exclude_head)]
     if not posted:
         return None
     ordered = sorted(posted, key=lambda r: jkey(r.get("submitted_at")))
