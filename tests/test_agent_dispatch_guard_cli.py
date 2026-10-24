@@ -105,7 +105,7 @@ def main() -> int:
     print("forks")
     expect("a fork is allowed with nothing set", "allow", '{"subagent_type":"fork","description":"continue"}')
 
-    print("the review class: all four conditions, or denied -- never asked")
+    print("the review class: all five conditions, or denied -- never asked")
     R = '{"subagent_type":"code-review","model":"fable","description":"Review PR 626 diff","prompt":"..."}'
     expect("code-review + review + fable + no isolation is allowed without a prompt", "allow", R)
     expect("re-review is a review", "allow", '{"subagent_type":"code-review","model":"fable","description":"Re-review PR 626 after fixes"}')
