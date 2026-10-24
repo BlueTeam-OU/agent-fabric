@@ -2903,6 +2903,19 @@ def test_a_linking_memory_harvested_again_with_its_correction_is_no_collision(tm
     assert "See [[supplier]]." in read(proj(out, "alpha", "solution.md"))
 
 
+def test_the_pre_pass_points_a_link_once_as_the_write_does(tmp: str) -> None:
+    """`pointed` returns what point_disk leaves: one pass with the role's map, which holds the shared names too (review
+    of #368, F6). A name that is also a corrected memory's stem is not rewritten a second time."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from types import SimpleNamespace
+    from assembler.targets import pointed
+    run = SimpleNamespace(disk_links=[("alpha", ["a"], {"reserved": "supplier", "supplier": "workflow-foo"}),
+                                      (None, ["s"], {"supplier": "workflow-foo"})])
+    assert pointed(run, "alpha", "See [[reserved]].") == "See [[supplier]]."
+    assert pointed(run, None, "See [[supplier]].") == "See [[workflow-foo]]."
+    assert pointed(run, "beta", "See [[reserved]].") == "See [[reserved]]."
+
+
 def test_part_one_of_a_split_topic_is_always_the_topic_file(tmp: str) -> None:
     """A topic near its budget whose one section is superseded: the old
     section was counted as carried text, the new one pushed to part two,
@@ -4147,6 +4160,7 @@ def main() -> int:
         test_a_claim_differing_only_in_a_link_target_is_still_a_collision,
         test_a_refused_drain_does_not_point_the_links_on_disk,
         test_a_linking_memory_harvested_again_with_its_correction_is_no_collision,
+        test_the_pre_pass_points_a_link_once_as_the_write_does,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

@@ -355,7 +355,7 @@ def pointed(run: Run, role: str | None, text: str) -> str:
     """`text`, a section on disk, as point_disk will leave it: the pre-pass compares what the drain writes with what the
     section will say, so an unchanged memory arriving in the correction's own run is the same claim, not a collision."""
     for owner, _bases, names in run.disk_links:
-        if names and owner in (role, None):
+        if names and owner == role:   # a role's map already holds the shared names: a second pass would chain them
             text = re.sub(r"\[\[(" + "|".join(re.escape(n) for n in names) + r")\]\]", lambda m: f"[[{names[m.group(1)]}]]", text)
     return text
 
