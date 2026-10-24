@@ -2789,6 +2789,18 @@ def test_a_link_to_a_memory_written_into_another_slice_is_pointed_at_the_slice(t
     assert proc.returncode == 0, proc.stderr
     assert tree(out) == before
 
+    # The link drained BEFORE the correction stands raw on disk; the memory harvested again afterwards is its own text,
+    # not a collision with it.
+    os.makedirs(os.path.join(tmp, "order"))
+    d2, c2, out2 = build(os.path.join(tmp, "order"), {"alpha": claims("alpha", [base, user])})
+    assert run_assemble(d2, c2, out2).returncode == 0
+    set_claims(c2, "alpha", [fix])
+    assert run_assemble(d2, c2, out2).returncode == 0
+    set_claims(c2, "alpha", [user])
+    proc = run_assemble(d2, c2, out2)
+    assert proc.returncode == 0, proc.stderr
+    assert "[[labels-english-supplier]]" in read(proj(out2, "alpha", "solution.md"))
+
     # A linking memory arriving in a later run than the correction (review of #368, F2).
     later = dict(user, topic="later", title="Later", body="Also [[labels-keep-is-reserved]].", evidence=["h3"])
     set_claims(claims_dir, "alpha", [later])
