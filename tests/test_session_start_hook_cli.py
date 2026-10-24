@@ -144,8 +144,13 @@ def main() -> int:
     start(CLAUDE_ENV_FILE=latin)
     start(CLAUDE_ENV_FILE=latin)
     with open(latin, "rb") as fh:
-        n = fh.read().count(b"export AGENT_FABRIC_ROOT=")
+        body = fh.read()
+    n = body.count(b"export AGENT_FABRIC_ROOT=")
     t.check("an env file that is not UTF-8: the export written, and once across two runs", n == 1, f"{n}")
+    # The seal (ADR-038 rule 9: the harness's credentials unset in the
+    # session's shell) is searched as bytes too: written, and once.
+    seals = sum(1 for line in body.splitlines() if line.startswith(b"unset ") and b"agent-fabric" in line)
+    t.check("an env file that is not UTF-8: the seal written, and once across two runs", seals == 1, f"{seals} {body!r}")
     false_py = shutil.which("false") or "/bin/false"
     r = h.run(ENTRY, PAYLOAD, {**environment(), "AGENT_FABRIC_PYTHON": false_py})
     t.check("an interpreter that exits non-zero: the forwarder still exits 0", r.rc == 0, f"{r.rc} {r.err!r}")
