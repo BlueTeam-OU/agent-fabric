@@ -2781,6 +2781,20 @@ def test_a_link_to_a_memory_written_into_another_slice_is_pointed_at_the_slice(t
     assert "[[labels-english-supplier]]" in placed and "[[labels-keep-is-reserved]]" not in placed, placed
     assert "[[unrelated-memory]]" in placed, "a name the drain did not place is left as written"
 
+    # The same linking memory harvested again, without the correction (an applied correction is not harvested
+    # twice): the same text, so a no-op and no collision (review of #368, F1).
+    before = tree(out)
+    set_claims(claims_dir, "alpha", [user])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert tree(out) == before
+
+    # A linking memory arriving in a later run than the correction (review of #368, F2).
+    later = dict(user, topic="later", title="Later", body="Also [[labels-keep-is-reserved]].", evidence=["h3"])
+    set_claims(claims_dir, "alpha", [later])
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert "Also [[labels-english-supplier]]." in read(proj(out, "alpha", "solution", "later.md")), tree(out)
+
 
 def test_an_older_flat_file_without_a_recorded_topic_is_not_split_by_one_new_topic(tmp: str) -> None:
     """A flat file from before a flat file recorded its topic may hold memories the crossref never named (it lists

@@ -291,13 +291,34 @@ def resolve_targets(run: Run, role: str | None, label: str,
     return moved
 
 
+def applied_stems(run: Run) -> list[tuple[str | None, str, str]]:
+    """(role, memory name, file stem) of each correction an earlier drain applied and the report still lists: the
+    memory was written into that slice, whichever run its links arrive in. The report keeps an entry only while its
+    slice holds the text the correction applied."""
+    try:
+        with open(layout.project_report_path(run.project), encoding="utf-8") as fh:
+            previous = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    found: list[tuple[str | None, str, str]] = []
+    for entry in (previous.get("applied_corrections") if isinstance(previous, dict) else None) or []:
+        if not (isinstance(entry, dict) and isinstance(entry.get("memory"), str) and isinstance(entry.get("slice"), str)):
+            continue
+        m = re.search(r"memory/(?:domains/)?([^/]+)/", entry["slice"])
+        role = None if not m or m.group(1) == "shared" else m.group(1)
+        found.append((role, entry["memory"], os.path.basename(entry["slice"]).removesuffix(".md")))
+    return found
+
+
 def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
     """A `[[memory]]` names a memory, and a claim filed in another topic's slice (a correction) is written under that
     slice's file name, so the link resolved nowhere (a drain's blind review, 2026-10-24). The claims of the role that
     filed it (and of the shared slices) name the slice instead; another role's memory of the same name is not that
-    one. A name two slices claim is left as written: pointing at either would guess."""
+    one. The corrections earlier drains applied count as moved too, so a link arriving in a later run, or again, is
+    rendered the same way as the run that moved the memory. A name two slices claim is left as written: pointing at
+    either would guess."""
     stems: dict[tuple[str | None, str], set[str]] = defaultdict(set)
-    for role, name, stem in moved:
+    for role, name, stem in [*applied_stems(run), *moved]:
         if name != stem:
             stems[(role, name)].add(stem)
     unique = {key: next(iter(found)) for key, found in stems.items() if len(found) == 1}

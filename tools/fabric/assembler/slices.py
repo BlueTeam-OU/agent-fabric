@@ -356,6 +356,7 @@ def anchors_of(section: str) -> list[str]:
     return list(found)
 
 
+WIKILINK_RE = re.compile(r"\[\[[A-Za-z0-9][A-Za-z0-9._-]*\]\]")
 OBSERVED_RE = re.compile(r"\s*\*Observed (\d{4}-\d{2}-\d{2})(?: \(([a-z0-9-]+)\))?\*\s*$")
 
 
@@ -365,8 +366,13 @@ def undated(text: str) -> str:
     what it says: the same claim re-emitted with a moved mtime, or
     arriving with a date where the corpus has none, is the same claim,
     and a comparison that included the tail refused it as a collision
-    with two identical excerpts (review of 2026-09-20, F1)."""
-    return OBSERVED_RE.sub("", text).strip()
+    with two identical excerpts (review of 2026-09-20, F1).
+
+    A `[[link]]` is compared by its brackets alone: the drain points a
+    link at the file a memory was written under (targets.point_links), and
+    a section on disk from a run that did not know the memory's slice reads
+    the same claim as the memory arriving again."""
+    return WIKILINK_RE.sub("[[]]", OBSERVED_RE.sub("", text)).strip()
 
 
 def cue_tokens(heading: str) -> set[str]:
