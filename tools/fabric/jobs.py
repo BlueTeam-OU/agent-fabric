@@ -60,11 +60,12 @@ artifacts the evidence was read from. Each account's control agent runs it hourl
 fails leaves the job delivered and says so. No other state is touched, no artifact removed, and a second run changes nothing.
 
 A supply job names its branch. A REQUEST whose DELIVER-TO section names a branch of this login under for/ (<host>/<login>/for/<caller>/<what>)
-is recorded with it as the job's `deliver_to`, by whichever path adds it (a later receiver intake fills it in on a job the
-sender's title-only add made first, never replaces one); another login's branch is not recorded. `switch` to such a job
-checks that branch out first, fetched and up to date (a new one off the default branch when it exists nowhere yet), in a worktree
-of its own, before the job's own branch, an open pull request or a new feat/ branch: the job-copy guard then sees a job copy.
-A for/ branch whose pull request merged is not taken again, and the choice falls to the usual order.
+is recorded with it as the job's `deliver_to`, by whichever path adds it (a later receiver intake fills it into the job the
+sender's title-only add made first, only while that job is queued with no branch of its own, and never replaces one);
+another login's branch is not recorded. `switch` to such a job checks that branch out first, fetched and up to date (a new one
+off the default branch when it exists nowhere yet), in a worktree of its own, ahead of an open pull request or a new feat/ branch,
+unless the job already has another branch of its own (it keeps that) or a pull request from the for/ branch merged (step 3
+below): the job-copy guard then sees a job copy.
 
 A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
 normal when none was set, and in a list written before priorities
