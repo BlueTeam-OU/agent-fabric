@@ -483,7 +483,7 @@ def main() -> int:
     check("and the host's own private directories are bound by no argument either", not any(h in bound for h in host_private), str(bound))
     check("while its certificates are", any(a.endswith("ssl/certs") for a in key_argv), str(key_argv))
     # Debian and Ubuntu (#358 round 4 F5): /usr/lib/ssl/private is a link to /etc/ssl/private, which is not bound, so in the sandbox it dangles
-    # and a mount on it is refused. isdir follows the link, so only islink tells it from the directory above.
+    # and a mount on it is refused. The link resolves outside every bound root, so mask_target puts no tmpfs on it (it decides on the resolved path).
     link_usr = os.path.join(scratch, "usr-link")
     os.makedirs(os.path.join(link_usr, "lib", "ssl"), exist_ok=True)
     os.symlink(os.path.join(etc, "ssl", "private"), os.path.join(link_usr, "lib", "ssl", "private"))
@@ -533,6 +533,28 @@ def main() -> int:
         check(f"a link to {label} is refused with a line that names the path and says no check is run",
               "usr-to-root/lib/ssl/private" in refused and "no check is run" in refused, refused)
     check("control: a plain key directory is not refused", "/usr/lib/ssl/private" in masked)
+    # The launcher's link follows its mask (#358 round 6 C1): with /usr/local a link to a place inside /usr, the tmpfs is on the resolved
+    # directory and the link is made there, not at the name, which is hidden by the link above it.
+    def link_pairs(argv_):
+        return [(argv_[i + 1], argv_[i + 2]) for i, a in enumerate(argv_) if a == "--symlink" and argv_[i + 2].endswith("fabric-python")]
+
+    saved_link = sandbox.python_pin.LINK
+    sandbox.python_pin.LINK = "/usr/local/bin/fabric-python"
+    try:
+        for name, links, dirs, want_dir in (
+                ("usr-local-moved", {"local": "share/local", "share/local/bin/fabric-python": "/opt/pin/bin/python3"}, ["share/local/bin"], "/usr/share/local"),
+                ("usr-local-plain", {"local/bin/fabric-python": "/opt/pin/bin/python3"}, ["local/bin"], "/usr/local")):
+            fixture = fixture_usr(name, links, dirs)
+            moved_argv = argv_of(fixture)
+            check(f"{name}: the mask is on {want_dir} and the launcher's link is made below it, with its own text",
+                  want_dir in tmpfs_of(moved_argv) and ("/opt/pin/bin/python3", want_dir + "/bin/fabric-python") in link_pairs(moved_argv),
+                  str(moved_argv))
+            check(f"{name}: and it is the only link, so none is made at a name the mask hides",
+                  link_pairs(moved_argv) == [("/opt/pin/bin/python3", want_dir + "/bin/fabric-python")], str(link_pairs(moved_argv)))
+        check("control: a mask with no link to make makes none (the launcher is absent on the host)", not any(
+            True for _ in link_pairs(argv_of(fixture_usr("usr-local-nolink", {}, ["local/bin"])))))
+    finally:
+        sandbox.python_pin.LINK = saved_link
     # No destination the argv builds under a tree bound whole may be, or sit below, a link: the class, over every mount flag, on the host's own layout.
     dest_flags = {"--tmpfs": 1, "--ro-bind": 2, "--bind": 2, "--bind-try": 2, "--ro-bind-try": 2, "--dev-bind": 2, "--dev-bind-try": 2}
     host_argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc)
@@ -753,6 +775,25 @@ def sandbox_cases(server, call, head, base, clone, evidence, scratch, home, secr
                               "/bin/cat", "/mnt/lib/ssl/private/key.pem"], capture_output=True, text=True, timeout=60)
         check(f"a key behind a link into the bound tree, {label}: " + ("unreadable inside" if mask else "readable inside"),
               ("PLANTED" not in ran.stdout and ran.returncode != 0) if mask else ran.stdout == "PLANTED-SITE-KEY", ran.stdout + ran.stderr)
+    # The launcher's link at a moved mask (#358 round 6 C1), run for real: /usr/local a link to share/local inside the fixture, which stands
+    # where bwrap_argv puts /usr; the fixture's link text is a program that answers, so the answer is the link's, made at the moved place.
+    moved_usr = os.path.join(scratch, "usr-local-run")
+    os.makedirs(os.path.join(moved_usr, "share", "local", "bin"))
+    os.symlink("share/local", os.path.join(moved_usr, "local"))
+    os.symlink("/usr/bin/python3", os.path.join(moved_usr, "share", "local", "bin", "fabric-python"))
+    saved_pin = (sandbox.python_pin.LINK, sandbox.python_pin.PREFIX)
+    sandbox.python_pin.LINK, sandbox.python_pin.PREFIX = "/usr/local/bin/fabric-python", os.path.join(scratch, "no-such-prefix")
+    try:
+        moved_argv = sandbox.bwrap_argv("bwrap", evidence, where["common"], where["own"], ["true"], usr=moved_usr)
+    finally:
+        sandbox.python_pin.LINK, sandbox.python_pin.PREFIX = saved_pin
+    at = moved_argv.index("--symlink", moved_argv.index("/usr/share/local") if "/usr/share/local" in moved_argv else 0)
+    for label, extra in (("made", moved_argv[at:at + 3]), ("not made (control)", [])):
+        ran = subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "--ro-bind", moved_usr, "/mnt", "--perms", "0555", "--tmpfs", "/mnt/share/local",
+                              *(["--symlink", extra[1], "/mnt/share/local/bin/fabric-python"] if extra else []), "--",
+                              "/mnt/local/bin/fabric-python", "--version"], capture_output=True, text=True, timeout=60)
+        check(f"a launcher link {label} at the moved mask: fabric-python " + ("answers inside" if extra else "is missing inside"),
+              ran.stdout.startswith("Python 3") if extra else ran.returncode != 0, ran.stdout + ran.stderr)
     err, text = run("git", "log", "--oneline", "-1")
     check("a check runs in the head worktree: git log works there (positive control)", not err and exit_of(text) == "exit 0" and "head" in text, text)
     err, text = run("sh", "-c", "pwd")

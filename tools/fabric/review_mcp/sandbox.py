@@ -86,6 +86,11 @@ def mask_target(path: str, roots: list[tuple[str, str]]) -> str | None:
     return None
 
 
+def host_of(name: str, usr: str) -> str:
+    """Where the host has the place `name` shows at inside: the places under /usr are under `usr`, the directory standing for it (a test's fixture)."""
+    return os.path.join(usr, name[len("/usr/"):]) if usr != "/usr" and name.startswith("/usr/") else name
+
+
 def bound_under(path: str, roots: tuple[str, ...]) -> bool:
     return any(path == r or path.startswith(r + "/") for r in roots)
 
@@ -108,7 +113,7 @@ def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command
             argv += ["--ro-bind", path, path]
     masked = {}
     for path in SYSTEM_MASKED:
-        target = mask_target(path, system_roots())
+        target = mask_target(host_of(path, usr), system_roots(usr))
         if target is not None:
             masked[path] = target
             argv += ["--perms", "0555", "--tmpfs", target]
@@ -121,9 +126,14 @@ def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command
             argv += ["--ro-bind", os.path.join(etc, name), "/etc/" + name]
     for path in toolchain_paths():
         argv += ["--ro-bind", path, path]
-    # Only under a mask at the name itself: through a link the mount is elsewhere, and a link made under the name is made through that link.
-    if os.path.islink(python_pin.LINK) and bound_under(python_pin.LINK, SYSTEM_MASKED) and any(masked.get(p) == p for p in SYSTEM_MASKED):
-        argv += ["--symlink", os.readlink(python_pin.LINK), python_pin.LINK]
+    # The launcher's link is made again where the mask over its directory is: a mask moved by a link (/usr/local into /usr) hides the name, and
+    # the link made at the name would be made through that link, under the tmpfs, not at the place the toolchain is bound back to.
+    link_host = host_of(python_pin.LINK, usr)
+    if os.path.islink(link_host):
+        for path in SYSTEM_MASKED:
+            if path in masked and bound_under(python_pin.LINK, (path,)):
+                argv += ["--symlink", os.readlink(link_host), masked[path] + python_pin.LINK[len(path):]]
+                break
     # An allowlist of the git directory, not a mask over a denylist: a file git grows or a pull request's tooling adds there is unreadable
     # until named here. A path that is absent is not bound (a repository without packed-refs or shallow).
     argv += ["--ro-bind", worktree, worktree]
