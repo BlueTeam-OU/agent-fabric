@@ -58,6 +58,12 @@ def toolchain_paths() -> list[str]:
     return [os.path.realpath(p) for p in (python_pin.PREFIX,) if os.path.exists(p)]
 
 
+def maskable(path: str) -> bool:
+    """A directory that a tmpfs may be mounted on. bwrap refuses a mount whose destination is a symlink ("Can't mount on symlink
+    destination"), and os.path.isdir follows links, so isdir alone says yes to Debian's /usr/lib/ssl/private -> /etc/ssl/private."""
+    return os.path.isdir(path) and not os.path.islink(path)
+
+
 def bound_under(path: str, roots: tuple[str, ...]) -> bool:
     return any(path == r or path.startswith(r + "/") for r in roots)
 
@@ -79,10 +85,12 @@ def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command
         elif os.path.isdir(path):
             argv += ["--ro-bind", path, path]
     for path in SYSTEM_MASKED:
-        if os.path.isdir(path):
+        if maskable(path):
             argv += ["--perms", "0555", "--tmpfs", path]
+    # A key directory that is a link is skipped: its target (Debian: /etc/ssl/private) is under no bound root, so inside the sandbox the link
+    # dangles and hides nothing, and a mount on it would stop bwrap (and with it the proof, and every check).
     for rel in KEY_DIRS:
-        if os.path.isdir(os.path.join(usr, rel)):
+        if maskable(os.path.join(usr, rel)):
             argv += ["--perms", "0555", "--tmpfs", "/usr/" + rel]
     for name in ETC_RO:
         if os.path.exists(os.path.join(etc, name)):

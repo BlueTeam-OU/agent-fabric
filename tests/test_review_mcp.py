@@ -482,6 +482,23 @@ def main() -> int:
     host_private = [d for d in ("/usr/lib/ssl/private",) if os.path.isdir(d)]
     check("and the host's own private directories are bound by no argument either", not any(h in bound for h in host_private), str(bound))
     check("while its certificates are", any(a.endswith("ssl/certs") for a in key_argv), str(key_argv))
+    # Debian and Ubuntu (#358 round 4 F5): /usr/lib/ssl/private is a link to /etc/ssl/private, which is not bound, so in the sandbox it dangles
+    # and a mount on it is refused. isdir follows the link, so only islink tells it from the directory above.
+    link_usr = os.path.join(scratch, "usr-link")
+    os.makedirs(os.path.join(link_usr, "lib", "ssl"), exist_ok=True)
+    os.symlink(os.path.join(etc, "ssl", "private"), os.path.join(link_usr, "lib", "ssl", "private"))
+    dangling_usr = os.path.join(scratch, "usr-dangling")
+    os.makedirs(os.path.join(dangling_usr, "lib", "ssl"), exist_ok=True)
+    os.symlink(os.path.join(scratch, "nowhere"), os.path.join(dangling_usr, "lib", "ssl", "private"))
+    for label, fixture in (("resolving", link_usr), ("dangling", dangling_usr)):
+        link_argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc, usr=fixture)
+        check(f"a {label} link at lib/ssl/private gets no mount (positive control: the directory above does)",
+              "/usr/lib/ssl/private" not in link_argv and "/usr/lib/ssl/private" in key_argv, str(link_argv))
+    # No destination the argv builds may be a link: the class, over every mount flag, on the host's own layout.
+    dest_flags = {"--tmpfs": 1, "--ro-bind": 2, "--bind": 2, "--bind-try": 2, "--ro-bind-try": 2, "--dev-bind": 2, "--dev-bind-try": 2}
+    link_dests = [key_argv[i + n] for i, a in enumerate(key_argv) if a in dest_flags for n in (dest_flags[a],)
+                  if key_argv[i + n].startswith("/usr/") and os.path.islink(key_argv[i + n])]
+    check("no mount destination under /usr is a link on this host", not link_dests, str(link_dests))
 
     print("-- review_check: the proved sandbox")
     why = userns_refused()
@@ -664,6 +681,21 @@ def sandbox_cases(server, call, head, base, clone, evidence, scratch, home, secr
         return text.splitlines()[0]
 
     py = "/usr/bin/python3"
+    mount_scratch = os.path.join(scratch, "mount-on-link")
+    os.makedirs(os.path.join(mount_scratch, "dir"))
+    os.symlink("../nowhere", os.path.join(mount_scratch, "link"))
+    refused = subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "--ro-bind", mount_scratch, "/mnt", "--tmpfs", "/mnt/link", "--", "/usr/bin/true"],
+                             capture_output=True, text=True, timeout=30)
+    accepted = subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "--ro-bind", mount_scratch, "/mnt", "--tmpfs", "/mnt/dir", "--", "/usr/bin/true"],
+                              capture_output=True, text=True, timeout=30)
+    check("control: this bwrap refuses a tmpfs on a symlink destination and accepts one on a directory",
+          refused.returncode != 0 and "symlink" in refused.stderr and accepted.returncode == 0, refused.stderr + accepted.stderr)
+    link_usr = os.path.join(scratch, "usr-link")
+    where = {k: subprocess.run(["git", "-C", d, "rev-parse", "--path-format=absolute", flag], capture_output=True, text=True, timeout=30).stdout.strip()
+             for k, d, flag in (("common", clone, "--git-common-dir"), ("own", evidence, "--git-dir"))}
+    probe_argv = sandbox.bwrap_argv("bwrap", evidence, where["common"], where["own"], ["/bin/sh", "-c", "exit 42"], usr=link_usr)
+    ran = subprocess.run(probe_argv, capture_output=True, text=True, timeout=60)
+    check("a sandbox built over the Debian layout (lib/ssl/private a link) starts", ran.returncode == 42, ran.stderr)
     err, text = run("git", "log", "--oneline", "-1")
     check("a check runs in the head worktree: git log works there (positive control)", not err and exit_of(text) == "exit 0" and "head" in text, text)
     err, text = run("sh", "-c", "pwd")
