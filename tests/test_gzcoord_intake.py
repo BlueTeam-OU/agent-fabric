@@ -610,6 +610,51 @@ def _():
         stub.close()
 
 
+WATCH_CHILD = r"""
+import os, shutil, sys
+tree = sys.argv[1]
+sys.path.insert(0, os.path.join(tree, "tools", "fabric"))
+from gzcoord import inbox, intake
+
+def replaced_tree_main(argv):
+    # fabric-ctl all upgrade fabric, under a running watch: the tree on disk is now another version.
+    for name, text in (("tools/fabric/jobs.py", "OLD = True\n"), ("tools/fabric/episodic.py", "OLD = True\n"),
+                       ("runtime/identity.py", "OLD = True\n"),
+                       ("tools/fabric/workingcopy.py", "OLD = True\n")):
+        with open(os.path.join(tree, name), "w") as f:
+            f.write(text)
+    print("jobs:", hasattr(intake._jobs(), "deliver_branch"))
+    print("episodic:", not hasattr(inbox._episodic(), "OLD"))
+    print("identity:", not hasattr(intake.paths.identity(), "OLD"))
+    print("workingcopy:", hasattr(intake._jobs().identity._workingcopy(), "resolve"))
+    return 0
+
+inbox.main = replaced_tree_main
+sys.exit(inbox.run(["--until-delivery"]))
+"""
+
+
+@case("a watch holds one fabric version: a tree replaced under it does not change the modules a delivery imports")
+def _():
+    import shutil
+    scratch = tempfile.mkdtemp(prefix="j162-")
+    P.SCRATCH.append(scratch)
+    tree = os.path.join(scratch, "tree")
+    for sub in ("tools", "runtime", os.path.join("communication", "gzcoord")):
+        shutil.copytree(os.path.join(HERE, sub), os.path.join(tree, sub), ignore=shutil.ignore_patterns("__pycache__", "tests"))
+    env = {"PATH": os.environ.get("PATH", ""), "HOME": scratch, "XDG_STATE_HOME": os.path.join(scratch, "state"),
+           "XDG_RUNTIME_DIR": scratch, "TMPDIR": scratch, "PYTHONDONTWRITEBYTECODE": "1"}
+    r = subprocess.run([sys.executable, "-c", WATCH_CHILD, tree], env=env, capture_output=True, text=True, timeout=60, cwd=scratch)
+    check(r.returncode == 0 and "jobs: True" in r.stdout and "episodic: True" in r.stdout and "identity: True" in r.stdout and "workingcopy: True" in r.stdout,
+          (r.returncode, r.stdout, r.stderr))
+    # The control: the same replacement without the watch's start (the delivery's first import) is the failure that was seen.
+    probe = "import os,sys\nsys.path.insert(0, os.path.join(sys.argv[1],'tools','fabric'))\nfrom gzcoord import intake\n" \
+            "open(os.path.join(sys.argv[1],'tools','fabric','jobs.py'),'w').write('OLD = True\\n')\n" \
+            "print(hasattr(intake._jobs(), 'deliver_branch'))\n"
+    c = subprocess.run([sys.executable, "-c", probe, tree], env=env, capture_output=True, text=True, timeout=60, cwd=scratch)
+    check(c.stdout.strip() == "False", (c.returncode, c.stdout, c.stderr))
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:

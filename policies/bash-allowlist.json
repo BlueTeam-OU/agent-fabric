@@ -1,4 +1,17 @@
 {
-  "description": "Tracked bash scripts over 160 lines that lint admits (ADR-040 \u00a75 rule 2), each with the wave that ports it to Python: 1 the GitHub toolkit, 2 the guards, 3 bin/ and status, 4 the launcher, 5 provisioning, 6 the bash tests. The list only shrinks: a port removes its entry in the same pull request, and an entry the base branch does not have is a finding.",
-  "scripts": {}
+  "description": "The tracked bash ADR-040 §5 rule 2 admits besides forwarders (rule 1's shape: at most 12 lines of code, no loop, no case). `stays` is the closed pre-Python list, each file with its reason; adding to it is a finding. `ports` names the files not yet ported, each with its batch; it only shrinks, and a port removes its entry in the same pull request.",
+  "stays": {
+    "runtime/provisioning/platform/debian.sh": "a platform profile, sourced where only the host's shell exists (before python_pin.py install has made fabric-python, or where it cannot be)",
+    "runtime/provisioning/platform/fedora.sh": "a platform profile, sourced where only the host's shell exists (before python_pin.py install has made fabric-python, or where it cannot be)",
+    "runtime/provisioning/platform/detect.sh": "picks the platform profile, sourced where only the host's shell exists (before python_pin.py install has made fabric-python, or where it cannot be)",
+    "runtime/provisioning/platform/packages.sh": "installs the host contract the pin needs; CI's smoke job runs it (before python_pin.py install has made fabric-python, or where it cannot be)",
+    "runtime/provisioning/platform/qubes/ssh-template.sh": "runs in a Qubes TemplateVM, which has no pinned interpreter",
+    "runtime/provisioning/platform/qubes/ssh-operator.sh": "runs at a Qubes AppVM's boot, before an interpreter exists",
+    "runtime/provisioning/platform/qubes/ssh-restore.sh": "runs at a Qubes AppVM's boot, before an interpreter exists",
+    "runtime/provisioning/platform/qubes/agent-fabric-accounts.rc": "a Qubes rc script, run at boot before an interpreter exists",
+    "runtime/provisioning/moveto/enter-ssh": "an sshd forced command for an account before its interpreter",
+    "runtime/provisioning/moveto/completion.bash": "bash completion, which only bash reads",
+    "tools/fabric/control/completion.bash": "fabric-ctl's bash completion, which only bash reads (ADR-040 §5 rule 1, A 2026-10-24)"
+  },
+  "ports": {}
 }

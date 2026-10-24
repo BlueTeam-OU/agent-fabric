@@ -3,7 +3,7 @@ role: "fabric-coordinator"
 class: index
 description: "What fabric-coordinator knows and where it lives."
 tier: 1
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 ---
 
 # fabric-coordinator — knowledge index

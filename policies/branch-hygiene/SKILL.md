@@ -46,7 +46,8 @@ are **not** on the default branch:
 - **0**: everything on it is on the default branch. `--sweep` deletes it, re-counting
   at deletion. A worktree at 0 is removed only when it has no changes
   (untracked files included), no ignored files (a `.env`, a build that
-  removal would delete) and no lock, and is neither the one you run in
+  removal would delete; Python bytecode does not count, any run
+  regenerates it) and no lock, and is neither the one you run in
   nor one a live session stands in; the
   others are listed with the reason they stay. You do this without
   asking; losing nothing is provable.

@@ -5,7 +5,7 @@ topic: "domain-libp2p-relay-circuit-canceled-is-the-hops"
 description: "libp2p-relay client: a circuit asked for before its connection to the relay is up is dropped unsent (ResponseFromBehaviourCanceled) — score it as the relay hop's, not the destination peer's, whatever the connection table says at settlement"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

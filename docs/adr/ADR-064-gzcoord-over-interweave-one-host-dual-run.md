@@ -85,8 +85,9 @@ relay, and nothing further:
   allowlisted and nothing else, deny by default.
 - **Delivery is the carrier's receipt, not `AcceptedV2`.** The carrier's
   own per-recipient record waits for the receiving carrier, after its
-  journal append, to answer with a receipt of its own media type naming
-  the `MESSAGE-ID`; the journal row keeps ADR-041's meaning.
+  journal append (or its decision that the message is not addressed
+  there), to answer with a receipt of its own media type
+  naming the `MESSAGE-ID`; the journal row keeps ADR-041's meaning.
 - **The grammar does not move.** The carrier adds no field and needs none
   (ADR-033 rule 1). Once it runs, it is the automated transport ADR-032
   §7 waits for; what it observes may later reopen ADR-032 rule 3, by an
@@ -174,8 +175,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    transport `message_id` kept across every retry, and whether the
    recipient's receipt has arrived. The receipt is a direct message of
    the carrier's own media type, naming the `MESSAGE-ID`, sent by the
-   receiving carrier after its journal append; it is never a GZCoord
-   message. A send is retried until its receipt and is never given up
+   receiving carrier after its journal append, or after deciding the
+   message is not addressed to its agent, since a `TO-ROLE` or a
+   broadcast goes to every roster member (A 2026-10-24); it is never a
+   GZCoord message. A send is retried until its receipt and is never given up
    without its operator. The journal's row keeps ADR-041's meaning
    unchanged: both adapters report their post's outcome to it, and it
    is accepted when either carrier accepts the post, a failed row
@@ -186,10 +189,14 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    journals only what ADR-041 rule 2 admits, and a repeat collapses by
    `MESSAGE-ID` (ADR-041 rule 5).
 8. A message whose payload exceeds the 48 KiB ceiling is compressed
-   first (`;ce=br`, the content-encoding InterWeave's human facade
-   defines), and chunked under the carrier's own framing only if it
-   still exceeds it, reassembled before the journal append. With the
-   journal off (ADR-041 rule 10) the route is the relay alone.
+   first, with zlib under the carrier's own media type (`;ce=deflate`),
+   the fabric's standard library having no brotli (ADR-040) and the
+   codec being carrier to carrier, never seen by the daemon or a human
+   client (A 2026-10-24); and chunked under the carrier's own framing
+   only if it still exceeds it, reassembled before the journal append.
+   The names, the framing, the receipt and the adapter channel are
+   `communication/gzcoord/docs/CARRIER-CONTRACT.md` (A 2026-10-24).
+   With the journal off (ADR-041 rule 10) the route is the relay alone.
 9. A delivery carries the address the roster maps its PeerId to. A message
    whose `FROM` differs from it is shown with the mismatch, never as from
    its `FROM`. When the relay's copy was shown first, the InterWeave
@@ -270,3 +277,11 @@ Accepted. Its build waits on a tagged InterWeave release (§5 rule 4).
   `tests/automated-client/` (the reference shape), #368, #381.
 - `communication/gzcoord/docs/TRANSPORT-ADAPTER-CONTRACT.md`.
 - `docs/split/agent-fabric-coord.md`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-064-amendments.md](history/ADR-064-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-24 | the carrier's codec is zlib, a receipt also answers a message not addressed here, and the carrier contract is written | §2 (delivery), §5 rules 7 and 8 |

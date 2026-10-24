@@ -5,7 +5,7 @@ topic: "domain-failure-set-needs-a-non-verdict"
 description: "A closed failure set for a platform key operation needs a 'transient — decide nothing' member, or an adapter must report a passing platform error as a verdict that sends the user into recovery"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

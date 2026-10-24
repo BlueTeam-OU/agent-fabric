@@ -5,7 +5,7 @@ topic: "android-no-hard-links"
 description: "Android app processes cannot link(2) in their data dir (SELinux untrusted_app), so any create-via-hard-link persistence fails with EACCES on a phone and passes on the host"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

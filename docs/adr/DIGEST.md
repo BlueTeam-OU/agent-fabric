@@ -915,7 +915,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — bare command names; shims retire (§5 r7).
 - A 2026-10-09 — Wave 8: control plane; no new Node (§5 r8).
 - A 2026-10-09 — 3.13+ (§5 r1).
-- A 2026-10-11 — Wave 9: all other bash; projects on change (§5 r1, r2, r9, §7).
+- A 2026-10-11 — Wave 9: other bash (§5 r1, r2, r9, §7).
 - A 2026-10-13 — interim limit 160 lines (§7).
 - A 2026-10-14 — Wave 8 done (§7).
 - A 2026-10-19 — Wave 10, our .mjs (§5 r10).
@@ -924,8 +924,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-19 — pin before any input (§5 r5).
 - A 2026-10-19 — batch 5 on the pin (§5 r4).
 - A 2026-10-19 — batches 4, 6, 9 on the pin (§5 r4).
-- Keywords: Python, bash, Node, mjs, port, allowlist, shim, wave,
-  bare command, forwarder.
+- A 2026-10-24 — fabric-ctl completion listed (§5 r1).
+- Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
+  forwarder.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 
@@ -1386,18 +1387,19 @@ its record disagree, the record wins. Look it up, never read it whole:
   record and ADR-033 rule 7 unchanged; the journal collapses by
   MESSAGE-ID; a switch is an ADR-033 amendment on the owner's word over a
   parity report (§5 rule 11).
-- The carrier is the fabric's own long-lived client per account under
-  InterWeave's client unit, not `interweave-human` (exclusive lease, human
-  retention) nor `claude-channel` (session-bound) (§2, §3, §5 rule 5).
+- The carrier: the fabric's own client per account under InterWeave's
+  client unit, not `interweave-human` nor `claude-channel` (§2, §3, §5 rule 5).
 - A committed roster keyed by agent id, each row signed by its login and
   countersigned by the coordinator, renders every profile's
   deny-by-default allowlist; keys minted in their own account; programs
   from a tagged, pinned release (§5 rules 2-4).
-- One direct send per recipient, no GossipSub; the carrier's own
-  per-recipient record waits for the receiving carrier's receipt,
-  retried under one message_id, never given up without its operator; compress then chunk past 48 KiB; FROM
+- One direct send per recipient, no GossipSub; each recipient's receipt
+  awaited, retried under one message_id, never given up without its
+  operator; compress, then chunk, past 48 KiB; FROM
   checked against the PeerId's address; no transport value as metadata
   (§5 rules 6-10).
+- A 2026-10-24 — zlib, not brotli; receipts for messages not addressed
+  here; CARRIER-CONTRACT.md (§5 rules 7, 8).
 - The soak's report, from each inbox's per-copy arrival log, names
   missed, duplicate and offline-delivered counts and a rollback drill
   (§5 rule 11).
