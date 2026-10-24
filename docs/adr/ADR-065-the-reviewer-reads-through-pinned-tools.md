@@ -83,7 +83,8 @@ write, fetch or change a ref, because nothing in it names a verb that does.
 
 **B. Checks run in a proved read-only sandbox.** `review_check` takes an
 argv from the reviewer, not a shell line, and runs it under bubblewrap:
-the whole filesystem bound read-only, a fresh tmpfs at `/tmp` and as
+an allowlist of system paths and the head worktree's git data bound
+read-only, the home an empty tmpfs, a fresh tmpfs at `/tmp` and as
 `TMPDIR`, no network (`--unshare-net`), a new session and process group,
 the clean environment, the head worktree as its working directory, and a
 time budget after which the whole group is ended. Before the first check
@@ -182,7 +183,9 @@ means a full review.
 2. Every review-server tool calls its program with a fixed argv and no
    shell, in the clean environment, and refuses an argument that starts
    with `-` or a revision `rev-parse --verify` does not resolve to a
-   commit. A tool that can write, fetch or change a ref is not added.
+   commit; `review_check` refuses it only as its program (`argv[0]`),
+   since a check's own options are data inside the sandbox (rule 3). A
+   tool that can write, fetch or change a ref is not added.
 3. `review_check` runs one argv, never a shell line, under a bubblewrap
    sandbox that binds the filesystem read-only, gives a fresh `/tmp`, has
    no network, and was proved by a start probe and a refused write for
@@ -204,6 +207,12 @@ means a full review.
    is no longer the review class's.
 
 ## 6. Consequences
+
+- The review server executes code for a session, so ADR-043 §5 rule 8
+  governs it: it is admitted by that rule's sandbox clause, since every
+  execution is `review_check`'s, in the sandbox §2 B names (environment,
+  files, network), and it is one of the servers `allowedMcpServers`
+  names when a host's managed settings are in force.
 
 - The reviewer runs any check that can run read-only with a scratch
   `/tmp`; anything that must write the tree, restore or reach the network
@@ -239,7 +248,7 @@ coverage of its head (§5 rule 4).
 
 ## References
 
-- ADR-005, ADR-015, ADR-020, ADR-040, ADR-049, ADR-053.
+- ADR-005, ADR-015, ADR-020, ADR-040, ADR-043, ADR-049, ADR-053.
 - `runtime/claude-code/agents/code-review.md`,
   `runtime/claude-code/hooks/review-bash-guard.py`,
   `tests/fixtures/review-bash-guard-cases.json`,
