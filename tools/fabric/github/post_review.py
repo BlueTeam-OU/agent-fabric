@@ -182,6 +182,9 @@ DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*" + re.escape(review_bri
 DISPATCH_NAME = review_brief.DISPATCH_VERSION.split()[0]
 # A list marker needs whitespace after it, as in CommonMark: a quoted diff's "+```" or "-```" opens no list item
 # (re-review, finding 1).
+# The lines fabric-errors reads a review by (errors.FINDING_LINE and JUDGEMENT_LINE, which this module cannot import:
+# errors imports it); test_post_review_cli compares the two patterns.
+MACHINE_LINE = re.compile(r"^(?:Finding|Judgement):")
 STRAY_FENCE = re.compile(r"^[ \t]*(?:>[ \t]*|(?:[*+-]|\d{1,9}[.)])[ \t]+)*(`{3,}|~{3,})[ \t]*" + re.escape(DISPATCH_NAME))
 
 
@@ -670,11 +673,20 @@ are judged before they are answered; the judgement follows in the PR."""
             die(f"not posting this report: the report is {len(body)} characters, over the "
                 f"{review_coverage.MAX_REVIEW_CHARS} GitHub takes in one comment, and it does not fit a review either "
                 f"({len(full_body)} with its coverage block).")
-        stub = f"{header}\n{intro}\n\nThe report is {len(body)} characters, more than one review holds: COMMENT_URL\n\n{block}\n"
-        if len(stub) + 200 > review_coverage.MAX_REVIEW_CHARS:
-            die(f"not posting this report: its coverage block alone makes the review {len(stub)} characters, over the "
-                f"{review_coverage.MAX_REVIEW_CHARS} GitHub takes, with nothing of the report in it.")
-        full_body = stub
+        # The machine lines stay in the review: fabric-errors counts a review by them (a review without any reads
+        # as zero findings, not as unknown), and the next round's brief quotes this body as the previous findings,
+        # which a reviewer with no network cannot fetch from the comment.
+        machine = "\n".join(l for l in body.split("\n") if MACHINE_LINE.match(l))
+
+        def stub(url: str) -> str:
+            lines = f"\n\n{machine}" if machine else ""
+            return (f"{header}\n{intro}\n\nThe report is {len(body)} characters, more than one review holds: {url}"
+                    f"{lines}\n\n{block}\n")
+        if len(stub("https://github.com/" + "x" * 100)) > review_coverage.MAX_REVIEW_CHARS:
+            die(f"not posting this report: its coverage block and machine lines alone make the review "
+                f"{len(stub(''))} characters, over the {review_coverage.MAX_REVIEW_CHARS} GitHub takes, with nothing of "
+                "the report in it.")
+        full_body = stub("<the report's comment>")
     # The body the readers will be given, read with their parser: the report around the block is model text, and an
     # unclosed fence in it swallows the block written after it (the block validated above is then not the one a
     # reader finds).
@@ -704,26 +716,33 @@ are judged before they are answered; the judgement follows in the PR."""
             os.unlink(name)
 
     comment_url = ""
-    try:
-        # GitHub's own reason, not a bare "rejected": the first transient
-        # failure on #69 said nothing, and a hand-made retry to learn why
-        # posted an unmarked review. No automatic retry: a timeout may have
-        # posted it, and a second post is a duplicate review on the PR.
-        if comment:
+    # GitHub's own reason, not a bare "rejected": the first transient
+    # failure on #69 said nothing, and a hand-made retry to learn why
+    # posted an unmarked review. No automatic retry: a timeout may have
+    # posted it, and a second post is a duplicate review on the PR.
+    if comment:
+        try:
             comment_url = send(f"repos/{repo}/issues/{pr}/comments", {"body": comment},
                                f"gh api POST repos/{repo}/issues/{pr}/comments")
-            if not comment_url:
-                die("GitHub accepted the comment but returned no URL, so the review cannot point at it — treat as NOT "
-                    "posted, and look at the PR for the comment before re-running.")
-            full_body = full_body.replace("COMMENT_URL", comment_url, 1)
+        except gh.GhError as e:
+            die(f"the report's comment was rejected by GitHub (PR #{pr}): {e.reason}. No review was posted. Look at the PR "
+                "before re-running — a timeout may have posted the comment.")
+        if not comment_url:
+            die("GitHub accepted the comment but returned no URL, so the review cannot point at it — treat as NOT "
+                "posted, and look at the PR for the comment before re-running.")
+        full_body = stub(comment_url)
+        refusal = readback_refusal(full_body, marker, coverage)
+        if refusal:
+            die(f"not posting the review: {refusal}; the report's comment {comment_url} is already there.")
+    there = f"; the report's comment {comment_url} is already there" if comment_url else ""
+    try:
         url = send(f"repos/{repo}/pulls/{pr}/reviews", {"body": full_body, "event": "COMMENT", "commit_id": commit},
                    f"gh api POST repos/{repo}/pulls/{pr}/reviews")
     except gh.GhError as e:
         die(f"the review was rejected by GitHub (PR #{pr}): {e.reason}. Look at the PR before re-running — "
-            "a timeout may have posted it" + (f"; the report's comment {comment_url} is already there" if comment_url else "")
-            + "; never post it by hand, unmarked.")
+            f"a timeout may have posted it{there}; never post it by hand, unmarked.")
     if not url:
-        die("GitHub accepted the request but returned no review URL — treat as NOT posted.")
+        die(f"GitHub accepted the request but returned no review URL — treat as NOT posted{there}.")
     print(f"posted review: {url}")
     print(f"  {recorded}")
     return 0
