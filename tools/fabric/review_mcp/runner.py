@@ -25,6 +25,7 @@ class Ran:
     err: bytes
     cut: bool = False             # stdout reached the cap and the group was ended
     timed_out: bool = False
+    err_cut: bool = False         # stderr reached STDERR_CAP; the child is let run on, so this alone does not end it
 
 
 def _kill_group(pgid: int) -> None:
@@ -41,7 +42,7 @@ def run_bounded(argv: list[str], env: dict[str, str], cwd: str, budget_s: float,
     p = subprocess.Popen(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          start_new_session=True, pass_fds=pass_fds)
     out, err = bytearray(), bytearray()
-    cut = timed_out = False
+    cut = timed_out = err_cut = False
     open_fds = {p.stdout.fileno(): out, p.stderr.fileno(): err}
     try:
         # Read until both pipes are closed and the leader has exited, or the cap or the budget ends it. The moment the leader has exited
@@ -66,6 +67,7 @@ def run_bounded(argv: list[str], env: dict[str, str], cwd: str, budget_s: float,
                         cut = True
                     elif sink is err and len(err) > STDERR_CAP:
                         del err[STDERR_CAP:]
+                        err_cut = True
             else:
                 time.sleep(POLL_S / 5)
             if not exited and os.waitid(os.P_PID, p.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None:
@@ -76,7 +78,7 @@ def run_bounded(argv: list[str], env: dict[str, str], cwd: str, budget_s: float,
         p.wait()
         p.stdout.close()
         p.stderr.close()
-    return Ran(None if (cut or timed_out) else p.returncode, bytes(out), bytes(err), cut, timed_out)
+    return Ran(None if (cut or timed_out) else p.returncode, bytes(out), bytes(err), cut, timed_out, err_cut)
 
 
 def text_of(data: bytes, cap_bytes: int, cut: bool) -> str:
