@@ -190,9 +190,9 @@ runs there and makes no extract of its own (the earlier practice left
 itself makes nothing: the path is passed in. `fabric-review save` removes
 the round's worktree, recomputing the path from the report header's
 `head_sha`, and only when it is a worktree at that head; a working-tree or
-diff-file request makes none, and `check` makes none. After saving a round, the
-dispatcher removes the scratch directory the report names (it is under the
-reviewer's `TMPDIR`). The reviewer opens its report with the brief's header, copied
+diff-file request makes none, and `check` makes none. The review class
+makes no scratch directory: a check's `/tmp` is the sandbox's own and goes
+with it (agent-fabric ADR-065 §2 B). The reviewer opens its report with the brief's header, copied
 unchanged, so the mode travels with the report: `fabric-pr post-review`
 refuses a report whose header says `working-tree` (only a pinned review
 covers a head) and records the review on the header's `head_sha`, the
@@ -297,7 +297,7 @@ Tests: `tests/test_review_codex.py`, `tests/test_review_gateway.py`.
 |---|---|
 | the reviewer starts without the parent's conversation or reasoning | Claude Code: a subagent's context is fresh (its agent file + environment + CLAUDE.md + the prompt) — a harness property, read back in `docs/live-checks/` |
 | the dispatch shape, the model (routing's pin, review-grade gated), no worktree | structurally: the dispatch guard, `install-agent-files.sh`, `runtime/openrouter/launch`, and their tests |
-| the reviewer cannot write, change git state or install | structurally: the agent file's `tools:` allow-list, `review-bash-guard.sh`, `subagent-clone-guard.sh` |
+| the reviewer cannot write, change git state or install | structurally: the agent file's `tools:` allow-list (no Bash, no writing tool), the fabric-review server's fixed-argv git tools and its proved read-only sandbox (ADR-065), `subagent-clone-guard.sh` |
 | the brief carries facts, not conclusions | a dispatcher convention with two fences: the renderer's rationale lint before the dispatch, the reviewer's verdict rule after it — never a hook on prompt text (`policies/subagent-dispatch/SKILL.md`) |
 | a named lens reaches the reviewer | rendered inline; the reviewer lists the lenses it applied under *Brief notes* |
 | charter fields never become routing | the renderer emits Markdown only; routing reads `routing/` and `aliases.json` |

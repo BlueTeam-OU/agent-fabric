@@ -94,19 +94,14 @@ outage procedure.
    capability within `routing/policies/review-grade.json`'s closed set;
    lint refuses a committed profile outside it and the launcher refuses
    the merged result. It is never a tier export.
-4. The reviewer writes nothing and inherits no secret: `review-bash-guard.sh`
-   (the shim the agent file declares) and `review-bash-guard.py` deny
-   state-changing git, package installs and printing the environment or
-   secret material while that agent runs, and every command they let
-   through runs with a clean environment that keeps only the variables a
-   build or a test needs and the session markers (`CLEAN_ENV`), never the
-   account's secrets. The rewrite removes the inherited environment, not
-   every way back to it: secret files and a parent's `/proc` environ
-   stay reachable by some spelling; the patterns refuse the routine ones
-   and close none. No shell sources the secrets any more (ADR-038 rule
-   9); keeping them off what the session can read is what would close
-   the rest. It has
-   Read, Glob, Grep and Bash only.
+4. The reviewer writes nothing and inherits no secret: its agent file
+   lists `Read`, `Glob`, `Grep` and the fabric-review server's tools,
+   no Bash, and no writing tool. History and the range are read through
+   tools that run git from a fixed argv with no shell and a clean
+   environment; a check runs one argv in a bubblewrap sandbox proved for
+   the review, the filesystem read-only, a fresh `/tmp` and no network
+   (agent-fabric ADR-065). `Read`, `Glob` and `Grep` are not fenced:
+   what a login may read, the reviewer may read.
 5. A brief is rendered by `fabric-review brief` from a request naming
    what must be true — mode, repository, range, objective, requirements,
    invariants, compatibility, threat model, scope, out of scope, lenses —
@@ -116,10 +111,10 @@ outage procedure.
    first line is the marker; the body names the method and carries no
    disclaimer. **A review covers the commit it read, never the PR's head
    at posting time:** post-review records it on the report's dispatch
-   header `head_sha`, or, for a report with no header (the second
-   engine's), on `--head <full sha>`; a report naming no head, two heads,
-   a head that disagrees with `--head`, or a commit that is not the PR's
-   is refused and nothing is posted. A review of an older head therefore
+   header `head_sha` (ADR-065 §5 rule 4: a report without the v2 header
+   and a coverage block is refused, both engines' alike); a report
+   naming no head, two heads, or a commit that is not the PR's is
+   refused and nothing is posted. A review of an older head therefore
    leaves the current head uncovered for the gate and the arm.
 7. `pr-review-status.sh` counts as coverage: a marked review posted by the
    PR's author account or a login in `AGENT_FABRIC_REVIEW_POSTERS`; an
@@ -251,3 +246,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | 2026-10-15 | A pinned review reads a detached worktree of the head | §5 rule 10: `brief` and `next` check the range's head out detached under `<TMPDIR>/fabric-review/` and the brief names it; the reviewer reads and runs there and makes no extract of its own; `save` removes it |
 | 2026-10-16 | A review covers the commit it read | §5 rule 6: post-review records a review on the head its report names (dispatch header `head_sha`, or `--head` for a headerless report) and refuses a report naming none, several or a commit outside the PR; a review posted after a push no longer covers the new head |
 | 2026-10-22 | A supplier dispatches no review of its own part | §5 rule 11: the caller folds every supply and dispatches the one blind review of the head; a supplier sends its own checks, never a review-class review; the dispatch guard denies a review from a `for/` branch |
+| 2026-10-24 | The reviewer reads through pinned tools and posts nothing headerless | §5 rule 4: no Bash, the fabric-review tools and a proved sandbox (ADR-065); rule 6: no headerless `--head` post |
