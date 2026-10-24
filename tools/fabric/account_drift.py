@@ -15,7 +15,8 @@ CONTRACT (j138; the request is develop-qzapp/user's, 2026-10-20):
   environment  what fabric_writes.state_dir() reads (AGENT_FABRIC_STATE_DIR,
                XDG_STATE_HOME, HOME) to find the record, and what the
                bootstrap child reads (HOME, CLAUDE_CONFIG_DIR,
-               XDG_CONFIG_HOME, AGENT_FABRIC_LOCAL_BIN) to know the same
+               XDG_CONFIG_HOME, AGENT_FABRIC_LOCAL_BIN,
+               BASH_COMPLETION_USER_DIR, XDG_DATA_HOME) to know the same
                account's files. Passed to the child as it is.
   reads        <state>/agents/<login>/fabric-written.json — {absolute path:
                sha256 of what the fabric last wrote there}; every path it

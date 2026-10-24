@@ -68,9 +68,12 @@ Writes, idempotently, and only machine-local files:
                                      relay as itself (episodic.py gzcoord-import --if-needed,
                                      agent-fabric ADR-041 rule 9), best effort
 where <units> is $XDG_CONFIG_HOME/systemd/user, else ~/.config/systemd/user,
-and <completions> is $BASH_COMPLETION_USER_DIR/completions, else
-$XDG_DATA_HOME/bash-completion/completions, else
-~/.local/share/bash-completion/completions (bash-completion's own order).
+and <completions> is two directories, linked in this order, one when they
+coincide: where bash-completion looks in this environment (the first
+':'-separated entry of $BASH_COMPLETION_USER_DIR, plus /completions, when that
+is set, else $XDG_DATA_HOME/bash-completion/completions), then always
+~/.local/share/bash-completion/completions, where a run without those
+variables looks.
 
 Nothing here names an agent: the hooks ask the OS who is running at
 session start. Nothing here makes projects/ a git repository. A managed
@@ -94,7 +97,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                (the user manager's bus; set to /run/user/<uid> for the
                children when unset, outside a dry run);
                AGENT_FABRIC_LOCAL_BIN (else ~/.local/bin);
-               BASH_COMPLETION_USER_DIR, XDG_DATA_HOME (<completions>);
+               BASH_COMPLETION_USER_DIR (split on ':'), XDG_DATA_HOME
+               (<completions>);
                AGENT_FABRIC_DEFER_AGENTD_RESTART (non-empty: a changed
                control-agent unit is not restarted, and the line says so);
                the collation locale (LC_ALL / LC_COLLATE / LANG), which
@@ -682,17 +686,30 @@ class Bootstrap:
             if name:
                 self.link(os.path.join(local_bin, name), rel, replaces.get(name, []), f"{name} is not on PATH")
 
-    def completion_dir(self) -> str:
-        # Where bash-completion's lazy loader looks for a user's own file named
-        # after the command, the same precedence it applies itself.
-        data = os.environ.get("XDG_DATA_HOME") or os.path.join(self.home, ".local", "share")
-        return os.environ.get("BASH_COMPLETION_USER_DIR") or os.path.join(data, "bash-completion")
+    def completion_dirs(self) -> list[str]:
+        # bash-completion splits BASH_COMPLETION_USER_DIR on ':' and only falls
+        # back to XDG_DATA_HOME when it is empty; its lazy loader tries every
+        # entry, and the first is enough for us. An entry-less value (only
+        # colons) counts as unset here; bash-completion itself would try
+        # /completions, which is no place to link. The default is linked too
+        # because bootstrap runs from a person's shell and from the control
+        # agent's upgrade (no such variables): each run then leaves both links
+        # current, so fabric-drift's dry run never sees the other's as changed.
+        default = os.path.join(self.home, ".local", "share", "bash-completion", "completions")
+        first = next((e for e in os.environ.get("BASH_COMPLETION_USER_DIR", "").split(":") if e), None)
+        if first is not None:
+            seen = os.path.join(first, "completions")
+        else:
+            data = os.environ.get("XDG_DATA_HOME") or os.path.join(self.home, ".local", "share")
+            seen = os.path.join(data, "bash-completion", "completions")
+        return [seen] if seen == default else [seen, default]
 
     def link_completion(self) -> None:
         # fabric-ctl's tab completion (owner, 2026-10-22): a link, not a copy, so
         # a pulled checkout's new verbs complete without another bootstrap.
-        self.link(os.path.join(self.completion_dir(), "completions", "fabric-ctl"),
-                  "tools/fabric/control/completion.bash", [], "fabric-ctl has no tab completion")
+        for d in self.completion_dirs():
+            self.link(os.path.join(d, "fabric-ctl"),
+                      "tools/fabric/control/completion.bash", [], "fabric-ctl has no tab completion")
 
     def link(self, link: str, rel: str, earlier: list[str], lost: str) -> None:
         """Point link at the checkout's rel. A link this fabric made — to this
