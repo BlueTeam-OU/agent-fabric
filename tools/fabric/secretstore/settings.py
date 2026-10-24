@@ -379,7 +379,16 @@ def _refuse_roles(files: dict[str, bytes]) -> None:
             raise StoreError(f"settings/{rel}: addenda are installed by your parent (ADR-060); nothing written")
 
 
-def settings_put(src: str) -> dict:
+def remote_tip(store: str) -> str:
+    """The remote's tip as the last fetch left it. Not HEAD: bringing the store up to its remote re-signs unpushed
+    commits, so HEAD changes with no newer commit having arrived."""
+    return git(store, "rev-parse", f"refs/remotes/origin/{entries._branch(store)}").stdout.decode().strip()
+
+
+def settings_put(src: str, expect_head: str | None = None) -> dict:
+    """`expect_head`: the remote tip (remote_tip) the caller read the files it is replacing at. A caller that renders
+    a whole file from what it read (account_observe) passes it; if bringing the store up to its remote moved the tip
+    since, the files are stale and the write is refused, so it cannot revert an edit that arrived in between."""
     # SIGTERM and SIGHUP end a Python process without an exception: raised here, the undo below runs for them
     # as for Ctrl-C. SIGKILL cannot be handled: it leaves the store dirty, and the next run refuses it by name.
     # A caller that ignores SIGHUP (nohup) keeps ignoring it.
@@ -389,7 +398,7 @@ def settings_put(src: str) -> dict:
     try:
         files = _read_tree(src)
         _refuse_roles(files)
-        return _put(files, state)
+        return _put(files, state) if expect_head is None else _put(files, state, expect_head)
     except KeyboardInterrupt as e:
         what = str(e) or "Ctrl-C"
         if state["committed"]:
@@ -401,7 +410,7 @@ def settings_put(src: str) -> dict:
             signal.signal(s, handler)
 
 
-def _put(files: dict[str, bytes], state: dict) -> dict:
+def _put(files: dict[str, bytes], state: dict, expect_head: str | None = None) -> dict:
     store = store_dir()
     aid = own_agent_id(store) if os.path.isdir(store) else None
     if not aid:
@@ -419,6 +428,8 @@ def _put(files: dict[str, bytes], state: dict) -> dict:
             with _masked():
                 _abort_rebase(store)
             raise
+        if expect_head is not None and remote_tip(store) != expect_head:
+            raise StoreError("the store moved while the files were being prepared (a newer commit arrived); nothing written; run it again")
         left = git(store, "status", "--porcelain", "--ignored", "--untracked-files=all", "--", "settings").stdout.decode().strip()
         if left:
             raise StoreError(f"{store} has untracked or ignored files below settings/ ({left.splitlines()[0][3:]}); nothing written")
