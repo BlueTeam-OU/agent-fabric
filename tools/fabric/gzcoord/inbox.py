@@ -212,6 +212,23 @@ def _episodic():
     return episodic
 
 
+def pin_version() -> None:
+    """Load, at the watch's start, every module the delivery path imports
+    late. A watch outlives `fabric-ctl all upgrade fabric`: a module first
+    imported at a delivery is read from the NEW tree by a process whose
+    other modules are the OLD one ("module 'jobs' has no attribute
+    'deliver_branch'"). The lock taken before this loads runtime/identity.
+    Loaded now, a watch runs one version, the one it
+    started on, and the next arming runs the new."""
+    # A module that will not load must not stop the delivery of messages: the
+    # REQUEST that needs it says so (intake), as it did before.
+    for load in (intake._jobs, _episodic):
+        try:
+            load()
+        except Exception as e:  # noqa: BLE001 — said once, the watch goes on
+            print(f"gzcoord-inbox: {load.__name__.strip('_')} did not load at start: {e}", file=sys.stderr)
+
+
 def run_episodic(args: list[str], stdin: str) -> dict:
     """{status, stdout, stderr} of `episodic.py <args>` with stdin, in this
     process. An exception that escapes it is a journal that did not answer;
@@ -570,6 +587,7 @@ def run(argv: list[str]) -> int:
                 lock = None
             elif lock is None:
                 return 0
+            pin_version()
         return main(argv)
     except _Exit as e:
         return e.code
