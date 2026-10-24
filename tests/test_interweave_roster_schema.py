@@ -100,7 +100,7 @@ class Schema(unittest.TestCase):
             "an empty identity_show": with_row(identity_show=""),
             "version 2": {**good_doc(), "version": 2},
             "a one-element port range": {**good_doc(), "port_range": [47100]},
-            "an unknown top-level field": {**good_doc(), "extra": 1},
+            "version true": {**good_doc(), "version": True},
         }
         for name, doc in cases.items():
             with self.subTest(name):
@@ -108,6 +108,22 @@ class Schema(unittest.TestCase):
         missing = good_doc()
         del missing["rows"][0]["countersignature"]
         self.assertTrue(findings(missing), "a missing countersignature")
+
+    def test_the_top_level_is_as_tolerant_as_the_reader(self):
+        # roster.load ignores a top-level key it does not know; a schema that refused it would call valid a roster the carrier uses.
+        import tempfile
+        doc = {**good_doc(), "extra": 1}
+        self.assertEqual(findings(doc), [])
+        with tempfile.TemporaryDirectory(prefix="roster-schema.") as d:
+            path = os.path.join(d, "roster.json")
+            with open(path, "w") as fh:
+                json.dump(doc, fh)
+            self.assertEqual(R.load(path).profile, "gzcoord")
+            for bad in (True, 2, "1"):
+                with open(path, "w") as fh:
+                    json.dump({**good_doc(), "version": bad}, fh)
+                with self.assertRaises(R.RosterError, msg=repr(bad)):
+                    R.load(path)
 
     def test_what_the_schema_refuses_the_reader_refuses_too(self):
         # A malformed row is refused by valid_rows before any key is read, so this runs with no keys.

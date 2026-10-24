@@ -4,7 +4,6 @@
   "title": "InterWeave carrier roster (agent-fabric ADR-064 §5 rule 2)",
   "description": "Shape only. Whether a row counts is decided by tools/fabric/gzcoord/carrier/roster.py (valid_rows): the login's signature over identity_show with the signing subkey of the key committed for agent_id, the coordinator's countersignature over agent_id, login, peer_id, endpoint and port, a port inside port_range, no other row on the same agent id, login, PeerId or port. A schema cannot check a signature; a row it accepts is not thereby valid.",
   "type": "object",
-  "additionalProperties": false,
   "required": [
     "version",
     "profile",

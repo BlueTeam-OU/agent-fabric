@@ -59,7 +59,7 @@ def install(home: str, source: str = SOURCE) -> bool:
         with os.fdopen(fd, "wb") as out, open(source, "rb") as fh:
             shutil.copyfileobj(fh, out)
         os.chmod(tmp, MODE)
-        # A symlink or directory at the target is replaced by the rename, not followed.
+        # A symlink at the target is replaced by the rename, not followed; a directory there is an error.
         os.replace(tmp, dst)
     except BaseException:
         try:

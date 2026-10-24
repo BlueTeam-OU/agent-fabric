@@ -180,7 +180,7 @@ def load(path: str) -> Roster:
         raise RosterError(f"{path}: {e}") from e
     try:
         lo, hi = doc["port_range"]
-        ok = (doc["version"] == 1 and PROFILE_RE.fullmatch(doc["profile"])
+        ok = (type(doc["version"]) is int and doc["version"] == 1 and PROFILE_RE.fullmatch(doc["profile"])
               and ENDPOINT_RE.fullmatch(doc["endpoint"]) and type(lo) is int and type(hi) is int
               and 1024 <= lo <= hi <= 65535 and isinstance(doc["rows"], list)
               and all(isinstance(r, dict) for r in doc["rows"]))

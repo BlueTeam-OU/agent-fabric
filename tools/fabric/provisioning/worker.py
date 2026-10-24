@@ -559,7 +559,8 @@ def install_client(w: Worker) -> None:
     if got.returncode != 0:
         tail(got.stdout)
         w.die(f"step failed: install_client.py as {login}; nothing after it ran")
-    w.say("7b. carrier client unit program installed")
+    # The installer's own word tells a write from a re-run that found it in place.
+    w.say("7b. carrier client unit program " + ("already in place" if "install_client: already" in (got.stdout or "") else "installed"))
 
 
 def toolchains(w: Worker) -> None:
