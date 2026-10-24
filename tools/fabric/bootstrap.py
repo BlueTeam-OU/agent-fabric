@@ -693,8 +693,9 @@ class Bootstrap:
         # colons) counts as unset here; bash-completion itself would try
         # /completions, which is no place to link. The default is linked too
         # because bootstrap runs from a person's shell and from the control
-        # agent's upgrade (no such variables): each run then leaves both links
-        # current, so fabric-drift's dry run never sees the other's as changed.
+        # agent's upgrade (no such variables): once a run from each has been
+        # made, both links stay current and neither one's dry run (fabric-drift's)
+        # sees the other's link as a change.
         default = os.path.join(self.home, ".local", "share", "bash-completion", "completions")
         first = next((e for e in os.environ.get("BASH_COMPLETION_USER_DIR", "").split(":") if e), None)
         if first is not None:
