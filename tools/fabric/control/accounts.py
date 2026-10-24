@@ -29,6 +29,11 @@ pinned Python: `python3 tools/fabric/control/accounts.py`.
   fabric-accounts templates         each template's token fingerprint in the coordinator's store,
                                     to name the account behind a login's `setup-token <sha>`
                                     (fabric-ctl, fabric-status)
+  fabric-accounts observe [--write]
+                                    what each template's account says of itself — both windows, ids, overage,
+                                    the weekly reset, and from an observer sign-in the plan and the per-model
+                                    meter — set as ONE key, "observed", in its settings/accounts/<slug>.json of
+                                    the coordinator's store (control/account_observe.py); dry without --write
   fabric-accounts switch [--tick | --log [N]]
                                     the switch controller (ADR-052; control/account_switch.py): what it
                                     would do now (nothing logged or moved); one run (--tick, what the
@@ -60,7 +65,7 @@ else:
 from control.ops import util  # noqa: E402
 from control.ops.usage import ACCOUNT_SLUG, account_slugs, accounts, accounts_dir, claude_bin, take_read_lock  # noqa: E402
 
-USAGE = """usage: fabric-accounts login <account> | list | read | templates | assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
+USAGE = """usage: fabric-accounts login <account> | list | read | observe [--write] | templates | assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
        fabric-accounts codex-token <login…|all> [--no-sync] [--force] [--refresh] [--home DIR]
        fabric-accounts switch [--tick | --log [N]]
   <account>: lowercase letters, digits and hyphens — the account's email with @ and . as -,
@@ -233,6 +238,9 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: dic
     arg = argv[1] if len(argv) > 1 else None
     directory = accounts_dir(home, env)
     root = fabric_root(env)
+    if cmd == "observe":
+        from control import account_observe
+        return account_observe.main(argv[1:], home=home, env=env, say=_say)
     if cmd == "switch":
         from control import account_switch
         return account_switch.main(argv[1:])

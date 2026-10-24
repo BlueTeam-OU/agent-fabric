@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 import threading
 import types
@@ -285,6 +286,52 @@ class Accounts(Base):
         self.assertEqual([lim["percent"] for lim in odd["limits"]], [None, None], "a percent that is not a number is unknown, not 11 and not 1")
         self.assertEqual(ops.parse_usage_report(json.dumps([{"type": "result", "is_error": False}]))["status"], "no-report", "a success without the report is said, not read as zero usage")
 
+    def test_parse_usage_report_the_result_only_shape_of_2_1_286_is_unreadable_never_ok(self):
+        result_only = json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "Current session: 11% used"})
+        self.assertEqual(ops.parse_usage_report(result_only), {"status": "unreadable"})
+        self.assertEqual(ops.parse_usage_report(USAGE_EVENTS)["status"], "ok", "positive control: the event array reads")
+
+    def test_read_account_with_the_result_only_shape_says_unreadable_and_the_event_array_reads(self):
+        h, d = account_home(self)
+        acct = os.path.join(d, "claude-example-org")
+        result_only = json.dumps({"type": "result", "is_error": False, "result": "Current session: 11% used"})
+        r = ops.read_account(acct, home=h, bin="/fake/claude", run=harness(out=result_only))
+        self.assertEqual(r["status"], "unreadable")
+        self.assertNotIn("limits", r)
+        self.assertEqual(ops.read_account(acct, home=h, bin="/fake/claude", run=harness())["status"], "ok")
+
+    def test_read_json_refuses_what_is_not_a_regular_file_even_when_it_holds_json(self):
+        d = tempfile.mkdtemp(prefix="readjson-")
+        self.addCleanup(shutil.rmtree, d, True)
+        good = write(os.path.join(d, "good.json"), '{"a": 1}')
+        self.assertEqual(util.read_json(good), {"a": 1}, "positive control")
+        fifo = os.path.join(d, "fifo.json")
+        os.mkfifo(fifo)
+        hold = os.open(fifo, os.O_RDWR)   # a writer is present, so the JSON below is readable from the pipe
+        self.addCleanup(os.close, hold)
+        os.write(hold, b'{"a": 1}')
+        self.assertIsNone(util.read_json(fifo))
+        before = len(os.listdir("/proc/self/fd"))
+        for _ in range(20):
+            self.assertIsNone(util.read_json(d))   # a directory
+        self.assertEqual(len(os.listdir("/proc/self/fd")), before, "a refused read does not leak its descriptor")
+        os.symlink(fifo, os.path.join(d, "link.json"))
+        self.assertIsNone(util.read_json(os.path.join(d, "link.json")))
+
+    def test_the_read_child_has_no_stdin_a_harness_waits_3_s_on_an_open_one(self):
+        # The runner's own stdin is made an open pipe, so a child that inherited it would block: the mutation
+        # (stdin=None) is then a timeout, not a pass that depends on how the suite was started.
+        rd, wr = os.pipe()
+        self.addCleanup(os.close, wr)
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); from control.ops import util as u; import sys as s\n"
+                "r = u.run_bounded(['sh', '-c', 'cat; echo end'], timeout=4, max_bytes=1000); print(r.stdout.decode().strip())")
+        tools = os.path.join(HERE, "tools", "fabric")
+        try:
+            p = subprocess.run([sys.executable, "-c", code, tools], stdin=rd, capture_output=True, text=True, timeout=30)
+        finally:
+            os.close(rd)
+        self.assertEqual((p.returncode, p.stdout.strip()), (0, "end"), p.stderr[-300:])
+
     def test_read_account_the_child_runs_in_the_accounts_own_config_directory_with_no_inherited_token(self):
         h, d = account_home(self)
         seen: list = []
@@ -297,7 +344,8 @@ class Accounts(Base):
         self.assertEqual(r["email"], "claude-example-org@example.org")
         self.assertEqual(r["organization_uuid"], "org-1234")
         self.assertEqual(r["read_at"], "2026-09-24T20:00:00.000Z")
-        self.assertEqual(seen[0][0], ["/fake/claude", "-p", "/usage", "--output-format", "json", "--no-session-persistence"])
+        self.assertEqual(seen[0][0], ["/fake/claude", "-p", "/usage", "--output-format", "json", "--verbose", "--no-session-persistence"])
+        self.assertNotIn("input", seen[0][1], "no stdin is fed: run_bounded closes it on /dev/null")
         env = seen[0][1]["env"]
         self.assertEqual(env["CLAUDE_CONFIG_DIR"], acct)
         for k in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
