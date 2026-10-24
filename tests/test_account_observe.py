@@ -98,6 +98,9 @@ class SetKey(unittest.TestCase):
 
     def test_compact_and_empty_objects(self):
         self.assertEqual(O.set_key('{"a":1}', "k", 2), '{"a":1, "k": 2}')
+        spaced = O.set_key("{ \t }\n", "k", 1)
+        self.assertEqual(json.loads(spaced), {"k": 1})
+        self.assertTrue(spaced.endswith(" \t }\n"), "the whitespace inside the braces is kept")
         self.assertEqual(json.loads(O.set_key("{}", "k", {"x": 1})), {"k": {"x": 1}})
         self.assertEqual(json.loads(O.set_key("{\n}\n", "k", 1)), {"k": 1})
 
@@ -177,6 +180,9 @@ class Main(Base):
         self.puts: list[dict[str, str]] = []
         self.heads: list = []
         self.locks = 0
+        self.held_lock = False
+        self.token_reads_under_lock: list[bool] = []
+        self.head_now = "head-at-read"
 
     def path_of(self, slug):
         return os.path.join(self.store, f"{slug}.json")
@@ -197,12 +203,16 @@ class Main(Base):
     @contextlib.contextmanager
     def locked(self):
         self.locks += 1
-        yield "head-at-read"
+        self.held_lock = True
+        try:
+            yield self.head_now
+        finally:
+            self.held_lock = False
 
     def go(self, argv, tokens=None, probe=probe_ok, read_signin=None):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = O.main(argv, home=self.home, env={}, tokens=lambda: tokens if tokens is not None else {"claude-a": TOKEN_A, "claude-b": TOKEN_B},
+            code = O.main(argv, home=self.home, env={}, tokens=lambda: (self.token_reads_under_lock.append(self.held_lock), tokens if tokens is not None else {"claude-a": TOKEN_A, "claude-b": TOKEN_B})[1],
                           path_of=self.path_of, put=self.put, locked=self.locked, probe=probe,
                           read_signin=read_signin or (lambda d, home=None: {"status": "not-signed-in"}), now=lambda: NOW,
                           say=lambda m: print(m, file=sys.stderr))
@@ -228,8 +238,9 @@ class Main(Base):
             fh.write(OWNER_FILE)
         code, out, err = self.go(["--write"])
         self.assertEqual(code, 0, err)
-        self.assertEqual((len(self.puts), self.locks), (1, 1))
+        self.assertEqual((len(self.puts), self.locks), (1, 2), "one lock to read the templates, one to write")
         self.assertEqual(self.heads, ["head-at-read"], "the write names the head the files were read at")
+        self.assertEqual(self.token_reads_under_lock, [True], "the templates are read inside the lock, on the remote's head")
         a = self.puts[0]["accounts/claude-a.json"]
         self.assertTrue(a.startswith(OWNER_FILE[:OWNER_FILE.index("\n}")] + ","), "the owner's text is untouched up to the new key")
         got = json.loads(a)
@@ -296,6 +307,51 @@ class Main(Base):
             {"kind": "weekly_scoped", "percent": 1, "resets_at": None, "model": "Fa\ud800ble"}]})
         o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
         self.assertIsNone(o["model_weekly"][0]["model"], "malformed is unknown, not a made-up name")
+
+    def test_a_store_that_moved_between_the_read_and_the_write_writes_nothing(self):
+        calls = []
+
+        def probe_then_move(tok):
+            self.head_now = "a-newer-head"   # the remote moved while the accounts were being probed
+            calls.append(tok)
+            return probe_ok(tok)
+        code, _, err = self.go(["--write"], probe=probe_then_move)
+        self.assertEqual((code, self.puts), (1, []))
+        self.assertIn("the store moved while the accounts were being read", err)
+
+    def test_a_fragment_of_a_token_in_a_header_value_is_dropped_not_recorded(self):
+        def echo(tok):
+            return {**probe_ok(tok), "organization_id": TOKEN_A[:24]}
+        code, out, err = self.go([], probe=echo)
+        self.assertNotIn(TOKEN_A[:12], out + err)
+        self.assertIn("[token]", out)
+        code, _, _ = self.go(["--write"], probe=echo)
+        self.assertNotIn(TOKEN_A[:12], json.dumps(self.puts))
+
+    def test_a_fifo_where_the_account_file_should_be_is_refused_promptly(self):
+        os.mkfifo(self.path_of("claude-a"))
+        code, out, _ = self.go(["--write"])
+        self.assertEqual(code, 1)
+        self.assertIn("claude-a: ok; refused: not a plain file", out)
+        self.assertEqual(list(self.puts[0]), ["accounts/claude-b.json"])
+
+    def test_malformed_sign_in_facts_are_null_and_a_link_is_no_sign_in(self):
+        self.sign_in(self.home, "claude-a")
+        f = os.path.join(U.accounts_dir(self.home, {}), "claude-a", ".claude.json")
+        with open(f, "w") as fh:
+            json.dump({"oauthAccount": {"subscriptionCreatedAt": "not-a-date", "organizationType": "a b\nc", "billingType": "stripe_subscription"}}, fh)
+        self.go(["--write"], read_signin=lambda d, home=None: {"status": "ok", "limits": []})
+        o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
+        self.assertEqual((o["subscription_created_at"], o["organization_type"], o["billing_type"]), (None, None, "stripe_subscription"))
+        # claude-b is a link to claude-a's directory: it must not record claude-a's facts
+        acc = U.accounts_dir(self.home, {})
+        os.symlink(os.path.join(acc, "claude-a"), os.path.join(acc, "claude-b"))
+        seen = []
+        self.puts.clear()
+        self.go(["--write"], read_signin=lambda d, home=None: (seen.append(os.path.basename(d)), {"status": "ok", "limits": []})[1])
+        b = json.loads(self.puts[0]["accounts/claude-b.json"])["observed"]
+        self.assertNotIn("billing_type", b)
+        self.assertEqual(seen, ["claude-a"])
 
     def test_a_failed_probe_carries_no_sign_in_figures_even_when_the_sign_in_reads(self):
         self.sign_in(self.home, "claude-a")

@@ -27,6 +27,8 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
+import stat
 import sys
 import tempfile
 import time
@@ -76,6 +78,10 @@ def _str(v: Any) -> str | None:
     return v
 
 
+def _word(v: Any) -> str | None:
+    return v if isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", v) else None
+
+
 def _percent(v: Any) -> Any:
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) != float("inf") else None
 
@@ -90,8 +96,8 @@ def signin_profile(directory: str) -> dict:
     acct = p.get("oauthAccount") if isinstance(p, dict) else None
     acct = acct if isinstance(acct, dict) else {}
     extra = acct.get("hasExtraUsageEnabled")
-    return {"organization_type": _str(acct.get("organizationType")), "rate_limit_tier": _str(acct.get("organizationRateLimitTier")),
-            "billing_type": _str(acct.get("billingType")), "subscription_created_at": _str(acct.get("subscriptionCreatedAt")),
+    return {"organization_type": _word(acct.get("organizationType")), "rate_limit_tier": _word(acct.get("organizationRateLimitTier")),
+            "billing_type": _word(acct.get("billingType")), "subscription_created_at": _instant(acct.get("subscriptionCreatedAt")),
             "extra_usage_enabled": extra if isinstance(extra, bool) else None}
 
 
@@ -111,7 +117,9 @@ def build_observed(slug: str, token: str | None, directory: str, *, probe: Calla
                        overage=p.get("overage") or {"status": None, "disabled_reason": None})
     # A failed read carries its status and error and nothing else: the sign-in's plan and meters are not added
     # beside it, or the file would hold figures next to "read-failed".
-    if out["status"] == "ok" and os.path.exists(os.path.join(directory, ".credentials.json")):
+    # A link is no sign-in, as `fabric-accounts read` treats it (usage.account_slugs): it could be another account's.
+    if out["status"] == "ok" and os.path.isdir(directory) and not os.path.islink(directory) \
+            and os.path.exists(os.path.join(directory, ".credentials.json")):
         out.update(signin_profile(directory))
         r = read_signin(directory)
         if r.get("status") == "ok":
@@ -183,7 +191,7 @@ def set_key(text: str, key: str, value: Any) -> str:
         return text[:vs] + body + text[ve:]
     member = f"{json.dumps(key)}: {body}"
     if not members:
-        return text[:open_at + 1] + "\n" + indent + member + "\n" + text[i:]
+        return text[:open_at + 1] + "\n" + indent + member + "\n" + text[open_at + 1:]
     end = members[-1][2]
     return text[:end] + "," + ("\n" + indent if pretty else " ") + member + text[end:]
 
@@ -210,16 +218,21 @@ def account_path(slug: str) -> str:
 def read_text(path: str) -> str | None:
     """The file's text; None if absent. Never through a link (settings-put refuses one too)."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        # O_NONBLOCK: a FIFO with no writer would hold this open, and the store's write lock with it.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
     except FileNotFoundError:
         return None
     except OSError as e:
         raise FileRefused(e.strerror or "unreadable") from None
     with os.fdopen(fd, "rb") as fh:
+        if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+            raise FileRefused("not a plain file")
         try:
             return fh.read().decode("utf-8")
         except UnicodeDecodeError:
             raise FileRefused("not UTF-8") from None
+        except OSError as e:
+            raise FileRefused(e.strerror or "unreadable") from None
 
 
 def store_put(tree: str, expect_head: str | None = None) -> dict:
@@ -250,13 +263,21 @@ def status_text(o: Mapping[str, Any]) -> str:
     return o["status"] + (f"; sign-in {o['signin']['status']}" if "signin" in o else "")
 
 
+FRAGMENT = 12   # a run of this many characters of a token is the token's, whatever the rest of the string is
+
+
+def _holds_fragment(v: str, secret: str) -> bool:
+    return len(secret) >= FRAGMENT and any(secret[i:i + FRAGMENT] in v for i in range(len(secret) - FRAGMENT + 1))
+
+
 def scrub(v: Any, secrets: Sequence[str]) -> Any:
     if isinstance(v, str):
         # A lone surrogate (from the harness's output) cannot be written as UTF-8 and would fail every account's write.
         v = v.encode("utf-8", "replace").decode("utf-8")
         for s in secrets:
             v = v.replace(s, "[token]")
-        return v
+        # Not only the whole token: a string a reply made out of part of one (an id, a cut-off error) is dropped whole.
+        return "[token]" if any(_holds_fragment(v, s) for s in secrets) else v
     if isinstance(v, dict):
         return {k: scrub(x, secrets) for k, x in v.items()}
     if isinstance(v, list):
@@ -278,7 +299,14 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Map
     home = os.path.expanduser("~") if home is None else home
     directory = usage.accounts_dir(home, env)
     try:
-        held = tokens()
+        if write:
+            # The templates are read on the remote's head, not on a local copy that may be behind it (a rotated token
+            # or a new template). The lock is let go for the network probes, and taken again to write: the head must
+            # be the same then, or what was probed is not what the store holds.
+            with locked() as head0:
+                held = tokens()
+        else:
+            head0, held = None, tokens()   # a dry run reads the local copy and says nothing of the remote
     except Exception as e:  # noqa: BLE001 — the store's errors are its own one-liners; a value is never in them
         say(f"fabric-accounts: the templates could not be read: {str(e)[:160]}")
         return 1
@@ -321,6 +349,8 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Map
         return 1 if failed else 0
     try:
         with locked() as head, tempfile.TemporaryDirectory(prefix="observe-") as tree:
+            if head != head0:
+                raise RuntimeError("the store moved while the accounts were being read (a newer commit arrived); nothing written; run it again")
             gather()
             os.makedirs(os.path.join(tree, "accounts"), mode=0o700)
             for slug in observed:
