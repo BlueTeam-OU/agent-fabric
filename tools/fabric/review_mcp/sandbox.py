@@ -35,7 +35,7 @@ START_PROBE_EXIT, REFUSED_PROBE_EXIT, WRITTEN_PROBE_EXIT = 42, 43, 7
 SYSTEM_RO = ("/usr",)
 SYSTEM_MASKED = ("/usr/local",)
 # Private-key directories that sit inside a tree bound whole: covered by an empty tmpfs where they exist.
-KEY_DIRS = ("/usr/lib/ssl/private",)
+KEY_DIRS = ("lib/ssl/private",)   # relative to /usr, so a test can stand a fixture /usr in (bwrap_argv's usr=)
 SYSTEM_LINKED = ("/bin", "/sbin", "/lib", "/lib64", "/lib32", "/libx32")
 # No bound path may hold key material: /etc/ssl is not bound whole (its private/ is readable to the ssl-cert group on Debian, and a bind
 # keeps that), only the certificates and the openssl configuration git and Python read, on the Debian and the Fedora layout.
@@ -63,7 +63,7 @@ def bound_under(path: str, roots: tuple[str, ...]) -> bool:
 
 
 def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command: list[str], source_env: dict[str, str] | None = None,
-               etc: str = "/etc") -> list[str]:
+               etc: str = "/etc", usr: str = "/usr") -> list[str]:
     """The sandbox around `command`. One builder for the proof and the checks: a proof of another argv would prove nothing."""
     home = os.path.realpath(os.path.expanduser("~"))
     # /tmp and the home are tmpfs, put down before anything is bound into them (the head worktree may sit under either, and a tmpfs mounted
@@ -81,9 +81,9 @@ def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command
     for path in SYSTEM_MASKED:
         if os.path.isdir(path):
             argv += ["--perms", "0555", "--tmpfs", path]
-    for path in KEY_DIRS:
-        if os.path.isdir(path):
-            argv += ["--perms", "0555", "--tmpfs", path]
+    for rel in KEY_DIRS:
+        if os.path.isdir(os.path.join(usr, rel)):
+            argv += ["--perms", "0555", "--tmpfs", "/usr/" + rel]
     for name in ETC_RO:
         if os.path.exists(os.path.join(etc, name)):
             argv += ["--ro-bind", os.path.join(etc, name), "/etc/" + name]

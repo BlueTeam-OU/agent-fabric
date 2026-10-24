@@ -465,9 +465,22 @@ def main() -> int:
         os.makedirs(os.path.dirname(os.path.join(etc, rel)), exist_ok=True)
         with open(os.path.join(etc, rel), "w", encoding="utf-8") as fh:
             fh.write(text)
-    key_argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc)
+    # The Debian layout, planted: /usr/lib/ssl/private exists there and is covered by an empty tmpfs, which is a mask and no bind.
+    usr = os.path.join(scratch, "usr")
+    os.makedirs(os.path.join(usr, "lib", "ssl", "private"), exist_ok=True)
+    key_argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc, usr=usr)
+    no_usr_argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc, usr=os.path.join(scratch, "no-usr"))
     check("control: the planted key is readable to this login", "PLANTED" in open(os.path.join(etc, "ssl", "private", "key.pem"), encoding="utf-8").read())
-    check("the fixture's key directories are bound by no argument", not any("private" in a for a in key_argv), str(key_argv))
+    bind_flags = ("--ro-bind", "--bind", "--bind-try", "--ro-bind-try", "--dev-bind", "--dev-bind-try")
+    bound = [key_argv[i + k] for i, a in enumerate(key_argv) if a in bind_flags for k in (1, 2)]
+    check("the fixture's key directories are bound by no argument: no source or destination of a bind names a private directory",
+          not any("private" in b for b in bound), str(bound))
+    masked = [key_argv[i + 1] for i, a in enumerate(key_argv) if a == "--tmpfs"]
+    check("while the host's /usr/lib/ssl/private, where it exists, is covered by an empty tmpfs", "/usr/lib/ssl/private" in masked, str(masked))
+    check("control: where it does not exist nothing is put down for it", "/usr/lib/ssl/private" not in
+          [no_usr_argv[i + 1] for i, a in enumerate(no_usr_argv) if a == "--tmpfs"], str(no_usr_argv))
+    host_private = [d for d in ("/usr/lib/ssl/private",) if os.path.isdir(d)]
+    check("and the host's own private directories are bound by no argument either", not any(h in bound for h in host_private), str(bound))
     check("while its certificates are", any(a.endswith("ssl/certs") for a in key_argv), str(key_argv))
 
     print("-- review_check: the proved sandbox")
