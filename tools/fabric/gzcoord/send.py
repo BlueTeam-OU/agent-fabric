@@ -585,7 +585,7 @@ def main(argv: list[str]) -> int:
             return 2
 
     def via_carrier() -> None:
-        """The same message to the InterWeave carrier (ADR-064 rules 6, 7), after
+        """The same message to the second carrier (ADR-064 rules 6, 7), after
         the relay's outcome is known and whatever it was: both carriers get every
         message, and the journal row is accepted when either accepts. Nothing
         here changes the exit status: the relay is the transport of record
@@ -593,11 +593,11 @@ def main(argv: list[str]) -> int:
         With no carrier running, and with the journal off (rule 8), it is a no-op."""
         if _journal_off():
             return
-        from .carrier import adapter
+        from .carrier import CARRIER_NAME, adapter
         if adapter.Adapter().post(mid, text) == "accepted":
-            done = journal(["gzcoord-out-final", mid, "--state", "accepted", "--carrier", "interweave"], "")
+            done = journal(["gzcoord-out-final", mid, "--state", "accepted", "--carrier", CARRIER_NAME], "")
             if done["status"] != 0:
-                sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by InterWeave\n")
+                sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by the carrier\n")
 
     def post(auth: str) -> Any:
         return inbox.api(auth, "/api/send", relay_url, method="POST",

@@ -9,6 +9,7 @@ from typing import Any, Callable
 from .. import bypass
 from .. import gzmsg
 from .. import jsvalues as js
+from ..carrier import CARRIER_NAME
 from .records import keyword_hit
 from .hold import HOLD_POLL_MS
 
@@ -67,9 +68,9 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     does, with `sessionEnded` in the result: a slice abandoned or a page that landed with it is unread and unacknowledged, so
     the relay shows it again to the next watch (a page already being journaled and shown is finished, and is in the journal).
 
-    `iw` is the InterWeave carrier's adapter (carrier/adapter.py), None when there is none. It adds two things and takes none away,
+    `iw` is the second carrier's adapter (carrier/adapter.py), None when there is none. It adds two things and takes none away,
     and it fails open: a relay copy is shown unless the carrier ANSWERS that a copy of the message was already shown over
-    InterWeave (one message, shown once: ADR-064 rule 9, ADR-041 rule 5), and the carrier's arrivals the relay has not shown are
+    the carrier (one message, shown once: ADR-064 rule 9, ADR-041 rule 5), and the carrier's arrivals the relay has not shown are
     delivered as records of their own (no relay id, so never acknowledged to the relay, and already in the journal: the carrier
     kept them before it receipted them). The claim is made after the journal has kept the page and just before the
     acknowledgement, never earlier: a page held by the journal is shown later and must not find its message claimed.
@@ -198,15 +199,15 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
             for c in classified:
                 mid = c["msg"]["metadata"].get("MESSAGE-ID") if c["isMine"] and c["msg"] else None
                 if mid and not iw.claim(mid, "relay").get("first", True):
-                    c["quiet"] = True   # shown over InterWeave first: journaled and acknowledged, not shown twice
+                    c["quiet"] = True   # shown over the carrier first: journaled and acknowledged, not shown twice
             for u in iw.unseen():
-                got = iw.claim(u["mid"], "interweave")
+                got = iw.claim(u["mid"], CARRIER_NAME)
                 try:
                     msg = gzmsg.parse(u["content"])
                 except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
                     continue
                 if got.get("first", True):
-                    classified.append({"rec": {"id": None, "seq": "interweave", "sender": u.get("sender") or u["mid"],
+                    classified.append({"rec": {"id": None, "seq": CARRIER_NAME, "sender": u.get("sender") or u["mid"],
                                                "timestamp": u["ts"], "content": u["content"]},
                                        "msg": msg, "isMine": True, "iw": u, "reshow": bool(got.get("reshow"))})
             delivered = any(c["isMine"] and not c.get("quiet") for c in classified)

@@ -279,7 +279,7 @@ def _arg_after(argv: list[str], flag: str) -> Any:
     return (argv[i + 1] if i + 1 < len(argv) else js.UNDEFINED) if i >= 0 else None
 
 
-def interweave_hooks(address: str, journal_off: bool):
+def carrier_hooks(address: str, journal_off: bool):
     """(the carrier's adapter, the arrival-log hook) of ADR-064, or (None, None)
     with the journal off: then the route is the relay alone (rule 8) and the
     arrival log, which sits beside the journal, is not kept. With no carrier
@@ -449,7 +449,7 @@ def main(argv: list[str]) -> int:
 
     off = bypass.is_off()
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
-    iw, on_arrival = interweave_hooks(me["address"], off)
+    iw, on_arrival = carrier_hooks(me["address"], off)
     cause = {"reason": None}
 
     def held_line(reason: str, n: int) -> str:

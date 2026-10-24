@@ -89,14 +89,14 @@ def render(res: dict, me: dict, channel: str, taxonomy: gzmsg.Taxonomy | None, c
         if p["retransmitOf"] is not js.UNDEFINED:
             flags = [t("delivery.retransmission", {"seq": p["retransmitOf"]}), *flags]
         if p["iw"]:
-            # An InterWeave arrival (ADR-064 rule 9): shown as from the address the
+            # An arrival over the second carrier (ADR-064 rule 9): shown as from the address the
             # roster maps its authenticated PeerId to, never as from its FROM.
-            title = t("delivery.interweave-title", {"sender": js.get(rec, "sender"), "when": js.get(rec, "timestamp")})
+            title = t("delivery.carrier-title", {"sender": js.get(rec, "sender"), "when": js.get(rec, "timestamp")})
             if p["iw"].get("verdict") == "mismatch":
-                flags.insert(0, t("delivery.interweave-mismatch", {"from": p["msg"]["metadata"].get("FROM"),
+                flags.insert(0, t("delivery.carrier-mismatch", {"from": p["msg"]["metadata"].get("FROM"),
                                                                     "sender": js.get(rec, "sender")}))
             if p["reshow"]:
-                flags.insert(0, t("delivery.interweave-reshow", {"id": p["iw"]["mid"]}))
+                flags.insert(0, t("delivery.carrier-reshow", {"id": p["iw"]["mid"]}))
         else:
             title = t("delivery.title", {"seq": js.get(rec, "seq"), "sender": js.get(rec, "sender"),
                                          "when": js.get(rec, "timestamp")})
@@ -119,7 +119,7 @@ def render(res: dict, me: dict, channel: str, taxonomy: gzmsg.Taxonomy | None, c
 
     def notice(p: dict) -> str:
         if p["iw"]:   # no relay record to replay: the journal holds the whole message
-            return t("cap.interweave-notice", {"id": p["iw"]["mid"]})
+            return t("cap.carrier-notice", {"id": p["iw"]["mid"]})
         return t("cap.notice", {"replay_cmd": REPLAY_CMD, "seq": js.get(p["rec"], "seq")})
 
     others_count = ["", t("cap.others-count", {"count": len(others), "range": seqs(others)})] if others else []
