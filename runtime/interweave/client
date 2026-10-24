@@ -1,0 +1,11 @@
+#!/bin/sh
+# The program of InterWeave's client unit (interweave-client@<profile>.service
+# runs %h/.local/libexec/interweave/client --profile %i): it hands the whole
+# command line to the carrier, which checks the profile against the roster's
+# (agent-fabric ADR-064 §5 rule 5). Installed per account by
+# tools/fabric/gzcoord/carrier/install_client.py; this file is the
+# source, not the copy a unit runs.
+# $HOME, not a path baked in at install time: the copy is byte-identical in every account.
+bin="$HOME/.local/bin/gzcoord-carrier"
+[ -x "$bin" ] || { echo "interweave client: $bin is not installed; run bootstrap.sh in the fabric checkout" >&2; exit 127; }
+exec "$bin" run "$@"

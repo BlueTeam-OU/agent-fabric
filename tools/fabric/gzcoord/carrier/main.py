@@ -3,9 +3,11 @@ carrier of GZCOORD/1 (agent-fabric ADR-064; contract in
 communication/gzcoord/docs/CARRIER-CONTRACT.md).
 
 CONTRACT
-  argv    run                  the carrier: one long-lived process per
+  argv    run [--profile P]    the carrier: one long-lived process per
                                account, the program of InterWeave's client
-                               unit template (`interweave-client@gzcoord`)
+                               unit template (`interweave-client@gzcoord`),
+                               which passes `--profile %i`: refused unless P
+                               is the roster's profile
           status               the carrier's outstanding deliveries, counters
                                and connection, as JSON lines on stdout
           abandon <message-id> <recipient-login>
@@ -54,7 +56,7 @@ if TOOLS not in sys.path:
 
 from gzcoord.carrier import CARRIER_NAME, arrivals, engine, ipc, record, roster, server  # noqa: E402
 
-USAGE = ("usage: gzcoord-carrier run | status | abandon <message-id> <recipient-login> | "
+USAGE = ("usage: gzcoord-carrier run [--profile P] | status | abandon <message-id> <recipient-login> | "
          "render-config [--write PATH] | parity --window START END --arrivals FILE... --senders DIR... "
          "[--journal DB...] [--drill START END] [--host HOST]")
 
@@ -136,7 +138,7 @@ def parse(text: str):
         raise ValueError(str(e)) from None
 
 
-def cmd_run() -> int:
+def cmd_run(profile: str | None = None) -> int:
     if os.environ.get("GZCOORD_JOURNAL") == "off":
         return _refuse("GZCOORD_JOURNAL=off: with the journal off the route is the relay alone (ADR-064 rule 8)")
     import episodic
@@ -148,6 +150,10 @@ def cmd_run() -> int:
         r, good = verified_roster()
     except (roster.RosterError, episodic.JournalError, OSError) as e:
         return _refuse(str(e))
+    # The unit's instance name (%i) is the profile it believes it serves; a unit for any other profile would
+    # hold the gzcoord lease on a socket the roster does not name.
+    if profile is not None and profile != r.profile:
+        return _refuse(f"--profile {profile}: the roster's profile is {r.profile}")
     host = me.address.split("/")[0]
     data_socket = os.path.join(rd, "interweave", f"{r.profile}.sock")
     try:
@@ -264,6 +270,8 @@ def main(argv: list[str]) -> int:
     cmd, rest = argv[0], argv[1:]
     if cmd == "run" and not rest:
         return cmd_run()
+    if cmd == "run" and len(rest) == 2 and rest[0] == "--profile":
+        return cmd_run(rest[1])
     if cmd == "status" and not rest:
         return cmd_status()
     if cmd == "abandon" and len(rest) == 2:

@@ -116,6 +116,10 @@ def main() -> int:
             env2 = {k: v for k, v in env.items() if k != "XDG_RUNTIME_DIR"}
             r4 = subprocess.run([CMD, "run"], env=env2, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
             check("no runtime directory: run refuses (exit 2)", r4.returncode == 2 and "XDG_RUNTIME_DIR" in r4.stderr, r4.stderr)
+            rp = cmd("run", "--profile", "other")
+            check("run --profile P for a profile the roster does not name is refused (exit 2), as the unit's %i may differ",
+                  rp.returncode == 2 and "roster's profile is gzcoord" in rp.stderr, rp.stderr)
+            check("  and run with a lone --profile is usage (exit 1)", cmd("run", "--profile").returncode == 1)
             check("usage: no command is exit 1", cmd().returncode == 1 and cmd("bogus").returncode == 1)
             check("status with no carrier is exit 3", cmd("status").returncode == 3)
 
@@ -137,7 +141,7 @@ def main() -> int:
                 check("it never asks for an admin capability", "admin" not in json.dumps(daemon.hellos[0]))
                 check("status answers over the adapter socket", until(lambda: cmd("status").returncode == 0)
                       and json.loads(cmd("status").stdout)["connected"] is True)
-                r5 = cmd("run")
+                r5 = cmd("run", "--profile", "gzcoord")
                 check("a second carrier beside a live one is refused (exit 2) and the first is unharmed",
                       r5.returncode == 2 and json.loads(cmd("status").stdout)["ok"], r5.stderr)
 
