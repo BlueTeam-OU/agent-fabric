@@ -279,7 +279,6 @@ def phase_portcheck() -> int:
             started, rc, tail = True, None, []
             p.send_signal(signal.SIGTERM)
             p.wait(timeout=30)
-        holders = subprocess.run(["ss", "-ltnH", f"sport = :{port}"], capture_output=True, text=True).stdout.strip().count("\n") + 1
         results[label] = {"port": port, "started": started, "exit": rc, "stderr_tail": tail}
         say(f"portcheck: {label} {port}: daemon {'STARTED and ran' if started else f'exited {rc}'} "
             f"{'' if started else tail}")
