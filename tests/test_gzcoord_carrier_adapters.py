@@ -293,7 +293,7 @@ def main() -> int:
                                     "iw": {"mid": "W-2", "verdict": "mismatch"}, "reshow": True}]},
                    me, "gzapp:gzcoord", tax)
     check("an arrival is titled from the roster's address, not its FROM, with the mismatch and the re-show said",
-          "InterWeave, from h/alpha" in out and "FROM mismatch" in out and "says FROM h/gamma" in out
+          "interweave, from h/alpha" in out and "FROM mismatch" in out and "says FROM h/gamma" in out
           and "relay copy of W-2" in out and "relay seq" not in out, out)
     ok_rec = {"classified": [{"rec": rec, "msg": gzmsg.parse(text("W-3")), "isMine": True,
                               "iw": {"mid": "W-3", "verdict": "ok"}, "reshow": False}]}
