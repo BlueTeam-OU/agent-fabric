@@ -15,7 +15,7 @@ from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
 from fabric_jobs.base import MESSAGE_ID, Job, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
-from fabric_jobs.records import active, fetch_message, find, listed_request, named_working_copy, new_job, request_id_of, request_job, session_id, session_worked, transition
+from fabric_jobs.records import active, fetch_message, find, listed_request, named_working_copy, new_job, request_id_of, request_job, SENDER_ADD_LABEL, session_id, session_worked, transition
 from fabric_jobs.queue import stream_waits
 from fabric_jobs.pool import Unanswered, ask_pool, claimed_job, pool_job, pool_line, pool_offer, printable
 from fabric_jobs.render import blockers_note, line, show, summary
@@ -56,7 +56,7 @@ def add(args) -> int:
                 return listed, False
             return new_job(doc, args.title, topic=args.topic, project=args.project,
                            working_copy=args.working_copy, source=source, priority=args.priority,
-                           project_from=(("--project, as the sending side's jobs-add gave it" if args.owner and request_id_of(args.title) else "--project")
+                           project_from=((SENDER_ADD_LABEL if args.owner and request_id_of(args.title) else "--project")
                                          if args.project else None)), True
 
         job, added = mutate(add_titled)

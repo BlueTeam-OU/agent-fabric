@@ -74,6 +74,8 @@ class FakeJobs:
     def deliver_branch(self, msg: dict) -> Any:
         return _real_jobs().deliver_branch(msg)
 
+    SENDER_ADD_LABEL = "--project, as the sending side's jobs-add gave it"
+
     def request_project(self, meta: dict, project: Any) -> Any:
         """jobs.py's answer where the registry maps no REPOSITORY: the PROJECT header."""
         return meta.get("PROJECT"), ("PROJECT" if meta.get("PROJECT") else None)
@@ -362,12 +364,31 @@ def _():
     try:
         with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as operator:
             os.environ["AGENT_FABRIC_STATE_DIR"], os.environ["AGENT_FABRIC_OPERATOR"] = state, operator  # no registry: unreadable
-            sender_label = "--project, as the sending side's jobs-add gave it"
+            sender_label = real.SENDER_ADD_LABEL
             real.mutate(lambda doc: real.new_job(doc, f"a subject (REQUEST {MID})", project="sender-dir", project_from=sender_label))
             intake.queue_received([delivery(PROJECT="sender-dir", REPOSITORY="some-org/some-repo")], {"address": ME}, err=io.StringIO())
             doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
             check(len(doc["jobs"]) == 1 and doc["jobs"][0]["project_from"].startswith("PROJECT: REPOSITORY some-org/some-repo: registry unreadable"),
                   doc["jobs"])
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+@case("the receiver half also names the reason on a sender-first job that had no --project (j372, re-review 2 F2)")
+def _():
+    saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_OPERATOR")}
+    real = intake._jobs()
+    try:
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as operator:
+            os.environ["AGENT_FABRIC_STATE_DIR"], os.environ["AGENT_FABRIC_OPERATOR"] = state, operator
+            real.mutate(lambda doc: real.new_job(doc, f"a subject (REQUEST {MID})", source={"kind": "owner", "from": "host-a/boss"}))
+            intake.queue_received([delivery(PROJECT=None, REPOSITORY="some-org/some-repo")], {"address": ME}, err=io.StringIO())
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(len(doc["jobs"]) == 1 and doc["jobs"][0]["project_from"].startswith("none: REPOSITORY some-org/some-repo"), doc["jobs"])
     finally:
         for k, v in saved.items():
             if v is None:

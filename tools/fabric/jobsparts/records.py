@@ -267,6 +267,10 @@ def listed_request(doc: dict, message_id: str) -> Job | None:
                  or request_id_of(str(j.get("title", ""))) == message_id), None)
 
 
+# What `add --owner ... --project` records, and what the inbox's receiver half then replaces with the resolver's reason.
+SENDER_ADD_LABEL = "--project, as the sending side's jobs-add gave it"
+
+
 def registered_projects_of(repository: str) -> list[str]:
     """The registered projects with a remote at `repository` (<org>/<repo>, case folded as GitHub reads it); any host, since the
     header carries the path only. Raises OSError/ValueError/AttributeError when the registry cannot be read:
@@ -304,8 +308,9 @@ def request_project(meta: dict, project: str | None) -> tuple[str | None, str | 
         if len(found) == 1:
             return found[0], f"REPOSITORY {repository}" + (f" (the header PROJECT: {header} was not used)" if header and header != found[0] else "")
     if not header:
-        # The reason is still said: a job with no project starts wherever the operator is, not where the message named.
-        return None, (f"none: REPOSITORY {why}, and no PROJECT header" if why else None)
+        # The reason is still said. new_job then gives the job the project of the checkout it is added from, if any (not where the
+        # message named), and the label says so rather than claiming "no project".
+        return None, (f"none: REPOSITORY {why}, and no PROJECT header; the project is the adding checkout's, if any" if why else None)
     return header, "PROJECT" + (f": REPOSITORY {why}" if why else "")
 
 
