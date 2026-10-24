@@ -61,6 +61,8 @@ def main() -> int:
     check("a table row with a status and no '(N work, M fix)': blocked; the counted line passes",
           out and "#115" in out["reason"] and "#116" not in out["reason"], out)
     for text, label in (("Issue #45 is still open.", "an issue"), ("Step #2 is ready.", "a step"),
+                        ("Dependabot alert #22 is open.", "a Dependabot alert"),
+                        ("advisory #7 is merged upstream", "an advisory"), ("job #12 is waiting", "a job"),
                         ("the colour #123456 when the panel is open", "a colour"),
                         ("`gh pr merge #115` then merged", "inline code"), ("~~~\n#5 is merged\n~~~", "a tilde fence"),
                         ("````\n```\n#5 merged\n```\n````", "a backtick line inside a longer fence"),

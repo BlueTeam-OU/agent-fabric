@@ -915,7 +915,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — bare command names; shims retire (§5 r7).
 - A 2026-10-09 — Wave 8: control plane; no new Node (§5 r8).
 - A 2026-10-09 — 3.13+ (§5 r1).
-- A 2026-10-11 — Wave 9: all other bash; projects on change (§5 r1, r2, r9, §7).
+- A 2026-10-11 — Wave 9: other bash (§5 r1, r2, r9, §7).
 - A 2026-10-13 — interim limit 160 lines (§7).
 - A 2026-10-14 — Wave 8 done (§7).
 - A 2026-10-19 — Wave 10, our .mjs (§5 r10).
@@ -924,8 +924,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-19 — pin before any input (§5 r5).
 - A 2026-10-19 — batch 5 on the pin (§5 r4).
 - A 2026-10-19 — batches 4, 6, 9 on the pin (§5 r4).
-- Keywords: Python, bash, Node, mjs, port, allowlist, shim, wave,
-  bare command, forwarder.
+- A 2026-10-24 — fabric-ctl completion listed (§5 r1).
+- Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
+  forwarder.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 

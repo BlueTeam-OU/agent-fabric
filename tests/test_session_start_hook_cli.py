@@ -20,13 +20,13 @@ and its comments name:
   survives being sourced; 6 no CLAUDE_ENV_FILE: exit 0; 7 an
   env file that cannot be written (it is a directory): exit 0 and the
   context still printed; 8 a broken control plane (a root with no module,
-  no python3 on PATH) and 9 a payload that is no JSON: exit 0; 10 the line sourced in a clean
+  no pinned interpreter, no python3 on PATH) and 9 a payload that is no JSON: exit 0; 10 the line sourced in a clean
   shell sets AGENT_FABRIC_ROOT, the variable every documented
   `$AGENT_FABRIC_ROOT/...` command expands.
 
-Mutations, each failing here: the grep guard removed (3, 4); `%q` replaced
-by `%s` (5); `readlink -f` removed (2 through the link); the final `exit 0`
-removed (8, with no interpreter); AGENT_FABRIC_ROOT forced to FABRIC_ROOT (5).
+Mutations, each failing here: the once-only check removed (3, 4); the
+quoting removed (5); `readlink -f` removed (2 through the link); the final `exit 0`
+removed (an interpreter that exits non-zero); AGENT_FABRIC_ROOT forced to FABRIC_ROOT (5).
 
 Exit codes: 0 all assertions passed, 1 one or more failed."""
 from __future__ import annotations
@@ -130,8 +130,25 @@ def main() -> int:
     no_python = h.tool_dir(os.path.join(T, "no-python"), ["bash", "env", "grep", "dirname", "readlink", "cat", "id"])
     gone_env = os.path.join(T, "claude-env-nopython")
     r = h.run(ENTRY, PAYLOAD, {**environment(CLAUDE_ENV_FILE=gone_env), "PATH": no_python})
-    t.check("no interpreter to run the module: still exit 0, and the export is already written",
+    t.check("no python3 on PATH: the pinned interpreter still runs it, exit 0, the export written",
             r.rc == 0 and exported(gone_env) == root, f"{r.rc} {exported(gone_env)!r} {r.err!r}")
+    no_pin_env = os.path.join(T, "claude-env-nopin")
+    r = h.run(ENTRY, PAYLOAD, {**environment(CLAUDE_ENV_FILE=no_pin_env),
+                               "AGENT_FABRIC_PYTHON": os.path.join(T, "no-such-python")})
+    t.check("no pinned interpreter: exit 0, the install line on stderr, nothing exported",
+            r.rc == 0 and "pinned Python is not installed" in r.err and exported(no_pin_env) is None,
+            f"{r.rc} {exported(no_pin_env)!r} {r.err!r}")
+    latin = os.path.join(T, "claude-env-latin1")
+    with open(latin, "wb") as fh:
+        fh.write(b"export OTHER=caf\xe9\n")
+    start(CLAUDE_ENV_FILE=latin)
+    start(CLAUDE_ENV_FILE=latin)
+    with open(latin, "rb") as fh:
+        n = fh.read().count(b"export AGENT_FABRIC_ROOT=")
+    t.check("an env file that is not UTF-8: the export written, and once across two runs", n == 1, f"{n}")
+    false_py = shutil.which("false") or "/bin/false"
+    r = h.run(ENTRY, PAYLOAD, {**environment(), "AGENT_FABRIC_PYTHON": false_py})
+    t.check("an interpreter that exits non-zero: the forwarder still exits 0", r.rc == 0, f"{r.rc} {r.err!r}")
     r = start("not json")
     t.check("a payload that is no JSON: exit 0", r.rc == 0, f"{r.rc} {r.err!r}")
     r = start("")
