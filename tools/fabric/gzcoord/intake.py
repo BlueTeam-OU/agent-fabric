@@ -97,7 +97,10 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
             continue
         try:
             jobs = jobs or _jobs()
-            source = {"kind": "request", "message_id": mid, "from": meta.get("FROM") or rec.get("sender"), "seq": rec.get("seq")}
+            # An arrival over the second carrier is attributed to the address its authenticated
+            # PeerId maps to (ADR-064 rule 9), never to the FROM it claims.
+            sender = rec.get("sender") if c.get("iw") else (meta.get("FROM") or rec.get("sender"))
+            source = {"kind": "request", "message_id": mid, "from": sender, "seq": rec.get("seq")}
             project = meta.get("PROJECT")
             if project is not None and not PROJECT_SLUG.fullmatch(str(project)):
                 raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")

@@ -106,6 +106,19 @@ def _():
     check(len(lines) == 1, lines)       # twice in one page is one job
 
 
+@case("a REQUEST that arrived over the second carrier is attributed to the roster's address, never to its FROM (ADR-064 rule 9)")
+def _():
+    item = delivery(FROM="host-a/someone-else")
+    item["rec"] = {"seq": "interweave", "sender": "host-a/user"}
+    item["iw"] = {"mid": MID, "verdict": "mismatch"}
+    jobs = FakeJobs()
+    lines, err = receive([item], jobs)
+    check(len(lines) == 1 and jobs.doc["jobs"][0]["source"]["from"] == "host-a/user", jobs.doc)
+    plain = delivery(FROM="host-a/someone-else", mid=OTHER)       # the control: the relay's copy keeps its FROM
+    lines, err = receive([plain], jobs)
+    check(jobs.doc["jobs"][1]["source"]["from"] == "host-a/someone-else", jobs.doc)
+
+
 @case("a job the sender's half wrote (the id in its title) is the job: nothing is added")
 def _():
     jobs = FakeJobs({"jobs": [{"id": "j3", "title": f"a subject (REQUEST {MID})", "source": {"kind": "owner"}}]})

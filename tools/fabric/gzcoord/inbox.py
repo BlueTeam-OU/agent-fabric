@@ -127,6 +127,19 @@ CONTRACT, frozen from the Node:
             --until-delivery (7): the whole contract of a session start is
             one line and exit 0.
 
+THE SHOWN LEDGER AND THE SECOND CARRIER (agent-fabric ADR-064, CARRIER-CONTRACT.md):
+what a session sees is decided by `<state>/agents/<login>/gzcoord-shown.jsonl`
+(carrier/ledger.py), whichever carrier brought a message and with no carrier at all:
+a message shown is not shown again, even when the relay delivers it again (an
+acknowledgement that failed, a retransmission under its MESSAGE-ID) — and the
+one second showing is the copy that reveals a FROM mismatch after the relay's, shown
+again, flagged. A showing that died between its two ledger lines is shown once
+more, flagged "may repeat". When the carrier is running, the arrivals it journaled
+come in the same page as the relay's, titled from the roster's address; they are
+never acknowledged to the relay. The arrival log (gzcoord-arrivals.jsonl) gets a line
+per relay copy addressed here, journal on or off. A ledger that cannot be opened is
+said on stderr and the relay's messages are shown without it.
+
 The rest of the Node's header — the modes, the hold, the addressee rule —
 is kept where each applies: below, or in the part that holds it
 (inbox_parts/). A watch is one consumer per address, run once per session
@@ -152,6 +165,7 @@ is logged when the drain or the watch delivers it.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import math
 import os
@@ -305,10 +319,59 @@ def _arg_after(argv: list[str], flag: str) -> Any:
     return (argv[i + 1] if i + 1 < len(argv) else js.UNDEFINED) if i >= 0 else None
 
 
+def carrier_hooks(address: str, journal_off: bool):
+    """(the carrier's adapter, the arrival-log hook, the shown ledger) of ADR-064.
+    The ledger decides what a session sees whichever carrier brought a message and
+    needs no carrier; the arrival log is parity evidence, kept journal on or off. The
+    carrier's adapter is None with the journal off: then the route is the relay alone
+    (rule 8). With no carrier running the adapter is a no-op."""
+    from .carrier import adapter, arrivals, ledger
+    ep = _episodic()
+    log = arrivals.ArrivalLog(os.path.join(ep.state_dir(), "gzcoord-arrivals.jsonl"), iso_now=ep.now)
+    shown = ledger.Ledger(os.path.join(ep.state_dir(), "gzcoord-shown.jsonl"), iso_now=ep.now)
+
+    def on_arrival(recs: list[dict]) -> None:
+        copies = []
+        for r in recs:
+            try:
+                meta = gzmsg.parse(r["content"])["metadata"]
+            except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
+                continue
+            copies.append((str(r.get("id") or r.get("seq")),
+                           meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(r["content"].encode("utf-8", "surrogatepass")).hexdigest()))
+        try:
+            adapter.relay_arrivals(log, address, copies)
+        except OSError as e:
+            # Evidence for the parity report, not a condition of delivery.
+            print(f"gzcoord: the arrival log could not be written ({e.strerror or e}); the message is shown", file=sys.stderr)
+    return (None if journal_off else adapter.Adapter()), on_arrival, shown
+
+
+def show_page(res: dict, write: Callable[[], None]) -> None:
+    """Write a delivered page to the session while the shown ledger's lock is held
+    (wait_loop took it), then record the showing; if the write fails the lock is
+    released with the pending lines standing, which is how an interrupted showing is
+    found (the message is then shown once more, flagged)."""
+    held = res.get("ledger")
+    try:
+        write()
+    except BaseException:
+        if held:
+            held.release()
+        raise
+    if held:
+        try:
+            held.finish()
+        except OSError as e:
+            print(f"gzcoord: the shown ledger could not be written ({e.strerror or e}); the message may repeat", file=sys.stderr)
+    if res.get("ack_later"):
+        res["ack_later"]()          # after the lock is released: the relay's acknowledgement is a network call
+
+
 def with_queued(shown: str, classified: list[dict], me: dict) -> str:
     """A delivery, and below it a line for each REQUEST to this login it put
-    on the job list (intake.py). After the journal and the acknowledgement:
-    a job the list could not take is a line on stderr, never an unshown message."""
+    on the job list (intake.py). After the journal; the relay's acknowledgement
+    follows the showing (show_page): a job the list could not take is a line on stderr, never an unshown message."""
     lines = intake.queue_received(classified, me)
     return shown + "".join(f"\n{x}" for x in lines)
 
@@ -448,6 +511,7 @@ def main(argv: list[str]) -> int:
 
     off = bypass.is_off()
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
+    iw, on_arrival, ledger = carrier_hooks(me["address"], off)
     cause = {"reason": None}
 
     def held_line(reason: str, n: int) -> str:
@@ -512,7 +576,8 @@ def main(argv: list[str]) -> int:
                                                            mine_fn, [], me["address"], held, on_hold, journal=journal,
                                                            on_journal_fail=on_journal_fail,
                                                            deadline=deadline if until_delivery else None,
-                                                           session_gone=session_gone))
+                                                           session_gone=session_gone, iw=iw, on_arrival=on_arrival,
+                                                           ledger=ledger))
             except _JournalHeld as e:
                 print(e.line, flush=True)
                 return 6
@@ -544,14 +609,15 @@ def main(argv: list[str]) -> int:
             if r["delivered"]:
                 cause["reason"] = None
                 mark_retransmissions(r["classified"], fetch_recent)
-                print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t, reminder=reminder),
-                                  r["classified"], me), flush=True)
+                show_page(r, lambda: print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t,
+                                                                reminder=reminder), r["classified"], me), flush=True))
                 if until_delivery:
                     return 0
 
     try:
         res = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, wait_total, mine_fn, keywords, me["address"],
-                                                     journal=journal, on_journal_fail=on_journal_fail))
+                                                     journal=journal, on_journal_fail=on_journal_fail, iw=iw,
+                                                     on_arrival=on_arrival, ledger=ledger))
     except Exception as e:  # noqa: BLE001
         x = explain_relay_error(e, relay_url, t)
         print(x["line"], file=sys.stderr)
@@ -567,9 +633,10 @@ def main(argv: list[str]) -> int:
     if not res["delivered"]:
         return 0
     mark_retransmissions(res["classified"], fetch_recent)
-    print(with_queued(render(res, me, channel, taxonomy, t=t, reminder=reminder), res["classified"], me))
-    # The cursor is already past everything shown: wait_loop acknowledges
-    # every slice it sees, delivered or passed.
+    show_page(res, lambda: print(with_queued(render(res, me, channel, taxonomy, t=t, reminder=reminder),
+                                             res["classified"], me)))
+    # show_page acknowledged the slice once the page was written (wait_loop did, for a
+    # slice that delivered nothing).
     return 0
 
 
