@@ -289,6 +289,28 @@ def sent(ctl: FakeCtl, sender: str = "boss", **over: Any) -> tuple[str | None, s
     return intake.queue_for_addressee(msg, sender=sender, hosts=HOSTS, run=ctl, err=err), err.getvalue()
 
 
+@case("the sender half names the REPOSITORY's project to jobs-add, as the receiver half does (j372, re-review F2)")
+def _():
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    try:
+        with tempfile.TemporaryDirectory() as operator:
+            os.makedirs(os.path.join(operator, "projects"))
+            with open(os.path.join(operator, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+                json.dump({"version": 1, "projects": {"repo-project": {"remotes": ["git@example.org:some-org/some-repo.git"]}}}, fh)
+            os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            ctl = FakeCtl("dev-01 added j9\n")
+            job, err = sent(ctl, PROJECT="sender-dir", REPOSITORY="some-org/some-repo")
+            check(job == "j9" and err == "" and ctl.adds()[0][3:5] == ["--project", "repo-project"], (job, err, ctl.calls))
+            ctl = FakeCtl("dev-01 added j9\n")
+            job, err = sent(ctl, PROJECT="sender-dir", REPOSITORY="nobody/unregistered")
+            check(ctl.adds()[0][3:5] == ["--project", "sender-dir"], ctl.calls)
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
 @case("the host's operator asks the addressee's control agent for the job, the id in its title")
 def _():
     ctl = FakeCtl("dev-01   added  j9\n")

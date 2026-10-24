@@ -82,7 +82,7 @@ def pool_job(doc: dict, job: dict, holder: str, *, again: bool, topic=None, work
         return listed, False
     return new_job(doc, job["title"], topic=topic or job.get("topic"), project=job.get("project"),
                    working_copy=working_copy, source={"kind": "pool", "pool_id": job["id"], "from": holder},
-                   priority=job["priority"], project_from="pool" if job.get("project") else None), True
+                   priority=job["priority"]), True
 
 
 def printable(value) -> str:

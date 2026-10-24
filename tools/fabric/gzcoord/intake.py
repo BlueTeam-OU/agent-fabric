@@ -9,7 +9,8 @@ on stderr, never a failed delivery or a failed post:
   receiver  queue_received(): the inbox, for each REQUEST it delivers whose
             TO is this login's own address, adds a queued job to this
             login's list through jobs.py: source the REQUEST (MESSAGE-ID,
-            sender, seq), project its PROJECT, title "<SUBJECT> (REQUEST
+            sender, seq), project as `add --request` reads it (--project, else the project the
+            registry maps REPOSITORY to, else PROJECT), title "<SUBJECT> (REQUEST
             <MESSAGE-ID>)". A project with no working copy here is still
             the job's project (what jobs-add does); the job then carries no
             working copy. A message already on the list — a job with that
@@ -175,9 +176,10 @@ def queue_for_addressee(msg: dict, *, sender: str, hosts: Any, run: Callable[...
         login = to.split("/", 1)[1]
         if addressee_lists(login, mid, run):
             return None
-        project = meta.get("PROJECT")
+        # The same answer the receiver half gives, so whichever half adds the job first names the same project.
+        project, _ = _jobs().request_project(meta, None)
         if project is not None and not PROJECT_SLUG.fullmatch(str(project)):
-            raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")
+            raise ValueError(f"its project {str(project)[:60]!r} is not a registry id")
         argv = [CTL, login, "jobs-add", *(["--project", project] if project is not None else []),
                 "--", title_for(meta.get("SUBJECT", ""), mid)]
         r = run(argv, capture_output=True, text=True, timeout=CTL_TIMEOUT_S)
