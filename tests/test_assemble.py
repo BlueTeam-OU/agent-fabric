@@ -2865,6 +2865,28 @@ def test_a_claim_differing_only_in_a_link_target_is_still_a_collision(tmp: str) 
     assert tree(out) == before
 
 
+def test_a_refused_drain_does_not_point_the_links_on_disk(tmp: str) -> None:
+    """A run that is refused wrote nothing, links included (review of #368, F4): the correction it carried was not
+    applied, and a link pointed at it would name a slice it is not in."""
+    base = {"class": "workflow", "topic": "supplier", "title": "Supplier", "body": "Text.", "evidence": ["a1"]}
+    user = {"class": "solution", "topic": "placement", "title": "Placement", "body": "See [[reserved]].", "evidence": ["a1"]}
+    fix = {"class": "workflow", "topic": "reserved", "title": "Supplier, reserved", "body": "Reserved.",
+           "evidence": ["a1"], "merge_target": "Supplier"}
+    first = {"class": "domain", "topic": "deploy", "title": "Deploy", "body": "One way.", "evidence": ["a1"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [base, user, first])})
+    with_agents(drain, {"a1": "dev-01", "a2": "dev-02"})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [fix, dict(first, body="Another way.", evidence=["a2"])])
+    before = tree(out)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "SUPERSEDING?" in proc.stderr, proc.stderr
+    assert tree(out) == before and "[[reserved]]" in read(proj(out, "alpha", "solution.md"))
+    # Positive control: without the colliding claim the same correction points the link.
+    set_claims(claims_dir, "alpha", [fix])
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert "[[supplier]]" in read(proj(out, "alpha", "solution.md"))
+
+
 def test_part_one_of_a_split_topic_is_always_the_topic_file(tmp: str) -> None:
     """A topic near its budget whose one section is superseded: the old
     section was counted as carried text, the new one pushed to part two,
@@ -4107,6 +4129,7 @@ def main() -> int:
         test_an_older_flat_file_without_a_recorded_topic_is_not_split_by_one_new_topic,
         test_a_link_is_pointed_only_at_the_slice_of_its_own_roles_memory,
         test_a_claim_differing_only_in_a_link_target_is_still_a_collision,
+        test_a_refused_drain_does_not_point_the_links_on_disk,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

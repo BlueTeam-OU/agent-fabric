@@ -70,7 +70,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import Run, layout  # noqa: E402
 from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, load_decisions  # noqa: E402
-from assembler.targets import plan_classes, held_files, resolve_all_targets  # noqa: E402
+from assembler.targets import plan_classes, held_files, resolve_all_targets, point_disk  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
 from assembler.index import bound_roles_with_domain_slices, index_role, read_crossref_index, roles_with_project_directory  # noqa: E402
@@ -97,6 +97,7 @@ def main() -> int:
     held_roles = roles_with_project_directory(run)
     for role in held_roles:
         read_crossref_index(os.path.join(layout.project_dir(run.project, role), "crossref.json"))
+    point_disk(run)
     write_shared(run)
     # Every role that owns anything gets a project directory and an index —
     # including one whose claims all live in shared slices, which would

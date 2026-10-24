@@ -337,15 +337,21 @@ def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
     for role, buckets in run.per_role.items():
         for group in buckets.values():
             point(group, (role, None))
-        point_disk(run, [layout.class_home(k, role, run.project) for k in CLASS_FILES if k not in layout.IDENTITY_CLASSES],
-                   names_for((role, None)))
+        run.disk_links.append(([layout.class_home(k, role, run.project) for k in CLASS_FILES
+                                if k not in layout.IDENTITY_CLASSES], names_for((role, None))))
     for group in run.shared.values():
         point(group, (None,))
-    point_disk(run, sorted({layout.shared_home(k, run.project) for k in CLASS_FILES if k not in layout.IDENTITY_CLASSES}),
-               names_for((None,)))
+    run.disk_links.append((sorted({layout.shared_home(k, run.project) for k in CLASS_FILES
+                                   if k not in layout.IDENTITY_CLASSES}), names_for((None,))))
 
 
-def point_disk(run: Run, bases: list[str], names: dict[str, str]) -> None:
+def point_disk(run: Run) -> None:
+    """Applies the recorded edits (Run.disk_links), after the drain has passed every refusal."""
+    for bases, names in run.disk_links:
+        point_disk_in(run, bases, names)
+
+
+def point_disk_in(run: Run, bases: list[str], names: dict[str, str]) -> None:
     """The same links in the sections already on disk. A link drained before the correction it names stands raw there,
     and the harvest does not bring an unchanged memory again, so it would stay unresolved; and the memory arriving
     again must read as the text on disk, not as another claim. Only the body is edited, and only a link a map names."""
