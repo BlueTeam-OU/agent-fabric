@@ -494,10 +494,14 @@ def main() -> int:
         link_argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc, usr=fixture)
         check(f"a {label} link at lib/ssl/private gets no mount (positive control: the directory above does)",
               "/usr/lib/ssl/private" not in link_argv and "/usr/lib/ssl/private" in key_argv, str(link_argv))
+    check("maskable: a directory yes; a link to one, a dangling link and a missing path no",
+          sandbox.maskable(os.path.join(usr, "lib")) and not sandbox.maskable(os.path.join(link_usr, "lib", "ssl", "private"))
+          and not sandbox.maskable(os.path.join(dangling_usr, "lib", "ssl", "private")) and not sandbox.maskable(os.path.join(usr, "absent")))
     # No destination the argv builds may be a link: the class, over every mount flag, on the host's own layout.
     dest_flags = {"--tmpfs": 1, "--ro-bind": 2, "--bind": 2, "--bind-try": 2, "--ro-bind-try": 2, "--dev-bind": 2, "--dev-bind-try": 2}
-    link_dests = [key_argv[i + n] for i, a in enumerate(key_argv) if a in dest_flags for n in (dest_flags[a],)
-                  if key_argv[i + n].startswith("/usr/") and os.path.islink(key_argv[i + n])]
+    host_argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc)
+    link_dests = [host_argv[i + n] for i, a in enumerate(host_argv) if a in dest_flags for n in (dest_flags[a],)
+                  if host_argv[i + n].startswith("/usr/") and os.path.islink(host_argv[i + n])]
     check("no mount destination under /usr is a link on this host", not link_dests, str(link_dests))
 
     print("-- review_check: the proved sandbox")

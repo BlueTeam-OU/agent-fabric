@@ -87,8 +87,8 @@ def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command
     for path in SYSTEM_MASKED:
         if maskable(path):
             argv += ["--perms", "0555", "--tmpfs", path]
-    # A key directory that is a link is skipped: its target (Debian: /etc/ssl/private) is under no bound root, so inside the sandbox the link
-    # dangles and hides nothing, and a mount on it would stop bwrap (and with it the proof, and every check).
+    # A key directory that is a link is skipped on the premise that its target (Debian: /etc/ssl/private) is under no bound root, so inside
+    # the sandbox the link dangles and hides nothing (a link into /usr itself is not handled: no distribution is known to ship one), and a mount on it would stop bwrap (and with it the proof, and every check).
     for rel in KEY_DIRS:
         if maskable(os.path.join(usr, rel)):
             argv += ["--perms", "0555", "--tmpfs", "/usr/" + rel]
@@ -97,7 +97,7 @@ def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command
             argv += ["--ro-bind", os.path.join(etc, name), "/etc/" + name]
     for path in toolchain_paths():
         argv += ["--ro-bind", path, path]
-    if os.path.islink(python_pin.LINK) and bound_under(python_pin.LINK, SYSTEM_MASKED):
+    if os.path.islink(python_pin.LINK) and bound_under(python_pin.LINK, SYSTEM_MASKED) and maskable("/usr/local"):
         argv += ["--symlink", os.readlink(python_pin.LINK), python_pin.LINK]
     # An allowlist of the git directory, not a mask over a denylist: a file git grows or a pull request's tooling adds there is unreadable
     # until named here. A path that is absent is not bound (a repository without packed-refs or shallow).
