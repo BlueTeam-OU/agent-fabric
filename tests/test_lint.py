@@ -2113,54 +2113,81 @@ def case_read_tree_listing_and_its_two_edges() -> None:
             os.environ["AGENT_FABRIC_OPERATOR"] = saved
 
 
-def case_bash_over_160_lines_needs_the_allowlist() -> None:
-    """ADR-040 §5 rule 2: a tracked bash script over 160 lines is a finding
-    unless the allowlist names it; an entry whose script is gone or short
-    is stale; an entry the base list does not have is an addition."""
+def case_bash_is_a_forwarder_or_on_the_allowlist() -> None:
+    """ADR-040 §5 rule 2 (A 2026-10-11): a tracked bash file (.sh, .bash, or
+    a bash/sh shebang) is a forwarder by rule 1's shape (at most 12 lines of
+    code, no loop, no case) or on bash-allowlist.json's `stays` (closed: an
+    addition is a finding) or `ports` (only shrinks; an entry now shaped as
+    a forwarder is ported). Stale entries, entries with no reason or batch,
+    and the retired `scripts` key are findings; additions are judged only
+    against a base that has the section."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
+    allow = lambda d: write(os.path.join(root, "policies", "bash-allowlist.json"), json.dumps(d))
     with tempfile.TemporaryDirectory() as root:
         g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
-        long = "#!/usr/bin/env bash\n" + "echo x\n" * 161
-        write(os.path.join(root, "bin", "long-tool"), long)                 # by shebang
-        write(os.path.join(root, "runtime", "long.sh"), "echo y\n" * 161)   # by extension
+        fwd = "#!/usr/bin/env bash\n# a comment\npy=/usr/local/bin/fabric-python\nexec \"$py\" -I m.py \"$@\"\n"
+        write(os.path.join(root, "bin", "fwd"), fwd)                                       # by shebang, forwarder
+        write(os.path.join(root, "bin", "long-tool"), "#!/usr/bin/env bash\n" + "echo x\n" * 13)   # 13 lines
+        write(os.path.join(root, "runtime", "loop.sh"), "for x in a b; do echo $x; done\n")    # by extension, a loop
+        write(os.path.join(root, "runtime", "c.bash"), "case $1 in a) :;; esac\n")           # by .bash, a case
+        write(os.path.join(root, "runtime", "keep.sh"), "while :; do :; done\n")
+        write(os.path.join(root, "runtime", "then.sh"), "if true; then for i in 1 2; do echo $i; done; fi\n")
+        write(os.path.join(root, "runtime", "brace.sh"), "{ while :; do :; done; }\n")
+        write(os.path.join(root, "runtime", "elcase.sh"), "if x; then :; else case $1 in a) :;; esac; fi\n")
         write(os.path.join(root, "tools", "long.py"), "#!/usr/bin/env python3\n" + "x = 1\n" * 200)
-        write(os.path.join(root, "runtime", "short.sh"), "#!/bin/sh\necho z\n")
-        write(os.path.join(root, "policies", "bash-allowlist.json"),
-              json.dumps({"scripts": {"runtime/long.sh": 1, "runtime/short.sh": 2}}))
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}})
         g("init", "-q", "-b", "main")
         g("add", "-A")
         g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
         g("branch", "base")
-        got = lint.bash_size_findings(root, base_ref="base")
-        assert any(f.startswith("bin/long-tool: 162 lines of bash") for f in got), got
-        assert not any(f.startswith("runtime/long.sh:") or f.startswith("tools/long.py") for f in got), \
-            "a listed script, and a Python one, pass"
-        assert any("runtime/short.sh is gone or 160 lines or fewer" in f for f in got), "a stale entry is a finding"
-        write(os.path.join(root, "policies", "bash-allowlist.json"),
-              json.dumps({"scripts": {"runtime/long.sh": 1, "bin/long-tool": 3}}))
-        got = lint.bash_size_findings(root, base_ref="base")
-        assert any("bin/long-tool is added; the list only shrinks" in f for f in got), got
-        assert not any(f.startswith("bin/long-tool: 162") for f in got), "listed now, so not unlisted"
-        assert lint.bash_size_findings(root, base_ref="no-such-ref") == [], \
-            "without a base, additions are not judged and nothing else is wrong"
-        # A branch behind its base: the base has since dropped an entry the
-        # branch still carries. Not an addition — the branch forked with it.
-        g("checkout", "-q", "-b", "behind")
-        write(os.path.join(root, "policies", "bash-allowlist.json"),
-              json.dumps({"scripts": {"runtime/long.sh": 1}}))
-        g("checkout", "-q", "base")
-        write(os.path.join(root, "policies", "bash-allowlist.json"), json.dumps({"scripts": {}}))
+        got = lint.bash_shape_findings(root, base_ref="base")
+        assert any(f.startswith("bin/long-tool: bash that is not a forwarder (13 lines of code)") for f in got), got
+        assert any(f.startswith("runtime/loop.sh: bash that is not a forwarder (a loop)") for f in got), got
+        assert any(f.startswith("runtime/then.sh: bash that is not a forwarder (a loop)") for f in got), \
+            ("a loop after then", got)
+        assert any(f.startswith("runtime/brace.sh: bash that is not a forwarder (a loop)") for f in got), \
+            ("a loop in a brace group", got)
+        assert any(f.startswith("runtime/elcase.sh: bash that is not a forwarder (a case)") for f in got), \
+            ("a case after else", got)
+        assert any(f.startswith("runtime/c.bash: bash that is not a forwarder (a case)") for f in got), \
+            ("a .bash file is bash", got)
+        assert not any(f.startswith(("bin/fwd:", "runtime/keep.sh:", "tools/long.py")) for f in got), \
+            ("a forwarder, a stays entry and a Python file pass", got)
+        assert lint.bash_size_findings is lint.bash_shape_findings
+        allow({"stays": {"runtime/keep.sh": "pre-Python", "bin/long-tool": "x"}, "ports": {"runtime/loop.sh": "b6"}})
+        got = lint.bash_shape_findings(root, base_ref="base")
+        assert any("stays entry bin/long-tool is added; the pre-Python list is closed" in f for f in got), got
+        assert not any("runtime/loop.sh" in f for f in got), ("ports added against a base without ports: not judged", got)
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}, "ports": {"bin/fwd": "b6", "runtime/gone.sh": "b6",
+                                                                    "runtime/loop.sh": " "}})
+        got = lint.bash_shape_findings(root, base_ref="no-such-ref")
+        assert any("bin/fwd has the forwarder's shape now" in f for f in got), ("a ported entry", got)
+        assert any("ports entry runtime/gone.sh is gone or not bash" in f for f in got), ("a stale entry", got)
+        assert any("ports entry runtime/loop.sh gives no batch" in f for f in got), ("a blank batch", got)
+        allow({"scripts": {}, "stays": {"runtime/keep.sh": "pre-Python"}})
+        got = lint.bash_shape_findings(root, base_ref="no-such-ref")
+        assert any("`scripts` is the retired 160-line list" in f for f in got), got
+        # A base with `ports`: an addition there is a finding (the list only shrinks).
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}, "ports": {"runtime/loop.sh": "b6"}})
         g("add", "-A")
-        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base ports runtime/long.sh away")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "ports")
+        g("branch", "-f", "base")
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}, "ports": {"runtime/loop.sh": "b6", "runtime/c.bash": "b6"}})
+        got = lint.bash_shape_findings(root, base_ref="base")
+        assert any("ports entry runtime/c.bash is added; the ports list only shrinks" in f for f in got), got
+        # A branch behind its base: the base has since dropped a ports entry the
+        # branch still carries. Not an addition: the branch forked with it.
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}, "ports": {"runtime/loop.sh": "b6"}})
+        g("checkout", "-q", "-b", "behind")
+        g("checkout", "-q", "base")
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}, "ports": {}})
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "ported upstream")
         g("checkout", "-q", "behind")
-        write(os.path.join(root, "policies", "bash-allowlist.json"),
-              json.dumps({"scripts": {"runtime/long.sh": 1}}))
-        got = lint.bash_size_findings(root, base_ref="base")
-        assert not any("is added" in f for f in got), f"an entry the fork point had is not an addition: {got}"
-
+        got = lint.bash_shape_findings(root, base_ref="base")
+        assert not any("runtime/loop.sh is added" in f for f in got), ("judged as forked, not against the tip", got)
 
 def case_a_dollar_anchored_pattern_is_not_called_with_match() -> None:
     """`$` also matches before one final newline, so `.match` accepts
@@ -2724,7 +2751,7 @@ def main() -> int:
         case_project_tools_are_declared_and_never_retired,
         case_the_source_locale_translates_nothing,
         case_decision_records_are_lint_findings,
-        case_bash_over_160_lines_needs_the_allowlist,
+        case_bash_is_a_forwarder_or_on_the_allowlist,
         case_arm_boundary_cases_only_leave_retired,
         case_arm_direct_block,
         case_every_registered_project_declares_an_arm_json,
