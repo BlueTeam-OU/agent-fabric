@@ -523,7 +523,7 @@ def main() -> int:
                     ("18", "two projects register the repository", {"one": ["git@example.org:fixture-org/fixture-proj.git"],
                                                                       "two": ["https://example.org/fixture-org/fixture-proj"]},
                      "REPOSITORY fixture-org/fixture-proj ambiguous: one, two"),
-                    ("19", "the operator tree has no registry", None, "REPOSITORY registry unreadable (FileNotFoundError)")):
+                    ("19", "the operator tree has no registry", None, "REPOSITORY fixture-org/fixture-proj: registry unreadable (FileNotFoundError: ")):
                 # A registry that is not JSON is covered on request_project in test_gzcoord_intake: identity.resolve_context
                 # reads the same file and fails every fabric command then, which is not the REQUEST's doing.
                 other = dict(env)

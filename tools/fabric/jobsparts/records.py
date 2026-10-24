@@ -298,13 +298,14 @@ def request_project(meta: dict, project: str | None) -> tuple[str | None, str | 
         try:
             found = registered_projects_of(repository)
         except (OSError, ValueError, AttributeError) as e:
-            found, why = [], f"registry unreadable ({type(e).__name__})"
+            found, why = [], f"{repository}: registry unreadable ({type(e).__name__}: {e})"
         else:
             why = f"{repository} ambiguous: {', '.join(found)}" if len(found) > 1 else f"{repository} unregistered"
         if len(found) == 1:
             return found[0], f"REPOSITORY {repository}" + (f" (the header PROJECT: {header} was not used)" if header and header != found[0] else "")
     if not header:
-        return None, None
+        # The reason is still said: a job with no project starts wherever the operator is, not where the message named.
+        return None, (f"none: REPOSITORY {why}, and no PROJECT header" if why else None)
     return header, "PROJECT" + (f": REPOSITORY {why}" if why else "")
 
 

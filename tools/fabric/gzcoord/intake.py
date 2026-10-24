@@ -118,6 +118,10 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
                     # Only a job not yet taken: one that began on its own branch keeps it, or switch would leave its work behind.
                     if deliver_to and not held.get("deliver_to") and not held.get("branch") and held.get("state") == "queued":
                         held["deliver_to"] = deliver_to
+                    # The sender's jobs-add could only say it was given --project; the resolver says why that project, and only
+                    # when it names the project the job already has.
+                    if project_from and held.get("project") == project and str(held.get("project_from", "")).startswith("--project, as the sending"):
+                        held["project_from"] = project_from
                     return None
                 return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to, project_from=project_from)
 

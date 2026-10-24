@@ -308,13 +308,16 @@ def _():
             os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(operator, "nowhere")
             real = intake._jobs()
             check(real.request_project({"PROJECT": "sender-dir", "REPOSITORY": "some-org/some-repo"}, None)
-                  == ("sender-dir", "PROJECT: REPOSITORY registry unreadable (FileNotFoundError)"))
+                  [0] == "sender-dir")
             with open(os.path.join(operator, "projects", "registry.json"), "w", encoding="utf-8") as fh:
                 fh.write("{")
             os.environ["AGENT_FABRIC_OPERATOR"] = operator
             got = real.request_project({"PROJECT": "sender-dir", "REPOSITORY": "some-org/some-repo"}, None)
-            check(got[0] == "sender-dir" and got[1].startswith("PROJECT: REPOSITORY registry unreadable (JSONDecodeError"), got)
+            check(got[0] == "sender-dir" and got[1].startswith("PROJECT: REPOSITORY some-org/some-repo: registry unreadable (JSONDecodeError: "), got)
             os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(operator, "nowhere")
+            # No PROJECT header: no project, and the reason is still said.
+            got = real.request_project({"REPOSITORY": "some-org/some-repo"}, None)
+            check(got[0] is None and got[1].startswith("none: REPOSITORY some-org/some-repo: registry unreadable"), got)
             ctl = FakeCtl("dev-01 added j9\n")
             job, err = sent(ctl, PROJECT="sender-dir", REPOSITORY="some-org/some-repo")
             check(job == "j9" and err == "" and ctl.adds()[0][3:5] == ["--project", "sender-dir"], (job, err, ctl.calls))
@@ -350,6 +353,27 @@ def _():
             os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
         else:
             os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+
+
+@case("the receiver half fills in why the project is PROJECT's on a job the sender's jobs-add made first (j372, re-review F2)")
+def _():
+    saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_OPERATOR")}
+    real = intake._jobs()
+    try:
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as operator:
+            os.environ["AGENT_FABRIC_STATE_DIR"], os.environ["AGENT_FABRIC_OPERATOR"] = state, operator  # no registry: unreadable
+            sender_label = "--project, as the sending side's jobs-add gave it"
+            real.mutate(lambda doc: real.new_job(doc, f"a subject (REQUEST {MID})", project="sender-dir", project_from=sender_label))
+            intake.queue_received([delivery(PROJECT="sender-dir", REPOSITORY="some-org/some-repo")], {"address": ME}, err=io.StringIO())
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(len(doc["jobs"]) == 1 and doc["jobs"][0]["project_from"].startswith("PROJECT: REPOSITORY some-org/some-repo: registry unreadable"),
+                  doc["jobs"])
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 @case("the host's operator asks the addressee's control agent for the job, the id in its title")
