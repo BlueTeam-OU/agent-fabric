@@ -9,7 +9,6 @@ import contextlib
 import io
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -286,6 +285,13 @@ class Main(Base):
         o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
         self.assertIsNone(o["organization_type"])
         self.assertEqual(o["billing_type"], "stripe_subscription")
+
+    def test_a_lone_surrogate_in_the_harness_output_does_not_fail_the_write(self):
+        self.sign_in(self.home, "claude-a")
+        self.go(["--write"], read_signin=lambda d, home=None: {"status": "ok", "limits": [
+            {"kind": "weekly_scoped", "percent": 1, "resets_at": None, "model": "Fa\ud800ble"}]})
+        o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
+        self.assertEqual(o["model_weekly"][0]["model"], "Fa?ble")
 
     def test_a_sign_in_that_does_not_read_is_named_not_zeroed_and_a_token_in_its_error_is_scrubbed(self):
         self.sign_in(self.home, "claude-a")

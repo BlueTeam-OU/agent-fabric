@@ -229,6 +229,8 @@ def _locked() -> Any:
 
 def scrub(v: Any, secrets: Sequence[str]) -> Any:
     if isinstance(v, str):
+        # A lone surrogate (from the harness's output) cannot be written as UTF-8 and would fail every account's write.
+        v = v.encode("utf-8", "replace").decode("utf-8")
         for s in secrets:
             v = v.replace(s, "[token]")
         return v
