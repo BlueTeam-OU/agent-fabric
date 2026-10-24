@@ -158,6 +158,43 @@ def main() -> int:
     err, text = call("review_show", rev=head, path="../x")
     check("a path that climbs out of the tree is refused", err and "inside the repository" in text, text)
 
+    print("-- every argument through a validator, and no exception from a tool ends the server (#358 round 3 R1)")
+    props = {name: entry[2] for name, entry in server.tools.items()}
+    for tool, args in valid.items():
+        for key in props[tool]:
+            for label, bad in (("a list", [1]), ("an object", {"a": 1}), ("a fraction", 1.5)):
+                err, text = call(tool, **{**args, key: bad})
+                check(f"{tool}.{key} = {label} is refused by a validator, not by the server's backstop", err and "failed inside the server" not in text, text)
+        ping = server.handle({"jsonrpc": "2.0", "id": 9, "method": "ping"})
+        check(f"{tool}: the next ping is answered", ping == {"jsonrpc": "2.0", "id": 9, "result": {}}, str(ping))
+    for key, bad in (("patch", 1), ("patch", "yes"), ("patch", [])):
+        err, text = call("review_log", head=head, **{key: bad})
+        check(f"review_log.{key} = {bad!r} is not a switch", err and "true or false" in text, text)
+    err, text = call("review_log", head=head, path=0)
+    check("a falsy non-string is refused, not read as absent", err and "must be a string" in text, text)
+    err, text = call("review_log", head=head, patch=False)
+    check("control: patch = false is a valid switch", not err, text)
+    real_log = gittools.review_log
+
+    def boom(args):
+        raise TypeError("PLANTED-VALUE in the message")
+    server.tools["review_log"] = (boom, *server.tools["review_log"][1:])
+    err, text = call("review_log", head=head)
+    server.tools["review_log"] = (real_log, *server.tools["review_log"][1:])
+    check("an exception from a tool is a result naming the tool and the type, never its message",
+          err and "review_log" in text and "TypeError" in text and "PLANTED" not in text, text)
+    err, text = call("review_log", head=head, max_count=1)
+    check("control: the same server answers the next call", not err and text.startswith(head), text)
+    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "review_diff", "arguments": {"base": base, "head": head, "output": [1]}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "review_diff", "arguments": {"base": base, "head": head, "output": {"a": 1}}}},
+            {"jsonrpc": "2.0", "id": 3, "method": "ping"}]
+    r = subprocess.run([BIN], input="\n".join(json.dumps(m) for m in msgs) + "\n", capture_output=True, text=True, timeout=60,
+                       env={"PATH": "/usr/bin:/bin", "CLAUDE_PROJECT_DIR": clone, "HOME": home, "AGENT_FABRIC_PYTHON": sys.executable})
+    by = {json.loads(ln)["id"]: json.loads(ln) for ln in r.stdout.splitlines()}
+    check("over stdio: output as a list or an object is refused and the ping after it is answered",
+          r.returncode == 0 and by.get(1, {}).get("result", {}).get("isError") and by.get(2, {}).get("result", {}).get("isError")
+          and by.get(3, {}).get("result") == {}, r.stdout + r.stderr)
+
     print("-- revisions: resolved by git, ambiguity refused, the id used")
     err, text = call("review_log", head="no-such-ref")
     check("an unresolvable rev is refused", err and "does not name a commit" in text, text)
@@ -415,6 +452,24 @@ def main() -> int:
     check("the only writable bind is none: every bind of the worktree and the object store is read-only",
           "--bind" not in argv and "--dev-bind" not in argv and argv[argv.index(evidence) - 1] == "--ro-bind", str(argv))
 
+    print("-- review_check: no bound path holds key material (#358 round 3 C1)")
+    binds = [(argv[i + 1], argv[i + 2]) for i, a in enumerate(argv) if a == "--ro-bind"]
+    dests = [d for _s, d in binds]
+    check("/etc/ssl is not bound whole, nor /etc, nor /opt", not any(d in ("/etc", "/etc/ssl", "/opt", "/usr/local") for d in dests), str(dests))
+    check("the certificates are bound by name", "/etc/ssl/certs" in dests or not os.path.exists("/etc/ssl/certs"), str(dests))
+    check("/usr/local is put down empty and the toolchain given back",
+          ("/usr/local" in argv and argv[argv.index("/usr/local") - 1] == "--tmpfs") or not os.path.isdir("/usr/local"), str(argv))
+    etc = os.path.join(scratch, "etc")
+    for rel, text in (("ssl/certs/ca.pem", "CERT"), ("ssl/private/key.pem", "PLANTED-PRIVATE-KEY"), ("ssl/openssl.cnf", "CNF"),
+                      ("pki/tls/private/key.pem", "PLANTED-PRIVATE-KEY")):
+        os.makedirs(os.path.dirname(os.path.join(etc, rel)), exist_ok=True)
+        with open(os.path.join(etc, rel), "w", encoding="utf-8") as fh:
+            fh.write(text)
+    key_argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc)
+    check("control: the planted key is readable to this login", "PLANTED" in open(os.path.join(etc, "ssl", "private", "key.pem"), encoding="utf-8").read())
+    check("the fixture's key directories are bound by no argument", not any("private" in a for a in key_argv), str(key_argv))
+    check("while its certificates are", any(a.endswith("ssl/certs") for a in key_argv), str(key_argv))
+
     print("-- review_check: the proved sandbox")
     why = userns_refused()
     if why:
@@ -640,6 +695,21 @@ def sandbox_cases(server, call, head, base, clone, evidence, scratch, home, secr
     check("git still reads history there: rev-list over the objects and refs", exit_of(text) == "exit 0" and text.split("\n")[2].strip().isdigit(), text)
     err, text = run("git", "show", "--stat", "--format=%s", "HEAD")
     check("and git show of the head works", exit_of(text) == "exit 0" and "head" in text, text)
+    # A fixture /etc standing in for the host's: the sandbox sees its certs at /etc/ssl/certs and must not see its private keys.
+    etc = os.path.join(scratch, "etc")
+    probe = ["sh", "-c", "cat /etc/ssl/private/key.pem; cat /etc/pki/tls/private/key.pem; cat /etc/ssl/certs/ca.pem"]
+    ran = runner.run_bounded(sandbox.bwrap_argv("bwrap", evidence, common, own, probe, etc=etc), {"PATH": os.environ["PATH"]}, evidence, 30, 4096)
+    inside = ran.out.decode("utf-8", "replace")
+    check("a readable key under the bound /etc tree is not readable inside, while the certificate is (positive control)",
+          "PLANTED" not in inside and inside == "CERT", inside + ran.err.decode("utf-8", "replace"))
+    err, text = run("sh", "-c", "ls /usr/local/bin /opt 2>&1; echo done")
+    listed = text.split("/usr/local/bin:")[-1].split("done")[0].split()
+    check("/opt is not there and /usr/local/bin holds at most the pinned interpreter's link",
+          "cannot access '/opt'" in text and set(listed) <= {"fabric-python"}, text)
+    err, text = run("sh", "-c", "head -c 20000 /dev/zero | tr '\\0' x >&2; exit 3")
+    check("stderr cut at its cap says so, with the cap", "[output cut at 8192 bytes" in text.split("--- stderr ---")[1], text[-200:])
+    err, text = run("sh", "-c", "echo small >&2")
+    check("control: stderr under the cap carries no notice", "[output cut" not in text and "small" in text, text)
     err, text = run("env")
     check("control: the process holds a secret", bool(os.environ.get("FABRIC_TEST_API_TOKEN")))
     check("a secret of the process is not in a check's environment", "hostile-secret-value" not in text and "FABRIC_TEST_API_TOKEN" not in text

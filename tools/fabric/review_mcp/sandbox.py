@@ -28,11 +28,20 @@ DEFAULT_BUDGET_S, MAX_BUDGET_S = 120, 300
 PROOF_BUDGET_S = 30
 # The same three answers review_codex.prove_sandbox wants; a sandbox that exits 0 without running the command proves nothing.
 START_PROBE_EXIT, REFUSED_PROBE_EXIT, WRITTEN_PROBE_EXIT = 42, 43, 7
-# The system trees a check needs to run a program; /etc by name, not whole, since it is what a login's machine keeps its settings in.
-SYSTEM_RO = ("/usr", "/opt")
+# The system trees a check needs to run a program. /opt is not among them: it holds vendor SDKs and their credentials, no check needs one, and
+# the pinned toolchain is bound by name (toolchain_paths). /usr is bound whole but for /usr/local, which is put down empty (SYSTEM_MASKED) and
+# given back only the toolchain: it is where an administrator keeps what is local to the machine, and a bind keeps the host's modes and the
+# caller's groups, so whatever is readable to the login out there would be readable to the pull request's code.
+SYSTEM_RO = ("/usr",)
+SYSTEM_MASKED = ("/usr/local",)
+# Private-key directories that sit inside a tree bound whole: covered by an empty tmpfs where they exist.
+KEY_DIRS = ("/usr/lib/ssl/private",)
 SYSTEM_LINKED = ("/bin", "/sbin", "/lib", "/lib64", "/lib32", "/libx32")
-ETC_RO = ("/etc/alternatives", "/etc/ld.so.cache", "/etc/ld.so.conf", "/etc/ld.so.conf.d", "/etc/passwd", "/etc/group",
-          "/etc/nsswitch.conf", "/etc/localtime", "/etc/ssl", "/etc/ca-certificates", "/etc/mime.types")
+# No bound path may hold key material: /etc/ssl is not bound whole (its private/ is readable to the ssl-cert group on Debian, and a bind
+# keeps that), only the certificates and the openssl configuration git and Python read, on the Debian and the Fedora layout.
+ETC_RO = ("alternatives", "ld.so.cache", "ld.so.conf", "ld.so.conf.d", "passwd", "group", "nsswitch.conf", "localtime", "mime.types",
+          "ssl/certs", "ssl/cert.pem", "ssl/openssl.cnf", "ca-certificates", "ca-certificates.conf",
+          "pki/tls/certs", "pki/tls/cert.pem", "pki/tls/openssl.cnf", "pki/ca-trust/extracted")
 # What git needs of the common git directory to read history. Everything else there is not bound, so it does not exist inside: config and
 # config.worktree (a remote's credential, a program-naming key), hooks/, logs/, info/, FETCH_HEAD, the other worktrees' directories.
 GIT_COMMON_TREES = ("objects", "refs")
@@ -44,17 +53,17 @@ ENV_KEEP = ("PATH", "USER", "LOGNAME", "TERM", "TZ", "LANG", "LANGUAGE", "LC_ALL
 
 
 def toolchain_paths() -> list[str]:
-    """The paths runtime/python.json's build lives at (tools/fabric/python_pin.py): the install prefix and the link to the interpreter.
-    They are under /usr/local on a host the pin was installed to, so already bound; named so a prefix elsewhere is bound too."""
-    paths = [python_pin.PREFIX, os.path.dirname(python_pin.LINK)]
-    return [os.path.realpath(p) for p in paths if os.path.exists(p)]
+    """The install prefix of runtime/python.json's build (tools/fabric/python_pin.py), the only part of /usr/local a check is given; its
+    link is made again inside by bwrap_argv, since binding the link's directory would bind every other program there."""
+    return [os.path.realpath(p) for p in (python_pin.PREFIX,) if os.path.exists(p)]
 
 
 def bound_under(path: str, roots: tuple[str, ...]) -> bool:
     return any(path == r or path.startswith(r + "/") for r in roots)
 
 
-def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command: list[str], source_env: dict[str, str] | None = None) -> list[str]:
+def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command: list[str], source_env: dict[str, str] | None = None,
+               etc: str = "/etc") -> list[str]:
     """The sandbox around `command`. One builder for the proof and the checks: a proof of another argv would prove nothing."""
     home = os.path.realpath(os.path.expanduser("~"))
     # /tmp and the home are tmpfs, put down before anything is bound into them (the head worktree may sit under either, and a tmpfs mounted
@@ -69,12 +78,19 @@ def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command
             argv += ["--symlink", os.readlink(path), path]
         elif os.path.isdir(path):
             argv += ["--ro-bind", path, path]
-    for path in ETC_RO:
-        if os.path.exists(path):
-            argv += ["--ro-bind", path, path]
+    for path in SYSTEM_MASKED:
+        if os.path.isdir(path):
+            argv += ["--perms", "0555", "--tmpfs", path]
+    for path in KEY_DIRS:
+        if os.path.isdir(path):
+            argv += ["--perms", "0555", "--tmpfs", path]
+    for name in ETC_RO:
+        if os.path.exists(os.path.join(etc, name)):
+            argv += ["--ro-bind", os.path.join(etc, name), "/etc/" + name]
     for path in toolchain_paths():
-        if not bound_under(path, SYSTEM_RO):
-            argv += ["--ro-bind", path, path]
+        argv += ["--ro-bind", path, path]
+    if os.path.islink(python_pin.LINK) and bound_under(python_pin.LINK, SYSTEM_MASKED):
+        argv += ["--symlink", os.readlink(python_pin.LINK), python_pin.LINK]
     # An allowlist of the git directory, not a mask over a denylist: a file git grows or a pull request's tooling adds there is unreadable
     # until named here. A path that is absent is not bound (a repository without packed-refs or shallow).
     argv += ["--ro-bind", worktree, worktree]
@@ -171,4 +187,5 @@ class Sandbox:
         self.prove(bwrap, worktree, common_dir, git_dir, sha)
         ran = self.run(bwrap, worktree, common_dir, git_dir, command, budget, CAP_BYTES)
         head = (f"ended at the budget of {budget} s" if ran.timed_out else "output cut" if ran.cut else f"exit {ran.returncode}")
-        return "\n".join([head, "--- stdout ---", runner.text_of(ran.out, CAP_BYTES, ran.cut), "--- stderr ---", ran.err.decode("utf-8", "replace")])
+        return "\n".join([head, "--- stdout ---", runner.text_of(ran.out, CAP_BYTES, ran.cut), "--- stderr ---",
+                          runner.text_of(ran.err, runner.STDERR_CAP, ran.err_cut)])

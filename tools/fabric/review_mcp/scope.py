@@ -74,6 +74,15 @@ def field(name: str, value: object, required: bool = True) -> str:
     return value
 
 
+def flag(name: str, value: object) -> bool:
+    """A switch: true or false, or absent for false. 1, "yes" and [] are not switches; truthiness would read them as one."""
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise ToolError(f"{name} must be true or false")
+    return value
+
+
 def path_field(name: str, value: object, required: bool = True) -> str:
     """A path inside a commit: a field, not climbing out of the tree it is read from and not relative to the process's directory."""
     path = field(name, value, required)

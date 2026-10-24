@@ -110,7 +110,7 @@ def _result(ran: runner.Ran) -> str:
 def review_diff(args: dict) -> str:
     repo = repository_of(args)
     base, head = resolve(repo, "base", args.get("base")), resolve(repo, "head", args.get("head"))
-    shape = args.get("output") or "patch"
+    shape = scope.field("output", args.get("output"), required=False) or "patch"
     form = {"patch": [], "stat": ["--stat"], "name-only": ["--name-only"], "name-status": ["--name-status"]}.get(shape)
     if form is None:
         raise ToolError("output must be patch, stat, name-only or name-status")
@@ -123,10 +123,11 @@ def review_diff(args: dict) -> str:
 def review_log(args: dict) -> str:
     repo = repository_of(args)
     head = resolve(repo, "head", args.get("head"))
-    base = resolve(repo, "base", args["base"]) if args.get("base") else None
+    named_base = scope.field("base", args.get("base"), required=False)
+    base = resolve(repo, "base", named_base) if named_base else None
     count = scope.whole("max_count", args.get("max_count"), 1, 1000, 50)
-    path = scope.pathspec_field("path", args.get("path")) if args.get("path") else None
-    body = ["--patch", "--format=fuller"] if args.get("patch") else ["--format=%H %an %ad %s", "--date=short"]
+    path = scope.pathspec_field("path", args.get("path")) if scope.field("path", args.get("path"), required=False) else None
+    body = ["--patch", "--format=fuller"] if scope.flag("patch", args.get("patch")) else ["--format=%H %an %ad %s", "--date=short"]
     return _result(_checked(run_git(repo, "log", "--no-ext-diff", "--no-textconv", "--no-color", f"--max-count={count}", *body,
                                     f"{base}..{head}" if base else head, *(["--", path] if path else [])), "git log"))
 
@@ -134,7 +135,7 @@ def review_log(args: dict) -> str:
 def review_show(args: dict) -> str:
     repo = repository_of(args)
     rev = resolve(repo, "rev", args.get("rev"))
-    if args.get("path"):
+    if scope.field("path", args.get("path"), required=False):
         path = scope.path_field("path", args.get("path"))
         return _result(_checked(run_git(repo, "show", "--no-textconv", "--no-color", f"{rev}:{path}"), "git show"))
     return _result(_checked(run_git(repo, "show", "--no-ext-diff", "--no-textconv", "--no-color", "--format=fuller", rev), "git show"))
@@ -155,8 +156,8 @@ def review_grep(args: dict) -> str:
     pattern = scope.field("pattern", args.get("pattern"))
     paths = scope.pathspecs_field(args.get("pathspec"))
     count = scope.whole("max_count", args.get("max_count"), 1, 1000, 100)
-    mode = "-F" if args.get("fixed") else "-E"       # explicit either way: grep.patternType in the repository's config does not choose
-    case = ["-i"] if args.get("ignore_case") else []
+    mode = "-F" if scope.flag("fixed", args.get("fixed")) else "-E"       # explicit either way: grep.patternType in the repository's config does not choose
+    case = ["-i"] if scope.flag("ignore_case", args.get("ignore_case")) else []
     ran = _checked(run_git(repo, "grep", "-n", "-I", "--no-color", mode, *case, f"--max-count={count}", "-e", pattern, rev,
                            *(["--", *paths] if paths else [])), "git grep", ok=(0, 1))
     return _result(ran) if ran.out or ran.cut else "no match"

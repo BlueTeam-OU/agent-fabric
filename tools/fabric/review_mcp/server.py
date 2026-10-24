@@ -8,7 +8,8 @@ CONTRACT
   methods    initialize, notifications/initialized (no answer), ping, tools/list, tools/call. Anything else is -32601 for a request
              and silence for a notification. A line that is not JSON is -32700 with id null.
   tools      review_diff, review_log, review_show, review_blame, review_grep (gittools.py) and review_check (sandbox.py). A tool's own
-             refusal or failure is a result with isError true and one line, never a JSON-RPC error: the model reads results.
+             refusal or failure, and any exception it raises (named by type alone, never its message), is a result with isError true and one
+             line, never a JSON-RPC error: the model reads results.
   arguments  typed fields; nothing is a command line. A field that starts with "-" is refused; a revision is resolved by git and only
              the commit id it gave is used; the repository is the session clone (CLAUDE_PROJECT_DIR's toplevel) or one of its worktrees.
   children   no shell; git with config that names a program overridden; every child in the review guard's CLEAN_ENV (scope.py), a byte
@@ -74,6 +75,11 @@ class Server:
             return _result(entry[0](args))
         except scope.ToolError as e:
             return _result(str(e), error=True)
+        except Exception as e:  # noqa: BLE001 - nothing a tool does may end the server; the next request is still owed an answer
+            # The type, never the message: an exception's text quotes the value that broke it (a TypeError names the argument, an OSError
+            # a path), and a value of the pull request or of the host is not for the model's result or the log. The type is code's own.
+            print(f"fabric-review: {name} raised {type(e).__name__}", file=sys.stderr)
+            return _result(f"{name} failed inside the server ({type(e).__name__}); no result", error=True)
 
     def handle(self, message: object) -> dict | None:
         """The answer to one message, or None when it needs none."""
