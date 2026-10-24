@@ -2,7 +2,10 @@
 """tools/fabric/python_pin.py with fake archives in a scratch prefix: the
 pinned build installed and linked, an archive that is not the pinned one
 refused with nothing changed, a hostile archive refused, an upgrade
-moving the link, and a re-run changing nothing."""
+moving the link, and a re-run changing nothing; a pinned wheel checked and
+handed to the build's own pip offline, a wheel that is not the pinned one
+refused, a build whose wheel is not the pinned version rebuilt, and a
+pinned import that fails refused."""
 from __future__ import annotations
 
 import hashlib
@@ -18,9 +21,29 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import python_pin as pp  # noqa: E402
 
 
+# The fake interpreter answers python_pin's probe and its pip: a pip run
+# records its arguments and "installs" each wheel by writing the
+# distribution line the probe prints, NAME VERSION read from the wheel's
+# file name; a probe that asks to import "missing" fails as Python would.
+FAKE = """#!/bin/sh
+d=$(dirname "$(readlink -f "$0")")/..
+if [ "$2" = "-m" ] && [ "$3" = "pip" ]; then
+  echo "$@" > "$d/pip-args"
+  echo "PIP_INDEX_URL=${PIP_INDEX_URL-unset} PIP_CONFIG_FILE=${PIP_CONFIG_FILE-unset}" > "$d/pip-env"
+  for a; do case "$a" in *failpip*) echo "ERROR: the wheel would not install" >&2; exit 1;; esac; done
+  for a; do case "$a" in *.whl) basename "$a" | awk -F- '{print $1, $2}' >> "$d/dists";; esac; done
+  exit 0
+fi
+echo {version}
+cat "$d/dists" 2>/dev/null
+for a; do [ "$a" = import:missing ] && echo "ModuleNotFoundError: No module named 'missing'" >&2 && exit 1; done
+exit 0
+"""
+
+
 def archive(version: str, *, escape: str | None = None) -> bytes:
     """A tar.gz shaped like python-build-standalone's install_only: python/bin/python3."""
-    script = f"#!/bin/sh\necho {version}\n".encode()
+    script = FAKE.replace("{version}", version).encode()
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
         for name, data, mode in (("python/bin/python3", script, 0o755), ("python/lib/x.txt", b"x\n", 0o600)):
@@ -106,6 +129,108 @@ def main() -> int:
         check("an upgrade moves the link to the new build", pp.check(nxt, prefix, link) is None
               and pp.version_of(link) == "3.13.16", line)
         check("…and the old build stays beside it", os.path.isdir(pp.target(p, prefix)))
+
+        # Wheels: the build gets them before it is renamed into place.
+        blobs["wheel"], blobs["wheel2"] = b"a wheel\n", b"the next wheel\n"
+        wurl = "https://files.example/x/brotli-1.2.1-cp314-cp314-manylinux_2_17_x86_64.whl"
+        w2url = "https://files.example/x/brotli-1.2.2-cp314-cp314-manylinux_2_17_x86_64.whl"
+        blobs[wurl], blobs[w2url] = blobs["wheel"], blobs["wheel2"]
+
+        def wpin(version: str, url: str, wversion: str, sha: str | None = None, imports=("brotli",)) -> dict:
+            q = pin(version, "good")
+            q["builds"]["x86_64"]["wheels"] = [{"name": "brotli", "version": wversion, "url": url,
+                                                "sha256": sha or hashlib.sha256(blobs[url]).hexdigest()}]
+            return q | {"imports": list(imports)}
+
+        wprefix, wlink = os.path.join(tmp, "w", "lib"), os.path.join(tmp, "w", "fabric-python")
+        q = wpin("3.13.15", wurl, "1.2.1")
+        pp.install(p, wprefix, wlink, machine="x86_64", fetch=fetch)
+        problem = pp.check(q, wprefix, wlink, "x86_64")
+        check("a build of the pinned version that lacks the pinned wheel is not the pinned build",
+              problem is not None and "brotli absent, not the pinned 1.2.1" in problem, problem)
+        fetched.clear()
+        os.environ["PIP_INDEX_URL"] = "https://index.example/simple"
+        try:
+            line = pp.install(q, wprefix, wlink, machine="x86_64", fetch=fetch)
+        finally:
+            del os.environ["PIP_INDEX_URL"]
+        with open(os.path.join(pp.target(q, wprefix), "pip-args")) as fh:
+            args = fh.read().split()
+        with open(os.path.join(pp.target(q, wprefix), "pip-env")) as fh:
+            pip_env = fh.read().split()
+        check("a pinned wheel is fetched, checked and installed by the build's own pip, offline",
+              wurl in fetched and pp.check(q, wprefix, wlink, "x86_64") is None
+              and {"--no-index", "--no-deps", "-I"} <= set(args)
+              and any(a.endswith("/brotli-1.2.1-cp314-cp314-manylinux_2_17_x86_64.whl") for a in args), (line, args))
+        check("…with nothing of the caller's pip settings: no index from the environment, a null config",
+              pip_env == ["PIP_INDEX_URL=unset", f"PIP_CONFIG_FILE={os.devnull}"], pip_env)
+
+        bad = wpin("3.13.15", w2url, "1.2.2", sha="0" * 64)
+        try:
+            pp.install(bad, wprefix, wlink, machine="x86_64", fetch=fetch)
+            check("a wheel that is not the pinned one is refused", False)
+        except pp.PinError as e:
+            check("a wheel that is not the pinned one is refused", "wheel sha256" in str(e) and "not the pinned" in str(e), e)
+        check("…and the build in place stands, with its wheel", pp.check(q, wprefix, wlink, "x86_64") is None)
+
+        q2 = wpin("3.13.15", w2url, "1.2.2")
+        problem = pp.check(q2, wprefix, wlink, "x86_64")
+        check("a build whose wheel is not the pinned version is not the pinned build",
+              problem is not None and "brotli 1.2.1, not the pinned 1.2.2" in problem, problem)
+        pp.install(q2, wprefix, wlink, machine="x86_64", fetch=fetch)
+        check("…and install rebuilds it with the pinned wheel", pp.check(q2, wprefix, wlink, "x86_64") is None)
+
+        # The same version and release with another wheel rebuilds the build
+        # the link reaches, in its place: a failure must leave it standing.
+        furl = "https://files.example/x/brotli-1.2.3-failpip-manylinux_2_17_x86_64.whl"
+        blobs[furl] = b"a wheel pip refuses\n"
+        try:
+            pp.install(wpin("3.13.15", furl, "1.2.3"), wprefix, wlink, machine="x86_64", fetch=fetch)
+            check("a wheel pip cannot install is refused", False)
+        except pp.PinError as e:
+            check("a wheel pip cannot install is refused, with pip's last line",
+                  "pip could not install brotli" in str(e) and "would not install" in str(e), e)
+        check("…and the build the link reaches stands, with its wheel", pp.check(q2, wprefix, wlink, "x86_64") is None)
+        real_rename = os.rename
+
+        def rename_refusing_the_new_build(src: str, dst: str) -> None:
+            if src.endswith(os.sep + "python") and ".python-pin-" in src:
+                # An interrupt, not only an OSError: Ctrl-C between the renames.
+                raise KeyboardInterrupt("rename refused (test)")
+            real_rename(src, dst)
+        pp.os.rename = rename_refusing_the_new_build
+        try:
+            pp.install(q, wprefix, wlink, machine="x86_64", fetch=fetch)
+            check("a failed swap into place is refused", False)
+        except KeyboardInterrupt as e:
+            check("a swap into place interrupted puts the previous build back where the link reaches it",
+                  "rename refused" in str(e) and pp.check(q2, wprefix, wlink, "x86_64") is None, e)
+        finally:
+            pp.os.rename = real_rename
+
+        def rename_interrupted_after_moving_aside(src: str, dst: str) -> None:
+            real_rename(src, dst)
+            if dst.endswith(os.sep + "old") and ".python-pin-" in dst:
+                # The first rename done, the interrupt right after it.
+                raise KeyboardInterrupt("interrupted after moving aside (test)")
+        pp.os.rename = rename_interrupted_after_moving_aside
+        try:
+            pp.install(q, wprefix, wlink, machine="x86_64", fetch=fetch)
+            check("an interrupt after the move aside is refused", False)
+        except KeyboardInterrupt as e:
+            check("an interrupt right after the move aside puts the previous build back",
+                  "after moving aside" in str(e) and pp.check(q2, wprefix, wlink, "x86_64") is None, e)
+        finally:
+            pp.os.rename = real_rename
+
+        try:
+            pp.install(wpin("3.13.16", wurl, "1.2.1", imports=("missing",)) | {"builds": {"x86_64": {
+                "url": "next", "sha256": hashlib.sha256(blobs["next"]).hexdigest(), "wheels": []}}},
+                wprefix, wlink, machine="x86_64", fetch=fetch)
+            check("a build that cannot import a pinned module is refused", False)
+        except pp.PinError as e:
+            check("a build that cannot import a pinned module is refused, naming it",
+                  "cannot import" in str(e) and "missing" in str(e) and pp.check(q2, wprefix, wlink, "x86_64") is None, e)
 
     if os.geteuid() != 0:
         r = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "python_pin.py"), "install"],

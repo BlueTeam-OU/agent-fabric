@@ -175,8 +175,9 @@ _SCHEMA_MAPS = ("properties", "patternProperties", "$defs")
 
 def python_pin_findings(root: str) -> list[str]:
     """runtime/python.json (ADR-040): a version, a release, and per machine
-    an https URL and a 64-hex sha256 — the installer downloads nothing it
-    cannot check. CI's matrix carries the pinned minor version, so what the
+    an https URL and a 64-hex sha256, and the same for each wheel beside
+    its name and version — the installer downloads nothing it cannot
+    check; `imports`, when given, a list of module names. CI's matrix carries the pinned minor version, so what the
     hosts run is what CI runs the Python suites on."""
     path = os.path.join(root, "runtime", "python.json")
     try:
@@ -206,6 +207,25 @@ def python_pin_findings(root: str) -> list[str]:
         elif isinstance(version, str) and isinstance(b.get("url"), str) \
                 and not any(f"cpython-{version}{sep}" in b["url"] for sep in ("+", "%2B")):
             findings.append(f"runtime/python.json: {arch}: the url does not name Python {version}")
+        wheels = b.get("wheels", []) if isinstance(b, dict) else []
+        if not isinstance(wheels, list):
+            findings.append(f"runtime/python.json: {arch}: wheels must be a list")
+            wheels = []
+        if wheels:
+            findings.append(f"runtime/python.json: {arch}: a pinned wheel is a third-party package, which ADR-040 "
+                            "rule 1 allows none of; amend rule 1 before pinning one")
+        for i, w in enumerate(wheels):
+            label = f"runtime/python.json: {arch}: wheel {w.get('name', i) if isinstance(w, dict) else i}"
+            if not (isinstance(w, dict) and all(isinstance(w.get(k), str) and w[k] for k in ("name", "version"))):
+                findings.append(f"{label}: needs a name and a version")
+            if not (isinstance(w, dict) and isinstance(w.get("url"), str) and w["url"].startswith("https://")
+                    and w["url"].endswith(".whl")):
+                findings.append(f"{label}: the url must be an https .whl")
+            if not (isinstance(w, dict) and isinstance(w.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", w["sha256"])):
+                findings.append(f"{label}: the sha256 must be 64 hex digits")
+    imports = doc.get("imports", [])
+    if not (isinstance(imports, list) and all(isinstance(m, str) and m for m in imports)):
+        findings.append("runtime/python.json: imports must be a list of module names")
     if isinstance(version, str) and re.fullmatch(r"3\.\d+\.\d+", version):
         minor = ".".join(version.split(".")[:2])
         try:

@@ -283,3 +283,21 @@ bash files are forwarders, 10 are the list, and this one was left over. §7, §8
 of hooks on the host's `python3` and §7's batch-6 row now say the lint
 change landed and `session-start.sh` was ported, both in this batch. Accepted by the owner, 2026-10-24 ("1 accepted", in the
 coordinator's session).
+
+### Amendment 2026-10-24 — the pin moves to 3.14; no third-party wheel
+
+What changed: the pin moves from 3.13.15 to python-build-standalone
+3.14.9+20261021, where `compression.zstd` is standard library; §2's "3.13
+today" reads 3.14. The floor does not move: the code stays valid on 3.13
+and newer (rule 1), Debian 13's system python3 among them.
+
+Why: the owner asked for zstd and brotli in the fleet's Python
+(2026-10-24). devex-tooling measured and supplied the change (j212):
+both builds' sha256 against upstream, `_zstd` built in, the install and
+the suite on 3.14. Brotli was left out on the owner's word ("as you
+recommend"): ADR-064's carrier compresses with zlib since its amendment of
+the same day, nothing else needs brotli, and a pinned wheel would be the
+fleet's first third-party package, which rule 1's standard-library rule
+does not allow. The installer keeps the wheel machinery the change added,
+with no wheel pinned; pinning one is a change of rule 1, not of the pin. Accepted by the owner,
+2026-10-24 ("2 as you recommend", in the coordinator's session).

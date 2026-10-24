@@ -1,16 +1,19 @@
 {
   "version": 1,
-  "description": "The one Python the fleet runs (agent-fabric ADR-040, amended 2026-10-01): a relocatable python-build-standalone build, installed once per host under /usr/local/lib/agent-fabric/ by tools/fabric/python_pin.py and reached as /usr/local/bin/fabric-python. Each build is pinned by its sha256, computed from the downloaded archive and checked against upstream's SHA256SUMS when the pin was written; the installer refuses anything else. Moving the pin is a commit here, then `python_pin.py install` on each host.",
-  "python": "3.13.15",
-  "release": "20260929",
+  "description": "The one Python the fleet runs (agent-fabric ADR-040, amended 2026-10-01): a relocatable python-build-standalone build, installed once per host under /usr/local/lib/agent-fabric/ by tools/fabric/python_pin.py and reached as /usr/local/bin/fabric-python. Each build is pinned by its sha256, computed from the downloaded archive and checked against upstream's SHA256SUMS when the pin was written; the installer refuses anything else. `imports` are what every build must import: compression.zstd, standard library from 3.14. Moving the pin is a commit here, then `python_pin.py install` on each host.",
+  "python": "3.14.9",
+  "release": "20261021",
+  "imports": [
+    "compression.zstd"
+  ],
   "builds": {
     "x86_64": {
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260929/cpython-3.13.15%2B20260929-x86_64-unknown-linux-gnu-install_only.tar.gz",
-      "sha256": "d6b4e09474dfc219befabeae16264466f09615a991dcd080ae698833bdb3ed44"
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.14.9%2B20261021-x86_64-unknown-linux-gnu-install_only.tar.gz",
+      "sha256": "dfa4c5a40c47f338f41658017be550c72247c391e6bfb1fa4da03ebc8451abdf"
     },
     "aarch64": {
-      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260929/cpython-3.13.15%2B20260929-aarch64-unknown-linux-gnu-install_only.tar.gz",
-      "sha256": "8b54ea9550c52f9db265ab5680ce02429be3b4e1628f0b0dd8da2e451e403578"
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.14.9%2B20261021-aarch64-unknown-linux-gnu-install_only.tar.gz",
+      "sha256": "847895ba727440b012207bb0192282d7e182eb991ae5c7bb5c35c6a12a99e732"
     }
   }
 }

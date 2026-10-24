@@ -902,8 +902,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
 - Every fabric script is Python, stdlib only, on the pinned
-  `fabric-python`; bash only pre-Python or as a forwarder (12 code
-  lines, no case or loop) (§5 r1).
+  `fabric-python`; bash only pre-Python or a forwarder (§5 r1).
 - Lint refuses other bash; `ports` only shrinks (§5 r2).
 - A port freezes the contract and path, tested against the old
   (§5 r3–r5).
@@ -924,7 +923,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-19 — pin before any input (§5 r5).
 - A 2026-10-19 — batch 5 on the pin (§5 r4).
 - A 2026-10-19 — batches 4, 6, 9 on the pin (§5 r4).
-- A 2026-10-24 — fabric-ctl completion listed (§5 r1).
+- A 2026-10-24 — completion listed (§5 r1).
+- A 2026-10-24 — pin 3.14, no wheel (§2).
 - Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
   forwarder.
 

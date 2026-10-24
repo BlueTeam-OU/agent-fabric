@@ -2137,6 +2137,9 @@ def case_bash_is_a_forwarder_or_on_the_allowlist() -> None:
         write(os.path.join(root, "runtime", "then.sh"), "if true; then for i in 1 2; do echo $i; done; fi\n")
         write(os.path.join(root, "runtime", "brace.sh"), "{ while :; do :; done; }\n")
         write(os.path.join(root, "runtime", "elcase.sh"), "if x; then :; else case $1 in a) :;; esac; fi\n")
+        for name, line in (("bang.sh", "! while :; do :; done\n"), ("elif.sh", "if a; then :; elif case $1 in x) true;; esac; then :; fi\n"),
+                           ("time.sh", "time for i in 1; do :; done\n"), ("dofor.sh", "eval x; do for i in 1; do :; done\n")):
+            write(os.path.join(root, "runtime", name), line)
         write(os.path.join(root, "tools", "long.py"), "#!/usr/bin/env python3\n" + "x = 1\n" * 200)
         allow({"stays": {"runtime/keep.sh": "pre-Python"}})
         g("init", "-q", "-b", "main")
@@ -2152,6 +2155,9 @@ def case_bash_is_a_forwarder_or_on_the_allowlist() -> None:
             ("a loop in a brace group", got)
         assert any(f.startswith("runtime/elcase.sh: bash that is not a forwarder (a case)") for f in got), \
             ("a case after else", got)
+        for name in ("bang.sh", "elif.sh", "time.sh", "dofor.sh"):
+            assert any(f.startswith(f"runtime/{name}: bash that is not a forwarder") for f in got), \
+                (f"a compound command after the lead of {name}", got)
         assert any(f.startswith("runtime/c.bash: bash that is not a forwarder (a case)") for f in got), \
             ("a .bash file is bash", got)
         assert not any(f.startswith(("bin/fwd:", "runtime/keep.sh:", "tools/long.py")) for f in got), \
@@ -2617,6 +2623,16 @@ def case_the_python_pin_is_checkable_and_what_ci_runs() -> None:
         assert any("64 hex" in f for f in got({**good, "builds": {"x86_64": {**good["builds"]["x86_64"], "sha256": "xyz"}}}))
         assert any("does not name Python" in f for f in got({**good, "python": "3.13.16"}))
         assert any("does not name Python" in f for f in got({**good, "python": "3.13.1"})), "3.13.1 is not 3.13.15's prefix match"
+        wheel = {"name": "Brotli", "version": "1.2.1", "url": "https://h/brotli-1.2.1-cp313-x.whl", "sha256": "b" * 64}
+        def with_wheel(**w):
+            return {**good, "imports": ["brotli"], "builds": {"x86_64": {**good["builds"]["x86_64"], "wheels": [{**wheel, **w}]}}}
+        assert any("a pinned wheel is a third-party package" in f for f in got(with_wheel())), got(with_wheel())
+        assert got(good) == [] or not any("third-party" in f for f in got(good)), "no wheel, no such finding"
+        assert any("an https .whl" in f for f in got(with_wheel(url="http://h/brotli.whl")))
+        assert any("an https .whl" in f for f in got(with_wheel(url="https://h/brotli.tar.gz")))
+        assert any("wheel Brotli: the sha256 must be 64 hex" in f for f in got(with_wheel(sha256="")))
+        assert any("needs a name and a version" in f for f in got(with_wheel(version="")))
+        assert any("imports must be a list" in f for f in got({**with_wheel(), "imports": "brotli"}))
         os.remove(os.path.join(root, "runtime", "python.json"))
         write(os.path.join(root, "tools", "fabric", "python_pin.py"), "")
         assert any("runtime/python.json: missing" in f for f in lint.python_pin_findings(root))
