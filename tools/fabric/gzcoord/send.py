@@ -584,6 +584,21 @@ def main(argv: list[str]) -> int:
                              " sends without it\n")
             return 2
 
+    def via_carrier() -> None:
+        """The same message to the InterWeave carrier (ADR-064 rules 6, 7), after
+        the relay's outcome is known and whatever it was: both carriers get every
+        message, and the journal row is accepted when either accepts. Nothing
+        here changes the exit status: the relay is the transport of record
+        (rule 11), and the carrier's trouble is a stderr line from the adapter.
+        With no carrier running, and with the journal off (rule 8), it is a no-op."""
+        if _journal_off():
+            return
+        from .carrier import adapter
+        if adapter.Adapter().post(mid, text) == "accepted":
+            done = journal(["gzcoord-out-final", mid, "--state", "accepted", "--carrier", "interweave"], "")
+            if done["status"] != 0:
+                sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by InterWeave\n")
+
     def post(auth: str) -> Any:
         return inbox.api(auth, "/api/send", relay_url, method="POST",
                          body=js.stringify({"channel": channel, "sender": me["address"], "content": text}))
@@ -618,6 +633,7 @@ def main(argv: list[str]) -> int:
                 done = journal(["gzcoord-out-final", mid, "--state", "failed"], "")
                 if done["status"] != 0:
                     sys.stderr.write(done["stderr"])
+        via_carrier()
         status = getattr(e, "status", None)
         if status in (401, 403):
             print(t("send.token-refused", {"status": status}), file=sys.stderr)
@@ -648,6 +664,7 @@ def main(argv: list[str]) -> int:
                         *(["--seq", js.string(seq)] if not js.nullish(seq) else [])], "")
         if done["status"] != 0:
             sys.stderr.write(done["stderr"] or "episodic: the sent message was not marked accepted\n")
+    via_carrier()
     # Recorded only once the relay has it: a post that failed spent nothing.
     try:
         record_sent(ledger, {"id": mid, "sha256": sha, "seq": js.coalesce(seq, None), "at": _now_iso()})
