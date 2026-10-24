@@ -29,6 +29,11 @@ class FakeDaemon:
         self._srv.bind(self.path)
         self._srv.listen(8)
         self.pongs: list[str] = []
+        # Where an accepted send is delivered, by destination PeerId, as this
+        # daemon's peer; a destination not in the table is accepted and never
+        # delivered (AcceptedV2 is not delivery). `forwarded` counts what went across.
+        self.routes: "dict[str, FakeDaemon]" = {}
+        self.forwarded = 0
         self._t = threading.Thread(target=self._accept, daemon=True)
         self._t.start()
 
@@ -38,8 +43,6 @@ class FakeDaemon:
                 conn, _ = self._srv.accept()
             except OSError:
                 return
-            with self._lock:
-                self._conns.append(conn)
             threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
 
     def _serve(self, conn: socket.socket) -> None:
@@ -54,6 +57,8 @@ class FakeDaemon:
                                    "transport_contract_version": "2.0", "peer": self.peer,
                                    "endpoint": hello["endpoint"]["id"], "endpoint_lease_epoch": "e" * 22,
                                    "event_queue": 256, "granted_capabilities": ["events", "commands"]})
+            with self._lock:
+                self._conns.append(conn)      # pushes only after the hello_response, as a daemon does
             while True:
                 f = ipc.read_frame(conn)
                 if f.get("type") == "pong":
@@ -64,8 +69,14 @@ class FakeDaemon:
                     if ans == "hang":
                         continue
                     if ans is None:
+                        p = f["params"]
                         ipc.write_frame(conn, {"type": "response", "id": f["id"], "ok": True,
-                                               "result": {"resolved_endpoint": f["params"].get("endpoint", "gzcoord")}})
+                                               "result": {"resolved_endpoint": p.get("endpoint", "gzcoord")}})
+                        target = self.routes.get(p["peer"])
+                        if target is not None:
+                            self.forwarded += 1
+                            target.push(self.peer, p["message_id"], p["payload"]["media_type"],
+                                        ipc.unb64u(p["payload"]["bytes"]))
                     else:
                         ipc.write_frame(conn, {"type": "response", "id": f["id"], "ok": False,
                                                "error": {"code": ans}})

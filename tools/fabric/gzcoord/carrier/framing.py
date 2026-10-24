@@ -148,6 +148,8 @@ class Reassembler:
     partial ones, and the sender's retry (rule 7) resends every chunk."""
 
     MAX_IN_FLIGHT = 16
+    # One roster member cannot hold the whole budget.
+    MAX_PER_SOURCE = 4
 
     def __init__(self) -> None:
         self._open: dict[tuple[str, str], dict] = {}
@@ -159,6 +161,9 @@ class Reassembler:
         key = (source, h["id"])
         entry = self._open.get(key)
         if entry is None:
+            mine = [k for k in self._open if k[0] == source]
+            if len(mine) >= self.MAX_PER_SOURCE:
+                del self._open[mine[0]]
             if len(self._open) >= self.MAX_IN_FLIGHT:
                 self._open.pop(next(iter(self._open)))
             entry = self._open[key] = {"h": h, "parts": {}}

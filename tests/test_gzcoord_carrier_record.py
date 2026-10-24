@@ -9,6 +9,7 @@ schedule is 1 s doubling to 5 min with no end. Plain script: prints ok/FAIL,
 exit 1 on any failure."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -96,7 +97,7 @@ def main() -> int:
         box = R.Outbox(os.path.join(d, "iw"), iso_now=clock())
         done = lines(box.done_path)
         check("a done delivery leaves the record for delivered.jsonl, without its text",
-              ("M1", "beta") not in box.deliveries and len(done) == 1 and "text" not in done[0]
+              box.deliveries[("M1", "beta")].text == "" and box.deliveries[("M1", "beta")].receipt_at and len(done) == 1 and "text" not in done[0]
               and done[0]["mid"] == "M1" and done[0]["to"] == "beta"
               and not [e for e in lines(box.path) if e["mid"] == "M1" and e["to"] == "beta"])
         check("the other recipient's delivery is untouched", ("M1", "gamma") in box.deliveries)
@@ -109,12 +110,30 @@ def main() -> int:
             fh.write(json.dumps({"e": "queued", "mid": "M2", "to": "beta", "text": "t2", "t": "x", "tmids": ["a" * 32]}) + "\n")
             fh.write(json.dumps({"e": "receipt", "mid": "M2", "to": "beta", "t": "y"}) + "\n")
         with open(os.path.join(iw, "delivered.jsonl"), "a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"mid": "M2", "to": "beta", "queued": "x", "receipt": "y"}) + "\n")
+            fh.write(json.dumps({"mid": "M2", "to": "beta", "queued": "x", "receipt": "y",
+                                    "digest": hashlib.sha256(b"t2").hexdigest()}) + "\n")
         box = R.Outbox(iw, iso_now=clock())
         keys = [(o["mid"], o["to"]) for o in lines(box.done_path)]
         check("a compaction interrupted after delivered.jsonl is repeated without a duplicate line",
-              keys.count(("M2", "beta")) == 1 and ("M2", "beta") not in box.deliveries)
+              keys.count(("M2", "beta")) == 1 and ("M2", "beta") not in {x.key for x in box.outstanding()})
+        check("the same message asked again after its delivery ended is that delivery, not a new send",
+              box.queue("M2", "beta", "t2", 1) is box.deliveries[("M2", "beta")]
+              and ("M2", "beta") not in {x.key for x in box.outstanding()})
+        check("  but another body under that id is still refused", raises(lambda: box.queue("M2", "beta", "other", 1)))
         box.queue("M3", "beta", "t3", 1)
+        box.close()
+
+        box = R.Outbox(iw, iso_now=clock())
+        check("an unknown delivery cannot be abandoned", box.abandon("NOPE", "beta", "op") is False)
+        box.queue("M4", "beta", "t4", 1)
+        check("the operator ends an outstanding delivery", box.abandon("M4", "beta", "user") is True
+              and ("M4", "beta") not in {x.key for x in box.outstanding()})
+        check("  once", box.abandon("M4", "beta", "user") is False)
+        box.close()
+        box = R.Outbox(iw, iso_now=clock())
+        gone = [o for o in lines(box.done_path) if o["mid"] == "M4"]
+        check("an abandoned delivery is kept as abandoned, with who, never as received",
+              len(gone) == 1 and gone[0].get("by") == "user" and gone[0]["receipt"] is None and gone[0]["abandoned"])
         box.close()
 
         with open(os.path.join(iw, "deliveries.jsonl"), "ab") as fh:

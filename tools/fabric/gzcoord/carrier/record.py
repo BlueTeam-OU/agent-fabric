@@ -11,6 +11,8 @@ second). A delivery is (MESSAGE-ID, recipient login). Its events:
   blocked  a refusal no retry mends (the code is kept; the delivery stays
            pending: a send is never given up without its operator)
   receipt  the recipient's carrier answered after its journal append
+  abandon  the operator ended the delivery (who, when): the only other way
+           a delivery is done (ADR-064 rule 7, a re-keyed or removed member)
 A delivery is DONE on its receipt and not before. Each fsync'd event is on
 disk before the carrier acts on it, so a carrier that dies between a post and
 its record resends under the same transport ids and the receiving carrier
@@ -27,6 +29,7 @@ input: every method that needs it takes `now` (seconds, any monotonic origin).
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import secrets
@@ -56,12 +59,16 @@ class Delivery:
     posted: bool = False
     blocked: str | None = None
     receipt_at: str | None = None
+    abandoned_by: str | None = None
     attempts: int = 0
     next_at: float = 0.0           # in memory only: a restart retries at once
+    digest: str = ""               # of the text, which a done delivery no longer holds
     key: tuple[str, str] = field(init=False)
 
     def __post_init__(self) -> None:
         self.key = (self.mid, self.to)
+        if self.text and not self.digest:
+            self.digest = hashlib.sha256(self.text.encode("utf-8")).hexdigest()
 
 
 class Outbox:
@@ -115,13 +122,34 @@ class Outbox:
         elif kind == "blocked":
             d.blocked = str(ev["code"])
         elif kind == "receipt":
-            d.receipt_at = ev["t"]
+            d.receipt_at, d.text = ev["t"], ""
+        elif kind == "abandon":
+            d.receipt_at, d.abandoned_by, d.text = ev["t"], str(ev["by"]), ""
         else:
             raise ValueError(f"unknown event {kind!r}")
+
+    def _load_finished(self) -> None:
+        """What delivered.jsonl holds, as stubs without text: the same message
+        asked again after its delivery ended is that delivery, not a new one."""
+        if not os.path.exists(self.done_path):
+            return
+        with open(self.done_path, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                    key = (o["mid"], o["to"])
+                except (ValueError, KeyError):
+                    continue
+                if key not in self.deliveries:
+                    d = Delivery(o["mid"], o["to"], [], "", o.get("queued", ""), digest=o.get("digest", ""))
+                    d.receipt_at = o.get("receipt") or o.get("abandoned") or "done"
+                    d.abandoned_by = o.get("by")
+                    self.deliveries[key] = d
 
     def _compact(self) -> None:
         done = [d for d in self.deliveries.values() if d.receipt_at]
         if not done:
+            self._load_finished()
             return
         have: set[tuple[str, str]] = set()
         if os.path.exists(self.done_path):
@@ -136,8 +164,10 @@ class Outbox:
         try:
             for d in done:
                 if d.key not in have:
-                    os.write(fd, (json.dumps({"mid": d.mid, "to": d.to, "queued": d.queued_at,
-                                              "receipt": d.receipt_at}, sort_keys=True) + "\n").encode())
+                    line = {"mid": d.mid, "to": d.to, "queued": d.queued_at, "receipt": d.receipt_at, "digest": d.digest}
+                    if d.abandoned_by:
+                        line = {**line, "receipt": None, "abandoned": d.receipt_at, "by": d.abandoned_by}
+                    os.write(fd, (json.dumps(line, sort_keys=True) + "\n").encode())
             os.fsync(fd)
         finally:
             os.close(fd)
@@ -159,6 +189,7 @@ class Outbox:
             os.replace(tmp.name, self.path)
             os.close(self._fd)
             self._fd = new_fd
+            self._load_finished()
         except BaseException:
             tmp.close()
             if os.path.exists(tmp.name):
@@ -184,7 +215,8 @@ class Outbox:
         known id is refused, as the journal refuses it (ADR-041 rule 5)."""
         d = self.deliveries.get((mid, to))
         if d is not None:
-            if d.text != text:
+            digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            if d.digest and d.digest != digest:
                 raise RecordError(f"MESSAGE-ID {mid} is already queued to {to} with another body")
             return d
         ev = {"e": "queued", "mid": mid, "to": to, "text": text, "t": self._iso(),
@@ -210,7 +242,17 @@ class Outbox:
             return False
         t = self._iso()
         self._append({"e": "receipt", "mid": mid, "to": to, "t": t})
-        d.receipt_at = t
+        d.receipt_at, d.text = t, ""
+        return True
+
+    def abandon(self, mid: str, to: str, by: str) -> bool:
+        """The operator ends a delivery. False for one not outstanding."""
+        d = self.deliveries.get((mid, to))
+        if d is None or d.receipt_at:
+            return False
+        t = self._iso()
+        self._append({"e": "abandon", "mid": mid, "to": to, "by": by, "t": t})
+        d.receipt_at, d.abandoned_by, d.text = t, by, ""
         return True
 
     def retry_after(self, d: Delivery, now: float) -> None:

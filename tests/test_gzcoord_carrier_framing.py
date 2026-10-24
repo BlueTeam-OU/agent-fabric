@@ -85,6 +85,20 @@ def main() -> int:
     check("the same id from another source is another message",
           r.add("b", p[1].data) is None)
 
+    r = f.Reassembler()
+    held = {}
+    for n in range(f.Reassembler.MAX_PER_SOURCE + 2):
+        for x in f.encode(f"flood{n}", noise(f.CEILING * 2))[:1]:
+            r.add("hog", x.data)
+    victim = f.encode("victim", noise(f.CEILING * 2))
+    r.add("fair", victim[0].data)
+    check("one source cannot hold more than its share of the partial sets",
+          sum(1 for k in r._open if k[0] == "hog") == f.Reassembler.MAX_PER_SOURCE)
+    done = None
+    for x in victim[1:]:
+        done = r.add("fair", x.data)
+    check("  and another source's message still completes beside it", done is not None)
+
     tampered = bytearray(p[-1].data)
     tampered[-1] ^= 1
     r = f.Reassembler()
