@@ -356,8 +356,10 @@ def bootstrap(acct: Account, *args: str, env: dict[str, str] | None = None, cwd:
     # this account's own home or configuration.
     for k in ("HOME", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "TMPDIR",
               "XDG_DATA_HOME", "BASH_COMPLETION_USER_DIR"):
-        if k in e and not os.path.realpath(e[k]).startswith(T + "/"):
-            sys.exit(f"test: refusing to run: {k}={e[k]} is outside {T}")
+        # BASH_COMPLETION_USER_DIR is a ':' list; an empty entry names nothing.
+        for part in filter(None, e.get(k, "").split(":")):
+            if not os.path.realpath(part).startswith(T + "/"):
+                sys.exit(f"test: refusing to run: {k}={e[k]} is outside {T}")
     if not os.path.realpath(e["HOME"]).startswith(T + "/") or os.path.realpath(e["HOME"]) == os.path.realpath(REAL_HOME):
         sys.exit("test: refusing to run: HOME is not the scratch home")
     for k in e:
@@ -911,16 +913,43 @@ def local_bin_override() -> None:
 def completion_dir() -> None:
     print("bootstrap: fabric-ctl's completion, where bash-completion looks")
     default = "{}/.local/share/bash-completion/completions/fabric-ctl"
+    target = lambda acct: f"{acct.fr}/tools/fabric/control/completion.bash"
     a = Account("compxdg", wcs=False)
     r = bootstrap(a, env=a.env(XDG_DATA_HOME=f"{a.root}/data"))
-    check("XDG_DATA_HOME: the link under it, none under ~/.local/share",
-          r.rc == 0 and os.path.islink(f"{a.root}/data/bash-completion/completions/fabric-ctl")
-          and not os.path.lexists(default.format(a.home)), r)
+    check("XDG_DATA_HOME: the link under it and under ~/.local/share",
+          r.rc == 0 and os.readlink(f"{a.root}/data/bash-completion/completions/fabric-ctl") == target(a)
+          and os.readlink(default.format(a.home)) == target(a), r)
     b = Account("compuser", wcs=False)
     r = bootstrap(b, env=b.env(XDG_DATA_HOME=f"{b.root}/data", BASH_COMPLETION_USER_DIR=f"{b.root}/bc"))
-    check("BASH_COMPLETION_USER_DIR wins over XDG_DATA_HOME, as in bash-completion",
-          r.rc == 0 and os.readlink(f"{b.root}/bc/completions/fabric-ctl") == f"{b.fr}/tools/fabric/control/completion.bash"
+    check("BASH_COMPLETION_USER_DIR wins over XDG_DATA_HOME, as in bash-completion; the default too",
+          r.rc == 0 and os.readlink(f"{b.root}/bc/completions/fabric-ctl") == target(b)
+          and os.readlink(default.format(b.home)) == target(b)
           and not os.path.lexists(f"{b.root}/data/bash-completion"), r)
+    d = Account("compsplit", wcs=False)
+    r = bootstrap(d, env=d.env(BASH_COMPLETION_USER_DIR=f"{d.root}/x:{d.root}/y"))
+    check("BASH_COMPLETION_USER_DIR=x:y: the link under x/completions, none under y nor the literal 'x:y'",
+          r.rc == 0 and os.readlink(f"{d.root}/x/completions/fabric-ctl") == target(d)
+          and not os.path.lexists(f"{d.root}/y") and not os.path.lexists(f"{d.root}/x:{d.root}/y")
+          and os.readlink(default.format(d.home)) == target(d), r)
+    e = Account("compcolons", wcs=False)
+    r = bootstrap(e, env=e.env(BASH_COMPLETION_USER_DIR="::", XDG_DATA_HOME=f"{e.root}/data"))
+    check("a value of only colons counts as unset: XDG_DATA_HOME applies",
+          r.rc == 0 and os.path.islink(f"{e.root}/data/bash-completion/completions/fabric-ctl"), r)
+    f = Account("compdrift", wcs=False)
+    wide = f.env(XDG_DATA_HOME=f"{f.root}/data", BASH_COMPLETION_USER_DIR=f"{f.root}/bc")
+    bootstrap(f, env=wide)
+    r = bootstrap(f, "--dry-run", env=f.env())
+    check("bootstrapped with the variables, dry run without: no completion line would change",
+          r.rc == 0 and not [l for l in r.lines if "completions/fabric-ctl" in l and "(would" in l], r)
+    r = bootstrap(f, "--dry-run", env=wide)
+    check("…and with them again, none either",
+          r.rc == 0 and not [l for l in r.lines if "completions/fabric-ctl" in l and "(would" in l], r)
+    g = Account("compdrift2", wcs=False)
+    bootstrap(g)
+    r = bootstrap(g, "--dry-run", env=g.env(BASH_COMPLETION_USER_DIR=f"{g.root}/bc"))
+    check("the converse: bootstrapped without, dry run with the variable: only the new location would link",
+          r.rc == 0 and [l for l in r.lines if "completions/fabric-ctl" in l and "(would" in l]
+          == [f"  +  {g.root}/bc/completions/fabric-ctl -> {target(g)} (would link)"], r)
     c = Account("compmine", wcs=False)
     mine = default.format(c.home)
     put(mine, "complete -W mine fabric-ctl\n")
@@ -935,6 +964,34 @@ def completion_dir() -> None:
     check("…another checkout's link of ours refreshed to this one",
           r.rc == 0 and os.readlink(mine) == f"{c.fr}/tools/fabric/control/completion.bash"
           and f"  +  {mine} -> {c.fr}/tools/fabric/control/completion.bash" in r.lines, r)
+    d = Account("compminebc", wcs=False)
+    mine = default.format(d.home)
+    put(mine, "complete -W mine fabric-ctl\n")
+    seen = f"{d.root}/bc/completions/fabric-ctl"
+    r = bootstrap(d, env=d.env(BASH_COMPLETION_USER_DIR=f"{d.root}/bc"))
+    check("a person's own file at the default, the variable set: linked at the first, the warning names it",
+          r.rc == 0 and os.path.islink(seen) and read(mine) == "complete -W mine fabric-ctl\n"
+          and r.err.splitlines() == [f"  !  {mine} is not a link this fabric made — left alone; "
+                                     f"fabric-ctl's completion is linked at {seen} only"], r)
+    e = Account("compminedry", wcs=False)
+    mine = default.format(e.home)
+    put(mine, "complete -W mine fabric-ctl\n")
+    seen = f"{e.root}/bc/completions/fabric-ctl"
+    r = bootstrap(e, "--dry-run", env=e.env(BASH_COMPLETION_USER_DIR=f"{e.root}/bc"))
+    check("…in a dry run the warning says the first would be linked, and nothing is made",
+          r.rc == 0 and not os.path.lexists(seen)
+          and r.err.splitlines() == [f"  !  {mine} is not a link this fabric made — left alone; "
+                                     f"fabric-ctl's completion would be linked at {seen} only"], r)
+    f = Account("compmineboth", wcs=False)
+    mine = default.format(f.home)
+    seen = f"{f.root}/bc/completions/fabric-ctl"
+    put(mine, "complete -W mine fabric-ctl\n")
+    put(seen, "complete -W mine fabric-ctl\n")
+    r = bootstrap(f, env=f.env(BASH_COMPLETION_USER_DIR=f"{f.root}/bc"))
+    check("…a person's own file at both places: both left alone, neither warning claims a link",
+          r.rc == 0 and r.err.splitlines() == [
+              f"  !  {seen} is not a link this fabric made — left alone; fabric-ctl has no tab completion",
+              f"  !  {mine} is not a link this fabric made — left alone; fabric-ctl has no tab completion"], r)
 
 
 def user_manager() -> None:
