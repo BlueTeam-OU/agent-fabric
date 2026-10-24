@@ -5,7 +5,7 @@ topic: "domain-a-test-waits-for-the-state-it-presumes"
 description: a test that drives an event from another thread must wait for the state it assumes; widen the real window to prove a race that a loop cannot reproduce
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

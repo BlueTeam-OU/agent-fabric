@@ -5,7 +5,7 @@ topic: "slint-swipe-in-flickable"
 description: "Slint 1.18.1 swipe rows inside a Flickable: what the toolkit does to a press, how to move a row without breaking its height, what a device showed (j82, #289)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

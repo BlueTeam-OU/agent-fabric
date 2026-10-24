@@ -3,7 +3,7 @@ role: "domain-transit"
 class: index
 description: "What domain-transit knows and where it lives."
 tier: 1
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-24"
 ---
 
 # domain-transit — knowledge index
