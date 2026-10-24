@@ -87,8 +87,10 @@ dropped and counted, never admitted. For an admitted-by-roster message:
 2. append one line to the arrival log, `<state>/agents/<login>/
    gzcoord-arrivals.jsonl`: `{"mid", "addressee", "carrier":
    "interweave", "t", "verdict"}` (the relay path writes the same line with
-   `"carrier": "relay"` and `"verdict": "unauthenticated"`, before its journal
-   append);
+   `"carrier": "relay"` and `"verdict": "unauthenticated"` before it shows
+   the message, whether the journal is on or off and whether the carrier is
+   reachable or not: that line is what keeps a message from being shown
+   twice, §6 `unseen`);
 3. if addressed to this agent (the inbox's `for_me`), append to the journal
    with carrier `interweave` (`episodic.inbound`); on failure send no
    receipt: the sender retries;
@@ -104,10 +106,12 @@ log (rule 10).
 A Unix stream socket at `$XDG_RUNTIME_DIR/agent-fabric/gzcoord-carrier.sock`
 (directory 0700, socket 0600, the account's own; the carrier unlinks a stale
 one at start). One JSON object per line in, one per line out, then the
-connection closes. Lines are UTF-8 JSON written without ASCII escapes;
-a request line is at most 9 MiB, room for a 4 MiB message (§2) doubled by
-JSON escaping, and the send adapter refuses a message over 4 MiB before it
-writes the request.
+connection closes. Lines are UTF-8 JSON written without ASCII escapes, and
+a request line is at most 9 MiB. The send adapter encodes the request first
+and refuses it, naming the encoded size, when the message is over 4 MiB
+(§2) or the encoded line over 9 MiB (a C0 control character escapes to six
+bytes); it reports that as `failed`, never sending a line the carrier would
+refuse.
 
 - `{"op":"send","message_id":<id>,"text":<message>}` ->
   `{"ok":true,"carried":<n recipients>,"queued":<n durably recorded>,
@@ -119,21 +123,25 @@ writes the request.
   records it wrote. The send adapter reports `accepted` to the journal on
   `ok:true` with `carried > 0`, `failed` when the carrier is unreachable or
   answers `ok:false` (naming the queued count, if any), and nothing when
-  `carried == 0` (no recipient: the relay's outcome is the row's). Provenance is set by
+  `carried == 0` (no recipient: the relay's outcome is the row's). No reply
+  line, one that does not parse, or an `ok:true` with `queued != carried` is
+  `failed` too: every call ends in exactly one of the three. Provenance is set by
   `episodic.out_final` for the first carrier to accept and left by a later
   accept (rule 7).
 - `{"op":"claim","message_id":<id>,"via":"relay"|"interweave"}` ->
   `{"ok":true,"first":true|false,"shown_via":...}`. Each inbox path claims a
-  MESSAGE-ID before showing it; only the first claimant shows it. With
-  `unseen` below, it is one of the two states that decide what a session
-  sees twice (rule 9's re-show is a flagged record below).
+  MESSAGE-ID before showing it; only the first claimant shows it. Whether
+  a session sees a message twice is decided by the claim and by the relay's
+  arrival-log line (§5 step 2, `unseen` below); rule 9's re-show is a
+  flagged record below.
 - `{"op":"unseen"}` -> `{"ok":true,"records":[{"content","ts","seq":null,
-  "message_id","verdict","mismatch_of"}]}`: InterWeave arrivals not yet
-  claimed, in arrival order, whose journal append CREATED the row. An
-  arrival whose append collapsed into a row another carrier's copy made
-  (ADR-041 rule 5) is not listed, so a relay copy shown without a claim is
-  not shown again, unless this copy reveals a FROM mismatch: then it is
-  listed with `mismatch_of`. `mismatch_of` names the
+  "message_id","verdict","mismatch_of"}]}`: InterWeave arrivals journaled
+  and not yet claimed, in arrival order, leaving out every MESSAGE-ID the
+  arrival log has a `relay` line for: the relay path wrote that line before
+  showing its copy, so the message has been shown, with or without a claim,
+  with the journal on or off, whichever carrier came first. The one
+  exception is a copy that reveals a FROM mismatch: it is listed with
+  `mismatch_of`. `mismatch_of` names the
   MESSAGE-ID of the relay copy shown earlier when this copy reveals a
   mismatch (the inbox shows it again, flagged, naming that message).
 - `{"op":"status"}` -> counts per recipient: outstanding, blocked (with
@@ -153,9 +161,10 @@ peer's uid must equal the carrier's, else the connection is closed unread
 **The relay path fails open.** When the carrier is unreachable (not started,
 crashed, journal off) the relay inbox shows a message without a claim: the
 relay stays the transport of record (ADR-064 rule 11) and no inbox waits on
-the carrier. An InterWeave copy of a message shown that way collapses at the
-journal by MESSAGE-ID (ADR-041 rule 5), is left out of `unseen` for that
-reason, and is not shown again unless rule 9 flags it.
+the carrier. The relay path still writes its arrival-log line first (§5
+step 2), so the InterWeave copy of a message shown that way is left out of
+`unseen` and is not shown again unless rule 9 flags it, however the carrier
+was unreachable (not started, crashed, the journal off).
 
 The inbox adapters feed `unseen` records into the same page flow as relay
 records (classification, journal, acknowledgement, rendering), so a
