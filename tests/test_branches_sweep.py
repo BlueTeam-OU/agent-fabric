@@ -650,6 +650,34 @@ class Sweep(unittest.TestCase):
                 self.assertTrue(os.path.isdir(wt), out)
                 self.assertIn("job list unreadable", out)
 
+    def test_a_state_this_sweep_does_not_know_is_unknown_not_finished(self):
+        wt = self.worktree("w", pushed=True)
+        for state in ("weird", None, 3):
+            with self.subTest(repr(state)):
+                self.jobs(self.job(state, wt))
+                rc, out, err = self.sweep()
+                self.assertTrue(os.path.isdir(wt), out)
+                self.assertIn("job list unreadable", out)
+
+    def test_a_job_list_nested_past_the_parser_keeps_every_worktree(self):
+        wt = self.worktree("w", pushed=True)
+        self.jobs(raw="[" * 100000)
+        rc, out, err = self.sweep()
+        self.assertEqual(rc, 0, err)
+        self.assertTrue(os.path.isdir(wt), out)
+        self.assertNotIn("Traceback", err)
+
+    def test_the_states_the_sweep_knows_are_the_states_fabric_jobs_writes(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("branches_under_test", os.path.join(ROOT, "tools", "fabric", "branches.py"))
+        branches = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(branches)
+        base_spec = importlib.util.spec_from_file_location("jobs_base_under_test", os.path.join(ROOT, "tools", "fabric", "jobsparts", "base.py"))
+        base = importlib.util.module_from_spec(base_spec)
+        base_spec.loader.exec_module(base)
+        self.assertEqual(set(branches.KNOWN_STATES), set(base.STATES))
+        self.assertEqual(set(branches.WANTED_STATES), set(base.OPEN) - {"delivered"})
+
     def test_json_reports_the_job_that_keeps_a_worktree(self):
         wt = self.worktree("w", pushed=True)
 

@@ -340,6 +340,9 @@ REGISTRY_UNREADABLE = False
 JOB_WORKTREES: dict[str, str] = {}
 JOBS_UNREADABLE = False
 WANTED_STATES = ("queued", "active", "paused", "blocked")
+# Every state fabric-jobs writes (jobsparts/base.py STATES; tests/test_branches_sweep.py holds the two equal). One outside it is a
+# record this sweep does not understand, so it is unknown, never "finished".
+KNOWN_STATES = WANTED_STATES + ("delivered", "done", "dropped")
 
 
 def live_job_worktrees() -> dict[str, str] | None:
@@ -350,6 +353,8 @@ def live_job_worktrees() -> dict[str, str] | None:
         found: dict[str, str] = {}
         for job in doc["jobs"]:
             state, path = job["state"], job.get("worktree")
+            if state not in KNOWN_STATES:
+                return None
             if state not in WANTED_STATES:
                 continue
             if path is None:
@@ -358,7 +363,7 @@ def live_job_worktrees() -> dict[str, str] | None:
                 return None
             found[os.path.realpath(path)] = f"job {job['id']} ({state})"
         return found
-    except (SystemExit, OSError, ValueError, KeyError, TypeError, AttributeError):
+    except (SystemExit, OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
         return None
 
 
