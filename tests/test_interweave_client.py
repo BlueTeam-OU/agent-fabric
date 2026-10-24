@@ -149,7 +149,7 @@ class Step(unittest.TestCase):
         self.assertEqual(calls[0][-3:], [worker.PY, "-I", mine])
         self.assertIn(LOGIN, calls[0])
         self.assertIn("7b. carrier client unit program installed", err.getvalue())
-        again, err2 = io.StringIO(), io.StringIO()
+        err2 = io.StringIO()
         with mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="install_client: already ~/x\n", stderr="")), \
                 redirect_stderr(err2):
             worker.install_client(self.worker())
