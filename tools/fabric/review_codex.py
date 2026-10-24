@@ -908,7 +908,8 @@ def report_body(brief: str, model: str, head: str, rng: str, findings: list[dict
     """What post-review is given. With the coverage the answer states, the brief's own dispatch header goes ahead of the
     report, as the review class's does: post-review takes the range and the config of the v2 marker from it, strips it,
     and checks the block against `git diff --name-only`. No coverage in the answer (a schema without the field) or no
-    header in the brief: the report posts as v1, as before, and claims no more than it did."""
+    header in the brief: the bare report is returned, and post-review refuses it (a review is posted as v2 only, and
+    its range comes from the header), so nothing is posted."""
     body = render_review(model, head, rng, findings, level)
     header = post_review.first_dispatch_header(brief)
     if not coverage or not header:
@@ -925,8 +926,8 @@ def post(repo: str, pr: str, head: str, body: str) -> int:
     global _posting
     _posting = True
     r = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-pr"), "post-review", pr, "--model", ENGINE,
-                        # The commit Codex read: the body carries no dispatch header, and post-review records a
-                        # report only on the head it names (ADR-020 §5 rule 6).
+                        # The commit Codex read: it must equal the head_sha of the dispatch header the body carries,
+                        # which post-review records the review on (ADR-020 §5 rule 6).
                         "--head", head],
                        cwd=repo, input=body, text=True, timeout=180)
     return r.returncode

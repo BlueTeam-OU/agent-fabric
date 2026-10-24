@@ -705,14 +705,14 @@ def main() -> int:
                 raise RuntimeError(r.stderr)
             return r.stdout.strip()
 
-        def checkpoint_review(*, bad: tuple = ()) -> dict:
-            """A trusted v2 review of c0..c1 posted by the PR's author."""
+        def checkpoint_review(*, bad: tuple = (), base: str = c0, head: str = c1, at: str = "2026-10-20T10:00:00Z") -> dict:
+            """A trusted v2 review of base..head (c0..c1 unless said) posted by the PR's author."""
             cfg = real_config(CARD)
             doc = {"paths": {p: ({"status": "not read", "reason": "too large"} if p in bad else {"status": "read"})
                              for p in ("a.py", "sub/c.py")}, "lenses": {}}
-            text = (f"<!-- agent-fabric-review v2 base={c0} head={c1} card={CARD} config={cfg} -->\nround 1\n\n"
+            text = (f"<!-- agent-fabric-review v2 base={base} head={head} card={CARD} config={cfg} -->\nround 1\n\n"
                     f"```{rcov.BLOCK_INFO}\n{json.dumps(doc)}\n```\n")
-            return {"user": {"login": "me"}, "commit_id": c1, "submitted_at": "2026-10-20T10:00:00Z", "body": text}
+            return {"user": {"login": "me"}, "commit_id": head, "submitted_at": at, "body": text}
 
         narrow = fence_header(base_sha=c1, head_sha=c2)
         v2_pr(c2, listed=(c0, c1, c2))
@@ -751,6 +751,32 @@ def main() -> int:
         put("mergebase", "not a sha\n")
         rc, out = v2_post(report + cover("a.py", "sub/c.py"), header=fence_header(base_sha=c0, head_sha=c2))
         check("a merge-base answer that is no sha: refused too", rc == 2 and not posted() and "could not be read" in out, f"rc={rc}\n{out}")
+
+        # A re-review round has one review per engine, each of the same range: once the first posts c1..c2 the
+        # checkpoint is (c1, c2), which is neither the second's merge-base nor its head-of-checkpoint.
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("reviews.json", json.dumps([checkpoint_review(), checkpoint_review(base=c1, head=c2, at="2026-10-20T11:00:00Z")]))
+        rc, out = v2_post(report + cover("sub/c.py"), header=narrow)
+        check("the second engine of a re-review round posts the same range as the first's checkpoint",
+              rc == 0 and posted(), f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("reviews.json", json.dumps([checkpoint_review(), checkpoint_review(base=c1, head=c2, at="2026-10-20T11:00:00Z")]))
+        rc, out = v2_post(report + cover("a.py", "b.py", "sub/c.py"), header=fence_header(base_sha=HEAD, head_sha=c2))
+        check("…a same-head range from some other base is refused: the checkpoint's base is what is accepted",
+              rc == 2 and not posted() and "neither the merge-base" in out, f"rc={rc}\n{out}")
+        cur = git("rev-parse", "--abbrev-ref", "HEAD")
+        git("checkout", "-q", "-b", "round3", c2)
+        c3 = commit("c3", {"sub/c.py": "five\n"})
+        git("checkout", "-q", cur)
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        put("reviews.json", json.dumps([checkpoint_review(), checkpoint_review(base=c1, head=c2, at="2026-10-20T11:00:00Z")]))
+        rc, out = v2_post(report + cover("sub/c.py"), header=fence_header(base_sha=c1, head_sha=c3))
+        check("…a range from the same base to a later head (c1..c3 after (c1, c2)) is refused, nothing sent",
+              rc == 2 and not posted() and "neither the merge-base" in out and f"({c2[:12]})" in out, f"rc={rc}\n{out}")
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        put("reviews.json", json.dumps([checkpoint_review(), checkpoint_review(base=c1, head=c2, at="2026-10-20T11:00:00Z")]))
+        rc, out = v2_post(report + cover("sub/c.py"), header=fence_header(base_sha=c2, head_sha=c3))
+        check("…and the chain from the checkpoint's head still posts (the control)", rc == 0 and posted(), f"rc={rc}\n{out}")
 
         print("post-review: the marker matches the READER's, byte for byte")
         # THE CROSS-FILE CONTRACT. Two constants in two modules; a one-sided
