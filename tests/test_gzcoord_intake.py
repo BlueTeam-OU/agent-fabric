@@ -400,6 +400,16 @@ def _():
                 real.request_project = real_rp
             doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
             check(len(doc["jobs"]) == 1 and not doc["jobs"][0].get("project_from"), doc["jobs"])
+            # The same, when the resolver names the job's own project: the reason is written.
+            real.mutate(lambda doc: doc["jobs"].clear())
+            real.mutate(lambda doc: real.new_job(doc, f"a subject (REQUEST {MID})", project="other-project", source={"kind": "owner", "from": "host-a/boss"}))
+            real.request_project = lambda meta, project: ("other-project", "REPOSITORY some-org/some-repo")
+            try:
+                intake.queue_received([delivery(PROJECT=None, REPOSITORY="some-org/some-repo")], {"address": ME}, err=io.StringIO())
+            finally:
+                real.request_project = real_rp
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(len(doc["jobs"]) == 1 and doc["jobs"][0].get("project_from") == "REPOSITORY some-org/some-repo", doc["jobs"])
     finally:
         for k, v in saved.items():
             if v is None:

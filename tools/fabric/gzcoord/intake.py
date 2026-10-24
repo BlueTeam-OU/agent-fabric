@@ -119,7 +119,8 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
                     if deliver_to and not held.get("deliver_to") and not held.get("branch") and held.get("state") == "queued":
                         held["deliver_to"] = deliver_to
                     # The sender's jobs-add could only say it was given --project, or nothing: the resolver says why that project, and
-                    # only fills in a label the sender's add wrote itself.
+                    # only fills in a label the sender's add wrote itself. A job filed under another project than the resolver names
+                    # keeps no reason: a label naming REPOSITORY beside a project it did not choose would contradict itself.
                     if project_from and held.get("state") == "queued" and (
                             (held.get("project") == project and held.get("project_from") == jobs.SENDER_ADD_LABEL)
                             or (not held.get("project_from") and (held.get("source") or {}).get("kind") == "owner"
