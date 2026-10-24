@@ -31,8 +31,11 @@ def _is_bash(path: str) -> bool:
 
 
 FORWARDER_CODE_LINES = 12
-_LOOP = re.compile(r"(?:^|[;&|(]\s*)(?:for|while|until)\s")
-_CASE = re.compile(r"(?:^|[;&|(]\s*)case\s")
+# A compound command starts a line, follows an operator (; & | ( { !) or a
+# reserved word that takes a command list (then, else, elif, do, time).
+_LEAD = r"(?:^|[;&|({!]\s*|\b(?:then|else|elif|do|time)\s+)"
+_LOOP = re.compile(_LEAD + r"(?:for|while|until)\s")
+_CASE = re.compile(_LEAD + r"case\s")
 SECTIONS = ("stays", "ports")
 
 

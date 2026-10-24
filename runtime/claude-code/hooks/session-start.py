@@ -95,8 +95,10 @@ def export_fabric_root(env_file: str | None, root: str) -> None:
     if not env_file:
         return
     try:
-        with open(env_file, encoding="utf-8") as fh:
-            if any(line.startswith("export AGENT_FABRIC_ROOT=") for line in fh):
+        # Bytes, as bash's grep read it: a file that is not UTF-8 is still
+        # searched, so the line is never written twice.
+        with open(env_file, "rb") as fh:
+            if any(line.startswith(b"export AGENT_FABRIC_ROOT=") for line in fh):
                 return
     except FileNotFoundError:
         pass
@@ -113,8 +115,8 @@ def seal_session_shell(env_file: str | None, home: str) -> None:
     if not env_file:
         return
     try:
-        with open(env_file, encoding="utf-8") as fh:
-            if any(line.rstrip("\n").endswith(SHELL_SEAL) for line in fh):
+        with open(env_file, "rb") as fh:   # bytes: a file that is not UTF-8 is still searched
+            if any(line.rstrip(b"\n").endswith(SHELL_SEAL.encode()) for line in fh):
                 return
     except FileNotFoundError:
         pass

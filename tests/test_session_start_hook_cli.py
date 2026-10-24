@@ -26,7 +26,7 @@ and its comments name:
 
 Mutations, each failing here: the once-only check removed (3, 4); the
 quoting removed (5); `readlink -f` removed (2 through the link); the final `exit 0`
-removed (8, with no interpreter); AGENT_FABRIC_ROOT forced to FABRIC_ROOT (5).
+removed (an interpreter that exits non-zero); AGENT_FABRIC_ROOT forced to FABRIC_ROOT (5).
 
 Exit codes: 0 all assertions passed, 1 one or more failed."""
 from __future__ import annotations
@@ -138,6 +138,17 @@ def main() -> int:
     t.check("no pinned interpreter: exit 0, the install line on stderr, nothing exported",
             r.rc == 0 and "pinned Python is not installed" in r.err and exported(no_pin_env) is None,
             f"{r.rc} {exported(no_pin_env)!r} {r.err!r}")
+    latin = os.path.join(T, "claude-env-latin1")
+    with open(latin, "wb") as fh:
+        fh.write(b"export OTHER=caf\xe9\n")
+    start(CLAUDE_ENV_FILE=latin)
+    start(CLAUDE_ENV_FILE=latin)
+    with open(latin, "rb") as fh:
+        n = fh.read().count(b"export AGENT_FABRIC_ROOT=")
+    t.check("an env file that is not UTF-8: the export written, and once across two runs", n == 1, f"{n}")
+    false_py = shutil.which("false") or "/bin/false"
+    r = h.run(ENTRY, PAYLOAD, {**environment(), "AGENT_FABRIC_PYTHON": false_py})
+    t.check("an interpreter that exits non-zero: the forwarder still exits 0", r.rc == 0, f"{r.rc} {r.err!r}")
     r = start("not json")
     t.check("a payload that is no JSON: exit 0", r.rc == 0, f"{r.rc} {r.err!r}")
     r = start("")

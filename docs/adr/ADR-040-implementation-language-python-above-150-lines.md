@@ -137,10 +137,11 @@ serve as the parity oracle for each port, unchanged.
    `policies/` checks a person or a hook runs, `fabric-secrets`) runs it.
    These keep the host's `python3`:
    - the hooks not yet ported — the git hooks' `pre-push` and the Claude
-     Code hooks (`session-start.sh`, `self-kill-guard.py`) — whose port
+     Code hook `self-kill-guard.py` — whose port
      moves them to the pin in Wave 9 (A 2026-10-11), as it moved the three
      guards of batch 5 (A 2026-10-19) and `pre-commit`, `commit-msg`,
-     `post-commit`, the fallback note and gzapp's host check (A 2026-10-19); the launcher, account creation and bootstrap
+     `post-commit`, the fallback note and gzapp's host check (A 2026-10-19)
+     and `session-start.sh` (A 2026-10-24); the launcher, account creation and bootstrap
      have moved, and bootstrap's helpers under `runtime/` run on the pin
      with it, but for step 7's language-detector venv, which is made with
      the host's `python3`;
@@ -338,7 +339,7 @@ entries removed.
 | 3 | `policies/` checks and their tests | 3 | 274 | fabric-coordinator | #323 |
 | 4 | git hooks and their helpers | 5 | 341 | fabric-coordinator | #329; `pre-push` stays on the host's `python3` (rule 4) |
 | 5 | Claude Code guards and their tests | 6 | 415 | fabric-coordinator | #329 |
-| 6 | Claude Code session hooks and their tests | 5 | 392 | fabric-coordinator | #329 the fallback note, #318 `plan-hold.sh`; `session-start.sh` not yet |
+| 6 | Claude Code session hooks and their tests | 5 | 392 | fabric-coordinator | #329 the fallback note, #318 `plan-hold.sh`; `session-start.sh` (A 2026-10-24) |
 | 7 | status line and tab title | 3 | 311 | fabric-coordinator | #318 |
 | 8 | installer tests under `runtime/claude-code/` | 2 | 293 | fabric-coordinator | #316 |
 | 9 | language detector installer; gzapp host check | 3 | 89 | fabric-coordinator | #314 the installer, #329 the host check |
@@ -388,8 +389,8 @@ the upstream FleetDeck tracks (`herdrdev/herdr`) and stay as they are.
 
 ## 8. Decision Status
 
-Accepted and in force. Waves 0 to 8 are done: the bash allowlist is
-empty, and no fabric command runs Node (the control plane, the locale
+Accepted and in force. Waves 0 to 8 are done: the bash allowlist's
+`ports` is empty, and no fabric command runs Node (the control plane, the locale
 search server and the GZCoord tools are Python). Wave 9, the rest of
 the bash, has landed in all ten batches (§7's table), the lint change
 too (rule 2's two sections and the forwarder shape, the 160-line rule

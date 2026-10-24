@@ -720,7 +720,7 @@ def main() -> int:
     # --- no project's name in a generic file --------------------------------
     findings += project_name_findings(root)
 
-    # --- bash over 160 lines only where the allowlist says (ADR-040) ---------
+    # --- bash is a forwarder or on the allowlist's stays/ports (ADR-040 §5 r2) ---------
     findings += bash_shape_findings(root)
     findings += regex_dollar_findings(root)
     findings += arm_boundary_findings(root)

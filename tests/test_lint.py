@@ -2134,6 +2134,9 @@ def case_bash_is_a_forwarder_or_on_the_allowlist() -> None:
         write(os.path.join(root, "runtime", "loop.sh"), "for x in a b; do echo $x; done\n")    # by extension, a loop
         write(os.path.join(root, "runtime", "c.bash"), "case $1 in a) :;; esac\n")           # by .bash, a case
         write(os.path.join(root, "runtime", "keep.sh"), "while :; do :; done\n")
+        write(os.path.join(root, "runtime", "then.sh"), "if true; then for i in 1 2; do echo $i; done; fi\n")
+        write(os.path.join(root, "runtime", "brace.sh"), "{ while :; do :; done; }\n")
+        write(os.path.join(root, "runtime", "elcase.sh"), "if x; then :; else case $1 in a) :;; esac; fi\n")
         write(os.path.join(root, "tools", "long.py"), "#!/usr/bin/env python3\n" + "x = 1\n" * 200)
         allow({"stays": {"runtime/keep.sh": "pre-Python"}})
         g("init", "-q", "-b", "main")
@@ -2143,6 +2146,12 @@ def case_bash_is_a_forwarder_or_on_the_allowlist() -> None:
         got = lint.bash_shape_findings(root, base_ref="base")
         assert any(f.startswith("bin/long-tool: bash that is not a forwarder (13 lines of code)") for f in got), got
         assert any(f.startswith("runtime/loop.sh: bash that is not a forwarder (a loop)") for f in got), got
+        assert any(f.startswith("runtime/then.sh: bash that is not a forwarder (a loop)") for f in got), \
+            ("a loop after then", got)
+        assert any(f.startswith("runtime/brace.sh: bash that is not a forwarder (a loop)") for f in got), \
+            ("a loop in a brace group", got)
+        assert any(f.startswith("runtime/elcase.sh: bash that is not a forwarder (a case)") for f in got), \
+            ("a case after else", got)
         assert any(f.startswith("runtime/c.bash: bash that is not a forwarder (a case)") for f in got), \
             ("a .bash file is bash", got)
         assert not any(f.startswith(("bin/fwd:", "runtime/keep.sh:", "tools/long.py")) for f in got), \

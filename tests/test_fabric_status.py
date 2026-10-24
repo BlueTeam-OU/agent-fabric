@@ -241,7 +241,9 @@ def main() -> int:
               and not any(w in text.split("exec", 1)[1] for w in ("readlink", "$(", "`", "\ncd ")))
         check("the shim has no logic of its own to drift from the module", len(text.splitlines()) < 30)
         with open(os.path.join(HERE, "policies", "bash-allowlist.json"), encoding="utf-8") as fh:
-            check("bin/fabric-status is off the bash allowlist", "bin/fabric-status" not in json.load(fh)["scripts"])
+            allow = json.load(fh)
+            check("bin/fabric-status is off the bash allowlist",
+                  all("bin/fabric-status" not in (allow.get(s) or {}) for s in ("stays", "ports")))
         doc = status.__doc__
         check("the header freezes argv, env, stdout, exit and the json shape", all(w in doc for w in ("argv", "env", "stdout", "exit", "--json object")))
 
