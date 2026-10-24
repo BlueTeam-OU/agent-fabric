@@ -269,3 +269,16 @@ shims, because their oracles source them by path. Batch 6 makes
 the provisioning worker runs on the pin. `pre-push` keeps the host's
 `python3`: its oracle pins that, as the hook is installed in every
 account's checkouts, and moving it is its own decision.
+
+### Amendment 2026-10-24 — fabric-ctl's bash completion joins the closed list
+
+What changed: §5 rule 1's closed pre-Python list gains
+`tools/fabric/control/completion.bash`, the bash completion of `fabric-ctl`.
+
+Why: a completion script is read by bash and nothing else, as the list's
+`moveto/completion.bash` already is; rule 1 lists only those two kinds of
+bash and the forwarder, and the completion was neither. Found when the lint
+first enforced rule 2 as amended on 2026-10-11 (j368): 82 of the 93 tracked
+bash files are forwarders, 10 are the list, and this one was left over. §7 and §8 now say
+the lint change landed and `session-start.sh` was ported, both in this
+batch. The owner's acceptance is asked on the pull request.

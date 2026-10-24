@@ -10,9 +10,8 @@
     "runtime/provisioning/platform/qubes/ssh-restore.sh": "runs at a Qubes AppVM's boot, before an interpreter exists",
     "runtime/provisioning/platform/qubes/agent-fabric-accounts.rc": "a Qubes rc script, run at boot before an interpreter exists",
     "runtime/provisioning/moveto/enter-ssh": "an sshd forced command for an account before its interpreter",
-    "runtime/provisioning/moveto/completion.bash": "bash completion, which only bash reads"
+    "runtime/provisioning/moveto/completion.bash": "bash completion, which only bash reads",
+    "tools/fabric/control/completion.bash": "fabric-ctl's bash completion, which only bash reads (ADR-040 §5 rule 1, A 2026-10-24)"
   },
-  "ports": {
-    "tools/fabric/control/completion.bash": "fabric-ctl's bash completion, which only bash reads: not on ADR-040's closed list; stays or goes by an ADR-040 amendment (j368)"
-  }
+  "ports": {}
 }
