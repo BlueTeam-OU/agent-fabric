@@ -116,7 +116,8 @@ def main() -> int:
 
     for name, data in [
         ("no newline", b'{"id":"x"}'),
-        ("header past its bound", b"{" + b" " * f.HEADER_MAX + b"}\n"),
+        ("header past its bound, otherwise valid",
+         json.dumps(h, separators=(",", ": ")).encode().replace(b"{", b"{" + b" " * f.HEADER_MAX, 1) + b"\n"),
         ("not JSON", b"nope\n"),
         ("extra key", json.dumps(dict(h, extra=1)).encode() + b"\n"),
         ("index out of range", json.dumps(dict(h, i=h["of"])).encode() + b"\n"),

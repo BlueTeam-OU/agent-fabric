@@ -197,6 +197,14 @@ def main() -> int:
               == [("L-1", "relay", "unauthenticated", "h/beta")] * 2
               and oct(os.stat(log.path).st_mode & 0o777) == "0o600")
 
+    with tempfile.TemporaryDirectory(prefix="gz-spool-") as d:
+        box = arrivals.Inbox(d, iso_now=lambda: "T")
+        box.keep("K-1", "c", "t", "ok", "h/a")
+        box.keep("K-1", "c", "t", "ok", "h/a")
+        again = arrivals.Inbox(d, iso_now=lambda: "T")
+        check("the spool keeps the first copy of a message once, across a restart too",
+              len(box.spool) == 1 and len(again.spool) == 1 and len(open(os.path.join(d, "inbox.jsonl")).readlines()) == 1)
+
     # -- rendering ---------------------------------------------------------
     me = {"address": "h/beta", "slug": "dev"}
     tax = None

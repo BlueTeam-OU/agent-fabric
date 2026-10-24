@@ -55,6 +55,12 @@ def main() -> int:
           [R.backoff(n) for n in (1, 2, 3, 4, 9, 10, 40)] == [1, 2, 4, 8, 256, 300, 300])
 
     with tempfile.TemporaryDirectory(prefix="gz-rec-") as d:
+        wide = os.path.join(d, "wide")
+        os.makedirs(wide, mode=0o755)
+        os.chmod(wide, 0o755)
+        R.Outbox(wide, iso_now=clock()).close()
+        check("a directory that already exists with wider modes is tightened to 0700",
+              oct(os.stat(wide).st_mode & 0o777) == "0o700")
         box = R.Outbox(os.path.join(d, "iw"), iso_now=clock())
         check("the directory is 0700 and the record 0600",
               oct(os.stat(box.directory).st_mode & 0o777) == "0o700" and oct(os.stat(box.path).st_mode & 0o777) == "0o600")

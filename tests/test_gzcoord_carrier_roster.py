@@ -149,9 +149,12 @@ def main() -> int:
             extra = row(c, root, "c", 47103)
             extra["note"] = "hi"
             check("refused: a field the roster does not define", list(refused_for([extra], keys)) == ["gamma"])
-            wrong = row(c, root, "c", 47103)
-            wrong["login"] = "alpha2"
-            check("refused: a login other than the lineage's for that id", list(refused_for([wrong], keys)) == ["alpha2"])
+            import copy as _copy
+            c_other_login = _copy.copy(c)
+            c_other_login.login = "gamma2"          # same key and id, signed correctly, but not the lineage's login
+            wrong = row(c_other_login, root, "c", 47103)
+            check("refused: a correctly signed row whose login is not the lineage's for that agent id",
+                  refused_for([wrong], keys) == {"gamma2": "the lineage has no such agent under that login"}, str(refused_for([wrong], keys)))
             ghost = Agent(d, "g", "00000000-0000-7000-8000-0000000000ff", "ghost")
             check("refused: an agent id the lineage does not know", list(refused_for([row(ghost, root, "g", 47109)], keys)) == ["ghost"])
 

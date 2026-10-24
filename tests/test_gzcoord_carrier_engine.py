@@ -61,6 +61,12 @@ def msg(mid: str, frm: str, *, to: str | None = None, to_role: str | None = None
     return f"[GZCOORD/1] INFO\nFROM: {frm}\nROLE: r\n{addr}MESSAGE-ID: {mid}\nSUBJECT: s\n\nCONTEXT:\n{body}\n"
 
 
+def receipts_for(node, mid: str) -> int:
+    """How many receipts this node's daemon was asked to send for `mid`."""
+    return sum(1 for s in node.daemon.sends if s["payload"]["media_type"] == framing.MEDIA_RECEIPT
+               and ipc.unb64u(s["payload"]["bytes"]).decode() == mid)
+
+
 def gone(node, mid: str, to: str) -> bool:
     """The delivery is done (receipt or abandon), not merely absent."""
     d = node.box.deliveries.get((mid, to))
@@ -238,8 +244,10 @@ def main() -> int:
             # -- a journal that fails -> no receipt -----------------------
             b.journal_fail[0] = True
             a.carrier.handle_request({"op": "send", "message_id": "M-6", "text": msg("M-6", "h/alpha", to="h/beta")})
-            check("a journal that cannot keep the message earns no receipt: the delivery stays outstanding",
-                  until(lambda: b.carrier.counters.not_journaled >= 1) and not gone(a, "M-6", "beta"))
+            until(lambda: b.carrier.counters.not_journaled >= 1)
+            time.sleep(0.6)       # a receipt sent in error would be on the wire by now
+            check("a journal that cannot keep the message earns no receipt: none is sent, the delivery stays outstanding",
+                  receipts_for(b, "M-6") == 0 and not gone(a, "M-6", "beta"), str(receipts_for(b, "M-6")))
             b.journal_fail[0] = False
             clock.t += 400
             check("after the journal recovers the retry is journaled and receipted",
@@ -258,11 +266,19 @@ def main() -> int:
 
             # -- refusals ---------------------------------------------------
             a.daemon.send_answers = ["Overloaded"]
-            a.carrier.handle_request({"op": "send", "message_id": "M-8", "text": msg("M-8", "h/alpha", to="h/beta")})
+            with a.carrier.lock:      # both queued before the engine looks: one round holds both
+                a.carrier.handle_request({"op": "send", "message_id": "M-8", "text": msg("M-8", "h/alpha", to="h/beta")})
+                a.carrier.handle_request({"op": "send", "message_id": "M-8b", "text": msg("M-8b", "h/alpha", to="h/beta")})
             check("a retryable refusal is retried and then delivered",
                   until(lambda: a.box.deliveries.get(("M-8", "beta")) is not None and a.box.deliveries[("M-8", "beta")].attempts >= 1))
+            time.sleep(0.5)
+            second = a.box.deliveries[("M-8b", "beta")].tmids
+            check("an Overloaded refusal pauses sending: the next recipient waits until the pause has passed",
+                  not [x for x in a.daemon.sends if x["message_id"] in second])
+            clock.t += engine.OVERLOAD_PAUSE + 0.1
+            check("  and is sent once it has", until(lambda: [x for x in a.daemon.sends if x["message_id"] in second]))
             clock.t += 500
-            check("  ... to its receipt", until(lambda: gone(a, "M-8", "beta")))
+            check("  ... both reach their receipt", until(lambda: gone(a, "M-8", "beta") and gone(a, "M-8b", "beta")))
             a.daemon.send_answers = ["UnauthorizedPeer"]
             a.carrier.handle_request({"op": "send", "message_id": "M-9", "text": msg("M-9", "h/alpha", to="h/beta")})
             d9 = a.box.deliveries[("M-9", "beta")]
@@ -271,6 +287,25 @@ def main() -> int:
             check("the operator can end it, and it is recorded who",
                   a.carrier.handle_request({"op": "abandon", "message_id": "M-9", "recipient": "beta", "by": "user"})["abandoned"]
                   and gone(a, "M-9", "beta"))
+
+            # -- a copy that breaks the handler does not end the carrier --------
+            real_parse = b.carrier.parse
+
+            def boom_parse(text):
+                if "BOOM" in text:
+                    raise RuntimeError("a copy that breaks the handler")
+                return real_parse(text)
+            b.carrier.parse = boom_parse
+            before = b.carrier.counters.unreadable
+            ev = {"event_type": "message.direct", "data": {
+                "message_id": "c" * 32, "mode": "direct", "source_peer": pid(0), "source_endpoint": "gzcoord",
+                "destination_endpoint": "gzcoord", "received_at": 0,
+                "payload": {"media_type": framing.MEDIA_MESSAGE,
+                            "bytes": ipc.b64u(msg("M-BOOM", "h/alpha", to="h/beta", body="BOOM").encode())}}}
+            b.carrier._handle_guarded(b.carrier.session, ev)
+            b.carrier.parse = real_parse
+            check("a copy that breaks the handler is logged and counted, earns no receipt, and the carrier goes on",
+                  b.carrier.counters.unreadable == before + 1 and receipts_for(b, "M-BOOM") == 0)
 
             # -- an address that is not on the roster ------------------------
             res = a.carrier.handle_request({"op": "send", "message_id": "M-10", "text": msg("M-10", "h/alpha", to="elsewhere/delta")})

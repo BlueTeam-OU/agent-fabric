@@ -32,6 +32,10 @@ from typing import Callable
 
 from . import arrivals, framing, ipc, record, roster
 
+# After an Overloaded refusal nothing is sent for this long: the receiving
+# daemon's ingress bucket for this peer refills at two a second (InterWeave
+# ADR-0055 decision 2), so a retry sooner finds it empty again.
+OVERLOAD_PAUSE = 0.5
 RECONNECT_FIRST = 1.0
 RECONNECT_CAP = 30.0
 SEND_TIMEOUT = 30.0
@@ -87,6 +91,7 @@ class Carrier:
         self.reasm = framing.Reassembler()
         self.session: ipc.Session | None = None
         self._encoded: dict[tuple[str, str], list[framing.Payload]] = {}
+        self.pause_until = 0.0
         self._stamp = self.roster_stamp()
         self.refresh_roster()
 
@@ -177,6 +182,8 @@ class Carrier:
     # -- sending ---------------------------------------------------------
     def send_due(self, session: ipc.Session) -> None:
         with self.lock:
+            if self.clock() < self.pause_until:
+                return
             due = self.outbox.due(self.clock())
         for d in due:
             if self.stop.is_set():
@@ -208,7 +215,8 @@ class Carrier:
                         self.outbox.blocked(d, e.code)
                     self.outbox.retry_after(d, self.clock())
                 if e.code == "Overloaded":
-                    return          # the receiver's bucket refills at two a second: do not hammer it
+                    self.pause_until = self.clock() + OVERLOAD_PAUSE
+                    return
                 continue
             with self.lock:
                 self.outbox.posted(d)

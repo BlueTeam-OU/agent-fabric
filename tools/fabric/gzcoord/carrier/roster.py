@@ -285,8 +285,9 @@ def render_config(roster: Roster, good: list[dict], agent_id: str) -> str:
 
 
 def write_config(path: str, text: str) -> None:
-    """Replace config.yaml atomically, owner-only: the daemon refuses a file
-    another account can change, and a half-written one would be read."""
+    """Replace config.yaml atomically, owner-only (mkstemp makes the file 0600):
+    the daemon refuses a file another account can change, and a half-written
+    one would be read."""
     directory = os.path.dirname(path)
     os.makedirs(directory, mode=0o700, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".config.", dir=directory)
@@ -295,7 +296,6 @@ def write_config(path: str, text: str) -> None:
             fh.write(text)
             fh.flush()
             os.fsync(fh.fileno())
-        os.chmod(tmp, 0o600)
         os.replace(tmp, path)
     except BaseException:
         if os.path.exists(tmp):
