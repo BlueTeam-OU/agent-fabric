@@ -123,6 +123,28 @@ def test_blueteam_projects_resolve_under_both_github_orgs() -> None:
         assert all(u in entry["remotes"] for u in entry["moved_from"]), pid
 
 
+def test_kutaisi_shop_transit_resolves_under_both_owners() -> None:
+    """The move from andreabenetton to gzapi-org (the owner, 2026-10-24): an
+    unmoved clone still resolves, the new name is first and the client is
+    gzapi's, whose settings repository then holds the arming policy."""
+    import json
+    roots_spec = importlib.util.spec_from_file_location("fabric_roots", os.path.join(ROOT, "tools", "fabric", "roots.py"))
+    roots = importlib.util.module_from_spec(roots_spec); roots_spec.loader.exec_module(roots)
+    path = roots.projects_registry(engine=ROOT)
+    if not os.path.exists(path):
+        print(f"  skip test_kutaisi_shop_transit_resolves_under_both_owners: no projects registry at {path}")
+        return
+    with open(path, encoding="utf-8") as fh:
+        registry = json.load(fh)
+    for owner in ("andreabenetton", "gzapi-org"):
+        for url in (f"git@github.com:{owner}/kutaisi-shop-transit.git", f"https://github.com/{owner}/kutaisi-shop-transit"):
+            assert wc.project_for_remote(url, registry) == "kutaisi-shop-transit", url
+    entry = registry["projects"]["kutaisi-shop-transit"]
+    assert entry["remotes"][0] == "git@github.com:gzapi-org/kutaisi-shop-transit.git"
+    assert entry["client"] == "gzapi"
+    assert all(u in entry["remotes"] for u in entry["moved_from"])
+
+
 def test_a_hanging_git_reads_as_no_repository_within_the_bound() -> None:
     """A git that never answers is cut at GIT_TIMEOUT_S and _git says None,
     so a stalled filesystem cannot hold a session start or a scan."""
@@ -215,7 +237,7 @@ def test_resolve_never_refuses_over_a_client() -> None:
 
 def main() -> int:
     cases = [test_resolve_never_refuses_over_a_client, test_a_project_resolves_to_its_registered_client, test_an_unknown_client_refuses_naming_the_project_and_the_files,
-             test_resolve_names_the_client_from_the_project_never_the_organisation, test_blueteam_projects_resolve_under_both_github_orgs, test_the_shapes_git_accepts_parse_to_one_structure, test_what_is_not_a_network_remote_parses_to_nothing,
+             test_resolve_names_the_client_from_the_project_never_the_organisation, test_blueteam_projects_resolve_under_both_github_orgs, test_kutaisi_shop_transit_resolves_under_both_owners, test_the_shapes_git_accepts_parse_to_one_structure, test_what_is_not_a_network_remote_parses_to_nothing,
              test_scp_syntax_follows_gits_own_rule, test_canonical_ignores_scheme_and_user_keeps_port_and_host_case_folds,
              test_path_case_is_host_specific, test_project_matching_uses_the_canonical_form,
              test_a_hanging_git_reads_as_no_repository_within_the_bound]

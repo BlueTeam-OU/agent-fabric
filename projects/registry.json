@@ -89,9 +89,15 @@
       ]
     },
     "kutaisi-shop-transit": {
-      "client": "personal",
+      "client": "gzapi",
       "title": "Kutaisi shop-to-transit matching (OSM shops against bus/marshrutka lines)",
       "remotes": [
+        "git@github.com:gzapi-org/kutaisi-shop-transit.git",
+        "https://github.com/gzapi-org/kutaisi-shop-transit",
+        "git@github.com:andreabenetton/kutaisi-shop-transit.git",
+        "https://github.com/andreabenetton/kutaisi-shop-transit"
+      ],
+      "moved_from": [
         "git@github.com:andreabenetton/kutaisi-shop-transit.git",
         "https://github.com/andreabenetton/kutaisi-shop-transit"
       ],
@@ -108,7 +114,7 @@
       ],
       "integration": null,
       "license": "LicenseRef-kutaisi-shop-transit-Proprietary",
-      "note": "A private repository whose tree carries no license file: all rights reserved by default. One role, domain-transit; its working copy is that account's (moved there 2026-09-15)."
+      "note": "A private repository whose tree carries no license file: all rights reserved by default. One role, domain-transit; its working copy is that account's (moved there 2026-09-15). Moved to gzapi-org, client gzapi, on the owner's word of 2026-10-24; the andreabenetton spellings stay listed for clones not yet re-pointed."
     },
     "gzapi.ge": {
       "client": "gzapi",
