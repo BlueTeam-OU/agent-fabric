@@ -358,6 +358,12 @@ def out_final(conn: sqlite3.Connection, message_id: str, state: str, seq: int | 
         raise JournalError(f"no outbound row for MESSAGE-ID {message_id} (a pending row comes first)")
     if state == "failed" and row[2] != "pending":
         return
+    # The first carrier to accept sets the row's provenance, name and sequence
+    # together; a later accept (the other carrier of the dual run, ADR-064
+    # rule 7) leaves them. A failed row takes the provenance of the accept
+    # that follows it.
+    if state == "accepted" and row[2] == "accepted":
+        return
     conn.execute("UPDATE episodes SET state=?, carrier=?, carrier_seq=COALESCE(?, carrier_seq), recorded_at=? "
                  "WHERE id=?", (state, carrier, seq, now(), row[0]))
 
