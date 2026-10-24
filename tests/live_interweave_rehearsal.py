@@ -159,7 +159,6 @@ def main() -> int:
             inst.start()
         ok = until(lambda: all(os.path.exists(i.sock()) for i in (a, b)))
         check("both daemons are up on their data sockets", ok, open(a.log).read() + open(b.log).read())
-        say(f"  listening: {subprocess.run(['ss', '-ltn'], capture_output=True, text=True).stdout.count('4710')} sockets on 4710x")
         until(lambda: "connected" in a.ctl("peers", "list").lower() or b.ctl("peers", "list").strip() != "", 30)
 
         # -- carrier A: the real command ------------------------------------
