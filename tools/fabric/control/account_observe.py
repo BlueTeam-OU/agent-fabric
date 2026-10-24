@@ -27,7 +27,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import re
 import sys
 import tempfile
 import time
@@ -67,7 +66,14 @@ def _window(w: Mapping[str, Any] | None) -> dict | None:
 
 
 def _str(v: Any) -> str | None:
-    return v if isinstance(v, str) and v else None
+    # A lone surrogate in the sign-in's file cannot be written as UTF-8: unknown, not a failed run.
+    if not isinstance(v, str) or not v:
+        return None
+    try:
+        v.encode("utf-8")
+    except UnicodeEncodeError:
+        return None
+    return v
 
 
 def signin_profile(directory: str) -> dict:
@@ -157,7 +163,7 @@ def set_key(text: str, key: str, value: Any) -> str:
     gap = text[open_at + 1:first_key_at]
     pretty = "\n" in gap or not members
     indent = gap[gap.rindex("\n") + 1:] if "\n" in gap else "  "
-    body = json.dumps(value, ensure_ascii=False, **({"indent": indent or "  "} if pretty else {}))
+    body = json.dumps(value, ensure_ascii=False, allow_nan=False, **({"indent": indent or "  "} if pretty else {}))
     body = body.replace("\n", "\n" + indent) if pretty else body
     if same:
         _, vs, ve = same[0]
@@ -170,7 +176,7 @@ def set_key(text: str, key: str, value: Any) -> str:
 
 
 def new_file(slug: str, value: Any) -> str:
-    return json.dumps({"account": slug, KEY: value}, indent=2, ensure_ascii=False) + "\n"
+    return json.dumps({"account": slug, KEY: value}, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
 
 
 # ── the store ───────────────────────────────────────────────────────────────────────────────
@@ -297,8 +303,9 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Map
                 with open(os.path.join(tree, "accounts", f"{slug}.json"), "w", encoding="utf-8") as fh:
                     fh.write(render(slug))
             r = put(tree) if any(not v.startswith("refused") for v in result.values()) else {"changed": False}
-    except Exception as e:  # noqa: BLE001 — a store refusal is a line, nothing was written
-        say(f"fabric-accounts: nothing written: {str(scrub(str(e), secrets))[:200]}")
+    except Exception as e:  # noqa: BLE001 — a store refusal is one line, never a traceback
+        # The commit may already exist locally when the push is what failed; the next settings-put pushes it.
+        say(f"fabric-accounts: the store refused or failed (a commit may be made but not pushed): {str(scrub(str(e), secrets))[:200]}")
         return 1
     for slug in observed:
         print(f"{slug}: {observed[slug]['status']}; {result[slug]}{'' if result[slug].startswith('refused') else 'd'}")

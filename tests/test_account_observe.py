@@ -9,7 +9,7 @@ import contextlib
 import io
 import json
 import os
-import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -143,6 +143,23 @@ class Probe(unittest.TestCase):
         self.assertEqual(r, {"status": "read-failed"})
         self.assertNotIn(TOKEN_A, json.dumps(r))
 
+    def test_a_hostile_utilization_is_none_and_never_infinity_in_the_owners_file(self):
+        for bad in ("1e306", "-0.5", "nan", "inf"):
+            r = U.probe_account(TOKEN_A, self.reply(**{"anthropic-ratelimit-unified-7d-utilization": bad}))
+            self.assertIsNone(r["seven_day"]["utilization"], bad)
+        self.assertEqual(U.probe_account(TOKEN_A, self.reply(**{"anthropic-ratelimit-unified-7d-utilization": "0"}))["seven_day"]["utilization"], 0,
+                         "positive control: a real zero stays zero")
+        with self.assertRaises(ValueError):
+            O.set_key("{}", "observed", {"u": float("inf")})
+        with self.assertRaises(ValueError):
+            O.new_file("a", {"u": float("nan")})
+
+    def test_a_reset_past_year_9999_is_none_and_the_other_fields_survive(self):
+        r = U.probe_account(TOKEN_A, self.reply(**{"anthropic-ratelimit-unified-7d-reset": "1e15"}))
+        self.assertEqual(r["status"], "ok")
+        self.assertIsNone(r["seven_day"]["resets_at"])
+        self.assertEqual(r["seven_day"]["utilization"], 76)
+
     def test_the_token_is_in_the_one_header_only(self):
         seen = {}
 
@@ -260,6 +277,16 @@ class Main(Base):
         b = json.loads(self.puts[0]["accounts/claude-b.json"])["observed"]
         self.assertNotIn("model_weekly", b)
 
+    def test_a_lone_surrogate_in_a_sign_in_string_is_unknown_not_a_failed_run(self):
+        self.sign_in(self.home, "claude-a")
+        f = os.path.join(U.accounts_dir(self.home, {}), "claude-a", ".claude.json")
+        with open(f, "w", encoding="ascii") as fh:
+            fh.write('{"oauthAccount": {"organizationType": "\\ud800", "billingType": "stripe_subscription"}}')
+        self.go(["--write"], read_signin=lambda d, home=None: {"status": "ok", "limits": []})
+        o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
+        self.assertIsNone(o["organization_type"])
+        self.assertEqual(o["billing_type"], "stripe_subscription")
+
     def test_a_sign_in_that_does_not_read_is_named_not_zeroed_and_a_token_in_its_error_is_scrubbed(self):
         self.sign_in(self.home, "claude-a")
         code, out, err = self.go(["--write"], read_signin=lambda d, home=None: {"status": "failed", "error": f"boom {TOKEN_B}"})
@@ -288,7 +315,7 @@ class Main(Base):
                           locked=self.locked, probe=probe_ok, read_signin=lambda d, home=None: {}, now=lambda: NOW,
                           say=lambda m: print(m, file=sys.stderr))
         self.assertEqual(code, 1)
-        self.assertIn("nothing written", err.getvalue())
+        self.assertIn("the store refused or failed", err.getvalue())
         self.assertNotIn(TOKEN_A, out.getvalue() + err.getvalue())
 
     def test_usage_and_empty_store(self):

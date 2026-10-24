@@ -300,9 +300,18 @@ class Accounts(Base):
         self.assertEqual(ops.read_account(acct, home=h, bin="/fake/claude", run=harness())["status"], "ok")
 
     def test_the_read_child_has_no_stdin_a_harness_waits_3_s_on_an_open_one(self):
-        # read_account passes no input: run_bounded then closes the child's stdin on /dev/null.
-        r = util.run_bounded(["sh", "-c", "cat; echo end"], timeout=10, max_bytes=1000)
-        self.assertEqual(r.stdout, b"end\n")
+        # The runner's own stdin is made an open pipe, so a child that inherited it would block: the mutation
+        # (stdin=None) is then a timeout, not a pass that depends on how the suite was started.
+        rd, wr = os.pipe()
+        self.addCleanup(os.close, wr)
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); from control.ops import util as u; import sys as s\n"
+                "r = u.run_bounded(['sh', '-c', 'cat; echo end'], timeout=4, max_bytes=1000); print(r.stdout.decode().strip())")
+        tools = os.path.join(HERE, "tools", "fabric")
+        try:
+            p = subprocess.run([sys.executable, "-c", code, tools], stdin=rd, capture_output=True, text=True, timeout=30)
+        finally:
+            os.close(rd)
+        self.assertEqual((p.returncode, p.stdout.strip()), (0, "end"), p.stderr[-300:])
 
     def test_read_account_the_child_runs_in_the_accounts_own_config_directory_with_no_inherited_token(self):
         h, d = account_home(self)
@@ -317,6 +326,7 @@ class Accounts(Base):
         self.assertEqual(r["organization_uuid"], "org-1234")
         self.assertEqual(r["read_at"], "2026-09-24T20:00:00.000Z")
         self.assertEqual(seen[0][0], ["/fake/claude", "-p", "/usage", "--output-format", "json", "--verbose", "--no-session-persistence"])
+        self.assertNotIn("input", seen[0][1], "no stdin is fed: run_bounded closes it on /dev/null")
         env = seen[0][1]["env"]
         self.assertEqual(env["CLAUDE_CONFIG_DIR"], acct)
         for k in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):

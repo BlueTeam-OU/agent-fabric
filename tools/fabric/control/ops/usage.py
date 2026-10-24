@@ -90,14 +90,29 @@ def windows_from_headers(get: Callable[[str], Any]) -> dict:
     def finite(x: float) -> bool:
         return x == x and x not in (float("inf"), float("-inf"))
 
+    def percent(u: float) -> Any:
+        # A header is the network's: a fraction that is negative, or that overflows once scaled, is no reading.
+        if not finite(u) or u < 0:
+            return None
+        p = util.js_round(u * 1000) / 10
+        return util.whole(p) if finite(p) else None
+
+    def instant(r: float) -> str | None:
+        # A time past the year 9999 is not a time (datetime refuses it): unknown, not a traceback.
+        if not finite(r) or r <= 0:
+            return None
+        try:
+            return util.iso_ms(r * 1000)
+        except (ValueError, OverflowError, OSError):
+            return None
+
     def win(k: str) -> dict | None:
         u = num(f"anthropic-ratelimit-unified-{k}-utilization")
         r = num(f"anthropic-ratelimit-unified-{k}-reset")
         status = get(f"anthropic-ratelimit-unified-{k}-status")
         if not finite(u) and not finite(r):
             return None
-        out: dict[str, Any] = {"utilization": util.whole(util.js_round(u * 1000) / 10) if finite(u) else None,
-                               "resets_at": util.iso_ms(r * 1000) if finite(r) and r > 0 else None}
+        out: dict[str, Any] = {"utilization": percent(u), "resets_at": instant(r)}
         if isinstance(status, str) and re.fullmatch(r"[a-z_]{1,32}", status):
             out["status"] = status
         return out
