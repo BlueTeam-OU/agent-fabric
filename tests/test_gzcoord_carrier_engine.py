@@ -87,6 +87,7 @@ class Node:
         os.makedirs(d)
         self.daemon = FakeDaemon(d, peer=pid(n))
         self.journal_rows: list[tuple[str, str]] = []
+        self.arrivals_when_journaled: dict[str, int] = {}     # how many arrival lines existed when the journal was called
         self.journal_fail = journal_fail if journal_fail is not None else [False]
         iso = lambda: "2026-10-24T12:00:00Z"  # noqa: E731
         self.rows = rows
@@ -110,6 +111,7 @@ class Node:
         if self.journal_fail[0]:
             raise OSError("journal is held")
         _, meta = parse(text)
+        self.arrivals_when_journaled.setdefault(meta["MESSAGE-ID"], len(self.arrivals()))
         key = (meta["MESSAGE-ID"], text)
         if key in self.journal_rows:
             return "same"
@@ -166,6 +168,8 @@ def main() -> int:
             check("the arrival is logged with the verdict ok, before the journal",
                   [(x["mid"], x["carrier"], x["verdict"], x["addressee"]) for x in b.arrivals()]
                   == [("M-1", "interweave", "ok", "h/beta")])
+            check("the arrival line was already written when the journal was called (rule 11: before it collapses the copy)",
+                  b.arrivals_when_journaled.get("M-1") == 1, str(b.arrivals_when_journaled))
             check("the arrival is offered to the inbox", [r["mid"] for r in b.inbox.unseen()] == ["M-1"])
             sent = a.daemon.sends[0]
             check("the transport message_id is 32 hex and the endpoint the roster's",

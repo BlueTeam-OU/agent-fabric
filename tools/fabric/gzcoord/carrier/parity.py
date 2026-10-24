@@ -37,7 +37,7 @@ import time
 from collections import defaultdict
 
 CARRIERS = ("relay", "interweave")
-UUID7 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$")
+UUID7 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}")
 OFFLINE_AFTER_S = 60.0
 
 
@@ -47,7 +47,7 @@ def parse_t(t: str) -> float:
 
 def made_at(mid: str) -> float | None:
     """When a uuid7 MESSAGE-ID was made, from its 48-bit millisecond prefix."""
-    if not UUID7.match(mid):
+    if not UUID7.fullmatch(mid):
         return None
     return int(mid.replace("-", "")[:12], 16) / 1000.0
 
