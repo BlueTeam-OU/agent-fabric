@@ -125,6 +125,11 @@ def main() -> int:
         before = len(seen)
         check("a request line over 9 MiB is refused too: 2 MiB of control characters escape to six bytes each",
               b.post("M", "\x01" * (2 * 1024 * 1024)) == "failed" and len(seen) == before)
+        sent_lines: list[dict] = []
+        spy = A.Adapter(path, lambda p_, req, timeout=0: sent_lines.append(req) or {"ok": True, "carried": 1, "queued": 1})
+        check("neither refusal reaches the socket at all (a spy in the carrier's place is never called)",
+              spy.post("M", "\x01" * (2 * 1024 * 1024)) == "failed" and spy.post("M", "x" * (4 * 1024 * 1024 + 1)) == "failed"
+              and sent_lines == [] and spy.post("M", "ok") == "accepted" and len(sent_lines) == 1)
         srv.close()
         open(path, "w").close()
         os.unlink(path)
