@@ -42,6 +42,7 @@ class Job(_JobKeys, total=False):
     blockers: list[str]
     branch: str
     worktree: str
+    deliver_to: str
 
 
 def _load(name: str, path: str):

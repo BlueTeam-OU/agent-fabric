@@ -1644,6 +1644,73 @@ def main() -> int:
         check("a worktree outside the home is left alone", said and "left alone" in said[0] and os.path.isdir(os.path.join(outside, "target")), said)
         check("an unset field, and a directory that is gone, say nothing", _clean(None, None) == [] and _clean(os.path.join(home, "gone"), None) == [])
 
+        print("a supply job's for/ branch (deliver_to) is its worktree")
+        supply = f"{me}/for/user/j333-review-server"
+
+        def supply_job(w: World, branch: str | None) -> str:
+            job = w.add("supply the review server")
+            path = os.path.join(w.state, "agents", login, "jobs.json")
+            doc = json.load(open(path))
+            if branch:
+                next(j for j in doc["jobs"] if j["id"] == job)["deliver_to"] = branch
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+            return job
+
+        def on(wt: str) -> str:
+            return subprocess.run(["git", "-C", wt, "branch", "--show-current"], capture_output=True, text=True, env=git_env()).stdout.strip()
+
+        w = World()
+        j1 = supply_job(w, supply)
+        rc, out, err = w.switch()
+        v = w.job(j1)
+        check("a job with deliver_to starts on that branch, new off the default branch, in a worktree of its own",
+              rc == 0 and v["branch"] == supply and on(v["worktree"]) == supply and v["worktree"].endswith("-j333-review-server")
+              and f"{supply} (the for/ branch" in out, out + err + repr(v))
+        w = World()
+        j1 = supply_job(w, None)
+        rc, out, err = w.switch()
+        check("…and the same job without it starts on a feat/ branch, as before", rc == 0 and w.job(j1)["branch"].startswith(f"{me}/feat/{j1}-"), out + err)
+
+        w = World()
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", supply], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "delivered earlier"], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", supply], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "branch", "-q", "-D", supply], check=True, env=git_env())
+        advance_default(w)
+        j1 = supply_job(w, supply)
+        rc, out, err = w.switch()
+        wt = w.job(j1)["worktree"]
+        log = subprocess.run(["git", "-C", wt, "log", "--format=%s", "-n", "5"], capture_output=True, text=True, env=git_env()).stdout
+        check("a for/ branch already on origin is checked out with its commits and has the default branch merged in",
+              rc == 0 and on(wt) == supply and "delivered earlier" in log and subprocess.run(
+                  ["git", "-C", wt, "merge-base", "--is-ancestor", "origin/main", "HEAD"], env=git_env()).returncode == 0, out + err + log)
+
+        w = World()
+        gh_says(merged_heads=[supply])
+        j1 = supply_job(w, supply)
+        rc, out, err = w.switch()
+        check("a for/ branch whose pull request merged is not taken again: the usual order",
+              rc == 0 and w.job(j1)["branch"].startswith(f"{me}/feat/{j1}-"), out + err)
+        gh_says()
+
+        w = World()
+        j1 = supply_job(w, None)
+        w.switch()
+        began = w.job(j1)["branch"]
+        subprocess.run(["git", "-C", w.job(j1)["worktree"], "push", "-q", "origin", began], check=True, env=git_env())
+        w.sw("pause", j1, "later", cwd=w.job(j1)["worktree"])
+        jpath = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jpath))
+        next(j for j in doc["jobs"] if j["id"] == j1)["deliver_to"] = supply
+        with open(jpath, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        w.add("another")
+        rc, out, err = w.switch(j1)
+        check("a job that began on its own branch keeps it when a for/ branch is recorded later",
+              rc == 0 and w.job(j1)["branch"] == began and on(w.job(j1)["worktree"]) == began, out + err + repr(w.job(j1)))
+
         print("a session that has worked no job takes the first in place, with its branch")
         w = World()
         j1 = w.add("first")

@@ -59,6 +59,14 @@ transition carries the evidence as its note ("swept: …") and is applied under 
 artifacts the evidence was read from. Each account's control agent runs it hourly (tools/fabric/control/agentd.py, ADR-037 rule 12). One gh lookup per distinct pull request in the run, each with a timeout; a lookup that
 fails leaves the job delivered and says so. No other state is touched, no artifact removed, and a second run changes nothing.
 
+A supply job names its branch. A REQUEST whose DELIVER-TO section names a branch of this login under for/ (<host>/<login>/for/<caller>/<what>)
+is recorded with it as the job's `deliver_to`, by whichever path adds it (a later receiver intake fills it into the job the
+sender's title-only add made first, only while that job is queued with no branch of its own, and never replaces one);
+another login's branch is not recorded. `switch` to such a job checks that branch out first, fetched and up to date (a new one
+off the default branch when it exists nowhere yet), in a worktree of its own, ahead of an open pull request or a new feat/ branch,
+unless the job already has another branch of its own (it keeps that) or a pull request from the for/ branch merged (step 3
+below): the job-copy guard then sees a job copy.
+
 A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
 normal when none was set, and in a list written before priorities
 existed. A stored value outside the four is not read as normal: `next`
@@ -134,7 +142,8 @@ check that failed and changing nothing:
      `retract <id> <artifact>` removes one recorded artifact whatever the job's state, so a mistaken one cannot hold the job; it refuses,
      naming the artifacts, when the string is not there, and notes what was removed in the job's log.
   2. The next job starts in a fresh session after a worked one (rule 3, unchanged): `fabric-fresh --job <id>` is printed.
-  3. Its branch is chosen before any work: the job's own branch when it has begun one that no pull request merged; else this
+  3. Its branch is chosen before any work: the for/ branch a supply job records (`deliver_to`) when the job has no other branch of
+     its own and no pull request from it merged (the open-pull-request refusal and --needs-merged below do not apply to it); else the job's own branch when it has begun one that no pull request merged; else this
      login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
      commits), with the default branch merged into it first (locally, not pushed); else, with --needs-merged, the job is blocked
      on that pull request and not started; else a new branch <host>/<login>/<type>/<job id and title words> off the freshly
@@ -183,7 +192,7 @@ _spec.loader.exec_module(sys.modules["fabric_jobs"])
 from fabric_jobs.base import HERE, FABRIC_ROOT, _JobKeys, Job, _load, identity, STATES, OPEN, TERMINAL, MESSAGE_ID, POOL_ID, PRIORITIES, DEFAULT_PRIORITY, Refused, NothingQueued, Stale, mutate  # noqa: E402, F401
 from fabric_jobs import blockers  # noqa: E402, F401
 from fabric_jobs.ranking import stored_priority, message_of, waiters, effective_priority, queue_order, named  # noqa: E402, F401
-from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job, listed_request, request_id_of  # noqa: E402, F401
+from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job, listed_request, deliver_branch, request_id_of  # noqa: E402, F401
 from fabric_jobs.queue import QUEUE, QUEUE_TIMEOUT_S, Unreachable, ask_queue, stream_waits  # noqa: E402, F401
 from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, claimed_job, pool_job, printable, pool_line  # noqa: E402, F401
 from fabric_jobs.render import line, show, summary  # noqa: E402, F401
