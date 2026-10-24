@@ -52,14 +52,26 @@ def plan_classes(run: Run) -> None:
         for klass in sorted({k for (k, _t) in topics}):
             base = layout.class_home(klass, role, run.project)
             here = sorted(t for (k, t) in topics if k == klass)
-            split = os.path.isdir(os.path.join(base, CLASS_FILES[klass])) or len(here) > 1
             flat_file = os.path.join(base, f"{CLASS_FILES[klass]}.md")
+            prior = sorted({sid.split(":", 1)[1] for sid in crossref_slice_ids(run, role)
+                            if sid.startswith(f"{klass}:")})
+            # A flat file records the one topic it holds (write_role): the file alone says whose it is when the
+            # crossref, which a drain without references leaves empty, does not.
             flat_topic = None
+            held = None
             if os.path.exists(flat_file):
-                prior = sorted({sid.split(":", 1)[1] for sid in crossref_slice_ids(run, role)
-                                if sid.startswith(f"{klass}:")})
+                held = read_existing_slice(flat_file)[0].get("topic")
+                held = held if isinstance(held, str) and held else None
+            known = {held} if held else set(prior)
+            # A SECOND TOPIC MOVES THE CLASS INTO ITS DIRECTORY. The flat file has one INDEX row and one description,
+            # so a topic written into it lost its cue (a drain's blind review, 2026-10-24).
+            split = (os.path.isdir(os.path.join(base, CLASS_FILES[klass])) or len(here) > 1
+                     or bool(known and os.path.exists(flat_file) and not set(here) <= known))
+            if os.path.exists(flat_file):
                 if not split:
                     flat_topic = here[0]
+                elif held:
+                    flat_topic = held
                 elif len(prior) == 1:
                     flat_topic = prior[0]
                 else:
@@ -187,8 +199,17 @@ def is_carried(klass: str, topic: str) -> bool:
     return topic.startswith(f"{CLASS_FILES[klass]}-carried-")
 
 
+def written_stem(run: Run, role: str | None, klass: str, topic: str) -> str:
+    """The file name (without `.md`) a topic's first part has once written: the name a `[[link]]` resolves by."""
+    if role is None:
+        return f"{klass}-{topic}"
+    return topic if run.class_plan[(role, klass)]["split"] else CLASS_FILES[klass]
+
+
 def resolve_targets(run: Run, role: str | None, label: str,
-                    buckets: dict[tuple[str, str], list[dict[str, Any]]]) -> None:
+                    buckets: dict[tuple[str, str], list[dict[str, Any]]]) -> list[tuple[str, str]]:
+    """Returns (memory name, file stem) for each claim filed in another topic's slice."""
+    moved: list[tuple[str, str]] = []
     on_disk_by_class: dict[str, dict[str, dict[str, str]]] = {}
     for (klass, topic), group in sorted(buckets.items()):
         for claim in list(group):
@@ -219,6 +240,7 @@ def resolve_targets(run: Run, role: str | None, label: str,
                 if len(holders) == 1:
                     group.remove(claim)
                     buckets[(klass, holders[0])].append(claim)
+                    moved.append((claim["topic"], written_stem(run, role, klass, holders[0])))
                 continue
             where = f"{label}/{klass}:{topic}#{heading}"
             holders = sorted(t for t, sections in on_disk.items() if target in sections and t != topic)
@@ -258,10 +280,30 @@ def resolve_targets(run: Run, role: str | None, label: str,
             # heading is derived from it.
             group.remove(claim)
             buckets[(klass, holders[0])].append(claim)
+            moved.append((claim["topic"], written_stem(run, role, klass, holders[0])))
             if role is None:
                 run.shared_owners[(klass, holders[0])] |= run.shared_owners[(klass, topic)]
     for key in [k for k, g in buckets.items() if not g]:
         del buckets[key]
+    return moved
+
+
+def point_links(run: Run, moved: list[tuple[str, str]]) -> None:
+    """A `[[memory]]` names a memory, and a claim filed in another topic's slice (a correction) is written under that
+    slice's file name, so the link resolved nowhere (a drain's blind review, 2026-10-24). Every claim of this drain
+    names the slice instead. A name two slices claim is left as written: pointing at either would guess."""
+    stems: dict[str, set[str]] = defaultdict(set)
+    for name, stem in moved:
+        if name != stem:
+            stems[name].add(stem)
+    unique = {name: next(iter(found)) for name, found in stems.items() if len(found) == 1}
+    if not unique:
+        return
+    pattern = re.compile(r"\[\[(" + "|".join(re.escape(n) for n in sorted(unique, key=len, reverse=True)) + r")\]\]")
+    groups = [g for buckets in run.per_role.values() for g in buckets.values()] + list(run.shared.values())
+    for group in groups:
+        for claim in group:
+            claim["body"] = pattern.sub(lambda m: f"[[{unique[m.group(1)]}]]", claim["body"])
 
 
 def resolve_all_targets(run: Run) -> int | None:
@@ -279,9 +321,11 @@ def resolve_all_targets(run: Run) -> int | None:
     # A claim already standing in another topic under its own heading is
     # a correction an earlier drain applied, harvested again: it goes back
     # there to be recognised as itself rather than written twice.
+    moved: list[tuple[str, str]] = []
     for role in sorted(run.per_role):
-        resolve_targets(run, role, role, run.per_role[role])
-    resolve_targets(run, None, "shared", run.shared)
+        moved += resolve_targets(run, role, role, run.per_role[role])
+    moved += resolve_targets(run, None, "shared", run.shared)
+    point_links(run, moved)
     if run.ambiguous_targets:
         print("MERGE TARGET AMBIGUOUS — a correction names a heading more than one topic holds; "
               "the author names the section unambiguously (retitle one of them, or the memory). "

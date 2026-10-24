@@ -1404,7 +1404,7 @@ def test_the_report_lists_every_applied_correction_once_with_the_keys_the_harves
     listed = json.loads(read(report_path(out)))["applied_corrections"]
     assert len(listed) == 1, listed
     (entry,) = listed
-    assert entry["slice"].endswith("/solution.md") and entry["heading"] == "The finding, corrected" and entry["replaced"] == "The finding", entry
+    assert entry["slice"].endswith("/solution/one.md") and entry["heading"] == "The finding, corrected" and entry["replaced"] == "The finding", entry
     assert (entry["memory"], entry["agent"], entry["host"], entry["stamp"]) == ("fix-one", "python-dev-03", "hostA", "2026-01-02"), entry
     assert entry["replaced_key"] == memory_key(OLD) and entry["applied_key"] == memory_key(NEW), entry
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02").returncode == 0
@@ -1928,6 +1928,19 @@ def test_another_topic_in_the_flat_class_file_is_not_this_topic_s_rival(tmp: str
     assert "About x." in read(dom(out, "alpha", "domain", "x.md"))
 
 
+def legacy_two_topic_flat(out: str, role: str, flat_path: str, klass: str, topic: str, heading: str, text: str) -> None:
+    """The flat file of a drain from before a flat file held one topic: a second topic's section appended, no recorded
+    topic, the role's crossref naming both. A second topic now moves the class into its directory instead."""
+    legacy = re.sub(r"(?m)^topic: .*\n", "", read(flat_path)).rstrip("\n") + f"\n\n## {heading}\n\n{text}\n"
+    with open(flat_path, "w", encoding="utf-8") as fh:
+        fh.write(legacy)
+    crossref = proj(out, role, "crossref.json")
+    doc = json.loads(read(crossref))
+    next(e for kinds in doc["index"].values() for e in kinds.values())["slices"].append(f"{klass}:{topic}")
+    with open(crossref, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+
+
 def test_a_collision_inside_a_two_topic_flat_file_is_still_stopped(tmp: str) -> None:
     """Drain one brings topic x alone (a flat class file), drain two topic y
     alone (merged into the same flat file), drain three x with changed text
@@ -1939,10 +1952,8 @@ def test_a_collision_inside_a_two_topic_flat_file_is_still_stopped(tmp: str) -> 
         {"class": "domain", "topic": "x", "title": "Hx", "body": "About x.", "evidence": ["h1"]},
     ])})
     assert run_assemble(drain, claims_dir, out).returncode == 0
-    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
-        json.dump(claims("alpha", [{"class": "domain", "topic": "y", "title": "Hy", "body": "About y.", "evidence": ["h2"]}]), fh)
-    assert run_assemble(drain, claims_dir, out).returncode == 0
-    flat = dom(out, "alpha", "domain.md")
+    flat = proj(out, "alpha", "domain.md") if os.path.exists(proj(out, "alpha", "domain.md")) else dom(out, "alpha", "domain.md")
+    legacy_two_topic_flat(out, "alpha", flat, "domain", "y", "Hy", "About y.")
     assert os.path.exists(flat) and "## Hx" in read(flat) and "## Hy" in read(flat), "precondition: one flat file, two topics"
     with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
         json.dump(claims("alpha", [{"class": "domain", "topic": "x", "title": "Hx", "body": "About x, changed.", "evidence": ["h3"]}]), fh)
@@ -2650,9 +2661,9 @@ def test_a_claim_in_the_carried_file_is_not_written_twice(tmp: str) -> None:
     three = {"class": "workflow", "topic": "three", "title": "Three", "body": "Third way.", "evidence": ["h3"]}
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [one])})
     assert run_assemble(drain, claims_dir, out).returncode == 0
-    set_claims(claims_dir, "alpha", [two])
-    assert run_assemble(drain, claims_dir, out).returncode == 0
-    assert "## One" in read(proj(out, "alpha", "workflow.md")) and "## Two" in read(proj(out, "alpha", "workflow.md"))
+    flat_path = proj(out, "alpha", "workflow.md")
+    legacy_two_topic_flat(out, "alpha", flat_path, "workflow", "alpha-two", "Two", "Second way.")
+    assert "## One" in read(flat_path) and "## Two" in read(flat_path)
 
     set_claims(claims_dir, "alpha", [one, three])
     proc = run_assemble(drain, claims_dir, out)
@@ -2692,6 +2703,83 @@ def test_a_claim_in_the_carried_file_is_not_written_twice(tmp: str) -> None:
     migrated = json.loads(read(report_path(out)))["migrated"]
     assert any("workflow-carried-2026-01-01.md removed" in m for m in migrated), migrated
     assert "carried" not in read(proj(out, "alpha", "INDEX.md"))
+
+
+def _flat_then(tmp: str, first: list[dict], second: list[dict]) -> tuple[str, str, str, "subprocess.CompletedProcess"]:
+    """Two runs of one stamp over one role: the way a project's bundles are drained, one run each."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", first)})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", second)
+    return drain, claims_dir, out, run_assemble(drain, claims_dir, out)
+
+
+def test_a_flat_file_written_by_this_stamp_keeps_its_own_topic(tmp: str) -> None:
+    """Two bundles of one role in one stamp are two runs. The first writes a flat `<class>.md`; the second, bringing
+    two topics, moved it in under `<class>-carried-<stamp>`, a name no memory has (InterWeave #410, 2026-10-24).
+    A file this stamp wrote is one topic's, and keeps the topic."""
+    one = {"class": "workflow", "topic": "alpha-one", "title": "One", "body": "First way.", "evidence": ["h3"]}
+    two = {"class": "workflow", "topic": "alpha-two", "title": "Two", "body": "Second way.", "evidence": ["h2"]}
+    three = {"class": "workflow", "topic": "three", "title": "Three", "body": "Third way.", "evidence": ["h3"]}
+    _drain, _claims_dir, out, proc = _flat_then(tmp, [one], [two, three])
+    assert proc.returncode == 0, proc.stderr
+    wf = proj(out, "alpha", "workflow")
+    assert sorted(os.listdir(wf)) == ["alpha-one.md", "alpha-two.md", "three.md"], sorted(os.listdir(wf))
+    assert not os.path.exists(proj(out, "alpha", "workflow.md"))
+    assert "## One" in read(os.path.join(wf, "alpha-one.md")) and "carried" not in read(proj(out, "alpha", "INDEX.md"))
+
+
+def test_a_flat_file_that_gains_a_second_topic_moves_into_its_directory(tmp: str) -> None:
+    """A second topic in a flat class file left one INDEX row and one description for two rulings, and the second
+    ruling lost its cue (rust-ui-dev/rationale.md). The class moves into its directory, one file and one row per
+    topic, as the carried migration does for an older file."""
+    one = {"class": "workflow", "topic": "alpha-one", "title": "One cue", "body": "First way.", "evidence": ["h1"]}
+    two = {"class": "workflow", "topic": "alpha-two", "title": "Two cue", "body": "Second way.", "evidence": ["h2"]}
+    _drain, _claims_dir, out, proc = _flat_then(tmp, [one], [two])
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(proj(out, "alpha", "workflow.md")), "the second topic was written into the flat file"
+    wf = proj(out, "alpha", "workflow")
+    assert sorted(os.listdir(wf)) == ["alpha-one.md", "alpha-two.md"], sorted(os.listdir(wf))
+    index = read(proj(out, "alpha", "INDEX.md"))
+    assert "One cue" in index and "Two cue" in index and "workflow/alpha-one.md" in index and "workflow/alpha-two.md" in index, index
+    # Positive control: the same topic again stays where it is.
+    drain, claims_dir, out2 = build(os.path.join(tmp, "again"), {"alpha": claims("alpha", [one])}) \
+        if os.makedirs(os.path.join(tmp, "again")) is None else ("", "", "")
+    assert run_assemble(drain, claims_dir, out2).returncode == 0 and run_assemble(drain, claims_dir, out2).returncode == 0
+    assert os.path.exists(proj(out2, "alpha", "workflow.md")) and not os.path.isdir(proj(out2, "alpha", "workflow"))
+
+
+def test_a_merge_target_in_a_flat_file_is_followed_when_the_class_moves_in(tmp: str) -> None:
+    """The class moves into its directory in the run that brings a correction of a section of the flat file: the
+    correction replaces that section in the moved file, and is not written beside it as `<topic>-2.md` (#412 F1)."""
+    one = {"class": "threads", "topic": "alpha-one", "title": "Open item", "body": "Stale.", "evidence": ["h3"]}
+    fix = {"class": "threads", "topic": "alpha-fix", "title": "Open item settled", "body": "Settled.", "evidence": ["h2"],
+           "merge_target": "Open item"}
+    two = {"class": "threads", "topic": "alpha-two", "title": "Other", "body": "Other thread.", "evidence": ["h3"]}
+    _drain, _claims_dir, out, proc = _flat_then(tmp, [one], [fix, two])
+    assert proc.returncode == 0, proc.stderr
+    files = sorted(os.listdir(proj(out, "alpha", "threads")))
+    assert files == ["alpha-one.md", "alpha-two.md"], files
+    text = read(proj(out, "alpha", "threads", "alpha-one.md"))
+    assert "## Open item settled" in text and "Settled." in text and "Stale." not in text, text
+
+
+def test_a_link_to_a_memory_written_into_another_slice_is_pointed_at_the_slice(tmp: str) -> None:
+    """A memory that corrects a section is written into that section's slice, under that slice's file name; a
+    `[[wikilink]]` to the memory resolved nowhere (#412 F7). The links of this drain's claims name the slice."""
+    base = {"class": "workflow", "topic": "labels-english-supplier", "title": "Supplier", "body": "Text.", "evidence": ["h1"]}
+    fix = {"class": "workflow", "topic": "labels-keep-is-reserved", "title": "Supplier, reserved", "body": "Reserved.",
+           "evidence": ["h2"], "merge_target": "Supplier"}
+    user = {"class": "solution", "topic": "placement", "title": "Placement",
+            "body": "Related: [[labels-keep-is-reserved]], [[unrelated-memory]].", "evidence": ["h3"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [base])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [fix, user])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "Reserved." in read(proj(out, "alpha", "workflow", "labels-english-supplier.md")), tree(out)
+    placed = read(proj(out, "alpha", "solution.md"))
+    assert "[[labels-english-supplier]]" in placed and "[[labels-keep-is-reserved]]" not in placed, placed
+    assert "[[unrelated-memory]]" in placed, "a name the drain did not place is left as written"
 
 
 def test_part_one_of_a_split_topic_is_always_the_topic_file(tmp: str) -> None:
@@ -2874,7 +2962,8 @@ def test_one_agent_s_memories_in_a_flat_class_file_are_not_one_retitled_memory(t
         proc = run_assemble(drain, claims_dir, out)
         assert proc.returncode == 0, proc.stderr
         assert "SUPERSEDED" not in proc.stderr, proc.stderr
-    flat = read(dom(out, "alpha", "domain.md"))
+    # Each topic has its own file once a second one arrives (a flat file holds one topic's sections).
+    flat = "".join(read(dom(out, "alpha", "domain", n)) for n in sorted(os.listdir(dom(out, "alpha", "domain"))))
     assert all(f"## Fact {x}" in flat for x in "ABC"), f"an earlier memory was deleted:\n{flat}"
 
     # The directory shape: the topic's own file is one memory.
@@ -3928,6 +4017,10 @@ def main() -> int:
         test_holding_a_shared_slice_keeps_the_notes_of_a_role_slice_under_the_same_key,
         test_a_held_slice_is_drained_again_once_released,
         test_a_role_id_that_is_no_slug_is_refused_before_anything_is_written,
+        test_a_flat_file_written_by_this_stamp_keeps_its_own_topic,
+        test_a_flat_file_that_gains_a_second_topic_moves_into_its_directory,
+        test_a_merge_target_in_a_flat_file_is_followed_when_the_class_moves_in,
+        test_a_link_to_a_memory_written_into_another_slice_is_pointed_at_the_slice,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is
