@@ -331,15 +331,16 @@ def carrier_hooks(address: str, journal_off: bool):
     shown = ledger.Ledger(os.path.join(ep.state_dir(), "gzcoord-shown.jsonl"), iso_now=ep.now)
 
     def on_arrival(recs: list[dict]) -> None:
-        mids = []
+        copies = []
         for r in recs:
             try:
                 meta = gzmsg.parse(r["content"])["metadata"]
             except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
                 continue
-            mids.append(meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(r["content"].encode("utf-8", "surrogatepass")).hexdigest())
+            copies.append((str(r.get("id") or r.get("seq")),
+                           meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(r["content"].encode("utf-8", "surrogatepass")).hexdigest()))
         try:
-            adapter.relay_arrivals(log, address, mids)
+            adapter.relay_arrivals(log, address, copies)
         except OSError as e:
             # Evidence for the parity report, not a condition of delivery.
             print(f"gzcoord: the arrival log could not be written ({e.strerror or e}); the message is shown", file=sys.stderr)
@@ -359,7 +360,12 @@ def show_page(res: dict, write: Callable[[], None]) -> None:
             held.release()
         raise
     if held:
-        held.finish()
+        try:
+            held.finish()
+        except OSError as e:
+            print(f"gzcoord: the shown ledger could not be written ({e.strerror or e}); the message may repeat", file=sys.stderr)
+    if res.get("ack_later"):
+        res["ack_later"]()          # after the lock is released: the relay's acknowledgement is a network call
 
 
 def with_queued(shown: str, classified: list[dict], me: dict) -> str:

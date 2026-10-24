@@ -167,10 +167,10 @@ def main() -> int:
         r, acked = loop([[rrec(1, "R-1")]], led, ack_probe=lambda i: seen_when_acked.append(len(lines(lpath))))
         check("a relay copy nothing showed is delivered, with the ledger's lock held for the caller",
               r["delivered"] and r["ledger"] is not None and [c["rec"]["id"] for c in r["classified"]] == ["id1"])
-        check("the pending line was on disk when the relay was acknowledged (never after)",
-              seen_when_acked == [1] and lines(lpath)[0].get("pending") is True and acked == ["id1"], str(seen_when_acked))
         out = []
         show_page(r, lambda: out.append("written"))
+        check("the pending line was on disk when the relay was acknowledged, and the acknowledgement came after the showing",
+              seen_when_acked == [2] and lines(lpath)[0].get("pending") is True and acked == ["id1"], str(seen_when_acked))
         check("show_page writes the page, then the final line, and releases the lock",
               out == ["written"] and [x.get("pending") for x in lines(lpath)] == [True, None])
         led.exclusive().release()          # would block for ever if the lock were still held
@@ -242,8 +242,9 @@ def main() -> int:
         other["content"] = other["content"].replace("body of COL-1", "a different body entirely")
         r, acked = loop([[other]], led)
         check("a different message that reuses a shown MESSAGE-ID is shown, not acknowledged away (even with no carrier)",
-              r["delivered"] and "a different body" in r["classified"][0]["rec"]["content"] and acked == ["id22"])
+              r["delivered"] and "a different body" in r["classified"][0]["rec"]["content"])
         show_page(r, lambda: None)
+        check("... and acknowledged once shown", acked == ["id22"])
 
         # a hold: nothing is polled, the carrier's arrivals included
         asked = FakeCarrier([urec("HOLD-1")])
@@ -255,6 +256,20 @@ def main() -> int:
         r, acked = loop([[rrec(23, "HOLD-0")]], led, iw=asked, held=held_second)
         check("a page dropped for a hold asks the carrier nothing and shows nothing",
               not r["delivered"] and asked.asked == 0 and acked == [], str((r["delivered"], asked.asked, acked)))
+
+        # the relay is acknowledged after the lock is released, not under it
+        probe = []
+        r, acked = loop([[rrec(31, "ACK-1")]], led, ack_probe=lambda i: probe.append(i))
+        check("with the ledger's lock held for a showing, no acknowledgement is sent yet", probe == [] and callable(r["ack_later"]))
+        show_page(r, lambda: None)
+        check("... they follow once the lock is released", probe == ["id31"])
+        led.exclusive().release()
+
+        # presence from the carrier is never shown
+        hello = urec("HE-1")
+        hello["content"] = hello["content"].replace("[GZCOORD/1] INFO", "[GZCOORD/1] HELLO")
+        r, _ = loop([[]], led, iw=FakeCarrier([hello]))
+        check("a retired HELLO from the carrier is not shown", not r["delivered"])
 
         # a carrier that is down does not hold the relay
         down = FakeCarrier([])
@@ -344,11 +359,15 @@ def main() -> int:
     # -- the arrival log -------------------------------------------------------
     with tempfile.TemporaryDirectory(prefix="gz-arr-") as d:
         log = arrivals.ArrivalLog(os.path.join(d, "a", "gzcoord-arrivals.jsonl"), iso_now=lambda: NOW)
-        A.relay_arrivals(log, "h/beta", ["L-1", "L-1"])
-        A.relay_arrivals(log, "h/beta", ["L-1"])
+        A.relay_arrivals(log, "h/beta", [("r1", "L-1"), ("r1", "L-1")])
+        A.relay_arrivals(log, "h/beta", [("r1", "L-1")])
         check("a relay copy is a line with the relay's verdict unauthenticated; a re-read of the same record is not another",
               [(x["mid"], x["carrier"], x["verdict"], x["addressee"]) for x in lines(log.path)]
               == [("L-1", "relay", "unauthenticated", "h/beta")] and oct(os.stat(log.path).st_mode & 0o777) == "0o600")
+
+        A.relay_arrivals(log, "h/beta", [("r2", "L-1")])
+        check("a second relay record of the same message (a retransmission) is another copy and another line",
+              len(lines(log.path)) == 2)
 
         def writer(n: int) -> None:
             for i in range(25):
@@ -356,7 +375,7 @@ def main() -> int:
         ws = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
         [w.start() for w in ws]
         [w.join(30) for w in ws]
-        check("two writers appending at once leave whole lines only", len(lines(log.path)) == 101)
+        check("two writers appending at once leave whole lines only", len(lines(log.path)) == 102)
 
     # -- rendering ---------------------------------------------------------
     me = {"address": "h/beta", "slug": "dev"}

@@ -254,6 +254,8 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                             msg = gzmsg.parse(u["content"])
                         except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
                             continue
+                        if msg["type"] in gzmsg.RETIRED_TYPES:
+                            continue      # presence is never shown (SPEC §8), whichever carrier brings it
                         d = lock.decide(u["message_id"], CARRIER_NAME, u["verdict"], body_hash(u["content"]))
                         if not d.show:
                             continue
@@ -263,24 +265,41 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                                            "flagged": d.flagged, "may_repeat": d.may_repeat})
                         _record(lock, d, u["message_id"], CARRIER_NAME, body_hash(u["content"]))
                     delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
+                except OSError as e:
+                    # A ledger write failed (a full disk): said as what it is, not as the relay being
+                    # down. The relay's messages are shown without the ledger; the carrier's wait.
+                    lock.release()
+                    lock = None
+                    print(f"gzcoord: the shown ledger could not be written ({e.strerror or e}); relay messages are shown "
+                          "without it and may repeat", file=sys.stderr)
+                    classified = [c for c in classified if not c.get("iw")]
+                    delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
                 except BaseException:
                     lock.release()
                     raise
-                if not delivered:
+                if lock is not None and not delivered:
                     lock.release()
                     lock = None
-        for rec in retired:
-            try:
-                ack(rec.get("id"))
-            except Exception:  # noqa: BLE001 — re-read on the next arm
-                pass
-        for c in classified:
-            if c.get("iw"):
-                continue   # the carrier's own arrival: there is no relay record to acknowledge
-            try:
-                ack(c["rec"].get("id"))
-            except Exception:  # noqa: BLE001 — the next arm re-shows it
-                pass
+        def acknowledge() -> None:
+            for rec in retired:
+                try:
+                    ack(rec.get("id"))
+                except Exception:  # noqa: BLE001 — re-read on the next arm
+                    pass
+            for c in classified:
+                if c.get("iw"):
+                    continue   # the carrier's own arrival: there is no relay record to acknowledge
+                try:
+                    ack(c["rec"].get("id"))
+                except Exception:  # noqa: BLE001 — the next arm re-shows it
+                    pass
+        # Every pending line is on disk. With the ledger's lock still held for a showing, the
+        # acknowledgements wait for the caller to release it (each is a network call, and the
+        # lock is held for the write and no longer); a crash before they are sent only makes
+        # the relay deliver again, and the ledger knows the message.
+        ack_later = acknowledge if lock is not None else None
+        if ack_later is None:
+            acknowledge()
         # A keyword hit stops the wait on a message NOT addressed here; a
         # delivered message wins the exit; a message from this session's own
         # address never hits.
@@ -291,7 +310,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                     break
         if delivered or hit or wait_total == 0 or waited >= wait_total:
             return {"classified": [c for c in classified if not c.get("quiet")], "waited": waited,
-                    "delivered": delivered, "keywordHit": hit, "ledger": lock,
+                    "delivered": delivered, "keywordHit": hit, "ledger": lock, "ack_later": ack_later,
                     "othersPassed": len([c for c in classified if not c["isMine"]])}
         # Nothing for this session, no keyword hit: the cursor is past the
         # slice, and the remaining budget keeps waiting.

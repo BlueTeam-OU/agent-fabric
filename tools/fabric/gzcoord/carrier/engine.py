@@ -30,6 +30,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
+from .. import gzmsg
 from . import CARRIER_NAME, arrivals, framing, ipc, record, roster
 
 # After an Overloaded refusal nothing is sent for this long: the receiving
@@ -159,9 +160,19 @@ class Carrier:
     def status(self) -> dict:
         with self.lock:
             now = self.clock()
+            pending = self.outbox.outstanding()
             out = [{"mid": d.mid, "to": d.to, "posted": d.posted, "blocked": d.blocked,
-                    "attempts": d.attempts} for d in self.outbox.outstanding()]
-            return {"outstanding": out, "counters": self.counters.__dict__.copy(),
+                    "attempts": d.attempts, "queued_at": d.queued_at} for d in pending]
+            per: dict[str, dict] = {}
+            for d in pending:
+                p = per.setdefault(d.to, {"outstanding": 0, "blocked": {}, "awaiting_receipt": 0, "oldest": d.queued_at})
+                p["outstanding"] += 1
+                if d.blocked:
+                    p["blocked"][d.blocked] = p["blocked"].get(d.blocked, 0) + 1
+                if d.posted:
+                    p["awaiting_receipt"] += 1
+                p["oldest"] = min(p["oldest"], d.queued_at)
+            return {"outstanding": out, "recipients": per, "counters": self.counters.__dict__.copy(),
                     "connected": bool(self.session and self.session.alive), "now": now}
 
     def handle_request(self, req: dict) -> dict:
@@ -282,10 +293,17 @@ class Carrier:
     def finish(self, session: ipc.Session, row: dict, text: str) -> None:
         me = self.me_fn()
         try:
-            _, meta = self.parse(text)
+            mtype, meta = self.parse(text)
         except ValueError as e:
             self.counters.unreadable += 1
             log(f"a copy from {row['login']} is not a GZCOORD/1 message: {e}")
+            return
+        if mtype in gzmsg.RETIRED_TYPES:
+            # Presence never enters a journal or an inbox, whichever carrier brings it (ADR-041
+            # rule 2); the relay acknowledges it unshown. The sender still gets its receipt.
+            mid_r = meta.get("MESSAGE-ID")
+            if mid_r:
+                self.send_receipt(session, row, mid_r)
             return
         mid = meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
         verdict = "ok" if meta.get("FROM") == f"{self.host}/{row['login']}" else "mismatch"

@@ -4,7 +4,7 @@ ledger decides what a session sees. The rule for one copy against the lines
 already there (pure); the lock that serialises the inbox paths, including two
 processes racing for one message; the interrupted showing found by its pending
 line and shown once more, flagged; the rule 9 flagged copy shown at most once;
-the torn tail repaired; the old lines compacted; and what the carrier reads of
+the torn tail repaired; the ledger never rotated; and what the carrier reads of
 it. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 

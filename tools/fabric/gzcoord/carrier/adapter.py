@@ -86,17 +86,18 @@ class Adapter:
         return list(out.get("records", [])) if out else []
 
 
-def relay_arrivals(log: arrivals.ArrivalLog, address: str, mids: list[str]) -> None:
+def relay_arrivals(log: arrivals.ArrivalLog, address: str, copies: list[tuple[str, str]]) -> None:
     """One line per relay copy addressed here, before the journal collapses it.
     The relay authenticates nobody (ADR-033 §6), so its verdict is
     `unauthenticated`, never `ok`. A page the journal holds is read again every
     retry; that re-read of an unacknowledged record is not a copy received, so a
-    message is logged once per process (a relay that delivers it twice to one
-    running watch is the relay's duplicate suppression's, not ours)."""
-    for mid in mids:
-        if mid in _logged_here:
+    relay RECORD (its id, `copies` being (record id, MESSAGE-ID)) is logged once per
+    process; a second record of the same message (a retransmission, a redelivery) is
+    another copy and another line."""
+    for rid, mid in copies:
+        if rid in _logged_here:
             continue
-        _logged_here.add(mid)
+        _logged_here.add(rid)
         log.append(mid, address, "relay", "unauthenticated")
 
 

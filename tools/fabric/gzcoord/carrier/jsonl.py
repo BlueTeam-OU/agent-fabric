@@ -48,8 +48,19 @@ def write_all(fd: int, data: bytes) -> None:
 
 
 def append(fd: int, obj: dict) -> None:
-    write_all(fd, (json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"))
-    os.fsync(fd)
+    """One line, whole or not at all: a write that fails part-way (a full disk) is cut back to
+    where the file stood, so the next append is not merged into the torn bytes (which a restart
+    would then drop as a torn tail, losing an event that was answered as durable)."""
+    before = os.fstat(fd).st_size
+    try:
+        write_all(fd, (json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"))
+        os.fsync(fd)
+    except OSError:
+        try:
+            os.ftruncate(fd, before)
+        except OSError:
+            pass
+        raise
 
 
 def append_path(path: str, obj: dict) -> None:

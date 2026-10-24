@@ -63,6 +63,26 @@ def main() -> int:
         os.close(fd)
         check("a write that makes no progress raises, never loops", raised)
 
+        fd = os.open(os.path.join(d, "t.jsonl"), os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
+        jsonl.append(fd, {"a": 1})
+        calls2 = []
+
+        def dies_after_two(f, data):
+            calls2.append(1)
+            if len(calls2) == 1:
+                real(f, bytes(data[:2]))
+                raise OSError(28, "No space left on device")
+            return real(f, data)
+        with mock.patch("os.write", dies_after_two):
+            try:
+                jsonl.append(fd, {"b": 2})
+            except OSError:
+                pass
+            jsonl.append(fd, {"c": 3})
+        os.close(fd)
+        check("a write that fails part-way is cut back: the next append is not merged into its bytes",
+              [json.loads(x) for x in open(os.path.join(d, "t.jsonl"))] == [{"a": 1}, {"c": 3}])
+
         a = os.path.join(d, "arr.jsonl")
         open(a, "wb").write(b'{"mid":"x"}\n{"mid":"y","addr')
         log = arrivals.ArrivalLog(a, iso_now=lambda: "T")

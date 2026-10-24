@@ -344,6 +344,25 @@ def main() -> int:
             check("the same send again completes the rest, without a second record for the first",
                   res["ok"] is True and res["queued"] == 2, str(res))
 
+            # -- presence over the carrier is receipted and nothing else; status has the contract's counts
+            nrows = len(b.journal_rows)
+            hello = msg("M-HELLO", "h/alpha", to="h/beta").replace("[GZCOORD/1] INFO", "[GZCOORD/1] HELLO")
+            b.carrier.handle_event(b.carrier.session, {"event_type": "message.direct", "data": {
+                "message_id": "b" * 32, "mode": "direct", "source_peer": pid(0), "source_endpoint": "gzcoord",
+                "destination_endpoint": "gzcoord", "received_at": 0,
+                "payload": {"media_type": framing.MEDIA_MESSAGE, "bytes": ipc.b64u(hello.encode())}}})
+            check("a retired HELLO over the carrier is not journaled, logged or listed, yet receipted",
+                  len(b.journal_rows) == nrows and not any(x["mid"] == "M-HELLO" for x in b.arrivals())
+                  and "M-HELLO" not in {r["message_id"] for r in b.spool.unseen()} and receipts_for(b, "M-HELLO") == 1)
+            a.daemon.send_answers = ["UnauthorizedPeer"]
+            a.carrier.handle_request({"op": "send", "message_id": "M-ST", "text": msg("M-ST", "h/alpha", to="h/beta")})
+            until(lambda: a.box.deliveries[("M-ST", "beta")].blocked)
+            st = a.carrier.status()["recipients"]["beta"]
+            check("status gives per recipient: outstanding, blocked by code, awaiting receipt and the oldest queued",
+                  st["outstanding"] >= 1 and st["blocked"].get("UnauthorizedPeer") == 1 and "oldest" in st
+                  and "awaiting_receipt" in st, str(st))
+            a.carrier.abandon("M-ST", "beta", "test")
+
             # -- an address that is not on the roster ------------------------
             res = a.carrier.handle_request({"op": "send", "message_id": "M-10", "text": msg("M-10", "h/alpha", to="elsewhere/delta")})
             check("an address with no roster row is not carried (relay alone)", res["carried"] == 0 and res["queued"] == 0)
