@@ -161,7 +161,7 @@ import time
 import urllib.parse
 from typing import Any, Callable
 
-from . import bypass, gzmsg, i18n, intake
+from . import bypass, gzmsg, i18n, intake, paths
 from . import jsvalues as js
 from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
 
@@ -217,12 +217,13 @@ def pin_version() -> None:
     late. A watch outlives `fabric-ctl all upgrade fabric`: a module first
     imported at a delivery is read from the NEW tree by a process whose
     other modules are the OLD one ("module 'jobs' has no attribute
-    'deliver_branch'"). The lock taken before this loads runtime/identity.
-    Loaded now, a watch runs one version, the one it
-    started on, and the next arming runs the new."""
+    'deliver_branch'"). Loaded now, the modules a watch imports by name are
+    the version it started on, and the next arming runs the new. Not
+    pinned: runtime/identity.py execs tools/fabric/workingcopy.py from disk
+    on every call, a loader of the runtime's, not an import."""
     # A module that will not load must not stop the delivery of messages: the
     # REQUEST that needs it says so (intake), as it did before.
-    for load in (intake._jobs, _episodic):
+    for load in (intake._jobs, _episodic, paths.identity):
         try:
             load()
         except Exception as e:  # noqa: BLE001 — said once, the watch goes on
