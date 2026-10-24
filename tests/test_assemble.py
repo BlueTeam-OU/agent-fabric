@@ -2887,6 +2887,22 @@ def test_a_refused_drain_does_not_point_the_links_on_disk(tmp: str) -> None:
     assert "[[supplier]]" in read(proj(out, "alpha", "solution.md"))
 
 
+def test_a_linking_memory_harvested_again_with_its_correction_is_no_collision(tmp: str) -> None:
+    """The correction and the unchanged memory linking it arrive in one run, over a slice two agents wrote: the link on
+    disk is pointed after the pre-pass, so the pre-pass reads it pointed (review of #368, F5)."""
+    base = {"class": "workflow", "topic": "supplier", "title": "Supplier", "body": "Text.", "evidence": ["a1"]}
+    user = {"class": "solution", "topic": "placement", "title": "Placement", "body": "See [[reserved]].", "evidence": ["a1", "a2"]}
+    fix = {"class": "workflow", "topic": "reserved", "title": "Supplier, reserved", "body": "Reserved.",
+           "evidence": ["a1"], "merge_target": "Supplier"}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [base, user])})
+    with_agents(drain, {"a1": "dev-01", "a2": "dev-02"})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [fix, user])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0 and "SUPERSED" not in proc.stderr, proc.stderr
+    assert "See [[supplier]]." in read(proj(out, "alpha", "solution.md"))
+
+
 def test_part_one_of_a_split_topic_is_always_the_topic_file(tmp: str) -> None:
     """A topic near its budget whose one section is superseded: the old
     section was counted as carried text, the new one pushed to part two,
@@ -4130,6 +4146,7 @@ def main() -> int:
         test_a_link_is_pointed_only_at_the_slice_of_its_own_roles_memory,
         test_a_claim_differing_only_in_a_link_target_is_still_a_collision,
         test_a_refused_drain_does_not_point_the_links_on_disk,
+        test_a_linking_memory_harvested_again_with_its_correction_is_no_collision,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

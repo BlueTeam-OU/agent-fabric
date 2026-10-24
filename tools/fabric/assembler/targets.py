@@ -337,18 +337,27 @@ def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
     for role, buckets in run.per_role.items():
         for group in buckets.values():
             point(group, (role, None))
-        run.disk_links.append(([layout.class_home(k, role, run.project) for k in CLASS_FILES
-                                if k not in layout.IDENTITY_CLASSES], names_for((role, None))))
+        run.disk_links.append((role, [layout.class_home(k, role, run.project) for k in CLASS_FILES
+                                      if k not in layout.IDENTITY_CLASSES], names_for((role, None))))
     for group in run.shared.values():
         point(group, (None,))
-    run.disk_links.append((sorted({layout.shared_home(k, run.project) for k in CLASS_FILES
-                                   if k not in layout.IDENTITY_CLASSES}), names_for((None,))))
+    run.disk_links.append((None, sorted({layout.shared_home(k, run.project) for k in CLASS_FILES
+                                         if k not in layout.IDENTITY_CLASSES}), names_for((None,))))
 
 
 def point_disk(run: Run) -> None:
     """Applies the recorded edits (Run.disk_links), after the drain has passed every refusal."""
-    for bases, names in run.disk_links:
+    for _role, bases, names in run.disk_links:
         point_disk_in(run, bases, names)
+
+
+def pointed(run: Run, role: str | None, text: str) -> str:
+    """`text`, a section on disk, as point_disk will leave it: the pre-pass compares what the drain writes with what the
+    section will say, so an unchanged memory arriving in the correction's own run is the same claim, not a collision."""
+    for owner, _bases, names in run.disk_links:
+        if names and owner in (role, None):
+            text = re.sub(r"\[\[(" + "|".join(re.escape(n) for n in names) + r")\]\]", lambda m: f"[[{names[m.group(1)]}]]", text)
+    return text
 
 
 def point_disk_in(run: Run, bases: list[str], names: dict[str, str]) -> None:
