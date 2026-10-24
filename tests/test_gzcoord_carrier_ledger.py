@@ -66,6 +66,7 @@ else:
 
 def main() -> int:
     # -- the rule, pure -----------------------------------------------------
+    fin_relay = [line("M", "relay")]
     check("no line: show it, with a pending line first", d([], "relay").show and d([], "relay").kind == "absent"
           and d([], "relay").append_pending)
     check("an IW copy with a mismatch and no other line is shown plainly, not as a re-show",
@@ -93,9 +94,17 @@ def main() -> int:
     check("a mismatch copy is flagged only when the copy shown was the relay's (control: IW first)",
           not d(shown_by_iw, "interweave", "mismatch").show)
     check("another MESSAGE-ID's lines decide nothing", d(shown_by_relay, "relay", mid="OTHER").show)
+    hh = [dict(x, h="aaaa") for x in shown_by_relay]
+    check("a different message that reuses a shown MESSAGE-ID is not that message: it is shown",
+          L.decide(hh, "M", "relay", "ok", "bbbb").show and not L.decide(hh, "M", "relay", "ok", "aaaa").show)
+    check("a line from before the hash existed matches any body of its id (the old rule)",
+          not L.decide(shown_by_relay, "M", "relay", "ok", "bbbb").show)
+    check("a final line of another body settles nothing for this one",
+          not L.settled([dict(x, h="aaaa") for x in fin_relay], "ok", "bbbb") and L.settled([dict(x, h="aaaa") for x in fin_relay], "ok", "aaaa"))
+    check("the body hash ignores line endings and trailing space, and tells two texts apart",
+          L.body_hash("a\r\nb\n") == L.body_hash("a\nb") and L.body_hash("a") != L.body_hash("b"))
 
     # -- settled: what the carrier stops listing -----------------------------
-    fin_relay = [line("M", "relay")]
     fin_iw = [line("M", "interweave")]
     check("unseen settles an ok copy on any final line", L.settled(fin_relay, "ok") and L.settled(fin_iw, "ok"))
     check("a mismatch copy is settled only by the carrier's own final line", not L.settled(fin_relay, "mismatch")
@@ -158,21 +167,15 @@ def main() -> int:
               and all(not x.get("pending") for v in fl.values() for x in v))
         check("a ledger that is not there holds nothing", L.final_lines(os.path.join(dd, "none")) == {})
 
-        # -- compaction -------------------------------------------------------
+        # -- the ledger is never rotated (CARRIER-CONTRACT.md §6) ---------------------
         old = os.path.join(dd, "old.jsonl")
         with open(old, "w") as fh:
-            for i in range(30):
+            for i in range(2000):
                 fh.write(json.dumps({"mid": f"O-{i}", "via": "relay", "t": "2020-01-01T00:00:00Z"}) + "\n")
-            fh.write(json.dumps({"mid": "NEW", "via": "relay", "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}) + "\n")
-        saved = L.COMPACT_ABOVE
-        L.COMPACT_ABOVE = 100
-        try:
-            h = L.Ledger(old, iso_now=lambda: "T").exclusive()
-            h.release()
-        finally:
-            L.COMPACT_ABOVE = saved
-        check("a ledger past its size loses lines older than a month and keeps the rest",
-              [x["mid"] for x in read(old)] == ["NEW"], str([x["mid"] for x in read(old)]))
+        before = os.path.getsize(old)
+        L.Ledger(old, iso_now=lambda: "T").exclusive().release()
+        check("an old, large ledger loses nothing at open: a line dropped would show its copy again",
+              os.path.getsize(old) == before and len(read(old)) == 2000)
 
         # -- two processes racing for one message ---------------------------------
         rpath = os.path.join(dd, "race.jsonl")

@@ -127,6 +127,19 @@ CONTRACT, frozen from the Node:
             --until-delivery (7): the whole contract of a session start is
             one line and exit 0.
 
+THE SHOWN LEDGER AND THE SECOND CARRIER (agent-fabric ADR-064, CARRIER-CONTRACT.md):
+what a session sees is decided by `<state>/agents/<login>/gzcoord-shown.jsonl`
+(carrier/ledger.py), whichever carrier brought a message and with no carrier at all:
+a message shown is not shown again, even when the relay delivers it again (an
+acknowledgement that failed, a retransmission under its MESSAGE-ID) — and the
+one second showing is the copy that reveals a FROM mismatch after the relay's, shown
+again, flagged. A showing that died between its two ledger lines is shown once
+more, flagged "may repeat". When the carrier is running, the arrivals it journaled
+come in the same page as the relay's, titled from the roster's address; they are
+never acknowledged to the relay. The arrival log (gzcoord-arrivals.jsonl) gets a line
+per relay copy addressed here, journal on or off. A ledger that cannot be opened is
+said on stderr and the relay's messages are shown without it.
+
 The rest of the Node's header — the modes, the hold, the addressee rule —
 is kept where each applies: below, or in the part that holds it
 (inbox_parts/). A watch is one consumer per address, run once per session

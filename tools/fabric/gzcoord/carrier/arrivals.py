@@ -24,18 +24,13 @@ after asking loses nothing.
 """
 from __future__ import annotations
 
-import calendar
 import fcntl
 import json
 import os
 import threading
-import time
 from typing import Callable
 
 from . import jsonl, ledger
-
-SPOOL_KEPT_DAYS = 14
-
 
 def _read(path: str) -> list[dict]:
     out: list[dict] = []
@@ -95,33 +90,33 @@ class Spool:
         self._lock = threading.Lock()
         records = _read(self._path)
         finals = ledger.final_lines(ledger_path)
-        self.records = [r for r in records if not self._stale(r) and not ledger.settled(finals.get(r["mid"]), r["verdict"])]
+        # Only a settled record leaves: an arrival nobody has shown is listed until
+        # someone has, however old (CARRIER-CONTRACT.md §6: no order loses a message).
+        self.records = [r for r in records if not self._settled(finals, r)]
         if len(self.records) != len(records):
             _rewrite(self._path, self.records)
-        self._kept = {r["mid"] for r in self.records}
+        self._kept = {(r["mid"], r.get("h", "")) for r in self.records}
 
-    def _stale(self, r: dict) -> bool:
-        try:
-            made = calendar.timegm(time.strptime(str(r["ts"]), "%Y-%m-%dT%H:%M:%SZ"))
-            now = calendar.timegm(time.strptime(self._iso(), "%Y-%m-%dT%H:%M:%SZ"))
-        except (ValueError, KeyError):
-            return False        # a clock or a stamp that does not parse prunes nothing
-        return now - made > SPOOL_KEPT_DAYS * 86400
+    @staticmethod
+    def _settled(finals: dict, r: dict) -> bool:
+        return ledger.settled(finals.get(r["mid"]), r["verdict"], r.get("h", ""))
 
     def keep(self, mid: str, content: str, ts: str, verdict: str, sender: str) -> None:
         with self._lock:
-            if mid in self._kept:
-                return
-            rec = {"mid": mid, "content": content, "ts": ts, "verdict": verdict, "sender": sender}
+            h = ledger.body_hash(content)
+            if (mid, h) in self._kept:
+                return        # the same message again; another message under the same id is another record
+            rec = {"mid": mid, "content": content, "ts": ts, "verdict": verdict, "sender": sender,
+                   "h": h}
             jsonl.append_path(self._path, rec)
             self.records.append(rec)
-            self._kept.add(mid)
+            self._kept.add((mid, h))
 
     def unseen(self) -> list[dict]:
         """The records the ledger does not yet settle, in arrival order. Settled
         ones leave memory (and the file at the next open)."""
         finals = ledger.final_lines(self._ledger)
         with self._lock:
-            self.records = [r for r in self.records if not ledger.settled(finals.get(r["mid"]), r["verdict"])]
+            self.records = [r for r in self.records if not self._settled(finals, r)]
             return [{"content": r["content"], "ts": r["ts"], "seq": None, "message_id": r["mid"],
                      "verdict": r["verdict"], "sender": r["sender"]} for r in self.records]

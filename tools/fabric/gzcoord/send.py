@@ -590,7 +590,9 @@ def main(argv: list[str]) -> int:
         message, and the journal row is accepted when either accepts. Nothing
         here changes the exit status: the relay is the transport of record
         (rule 11), and the carrier's trouble is a stderr line from the adapter.
-        With no carrier running, and with the journal off (rule 8), it is a no-op."""
+        With no carrier running, and with the journal off (rule 8), it is a no-op. A carrier
+        that did not accept is reported to nobody: `failed` marks only a pending row (ADR-041
+        rule 3), and the row is the relay's outcome's to set, so there is nothing to write."""
         if _journal_off():
             return
         from .carrier import CARRIER_NAME, adapter

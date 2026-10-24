@@ -11,7 +11,7 @@ from typing import Any, Callable
 from .. import bypass
 from .. import gzmsg
 from .. import jsvalues as js
-from ..carrier import CARRIER_NAME
+from ..carrier import CARRIER_NAME, ledger as _ledger_mod
 from .records import keyword_hit
 from .hold import HOLD_POLL_MS
 
@@ -46,12 +46,17 @@ def ledger_key(rec: dict, msg: dict) -> str:
     return mid or "sha256:" + hashlib.sha256(str(rec.get("content", "")).encode("utf-8")).hexdigest()
 
 
-def _record(held: Any, d: Any, mid: str, via: str) -> None:
+def body_hash(content: str) -> str:
+    """What tells two messages that share a MESSAGE-ID apart in the ledger (see ledger.py)."""
+    return _ledger_mod.body_hash(content)
+
+
+def _record(held: Any, d: Any, mid: str, via: str, h: str) -> None:
     """The ledger line a showing starts with: a pending one, or, for a repeat, none (its final line is all)."""
     if d.append_pending:
-        held.pending(mid, via, d.flagged)
+        held.pending(mid, via, d.flagged, h)
     else:
-        held.finish_repeat(mid, via, d.flagged)
+        held.finish_repeat(mid, via, d.flagged, h)
 
 
 # ── the wait ─────────────────────────────────────────────────────────
@@ -138,8 +143,10 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
             if deadline is not None and time.monotonic() >= deadline:
                 abort.set()   # a page that landed with the deadline is unread and unacknowledged, re-shown by the next watch
                 return {**out_of_time, "waited": waited}
+        dropped = False        # the page was emptied for a hold: nothing is polled, the carrier's arrivals included
         if abort.is_set():
             page = {"messages": []}
+            dropped = True
         elif "error" in box:
             abort.set()
             raise box["error"]
@@ -148,6 +155,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
         abort.set()
         if held():
             page = {"messages": []}   # landed as the hold began: unread, unacknowledged, re-shown later
+            dropped = True
         if session_gone():
             return {**out_of_time, "waited": waited, "sessionEnded": True}   # landed as the session ended: the next watch is shown it
         waited += slice_
@@ -211,7 +219,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                     return held_result()
                 continue
         lock = None
-        if ledger is not None:
+        if ledger is not None and not dropped:
             # What the session sees is the shown ledger's to decide (ledger.py), whichever
             # carrier brought the message and with or without a carrier. The lock is taken
             # here, the pending lines are written, and only then does the relay's
@@ -235,25 +243,25 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                 try:
                     for c in relay_mine:
                         mid = ledger_key(c["rec"], c["msg"])
-                        d = lock.decide(mid, "relay", "unauthenticated")
+                        d = lock.decide(mid, "relay", "unauthenticated", body_hash(c["rec"]["content"]))
                         if not d.show:
                             c["quiet"] = True     # shown before: journaled and acknowledged, not shown twice
                             continue
                         c["may_repeat"] = d.may_repeat
-                        _record(lock, d, mid, "relay")
+                        _record(lock, d, mid, "relay", body_hash(c["rec"]["content"]))
                     for u in carrier_recs:
                         try:
                             msg = gzmsg.parse(u["content"])
                         except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
                             continue
-                        d = lock.decide(u["message_id"], CARRIER_NAME, u["verdict"])
+                        d = lock.decide(u["message_id"], CARRIER_NAME, u["verdict"], body_hash(u["content"]))
                         if not d.show:
                             continue
                         classified.append({"rec": {"id": None, "seq": CARRIER_NAME, "sender": u.get("sender") or u["message_id"],
                                                    "timestamp": u["ts"], "content": u["content"]},
                                            "msg": msg, "isMine": True, "iw": {**u, "mid": u["message_id"]},
                                            "flagged": d.flagged, "may_repeat": d.may_repeat})
-                        _record(lock, d, u["message_id"], CARRIER_NAME)
+                        _record(lock, d, u["message_id"], CARRIER_NAME, body_hash(u["content"]))
                     delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
                 except BaseException:
                     lock.release()

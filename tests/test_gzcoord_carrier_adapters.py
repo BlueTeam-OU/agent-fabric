@@ -68,7 +68,7 @@ class FakeCarrier:
         return [dict(r) for r in self.records]
 
 
-def loop(pages, led, iw=None, journal=None, on_arrival=None, ack_probe=None):
+def loop(pages, led, iw=None, journal=None, on_arrival=None, ack_probe=None, held=lambda: False):
     acked: list = []
     it = iter(pages)
 
@@ -81,7 +81,7 @@ def loop(pages, led, iw=None, journal=None, on_arrival=None, ack_probe=None):
             ack_probe(i)
 
     res = wait_loop(fetch, ack, 0, lambda m: for_me(m, ME), [], ME["address"], journal=journal, iw=iw,
-                    on_arrival=on_arrival, sleep=lambda ms: None, ledger=led)
+                    on_arrival=on_arrival, sleep=lambda ms: None, ledger=led, held=held)
     return res, acked
 
 
@@ -235,6 +235,27 @@ def main() -> int:
         check("a showing that raises releases the lock and leaves the pending line", lines(lpath)[-1].get("pending") is True
               and lines(lpath)[-1]["mid"] == "W-1")
 
+        # a message that reuses a shown id is another message
+        r, _ = loop([[rrec(21, "COL-1")]], led)
+        show_page(r, lambda: None)
+        other = rrec(22, "COL-1")
+        other["content"] = other["content"].replace("body of COL-1", "a different body entirely")
+        r, acked = loop([[other]], led)
+        check("a different message that reuses a shown MESSAGE-ID is shown, not acknowledged away (even with no carrier)",
+              r["delivered"] and "a different body" in r["classified"][0]["rec"]["content"] and acked == ["id22"])
+        show_page(r, lambda: None)
+
+        # a hold: nothing is polled, the carrier's arrivals included
+        asked = FakeCarrier([urec("HOLD-1")])
+        calls = [0]
+
+        def held_second():
+            calls[0] += 1
+            return calls[0] >= 2
+        r, acked = loop([[rrec(23, "HOLD-0")]], led, iw=asked, held=held_second)
+        check("a page dropped for a hold asks the carrier nothing and shows nothing",
+              not r["delivered"] and asked.asked == 0 and acked == [], str((r["delivered"], asked.asked, acked)))
+
         # a carrier that is down does not hold the relay
         down = FakeCarrier([])
         r, acked = loop([[rrec(9, "N-1")]], led, iw=down)
@@ -285,13 +306,17 @@ def main() -> int:
         lpath = os.path.join(d, "gzcoord-shown.jsonl")
         sp = arrivals.Spool(os.path.join(d, "iw"), lpath, iso_now=lambda: NOW)
         sp.keep("K-1", "c1", NOW, "ok", "h/a")
-        sp.keep("K-1", "again", NOW, "ok", "h/a")
+        sp.keep("K-1", "c1", NOW, "ok", "h/a")
         sp.keep("K-2", "c2", NOW, "mismatch", "h/a")
         sp.keep("K-3", "c3", NOW, "ok", "h/a")
         un = sp.unseen()
         check("the spool lists a message once, in arrival order, with the contract's fields",
               [r["message_id"] for r in un] == ["K-1", "K-2", "K-3"] and set(un[0]) == {
                   "content", "ts", "seq", "message_id", "verdict", "sender"} and un[0]["seq"] is None)
+        sp.keep("K-1", "c1 but another message", NOW, "ok", "h/a")
+        check("another message under the same id is another record", [r["message_id"] for r in sp.unseen()].count("K-1") == 2)
+        sp.records = [r for r in sp.records if r["content"] != "c1 but another message"]
+        sp._kept.discard(("K-1", L.body_hash("c1 but another message")))
         led = L.Ledger(lpath, iso_now=lambda: NOW)
         h = led.exclusive()
         for mid, via in (("K-1", "relay"), ("K-2", "relay"), ("K-3", "interweave")):
@@ -312,8 +337,9 @@ def main() -> int:
         again.keep("K-6", "c6", NOW, "ok", "h/a")
         check("a torn tail is cut at open and the next record is a whole line, across a restart",
               [r["mid"] for r in arrivals.Spool(os.path.join(d, "iw"), lpath, iso_now=lambda: NOW).records] == ["K-4", "K-6"])
-        old = arrivals.Spool(os.path.join(d, "iw"), lpath, iso_now=lambda: "2026-12-01T00:00:00Z")
-        check("records older than the bound leave the spool at open", old.records == [])
+        later = arrivals.Spool(os.path.join(d, "iw"), lpath, iso_now=lambda: "2027-12-01T00:00:00Z")
+        check("an arrival nobody has shown stays listed however old, across a restart (no order loses a message)",
+              [r["mid"] for r in later.records] == ["K-4", "K-6"])
 
     # -- the arrival log -------------------------------------------------------
     with tempfile.TemporaryDirectory(prefix="gz-arr-") as d:
