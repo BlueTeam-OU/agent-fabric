@@ -759,7 +759,7 @@ def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
     asked = []
     saved = rb.checkpoint
     try:
-        def none(pr, h, r):
+        def none(pr, h, r, exclude_head=None):
             asked.append((pr, h)); return None
         rb.checkpoint = none
         req = {**base_request(repo), "mode": "re-review", "range": f"{mid}..HEAD", "pr": 9}
@@ -782,6 +782,20 @@ def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
         assert info is None and any("read the card at" in r for r in refused), refused
         info, refused = rb.resolve_range({**req, "card_base": base})
         assert not refused and info["card_base"] == base, refused
+        # a second engine of the same round: the newest review is this head's, so
+        # the round starts from the one before it, never from the other engine's report
+        calls = []
+        def rounds(pr, h, r, exclude_head=None):
+            calls.append(exclude_head)
+            return (mid, head, base, "OTHER ENGINE THIS ROUND") if exclude_head is None else (base, mid, base, "ROUND ONE")
+        rb.checkpoint = rounds
+        info, refused = rb.resolve_range(req)
+        assert not refused and info["base_sha"] == mid and info["previous_report"] == "ROUND ONE", (info, refused)
+        assert calls == [None, head], calls
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (mid, head, base, "X") if exclude_head is None else None
+        info, refused = rb.resolve_range(req)
+        assert info is None and any("has no review a re-review can start from" in r for r in refused), refused
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (base, mid, base, "<!-- marker -->\nPOSTED REPORT\n")
         # a diff file names no commits to look a checkpoint up against: refused, not a KeyError
         diff = os.path.join(tmp, "pr.diff"); open(diff, "w").write("")
         no_range = {k: v for k, v in req.items() if k != "range"}

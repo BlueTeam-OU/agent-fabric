@@ -310,11 +310,13 @@ def _default_tip(repo: object) -> str | None:
     return _commit_of(repo, ref) if ref else None
 
 
-def checkpoint(pr: int, head_sha: str, repo: str) -> tuple[str, str, str, str] | None:
+def checkpoint(pr: int, head_sha: str, repo: str, exclude_head: str | None = None) -> tuple[str, str, str, str] | None:
     """(base, head, card, posted body) of the PR's last review a re-review may
-    start from, or None. A seam: tests replace it, since the real one asks GitHub."""
+    start from, or None; `exclude_head` sets aside the reviews of that head.
+    A seam: tests replace it, since the real one asks GitHub."""
     from github.review_checkpoint import last_checkpoint_review
-    return last_checkpoint_review(pr, head_sha, lambda card: config_fingerprint(repo, card), cwd=repo)
+    return last_checkpoint_review(pr, head_sha, lambda card: config_fingerprint(repo, card), cwd=repo,
+                                  exclude_head=exclude_head)
 
 
 def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
@@ -341,6 +343,11 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
         # (agent-fabric ADR-065 §5 rule 5). Without a PR there is no posted
         # review to read, and the typed range stands.
         cp = checkpoint(pr, head_sha, repo)
+        if cp is not None and cp[1] == head_sha:
+            # Another engine has already posted this round: its report is not
+            # this engine's previous findings (blind review, ADR-020), so the
+            # round starts from the checkpoint as it stood before this head.
+            cp = checkpoint(pr, head_sha, repo, exclude_head=head_sha)
         if cp is None:
             return None, [f"re-review: #{pr} has no review a re-review can start from (a v2 review, every path read, of an "
                           f"ancestor of {head_sha[:12]}, under today's config); render a full review (mode: review)"]
