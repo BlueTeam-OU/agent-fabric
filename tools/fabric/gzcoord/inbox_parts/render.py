@@ -7,7 +7,7 @@ import re
 from .. import gzmsg
 from .. import i18n
 from .. import jsvalues as js
-from ..carrier import CARRIER_NAME
+from ..carrier import CARRIER_LABEL
 from ..gzmsg import en
 from .records import one_line, REPLAY_CMD
 
@@ -92,13 +92,13 @@ def render(res: dict, me: dict, channel: str, taxonomy: gzmsg.Taxonomy | None, c
         if p["iw"]:
             # An arrival over the second carrier (ADR-064 rule 9): shown as from the address the
             # roster maps its authenticated PeerId to, never as from its FROM.
-            title = t("delivery.carrier-title", {"carrier": CARRIER_NAME, "sender": js.get(rec, "sender"),
+            title = t("delivery.carrier-title", {"carrier": CARRIER_LABEL, "sender": js.get(rec, "sender"),
                                                   "when": js.get(rec, "timestamp")})
             if p["iw"].get("verdict") == "mismatch":
                 flags.insert(0, t("delivery.carrier-mismatch", {"from": p["msg"]["metadata"].get("FROM"),
                                                                     "sender": js.get(rec, "sender")}))
             if p["reshow"]:
-                flags.insert(0, t("delivery.carrier-reshow", {"carrier": CARRIER_NAME, "id": p["iw"]["mid"]}))
+                flags.insert(0, t("delivery.carrier-reshow", {"carrier": CARRIER_LABEL, "id": p["iw"]["mid"]}))
         else:
             title = t("delivery.title", {"seq": js.get(rec, "seq"), "sender": js.get(rec, "sender"),
                                          "when": js.get(rec, "timestamp")})
