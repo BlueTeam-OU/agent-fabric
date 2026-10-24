@@ -9,7 +9,7 @@ from collections import defaultdict
 from typing import Any
 from assembler.core import layout, CLASS_FILES, Run, in_report
 from assembler.slices import read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, shares_cue
-from assembler.targets import existing_sections, slice_candidates, is_carried
+from assembler.targets import existing_sections, slice_candidates, is_carried, pointed
 
 
 def observed_of(text: str) -> str:
@@ -76,7 +76,7 @@ def check_collisions(run: Run) -> int | None:
     same_agent_supersedes: list[str] = []
     for role, label, (klass, topic), group in groups_to_check:
         candidates = slice_candidates(run, role, klass, topic)
-        present = existing_sections(candidates)
+        present = {h: pointed(run, role, t) for h, t in existing_sections(candidates).items()}
         author = sole_author(run, role, klass, topic, candidates) if present else None
         author_any = sole_author(run, role, klass, topic, candidates, own_only=False) if present else None
         # A HEADING TWO CLAIMS OF THIS DRAIN DISAGREE UNDER is contested

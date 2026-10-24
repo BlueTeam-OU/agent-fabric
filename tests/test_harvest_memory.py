@@ -738,6 +738,9 @@ def test_an_author_s_merge_target_supersedes_without_a_question(tmp: str) -> Non
                        capture_output=True, text=True)
     assert r.returncode == 0, "no question asked when the author named the section: " + r.stderr
     assert "SUPERSEDING?" not in r.stderr
+    # A second topic (the correction's memory) moves the class into its directory; the section is replaced in the
+    # file of the topic that held it.
+    slice_path = os.path.join(wc, ".agent-fabric", "memory", "architect-cto", "solution", "dictionary.md")
     text = open(slice_path, encoding="utf-8").read()
     assert "Reviewed by a native speaker" in text and "never reviewed" not in text, text
     assert text.count("## The dictionary has") == 1 and "(2)" not in text, text

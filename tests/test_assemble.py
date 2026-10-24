@@ -1404,7 +1404,7 @@ def test_the_report_lists_every_applied_correction_once_with_the_keys_the_harves
     listed = json.loads(read(report_path(out)))["applied_corrections"]
     assert len(listed) == 1, listed
     (entry,) = listed
-    assert entry["slice"].endswith("/solution.md") and entry["heading"] == "The finding, corrected" and entry["replaced"] == "The finding", entry
+    assert entry["slice"].endswith("/solution/one.md") and entry["heading"] == "The finding, corrected" and entry["replaced"] == "The finding", entry
     assert (entry["memory"], entry["agent"], entry["host"], entry["stamp"]) == ("fix-one", "python-dev-03", "hostA", "2026-01-02"), entry
     assert entry["replaced_key"] == memory_key(OLD) and entry["applied_key"] == memory_key(NEW), entry
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02").returncode == 0
@@ -1928,6 +1928,19 @@ def test_another_topic_in_the_flat_class_file_is_not_this_topic_s_rival(tmp: str
     assert "About x." in read(dom(out, "alpha", "domain", "x.md"))
 
 
+def legacy_two_topic_flat(out: str, role: str, flat_path: str, klass: str, topic: str, heading: str, text: str) -> None:
+    """The flat file of a drain from before a flat file held one topic: a second topic's section appended, no recorded
+    topic, the role's crossref naming both. A second topic now moves the class into its directory instead."""
+    legacy = re.sub(r"(?m)^topic: .*\n", "", read(flat_path)).rstrip("\n") + f"\n\n## {heading}\n\n{text}\n"
+    with open(flat_path, "w", encoding="utf-8") as fh:
+        fh.write(legacy)
+    crossref = proj(out, role, "crossref.json")
+    doc = json.loads(read(crossref))
+    next(e for kinds in doc["index"].values() for e in kinds.values())["slices"].append(f"{klass}:{topic}")
+    with open(crossref, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+
+
 def test_a_collision_inside_a_two_topic_flat_file_is_still_stopped(tmp: str) -> None:
     """Drain one brings topic x alone (a flat class file), drain two topic y
     alone (merged into the same flat file), drain three x with changed text
@@ -1939,10 +1952,8 @@ def test_a_collision_inside_a_two_topic_flat_file_is_still_stopped(tmp: str) -> 
         {"class": "domain", "topic": "x", "title": "Hx", "body": "About x.", "evidence": ["h1"]},
     ])})
     assert run_assemble(drain, claims_dir, out).returncode == 0
-    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
-        json.dump(claims("alpha", [{"class": "domain", "topic": "y", "title": "Hy", "body": "About y.", "evidence": ["h2"]}]), fh)
-    assert run_assemble(drain, claims_dir, out).returncode == 0
-    flat = dom(out, "alpha", "domain.md")
+    flat = proj(out, "alpha", "domain.md") if os.path.exists(proj(out, "alpha", "domain.md")) else dom(out, "alpha", "domain.md")
+    legacy_two_topic_flat(out, "alpha", flat, "domain", "y", "Hy", "About y.")
     assert os.path.exists(flat) and "## Hx" in read(flat) and "## Hy" in read(flat), "precondition: one flat file, two topics"
     with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
         json.dump(claims("alpha", [{"class": "domain", "topic": "x", "title": "Hx", "body": "About x, changed.", "evidence": ["h3"]}]), fh)
@@ -2650,9 +2661,9 @@ def test_a_claim_in_the_carried_file_is_not_written_twice(tmp: str) -> None:
     three = {"class": "workflow", "topic": "three", "title": "Three", "body": "Third way.", "evidence": ["h3"]}
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [one])})
     assert run_assemble(drain, claims_dir, out).returncode == 0
-    set_claims(claims_dir, "alpha", [two])
-    assert run_assemble(drain, claims_dir, out).returncode == 0
-    assert "## One" in read(proj(out, "alpha", "workflow.md")) and "## Two" in read(proj(out, "alpha", "workflow.md"))
+    flat_path = proj(out, "alpha", "workflow.md")
+    legacy_two_topic_flat(out, "alpha", flat_path, "workflow", "alpha-two", "Two", "Second way.")
+    assert "## One" in read(flat_path) and "## Two" in read(flat_path)
 
     set_claims(claims_dir, "alpha", [one, three])
     proc = run_assemble(drain, claims_dir, out)
@@ -2692,6 +2703,217 @@ def test_a_claim_in_the_carried_file_is_not_written_twice(tmp: str) -> None:
     migrated = json.loads(read(report_path(out)))["migrated"]
     assert any("workflow-carried-2026-01-01.md removed" in m for m in migrated), migrated
     assert "carried" not in read(proj(out, "alpha", "INDEX.md"))
+
+
+def _flat_then(tmp: str, first: list[dict], second: list[dict]) -> tuple[str, str, str, "subprocess.CompletedProcess"]:
+    """Two runs of one stamp over one role: the way a project's bundles are drained, one run each."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", first)})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", second)
+    return drain, claims_dir, out, run_assemble(drain, claims_dir, out)
+
+
+def test_a_flat_file_written_by_this_stamp_keeps_its_own_topic(tmp: str) -> None:
+    """Two bundles of one role in one stamp are two runs. The first writes a flat `<class>.md`; the second, bringing
+    two topics, moved it in under `<class>-carried-<stamp>`, a name no memory has (InterWeave #410, 2026-10-24).
+    A file this stamp wrote is one topic's, and keeps the topic."""
+    one = {"class": "workflow", "topic": "alpha-one", "title": "One", "body": "First way.", "evidence": ["h3"]}
+    two = {"class": "workflow", "topic": "alpha-two", "title": "Two", "body": "Second way.", "evidence": ["h2"]}
+    three = {"class": "workflow", "topic": "three", "title": "Three", "body": "Third way.", "evidence": ["h3"]}
+    _drain, _claims_dir, out, proc = _flat_then(tmp, [one], [two, three])
+    assert proc.returncode == 0, proc.stderr
+    wf = proj(out, "alpha", "workflow")
+    assert sorted(os.listdir(wf)) == ["alpha-one.md", "alpha-two.md", "three.md"], sorted(os.listdir(wf))
+    assert not os.path.exists(proj(out, "alpha", "workflow.md"))
+    assert "## One" in read(os.path.join(wf, "alpha-one.md")) and "carried" not in read(proj(out, "alpha", "INDEX.md"))
+
+
+def test_a_flat_file_that_gains_a_second_topic_moves_into_its_directory(tmp: str) -> None:
+    """A second topic in a flat class file left one INDEX row and one description for two rulings, and the second
+    ruling lost its cue (rust-ui-dev/rationale.md). The class moves into its directory, one file and one row per
+    topic, as the carried migration does for an older file."""
+    one = {"class": "workflow", "topic": "alpha-one", "title": "One cue", "body": "First way.", "evidence": ["h1"]}
+    two = {"class": "workflow", "topic": "alpha-two", "title": "Two cue", "body": "Second way.", "evidence": ["h2"]}
+    _drain, _claims_dir, out, proc = _flat_then(tmp, [one], [two])
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(proj(out, "alpha", "workflow.md")), "the second topic was written into the flat file"
+    wf = proj(out, "alpha", "workflow")
+    assert sorted(os.listdir(wf)) == ["alpha-one.md", "alpha-two.md"], sorted(os.listdir(wf))
+    index = read(proj(out, "alpha", "INDEX.md"))
+    assert "One cue" in index and "Two cue" in index and "workflow/alpha-one.md" in index and "workflow/alpha-two.md" in index, index
+    # Positive control: the same topic again stays where it is.
+    os.makedirs(os.path.join(tmp, "again"))
+    drain, claims_dir, out2 = build(os.path.join(tmp, "again"), {"alpha": claims("alpha", [one])})
+    assert run_assemble(drain, claims_dir, out2).returncode == 0 and run_assemble(drain, claims_dir, out2).returncode == 0
+    assert os.path.exists(proj(out2, "alpha", "workflow.md")) and not os.path.isdir(proj(out2, "alpha", "workflow"))
+
+
+def test_a_merge_target_in_a_flat_file_is_followed_when_the_class_moves_in(tmp: str) -> None:
+    """The class moves into its directory in the run that brings a correction of a section of the flat file: the
+    correction replaces that section in the moved file, and is not written beside it as `<topic>-2.md` (#412 F1)."""
+    one = {"class": "threads", "topic": "alpha-one", "title": "Open item", "body": "Stale.", "evidence": ["h3"]}
+    fix = {"class": "threads", "topic": "alpha-fix", "title": "Open item settled", "body": "Settled.", "evidence": ["h2"],
+           "merge_target": "Open item"}
+    two = {"class": "threads", "topic": "alpha-two", "title": "Other", "body": "Other thread.", "evidence": ["h3"]}
+    _drain, _claims_dir, out, proc = _flat_then(tmp, [one], [fix, two])
+    assert proc.returncode == 0, proc.stderr
+    files = sorted(os.listdir(proj(out, "alpha", "threads")))
+    assert files == ["alpha-one.md", "alpha-two.md"], files
+    text = read(proj(out, "alpha", "threads", "alpha-one.md"))
+    assert "## Open item settled" in text and "Settled." in text and "Stale." not in text, text
+
+
+def test_a_link_to_a_memory_written_into_another_slice_is_pointed_at_the_slice(tmp: str) -> None:
+    """A memory that corrects a section is written into that section's slice, under that slice's file name; a
+    `[[wikilink]]` to the memory resolved nowhere (#412 F7). The links of this drain's claims name the slice."""
+    base = {"class": "workflow", "topic": "labels-english-supplier", "title": "Supplier", "body": "Text.", "evidence": ["h1"]}
+    fix = {"class": "workflow", "topic": "labels-keep-is-reserved", "title": "Supplier, reserved", "body": "Reserved.",
+           "evidence": ["h2"], "merge_target": "Supplier"}
+    user = {"class": "solution", "topic": "placement", "title": "Placement",
+            "body": "Related: [[labels-keep-is-reserved]], [[unrelated-memory]].", "evidence": ["h3"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [base])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [fix, user])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "Reserved." in read(proj(out, "alpha", "workflow", "labels-english-supplier.md")), tree(out)
+    placed = read(proj(out, "alpha", "solution.md"))
+    assert "[[labels-english-supplier]]" in placed and "[[labels-keep-is-reserved]]" not in placed, placed
+    assert "[[unrelated-memory]]" in placed, "a name the drain did not place is left as written"
+
+    # The same linking memory harvested again, without the correction (an applied correction is not harvested
+    # twice): the same text, so a no-op and no collision (review of #368, F1).
+    before = tree(out)
+    set_claims(claims_dir, "alpha", [user])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert tree(out) == before
+
+    # The link drained BEFORE the correction is pointed by the correction's run; the memory harvested again afterwards
+    # is its own text, not a collision with it.
+    os.makedirs(os.path.join(tmp, "order"))
+    d2, c2, out2 = build(os.path.join(tmp, "order"), {"alpha": claims("alpha", [base, user])})
+    assert run_assemble(d2, c2, out2).returncode == 0
+    set_claims(c2, "alpha", [fix])
+    assert run_assemble(d2, c2, out2).returncode == 0
+    # the harvest does not bring an unchanged memory again: the correction's run points the link on disk
+    assert "[[labels-english-supplier]]" in read(proj(out2, "alpha", "solution.md"))
+    set_claims(c2, "alpha", [user])
+    proc = run_assemble(d2, c2, out2)
+    assert proc.returncode == 0, proc.stderr
+    assert "[[labels-english-supplier]]" in read(proj(out2, "alpha", "solution.md"))
+
+    # A linking memory arriving in a later run than the correction (review of #368, F2).
+    later = dict(user, topic="later", title="Later", body="Also [[labels-keep-is-reserved]].", evidence=["h3"])
+    set_claims(claims_dir, "alpha", [later])
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert "Also [[labels-english-supplier]]." in read(proj(out, "alpha", "solution", "later.md")), tree(out)
+
+
+def test_an_older_flat_file_without_a_recorded_topic_is_not_split_by_one_new_topic(tmp: str) -> None:
+    """A flat file from before a flat file recorded its topic may hold memories the crossref never named (it lists
+    referenced slices only). One new topic keeps the old reading and is merged in; splitting by the crossref
+    relabelled another memory's sections and the next drain wrote them twice (review of #368, F1)."""
+    xx = {"class": "workflow", "topic": "xx", "title": "X", "body": "About x.", "evidence": ["h1"]}
+    yy = {"class": "workflow", "topic": "yy", "title": "Y", "body": "About y.", "evidence": ["h3"]}
+    zz = {"class": "workflow", "topic": "zz", "title": "Z", "body": "About z.", "evidence": ["h3"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [xx])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    flat = proj(out, "alpha", "workflow.md")
+    # the crossref names xx only; the file also holds zz and records no topic
+    legacy = re.sub(r"(?m)^topic: .*\n", "", read(flat)).rstrip("\n") + "\n\n## Z\n\nAbout z.\n"
+    with open(flat, "w", encoding="utf-8") as fh:
+        fh.write(legacy)
+    set_claims(claims_dir, "alpha", [yy])
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert os.path.exists(flat) and not os.path.isdir(proj(out, "alpha", "workflow")), tree(out)
+    set_claims(claims_dir, "alpha", [zz])
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert read(flat).count("## Z") == 1 and not os.path.isdir(proj(out, "alpha", "workflow")), tree(out)
+
+
+def test_a_link_is_pointed_only_at_the_slice_of_its_own_roles_memory(tmp: str) -> None:
+    """Two roles may each have a memory of one name; the correction of one role's, filed in a slice, does not take
+    the other role's link to its own memory with it (review of #368, F5)."""
+    base = {"class": "workflow", "topic": "bar", "title": "Bar", "body": "Text.", "evidence": ["h1"]}
+    fix = {"class": "workflow", "topic": "foo", "title": "Bar, fixed", "body": "Fixed.", "evidence": ["h2"],
+           "merge_target": "Bar"}
+    other = {"class": "solution", "topic": "uses-foo", "title": "Uses", "body": "See [[foo]].", "evidence": ["h3"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [base]), "beta": claims("beta", [])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [fix, dict(other, topic="a-uses-foo")])
+    set_claims(claims_dir, "beta", [dict(other, topic="b-uses-foo")])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "[[bar]]" in read(proj(out, "alpha", "solution.md")) or "[[bar]]" in "".join(
+        read(os.path.join(proj(out, "alpha", "solution"), n)) for n in os.listdir(proj(out, "alpha", "solution")))
+    assert "[[foo]]" in read(proj(out, "beta", "solution.md")), "another role's own memory keeps its link"
+
+
+def test_a_claim_differing_only_in_a_link_target_is_still_a_collision(tmp: str) -> None:
+    """Another agent's text under a heading that differs in where a link points is different text (review of #368,
+    F3): asked about, not replaced."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "deploy", "title": "Deploy", "body": "Run [[deploy-v1]] first.", "evidence": ["a1"]}])})
+    with_agents(drain, {"a1": "dev-01", "a2": "dev-02"})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [
+        {"class": "solution", "topic": "deploy", "title": "Deploy", "body": "Run [[deploy-v2]] first.", "evidence": ["a2"]}])
+    before = tree(out)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "SUPERSEDING?" in proc.stderr, proc.stderr
+    assert tree(out) == before
+
+
+def test_a_refused_drain_does_not_point_the_links_on_disk(tmp: str) -> None:
+    """A run that is refused wrote nothing, links included (review of #368, F4): the correction it carried was not
+    applied, and a link pointed at it would name a slice it is not in."""
+    base = {"class": "workflow", "topic": "supplier", "title": "Supplier", "body": "Text.", "evidence": ["a1"]}
+    user = {"class": "solution", "topic": "placement", "title": "Placement", "body": "See [[reserved]].", "evidence": ["a1"]}
+    fix = {"class": "workflow", "topic": "reserved", "title": "Supplier, reserved", "body": "Reserved.",
+           "evidence": ["a1"], "merge_target": "Supplier"}
+    first = {"class": "domain", "topic": "deploy", "title": "Deploy", "body": "One way.", "evidence": ["a1"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [base, user, first])})
+    with_agents(drain, {"a1": "dev-01", "a2": "dev-02"})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [fix, dict(first, body="Another way.", evidence=["a2"])])
+    before = tree(out)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "SUPERSEDING?" in proc.stderr, proc.stderr
+    assert tree(out) == before and "[[reserved]]" in read(proj(out, "alpha", "solution.md"))
+    # Positive control: without the colliding claim the same correction points the link.
+    set_claims(claims_dir, "alpha", [fix])
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert "[[supplier]]" in read(proj(out, "alpha", "solution.md"))
+
+
+def test_a_linking_memory_harvested_again_with_its_correction_is_no_collision(tmp: str) -> None:
+    """The correction and the unchanged memory linking it arrive in one run, over a slice two agents wrote: the link on
+    disk is pointed after the pre-pass, so the pre-pass reads it pointed (review of #368, F5)."""
+    base = {"class": "workflow", "topic": "supplier", "title": "Supplier", "body": "Text.", "evidence": ["a1"]}
+    user = {"class": "solution", "topic": "placement", "title": "Placement", "body": "See [[reserved]].", "evidence": ["a1", "a2"]}
+    fix = {"class": "workflow", "topic": "reserved", "title": "Supplier, reserved", "body": "Reserved.",
+           "evidence": ["a1"], "merge_target": "Supplier"}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [base, user])})
+    with_agents(drain, {"a1": "dev-01", "a2": "dev-02"})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [fix, user])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0 and "SUPERSED" not in proc.stderr, proc.stderr
+    assert "See [[supplier]]." in read(proj(out, "alpha", "solution.md"))
+
+
+def test_the_pre_pass_points_a_link_once_as_the_write_does(tmp: str) -> None:
+    """`pointed` returns what point_disk leaves: one pass with the role's map, which holds the shared names too (review
+    of #368, F6). A name that is also a corrected memory's stem is not rewritten a second time."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from types import SimpleNamespace
+    from assembler.targets import pointed
+    run = SimpleNamespace(disk_links=[("alpha", ["a"], {"reserved": "supplier", "supplier": "workflow-foo"}),
+                                      (None, ["s"], {"supplier": "workflow-foo"})])
+    assert pointed(run, "alpha", "See [[reserved]].") == "See [[supplier]]."
+    assert pointed(run, None, "See [[supplier]].") == "See [[workflow-foo]]."
+    assert pointed(run, "beta", "See [[reserved]].") == "See [[reserved]]."
 
 
 def test_part_one_of_a_split_topic_is_always_the_topic_file(tmp: str) -> None:
@@ -2874,7 +3096,8 @@ def test_one_agent_s_memories_in_a_flat_class_file_are_not_one_retitled_memory(t
         proc = run_assemble(drain, claims_dir, out)
         assert proc.returncode == 0, proc.stderr
         assert "SUPERSEDED" not in proc.stderr, proc.stderr
-    flat = read(dom(out, "alpha", "domain.md"))
+    # Each topic has its own file once a second one arrives (a flat file holds one topic's sections).
+    flat = "".join(read(dom(out, "alpha", "domain", n)) for n in sorted(os.listdir(dom(out, "alpha", "domain"))))
     assert all(f"## Fact {x}" in flat for x in "ABC"), f"an earlier memory was deleted:\n{flat}"
 
     # The directory shape: the topic's own file is one memory.
@@ -3928,6 +4151,16 @@ def main() -> int:
         test_holding_a_shared_slice_keeps_the_notes_of_a_role_slice_under_the_same_key,
         test_a_held_slice_is_drained_again_once_released,
         test_a_role_id_that_is_no_slug_is_refused_before_anything_is_written,
+        test_a_flat_file_written_by_this_stamp_keeps_its_own_topic,
+        test_a_flat_file_that_gains_a_second_topic_moves_into_its_directory,
+        test_a_merge_target_in_a_flat_file_is_followed_when_the_class_moves_in,
+        test_a_link_to_a_memory_written_into_another_slice_is_pointed_at_the_slice,
+        test_an_older_flat_file_without_a_recorded_topic_is_not_split_by_one_new_topic,
+        test_a_link_is_pointed_only_at_the_slice_of_its_own_roles_memory,
+        test_a_claim_differing_only_in_a_link_target_is_still_a_collision,
+        test_a_refused_drain_does_not_point_the_links_on_disk,
+        test_a_linking_memory_harvested_again_with_its_correction_is_no_collision,
+        test_the_pre_pass_points_a_link_once_as_the_write_does,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

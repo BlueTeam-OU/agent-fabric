@@ -30,10 +30,12 @@ def clip_description(run: Run, description: str, where: str) -> str:
 def write_slice(
     run: Run, directory: str, filename: str, role: str, klass: str, claims: list[dict[str, Any]],
     description: str, shared_with: list[str] | None = None, topic: str | None = None,
+    flat_topic: str | None = None,
 ) -> str | None:
     """`topic` is recorded in the frontmatter of every file that is one
-    topic's (is_budget_part reads it); the flat class file, which holds
-    several memories, is written without one. Returns the description the
+    topic's (is_budget_part reads it); the flat class file records its one
+    topic as `flat_topic` (an older one, which may hold several memories,
+    has none and is written without). Returns the description the
     file was written with, or None when it was not written: every section
     it held was retired (ADR-050 rule 7) and the file is gone."""
     os.makedirs(directory, exist_ok=True)
@@ -60,6 +62,10 @@ def write_slice(
         meta["shared_with"] = sorted(shared_with)
     if topic is not None:
         meta["topic"] = topic
+    elif flat_topic is not None:
+        # The flat file holds one topic's sections and says whose: a later drain that moves it into its directory (a
+        # second topic, or the crossref left empty by a drain without references) names it by this, not by a stamp.
+        meta["topic"] = flat_topic
     path = os.path.join(directory, filename)
 
     # MERGE MODE. A drain renders only what it admitted this cycle, so
@@ -536,8 +542,8 @@ def write_role(run: Run, role: str) -> None:
         # `<class>.md` left beside `<class>/` is unreachable knowledge,
         # and its size was being counted as carried text for whatever
         # topic came first — which produced an empty "part one" with no
-        # provenance. The flat file may hold several topics' sections
-        # (the crossref says which), so it is not split: it moves whole,
+        # provenance. An older flat file may hold several topics'
+        # sections (the crossref says which), so it is not split: it moves whole,
         # named for the one topic when there is one, else as the carried
         # file of its class, and its description keeps it findable.
         flat = os.path.join(base, f"{CLASS_FILES[klass]}.md")
@@ -606,8 +612,14 @@ def write_role(run: Run, role: str) -> None:
                                and (c.get("merge_target") or "").strip() in sections]
                     description = clip_description(run, claim_heading(retitle[0]), os.path.join(directory, filename)) \
                         if retitle else described(os.path.join(directory, filename), description)
+                flat_path = os.path.join(directory, filename)
+                # Recorded in a flat file this run creates or that already records it; an older flat file may hold
+                # several topics and is not claimed for one.
+                records = directory == base and not is_carried(klass, topic) and (
+                    not os.path.exists(flat_path) or read_existing_slice(flat_path)[0].get("topic") == topic)
                 written = write_slice(run, directory, filename, role, klass, group, description,
-                                      topic=topic if directory != base else None)
+                                      topic=topic if directory != base else None,
+                                      flat_topic=topic if records else None)
                 if written is None:
                     continue      # every section of it was retired: nothing to list
                 run.index_entries[role].append(
