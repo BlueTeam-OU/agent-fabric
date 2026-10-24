@@ -218,16 +218,25 @@ def pin_version() -> None:
     imported at a delivery is read from the NEW tree by a process whose
     other modules are the OLD one ("module 'jobs' has no attribute
     'deliver_branch'"). Loaded now, the modules a watch imports by name are
-    the version it started on, and the next arming runs the new. Not
-    pinned: runtime/identity.py execs tools/fabric/workingcopy.py from disk
-    on every call, a loader of the runtime's, not an import."""
+    the version it started on, and the next arming runs the new."""
     # A module that will not load must not stop the delivery of messages: the
     # REQUEST that needs it says so (intake), as it did before.
-    for load in (intake._jobs, _episodic, paths.identity):
+    for load in (_episodic, paths.identity, pin_workingcopy):
         try:
             load()
         except Exception as e:  # noqa: BLE001 — said once, the watch goes on
             print(f"gzcoord-inbox: {load.__name__.strip('_')} did not load at start: {e}", file=sys.stderr)
+
+
+def pin_workingcopy() -> None:
+    """runtime/identity.py execs tools/fabric/workingcopy.py from disk on
+    every resolve_context, a loader and not an import, so a REQUEST would
+    run the replaced file against the roots module loaded at start. The
+    jobs module's identity is the one a delivery resolves through: its
+    loader is made to return the file read now."""
+    ident = intake._jobs().identity   # also loads jobs.py, the module a REQUEST queues through
+    loaded = ident._workingcopy()
+    ident._workingcopy = lambda: loaded
 
 
 def run_episodic(args: list[str], stdin: str) -> dict:
