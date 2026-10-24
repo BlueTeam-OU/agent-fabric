@@ -107,8 +107,17 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
                 raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")
             title = title_for(meta.get("SUBJECT") or f"message {mid}", mid)
 
-            def add(doc: dict, source: dict = source, project: Any = project, title: str = title, mid: str = mid) -> Any:
-                return None if listed(doc, mid, jobs) else jobs.new_job(doc, title, project=project, source=source)
+            deliver_to = jobs.deliver_branch(msg)
+
+            def add(doc: dict, source: dict = source, project: Any = project, title: str = title, mid: str = mid,
+                    deliver_to: Any = deliver_to) -> Any:
+                held = jobs.listed_request(doc, mid)
+                if held:
+                    # The sender's title-only add may have come first and carries no DELIVER-TO: the branch is filled in, never replaced.
+                    if deliver_to and not held.get("deliver_to"):
+                        held["deliver_to"] = deliver_to
+                    return None
+                return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to)
 
             job = jobs.mutate(add)
         except BaseException as e:  # noqa: BLE001 — any failure is a line; the delivery stands (SystemExit: identity's refusals)

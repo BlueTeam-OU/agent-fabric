@@ -1,7 +1,7 @@
 """tools/fabric/jobsparts/branching.py — the branch a job starts on, chosen before any work (ADR-037 rule 10, step 3).
 A part of tools/fabric/jobs.py, whose docstring is the contract.
 
-The order: the job's own recorded branch when it was begun and is still unmerged (a paused or a blocked job taken back); else this agent's open pull request in the
+The order: the for/ branch a supply job's request names (job["deliver_to"]), unless a pull request from it merged; else the job's own recorded branch when it was begun and is still unmerged (a paused or a blocked job taken back); else this agent's open pull request in the
 repository, when it is still addable; else, for a job that needs that pull request merged first, a block on it; else a new branch
 off the freshly fetched default branch. Whatever is chosen is never behind the default branch: an existing branch gets the default
 merged into it, locally and unpushed, in a worktree of its own."""
@@ -103,6 +103,11 @@ def _begun(wc: str, repo: str, branch: str) -> bool:
     return not vcs.gh.pr_list(["number"], repo=repo, state="merged", search=f"head:{branch}")
 
 
+def _landed(wc: str, repo: str, branch: str) -> bool:
+    """Whether a pull request from `branch` merged: its delivery is on the default branch and the name is spent."""
+    return bool(vcs.gh.pr_list(["number"], repo=repo, state="merged", search=f"head:{branch}"))
+
+
 def choose(job: dict, *, kind: str, needs_merged: bool) -> Choice:
     """The branch for `job`, prepared: fetched, checked out in a worktree and up to date. Refused when it cannot be one."""
     wc = job.get("working_copy")
@@ -114,6 +119,15 @@ def choose(job: dict, *, kind: str, needs_merged: bool) -> Choice:
         default = vcs.default_branch(wc)
         own = job.get("branch")
         repo = vcs.gh.this_repo(wc)
+        supply = job.get("deliver_to")
+        if supply and not _landed(wc, repo, supply):
+            if vcs.local_branch_exists(wc, supply) or vcs.remote_tip(wc, supply):
+                return Choice("own", supply, bring_up_to_date(wc, supply, default), note="the for/ branch the request names, the job's to deliver on")
+            path = _worktree_path(wc, supply)
+            if os.path.exists(path):
+                raise Refused(f"{path} exists but does not have {supply} checked out: move it away, or check the branch out there")
+            vcs.run(wc, "worktree", "add", "--no-track", "-b", supply, path, f"origin/{default}")
+            return Choice("new", supply, path, note=f"the for/ branch the request names, new off origin/{default}")
         if own and _begun(wc, repo, own):
             return Choice("own", own, bring_up_to_date(wc, own, default), note="the job's own branch, work already begun")
         mine = _my_open_prs(repo)

@@ -59,6 +59,13 @@ transition carries the evidence as its note ("swept: …") and is applied under 
 artifacts the evidence was read from. Each account's control agent runs it hourly (tools/fabric/control/agentd.py, ADR-037 rule 12). One gh lookup per distinct pull request in the run, each with a timeout; a lookup that
 fails leaves the job delivered and says so. No other state is touched, no artifact removed, and a second run changes nothing.
 
+A supply job names its branch. A REQUEST whose DELIVER-TO section names a branch of this login under for/ (<host>/<login>/for/<caller>/<what>)
+is recorded with it as the job's `deliver_to`, by whichever path adds it (a later receiver intake fills it in on a job the
+sender's title-only add made first, never replaces one); another login's branch is not recorded. `switch` to such a job
+checks that branch out first, fetched and up to date (a new one off the default branch when it exists nowhere yet), in a worktree
+of its own, before the job's own branch, an open pull request or a new feat/ branch: the job-copy guard then sees a job copy.
+A for/ branch whose pull request merged is not taken again, and the choice falls to the usual order.
+
 A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
 normal when none was set, and in a list written before priorities
 existed. A stored value outside the four is not read as normal: `next`
@@ -183,7 +190,7 @@ _spec.loader.exec_module(sys.modules["fabric_jobs"])
 from fabric_jobs.base import HERE, FABRIC_ROOT, _JobKeys, Job, _load, identity, STATES, OPEN, TERMINAL, MESSAGE_ID, POOL_ID, PRIORITIES, DEFAULT_PRIORITY, Refused, NothingQueued, Stale, mutate  # noqa: E402, F401
 from fabric_jobs import blockers  # noqa: E402, F401
 from fabric_jobs.ranking import stored_priority, message_of, waiters, effective_priority, queue_order, named  # noqa: E402, F401
-from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job, listed_request, request_id_of  # noqa: E402, F401
+from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job, listed_request, deliver_branch, request_id_of  # noqa: E402, F401
 from fabric_jobs.queue import QUEUE, QUEUE_TIMEOUT_S, Unreachable, ask_queue, stream_waits  # noqa: E402, F401
 from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, claimed_job, pool_job, printable, pool_line  # noqa: E402, F401
 from fabric_jobs.render import line, show, summary  # noqa: E402, F401

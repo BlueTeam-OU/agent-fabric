@@ -49,6 +49,10 @@ class Refused(Exception):
     pass
 
 
+def _real_jobs() -> Any:
+    return intake._jobs()
+
+
 class FakeJobs:
     """What intake asks of jobs.py: mutate(fn) over a list, new_job(doc, title, project, source)."""
     def __init__(self, doc: dict | None = None, refuse: str | None = None):
@@ -67,8 +71,13 @@ class FakeJobs:
         return next((j for j in doc["jobs"] if (j.get("source") or {}).get("message_id") == message_id
                      or str(j.get("title", "")).endswith(f"(REQUEST {message_id})")), None)
 
-    def new_job(self, doc: dict, title: str, *, project: Any = None, source: Any = None) -> dict:
+    def deliver_branch(self, msg: dict) -> Any:
+        return _real_jobs().deliver_branch(msg)
+
+    def new_job(self, doc: dict, title: str, *, project: Any = None, source: Any = None, deliver_to: Any = None) -> dict:
         job = {"id": f"j{len(doc['jobs']) + 1}", "title": title, "project": project, "source": source}
+        if deliver_to:
+            job["deliver_to"] = deliver_to
         doc["jobs"].append(job)
         return job
 
@@ -142,11 +151,64 @@ def _():
                 doc = json.load(fh)
             check(len(doc["jobs"]) == 1 and doc["jobs"][0]["state"] == "queued" and doc["jobs"][0]["priority"] == "normal"
                   and doc["jobs"][0]["source"] == {"kind": "request", "message_id": MID, "from": "host-a/user", "seq": 7}, doc)
+            check("deliver_to" not in doc["jobs"][0], doc)
+            branch = f"{_mine()}/for/user/real"
+            intake.queue_received([_with_sections(delivery(mid=OTHER, PROJECT=None), branch)], {"address": ME}, err=err)
+            with open(found[0], encoding="utf-8") as fh:
+                doc = json.load(fh)
+            check(doc["jobs"][1]["deliver_to"] == branch, doc)
     finally:
         if saved is None:
             os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
         else:
             os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+
+
+def _mine() -> str:
+    jobs = _real_jobs()
+    return f"{jobs.identity.current_host()}/{jobs.identity.current_agent()}"
+
+
+def _with_sections(item: dict, deliver_to: str) -> dict:
+    item["msg"]["sections"] = {"REQUEST": "do it", "DELIVER-TO": deliver_to}
+    return item
+
+
+@case("a REQUEST whose DELIVER-TO names this login's for/ branch records it as the job's deliver_to")
+def _():
+    branch = f"{_mine()}/for/user/j333-review-server"
+    jobs = FakeJobs()
+    receive([_with_sections(delivery(), f"A branch {branch}, folded by the caller.")], jobs)
+    check(jobs.doc["jobs"][0].get("deliver_to") == branch, jobs.doc)
+    jobs = FakeJobs()
+    receive([_with_sections(delivery(), "the memory itself, in your own memory directory.")], jobs)
+    check("deliver_to" not in jobs.doc["jobs"][0], jobs.doc)                  # the control: no branch named, none recorded
+    for other in (f"{_mine()}x/for/user/a", "host-b/other-login/for/user/a", f"{_mine()}/feat/a", "<host>/<login>/for/<caller>/<what>"):
+        jobs = FakeJobs()
+        receive([_with_sections(delivery(), other)], jobs)
+        check("deliver_to" not in jobs.doc["jobs"][0], (other, jobs.doc))      # another login's branch, a non-for/ branch, the placeholder
+
+
+@case("the sender's title-only job gets the branch from the receiver's intake; one already recorded is kept")
+def _():
+    branch = f"{_mine()}/for/user/what"
+    jobs = FakeJobs({"jobs": [{"id": "j3", "title": f"a subject (REQUEST {MID})", "source": {"kind": "owner"}}]})
+    lines, err = receive([_with_sections(delivery(), branch)], jobs)
+    check(lines == [] and jobs.doc["jobs"][0].get("deliver_to") == branch and len(jobs.doc["jobs"]) == 1, (lines, jobs.doc))
+    jobs.doc["jobs"][0]["deliver_to"] = f"{_mine()}/for/user/first"
+    receive([_with_sections(delivery(), branch)], jobs)
+    check(jobs.doc["jobs"][0]["deliver_to"] == f"{_mine()}/for/user/first", jobs.doc)
+
+
+@case("add --request reads the section from the replay's text, which carries no parse")
+def _():
+    jobs = _real_jobs()
+    branch = f"{_mine()}/for/user/what"
+    text = (f"[GZCOORD/1] REQUEST\nFROM: h/u\nTO: {_mine()}\nMESSAGE-ID: {MID}\nSUBJECT: s\n\nREQUEST:\nsee DELIVER-TO: later\n\n"
+            f"ACCEPTANCE:\nx\n\nDELIVER-TO:\nBranch {branch}.\n")
+    check(jobs.deliver_branch({"type": "REQUEST", "metadata": {}, "text": text}) == branch, "the section is read")
+    check(jobs.deliver_branch({"text": text.replace("DELIVER-TO:\nBranch", "NOTES:\nBranch")}) is None,
+          "the same branch under another heading is not DELIVER-TO")
 
 
 @case("the inbox prints the delivery and, below it, what it queued")
