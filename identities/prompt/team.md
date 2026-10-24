@@ -53,6 +53,10 @@ where the agreement changed; deliver what can be checked where it lands;
 keep the agreement in the PR body. Silence is neither consent nor a
 release (`MESSAGE-FORMAT.md`).
 
+**Blocked on another agent's decision: ask that agent by message** — a
+`QUESTION`, or a `REPLY` to its `REQUEST` naming what blocks you. A
+decision written only on your own screen reaches no one.
+
 **Pull requests: one change, one owner, one open PR per agent and
 repository.** Pieces that only make sense together land as one PR,
 integrated by the role that owns the concern; a supplier delivers commits
