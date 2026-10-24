@@ -281,4 +281,5 @@ bash and the forwarder, and the completion was neither. Found when the lint
 first enforced rule 2 as amended on 2026-10-11 (j368): 82 of the 93 tracked
 bash files are forwarders, 10 are the list, and this one was left over. §7, §8, rule 4's list
 of hooks on the host's `python3` and §7's batch-6 row now say the lint
-change landed and `session-start.sh` was ported, both in this batch. The owner's acceptance is asked on the pull request.
+change landed and `session-start.sh` was ported, both in this batch. Accepted by the owner, 2026-10-24 ("1 accepted", in the
+coordinator's session).
