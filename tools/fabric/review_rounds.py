@@ -271,7 +271,7 @@ def _locate(files: dict[str, dict], path: str, line: int) -> str:
     return f"{where} ({note})"
 
 
-def _delta(repo_dir: str, old: str, new: str, report: str) -> dict:
+def _delta(repo_dir: str, old: str, new: str, text: str) -> dict:
     """What a re-review is briefed with besides the findings: the range's
     exact diff, and where each finding's line and each hunk is now, so the
     reviewer answers from the brief and opens a file only when it must."""
@@ -287,8 +287,6 @@ def _delta(repo_dir: str, old: str, new: str, report: str) -> dict:
     locators: list[str] = []
     seen: set = set()
     number = None
-    with open(report, encoding="utf-8", errors="replace") as f:
-        text = f.read()
     for line in text.split("\n"):
         if (m := FINDING_NO.match(line)):
             number = m.group(1)
@@ -368,6 +366,12 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
     # which the default branch does not contain (agent-fabric ADR-020).
     if pr and "pr" not in nxt:
         nxt["pr"] = pr
+    if review_brief._count(nxt.get("pr")) and not pr:
+        # The request names its PR, so the previous report is the PR's last
+        # posted review; a --report beside it would be read for the
+        # Locators and ignored for the findings (ADR-065 §5 rule 5).
+        raise Refused(f"{request_path} names PR #{nxt['pr']}, whose previous report is its last posted review: "
+                      "run next with --pr, not --report")
     # A PR's previous report is its last posted review, which the brief reads
     # itself and refuses a typed copy of (ADR-065 §5 rule 5).
     if review_brief._count(nxt.get("pr")):
@@ -390,7 +394,17 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
     # request for the next attempt to number past (review of #89).
     if (problems := review_brief.refusals(nxt, allow_rationale)):
         raise review_brief.RequestError(problems)
-    delta = _delta(repo_dir, old_head, new_head, report)  # before the worktree: it can fail too
+    if review_brief._count(nxt.get("pr")):
+        # The Locators number the same findings the brief shows: the
+        # checkpoint's body, never the saved round (two engines may differ).
+        info, _ = review_brief.resolve_range(nxt)
+        text = (info or {}).get("previous_report")
+        if text is None:
+            raise Refused(f"PR #{nxt['pr']} has no posted review to start the re-review from; render a full review")
+    else:
+        with open(report, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    delta = _delta(repo_dir, old_head, new_head, text)  # before the worktree: it can fail too
     try:
         with review_brief.pinned_evidence(nxt, allow_rationale) as evidence:
             brief = review_brief.render(nxt, allow_rationale=allow_rationale, evidence_path=evidence, delta=delta)
