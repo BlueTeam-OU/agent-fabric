@@ -1695,6 +1695,22 @@ def main() -> int:
               rc == 0 and w.job(j1)["branch"].startswith(f"{me}/feat/{j1}-"), out + err)
         gh_says()
 
+        w = World()
+        j1 = supply_job(w, None)
+        w.switch()
+        began = w.job(j1)["branch"]
+        subprocess.run(["git", "-C", w.job(j1)["worktree"], "push", "-q", "origin", began], check=True, env=git_env())
+        w.sw("pause", j1, "later", cwd=w.job(j1)["worktree"])
+        jpath = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jpath))
+        next(j for j in doc["jobs"] if j["id"] == j1)["deliver_to"] = supply
+        with open(jpath, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        w.add("another")
+        rc, out, err = w.switch(j1)
+        check("a job that began on its own branch keeps it when a for/ branch is recorded later",
+              rc == 0 and w.job(j1)["branch"] == began and on(w.job(j1)["worktree"]) == began, out + err + repr(w.job(j1)))
+
         print("a session that has worked no job takes the first in place, with its branch")
         w = World()
         j1 = w.add("first")

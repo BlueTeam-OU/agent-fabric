@@ -120,7 +120,8 @@ def choose(job: dict, *, kind: str, needs_merged: bool) -> Choice:
         own = job.get("branch")
         repo = vcs.gh.this_repo(wc)
         supply = job.get("deliver_to")
-        if supply and not _landed(wc, repo, supply):
+        # A job that began on another branch keeps it: the name may have been recorded after its work started.
+        if supply and (not own or own == supply) and not _landed(wc, repo, supply):
             if vcs.local_branch_exists(wc, supply) or vcs.remote_tip(wc, supply):
                 return Choice("own", supply, bring_up_to_date(wc, supply, default), note="the for/ branch the request names, the job's to deliver on")
             path = _worktree_path(wc, supply)

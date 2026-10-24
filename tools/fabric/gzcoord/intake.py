@@ -14,8 +14,9 @@ on stderr, never a failed delivery or a failed post:
             the job's project (what jobs-add does); the job then carries no
             working copy. A message already on the list — a job with that
             MESSAGE-ID as its source, or "(REQUEST <MESSAGE-ID>)" in its
-            title — adds nothing, so a redelivery and a second watch are
-            one job.
+            title — adds no job, so a redelivery and a second watch are
+            one job; it only gains the branch its DELIVER-TO names when it is
+            still queued, has none and has not begun on a branch of its own.
   sender    queue_for_addressee(): gzcoord-send, once a REQUEST TO a login
             is posted, when the sender is the operator of the addressee's
             host (runtime/hosts/registry.json), asks the control plane's
@@ -79,11 +80,6 @@ def named_in(title: str, message_id: str) -> bool:
     return title.rstrip().endswith(f"(REQUEST {message_id})")
 
 
-def listed(doc: dict, message_id: str, jobs: Any) -> bool:
-    """jobs.py's own check, the one `fabric-jobs add` makes too: one rule for what a REQUEST already on the list is."""
-    return jobs.listed_request(doc, message_id) is not None
-
-
 def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: Any = None) -> list[str]:
     """The lines to print with a delivery: `queued as jN` for each job this
     call added. `classified` is wait_loop's list ({rec, msg, isMine});
@@ -114,7 +110,8 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
                 held = jobs.listed_request(doc, mid)
                 if held:
                     # The sender's title-only add may have come first and carries no DELIVER-TO: the branch is filled in, never replaced.
-                    if deliver_to and not held.get("deliver_to"):
+                    # Only a job not yet taken: one that began on its own branch keeps it, or switch would leave its work behind.
+                    if deliver_to and not held.get("deliver_to") and not held.get("branch") and held.get("state") == "queued":
                         held["deliver_to"] = deliver_to
                     return None
                 return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to)

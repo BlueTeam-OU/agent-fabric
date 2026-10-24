@@ -141,7 +141,8 @@ check that failed and changing nothing:
      `retract <id> <artifact>` removes one recorded artifact whatever the job's state, so a mistaken one cannot hold the job; it refuses,
      naming the artifacts, when the string is not there, and notes what was removed in the job's log.
   2. The next job starts in a fresh session after a worked one (rule 3, unchanged): `fabric-fresh --job <id>` is printed.
-  3. Its branch is chosen before any work: the job's own branch when it has begun one that no pull request merged; else this
+  3. Its branch is chosen before any work: the for/ branch a supply job records (`deliver_to`) when the job has no other branch of
+     its own and no pull request from it merged (the open-pull-request refusal and --needs-merged below do not apply to it); else the job's own branch when it has begun one that no pull request merged; else this
      login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
      commits), with the default branch merged into it first (locally, not pushed); else, with --needs-merged, the job is blocked
      on that pull request and not started; else a new branch <host>/<login>/<type>/<job id and title words> off the freshly

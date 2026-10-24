@@ -192,12 +192,32 @@ def _():
 @case("the sender's title-only job gets the branch from the receiver's intake; one already recorded is kept")
 def _():
     branch = f"{_mine()}/for/user/what"
-    jobs = FakeJobs({"jobs": [{"id": "j3", "title": f"a subject (REQUEST {MID})", "source": {"kind": "owner"}}]})
+    jobs = FakeJobs({"jobs": [{"id": "j3", "title": f"a subject (REQUEST {MID})", "source": {"kind": "owner"}, "state": "queued"}]})
     lines, err = receive([_with_sections(delivery(), branch)], jobs)
     check(lines == [] and jobs.doc["jobs"][0].get("deliver_to") == branch and len(jobs.doc["jobs"]) == 1, (lines, jobs.doc))
     jobs.doc["jobs"][0]["deliver_to"] = f"{_mine()}/for/user/first"
     receive([_with_sections(delivery(), branch)], jobs)
     check(jobs.doc["jobs"][0]["deliver_to"] == f"{_mine()}/for/user/first", jobs.doc)
+    for began in ({"branch": f"{_mine()}/feat/j3-x"}, {"state": "active"}, {"state": "paused"}):
+        jobs = FakeJobs({"jobs": [{"id": "j3", "title": f"a subject (REQUEST {MID})", "source": {"kind": "owner"}, "state": "queued", **began}]})
+        receive([_with_sections(delivery(), branch)], jobs)
+        check("deliver_to" not in jobs.doc["jobs"][0], (began, jobs.doc))        # a job already taken is not moved to the branch
+    jobs = FakeJobs({"jobs": [{"id": "j3", "title": f"a subject (REQUEST {MID})", "source": {"kind": "owner"}, "state": "queued"}]})
+    receive([_with_sections(delivery(), branch)], jobs)
+    check(jobs.doc["jobs"][0].get("deliver_to") == branch, "the control: a queued job with no branch gains it")
+
+
+@case("request_job (add --request) stores the branch from the replay's text on the job it makes")
+def _():
+    jobs = _real_jobs()
+    branch = f"{_mine()}/for/user/what"
+    text = f"[GZCOORD/1] REQUEST\nFROM: h/u\nTO: {_mine()}\nMESSAGE-ID: {MID}\nSUBJECT: s\n\nREQUEST:\nx\n\nDELIVER-TO:\n{branch}\n"
+    msg = {"type": "REQUEST", "metadata": {"MESSAGE-ID": MID, "SUBJECT": "s", "FROM": "h/u"}, "text": text, "seq": 3}
+    doc = {"seq": 0, "jobs": []}
+    job = jobs.request_job(doc, msg, working_copy=HERE)
+    check(job["deliver_to"] == branch, job)
+    bare = jobs.request_job({"seq": 0, "jobs": []}, {**msg, "text": text.replace(branch, "nothing")}, working_copy=HERE)
+    check("deliver_to" not in bare, bare)
 
 
 @case("add --request reads the section from the replay's text, which carries no parse")
@@ -384,8 +404,6 @@ def _():
     for bad in ("a", "1", "01a11f64", "x" * 200):
         lines, err = receive([delivery(mid=bad)], jobs)
         check(lines == [] and err.count("\n") == 1 and "MESSAGE-ID is not an id" in err and len(jobs.doc["jobs"]) == 1, (bad, lines, err))
-    check(not intake.listed(jobs.doc, "a", jobs) and not intake.listed(jobs.doc, MID, jobs))
-    check(intake.listed({"jobs": [{"title": f"s (REQUEST {MID})"}]}, MID, jobs))
     check(intake.named_in(f"s (REQUEST {MID})", MID) and not intake.named_in(f"s (REQUEST {MID}) and more", MID),
           "the sender's pre-check reads the id as the last words, as jobs.py does")
     check(not intake.named_in(f"see (REQUEST {MID}) (REQUEST {OTHER})", MID), "...never one named in the subject")
