@@ -494,15 +494,54 @@ def main() -> int:
         link_argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc, usr=fixture)
         check(f"a {label} link at lib/ssl/private gets no mount (positive control: the directory above does)",
               "/usr/lib/ssl/private" not in link_argv and "/usr/lib/ssl/private" in key_argv, str(link_argv))
-    check("maskable: a directory yes; a link to one, a dangling link and a missing path no",
-          sandbox.maskable(os.path.join(usr, "lib")) and not sandbox.maskable(os.path.join(link_usr, "lib", "ssl", "private"))
-          and not sandbox.maskable(os.path.join(dangling_usr, "lib", "ssl", "private")) and not sandbox.maskable(os.path.join(usr, "absent")))
-    # No destination the argv builds may be a link: the class, over every mount flag, on the host's own layout.
+    # Every mask is decided on the resolved path (#358 round 5 C1, F5): a link anywhere on the way, not only at the last name, changes where
+    # the directory is. Fixtures: lib/ssl is (or its private is) a link, to a place inside the fixture usr, outside every bound root, or to the root.
+    def fixture_usr(name, links, dirs):
+        root = os.path.join(scratch, name)
+        for d in dirs:
+            os.makedirs(os.path.join(root, d), exist_ok=True)
+        for where, target in links.items():
+            os.makedirs(os.path.dirname(os.path.join(root, where)), exist_ok=True)
+            os.symlink(target.replace("ROOT", root), os.path.join(root, where))
+        return root
+
+    def tmpfs_of(argv_):
+        return [argv_[i + 1] for i, a in enumerate(argv_) if a == "--tmpfs"]
+
+    def argv_of(fixture):
+        return sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc, usr=fixture)
+
+    inside = fixture_usr("usr-target-inside", {"lib/ssl/private": "../../share/site-private"}, ["share/site-private"])
+    middle_out = fixture_usr("usr-middle-outside", {"lib/ssl": os.path.join(etc, "ssl")}, [])
+    middle_in = fixture_usr("usr-middle-inside", {"lib/ssl": "../share/ssl"}, ["share/ssl/private"])
+    check("a link to a directory inside the bound /usr: the tmpfs goes on the target, where it shows inside, and not on the link",
+          "/usr/share/site-private" in tmpfs_of(argv_of(inside)) and "/usr/lib/ssl/private" not in tmpfs_of(argv_of(inside)), str(argv_of(inside)))
+    check("a link at a middle component to a place outside every bound root: no mount, and the layout is not refused (control: the plain "
+          "directory above is covered)", "/usr/lib/ssl/private" not in tmpfs_of(argv_of(middle_out)) and not any(
+              t.startswith("/usr/lib/ssl") for t in tmpfs_of(argv_of(middle_out))) and "/usr/lib/ssl/private" in masked, str(argv_of(middle_out)))
+    check("a link at a middle component to a place inside: the tmpfs goes on the resolved directory",
+          "/usr/share/ssl/private" in tmpfs_of(argv_of(middle_in)) and "/usr/lib/ssl/private" not in tmpfs_of(argv_of(middle_in)),
+          str(argv_of(middle_in)))
+    for label, target in (("the usr itself", "ROOT"), ("a directory that holds it", os.path.dirname(os.path.join(scratch, "x")))):
+        to_root = fixture_usr("usr-to-root", {"lib/ssl/private": target}, [])
+        try:
+            argv_of(to_root)
+            refused = ""
+        except sandbox.Unproved as exc:
+            refused = str(exc)
+        os.unlink(os.path.join(to_root, "lib", "ssl", "private"))
+        check(f"a link to {label} is refused with a line that names the path and says no check is run",
+              "usr-to-root/lib/ssl/private" in refused and "no check is run" in refused, refused)
+    check("control: a plain key directory is not refused", "/usr/lib/ssl/private" in masked)
+    # No destination the argv builds under a tree bound whole may be, or sit below, a link: the class, over every mount flag, on the host's own layout.
     dest_flags = {"--tmpfs": 1, "--ro-bind": 2, "--bind": 2, "--bind-try": 2, "--ro-bind-try": 2, "--dev-bind": 2, "--dev-bind-try": 2}
     host_argv = sandbox.bwrap_argv("bwrap", evidence, common, own, ["true"], etc=etc)
-    link_dests = [host_argv[i + n] for i, a in enumerate(host_argv) if a in dest_flags for n in (dest_flags[a],)
-                  if host_argv[i + n].startswith("/usr/") and os.path.islink(host_argv[i + n])]
-    check("no mount destination under /usr is a link on this host", not link_dests, str(link_dests))
+    whole = tuple(r + "/" for r in sandbox.SYSTEM_RO + sandbox.SYSTEM_LINKED)
+    moved = [d for i, a in enumerate(host_argv) if a in dest_flags for d in (host_argv[i + dest_flags[a]],)
+             if d.startswith(whole) and os.path.realpath(d) != d]
+    check("every mount destination under a bound tree is its own resolved path on this host", not moved, str(moved))
+    check("control: the check sees a destination that is moved (a link to a directory)",
+          os.path.realpath(os.path.join(middle_in, "lib", "ssl", "private")) != os.path.join(middle_in, "lib", "ssl", "private"))
 
     print("-- review_check: the proved sandbox")
     why = userns_refused()
@@ -700,6 +739,20 @@ def sandbox_cases(server, call, head, base, clone, evidence, scratch, home, secr
     probe_argv = sandbox.bwrap_argv("bwrap", evidence, where["common"], where["own"], ["/bin/sh", "-c", "exit 42"], usr=link_usr)
     ran = subprocess.run(probe_argv, capture_output=True, text=True, timeout=60)
     check("a sandbox built over the Debian layout (lib/ssl/private a link) starts", ran.returncode == 42, ran.stderr)
+    # A link at a middle component to a place outside the roots (#358 round 5 F5): the mask used to be put on it, and bwrap exited 1.
+    probe_argv = sandbox.bwrap_argv("bwrap", evidence, where["common"], where["own"], ["/bin/sh", "-c", "exit 42"], usr=os.path.join(scratch, "usr-middle-outside"))
+    ran = subprocess.run(probe_argv, capture_output=True, text=True, timeout=60)
+    check("a sandbox over a layout with lib/ssl a link out of the roots starts", ran.returncode == 42, ran.stderr)
+    # A link into the bound tree (#358 round 5 C1): the fixture stands where bwrap_argv puts /usr, and the mask it decides is run for real.
+    target_usr = os.path.join(scratch, "usr-target-inside")
+    with open(os.path.join(target_usr, "share", "site-private", "key.pem"), "w", encoding="utf-8") as fh:
+        fh.write("PLANTED-SITE-KEY")
+    target = sandbox.mask_target(os.path.join(target_usr, "lib", "ssl", "private"), [(os.path.realpath(target_usr), "/mnt")])
+    for label, mask in (("covered", ["--perms", "0555", "--tmpfs", target or ""]), ("not covered (control)", [])):
+        ran = subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "--ro-bind", target_usr, "/mnt", *mask, "--",
+                              "/bin/cat", "/mnt/lib/ssl/private/key.pem"], capture_output=True, text=True, timeout=60)
+        check(f"a key behind a link into the bound tree, {label}: " + ("unreadable inside" if mask else "readable inside"),
+              ("PLANTED" not in ran.stdout and ran.returncode != 0) if mask else ran.stdout == "PLANTED-SITE-KEY", ran.stdout + ran.stderr)
     err, text = run("git", "log", "--oneline", "-1")
     check("a check runs in the head worktree: git log works there (positive control)", not err and exit_of(text) == "exit 0" and "head" in text, text)
     err, text = run("sh", "-c", "pwd")
