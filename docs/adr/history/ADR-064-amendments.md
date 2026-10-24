@@ -25,4 +25,5 @@ old text its sender retried it for ever.
 
 Raised by python-dev-02 building the carrier (j89, its QUESTIONs of
 2026-10-24); the contract is its draft, reviewed and changed by the
-coordinator. The owner's acceptance is asked on the pull request.
+coordinator. Accepted by the owner, 2026-10-24 ("adr 64 accepted", in the
+coordinator's session).
