@@ -15,6 +15,8 @@ Each case names the mutation it fails on, planted on the source as formatted (29
                              own session ignored, a dead harness read as live, a broken or malformed registry entry skipped, a missing
                              registry read as empty (the session cases); `session_dirs` following a link or taking any name; the cache of
                              uid + 1 (another_logins_cache).
+                             the jobs: the `named` clause dropped, "delivered" counted as wanted, "paused" not, an unreadable list or a
+                             record without a path read as none, the "job list unreadable" clause dropped (the job cases, planted 2026-10-24)
   jobsparts, control         the switch's sweep not run / run without --worktrees / its report on stdout in --json / the kept lines dropped
                              (test_jobs_switch); the control agent's removable count on the old rule (test_control_branches).
 
@@ -591,6 +593,75 @@ class Sweep(unittest.TestCase):
         os.makedirs(other)
         rc, out, err = self.sweep()
         self.assertTrue(os.path.isdir(other), out)
+
+    def jobs(self, *jobs, raw=None) -> None:
+        """The login's job list, where fabric-jobs keeps it (identity.jobs_path under the suite's state directory)."""
+        import pwd
+        directory = os.path.join(self.t, "state", "agents", pwd.getpwuid(os.geteuid()).pw_name)
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, "jobs.json"), "w", encoding="utf-8") as fh:
+            fh.write(raw if raw is not None else json.dumps({"seq": 1, "jobs": list(jobs)}))
+
+    @staticmethod
+    def job(state, worktree, ident="j7") -> dict:
+        return {"id": ident, "title": "t", "state": state, "worktree": worktree, "project": None, "working_copy": None,
+                "topic": None, "source": {}, "artifacts": [], "created": "x", "updated": "x", "log": []}
+
+    def test_a_worktree_a_live_job_names_is_kept_and_a_finished_job_names_nothing(self):
+        for state in ("active", "queued", "paused", "blocked"):
+            with self.subTest(state):
+                wt = self.worktree(f"live-{state}", pushed=True)
+                self.jobs(self.job(state, wt))
+                rc, out, err = self.sweep()
+                self.assertEqual(rc, 0, err)
+                self.assertTrue(os.path.isdir(wt), out)
+                self.assertIn(f"named by job j7 ({state})", out)
+        for state in ("delivered", "done", "dropped"):
+            with self.subTest(state):
+                wt = self.worktree(f"left-{state}", pushed=True)
+                self.jobs(self.job(state, wt))
+                rc, out, err = self.sweep()
+                self.assertFalse(os.path.exists(wt), f"the positive control: the same job {state} leaves it removable\n{out}")
+
+    def test_a_job_naming_another_path_keeps_nothing_here(self):
+        wt = self.worktree("w", pushed=True)
+        self.jobs(self.job("active", os.path.join(self.t, "elsewhere")), self.job("queued", None, "j8"))
+        rc, out, err = self.sweep()
+        self.assertFalse(os.path.exists(wt), out)
+
+    def test_a_job_list_that_cannot_be_read_keeps_every_worktree_and_says_why(self):
+        wt = self.worktree("w", pushed=True)
+        self.jobs(raw="{not json")
+        rc, out, err = self.sweep()
+        self.assertEqual(rc, 0, err)
+        self.assertTrue(os.path.isdir(wt), out)
+        self.assertIn("no worktree is removed", err)
+        self.assertRegex(out, rf"(?m)^  \d+\s+{re.escape(wt)}  w  job list unreadable$")
+        self.git(self.wc, "branch", "at-tip", "main")
+        rc, out, err = self.sweep()
+        self.assertEqual(self.git(self.wc, "branch", "--list", "at-tip"), "", "a branch with no worktree is still deleted")
+
+    def test_a_record_whose_worktree_cannot_be_understood_is_unknown_not_none(self):
+        wt = self.worktree("w", pushed=True)
+        for bad in (7, ["x"], ""):
+            with self.subTest(repr(bad)):
+                self.jobs(self.job("active", bad))
+                rc, out, err = self.sweep()
+                self.assertTrue(os.path.isdir(wt), out)
+                self.assertIn("job list unreadable", out)
+
+    def test_json_reports_the_job_that_keeps_a_worktree(self):
+        wt = self.worktree("w", pushed=True)
+
+        def kept_because() -> object:
+            r = subprocess.run([CMD, "--json"], cwd=self.wc, env=self.env(), capture_output=True, text=True, timeout=300)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            (entry,) = [w for w in json.loads(r.stdout)["worktrees"] if w["path"] == wt]
+            return entry["kept_because"]
+        self.jobs(self.job("delivered", wt))
+        self.assertIsNone(kept_because(), "the positive control: a delivered job keeps nothing")
+        self.jobs(self.job("active", wt))
+        self.assertEqual(kept_because(), "named by job j7 (active)")
 
 
 if __name__ == "__main__":
