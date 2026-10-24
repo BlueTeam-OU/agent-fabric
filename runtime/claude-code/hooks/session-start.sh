@@ -1,20 +1,11 @@
 #!/usr/bin/env bash
-# Claude Code SessionStart hook: resolve the agent from the OS, record the
-# working copy and project the session is in, print one context line.
-# Exec of runtime/claude-code/hooks/session-start.py; exit 0 always.
-#
-# It also makes AGENT_FABRIC_ROOT real in the session's own shell: a
-# SessionStart hook may append `export` lines to $CLAUDE_ENV_FILE and the
-# harness sources them into every later Bash tool call. Without this the
-# variable existed only for the hook's python child, and every documented
-# `node "$AGENT_FABRIC_ROOT/…/inbox.mjs"` expanded to /communication/…
-# in a live session (devex-tooling, 2026-09-13).
-FABRIC_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../.." && pwd)"
-AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$FABRIC_ROOT}"
-# Once: the hook also runs on resume and after a compaction, and the file
-# accumulates across them.
-if [ -n "${CLAUDE_ENV_FILE:-}" ] && ! grep -qs '^export AGENT_FABRIC_ROOT=' "$CLAUDE_ENV_FILE"; then
-  printf 'export AGENT_FABRIC_ROOT=%q\n' "$AGENT_FABRIC_ROOT" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true
-fi
-AGENT_FABRIC_ROOT="$AGENT_FABRIC_ROOT" python3 "$FABRIC_ROOT/runtime/claude-code/hooks/session-start.py"
+# Claude Code SessionStart hook: a forwarder to session-start.py on the
+# fleet's pinned Python (agent-fabric ADR-040 rule 4), which resolves the
+# agent, records the working copy and project, exports AGENT_FABRIC_ROOT
+# into the session's shell and prints one context line. Exit 0 always: a
+# start hook never stands in a session's way.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+root="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../.." && pwd)"
+[[ -x "$py" ]] || { echo "session-start: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 $root/tools/fabric/python_pin.py install" >&2; exit 0; }
+AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$root}" "$py" "$root/runtime/claude-code/hooks/session-start.py"
 exit 0

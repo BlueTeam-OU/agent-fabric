@@ -35,6 +35,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -82,6 +83,32 @@ def synced_names(path: str) -> list[str]:
         return []
 
 
+def export_fabric_root(env_file: str | None, root: str) -> None:
+    """Make AGENT_FABRIC_ROOT real in the session's own shell: the harness
+    sources $CLAUDE_ENV_FILE into every later Bash call, and without the line
+    every documented `$AGENT_FABRIC_ROOT/...` command expanded to
+    /communication/... in a live session (devex-tooling, 2026-09-13). Once:
+    the hook also runs on resume and after a compaction, and the file
+    accumulates across them; a line already there, whatever its value, is
+    left as it is. Quoted for the shell that sources it (a path with spaces
+    or quotes survives). Moved here from session-start.sh (j369)."""
+    if not env_file:
+        return
+    try:
+        with open(env_file, encoding="utf-8") as fh:
+            if any(line.startswith("export AGENT_FABRIC_ROOT=") for line in fh):
+                return
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return
+    try:
+        with open(env_file, "a", encoding="utf-8") as fh:
+            fh.write(f"export AGENT_FABRIC_ROOT={shlex.quote(root)}\n")
+    except OSError:
+        pass
+
+
 def seal_session_shell(env_file: str | None, home: str) -> None:
     if not env_file:
         return
@@ -105,6 +132,7 @@ def seal_session_shell(env_file: str | None, home: str) -> None:
 
 
 def main() -> int:
+    export_fabric_root(os.environ.get("CLAUDE_ENV_FILE"), FABRIC_ROOT)
     seal_session_shell(os.environ.get("CLAUDE_ENV_FILE"), os.path.expanduser("~"))
     try:
         raw = sys.stdin.read() if not sys.stdin.isatty() else ""
