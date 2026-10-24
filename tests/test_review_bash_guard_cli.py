@@ -302,10 +302,19 @@ def budget() -> None:
         check("a verdict child stopped for 3.5 s of wall (starved) is still judged, not denied as slow",
               got is None and time.monotonic() - started >= 3.5, f"{got!r} after {time.monotonic() - started:.1f} s")
         mod.verdict = spins
-        started = time.monotonic()
-        got = fresh("x")
-        check("a verdict that spins on CPU past 3 s is denied as slow, well under the wall ceiling",
-              got == "slow" and time.monotonic() - started < mod.BUDGET_S, f"{got!r} after {time.monotonic() - started:.1f} s")
+        # Under host load 3 s of CPU takes more than the 8 s ceiling of wall, and "slow" would then come from the ceiling,
+        # not the CPU budget. A ceiling no load reaches leaves the CPU budget as the only way to "slow": without it the
+        # spinner ends at 3.6 s of CPU and answers None.
+        ceiling = mod.BUDGET_S
+        mod.BUDGET_S = 120.0
+        try:
+            started = time.monotonic()
+            got = fresh("x")
+            took = time.monotonic() - started
+        finally:
+            mod.BUDGET_S = ceiling
+        check("a verdict that spins on CPU past 3 s is denied as slow by the CPU budget, not the wall ceiling",
+              got == "slow" and took < 120.0, f"{got!r} after {took:.1f} s")
         mod.verdict = reports_limit
         check("the child runs the verdict under RLIMIT_CPU (3, 3)", fresh("x") == "git", "limit not set in the child")
         mod.verdict = killed

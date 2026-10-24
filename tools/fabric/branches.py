@@ -52,9 +52,12 @@ checkouts piled up, 39 and 530 MB on one login in a day):
     reason "session registry unreadable". A worktree a live session stands in is in use otherwise, and so is one that any
     process of this uid has as its cwd (/proc), or whose `fabric-in-use` file in its own git directory (first line: a pid)
     names a live process of this uid; a dead pid or no file keeps nothing. /proc that cannot be listed keeps every
-    worktree, said. Never another login's path, never a symlink.
+    worktree, said. Never another login's path, never a symlink. A worktree that a queued, active, paused or blocked
+    job of this login names (its record's `worktree`) is kept, "named by job jN (state)": the record points at the
+    directory. A delivered, done or dropped job names nothing. A job list that cannot be read, or a record whose
+    worktree is not a path, keeps every worktree, "job list unreadable" (unknown is not none).
 What a sweep keeps it says with the reason (changes, commits on no remote, ignored files, lock, this one, in use,
-live session, session registry unreadable); what it removes, with its size.
+live session, session registry unreadable, named by a job, job list unreadable); what it removes, with its size.
 
 What differs from the bash, on purpose — every one a place where bash read a
 failed git call as an answer, which for a command that deletes is the one
@@ -120,8 +123,8 @@ everything on the branch is already on the default branch, so deleting
 it loses nothing. --sweep deletes exactly those, re-counted at
 deletion, and removes a worktree only when it has no changes, no
 ignored files (Python bytecode excepted) and no lock, its commit is on a
-remote (the default branch, or a pushed branch), and it is not the one
-this runs in; it also removes the scratch of this login's ended Claude
+remote (the default branch, or a pushed branch), it is not the one
+this runs in and no live job of this login names it; it also removes the scratch of this login's ended Claude
 Code sessions. What it keeps it says, with the reason; what it removes,
 with its size. Anything with commits off it is reported
 with its commits and its pull request, and kept: it is work still owed,
@@ -331,6 +334,47 @@ LIVE_CWDS: list[str] = []
 # Whether the registry could not be read at all. Unknown is not "no session stands anywhere": the worktrees go the way the scratch
 # does, kept, because a removed cwd is pulled from under a session and nothing says whose.
 REGISTRY_UNREADABLE = False
+# The worktrees a live job of this login names (its record's "worktree"), real path to "job jN (state)": the record points at
+# the directory, so removing it leaves the job pointing at nothing. A delivered, done or dropped job names nothing that is
+# still wanted. Unknown is not "none" either: a list that cannot be read keeps every worktree.
+JOB_WORKTREES: dict[str, str] = {}
+JOBS_UNREADABLE = False
+WANTED_STATES = ("queued", "active", "paused", "blocked")
+# Every state fabric-jobs writes (jobsparts/base.py STATES; tests/test_branches_sweep.py holds the two equal). One outside it is a
+# record this sweep does not understand, so it is unknown, never "finished".
+KNOWN_STATES = WANTED_STATES + ("delivered", "done", "dropped")
+
+
+def live_job_worktrees() -> dict[str, str] | None:
+    """The worktrees named by this login's jobs that are still wanted, or None when the job list cannot be read or a
+    record cannot be understood (fabric-jobs reads the same file through identity.read_jobs)."""
+    try:
+        doc = load_identity().read_jobs()
+        found: dict[str, str] = {}
+        for job in doc["jobs"]:
+            state, path = job["state"], job.get("worktree")
+            if state not in KNOWN_STATES:
+                return None
+            if state not in WANTED_STATES:
+                continue
+            if path is None:
+                continue
+            if not isinstance(path, str) or not path:
+                return None
+            found[os.path.realpath(path)] = f"job {job['id']} ({state})"
+        return found
+    except (SystemExit, OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
+        return None
+
+
+def load_jobs() -> dict[str, str] | None:
+    """Fill JOB_WORKTREES (and JOBS_UNREADABLE) for this run."""
+    global JOBS_UNREADABLE
+    found = live_job_worktrees()
+    JOBS_UNREADABLE = found is None
+    JOB_WORKTREES.clear()
+    JOB_WORKTREES.update(found or {})
+    return found
 
 
 def keep_paths() -> set[str]:
@@ -480,8 +524,13 @@ def worktree_state(wt: dict, base: str, top: str, refs: list[str] | None = None)
         # One "in use": the live-session clause above already said it when the same process is also the one found here.
         earlier = why[:-len("in use")].rstrip(", ") if why.endswith("in use") else why
         why = f"{earlier + ', ' if earlier else ''}in use: {held}"
+    named = JOB_WORKTREES.get(os.path.realpath(path))
+    if named:
+        why = f"{why + ', ' if why else ''}named by {named}"
     if not why and REGISTRY_UNREADABLE:
         why = "session registry unreadable"
+    if not why and JOBS_UNREADABLE:
+        why = "job list unreadable"
     return n, why
 
 
@@ -659,6 +708,7 @@ def report_json(top: str, current: str, dirty: int) -> int:
     # control agent reads this object to say how many are removable.
     global REGISTRY_UNREADABLE
     REGISTRY_UNREADABLE = live_sessions() is None
+    load_jobs()
     listing = worktrees()
     main_wt = listing[0]["path"] if listing else ""
     wts = []
@@ -832,6 +882,9 @@ def run(argv: list[str], scratch: bool = True) -> int:
     LIVE_CWDS[:] = registry[1] if registry is not None else []
     global REGISTRY_UNREADABLE
     REGISTRY_UNREADABLE = registry is None
+    if load_jobs() is None:
+        say("the job list of this login cannot be read: no worktree is removed, because a worktree a live job names "
+            "cannot be told from another (branches are still deleted)")
     if registry is None:
         say(f"the sessions of this login cannot be listed ({sessions_dir()}): no worktree is removed, because the "
             "directory a live session stands in cannot be told from another (branches are still deleted)")
