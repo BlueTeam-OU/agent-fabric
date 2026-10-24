@@ -84,11 +84,17 @@ dropped and counted, never admitted. For an admitted-by-roster message:
 
 1. parse the header; verdict = `ok` if `FROM` equals the mapped address,
    else `mismatch`;
-2. append one line to the arrival log, `<state>/agents/<login>/
+2. if addressed to this agent (the inbox's `for_me`), append one line to
+   the arrival log, `<state>/agents/<login>/
    gzcoord-arrivals.jsonl`: `{"mid", "addressee", "carrier":
    "interweave", "t", "verdict"}` (the relay path writes the same line with
    `"carrier": "relay"` and `"verdict": "unauthenticated"`, journal on or
-   off). The arrival log is the parity report's evidence (rule 11) and
+   off, for a copy addressed here only). A copy this agent filters out (a
+   `TO-ROLE` it does not hold, a broadcast it does not take) is logged by
+   neither path, so the parity report counts no miss for a member that was
+   never an addressee; it is still receipted (§3). ADR-064 rule 11's "one
+   line per copy received" is read so: a copy received for this agent. The arrival log is the
+   parity report's evidence (rule 11) and
    decides nothing about showing (§6, the shown ledger). It has two
    writers, the carrier and the relay inbox path: each line is one
    `write()` on a descriptor opened `O_APPEND`, under an exclusive `flock`

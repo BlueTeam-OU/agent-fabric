@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import pwd
 import socket
 import subprocess
@@ -278,8 +279,12 @@ def main() -> int:
             pin = json.load(fh)
         built = os.path.join(sb, "py", f"python-{pin['python']}+{pin['release']}", "bin")
         os.makedirs(built)
+        # It answers python_pin's probe as the pinned build would: the
+        # version, then each of this machine's pinned wheels at its version.
+        wheels = "".join(f"echo {w['name']} {w['version']}\n"
+                         for w in pin["builds"].get(platform.machine(), {}).get("wheels", []))
         with open(os.path.join(built, "python3"), "w") as fh:
-            fh.write(f"#!/bin/sh\necho {pin['python']}\n")
+            fh.write(f"#!/bin/sh\necho {pin['python']}\n{wheels}")
         os.chmod(os.path.join(built, "python3"), 0o755)
         os.symlink(os.path.join(built, "python3"), os.path.join(sb, "fabric-python"))
         here_env = {**env, "AGENT_FABRIC_PYTHON_PREFIX": os.path.join(sb, "py"), "AGENT_FABRIC_PYTHON_LINK": os.path.join(sb, "fabric-python")}

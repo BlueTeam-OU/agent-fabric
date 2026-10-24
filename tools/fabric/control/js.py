@@ -19,9 +19,9 @@ Python control plane must judge a request exactly as the Node one does
                    too, never a RecursionError past a caller's catch.
                    A named gap: where Node's JSON.parse reads a
                    million levels, Python's reader stops, as measured:
-                   3.13.15 (the pinned interpreter) near 10,000, at the
-                   interpreter's fixed C recursion limit, on a stack of
-                   1.5 MiB or more; on a smaller stack (1 MiB, or a
+                   3.13.15 near 10,000, at the interpreter's fixed C
+                   recursion limit, on a stack of 1.5 MiB or more; on
+                   a smaller stack (1 MiB, or a
                    thread given one by threading.stack_size) that depth
                    crashes the process, SIGSEGV, before the limit can
                    raise. 3.14.7 stops where its stack ends, near
