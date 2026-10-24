@@ -58,10 +58,32 @@ def toolchain_paths() -> list[str]:
     return [os.path.realpath(p) for p in (python_pin.PREFIX,) if os.path.exists(p)]
 
 
-def maskable(path: str) -> bool:
-    """A directory that a tmpfs may be mounted on. bwrap refuses a mount whose destination is a symlink ("Can't mount on symlink
-    destination"), and os.path.isdir follows links, so isdir alone says yes to Debian's /usr/lib/ssl/private -> /etc/ssl/private."""
-    return os.path.isdir(path) and not os.path.islink(path)
+def system_roots(usr: str = "/usr") -> list[tuple[str, str]]:
+    """The trees bwrap_argv binds whole before any mask, as (where they are on the host, where they show inside). A bind is an identity path,
+    so a place inside a root is where its resolved host path says; `usr` is the host directory standing for /usr (a test's fixture)."""
+    roots = [(os.path.realpath(usr), "/usr")] if os.path.isdir("/usr") else []
+    return roots + [(os.path.realpath(p), p) for p in SYSTEM_LINKED if os.path.isdir(p) and not os.path.islink(p)]
+
+
+def mask_target(path: str, roots: list[tuple[str, str]]) -> str | None:
+    """Where inside the sandbox an empty tmpfs goes to cover `path`, or None. Decided on the resolved path, never the name: a component of
+    `path` may be a link, and bwrap refuses a mount on a symlink ("Can't mount on symlink destination") and, with a link in the middle, to
+    make the parents. Nothing at the resolved r (absent, a file) is nothing to cover. An r outside every root bound before the masks is
+    absent inside (the link dangles there), so there is nothing to cover and a mount would stop bwrap, the proof and every check. An r inside a
+    root is covered at the place it shows inside. An r that is a root or holds one (a link to /usr) cannot be covered without hiding what the
+    sandbox runs on and cannot be left alone, as the target is readable through the bound root: the layout is refused, never masked at the root.
+    Roots bound after the masks (the toolchain, /etc's certificates, the worktree) are allowlists laid over them and are not consulted."""
+    r = os.path.realpath(path)
+    if not os.path.isdir(r):
+        return None
+    for host, _inside in roots:
+        if host == r or host.startswith(r.rstrip("/") + "/"):
+            raise Unproved(f"{path} resolves to {r}, which is or holds a tree the sandbox binds whole, so its contents cannot be masked; "
+                           "no check is run and no wider sandbox is used")
+    for host, inside in roots:
+        if r.startswith(host + "/"):
+            return inside + r[len(host):]
+    return None
 
 
 def bound_under(path: str, roots: tuple[str, ...]) -> bool:
@@ -84,20 +106,23 @@ def bwrap_argv(bwrap: str, worktree: str, common_dir: str, git_dir: str, command
             argv += ["--symlink", os.readlink(path), path]
         elif os.path.isdir(path):
             argv += ["--ro-bind", path, path]
+    masked = {}
     for path in SYSTEM_MASKED:
-        if maskable(path):
-            argv += ["--perms", "0555", "--tmpfs", path]
-    # A key directory that is a link is skipped on the premise that its target (Debian: /etc/ssl/private) is under no bound root, so inside
-    # the sandbox the link dangles and hides nothing (a link into /usr itself is not handled: no distribution is known to ship one), and a mount on it would stop bwrap (and with it the proof, and every check).
+        target = mask_target(path, system_roots())
+        if target is not None:
+            masked[path] = target
+            argv += ["--perms", "0555", "--tmpfs", target]
     for rel in KEY_DIRS:
-        if maskable(os.path.join(usr, rel)):
-            argv += ["--perms", "0555", "--tmpfs", "/usr/" + rel]
+        target = mask_target(os.path.join(usr, rel), system_roots(usr))
+        if target is not None:
+            argv += ["--perms", "0555", "--tmpfs", target]
     for name in ETC_RO:
         if os.path.exists(os.path.join(etc, name)):
             argv += ["--ro-bind", os.path.join(etc, name), "/etc/" + name]
     for path in toolchain_paths():
         argv += ["--ro-bind", path, path]
-    if os.path.islink(python_pin.LINK) and bound_under(python_pin.LINK, SYSTEM_MASKED) and maskable("/usr/local"):
+    # Only under a mask at the name itself: through a link the mount is elsewhere, and a link made under the name is made through that link.
+    if os.path.islink(python_pin.LINK) and bound_under(python_pin.LINK, SYSTEM_MASKED) and any(masked.get(p) == p for p in SYSTEM_MASKED):
         argv += ["--symlink", os.readlink(python_pin.LINK), python_pin.LINK]
     # An allowlist of the git directory, not a mask over a denylist: a file git grows or a pull request's tooling adds there is unreadable
     # until named here. A path that is absent is not bound (a repository without packed-refs or shallow).
