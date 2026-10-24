@@ -40,7 +40,7 @@ def arr(m: str, who: str, carrier: str, sec: int, verdict: str = "ok") -> dict:
 
 
 def main() -> int:
-    A, B, C = "h/alpha", "h/beta", "h/gamma"
+    B, C = "h/beta", "h/gamma"
     m1, m2, m3, m4, m5, m6 = (mid(10 * i, i) for i in range(1, 7))
     arrivals = [
         arr(m1, B, "relay", 11), arr(m1, B, "interweave", 11),                      # both

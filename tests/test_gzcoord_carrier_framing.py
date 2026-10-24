@@ -86,7 +86,6 @@ def main() -> int:
           r.add("b", p[1].data) is None)
 
     r = f.Reassembler()
-    held = {}
     for n in range(f.Reassembler.MAX_PER_SOURCE + 2):
         for x in f.encode(f"flood{n}", noise(f.CEILING * 2))[:1]:
             r.add("hog", x.data)

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
+import shutil
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -121,6 +121,8 @@ def main() -> int:
           r.code == 0 and f.requests == [])
     f.close()
 
+    for d in P.SCRATCH:      # the protocol suite's scratch is removed by ITS main, which this does not run
+        shutil.rmtree(d, ignore_errors=True)
     print(f"\ntest_gzcoord_carrier_send: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 

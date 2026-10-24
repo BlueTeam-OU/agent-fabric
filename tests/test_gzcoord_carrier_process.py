@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import pwd
+import shutil
 import signal
 import socket
 import sqlite3
@@ -26,7 +27,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
-from gzcoord.carrier import ipc, server  # noqa: E402
+from gzcoord.carrier import server  # noqa: E402
 from interweave_fake import FakeDaemon  # noqa: E402
 import test_gzcoord_carrier_roster as RT  # noqa: E402 — its real-key helpers
 import test_gzcoord_protocol as P  # noqa: E402 — its minimal command environment and agent id store
@@ -86,9 +87,7 @@ def main() -> int:
 
             env = P.cmd_env(AGENT_FABRIC_OPERATOR=fab, GZCOORD_CARRIER_ROSTER=ros, AGENT_FABRIC_PYTHON=sys.executable,
                             AGENT_FABRIC_SECRET_STORE=P.id_store())
-            env["XDG_RUNTIME_DIR"] = tempfile.mkdtemp(prefix="gzr", dir=env.get("TMPDIR", "/tmp"))
-            os.chmod(env["XDG_RUNTIME_DIR"], 0o700)
-            run_dir = env["XDG_RUNTIME_DIR"]
+            run_dir = env["XDG_RUNTIME_DIR"] = P.scratch("gzr")      # 0700 from mkdtemp; removed with the rest
 
             def cmd(*args: str, **over) -> subprocess.CompletedProcess:
                 return subprocess.run([CMD, *args], env={**env, **over}, capture_output=True, text=True,
@@ -190,6 +189,8 @@ def main() -> int:
         finally:
             for ag in (root, me, peer):
                 RT.drop_key(ag.home)
+    for d in P.SCRATCH:      # the protocol suite's scratch is removed by ITS main, which this does not run
+        shutil.rmtree(d, ignore_errors=True)
     print(f"\ntest_gzcoord_carrier_process: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 
