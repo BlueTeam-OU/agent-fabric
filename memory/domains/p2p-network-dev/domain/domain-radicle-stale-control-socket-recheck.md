@@ -5,14 +5,19 @@ topic: "domain-radicle-stale-control-socket-recheck"
 description: "radicle-node killed hard won't restart (stale control.sock); why --force is not the fix"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
+  - agent: "p2p-network-dev-01"
+    host: "develop-qzapp"
+    project: interweave
+    working_copy: interweave
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
     project: interweave
     working_copy: InterWeave
 derived_from:
   - 4b89316aa1ba8574
+  - bd7c4434ea663457
 ---
 
 ## radicle-node killed hard won't restart (stale control.sock); why --force is not the fix

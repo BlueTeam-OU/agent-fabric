@@ -5,7 +5,7 @@ topic: "domain-event-stream-owes-current-state"
 description: "A client contract that delivers state only as CHANGE events never shows a state that was true from the start, or true again after a reconnect: owe the current value at route begin and at return"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

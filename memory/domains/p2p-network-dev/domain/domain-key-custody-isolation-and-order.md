@@ -5,7 +5,7 @@ topic: "domain-key-custody-isolation-and-order"
 description: "Wrapping a secret under a platform key: key the alias per (tenant, purpose) in the trusted layer, and never destroy the old key before the new record is durable — retire after the write, and let a restore try the existing record first"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
