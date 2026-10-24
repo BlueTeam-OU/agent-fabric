@@ -63,7 +63,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import arm_policy, commit_class  # noqa: E402
+from github import arm_policy, commit_class, review_coverage  # noqa: E402
 from github.pr_split import split_rows  # noqa: E402
 from github.review_status.config import BUILTIN_LEGACY_MARKER, REVIEW_MARKER  # noqa: E402
 from github.review_status.verdicts import engine_of, unavailable_of  # noqa: E402
@@ -277,10 +277,20 @@ def checks_word(pr: dict) -> str:
 
 
 def engines_on_head(pr: dict, markers: list[str]) -> set[str]:
-    """The engines (review_status's engine_of) of the marked reviews posted on the head."""
+    """The engines (review_status's engine_of) of the marked reviews posted on the head: a v1 or legacy marker, or a v2
+    review the gate counts (review_coverage reads it in full and its marker names the head). A v2 review with a path
+    not read, or one that does not read, is no engine on the head, as the gate has it."""
     head = pr.get("headRefOid")
+
+    def marked(r: dict) -> bool:
+        body = r.get("body") or ""
+        v2 = review_coverage.read_review(body)
+        if v2 is not None:
+            return v2.counts and v2.marker.head == head
+        return any(m in body for m in markers)
+
     return {engine_of(r) for r in (pr.get("reviews") or {}).get("nodes") or []
-            if (r.get("commit") or {}).get("oid") == head and any(m in (r.get("body") or "") for m in markers)}
+            if (r.get("commit") or {}).get("oid") == head and marked(r)}
 
 
 def engines_unavailable(pr: dict) -> dict[str, str]:
