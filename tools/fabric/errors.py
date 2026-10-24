@@ -96,7 +96,7 @@ import gh  # noqa: E402
 import results  # noqa: E402
 import review_lines  # noqa: E402
 import roots  # noqa: E402
-from github import commit_class  # noqa: E402
+from github import commit_class, review_coverage  # noqa: E402
 from github.post_review import REVIEW_MARKER  # noqa: E402
 
 MIN_DENOMINATOR = 5                                  # ADR-061 §5 rule 4
@@ -355,7 +355,12 @@ def parse_machine_lines(body: str) -> Review | None:
 
 
 def read_review(body: str) -> Review:
-    """Machine lines when the report has them; otherwise the older shapes, unchanged."""
+    """Machine lines when the report has them; otherwise the older shapes, unchanged. A v2 review that
+    review_coverage does not read in full (marker, block, or a path not read) is unparsed with its reason named:
+    its findings are not counted, as a malformed report's are not."""
+    v2 = review_coverage.read_review(body)
+    if v2 is not None and not v2.counts:
+        return Review(unparsed=True, malformed=[named("v2 review not read in full: " + v2.why_not)])
     lines = parse_machine_lines(body)
     if lines is not None:
         return lines
@@ -437,7 +442,8 @@ def events_of(repo: str, pr: dict, later: list[dict], checks, now: dt.datetime, 
     answers = [(i, set(LABEL.findall(commit_class.answers_of(c.get("messageBody") or ""))))
                for i, c in enumerate(commits)]
     for rv in pr.get("reviews") or []:
-        if not (rv.get("body") or "").startswith(REVIEW_MARKER):
+        body = rv.get("body") or ""
+        if not (body.startswith(REVIEW_MARKER) or body.startswith(review_coverage.V2_PREFIX)):
             continue
         sha = (rv.get("commit") or {}).get("oid")
         if sha not in by_sha:

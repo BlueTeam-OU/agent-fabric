@@ -66,6 +66,21 @@ def main() -> int:
     check("an Answers: commit BEFORE the review does not answer it", ev[0]["findings"] == [{"level": "P2", "answered": False}], ev)
     ev = [e for e in run(pr(reviews=[review("P1: none\nP2: none\nP3: no findings", "c1")])) if e["kind"] == "review"]
     check("a review that says there are none is a parsed review of zero findings", ev[0]["findings"] == [] and not ev[0]["unparsed"], ev)
+    def v2_body(report, *statuses, head="c1"):
+        paths = {f"p{i}": ({"status": st} if st == "read" else {"status": st, "reason": "r"}) for i, st in enumerate(statuses)}
+        marker = f"<!-- agent-fabric-review v2 base={'b' * 40} head={head.ljust(40, '0')} card={'c' * 40} config={'d' * 64} -->"
+        return marker + "\n\n" + report + "\n```agent-fabric-coverage v1\n" + json.dumps({"paths": paths, "lenses": {}}) + "\n```\n"
+
+    machine = "Finding: F1 | P2 | certain | a.py:1 | the lock\nFinding: F2 | P3 | possible | - | a nit\n"
+    ev = [e for e in run(pr(commits=cs, reviews=[{"body": v2_body(machine, "read"), "commit": {"oid": "c1"}}])) if e["kind"] == "review"]
+    check("a v2 review read in full is counted like a v1 one", len(ev) == 1 and not ev[0]["unparsed"]
+          and [f["level"] for f in ev[0]["findings"]] == ["P2", "P3"], ev)
+    ev = [e for e in run(pr(commits=cs, reviews=[{"body": v2_body(machine, "read", "not read"), "commit": {"oid": "c1"}}])) if e["kind"] == "review"]
+    check("a v2 review with a path not read is shown as unparsed, its reason named, none of its findings counted",
+          len(ev) == 1 and ev[0]["unparsed"] and ev[0]["findings"] == [] and "not read in full" in ev[0]["malformed"][0]
+          and "1 path(s) not read" in ev[0]["malformed"][0], ev)
+    ev = [e for e in run(pr(commits=cs, reviews=[{"body": v2_body(machine, "read").split("\n```")[0], "commit": {"oid": "c1"}}])) if e["kind"] == "review"]
+    check("a v2 review whose block is missing is shown as unparsed too", len(ev) == 1 and ev[0]["unparsed"], ev)
     ev = [e for e in run(pr(reviews=[review("- P2 the lock is wrong\nfix it", "c1")])) if e["kind"] == "review"]
     check("a review naming a level in another shape is unparsed, not zero", ev[0]["unparsed"] and ev[0]["findings"] == [], ev)
     ev = run(pr(reviews=[{"body": "**F1 (P1, x)** hi", "commit": {"oid": "c1"}}, review("**F1 (P1)**", "zz")]))
