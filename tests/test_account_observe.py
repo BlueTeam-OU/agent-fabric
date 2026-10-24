@@ -102,7 +102,7 @@ class SetKey(unittest.TestCase):
         self.assertEqual(json.loads(O.set_key("{\n}\n", "k", 1)), {"k": 1})
 
     def test_a_file_that_cannot_take_the_key_untouched_is_refused(self):
-        for bad in ("", "[]", "{", '{"a": 1', '{"a": 1} x', '{"a": NaN}', '{"a" 1}', '{"a": 1,, }', '{"observed": 1, "observed": 2}', "null"):
+        for bad in ("", "[]", "{", '{"a": ' + "[" * 200000 + "]" * 200000 + "}", '{"a": 1', '{"a": 1} x', '{"a": NaN}', '{"a" 1}', '{"a": 1,, }', '{"observed": 1, "observed": 2}', "null"):
             with self.assertRaises(O.FileRefused, msg=bad):
                 O.set_key(bad, "observed", {})
 
@@ -298,6 +298,8 @@ class Main(Base):
         self.sign_in(self.home, "claude-a")
         code, out, err = self.go(["--write"], read_signin=lambda d, home=None: {"status": "failed", "error": f"boom {TOKEN_B}"})
         o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
+        self.assertEqual(code, 1, "a sign-in that did not read is a lost read")
+        self.assertIn("claude-a: ok; sign-in failed; created", out)
         self.assertEqual(o["signin"], {"status": "failed", "error": "boom [token]"})
         self.assertNotIn("model_weekly", o)
         self.assertEqual(o["status"], "ok", "the probe's reading stands")

@@ -155,7 +155,7 @@ def set_key(text: str, key: str, value: Any) -> str:
             i = skip(ve)
         if i >= len(text) or text[i:].strip(_WS) != "}":
             raise FileRefused("not valid JSON")
-    except ValueError:
+    except (ValueError, RecursionError):   # a document nested past the decoder's stack is a bad document
         raise FileRefused("not valid JSON") from None
     same = [m for m in members if m[0] == key]
     if len(same) > 1:
@@ -227,6 +227,10 @@ def _locked() -> Any:
     return cm()
 
 
+def status_text(o: Mapping[str, Any]) -> str:
+    return o["status"] + (f"; sign-in {o['signin']['status']}" if "signin" in o else "")
+
+
 def scrub(v: Any, secrets: Sequence[str]) -> Any:
     if isinstance(v, str):
         # A lone surrogate (from the harness's output) cannot be written as UTF-8 and would fail every account's write.
@@ -269,7 +273,8 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Map
         o = build_observed(slug, held[slug], os.path.join(directory, slug), probe=probe,
                            read_signin=lambda d: read_signin(d, home=home), now=now)
         observed[slug] = scrub(o, secrets)
-        failed = failed or o["status"] != "ok"
+        # A sign-in that was there and did not read is a lost read too: the per-model meter stops being collected.
+        failed = failed or o["status"] != "ok" or "signin" in o
     texts: dict[str, str | None] = {}
     result: dict[str, str] = {}
 
@@ -291,7 +296,7 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Map
     if not write:
         gather()
         for slug in observed:
-            print(f"{slug}: {observed[slug]['status']}; would {result[slug]} settings/accounts/{slug}.json" if not result[slug].startswith("refused")
+            print(f"{slug}: {status_text(observed[slug])}; would {result[slug]} settings/accounts/{slug}.json" if not result[slug].startswith("refused")
                   else f"{slug}: {result[slug]}")
             print(json.dumps({KEY: observed[slug]}, indent=2, ensure_ascii=False))
         return 1 if failed else 0
@@ -310,7 +315,7 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Map
         say(f"fabric-accounts: the store refused or failed (a commit may be made but not pushed): {str(scrub(str(e), secrets))[:200]}")
         return 1
     for slug in observed:
-        print(f"{slug}: {observed[slug]['status']}; {result[slug]}{'' if result[slug].startswith('refused') else 'd'}")
+        print(f"{slug}: {status_text(observed[slug])}; {result[slug]}{'' if result[slug].startswith('refused') else 'd'}")
     print(f"settings: {'committed ' + str(r.get('commit')) if r.get('changed') else 'unchanged'}")
     return 1 if failed else 0
 
