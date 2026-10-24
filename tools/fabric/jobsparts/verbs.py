@@ -55,7 +55,8 @@ def add(args) -> int:
             if (mid := request_id_of(args.title)) and (listed := listed_request(doc, mid)):
                 return listed, False
             return new_job(doc, args.title, topic=args.topic, project=args.project,
-                           working_copy=args.working_copy, source=source, priority=args.priority), True
+                           working_copy=args.working_copy, source=source, priority=args.priority,
+                           project_from="--project" if args.project else None), True
 
         job, added = mutate(add_titled)
         print(f"{'added' if added else 'already listed'} {line(job)}")
@@ -63,7 +64,7 @@ def add(args) -> int:
             return 0
         if not job.get("working_copy"):
             print(f"  no working copy of {job.get('project') or 'its project'} found beside this one: "
-                  f"fabric-fresh would start it in the wrong directory; re-add it with --working-copy to fix",
+                  f"fabric-fresh would start it in the wrong directory; name one with fabric-jobs project {job['id']} {job.get('project') or '<project>'} --working-copy DIR",
                   file=sys.stderr)
     return 0
 

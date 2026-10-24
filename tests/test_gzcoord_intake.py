@@ -74,7 +74,12 @@ class FakeJobs:
     def deliver_branch(self, msg: dict) -> Any:
         return _real_jobs().deliver_branch(msg)
 
-    def new_job(self, doc: dict, title: str, *, project: Any = None, source: Any = None, deliver_to: Any = None) -> dict:
+    def request_project(self, meta: dict, project: Any) -> Any:
+        """jobs.py's answer where the registry maps no REPOSITORY: the PROJECT header."""
+        return meta.get("PROJECT"), ("PROJECT" if meta.get("PROJECT") else None)
+
+    def new_job(self, doc: dict, title: str, *, project: Any = None, source: Any = None, deliver_to: Any = None,
+                project_from: Any = None) -> dict:
         job = {"id": f"j{len(doc['jobs']) + 1}", "title": title, "project": project, "source": source}
         if deliver_to:
             job["deliver_to"] = deliver_to
@@ -402,6 +407,29 @@ def _():
             os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
         else:
             os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+
+
+@case("a REQUEST whose REPOSITORY the registry maps is queued under that project, not the PROJECT header, and says so (j372, review F2)")
+def _():
+    saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_OPERATOR")}
+    try:
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as operator:
+            os.makedirs(os.path.join(operator, "projects"))
+            with open(os.path.join(operator, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+                json.dump({"version": 1, "projects": {"repo-project": {"remotes": ["git@example.org:some-org/some-repo.git"]}}}, fh)
+            os.environ["AGENT_FABRIC_STATE_DIR"], os.environ["AGENT_FABRIC_OPERATOR"] = state, operator
+            err = io.StringIO()
+            lines = intake.queue_received([delivery(PROJECT="sender-dir", REPOSITORY="some-org/some-repo")], {"address": ME}, err=err)
+            check(len(lines) == 1 and err.getvalue() == "", (lines, err.getvalue()))
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(doc["jobs"][0]["project"] == "repo-project" and doc["jobs"][0]["project_from"].startswith("REPOSITORY some-org/some-repo"),
+                  doc["jobs"])
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 @case("the intake asks the jobs module it was given whether the request is listed, never another copy of jobs.py (blind review F2)")

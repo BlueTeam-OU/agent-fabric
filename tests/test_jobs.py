@@ -431,6 +431,7 @@ def main() -> int:
             {"seq": 15, "id": "r15", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "1", "repo wins", "another", "fixture-org/fixture-proj")},
             {"seq": 16, "id": "r16", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "2", "repo without a checkout", "another", "Fixture-Org/fixture-nowhere")},
             {"seq": 17, "id": "r17", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "3", "repo unregistered", "another", "elsewhere-org/unregistered")},
+            {"seq": 18, "id": "r18", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "4", "repo for the refusals", "another", "fixture-org/fixture-proj")},
         ])
         env.update({"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}",
                     "GZCOORD_CHANNEL": "fixture:chan"})
@@ -511,6 +512,31 @@ def main() -> int:
                 [j for j in doc["jobs"] if j["id"] == moved][0].pop(field)
                 with open(lst, "w", encoding="utf-8") as fh:
                     json.dump(doc, fh)
+            # The refusals F1/F4 of the review: each fails when its guard is removed.
+            p = run("drop", moved, "a test")
+            p = run("project", moved, "another")
+            check("project refuses a closed job", p.returncode == 1 and "is dropped" in p.stderr
+                  and [j for j in jobs() if j["id"] == moved][0]["project"] == "fixture-proj", p.stderr)
+            listed = len(jobs())
+            for label, operator in (("two projects register the repository", {"one": ["git@example.org:fixture-org/fixture-proj.git"],
+                                                                              "two": ["https://example.org/fixture-org/fixture-proj"]}),
+                                    ("the operator tree has no registry", None),
+                                    ("the registry is not JSON", "garbage")):
+                other = dict(env)
+                if operator is None:
+                    other["AGENT_FABRIC_OPERATOR"] = os.path.join(tmp, "operator-none")
+                elif operator == "garbage":
+                    other["AGENT_FABRIC_OPERATOR"] = os.path.join(tmp, "operator-bad")
+                    os.makedirs(os.path.join(other["AGENT_FABRIC_OPERATOR"], "projects"), exist_ok=True)
+                    with open(os.path.join(other["AGENT_FABRIC_OPERATOR"], "projects", "registry.json"), "w", encoding="utf-8") as fh:
+                        fh.write("{")
+                else:
+                    other["AGENT_FABRIC_OPERATOR"] = write_operator_projects(os.path.join(tmp, "operator-dup"), operator)
+                p = subprocess.run([JOBS, "add", "--request", "18"], cwd=repo_a, env=other, capture_output=True, text=True)
+                check(f"REPOSITORY is refused, not read as PROJECT, when {label}", p.returncode == 1 and "REPOSITORY" in p.stderr
+                      and len(jobs()) == listed, p.stdout + p.stderr)
+            p = run("add", "a titled job", "--project", "fixture-proj")
+            check("a job added with --project records it as the source of its project", jobs()[-1].get("project_from") == "--project", repr(jobs()[-1]))
             p = run("project", "j99", "another")
             check("project names an unknown job", p.returncode == 1 and "no job j99" in p.stderr, p.stderr)
             # inbox exits 2 for a control channel too; only its own

@@ -274,6 +274,9 @@ def registered_projects_of(repository: str) -> list[str]:
     roots = _load("fabric_roots", os.path.join(FABRIC_ROOT, "tools", "fabric", "roots.py"))
     path = roots.projects_registry(engine=FABRIC_ROOT)
     try:
+        # load_registry reads an absent file as an empty registry, which would make every REPOSITORY "unregistered".
+        if not os.path.exists(path):
+            raise FileNotFoundError(path)
         projects = wc.load_registry(path).get("projects") or {}
         wanted = repository.strip().strip("/").casefold()
         return [name for name, entry in projects.items()

@@ -101,7 +101,8 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
             # PeerId maps to (ADR-064 rule 9), never to the FROM it claims.
             sender = rec.get("sender") if c.get("iw") else (meta.get("FROM") or rec.get("sender"))
             source = {"kind": "request", "message_id": mid, "from": sender, "seq": rec.get("seq")}
-            project = meta.get("PROJECT")
+            # The project the work is in, as `add --request` reads it: REPOSITORY over the sender's directory (j372).
+            project, project_from = jobs.request_project(meta, None)
             if project is not None and not PROJECT_SLUG.fullmatch(str(project)):
                 raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")
             title = title_for(meta.get("SUBJECT") or f"message {mid}", mid)
@@ -109,7 +110,7 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
             deliver_to = jobs.deliver_branch(msg)
 
             def add(doc: dict, source: dict = source, project: Any = project, title: str = title, mid: str = mid,
-                    deliver_to: Any = deliver_to) -> Any:
+                    deliver_to: Any = deliver_to, project_from: Any = project_from) -> Any:
                 held = jobs.listed_request(doc, mid)
                 if held:
                     # The sender's title-only add may have come first and carries no DELIVER-TO: the branch is filled in, never replaced.
@@ -117,7 +118,7 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
                     if deliver_to and not held.get("deliver_to") and not held.get("branch") and held.get("state") == "queued":
                         held["deliver_to"] = deliver_to
                     return None
-                return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to)
+                return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to, project_from=project_from)
 
             job = jobs.mutate(add)
         except BaseException as e:  # noqa: BLE001 — any failure is a line; the delivery stands (SystemExit: identity's refusals)

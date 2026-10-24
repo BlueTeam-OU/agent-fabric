@@ -55,7 +55,7 @@ The working copy is this login's of that project; when there is none the job is 
 by name until `project <id> <project> --working-copy DIR` names one (`switch` refuses a job with no working copy as before).
 `project` re-points a job whose headers were both wrong; it is refused while the job has a branch or a worktree (the one-job guard
 and the sweep key on them) or is closed, and the old and new project are logged on the job. `show` prints "project from": the
---project, REPOSITORY, PROJECT or re-pointing that decided it (a job added before it was recorded shows none).
+--project, REPOSITORY, PROJECT or re-pointing that decided it (a job added before it was recorded, or in a working copy with no --project, shows none).
 
 `sweep` looks again at every delivered job of this list (`switch` looked once, when the agent left it) and moves to done the ones
 whose evidence has landed, by the test `switch` applies to a done job: a pull request merged, a commit or a branch tip (a branch
@@ -202,7 +202,7 @@ _spec.loader.exec_module(sys.modules["fabric_jobs"])
 from fabric_jobs.base import HERE, FABRIC_ROOT, _JobKeys, Job, _load, identity, STATES, OPEN, TERMINAL, MESSAGE_ID, POOL_ID, PRIORITIES, DEFAULT_PRIORITY, Refused, NothingQueued, Stale, mutate  # noqa: E402, F401
 from fabric_jobs import blockers  # noqa: E402, F401
 from fabric_jobs.ranking import stored_priority, message_of, waiters, effective_priority, queue_order, named  # noqa: E402, F401
-from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job, listed_request, deliver_branch, request_id_of  # noqa: E402, F401
+from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job, request_project, listed_request, deliver_branch, request_id_of  # noqa: E402, F401
 from fabric_jobs.queue import QUEUE, QUEUE_TIMEOUT_S, Unreachable, ask_queue, stream_waits  # noqa: E402, F401
 from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, claimed_job, pool_job, printable, pool_line  # noqa: E402, F401
 from fabric_jobs.render import line, show, summary  # noqa: E402, F401
