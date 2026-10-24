@@ -113,6 +113,8 @@ def windows_from_headers(get: Callable[[str], Any]) -> dict:
         if not finite(u) and not finite(r):
             return None
         out: dict[str, Any] = {"utilization": percent(u), "resets_at": instant(r)}
+        if out["utilization"] is None and out["resets_at"] is None:
+            return None   # a header that normalised to nothing (a negative fraction, a year past 9999) is no reading
         if isinstance(status, str) and re.fullmatch(r"[a-z_]{1,32}", status):
             out["status"] = status
         return out

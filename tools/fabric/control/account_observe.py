@@ -360,8 +360,10 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Map
                     fh.write(render(slug))
             r = put(tree, expect_head=head) if any(not v.startswith("refused") for v in result.values()) else {"changed": False}
     except Exception as e:  # noqa: BLE001 — a store refusal is one line, never a traceback
-        # The commit may already exist locally when the push is what failed; the next settings-put pushes it.
-        say(f"fabric-accounts: the store refused or failed (a commit may be made but not pushed): {str(scrub(str(e), secrets))[:200]}")
+        # When the push is what failed, the commit already exists locally and the next settings-put pushes it.
+        text = str(scrub(str(e), secrets))[:200]
+        # The store's own refusals say whether a commit stands; one that says "nothing written" needs no hedge.
+        say(f"fabric-accounts: the store refused or failed: {text}" + ("" if "nothing written" in text else " (a commit may be made but not pushed)"))
         return 1
     for slug in observed:
         print(f"{slug}: {status_text(observed[slug])}; {result[slug]}{'' if result[slug].startswith('refused') else 'd'}")

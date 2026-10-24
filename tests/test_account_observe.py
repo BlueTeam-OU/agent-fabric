@@ -156,6 +156,12 @@ class Probe(unittest.TestCase):
         with self.assertRaises(ValueError):
             O.new_file("a", {"u": float("nan")})
 
+    def test_a_reply_whose_only_headers_normalise_to_nothing_is_read_failed(self):
+        only = {"anthropic-ratelimit-unified-5h-utilization": "-1", "anthropic-ratelimit-unified-5h-reset": None,
+                "anthropic-ratelimit-unified-7d-utilization": None, "anthropic-ratelimit-unified-7d-reset": "1e15",
+                "anthropic-ratelimit-unified-5h-status": None, "anthropic-ratelimit-unified-7d-status": None}
+        self.assertEqual(U.probe_account(TOKEN_A, self.reply(401, **only)), {"status": "read-failed", "http": 401})
+
     def test_a_reset_past_year_9999_is_none_and_the_other_fields_survive(self):
         r = U.probe_account(TOKEN_A, self.reply(**{"anthropic-ratelimit-unified-7d-reset": "1e15"}))
         self.assertEqual(r["status"], "ok")
@@ -318,6 +324,7 @@ class Main(Base):
         code, _, err = self.go(["--write"], probe=probe_then_move)
         self.assertEqual((code, self.puts), (1, []))
         self.assertIn("the store moved while the accounts were being read", err)
+        self.assertNotIn("a commit may be made", err, "…and one that says nothing was written does not")
 
     def test_a_fragment_of_a_token_in_a_header_value_is_dropped_not_recorded(self):
         def echo(tok):
@@ -352,6 +359,15 @@ class Main(Base):
         b = json.loads(self.puts[0]["accounts/claude-b.json"])["observed"]
         self.assertNotIn("billing_type", b)
         self.assertEqual(seen, ["claude-a"])
+
+    def test_a_fifo_for_the_sign_in_profile_does_not_hang_the_read(self):
+        self.sign_in(self.home, "claude-a")
+        f = os.path.join(U.accounts_dir(self.home, {}), "claude-a", ".claude.json")
+        os.unlink(f)
+        os.mkfifo(f)
+        self.go(["--write"], read_signin=lambda d, home=None: {"status": "ok", "limits": []})
+        o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
+        self.assertIsNone(o["billing_type"])
 
     def test_a_failed_probe_carries_no_sign_in_figures_even_when_the_sign_in_reads(self):
         self.sign_in(self.home, "claude-a")
@@ -402,6 +418,7 @@ class Main(Base):
                           say=lambda m: print(m, file=sys.stderr))
         self.assertEqual(code, 1)
         self.assertIn("the store refused or failed", err.getvalue())
+        self.assertIn("(a commit may be made but not pushed)", err.getvalue(), "a refusal that does not say nothing was written carries the hedge")
         self.assertNotIn(TOKEN_A, out.getvalue() + err.getvalue())
 
     def test_usage_and_empty_store(self):
