@@ -112,14 +112,15 @@ history can tell you.
 the session owns every commit, fetch and post.
 
 **Checks run one argv at a time through `review_check`**, in the head
-worktree, in a read-only sandbox with a fresh `/tmp` and no network: `dotnet
-build` / `dotnet test` with `--no-restore`, `pnpm --filter <app>
-test|typecheck|lint`, `flutter analyze` / `flutter test`, `node
-tools/validate_*/validate.js`, `bash tools/checks/*.sh`, as far as what is
-already restored allows. A check that must write the tree, restore or reach
-the network (`pub get`, `pnpm install`, `dotnet restore`) fails there:
-report it as not run, and say what the dispatcher must run. A sandbox that
-cannot be proved runs nothing; say so in the report and go on reading.
+worktree, in a read-only sandbox with a fresh `/tmp` and no network.
+The system's interpreters run there (`python3 tests/test_<x>.py`,
+`bash tools/checks/*.sh`, `node tools/validate_*/validate.js`); the
+home's toolchains and caches are not mounted and the worktree has no
+restored dependencies, so a project's own build or test (`pnpm`,
+`flutter`, anything needing `pub get` or a restore; even `dotnet test
+--no-restore`, whose packages are not there) does not run: report it as not run, and say what the dispatcher must run. A
+sandbox that cannot be proved runs nothing; say so in the report and go
+on reading.
 
 ## What has shipped here
 
