@@ -26,7 +26,7 @@ around a program no linter reads. No shared Python layer for `gh` or
 ## 2. Decision
 
 Fabric tooling is written in **Python, standard library only**, and
-runs on one pinned interpreter: `runtime/python.json` names it (3.13
+runs on one pinned interpreter: `runtime/python.json` names it (3.14
 today, a relocatable python-build-standalone build pinned by sha256),
 installed once per host as `/usr/local/bin/fabric-python`; the code
 stays valid on 3.13 and newer, the interpreters CI's matrix runs
@@ -430,3 +430,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-19 | Wave 9 batch 5: the three Claude Code guards run on the pin | §5 rule 4: `model-switch-guard.sh` leaves the host-`python3` list; it, `pipe-status-guard.sh` and `subagent-clone-guard.sh` are fail-closed forwarders to modules on the pin |
 | 2026-10-19 | Wave 9 batches 4, 6 and 9: the git hooks, the fallback note and the host check run on the pin | §5 rule 4: of the git hooks only `pre-push` keeps the host's `python3`; `pre-commit`, `commit-msg`, `post-commit`, `model-fallback-note.sh` and gzapp's `host-check.sh` are forwarders to modules on the pin |
 | 2026-10-24 | fabric-ctl's bash completion joins the closed list | §5 rule 1 (the closed list) |
+| 2026-10-24 | the pin moves to 3.14; no third-party wheel | §2 (the pinned version) |
