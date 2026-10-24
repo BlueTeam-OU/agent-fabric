@@ -354,26 +354,23 @@ def main() -> int:
             check("a retired HELLO over the carrier is not journaled, logged or listed, yet receipted",
                   len(b.journal_rows) == nrows and not any(x["mid"] == "M-HELLO" for x in b.arrivals())
                   and "M-HELLO" not in {r["message_id"] for r in b.spool.unseen()} and receipts_for(b, "M-HELLO") == 1)
-            a.daemon.send_answers = ["UnauthorizedPeer"]
-            a.carrier.handle_request({"op": "send", "message_id": "M-ST", "text": msg("M-ST", "h/alpha", to="h/beta")})
-            until(lambda: a.box.deliveries[("M-ST", "beta")].blocked)
-            until(lambda: "beta" in a.carrier.status()["recipients"])
-            st = a.carrier.status()["recipients"].get("beta", {"outstanding": 0, "blocked": {}})
-            check("status gives per recipient: outstanding, blocked by code, awaiting receipt and the oldest queued",
-                  st["outstanding"] >= 1 and st["blocked"].get("UnauthorizedPeer") == 1 and "oldest" in st
-                  and "awaiting_receipt" in st, str(st))
-            d_old, d_new = a.box.deliveries[("M-ST", "beta")], None
+            # status counts, on deliveries made here so that no retry or receipt can change them
             from gzcoord.carrier import record as _rec
-            _fake = [_rec.Delivery("S1", "zeta", [], "t", "2026-10-24T10:00:00Z"), _rec.Delivery("S2", "zeta", [], "t", "2026-10-24T09:00:00Z")]
-            _fake[0].posted = True
+            _fake = [_rec.Delivery("S1", "zeta", [], "t", "2026-10-24T10:00:00Z"),
+                     _rec.Delivery("S2", "zeta", [], "t", "2026-10-24T09:00:00Z"),
+                     _rec.Delivery("S3", "zeta", [], "t", "2026-10-24T11:00:00Z"),
+                     _rec.Delivery("S4", "eta", [], "t", "2026-10-24T08:00:00Z")]
+            _fake[0].posted = _fake[1].posted = True
+            _fake[2].blocked = "UnauthorizedPeer"
             real_out = a.box.outstanding
             a.box.outstanding = lambda: _fake
-            sz = a.carrier.status()["recipients"]["zeta"]
+            st = a.carrier.status()["recipients"]
             a.box.outstanding = real_out
-            check("status counts what it names: one of two awaits its receipt, and oldest is the earliest queued",
-                  sz["awaiting_receipt"] == 1 and sz["oldest"] == "2026-10-24T09:00:00Z" and sz["outstanding"] == 2, str(sz))
-            del d_old, d_new
-            a.carrier.abandon("M-ST", "beta", "test")
+            check("status counts per recipient: outstanding 3, two awaiting a receipt, one blocked by its code, the earliest queued",
+                  st["zeta"] == {"outstanding": 3, "blocked": {"UnauthorizedPeer": 1}, "awaiting_receipt": 2,
+                                 "oldest": "2026-10-24T09:00:00Z"}, str(st))
+            check("... and another recipient's counts are its own", st["eta"]["outstanding"] == 1 and st["eta"]["awaiting_receipt"] == 0
+                  and st["eta"]["oldest"] == "2026-10-24T08:00:00Z")
 
             # -- an address that is not on the roster ------------------------
             res = a.carrier.handle_request({"op": "send", "message_id": "M-10", "text": msg("M-10", "h/alpha", to="elsewhere/delta")})
