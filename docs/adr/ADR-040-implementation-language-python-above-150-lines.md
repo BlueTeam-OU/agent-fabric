@@ -329,18 +329,18 @@ test running unchanged against it as the oracle (rule 5), then the
 bash test replaced by a Python one case for case, and the allowlist
 entries removed.
 
-| batch | what | files | lines | lane |
-|---|---|---|---|---|
-| 1 | `fabric-pr`, `fabric-locale`, `fabric-secrets` dispatch; the secrets-sync fixture | 4 | 101 | python-dev |
-| 2 | `fabric-role`, `fabric-review` dispatch | 2 | 85 | fabric-coordinator |
-| 3 | `policies/` checks and their tests | 3 | 274 | fabric-coordinator |
-| 4 | git hooks and their helpers | 5 | 341 | fabric-coordinator |
-| 5 | Claude Code guards and their tests | 6 | 415 | fabric-coordinator |
-| 6 | Claude Code session hooks and their tests | 5 | 392 | fabric-coordinator |
-| 7 | status line and tab title | 3 | 311 | fabric-coordinator |
-| 8 | installer tests under `runtime/claude-code/` | 2 | 293 | fabric-coordinator |
-| 9 | language detector installer; gzapp host check | 3 | 89 | fabric-coordinator |
-| 10 | suite runners and leak check, last | 4 | 279 | fabric-coordinator |
+| batch | what | files | lines | lane | landed |
+|---|---|---|---|---|---|
+| 1 | `fabric-pr`, `fabric-locale`, `fabric-secrets` dispatch; the secrets-sync fixture | 4 | 101 | python-dev | #200 |
+| 2 | `fabric-role`, `fabric-review` dispatch | 2 | 85 | fabric-coordinator | #323 |
+| 3 | `policies/` checks and their tests | 3 | 274 | fabric-coordinator | #323 |
+| 4 | git hooks and their helpers | 5 | 341 | fabric-coordinator | #329; `pre-push` stays on the host's `python3` (rule 4) |
+| 5 | Claude Code guards and their tests | 6 | 415 | fabric-coordinator | #329 |
+| 6 | Claude Code session hooks and their tests | 5 | 392 | fabric-coordinator | #329 the fallback note, #318 `plan-hold.sh`; `session-start.sh` not yet |
+| 7 | status line and tab title | 3 | 311 | fabric-coordinator | #318 |
+| 8 | installer tests under `runtime/claude-code/` | 2 | 293 | fabric-coordinator | #316 |
+| 9 | language detector installer; gzapp host check | 3 | 89 | fabric-coordinator | #314 the installer, #329 the host check |
+| 10 | suite runners and leak check, last | 4 | 279 | fabric-coordinator | #265 the runners, #267 and #327 the leak check |
 
 The lane is who may commit the batch: python-dev's contributor entry
 (`policies/authority.json`), or the coordinator, because the batch's
@@ -348,6 +348,10 @@ paths are on `CONTRIBUTOR_NEVER` in `tools/fabric/lint.py` or no entry
 names them. Batches 1 to 9 are independent of each other; batch 10 is
 last because the suite runner lists the bash suites the others retire.
 Until then the order within the wave is the coordinator's.
+
+*Landed* is the pull request that made each file a forwarder, a sourced
+shim or gone; the tree, not this column, is what a file is now
+(`docs/wave-9/inventory.md`).
 
 Lint changes in a pull request of its own, before batch 1 (it is
 `tools/fabric/lint.py` and so the coordinator's): the allowlist
@@ -382,9 +386,14 @@ the upstream FleetDeck tracks (`herdrdev/herdr`) and stay as they are.
 
 Accepted and in force. Waves 0 to 8 are done: the bash allowlist is
 empty, and no fabric command runs Node (the control plane, the locale
-search server and the GZCoord tools are Python). Wave 9,
-the rest of the bash, is in progress in ten batches; Wave 10, the
-managed projects' Node scripts, is dispatched (A 2026-10-19).
+search server and the GZCoord tools are Python). Wave 9, the rest of
+the bash, has landed in all ten batches (§7's table) but for two files
+and the lint change: `session-start.sh` still does its `CLAUDE_ENV_FILE`
+export in bash and runs the host's `python3`; `pre-push` is a forwarder
+to the host's `python3`, and moving it to the pin is its own decision
+(rule 4); and lint still enforces the interim 160-line rule, not rule
+2's two sections and forwarder shape. Wave 10, the managed projects'
+Node scripts, is dispatched (A 2026-10-19).
 
 ## References
 
