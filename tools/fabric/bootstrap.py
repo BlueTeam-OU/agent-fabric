@@ -708,32 +708,39 @@ class Bootstrap:
     def link_completion(self) -> None:
         # fabric-ctl's tab completion (owner, 2026-10-22): a link, not a copy, so
         # a pulled checkout's new verbs complete without another bootstrap.
-        # What is lost at the default depends on the first: refused there, the
-        # completion this shell loads still exists, so the warning says where.
-        dirs = self.completion_dirs()
-        for d in dirs:
-            lost = ("fabric-ctl has no tab completion" if d == dirs[0]
-                    else f"fabric-ctl's completion is linked at {os.path.join(dirs[0], 'fabric-ctl')} only")
-            self.link(os.path.join(d, "fabric-ctl"), "tools/fabric/control/completion.bash", [], lost)
+        # What is lost at a later place depends on what the first one came to:
+        # the completion this shell loads may exist, be planned, or be missing.
+        first = None
+        for d in self.completion_dirs():
+            at = os.path.join(d, "fabric-ctl")
+            if first is None or first[1] in ("refused", "failed"):
+                lost = "fabric-ctl has no tab completion"
+            elif first[1] == "would-link":
+                lost = f"fabric-ctl's completion would be linked at {first[0]} only"
+            else:
+                lost = f"fabric-ctl's completion is linked at {first[0]} only"
+            outcome = self.link(at, "tools/fabric/control/completion.bash", [], lost)
+            first = first or (at, outcome)
 
-    def link(self, link: str, rel: str, earlier: list[str], lost: str) -> None:
+    def link(self, link: str, rel: str, earlier: list[str], lost: str) -> str:
         """Point link at the checkout's rel. A link this fabric made — to this
         checkout, another one's same path, or an earlier rel — is refreshed;
-        anything else there is the account's, refused and said with what is lost."""
+        anything else there is the account's, refused and said with what is lost.
+        Returns what came of it: same, linked, would-link, refused or failed."""
         target = self.src(rel)
         current = os.readlink(link) if os.path.islink(link) else None
         if current == target:
             say(f"  =  {link}")
             self.same += 1
-            return
+            return "same"
         ours = current is not None and any(current.endswith("/" + r) for r in [rel, *earlier])
         if os.path.lexists(link) and not ours:
             warn(f"  !  {link} is not a link this fabric made — left alone; {lost}")
             self.failed += 1
-            return
+            return "refused"
         if self.dry_run:
             say(f"  +  {link} -> {target} (would link)")
-            return
+            return "would-link"
         try:
             d = os.path.dirname(link)
             os.makedirs(d, exist_ok=True)
@@ -745,9 +752,10 @@ class Bootstrap:
         except OSError:
             warn(f"  !  {link}: could not link")
             self.failed += 1
-            return
+            return "failed"
         say(f"  +  {link} -> {target}")
         self.changed += 1
+        return "linked"
 
     def user_settings(self) -> None:
         # Linked BEFORE the settings are written: an allow rule is granted only for

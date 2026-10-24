@@ -973,6 +973,25 @@ def completion_dir() -> None:
           r.rc == 0 and os.path.islink(seen) and read(mine) == "complete -W mine fabric-ctl\n"
           and r.err.splitlines() == [f"  !  {mine} is not a link this fabric made — left alone; "
                                      f"fabric-ctl's completion is linked at {seen} only"], r)
+    e = Account("compminedry", wcs=False)
+    mine = default.format(e.home)
+    put(mine, "complete -W mine fabric-ctl\n")
+    seen = f"{e.root}/bc/completions/fabric-ctl"
+    r = bootstrap(e, "--dry-run", env=e.env(BASH_COMPLETION_USER_DIR=f"{e.root}/bc"))
+    check("…in a dry run the warning says the first would be linked, and nothing is made",
+          r.rc == 0 and not os.path.lexists(seen)
+          and r.err.splitlines() == [f"  !  {mine} is not a link this fabric made — left alone; "
+                                     f"fabric-ctl's completion would be linked at {seen} only"], r)
+    f = Account("compmineboth", wcs=False)
+    mine = default.format(f.home)
+    seen = f"{f.root}/bc/completions/fabric-ctl"
+    put(mine, "complete -W mine fabric-ctl\n")
+    put(seen, "complete -W mine fabric-ctl\n")
+    r = bootstrap(f, env=f.env(BASH_COMPLETION_USER_DIR=f"{f.root}/bc"))
+    check("…a person's own file at both places: both left alone, neither warning claims a link",
+          r.rc == 0 and r.err.splitlines() == [
+              f"  !  {seen} is not a link this fabric made — left alone; fabric-ctl has no tab completion",
+              f"  !  {mine} is not a link this fabric made — left alone; fabric-ctl has no tab completion"], r)
 
 
 def user_manager() -> None:
