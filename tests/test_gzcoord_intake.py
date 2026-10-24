@@ -74,7 +74,7 @@ class FakeJobs:
     def deliver_branch(self, msg: dict) -> Any:
         return _real_jobs().deliver_branch(msg)
 
-    SENDER_ADD_LABEL = "--project, as the sending side's jobs-add gave it"
+    SENDER_ADD_LABEL = _real_jobs().SENDER_ADD_LABEL
 
     def request_project(self, meta: dict, project: Any) -> Any:
         """jobs.py's answer where the registry maps no REPOSITORY: the PROJECT header."""
@@ -388,7 +388,18 @@ def _():
             real.mutate(lambda doc: real.new_job(doc, f"a subject (REQUEST {MID})", source={"kind": "owner", "from": "host-a/boss"}))
             intake.queue_received([delivery(PROJECT=None, REPOSITORY="some-org/some-repo")], {"address": ME}, err=io.StringIO())
             doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
-            check(len(doc["jobs"]) == 1 and doc["jobs"][0]["project_from"].startswith("none: REPOSITORY some-org/some-repo"), doc["jobs"])
+            check(len(doc["jobs"]) == 1 and doc["jobs"][0]["project_from"].startswith("none: REPOSITORY some-org/some-repo")
+                  and "the adding checkout's" in doc["jobs"][0]["project_from"], doc["jobs"])
+            # The resolver's reason is not written onto a job whose project it did not choose.
+            real.mutate(lambda doc: doc["jobs"].clear())
+            real.mutate(lambda doc: real.new_job(doc, f"a subject (REQUEST {MID})", project="elsewhere", source={"kind": "owner", "from": "host-a/boss"}))
+            real_rp, real.request_project = real.request_project, lambda meta, project: ("other-project", "REPOSITORY some-org/some-repo")
+            try:
+                intake.queue_received([delivery(PROJECT=None, REPOSITORY="some-org/some-repo")], {"address": ME}, err=io.StringIO())
+            finally:
+                real.request_project = real_rp
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(len(doc["jobs"]) == 1 and not doc["jobs"][0].get("project_from"), doc["jobs"])
     finally:
         for k, v in saved.items():
             if v is None:

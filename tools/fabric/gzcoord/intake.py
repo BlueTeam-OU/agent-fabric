@@ -122,7 +122,8 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
                     # only fills in a label the sender's add wrote itself.
                     if project_from and held.get("state") == "queued" and (
                             (held.get("project") == project and held.get("project_from") == jobs.SENDER_ADD_LABEL)
-                            or (not held.get("project_from") and (held.get("source") or {}).get("kind") == "owner")):
+                            or (not held.get("project_from") and (held.get("source") or {}).get("kind") == "owner"
+                                and (project is None or held.get("project") == project))):
                         held["project_from"] = project_from
                     return None
                 return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to, project_from=project_from)
