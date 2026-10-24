@@ -855,13 +855,13 @@ class ArmRun(unittest.TestCase):
                         self.ran)
 
     def test_a_checkout_path_that_names_a_reader_does_not_change_which_reader_the_stub_answers(self):
-        # j88: 70 cases failed from a worktree whose path held "fabric-ctl" (and the path was 87 bytes, which
-        # read as a length bound: it is not, a 700-byte path passes). A path is a long string that may hold any program's name.
+        # A worktree named for its job once made every reader the presence one: the path holds every reader's name on
+        # purpose, and the stub must answer by program and verb (see its comment), whatever the path's length.
         long_named = "/w/" + "/".join(["fabric-ctl-" + "x" * 60, "gzcoord-inbox", "fabric-whoami"]) + "/agent-fabric"
         with mock.patch.object(arm, "FABRIC", long_named):
             rc, out = self.run_arm(arm_policy.default(), 9)
         self.assertEqual(rc, 0, out)
-        self.assertEqual([r[0] for r in self.reads].count("review"), 0)
+        self.assertEqual(self.reads, [], self.reads)     # no presence, fleet, replay or whoami reader answered
         self.assertTrue([c for c in self.ran if c[:2] == ["pr", "merge"]], self.ran)
 
     def test_the_minimum_is_the_policys(self):
