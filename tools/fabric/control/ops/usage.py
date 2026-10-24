@@ -104,20 +104,55 @@ def windows_from_headers(get: Callable[[str], Any]) -> dict:
     return {"five_hour": win("5h"), "seven_day": win("7d")}
 
 
-def _from_inference(tok: str, fetch: Fetch, url: str) -> dict:
+def _probe_post(tok: str, fetch: Fetch, url: str) -> Response | None:
+    """The one-token inference call; None when there is no answer. The
+    exception is dropped, not kept: http.client's message for a refused
+    header quotes the token."""
     try:
-        r = fetch(url, method="POST", timeout=HTTP_TIMEOUT_S,
-                  headers={"Authorization": f"Bearer {tok}", "anthropic-beta": "oauth-2025-04-20",
-                           "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                  body=json.dumps({"model": PROBE_MODEL, "max_tokens": 1,
-                                   "messages": [{"role": "user", "content": "."}]}, separators=(",", ":")).encode())
+        return fetch(url, method="POST", timeout=HTTP_TIMEOUT_S,
+                     headers={"Authorization": f"Bearer {tok}", "anthropic-beta": "oauth-2025-04-20",
+                              "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                     body=json.dumps({"model": PROBE_MODEL, "max_tokens": 1,
+                                      "messages": [{"role": "user", "content": "."}]}, separators=(",", ":")).encode())
     except (OSError, ValueError, http.client.HTTPException):
+        return None
+
+
+def _from_inference(tok: str, fetch: Fetch, url: str) -> dict:
+    r = _probe_post(tok, fetch, url)
+    if r is None:
         return {"status": "read-failed", "via": "setup-token"}
     # A full window answers 429 and still names its windows: that is a reading.
     w = windows_from_headers(lambda k: r.headers.get(k))
     if not w["five_hour"] and not w["seven_day"]:
         return {"status": "read-failed", "via": "setup-token", "http": r.status}
     return {"status": "ok", "via": "setup-token", **w, "subscription": None}
+
+
+_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_WORD = re.compile(r"[a-z_]{1,64}")
+
+
+def probe_account(tok: str, fetch: Fetch = http_fetch, url: str = MESSAGES_URL) -> dict:
+    """What one inference reply says of its account beyond the windows: the
+    organization and workspace ids and the overage state
+    (docs/live-checks/2026-10-24-account-metadata-from-api.md). A header
+    that is absent or not the shape of its field is None: unknown, never a
+    default. {"status": "read-failed"} when there is no reading at all."""
+    r = _probe_post(tok, fetch, url)
+    if r is None:
+        return {"status": "read-failed"}
+    w = windows_from_headers(lambda k: r.headers.get(k))
+    if not w["five_hour"] and not w["seven_day"]:
+        return {"status": "read-failed", "http": r.status}
+
+    def word(h: str, shape: re.Pattern[str]) -> str | None:
+        v = r.headers.get(h)
+        return v if isinstance(v, str) and shape.fullmatch(v) else None
+    return {"status": "ok", **w,
+            "organization_id": word("anthropic-organization-id", _ID), "workspace_id": word("anthropic-workspace-id", _ID),
+            "overage": {"status": word("anthropic-ratelimit-unified-overage-status", _WORD),
+                        "disabled_reason": word("anthropic-ratelimit-unified-overage-disabled-reason", _WORD)}}
 
 
 def usage(home: str | None = None, fetch: Fetch = http_fetch, url: str = USAGE_URL, messages_url: str = MESSAGES_URL) -> dict:
@@ -347,7 +382,11 @@ def read_account(directory: str, home: str | None = None, run: Callable[..., Any
     # with --no-session-persistence (an empty one, measured), so a fresh
     # temporary cwd per read would leave one more entry every 4 hours.
     cwd = os.path.join(directory, "work")
-    cmd = [bin, "-p", "/usage", "--output-format", "json", "--no-session-persistence"]
+    # --verbose: on 2.1.286 the json output is only the final result object, whose text is the report and which
+    # carries no usage_report; with it the output is again the event array
+    # (docs/live-checks/2026-10-24-account-metadata-from-api.md). The child's stdin is /dev/null (run_bounded's
+    # default): a harness with an open stdin waits 3 s for it.
+    cmd = [bin, "-p", "/usage", "--output-format", "json", "--verbose", "--no-session-persistence"]
     try:
         os.makedirs(cwd, mode=0o700, exist_ok=True)   # inside the try: a failure here must still release the lock
         env = {"HOME": home, "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"), "CLAUDE_CONFIG_DIR": directory,

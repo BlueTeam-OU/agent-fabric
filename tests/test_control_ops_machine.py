@@ -285,6 +285,25 @@ class Accounts(Base):
         self.assertEqual([lim["percent"] for lim in odd["limits"]], [None, None], "a percent that is not a number is unknown, not 11 and not 1")
         self.assertEqual(ops.parse_usage_report(json.dumps([{"type": "result", "is_error": False}]))["status"], "no-report", "a success without the report is said, not read as zero usage")
 
+    def test_parse_usage_report_the_result_only_shape_of_2_1_286_is_unreadable_never_ok(self):
+        result_only = json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "Current session: 11% used"})
+        self.assertEqual(ops.parse_usage_report(result_only), {"status": "unreadable"})
+        self.assertEqual(ops.parse_usage_report(USAGE_EVENTS)["status"], "ok", "positive control: the event array reads")
+
+    def test_read_account_with_the_result_only_shape_says_unreadable_and_the_event_array_reads(self):
+        h, d = account_home(self)
+        acct = os.path.join(d, "claude-example-org")
+        result_only = json.dumps({"type": "result", "is_error": False, "result": "Current session: 11% used"})
+        r = ops.read_account(acct, home=h, bin="/fake/claude", run=harness(out=result_only))
+        self.assertEqual(r["status"], "unreadable")
+        self.assertNotIn("limits", r)
+        self.assertEqual(ops.read_account(acct, home=h, bin="/fake/claude", run=harness())["status"], "ok")
+
+    def test_the_read_child_has_no_stdin_a_harness_waits_3_s_on_an_open_one(self):
+        # read_account passes no input: run_bounded then closes the child's stdin on /dev/null.
+        r = util.run_bounded(["sh", "-c", "cat; echo end"], timeout=10, max_bytes=1000)
+        self.assertEqual(r.stdout, b"end\n")
+
     def test_read_account_the_child_runs_in_the_accounts_own_config_directory_with_no_inherited_token(self):
         h, d = account_home(self)
         seen: list = []
@@ -297,7 +316,7 @@ class Accounts(Base):
         self.assertEqual(r["email"], "claude-example-org@example.org")
         self.assertEqual(r["organization_uuid"], "org-1234")
         self.assertEqual(r["read_at"], "2026-09-24T20:00:00.000Z")
-        self.assertEqual(seen[0][0], ["/fake/claude", "-p", "/usage", "--output-format", "json", "--no-session-persistence"])
+        self.assertEqual(seen[0][0], ["/fake/claude", "-p", "/usage", "--output-format", "json", "--verbose", "--no-session-persistence"])
         env = seen[0][1]["env"]
         self.assertEqual(env["CLAUDE_CONFIG_DIR"], acct)
         for k in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
