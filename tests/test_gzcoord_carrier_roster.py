@@ -197,6 +197,30 @@ def main() -> int:
             check("config.yaml is written atomically, owner-only, with nothing left beside it",
                   open(path).read().endswith("# again\n") and oct(os.stat(path).st_mode & 0o777) == "0o600"
                   and os.listdir(cfgdir) == ["config.yaml"] and oct(os.stat(cfgdir).st_mode & 0o777) == "0o700")
+            # a git that hangs, or cannot run, is a roster that does not verify: a RosterError
+            fake = os.path.join(d, "fakebin")
+            os.makedirs(fake)
+            with open(os.path.join(fake, "git"), "w") as fh:
+                fh.write("#!/bin/sh\nexec /usr/bin/sleep 20\n")
+            os.chmod(os.path.join(fake, "git"), 0o755)
+            saved = os.environ["PATH"]
+            os.environ["PATH"] = fake
+            try:
+                outcomes = []
+                for how in ("hangs", "missing"):
+                    if how == "missing":
+                        os.environ["PATH"] = os.path.join(d, "nowhere")
+                    try:
+                        R.GitMainKeys(d, timeout=0.3).lineage()
+                        outcomes.append("no error")
+                    except R.RosterError:
+                        outcomes.append("RosterError")
+                    except Exception as e:  # noqa: BLE001 — the case is what else could escape
+                        outcomes.append(type(e).__name__)
+            finally:
+                os.environ["PATH"] = saved
+            check("a git that hangs, or is not there, is a RosterError, not an exception that ends the carrier",
+                  outcomes == ["RosterError", "RosterError"], str(outcomes))
         finally:
             for ag in (root, a, b, c):
                 drop_key(ag.home)

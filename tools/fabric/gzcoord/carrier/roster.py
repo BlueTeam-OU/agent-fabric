@@ -69,13 +69,13 @@ class GitMainKeys:
     secretstore.trust: a checkout with no origin/main is an error, never a
     fallback to the working tree)."""
 
-    def __init__(self, root: str) -> None:
-        self.root = root
+    def __init__(self, root: str, timeout: float = 30.0) -> None:
+        self.root, self.timeout = root, timeout
 
     def _show(self, rel: str) -> bytes | None:
         def git(*a: str) -> subprocess.CompletedProcess:
             try:
-                return subprocess.run(["git", "-C", self.root, *a], capture_output=True, timeout=30, check=False)
+                return subprocess.run(["git", "-C", self.root, *a], capture_output=True, timeout=self.timeout, check=False)
             except (OSError, subprocess.TimeoutExpired) as e:
                 # A RosterError, so a stuck or missing git leaves the carrier carrying
                 # nothing (rule 2) and does not end it.

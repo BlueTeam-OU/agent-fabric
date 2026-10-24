@@ -112,6 +112,8 @@ class Node:
     def _roster(self):
         if not self.roster_ok[0]:
             raise roster.RosterError("does not verify")
+        if getattr(self, "roster_breaks", False):
+            raise OSError("git could not run")
         return roster.Roster("gzcoord", "gzcoord", (47100, 47199), tuple(self.rows)), self.rows
 
     def _journal(self, text: str, ts: str) -> str:
@@ -353,6 +355,12 @@ def main() -> int:
                   and "M-4" not in {r["mid"] for r in b.carrier.handle_request({"op": "unseen"})["records"]})
 
             # -- a roster that does not verify -------------------------------
+            a.roster_breaks = True
+            a.carrier.refresh_roster()
+            res = a.carrier.handle_request({"op": "send", "message_id": "M-12b", "text": msg("M-12b", "h/alpha", to="h/beta")})
+            check("whatever stops the roster verifying (a git that cannot run) leaves it carrying nothing, not ending the carrier",
+                  res["carried"] == 0)
+            a.roster_breaks = False
             a.roster_ok[0] = False
             a.carrier.refresh_roster()
             res = a.carrier.handle_request({"op": "send", "message_id": "M-13", "text": msg("M-13", "h/alpha", to="h/beta")})
