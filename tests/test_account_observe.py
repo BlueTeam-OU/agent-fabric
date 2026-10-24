@@ -162,6 +162,12 @@ class Probe(unittest.TestCase):
                 "anthropic-ratelimit-unified-5h-status": None, "anthropic-ratelimit-unified-7d-status": None}
         self.assertEqual(U.probe_account(TOKEN_A, self.reply(401, **only)), {"status": "read-failed", "http": 401})
 
+    def test_an_oversized_hex_header_is_no_reading_and_does_not_abort_the_rest(self):
+        r = U.probe_account(TOKEN_A, self.reply(**{"anthropic-ratelimit-unified-7d-utilization": "0x" + "f" * 300}))
+        self.assertEqual(r["status"], "ok")
+        self.assertIsNone(r["seven_day"]["utilization"] if r["seven_day"] else None)
+        self.assertEqual(r["five_hour"]["utilization"], 26)
+
     def test_a_reset_past_year_9999_is_none_and_the_other_fields_survive(self):
         r = U.probe_account(TOKEN_A, self.reply(**{"anthropic-ratelimit-unified-7d-reset": "1e15"}))
         self.assertEqual(r["status"], "ok")
@@ -331,6 +337,9 @@ class Main(Base):
             return {**probe_ok(tok), "organization_id": TOKEN_A[:24]}
         code, out, err = self.go([], probe=echo)
         self.assertNotIn(TOKEN_A[:12], out + err)
+        for piece in (TOKEN_A[-11:], TOKEN_A[3:14], TOKEN_A[10:18]):
+            _, out, _ = self.go([], probe=lambda tok, p=piece: {**probe_ok(tok), "organization_id": p})
+            self.assertNotIn(piece, out, "a whole value of 8 or more characters inside a token")
         self.assertIn("[token]", out)
         code, _, _ = self.go(["--write"], probe=echo)
         self.assertNotIn(TOKEN_A[:12], json.dumps(self.puts))

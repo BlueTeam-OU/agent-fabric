@@ -85,7 +85,12 @@ def windows_from_headers(get: Callable[[str], Any]) -> dict:
     def num(h: str) -> float:
         # Number(null) is 0: an absent header must stay absent, never a reading of 0%.
         v = get(h)
-        return js.number(v) if isinstance(v, str) and gzmsg.js_trim(v) != "" else float("nan")
+        if not (isinstance(v, str) and gzmsg.js_trim(v) != ""):
+            return float("nan")
+        try:
+            return js.number(v)
+        except OverflowError:
+            return float("nan")   # "0x" and 300 digits: Number() would say Infinity; either way, no reading
 
     def finite(x: float) -> bool:
         return x == x and x not in (float("inf"), float("-inf"))

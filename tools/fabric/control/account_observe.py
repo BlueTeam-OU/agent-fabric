@@ -263,6 +263,7 @@ def status_text(o: Mapping[str, Any]) -> str:
     return o["status"] + (f"; sign-in {o['signin']['status']}" if "signin" in o else "")
 
 
+PIECE = 8   # a whole value this long that sits inside a token is the token's
 FRAGMENT = 12   # a run of this many characters of a token is the token's, whatever the rest of the string is
 
 
@@ -276,8 +277,9 @@ def scrub(v: Any, secrets: Sequence[str]) -> Any:
         v = v.encode("utf-8", "replace").decode("utf-8")
         for s in secrets:
             v = v.replace(s, "[token]")
-        # Not only the whole token: a string a reply made out of part of one (an id, a cut-off error) is dropped whole.
-        return "[token]" if any(_holds_fragment(v, s) for s in secrets) else v
+        # Not only the whole token: a string a reply made out of part of one (an id, a cut-off error) is dropped whole,
+        # and so is a short value that is itself a piece of one (no field of ours is a run of a token's characters).
+        return "[token]" if any(_holds_fragment(v, s) or (len(v) >= PIECE and v in s) for s in secrets) else v
     if isinstance(v, dict):
         return {k: scrub(x, secrets) for k, x in v.items()}
     if isinstance(v, list):
