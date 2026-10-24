@@ -46,8 +46,9 @@ def plan_classes(run: Run) -> None:
     #   split      — the class is written in the `<class>/` directory shape
     #   flat_topic — whose sections the flat `<class>.md` holds this run:
     #                the drain's one topic when the flat file stays, else
-    #                the stem it is moved to (the one topic the crossref
-    #                names, or `<class>-carried-<stamp>` for several)
+    #                the stem it is moved to (the topic the file records;
+    #                for an older file the one topic the crossref names,
+    #                or `<class>-carried-<stamp>` for several)
     for role, topics in run.per_role.items():
         for klass in sorted({k for (k, _t) in topics}):
             base = layout.class_home(klass, role, run.project)
@@ -62,7 +63,9 @@ def plan_classes(run: Run) -> None:
             if os.path.exists(flat_file):
                 held = read_existing_slice(flat_file)[0].get("topic")
                 held = held if isinstance(held, str) and held else None
-            known = {held} if held else set(prior)
+            # Only a file that records its topic is known to hold that one: an older flat file may hold memories the
+            # crossref (referenced slices only) never named, and keeps its reading, split by more than one topic.
+            known = {held} if held else set()
             # A SECOND TOPIC MOVES THE CLASS INTO ITS DIRECTORY. The flat file has one INDEX row and one description,
             # so a topic written into it lost its cue (a drain's blind review, 2026-10-24).
             split = (os.path.isdir(os.path.join(base, CLASS_FILES[klass])) or len(here) > 1
@@ -207,9 +210,9 @@ def written_stem(run: Run, role: str | None, klass: str, topic: str) -> str:
 
 
 def resolve_targets(run: Run, role: str | None, label: str,
-                    buckets: dict[tuple[str, str], list[dict[str, Any]]]) -> list[tuple[str, str]]:
-    """Returns (memory name, file stem) for each claim filed in another topic's slice."""
-    moved: list[tuple[str, str]] = []
+                    buckets: dict[tuple[str, str], list[dict[str, Any]]]) -> list[tuple[str | None, str, str]]:
+    """Returns (role, memory name, file stem) for each claim filed in another topic's slice."""
+    moved: list[tuple[str | None, str, str]] = []
     on_disk_by_class: dict[str, dict[str, dict[str, str]]] = {}
     for (klass, topic), group in sorted(buckets.items()):
         for claim in list(group):
@@ -240,7 +243,7 @@ def resolve_targets(run: Run, role: str | None, label: str,
                 if len(holders) == 1:
                     group.remove(claim)
                     buckets[(klass, holders[0])].append(claim)
-                    moved.append((claim["topic"], written_stem(run, role, klass, holders[0])))
+                    moved.append((role, claim["topic"], written_stem(run, role, klass, holders[0])))
                 continue
             where = f"{label}/{klass}:{topic}#{heading}"
             holders = sorted(t for t, sections in on_disk.items() if target in sections and t != topic)
@@ -280,7 +283,7 @@ def resolve_targets(run: Run, role: str | None, label: str,
             # heading is derived from it.
             group.remove(claim)
             buckets[(klass, holders[0])].append(claim)
-            moved.append((claim["topic"], written_stem(run, role, klass, holders[0])))
+            moved.append((role, claim["topic"], written_stem(run, role, klass, holders[0])))
             if role is None:
                 run.shared_owners[(klass, holders[0])] |= run.shared_owners[(klass, topic)]
     for key in [k for k, g in buckets.items() if not g]:
@@ -288,22 +291,30 @@ def resolve_targets(run: Run, role: str | None, label: str,
     return moved
 
 
-def point_links(run: Run, moved: list[tuple[str, str]]) -> None:
+def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
     """A `[[memory]]` names a memory, and a claim filed in another topic's slice (a correction) is written under that
-    slice's file name, so the link resolved nowhere (a drain's blind review, 2026-10-24). Every claim of this drain
-    names the slice instead. A name two slices claim is left as written: pointing at either would guess."""
-    stems: dict[str, set[str]] = defaultdict(set)
-    for name, stem in moved:
+    slice's file name, so the link resolved nowhere (a drain's blind review, 2026-10-24). The claims of the role that
+    filed it (and of the shared slices) name the slice instead; another role's memory of the same name is not that
+    one. A name two slices claim is left as written: pointing at either would guess."""
+    stems: dict[tuple[str | None, str], set[str]] = defaultdict(set)
+    for role, name, stem in moved:
         if name != stem:
-            stems[name].add(stem)
-    unique = {name: next(iter(found)) for name, found in stems.items() if len(found) == 1}
-    if not unique:
-        return
-    pattern = re.compile(r"\[\[(" + "|".join(re.escape(n) for n in sorted(unique, key=len, reverse=True)) + r")\]\]")
-    groups = [g for buckets in run.per_role.values() for g in buckets.values()] + list(run.shared.values())
-    for group in groups:
-        for claim in group:
-            claim["body"] = pattern.sub(lambda m: f"[[{unique[m.group(1)]}]]", claim["body"])
+            stems[(role, name)].add(stem)
+    unique = {key: next(iter(found)) for key, found in stems.items() if len(found) == 1}
+
+    def point(claims: list[Any], scopes: tuple[str | None, ...]) -> None:
+        names = {name: stem for (r, name), stem in unique.items() if r in scopes}
+        if not names:
+            return
+        pattern = re.compile(r"\[\[(" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True)) + r")\]\]")
+        for claim in claims:
+            claim["body"] = pattern.sub(lambda m: f"[[{names[m.group(1)]}]]", claim["body"])
+
+    for role, buckets in run.per_role.items():
+        for group in buckets.values():
+            point(group, (role, None))
+    for group in run.shared.values():
+        point(group, (None,))
 
 
 def resolve_all_targets(run: Run) -> int | None:
@@ -321,7 +332,7 @@ def resolve_all_targets(run: Run) -> int | None:
     # A claim already standing in another topic under its own heading is
     # a correction an earlier drain applied, harvested again: it goes back
     # there to be recognised as itself rather than written twice.
-    moved: list[tuple[str, str]] = []
+    moved: list[tuple[str | None, str, str]] = []
     for role in sorted(run.per_role):
         moved += resolve_targets(run, role, role, run.per_role[role])
     moved += resolve_targets(run, None, "shared", run.shared)

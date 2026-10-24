@@ -2742,8 +2742,8 @@ def test_a_flat_file_that_gains_a_second_topic_moves_into_its_directory(tmp: str
     index = read(proj(out, "alpha", "INDEX.md"))
     assert "One cue" in index and "Two cue" in index and "workflow/alpha-one.md" in index and "workflow/alpha-two.md" in index, index
     # Positive control: the same topic again stays where it is.
-    drain, claims_dir, out2 = build(os.path.join(tmp, "again"), {"alpha": claims("alpha", [one])}) \
-        if os.makedirs(os.path.join(tmp, "again")) is None else ("", "", "")
+    os.makedirs(os.path.join(tmp, "again"))
+    drain, claims_dir, out2 = build(os.path.join(tmp, "again"), {"alpha": claims("alpha", [one])})
     assert run_assemble(drain, claims_dir, out2).returncode == 0 and run_assemble(drain, claims_dir, out2).returncode == 0
     assert os.path.exists(proj(out2, "alpha", "workflow.md")) and not os.path.isdir(proj(out2, "alpha", "workflow"))
 
@@ -2780,6 +2780,46 @@ def test_a_link_to_a_memory_written_into_another_slice_is_pointed_at_the_slice(t
     placed = read(proj(out, "alpha", "solution.md"))
     assert "[[labels-english-supplier]]" in placed and "[[labels-keep-is-reserved]]" not in placed, placed
     assert "[[unrelated-memory]]" in placed, "a name the drain did not place is left as written"
+
+
+def test_an_older_flat_file_without_a_recorded_topic_is_not_split_by_one_new_topic(tmp: str) -> None:
+    """A flat file from before a flat file recorded its topic may hold memories the crossref never named (it lists
+    referenced slices only). One new topic keeps the old reading and is merged in; splitting by the crossref
+    relabelled another memory's sections and the next drain wrote them twice (review of #368, F1)."""
+    xx = {"class": "workflow", "topic": "xx", "title": "X", "body": "About x.", "evidence": ["h1"]}
+    yy = {"class": "workflow", "topic": "yy", "title": "Y", "body": "About y.", "evidence": ["h3"]}
+    zz = {"class": "workflow", "topic": "zz", "title": "Z", "body": "About z.", "evidence": ["h3"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [xx])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    flat = proj(out, "alpha", "workflow.md")
+    # the crossref names xx only; the file also holds zz and records no topic
+    legacy = re.sub(r"(?m)^topic: .*\n", "", read(flat)).rstrip("\n") + "\n\n## Z\n\nAbout z.\n"
+    with open(flat, "w", encoding="utf-8") as fh:
+        fh.write(legacy)
+    set_claims(claims_dir, "alpha", [yy])
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert os.path.exists(flat) and not os.path.isdir(proj(out, "alpha", "workflow")), tree(out)
+    set_claims(claims_dir, "alpha", [zz])
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    assert read(flat).count("## Z") == 1 and not os.path.isdir(proj(out, "alpha", "workflow")), tree(out)
+
+
+def test_a_link_is_pointed_only_at_the_slice_of_its_own_roles_memory(tmp: str) -> None:
+    """Two roles may each have a memory of one name; the correction of one role's, filed in a slice, does not take
+    the other role's link to its own memory with it (review of #368, F5)."""
+    base = {"class": "workflow", "topic": "bar", "title": "Bar", "body": "Text.", "evidence": ["h1"]}
+    fix = {"class": "workflow", "topic": "foo", "title": "Bar, fixed", "body": "Fixed.", "evidence": ["h2"],
+           "merge_target": "Bar"}
+    other = {"class": "solution", "topic": "uses-foo", "title": "Uses", "body": "See [[foo]].", "evidence": ["h3"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [base]), "beta": claims("beta", [])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [fix, dict(other, topic="a-uses-foo")])
+    set_claims(claims_dir, "beta", [dict(other, topic="b-uses-foo")])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "[[bar]]" in read(proj(out, "alpha", "solution.md")) or "[[bar]]" in "".join(
+        read(os.path.join(proj(out, "alpha", "solution"), n)) for n in os.listdir(proj(out, "alpha", "solution")))
+    assert "[[foo]]" in read(proj(out, "beta", "solution.md")), "another role's own memory keeps its link"
 
 
 def test_part_one_of_a_split_topic_is_always_the_topic_file(tmp: str) -> None:
@@ -4021,6 +4061,8 @@ def main() -> int:
         test_a_flat_file_that_gains_a_second_topic_moves_into_its_directory,
         test_a_merge_target_in_a_flat_file_is_followed_when_the_class_moves_in,
         test_a_link_to_a_memory_written_into_another_slice_is_pointed_at_the_slice,
+        test_an_older_flat_file_without_a_recorded_topic_is_not_split_by_one_new_topic,
+        test_a_link_is_pointed_only_at_the_slice_of_its_own_roles_memory,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is

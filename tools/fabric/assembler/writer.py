@@ -33,8 +33,9 @@ def write_slice(
     flat_topic: str | None = None,
 ) -> str | None:
     """`topic` is recorded in the frontmatter of every file that is one
-    topic's (is_budget_part reads it); the flat class file, which holds
-    several memories, is written without one. Returns the description the
+    topic's (is_budget_part reads it); the flat class file records its one
+    topic as `flat_topic` (an older one, which may hold several memories,
+    has none and is written without). Returns the description the
     file was written with, or None when it was not written: every section
     it held was retired (ADR-050 rule 7) and the file is gone."""
     os.makedirs(directory, exist_ok=True)
@@ -541,8 +542,8 @@ def write_role(run: Run, role: str) -> None:
         # `<class>.md` left beside `<class>/` is unreachable knowledge,
         # and its size was being counted as carried text for whatever
         # topic came first — which produced an empty "part one" with no
-        # provenance. The flat file may hold several topics' sections
-        # (the crossref says which), so it is not split: it moves whole,
+        # provenance. An older flat file may hold several topics'
+        # sections (the crossref says which), so it is not split: it moves whole,
         # named for the one topic when there is one, else as the carried
         # file of its class, and its description keeps it findable.
         flat = os.path.join(base, f"{CLASS_FILES[klass]}.md")
