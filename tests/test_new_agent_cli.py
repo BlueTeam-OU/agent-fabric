@@ -467,6 +467,10 @@ def main() -> int:
         for f in ("provisioning/launch_record.py", "fabric_writes.py", "launch_provider_record.py"):
             os.makedirs(os.path.dirname(f"{src}/tools/fabric/{f}"), exist_ok=True)
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{src}/tools/fabric/{f}")
+        # Step 7b runs the carrier's client-unit installer from the account's clone, which reads its source beside it.
+        for f in ("tools/fabric/gzcoord/carrier/install_client.py", "runtime/interweave/client"):
+            os.makedirs(os.path.dirname(f"{src}/{f}"), exist_ok=True)
+            shutil.copy2(f"{ROOT}/{f}", f"{src}/{f}")
         sh("git", "-C", src, "init", "-q", "-b", "main")
         sh("git", "-C", src, "add", "-A")
         sh("git", "-C", src, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q",
@@ -536,6 +540,10 @@ def main() -> int:
                 print(f"new-agent: the real sequence on the {backend} backend")
                 rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
                 ok("the whole sequence exits 0", rc == 0, f"rc={rc}\n{out}")
+                client = f"{homes}/seq-login/.local/libexec/interweave/client"
+                ok("7b: the carrier's client unit program is in the account's home, executable, said once",
+                   os.path.isfile(client) and (os.stat(client).st_mode & 0o777) == 0o755
+                   and out.count("7b. carrier client unit program installed") == 1, out)
                 ok("6: agent-fabric is no --project, yet its https clone of step 4 is pointed at the registry's remote, said in one line",
                    git_out("-C", f"{homes}/seq-login/projects/agent-fabric", "config", "--get", "remote.origin.url") == fabric_ssh
                    and out.count(f"6. agent-fabric: origin set to {fabric_ssh}") == 1, out)
