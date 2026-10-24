@@ -34,7 +34,10 @@ GIT = "git"
 
 
 def git_argv(repository: str, *args: str) -> list[str]:
-    return [GIT, "--no-pager", f"--attr-source={EMPTY_TREE}", *[x for key in PINNED for x in ("-c", key)], "-C", repository, *args]
+    # --no-lazy-fetch: protocol.allow=never stops the transport but not the `git fetch` child that a missing object in a promisor clone
+    # starts, and that child is what writes (FETCH_HEAD, the pack, config); the environment says it too (scope.git_env), for a caller that
+    # passes its own env or a git that reads only one of the two.
+    return [GIT, "--no-pager", "--no-lazy-fetch", f"--attr-source={EMPTY_TREE}", *[x for key in PINNED for x in ("-c", key)], "-C", repository, *args]
 
 
 def run_git(repository: str, *args: str, env: dict[str, str] | None = None) -> runner.Ran:

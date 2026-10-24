@@ -22,6 +22,7 @@ import json
 import os
 import sys
 
+sys.dont_write_bytecode = True   # before the imports below: a server run from an install tree leaves no __pycache__ in it (as subagent-clone-guard.py)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from review_mcp import gittools, sandbox, scope  # noqa: E402
