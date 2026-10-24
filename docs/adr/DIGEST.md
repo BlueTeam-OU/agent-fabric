@@ -1386,18 +1386,19 @@ its record disagree, the record wins. Look it up, never read it whole:
   record and ADR-033 rule 7 unchanged; the journal collapses by
   MESSAGE-ID; a switch is an ADR-033 amendment on the owner's word over a
   parity report (§5 rule 11).
-- The carrier is the fabric's own long-lived client per account under
-  InterWeave's client unit, not `interweave-human` (exclusive lease, human
-  retention) nor `claude-channel` (session-bound) (§2, §3, §5 rule 5).
+- The carrier: the fabric's own client per account under InterWeave's
+  client unit, not `interweave-human` nor `claude-channel` (§2, §3, §5 rule 5).
 - A committed roster keyed by agent id, each row signed by its login and
   countersigned by the coordinator, renders every profile's
   deny-by-default allowlist; keys minted in their own account; programs
   from a tagged, pinned release (§5 rules 2-4).
-- One direct send per recipient, no GossipSub; the carrier's own
-  per-recipient record waits for the receiving carrier's receipt,
-  retried under one message_id, never given up without its operator; compress then chunk past 48 KiB; FROM
+- One direct send per recipient, no GossipSub; each recipient's receipt
+  awaited, retried under one message_id, never given up without its
+  operator; compress, then chunk, past 48 KiB; FROM
   checked against the PeerId's address; no transport value as metadata
   (§5 rules 6-10).
+- A 2026-10-24 — zlib, not brotli; receipts for messages not addressed
+  here; CARRIER-CONTRACT.md (§5 rules 7, 8).
 - The soak's report, from each inbox's per-copy arrival log, names
   missed, duplicate and offline-delivered counts and a rollback drill
   (§5 rule 11).
