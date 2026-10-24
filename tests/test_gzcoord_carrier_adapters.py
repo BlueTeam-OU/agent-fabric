@@ -300,6 +300,26 @@ def main() -> int:
               r["delivered"] and [c["rec"]["id"] for c in r["classified"]] == ["id1"] and acked == ["id1"]
               and "shown ledger could not be opened" in err.getvalue(), err.getvalue())
 
+    # -- a ledger whose write fails -------------------------------------------
+    with tempfile.TemporaryDirectory(prefix="gz-wf-") as d:
+        led = L.Ledger(os.path.join(d, "gzcoord-shown.jsonl"), iso_now=lambda: NOW)
+        real_put = L.Held._put
+
+        def failing(self, *a, **k):
+            raise OSError(28, "No space left on device")
+        L.Held._put = failing
+        import contextlib
+        import io
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                r, acked = loop([[rrec(1, "WF-1")]], led, iw=FakeCarrier([urec("WF-2")]))
+        finally:
+            L.Held._put = real_put
+        check("a ledger write that fails is said as that, the relay's message is shown without the ledger, no exception",
+              r["delivered"] and [c["rec"]["id"] for c in r["classified"]] == ["id1"] and acked == ["id1"]
+              and "could not be written" in err.getvalue(), err.getvalue())
+
     # -- two inbox paths cannot both show one message -------------------------
     with tempfile.TemporaryDirectory(prefix="gz-two-") as d:
         led = L.Ledger(os.path.join(d, "gzcoord-shown.jsonl"), iso_now=lambda: NOW)

@@ -357,10 +357,22 @@ def main() -> int:
             a.daemon.send_answers = ["UnauthorizedPeer"]
             a.carrier.handle_request({"op": "send", "message_id": "M-ST", "text": msg("M-ST", "h/alpha", to="h/beta")})
             until(lambda: a.box.deliveries[("M-ST", "beta")].blocked)
-            st = a.carrier.status()["recipients"]["beta"]
+            until(lambda: "beta" in a.carrier.status()["recipients"])
+            st = a.carrier.status()["recipients"].get("beta", {"outstanding": 0, "blocked": {}})
             check("status gives per recipient: outstanding, blocked by code, awaiting receipt and the oldest queued",
                   st["outstanding"] >= 1 and st["blocked"].get("UnauthorizedPeer") == 1 and "oldest" in st
                   and "awaiting_receipt" in st, str(st))
+            d_old, d_new = a.box.deliveries[("M-ST", "beta")], None
+            from gzcoord.carrier import record as _rec
+            _fake = [_rec.Delivery("S1", "zeta", [], "t", "2026-10-24T10:00:00Z"), _rec.Delivery("S2", "zeta", [], "t", "2026-10-24T09:00:00Z")]
+            _fake[0].posted = True
+            real_out = a.box.outstanding
+            a.box.outstanding = lambda: _fake
+            sz = a.carrier.status()["recipients"]["zeta"]
+            a.box.outstanding = real_out
+            check("status counts what it names: one of two awaits its receipt, and oldest is the earliest queued",
+                  sz["awaiting_receipt"] == 1 and sz["oldest"] == "2026-10-24T09:00:00Z" and sz["outstanding"] == 2, str(sz))
+            del d_old, d_new
             a.carrier.abandon("M-ST", "beta", "test")
 
             # -- an address that is not on the roster ------------------------

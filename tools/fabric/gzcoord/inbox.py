@@ -370,8 +370,8 @@ def show_page(res: dict, write: Callable[[], None]) -> None:
 
 def with_queued(shown: str, classified: list[dict], me: dict) -> str:
     """A delivery, and below it a line for each REQUEST to this login it put
-    on the job list (intake.py). After the journal and the acknowledgement:
-    a job the list could not take is a line on stderr, never an unshown message."""
+    on the job list (intake.py). After the journal; the relay's acknowledgement
+    follows the showing (show_page): a job the list could not take is a line on stderr, never an unshown message."""
     lines = intake.queue_received(classified, me)
     return shown + "".join(f"\n{x}" for x in lines)
 
@@ -635,8 +635,8 @@ def main(argv: list[str]) -> int:
     mark_retransmissions(res["classified"], fetch_recent)
     show_page(res, lambda: print(with_queued(render(res, me, channel, taxonomy, t=t, reminder=reminder),
                                              res["classified"], me)))
-    # The cursor is already past everything shown: wait_loop acknowledges
-    # every slice it sees, delivered or passed.
+    # show_page acknowledged the slice once the page was written (wait_loop did, for a
+    # slice that delivered nothing).
     return 0
 
 

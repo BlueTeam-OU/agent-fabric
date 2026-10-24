@@ -73,8 +73,9 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
               on_arrival: Callable[[list[dict]], None] | None = None, ledger: Any = None) -> dict:
     """One arm of the waiter. `delivered` iff some slice carried a message
     for this session. Every slice's messages are acknowledged before the
-    loop continues or returns — an acknowledgement means "shown this
-    position", not "read the body". `held` is consulted before every slice,
+    loop continues — an acknowledgement means "shown this position", not "read the
+    body" — except a delivered result that holds the ledger's lock: its acknowledgements
+    are the result's `ack_later`, which the caller runs after `finish()`. `held` is consulted before every slice,
     once a poll interval during one, and once more when it returns: a hold
     that begins mid-slice abandons the fetch, a page that landed with the
     hold is dropped unread (nothing acknowledged, the relay re-shows it),
@@ -92,7 +93,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     `iw` is the second carrier's adapter (carrier/adapter.py), None when there is none: it only supplies `unseen`, the arrivals
     the carrier journaled, which pass through the same ledger as a relay record. `ledger` (carrier/ledger.py) decides what is shown:
     with one, a delivered result carries `ledger`, the exclusive lock still held, and the caller must `finish()` it once it has
-    written the page (or `release()` it if it could not). The lock is taken before the relay's acknowledgement and the pending
+    written the page (or `release()` it if it could not), and then run `ack_later` (inbox.show_page does all three). The lock is taken before the relay's acknowledgement and the pending
     lines are written before it, so a record the relay no longer holds is one the ledger already knows. `on_arrival` is told the
     relay records addressed here before the journal sees them (the arrival log, rule 11)."""
     for_me_fn = for_me_fn or (lambda msg: False)

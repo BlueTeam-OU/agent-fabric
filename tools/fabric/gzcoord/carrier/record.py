@@ -173,7 +173,7 @@ class Outbox:
                             "enc": d.enc}
                     if d.abandoned_by:
                         line = {**line, "receipt": None, "abandoned": d.receipt_at, "by": d.abandoned_by}
-                    os.write(fd, (json.dumps(line, sort_keys=True) + "\n").encode())
+                    jsonl.write_all(fd, (json.dumps(line, sort_keys=True) + "\n").encode())
             os.fsync(fd)
         finally:
             os.close(fd)
