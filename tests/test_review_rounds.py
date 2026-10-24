@@ -186,9 +186,14 @@ def main() -> int:
         report2 = os.path.join(tmp, "scratch", "report-2.md")
         with open(report2, "w") as f:
             f.write("## Round 2\n\nclean\n")
+        run("save", "7", "2", stdin=round2)
         r = run("next", nxt_path, "--report", report2, "--keep-lenses")
+        check("a request that names its PR refuses --report, naming --pr; exit 1, nothing written",
+              r.returncode == 1 and "run next with --pr, not --report" in r.stderr
+              and not os.path.exists(os.path.join(tmp, "scratch", "REQUEST-rr3.json")), (r.returncode, r.stderr))
+        r = run("next", nxt_path, "--pr", "7", "--keep-lenses")
         nxt3 = json.load(open(os.path.join(tmp, "scratch", "REQUEST-rr3.json"))) if r.returncode == 0 else {}
-        check("from a round's own request: REQUEST-rr3.json, range from that round's head, --report taken",
+        check("from a round's own request: REQUEST-rr3.json, range from that round's head, --pr taken",
               r.returncode == 0 and nxt3["range"] == f"{head2[:12]}..{head3[:12]}"
               and "previous_findings" not in nxt3, (r.stderr, nxt3))
         check("…the first round's base is carried as card_base, so the card stays the first round's",
@@ -203,7 +208,7 @@ def main() -> int:
               header)
         keep_req = os.path.join(tmp, "scratch", "KEEP.yaml")
         shutil.copy(req, keep_req)
-        r = run("next", keep_req, "--report", report2, "--keep-lenses")
+        r = run("next", keep_req, "--report", report2, "--keep-lenses")  # no PR named: --report as ever
         kept = json.load(open(os.path.join(tmp, "scratch", "KEEP-rr2.json")))
         check("--keep-lenses keeps a two-lens request's lenses; without it they narrow (review of #89)",
               r.returncode == 0 and kept["lenses"] == ["general", "security"] and nxt["lenses"] == ["general"],
@@ -241,7 +246,8 @@ def main() -> int:
         round3 = review_body(head2, head3, base, "## Round 3\n\nclean")
         serve([posted_review(round1, head1, "2026-10-23T10:00:00Z"), posted_review(round2, head2, "2026-10-23T11:00:00Z"),
                posted_review(round3, head3, "2026-10-23T12:00:00Z")], [head1, head2, head3, head4])
-        r = run("next", chain, "--report", report2)
+        run("save", "7", "3", stdin=round3)
+        r = run("next", chain, "--pr", "7")
         check("an earlier round's report deleted since does not refuse the chain (review of #89)",
               r.returncode == 0 and json.load(open(os.path.join(tmp, "scratch", "CHAIN-rr3.json")))["range"]
               == f"{head3[:12]}..{head4[:12]}", r.stderr)
@@ -306,6 +312,21 @@ def main() -> int:
               "- a.py:24: def beta():" in out.split("enclosing symbol")[-1], out[-400:])
         nxt_d = json.load(open(os.path.join(tmp, "scratch", "DREQ-rr2.json")))
         check("…none of it is written into the derived request", "Locators" not in json.dumps(nxt_d) and "diff" not in nxt_d, nxt_d)
+
+        # A PR's Locators number the findings the brief shows: the checkpoint's posted body, never the saved round,
+        # whose numbering another engine may have written otherwise (round 3 R4 of #358).
+        dhead = dgit("rev-parse", "HEAD")
+        posted = review_body(b1, b1, b1, "## Posted\n\n1. P2 likely: `a.py:19` is a leftover.")
+        serve([posted_review(posted, b1, "2026-10-23T10:00:00Z")], [b1, dhead])
+        run("save", "7", "1", "--repo", "deltarepo",
+            stdin="## Saved\n\n1. P2 likely: `a.py:21` SAVEDONLY.\n")
+        preq = os.path.join(tmp, "scratch", "PREQ.yaml")
+        with open(preq, "w") as f:
+            f.write(f"mode: review\nrepository: {drepo}\nrange: {b1[:12]}..{b1[:12]}\nobjective: >-\n  It exists.\n")
+        r = run("next", preq, "--pr", "7", cwd=drepo)
+        check("a PR's Locators come from the posted body, not the saved round that differs",
+              r.returncode == 0 and "- finding 1: a.py:19 at " in r.stdout and "SAVEDONLY" not in r.stdout
+              and "a.py:21" not in r.stdout.split("## Locators")[-1], (r.stderr, r.stdout[-700:]))
 
         # Over the cap: the diffstat and a note, not the diff.
         with open(os.path.join(drepo, "big.txt"), "w") as f:
