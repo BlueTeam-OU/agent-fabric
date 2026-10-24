@@ -131,16 +131,25 @@ class Carrier:
             raise ValueError("MESSAGE-ID is not the message's own")
         payloads = framing.encode(mid, text)
         to = self.recipients(meta)
+        problem = None
         with self.lock:
             queued = 0
             for login in to:
-                d = self.outbox.queue(mid, login, text, len(payloads), framing.encoding_of(payloads))
+                try:
+                    d = self.outbox.queue(mid, login, text, len(payloads), framing.encoding_of(payloads))
+                except (record.RecordError, OSError) as e:
+                    # The records already written stay: they are durable and will be sent.
+                    problem = f"{login}: {e}"
+                    break
                 self._encoded[d.key] = payloads
                 queued += 1
             posted = sum(1 for login in to if self.outbox.deliveries.get((mid, login)) is not None
                          and self.outbox.deliveries[(mid, login)].posted)
         self.wake.set()
-        return {"carried": len(to), "queued": queued, "posted": posted}
+        out = {"carried": len(to), "queued": queued, "posted": posted}
+        if problem:
+            out["problem"] = problem
+        return out
 
     def abandon(self, mid: str, recipient: str, by: str) -> bool:
         with self.lock:
@@ -163,9 +172,15 @@ class Carrier:
             if not isinstance(mid, str) or not isinstance(text, str):
                 raise TypeError("message_id and text are strings")
             try:
-                return {"ok": True, **self.send(mid, text)}
-            except (framing.FramingError, record.RecordError) as e:
+                out = self.send(mid, text)
+            except framing.FramingError as e:
                 return {"ok": False, "error": str(e)}
+            # ok:true is every recipient durable; a partly durable call is ok:false
+            # with its count, and what was written stays (CARRIER-CONTRACT.md §6).
+            if out["queued"] != out["carried"]:
+                return {"ok": False, "error": f"only {out['queued']} of {out['carried']} recipients recorded: "
+                                              f"{out.get('problem', 'unknown')}", **{k: v for k, v in out.items() if k != 'problem'}}
+            return {"ok": True, **out}
         if op == "claim":
             if req["via"] not in ("relay", "interweave"):
                 raise ValueError("via is relay or interweave")

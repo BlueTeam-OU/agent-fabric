@@ -19,7 +19,9 @@ import struct
 import threading
 from typing import Callable
 
-MAX_REQUEST = 4 * 1024 * 1024 + 4096
+# Room for the 4 MiB a message may be, doubled by the escaping JSON may need, and the
+# envelope (CARRIER-CONTRACT.md §6).
+MAX_REQUEST = 9 * 1024 * 1024
 READ_TIMEOUT = 15.0
 
 
@@ -109,7 +111,7 @@ class Server:
 
     @staticmethod
     def _reply(conn: socket.socket, obj: dict) -> None:
-        conn.sendall((json.dumps(obj, separators=(",", ":")) + "\n").encode("utf-8"))
+        conn.sendall((json.dumps(obj, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8"))
 
     def close(self) -> None:
         try:
@@ -128,7 +130,7 @@ def call(path: str, req: dict, timeout: float = 15.0) -> dict:
     s.settimeout(timeout)
     try:
         s.connect(path)
-        s.sendall((json.dumps(req, separators=(",", ":")) + "\n").encode("utf-8"))
+        s.sendall((json.dumps(req, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8"))
         buf = bytearray()
         while b"\n" not in buf:
             chunk = s.recv(65536)

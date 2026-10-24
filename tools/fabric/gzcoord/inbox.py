@@ -286,7 +286,7 @@ def carrier_hooks(address: str, journal_off: bool):
     running the adapter is a no-op, so the relay-only session is as it was."""
     if journal_off:
         return None, None
-    from .carrier import adapter, arrivals
+    from .carrier import CARRIER_NAME, adapter, arrivals
     ep = _episodic()
     log = arrivals.ArrivalLog(os.path.join(ep.state_dir(), "gzcoord-arrivals.jsonl"), iso_now=ep.now)
 
@@ -303,8 +303,8 @@ def carrier_hooks(address: str, journal_off: bool):
         except OSError as e:
             # Evidence for the parity report, not a condition of delivery.
             print(f"gzcoord: the arrival log could not be written ({e.strerror or e}); the message is shown", file=sys.stderr)
-    return adapter.Adapter(pending=os.path.join(ep.state_dir(), "interweave-claims-pending.jsonl"),
-                           spool=os.path.join(ep.state_dir(), "interweave", "inbox.jsonl")), on_arrival
+    return adapter.Adapter(pending=os.path.join(ep.state_dir(), f"{CARRIER_NAME}-claims-pending.jsonl"),
+                           spool=os.path.join(ep.state_dir(), CARRIER_NAME, "inbox.jsonl")), on_arrival
 
 
 def with_queued(shown: str, classified: list[dict], me: dict) -> str:

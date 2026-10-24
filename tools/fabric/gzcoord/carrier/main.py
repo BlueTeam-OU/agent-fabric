@@ -52,7 +52,7 @@ TOOLS = os.path.dirname(os.path.dirname(HERE))
 if TOOLS not in sys.path:
     sys.path.insert(0, TOOLS)
 
-from gzcoord.carrier import arrivals, engine, ipc, record, roster, server  # noqa: E402
+from gzcoord.carrier import CARRIER_NAME, arrivals, engine, ipc, record, roster, server  # noqa: E402
 
 USAGE = ("usage: gzcoord-carrier run | status | abandon <message-id> <recipient-login> | "
          "render-config [--write PATH] | parity --window START END --arrivals FILE... --senders DIR... "
@@ -122,7 +122,7 @@ def journal_inbound(text: str, ts: str) -> str:
     import episodic
     conn = episodic.connect()
     try:
-        counts = episodic.inbound(conn, [{"content": text, "seq": None, "ts": ts}], carrier="interweave")
+        counts = episodic.inbound(conn, [{"content": text, "seq": None, "ts": ts}], carrier=CARRIER_NAME)
     finally:
         conn.close()
     return "written" if counts["written"] else "same"
@@ -144,7 +144,7 @@ def cmd_run() -> int:
     rd = runtime_dir()
     try:
         me = make_me()
-        state = os.path.join(_state(), "interweave")
+        state = os.path.join(_state(), CARRIER_NAME)
         r, good = verified_roster()
     except (roster.RosterError, episodic.JournalError, OSError) as e:
         return _refuse(str(e))

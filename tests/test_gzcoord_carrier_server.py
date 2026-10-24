@@ -70,6 +70,33 @@ def main() -> int:
               b'"ok":false' in out and S.call(path, {"op": "again"})["echo"] == "again")
         big = raw(path, b'{"op":"send","text":"' + b"a" * (S.MAX_REQUEST + 10) + b'"}\n')
         check("a request past the bound is refused", b'"ok":false' in big and b"too large" in big)
+        check("a request line may be as large as the contract says: 9 MiB",
+              S.MAX_REQUEST == 9 * 1024 * 1024)
+        # non-ASCII text goes out as UTF-8, not as six-byte escapes: 4 MiB of it must fit the bound
+        captured = []
+        lsock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        cap_path = os.path.join(d, "cap.sock")
+        lsock.bind(cap_path)
+        lsock.listen(1)
+
+        def grab() -> None:
+            c, _ = lsock.accept()
+            buf = bytearray()
+            while b"\n" not in buf:
+                chunk = c.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+            captured.append(bytes(buf))
+            c.sendall(b'{"ok":true}\n')
+            c.close()
+        import threading
+        t = threading.Thread(target=grab)
+        t.start()
+        S.call(cap_path, {"op": "send", "text": "é€" * 1000})
+        t.join()
+        lsock.close()
+        check("a request goes out as UTF-8 without ASCII escapes", b"\\u" not in captured[0] and "é€".encode() in captured[0])
         srv.close()
 
         wrong = S.Server(path, handler, uid=os.getuid() + 1)

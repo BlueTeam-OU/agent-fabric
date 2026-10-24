@@ -21,7 +21,7 @@ import sys
 import time
 from typing import Callable
 
-from . import arrivals, jsonl, server
+from . import arrivals, framing, jsonl, server
 
 CLAIM_TIMEOUT = 2.0
 SEND_TIMEOUT = 12.0
@@ -72,6 +72,10 @@ class Adapter:
         (no roster recipient: relay alone), absent (no carrier) or failed."""
         if not self.present():
             return "absent"
+        if len(text.encode("utf-8")) > framing.MAX_TEXT:
+            print(f"gzcoord: the message is over {framing.MAX_TEXT >> 20} MiB: the carrier does not carry it, the relay does",
+                  file=sys.stderr)
+            return "failed"
         out = self._ask({"op": "send", "message_id": mid, "text": text}, SEND_TIMEOUT)
         if out is None:
             return "failed"

@@ -324,6 +324,25 @@ def main() -> int:
             check("a copy that breaks the handler is logged and counted, earns no receipt, and the carrier goes on",
                   b.carrier.counters.unreadable == before + 1 and receipts_for(b, "M-BOOM") == 0)
 
+            # -- a call that records only some recipients is not ok:true (the records written stay)
+            real_queue = a.box.queue
+            n_calls = [0]
+
+            def flaky(*args, **kw):
+                n_calls[0] += 1
+                if n_calls[0] == 2:
+                    raise OSError("disk full")
+                return real_queue(*args, **kw)
+            a.box.queue = flaky
+            res = a.carrier.handle_request({"op": "send", "message_id": "M-PART", "text": msg("M-PART", "h/alpha", broadcast=True)})
+            a.box.queue = real_queue
+            check("a send that records only some of its recipients is ok:false with the count, and keeps what it wrote",
+                  res["ok"] is False and res["carried"] == 2 and res["queued"] == 1 and "disk full" in res["error"]
+                  and ("M-PART", "beta") in a.box.deliveries, str(res))
+            res = a.carrier.handle_request({"op": "send", "message_id": "M-PART", "text": msg("M-PART", "h/alpha", broadcast=True)})
+            check("the same send again completes the rest, without a second record for the first",
+                  res["ok"] is True and res["queued"] == 2, str(res))
+
             # -- an address that is not on the roster ------------------------
             res = a.carrier.handle_request({"op": "send", "message_id": "M-10", "text": msg("M-10", "h/alpha", to="elsewhere/delta")})
             check("an address with no roster row is not carried (relay alone)", res["carried"] == 0 and res["queued"] == 0)

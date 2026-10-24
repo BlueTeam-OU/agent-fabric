@@ -113,6 +113,11 @@ def main() -> int:
         check("a recipient that was not durably queued is a failure, never accepted", b.post("M", "t") == "failed")
         replies["send"] = {"ok": False, "error": "no"}
         check("a refusal is a failure", b.post("M", "t") == "failed")
+        replies["send"] = {"ok": True, "carried": 2, "queued": 2, "posted": 0}
+        before = len(seen)
+        check("a message over 4 MiB is refused before a byte is written: the relay carries it",
+              b.post("M", "x" * (4 * 1024 * 1024 + 1)) == "failed" and len(seen) == before
+              and b.post("M", "x" * (4 * 1024 * 1024)) == "accepted" and len(seen) == before + 1)
         check("claim and unseen are passed through", b.claim("M", "relay")["first"] is False and b.unseen() == [{"mid": "X"}])
         srv.close()
         open(path, "w").close()
@@ -267,6 +272,16 @@ def main() -> int:
         again.keep("S-10", "c", "t", "ok", "h/a")
         third = arrivals.Inbox(d, iso_now=lambda: iso[1])
         check("an append after the repaired tail is a whole line", "S-10" in {r["mid"] for r in third.spool})
+
+    with tempfile.TemporaryDirectory(prefix="gz-torn-") as d:
+        box = arrivals.Inbox(d, iso_now=lambda: "T")
+        box.keep("T-1", "c", "t", "ok", "h/a")
+        with open(os.path.join(d, "inbox.jsonl"), "ab") as fh:
+            fh.write(b'{"mid":"T-2","con')                  # a crash mid-append; nothing else to rewrite
+        again = arrivals.Inbox(d, iso_now=lambda: "T")
+        again.keep("T-3", "c", "t", "ok", "h/a")
+        check("a spool with a torn tail and nothing to prune: the next record is still a whole line after a restart",
+              [r["mid"] for r in arrivals.Inbox(d, iso_now=lambda: "T").spool] == ["T-1", "T-3"])
 
     # -- rendering ---------------------------------------------------------
     me = {"address": "h/beta", "slug": "dev"}
