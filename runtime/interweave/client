@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # The program of InterWeave's client unit (interweave-client@<profile>.service
 # runs %h/.local/libexec/interweave/client --profile %i): it hands the whole
 # command line to the carrier, which checks the profile against the roster's
