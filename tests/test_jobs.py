@@ -431,7 +431,8 @@ def main() -> int:
             {"seq": 15, "id": "r15", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "1", "repo wins", "another", "fixture-org/fixture-proj")},
             {"seq": 16, "id": "r16", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "2", "repo without a checkout", "another", "Fixture-Org/fixture-nowhere")},
             {"seq": 17, "id": "r17", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "3", "repo unregistered", "another", "elsewhere-org/unregistered")},
-            {"seq": 18, "id": "r18", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "4", "repo for the refusals", "another", "fixture-org/fixture-proj")},
+            {"seq": 18, "id": "r18", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "4", "repo, registry ambiguous", "another", "fixture-org/fixture-proj")},
+            {"seq": 19, "id": "r19", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "5", "repo, no registry", "another", "fixture-org/fixture-proj")},
         ])
         env.update({"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}",
                     "GZCOORD_CHANNEL": "fixture:chan"})
@@ -488,7 +489,7 @@ def main() -> int:
                   and "fixture-nowhere" in p.stderr, p.stderr)
             p = run("add", "--request", "17")
             check("REPOSITORY unregistered: PROJECT decides", p.returncode == 0 and jobs()[-1]["project"] == "another"
-                  and jobs()[-1]["project_from"] == "PROJECT", p.stderr + repr(jobs()[-1]))
+                  and jobs()[-1]["project_from"] == "PROJECT: REPOSITORY elsewhere-org/unregistered unregistered", p.stderr + repr(jobs()[-1]))
             # The re-point verb: a plain job moves, logged; one with a branch or a worktree does not.
             moved = jobs()[-1]["id"]
             p = run("project", moved, "fixture-proj")
@@ -518,23 +519,26 @@ def main() -> int:
             check("project refuses a closed job", p.returncode == 1 and "is dropped" in p.stderr
                   and [j for j in jobs() if j["id"] == moved][0]["project"] == "fixture-proj", p.stderr)
             listed = len(jobs())
-            for label, operator in (("two projects register the repository", {"one": ["git@example.org:fixture-org/fixture-proj.git"],
-                                                                              "two": ["https://example.org/fixture-org/fixture-proj"]}),
-                                    ("the operator tree has no registry", None),
-                                    ("the registry is not JSON", "garbage")):
+            for seq, label, operator, reason in (
+                    ("18", "two projects register the repository", {"one": ["git@example.org:fixture-org/fixture-proj.git"],
+                                                                      "two": ["https://example.org/fixture-org/fixture-proj"]},
+                     "REPOSITORY fixture-org/fixture-proj ambiguous: one, two"),
+                    ("19", "the operator tree has no registry", None, "REPOSITORY registry unreadable (FileNotFoundError)")):
+                # A registry that is not JSON is covered on request_project in test_gzcoord_intake: identity.resolve_context
+                # reads the same file and fails every fabric command then, which is not the REQUEST's doing.
                 other = dict(env)
                 if operator is None:
                     other["AGENT_FABRIC_OPERATOR"] = os.path.join(tmp, "operator-none")
-                elif operator == "garbage":
-                    other["AGENT_FABRIC_OPERATOR"] = os.path.join(tmp, "operator-bad")
-                    os.makedirs(os.path.join(other["AGENT_FABRIC_OPERATOR"], "projects"), exist_ok=True)
-                    with open(os.path.join(other["AGENT_FABRIC_OPERATOR"], "projects", "registry.json"), "w", encoding="utf-8") as fh:
-                        fh.write("{")
                 else:
                     other["AGENT_FABRIC_OPERATOR"] = write_operator_projects(os.path.join(tmp, "operator-dup"), operator)
-                p = subprocess.run([JOBS, "add", "--request", "18"], cwd=repo_a, env=other, capture_output=True, text=True)
-                check(f"REPOSITORY is refused, not read as PROJECT, when {label}", p.returncode == 1 and "REPOSITORY" in p.stderr
-                      and len(jobs()) == listed, p.stdout + p.stderr)
+                p = subprocess.run([JOBS, "add", "--request", seq], cwd=repo_a, env=other, capture_output=True, text=True)
+                filed = jobs()[-1]
+                check(f"when {label} the REQUEST is filed by PROJECT with the reason, never refused", p.returncode == 0
+                      and len(jobs()) == listed + 1 and filed["project"] == "another"
+                      and filed["project_from"].startswith("PROJECT: ") and reason in filed["project_from"], p.stdout + p.stderr + repr(filed))
+                listed += 1
+                p = subprocess.run([JOBS, "show", filed["id"]], cwd=repo_a, env=other, capture_output=True, text=True)
+                check(f"show prints the reason when {label}", "project from: PROJECT: " in p.stdout and reason in p.stdout, p.stdout)
             p = run("add", "a titled job", "--project", "fixture-proj")
             check("a job added with --project records it as the source of its project", jobs()[-1].get("project_from") == "--project", repr(jobs()[-1]))
             p = run("add", "--owner", "host/boss", "--project", "fixture-proj", "--", "sent (REQUEST 01a09fc1-0000-7000-8000-0000000000f1)")

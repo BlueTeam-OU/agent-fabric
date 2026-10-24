@@ -269,39 +269,43 @@ def listed_request(doc: dict, message_id: str) -> Job | None:
 
 def registered_projects_of(repository: str) -> list[str]:
     """The registered projects with a remote at `repository` (<org>/<repo>, case folded as GitHub reads it); any host, since the
-    header carries the path only. A registry that cannot be read is a refusal: the project is then unknown, never PROJECT's."""
+    header carries the path only. Raises OSError/ValueError/AttributeError when the registry cannot be read:
+    `request_project` turns that into its fallback, never into a refusal."""
     wc = _load("fabric_workingcopy", os.path.join(FABRIC_ROOT, "tools", "fabric", "workingcopy.py"))
     roots = _load("fabric_roots", os.path.join(FABRIC_ROOT, "tools", "fabric", "roots.py"))
     path = roots.projects_registry(engine=FABRIC_ROOT)
-    try:
-        # load_registry reads an absent file as an empty registry, which would make every REPOSITORY "unregistered".
-        if not os.path.exists(path):
-            raise FileNotFoundError(path)
-        projects = wc.load_registry(path).get("projects") or {}
-        wanted = repository.strip().strip("/").casefold()
-        return [name for name, entry in projects.items()
-                if any((parsed := wc.parse_remote(remote)) and parsed["path"].strip("/").casefold() == wanted
-                       for remote in entry.get("remotes") or [])]
-    except (OSError, ValueError, AttributeError) as e:
-        raise Refused(f"cannot tell which project REPOSITORY {repository} is: {path} could not be read ({type(e).__name__}: {e}); "
-                      "pass --project") from None
+    # load_registry reads an absent file as an empty registry, which would make every REPOSITORY "unregistered".
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    projects = wc.load_registry(path).get("projects") or {}
+    wanted = repository.strip().strip("/").casefold()
+    return [name for name, entry in projects.items()
+            if any((parsed := wc.parse_remote(remote)) and parsed["path"].strip("/").casefold() == wanted
+                   for remote in entry.get("remotes") or [])]
 
 
 def request_project(meta: dict, project: str | None) -> tuple[str | None, str | None]:
-    """(the project a REQUEST's job belongs to, where that came from). --project wins; then the message's REPOSITORY when the
-    registry maps it to a project (it names the repository the work is in); PROJECT only when REPOSITORY is absent or
-    unregistered: gzcoord-compose stamps PROJECT from the sender's directory, which says nothing of the work. A repository two
-    projects claim is refused, never guessed."""
+    """(the project a REQUEST's job belongs to, where that came from). --project wins; then the message's REPOSITORY, only when
+    the registry is readable and maps it to exactly one project (it names the repository the work is in). Otherwise PROJECT,
+    with the reason REPOSITORY did not decide (unregistered, ambiguous, registry unreadable): gzcoord-compose stamps PROJECT
+    from the sender's directory, which says nothing of the work, but nothing a REQUEST carries may be the reason it is not
+    queued: a lost assignment is worse than a job in the wrong project, which `project` re-points."""
     if project:
         return project, "--project"
     repository, header = meta.get("REPOSITORY"), meta.get("PROJECT")
+    why = None
     if repository:
-        found = registered_projects_of(repository)
-        if len(found) > 1:
-            raise Refused(f"REPOSITORY {repository} is registered by {', '.join(found)}; pass --project")
-        if found:
+        try:
+            found = registered_projects_of(repository)
+        except (OSError, ValueError, AttributeError) as e:
+            found, why = [], f"registry unreadable ({type(e).__name__})"
+        else:
+            why = f"{repository} ambiguous: {', '.join(found)}" if len(found) > 1 else f"{repository} unregistered"
+        if len(found) == 1:
             return found[0], f"REPOSITORY {repository}" + (f" (the header PROJECT: {header} was not used)" if header and header != found[0] else "")
-    return (header, "PROJECT") if header else (None, None)
+    if not header:
+        return None, None
+    return header, "PROJECT" + (f": REPOSITORY {why}" if why else "")
 
 
 def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False,

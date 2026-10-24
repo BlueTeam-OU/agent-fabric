@@ -50,7 +50,8 @@ with such a title prints "already listed jN ..." and adds nothing.
 
 A REQUEST's project is, in order: --project; the project the registry maps the message's REPOSITORY to (the repository the
 work is in: gzcoord-compose stamps PROJECT from the sender's directory, which says nothing of it); PROJECT, only when
-REPOSITORY is absent or unregistered. A repository two projects register, or a registry that cannot be read, is refused by name.
+REPOSITORY is absent, unregistered, registered by two projects, or the registry cannot be read; `show` then prints why. Nothing a
+REQUEST carries is a reason not to queue it.
 The working copy is this login's of that project; when there is none the job is still listed, with none, and `start` refuses
 by name until `project <id> <project> --working-copy DIR` names one (`switch` refuses a job with no working copy as before).
 `project` re-points a job whose headers were both wrong; it is refused while the job has a branch or a worktree (the one-job guard

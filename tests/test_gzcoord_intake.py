@@ -304,11 +304,52 @@ def _():
             ctl = FakeCtl("dev-01 added j9\n")
             job, err = sent(ctl, PROJECT="sender-dir", REPOSITORY="nobody/unregistered")
             check(ctl.adds()[0][3:5] == ["--project", "sender-dir"], ctl.calls)
+            # An unreadable registry files by PROJECT on this half too: a REQUEST is never dropped for what it carries.
+            os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(operator, "nowhere")
+            real = intake._jobs()
+            check(real.request_project({"PROJECT": "sender-dir", "REPOSITORY": "some-org/some-repo"}, None)
+                  == ("sender-dir", "PROJECT: REPOSITORY registry unreadable (FileNotFoundError)"))
+            with open(os.path.join(operator, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+                fh.write("{")
+            os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            got = real.request_project({"PROJECT": "sender-dir", "REPOSITORY": "some-org/some-repo"}, None)
+            check(got[0] == "sender-dir" and got[1].startswith("PROJECT: REPOSITORY registry unreadable (JSONDecodeError"), got)
+            os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(operator, "nowhere")
+            ctl = FakeCtl("dev-01 added j9\n")
+            job, err = sent(ctl, PROJECT="sender-dir", REPOSITORY="some-org/some-repo")
+            check(job == "j9" and err == "" and ctl.adds()[0][3:5] == ["--project", "sender-dir"], (job, err, ctl.calls))
     finally:
         if saved is None:
             os.environ.pop("AGENT_FABRIC_OPERATOR", None)
         else:
             os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
+@case("both halves take the project from the one resolver, jobs.request_project (j372, coordinator's risk 2)")
+def _():
+    real, saved = intake._jobs(), os.environ.get("AGENT_FABRIC_STATE_DIR")
+    seen: list[dict] = []
+    original = real.request_project
+
+    def spy(meta: dict, project: Any) -> Any:
+        seen.append(meta)
+        return "spy-project", "spy"
+    real.request_project = spy
+    try:
+        with tempfile.TemporaryDirectory() as state:
+            os.environ["AGENT_FABRIC_STATE_DIR"] = state
+            ctl = FakeCtl("dev-01 added j9\n")
+            sent(ctl, PROJECT="sender-dir")
+            intake.queue_received([delivery(PROJECT="sender-dir")], {"address": ME}, err=io.StringIO())
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(len(seen) == 2 and ctl.adds()[0][3:5] == ["--project", "spy-project"]
+                  and doc["jobs"][0]["project"] == "spy-project" and doc["jobs"][0]["project_from"] == "spy", (seen, ctl.calls, doc))
+    finally:
+        real.request_project = original
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+        else:
+            os.environ["AGENT_FABRIC_STATE_DIR"] = saved
 
 
 @case("the host's operator asks the addressee's control agent for the job, the id in its title")
