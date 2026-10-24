@@ -854,6 +854,16 @@ class ArmRun(unittest.TestCase):
         self.assertTrue(basis and "codex: absent, no review or marker on abcdef12: armed on the claude review alone." in basis[0][-1],
                         self.ran)
 
+    def test_a_checkout_path_that_names_a_reader_does_not_change_which_reader_the_stub_answers(self):
+        # j88: 70 cases failed from a worktree whose path held "fabric-ctl" (and the path was 87 bytes, which
+        # read as a length bound: it is not, a 700-byte path passes). A path is a long string that may hold any program's name.
+        long_named = "/w/" + "/".join(["fabric-ctl-" + "x" * 60, "gzcoord-inbox", "fabric-whoami"]) + "/agent-fabric"
+        with mock.patch.object(arm, "FABRIC", long_named):
+            rc, out = self.run_arm(arm_policy.default(), 9)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([r[0] for r in self.reads].count("review"), 0)
+        self.assertTrue([c for c in self.ran if c[:2] == ["pr", "merge"]], self.ran)
+
     def test_the_minimum_is_the_policys(self):
         p = claude_only({"commits": {"min": 3, "advice_over": 5}})
         rc, out = self.run_arm(p, 3, extra=("--dry-run",))
