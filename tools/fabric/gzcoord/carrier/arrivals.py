@@ -9,8 +9,10 @@ lines, 0600 in the account's runtime state:
                           journal's one-row-per-MESSAGE-ID hides. A repeat
                           of a message is another line, by design.
   interweave/inbox.jsonl  the InterWeave arrivals the journal now holds and
-                          the inbox may show: {"mid","content","ts",
-                          "verdict"}, in arrival order, the first copy only.
+                          the inbox may show: {"mid","content","ts","sender",
+                          "verdict"}, in arrival order, the first copy only;
+                          `sender` is the roster's address for the PeerId that
+                          sent it (what the inbox shows), not its FROM.
   interweave/claims.jsonl who showed a MESSAGE-ID first: {"mid","via","t"}.
 
 Claims are what decides that a session sees one message once, whichever
@@ -82,11 +84,11 @@ class Inbox:
                 if c.get("reshow"):
                     prior["reshown"] = True
 
-    def keep(self, mid: str, content: str, ts: str, verdict: str) -> None:
+    def keep(self, mid: str, content: str, ts: str, verdict: str, sender: str) -> None:
         with self._lock:
             if any(r["mid"] == mid for r in self.spool):
                 return
-            rec = {"mid": mid, "content": content, "ts": ts, "verdict": verdict}
+            rec = {"mid": mid, "content": content, "ts": ts, "verdict": verdict, "sender": sender}
             _append(self._spool, rec)
             self.spool.append(rec)
 

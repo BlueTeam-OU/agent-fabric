@@ -56,6 +56,7 @@ class Delivery:
     tmids: list[str]
     text: str
     queued_at: str
+    enc: str = "plain"             # plain | compressed | chunked: how framing.py carried it (parity report)
     posted: bool = False
     blocked: str | None = None
     receipt_at: str | None = None
@@ -114,7 +115,8 @@ class Outbox:
         key = (ev["mid"], ev["to"])
         kind = ev["e"]
         if kind == "queued":
-            self.deliveries[key] = Delivery(ev["mid"], ev["to"], list(ev["tmids"]), ev["text"], ev["t"])
+            self.deliveries[key] = Delivery(ev["mid"], ev["to"], list(ev["tmids"]), ev["text"], ev["t"],
+                                            ev.get("enc", "plain"))
             return
         d = self.deliveries[key]
         if kind == "posted":
@@ -141,7 +143,8 @@ class Outbox:
                 except (ValueError, KeyError):
                     continue
                 if key not in self.deliveries:
-                    d = Delivery(o["mid"], o["to"], [], "", o.get("queued", ""), digest=o.get("digest", ""))
+                    d = Delivery(o["mid"], o["to"], [], "", o.get("queued", ""), o.get("enc", "plain"),
+                                 digest=o.get("digest", ""))
                     d.receipt_at = o.get("receipt") or o.get("abandoned") or "done"
                     d.abandoned_by = o.get("by")
                     self.deliveries[key] = d
@@ -164,7 +167,8 @@ class Outbox:
         try:
             for d in done:
                 if d.key not in have:
-                    line = {"mid": d.mid, "to": d.to, "queued": d.queued_at, "receipt": d.receipt_at, "digest": d.digest}
+                    line = {"mid": d.mid, "to": d.to, "queued": d.queued_at, "receipt": d.receipt_at, "digest": d.digest,
+                            "enc": d.enc}
                     if d.abandoned_by:
                         line = {**line, "receipt": None, "abandoned": d.receipt_at, "by": d.abandoned_by}
                     os.write(fd, (json.dumps(line, sort_keys=True) + "\n").encode())
@@ -198,7 +202,8 @@ class Outbox:
 
     @staticmethod
     def _events_of(d: Delivery) -> list[dict]:
-        evs = [{"e": "queued", "mid": d.mid, "to": d.to, "tmids": d.tmids, "text": d.text, "t": d.queued_at}]
+        evs = [{"e": "queued", "mid": d.mid, "to": d.to, "tmids": d.tmids, "text": d.text, "t": d.queued_at,
+                "enc": d.enc}]
         if d.posted:
             evs.append({"e": "posted", "mid": d.mid, "to": d.to, "t": d.queued_at})
         if d.blocked:
@@ -209,7 +214,7 @@ class Outbox:
         os.close(self._fd)
 
     # -- the record ------------------------------------------------------
-    def queue(self, mid: str, to: str, text: str, payload_count: int) -> Delivery:
+    def queue(self, mid: str, to: str, text: str, payload_count: int, enc: str = "plain") -> Delivery:
         """The delivery of `mid` to `to`, made if new. The same message again
         is the same delivery (its transport ids kept); another body under a
         known id is refused, as the journal refuses it (ADR-041 rule 5)."""
@@ -219,7 +224,7 @@ class Outbox:
             if d.digest and d.digest != digest:
                 raise RecordError(f"MESSAGE-ID {mid} is already queued to {to} with another body")
             return d
-        ev = {"e": "queued", "mid": mid, "to": to, "text": text, "t": self._iso(),
+        ev = {"e": "queued", "mid": mid, "to": to, "text": text, "t": self._iso(), "enc": enc,
               "tmids": [secrets.token_hex(16) for _ in range(payload_count)]}
         self._append(ev)
         self._apply(ev)
@@ -264,3 +269,41 @@ class Outbox:
 
     def due(self, now: float) -> list[Delivery]:
         return [d for d in self.outstanding() if d.next_at <= now]
+
+
+def read_deliveries(directory: str) -> list[dict]:
+    """The sender's records as a report reads them: no lock, no rewrite. One
+    dict per delivery, {mid, to, enc, queued, state, code?, by?} with state
+    one of done (receipt), abandoned, blocked, posted, queued."""
+    out: dict[tuple[str, str], dict] = {}
+    for name in ("delivered.jsonl", "deliveries.jsonl"):
+        try:
+            fh = open(os.path.join(directory, name), encoding="utf-8")
+        except FileNotFoundError:
+            continue
+        with fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                    key = (o["mid"], o["to"])
+                except (ValueError, KeyError, TypeError):
+                    continue
+                if name == "delivered.jsonl":
+                    abandoned = o.get("abandoned")
+                    out[key] = {"mid": o["mid"], "to": o["to"], "enc": o.get("enc", "plain"), "queued": o.get("queued"),
+                                "state": "abandoned" if abandoned else "done", **({"by": o["by"]} if abandoned else {})}
+                    continue
+                e = o.get("e")
+                if e == "queued":
+                    out[key] = {"mid": o["mid"], "to": o["to"], "enc": o.get("enc", "plain"), "queued": o.get("t"),
+                                "state": "queued"}
+                elif key in out and out[key]["state"] in ("queued", "posted", "blocked"):
+                    if e == "posted":
+                        out[key].update(state="posted", code=None)
+                    elif e == "blocked":
+                        out[key].update(state="blocked", code=o.get("code"))
+                    elif e == "receipt":
+                        out[key]["state"] = "done"
+                    elif e == "abandon":
+                        out[key].update(state="abandoned", by=o.get("by"))
+    return list(out.values())

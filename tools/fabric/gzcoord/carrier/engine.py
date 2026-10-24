@@ -78,12 +78,16 @@ class Carrier:
     stop: threading.Event = field(default_factory=threading.Event)
     wake: threading.Event = field(default_factory=threading.Event)
     counters: Counters = field(default_factory=Counters)
+    # Anything that changes when the roster file does; polled, and the roster
+    # re-verified when it moves (verification runs gpg: not per message).
+    roster_stamp: Callable[[], object] = lambda: None
 
     def __post_init__(self) -> None:
         self.lock = threading.RLock()
         self.reasm = framing.Reassembler()
         self.session: ipc.Session | None = None
         self._encoded: dict[tuple[str, str], list[framing.Payload]] = {}
+        self._stamp = self.roster_stamp()
         self.refresh_roster()
 
     # -- roster ----------------------------------------------------------
@@ -125,7 +129,7 @@ class Carrier:
         with self.lock:
             queued = 0
             for login in to:
-                d = self.outbox.queue(mid, login, text, len(payloads))
+                d = self.outbox.queue(mid, login, text, len(payloads), framing.encoding_of(payloads))
                 self._encoded[d.key] = payloads
                 queued += 1
             posted = sum(1 for login in to if self.outbox.deliveries.get((mid, login)) is not None
@@ -278,7 +282,7 @@ class Carrier:
                 log(f"the journal could not keep {mid}: {type(e).__name__}: {e}")
                 return
             if outcome == "written":
-                self.inbox.keep(mid, text, ts, verdict)
+                self.inbox.keep(mid, text, ts, verdict, f"{self.host}/{row['login']}")
         self.send_receipt(session, row, mid)
 
     def send_receipt(self, session: ipc.Session, row: dict, mid: str) -> None:
@@ -300,6 +304,10 @@ class Carrier:
     def serve_session(self, session: ipc.Session) -> None:
         self.session = session
         while session.alive and not self.stop.is_set():
+            stamp = self.roster_stamp()
+            if stamp != self._stamp:
+                self._stamp = stamp
+                self.refresh_roster()
             self.send_due(session)
             try:
                 ev = session.events.get(timeout=0.2)
