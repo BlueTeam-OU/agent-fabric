@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 import threading
 import types
@@ -298,6 +299,20 @@ class Accounts(Base):
         self.assertEqual(r["status"], "unreadable")
         self.assertNotIn("limits", r)
         self.assertEqual(ops.read_account(acct, home=h, bin="/fake/claude", run=harness())["status"], "ok")
+
+    def test_read_json_refuses_what_is_not_a_regular_file_even_when_it_holds_json(self):
+        d = tempfile.mkdtemp(prefix="readjson-")
+        self.addCleanup(shutil.rmtree, d, True)
+        good = write(os.path.join(d, "good.json"), '{"a": 1}')
+        self.assertEqual(util.read_json(good), {"a": 1}, "positive control")
+        fifo = os.path.join(d, "fifo.json")
+        os.mkfifo(fifo)
+        hold = os.open(fifo, os.O_RDWR)   # a writer is present, so the JSON below is readable from the pipe
+        self.addCleanup(os.close, hold)
+        os.write(hold, b'{"a": 1}')
+        self.assertIsNone(util.read_json(fifo))
+        os.symlink(fifo, os.path.join(d, "link.json"))
+        self.assertIsNone(util.read_json(os.path.join(d, "link.json")))
 
     def test_the_read_child_has_no_stdin_a_harness_waits_3_s_on_an_open_one(self):
         # The runner's own stdin is made an open pipe, so a child that inherited it would block: the mutation
