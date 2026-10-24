@@ -76,8 +76,9 @@ own thread reply by account alone, and pr_review_status used to
 bucket both as "self reviews … not coverage". Prose attribution drifts
 — three sessions wrote three different sentences — and a coverage
 claim guessed from prose is worse than none. So every review this
-script posts is a REVIEW OBJECT (never an issue comment, which is not
-a review) and carries REVIEW_MARKER (below) as its first line, the
+script posts is a REVIEW OBJECT (an issue comment is not a review; the one
+it may post beside a review holds only a report too long for it, see the
+coverage paragraph) and carries REVIEW_MARKER (below) as its first line, the
 exact string fabric-pr review-status tests for.
 
 The review class is the review. There is no automated reviewer it
@@ -141,10 +142,16 @@ carries exactly one fenced block whose info string is `agent-fabric-coverage v1`
    "lenses": {"<lens>": "applied" | "not applied"}}
   ```
 
-Its paths are exactly those of `git diff --name-only <base>..<head>`, which this tool computes in the working copy:
+Its paths are those of `git diff --name-only <base>..<head>`, which this tool computes in the working copy (the source
+of a rename may also be named, and is never owed):
 a path omitted, a path outside the range, a base that is not an ancestor of the head, a second block, a marker-like
 line in the body, or a block that is not that JSON refuses the report. A path "not read" posts, and the line after the
 marker says "partial coverage: N path(s) not read"; the gate does not count a partial review as coverage of its head.
+A report that with its block is over the 65000 characters a review may hold is posted as a PR comment FIRST, and the
+review, which keeps the marker, the partial line, the report's Finding:/Judgement: lines and the block, points at it
+(`posted review:` is then the only URL on stdout; the comment's is in the review). A report with no such lines, or one
+over the cap on its own, is refused instead. A comment GitHub rejects posts no review; a review that fails after the
+comment says the comment is already there.
 A report with no header, or a header from before those fields, is refused: a new review is posted as v2 only.
 The range's base must be the PR's merge-base with its base branch or the head of its last checkpoint review (an
 earlier v2 review the next one may start from, review_checkpoint.py); otherwise the report is refused, as it is
@@ -677,12 +684,18 @@ are judged before they are answered; the judgement follows in the PR."""
         # as zero findings, not as unknown), and the next round's brief quotes this body as the previous findings,
         # which a reviewer with no network cannot fetch from the comment.
         machine = "\n".join(l for l in body.split("\n") if MACHINE_LINE.match(l))
+        if not machine:
+            die(f"not posting this report: with its coverage block it is {len(full_body)} characters, over the "
+                f"{review_coverage.MAX_REVIEW_CHARS} one review holds, and it has no Finding:/Judgement: lines to keep in "
+                "the review when it goes to a comment (fabric-errors would read that review as no findings). End the "
+                "report with them, or shorten it.")
 
         def stub(url: str) -> str:
             lines = f"\n\n{machine}" if machine else ""
             return (f"{header}\n{intro}\n\nThe report is {len(body)} characters, more than one review holds: {url}"
                     f"{lines}\n\n{block}\n")
-        if len(stub("https://github.com/" + "x" * 100)) > review_coverage.MAX_REVIEW_CHARS:
+        # A comment URL is at most 255 characters (a 39-character owner, a 100-character repository, the numbers).
+        if len(stub("https://github.com/" + "x" * 236)) > review_coverage.MAX_REVIEW_CHARS:
             die(f"not posting this report: its coverage block and machine lines alone make the review "
                 f"{len(stub(''))} characters, over the {review_coverage.MAX_REVIEW_CHARS} GitHub takes, with nothing of "
                 "the report in it.")
@@ -731,6 +744,9 @@ are judged before they are answered; the judgement follows in the PR."""
             die("GitHub accepted the comment but returned no URL, so the review cannot point at it — treat as NOT "
                 "posted, and look at the PR for the comment before re-running.")
         full_body = stub(comment_url)
+        if len(full_body) > review_coverage.MAX_REVIEW_CHARS:
+            die(f"not posting the review: with the comment's URL it is {len(full_body)} characters, over the "
+                f"{review_coverage.MAX_REVIEW_CHARS} one review holds; the report's comment {comment_url} is already there.")
         refusal = readback_refusal(full_body, marker, coverage)
         if refusal:
             die(f"not posting the review: {refusal}; the report's comment {comment_url} is already there.")

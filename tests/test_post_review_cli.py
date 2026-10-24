@@ -657,6 +657,8 @@ def main() -> int:
 
         v2_pr(cr, listed=(c0, cb, cr))
         prose = "Finding F1: " + "a long account of what was read. " * 1200 + "\n\n"
+        bare = prose
+        prose += "Finding: F9 | P3 | possible | - | a placeholder finding\n"
         rc, out = v2_post(prose + compact, header=big)
         check("400 paths and a report over the cap: posts", rc == 0 and calls().count("POST") == 2, f"{out}\n{calls()}")
         check("  the report first, as a PR comment",
@@ -695,7 +697,7 @@ def main() -> int:
                   and calls().count("POST") == 2, f"{out}\n{calls()}")
         v2_pr(cr, listed=(c0, cb, cr))
         found = "Finding: F1 | P2 | certain | a.py:3 | a thing\nFinding: F2 | P3 | likely | - | another\n"
-        rc, out = v2_post(prose + found + compact, header=big)
+        rc, out = v2_post(bare + found + compact, header=big)
         review = sent(2).get("body", "")
         check("a split review keeps the report's Finding lines, and fabric-errors reads them from it",
               rc == 0 and "Finding: F1 | P2" in review and errs.read_review(review).findings == [("F1", "P2"), ("F2", "P3")]
@@ -705,6 +707,11 @@ def main() -> int:
               all(bool(post_review_mod.MACHINE_LINE.match(l)) == bool(errs.FINDING_LINE.match(l) or errs.JUDGEMENT_LINE.match(l))
                   for l in lines) and sum(bool(post_review_mod.MACHINE_LINE.match(l)) for l in lines) == 3)
 
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post("**F1 (P2)** a finding in the old shape. " + bare + compact, header=big)
+        check("a split report with no machine lines is refused, nothing posted",
+              rc == 2 and not posted() and "no Finding:/Judgement: lines" in out, f"rc={rc}\n{out[:300]}")
+
         git("checkout", "-q", "-b", "wide", c0)
         wide = [f"w/{'é' * 100}{i:03d}.md" for i in range(150)]
         cw = commit("non-ASCII names", {n: "x\n" for n in wide})
@@ -712,7 +719,7 @@ def main() -> int:
         v2_pr(cw, listed=(c0, cw))
         # Raw in the report (small), \uXXXX once re-written ASCII-only: the block that fitted is not the one to post.
         raw_block = f"```{rcov.BLOCK_INFO}\n" + json.dumps({"paths": {p: {"status": "read"} for p in wide}, "lenses": {}}, ensure_ascii=False, separators=(",", ":")) + "\n```\n"
-        rc, out = v2_post(report + raw_block, header=fence_header(base_sha=c0, head_sha=cw))
+        rc, out = v2_post(report + "Finding: none\n\n" + raw_block, header=fence_header(base_sha=c0, head_sha=cw))
         check("a block that re-renders past the review's cap is refused, nothing posted",
               rc == 2 and not posted() and "coverage block and machine lines alone" in out, f"rc={rc}\n{out[:300]}")
 
