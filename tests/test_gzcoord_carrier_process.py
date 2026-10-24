@@ -174,7 +174,7 @@ def main() -> int:
                       str(rows_))
                 unseen = server.call(server.socket_path(run_dir), {"op": "unseen"})["records"]
                 check("the inbox's adapter is offered it, as from the roster's address",
-                      [(x["mid"], x["sender"]) for x in unseen] == [(inmid, f"{HOST}/othr")], str(unseen))
+                      [(x["message_id"], x["sender"]) for x in unseen] == [(inmid, f"{HOST}/othr")], str(unseen))
 
                 proc.send_signal(signal.SIGTERM)
                 rc = proc.wait(timeout=30)

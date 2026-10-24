@@ -100,11 +100,12 @@ class Node:
         self.rows = rows
         self.me = engine.Me(f"agent-{login}", login, f"h/{login}", slug)
         self.box = record.Outbox(os.path.join(d, "iw"), iso_now=iso)
-        self.inbox = arrivals.Inbox(os.path.join(d, "iw"), iso_now=iso)
+        self.ledger_path = os.path.join(d, "gzcoord-shown.jsonl")
+        self.spool = arrivals.Spool(os.path.join(d, "iw"), self.ledger_path, iso_now=iso)
         self.log = arrivals.ArrivalLog(os.path.join(d, "arrivals.jsonl"), iso_now=iso)
         self.roster_ok = [True]
         self.carrier = engine.Carrier(
-            me_fn=lambda: self.me, roster_fn=self._roster, outbox=self.box, inbox=self.inbox, arrival_log=self.log,
+            me_fn=lambda: self.me, roster_fn=self._roster, outbox=self.box, spool=self.spool, arrival_log=self.log,
             connect=lambda: ipc.Session.open(self.daemon.path, endpoint="gzcoord", kind="automated-client"),
             journal=self._journal, parse=parse, for_me=for_me, host="h", clock=clock, iso_now=iso)
         self.thread = threading.Thread(target=self.carrier.run, daemon=True)
@@ -181,7 +182,7 @@ def main() -> int:
                   == [("M-1", "interweave", "ok", "h/beta")])
             check("the arrival line was already written when the journal was called (rule 11: before it collapses the copy)",
                   b.arrivals_when_journaled.get("M-1") == 1, str(b.arrivals_when_journaled))
-            check("the arrival is offered to the inbox", [r["mid"] for r in b.inbox.unseen()] == ["M-1"])
+            check("the arrival is offered to the inbox", [r["message_id"] for r in b.carrier.handle_request({"op": "unseen"})["records"]] == ["M-1"])
             sent = a.daemon.sends[0]
             check("the transport message_id is 32 hex and the endpoint the roster's",
                   len(sent["message_id"]) == 32 and sent["endpoint"] == "gzcoord" and sent["peer"] == pid(1))
@@ -234,7 +235,7 @@ def main() -> int:
                             "bytes": ipc.b64u(msg("M-4", "h/gamma", to="h/beta").encode())}}})
             v = [x for x in b.arrivals() if x["mid"] == "M-4"]
             check("a FROM that is not the sender's roster address is a mismatch verdict",
-                  v and v[0]["verdict"] == "mismatch" and any(r["verdict"] == "mismatch" for r in b.inbox.unseen()))
+                  v and v[0]["verdict"] == "mismatch" and any(r["verdict"] == "mismatch" for r in b.spool.unseen()))
 
             # the relay's copy was journaled first (the usual order): the journal says "same"
             b.already.update({"M-RS1", "M-RS2"})
@@ -244,9 +245,9 @@ def main() -> int:
                     "source_endpoint": "gzcoord", "destination_endpoint": "gzcoord", "received_at": 0,
                     "payload": {"media_type": framing.MEDIA_MESSAGE,
                                 "bytes": ipc.b64u(msg(mid_, frm_, to="h/beta").encode())}}})
-            kept = {r["mid"]: r["verdict"] for r in b.inbox.unseen()}
-            check("a mismatch whose journal outcome is 'same' is still kept for the re-show (rule 9); an ok one is not",
-                  kept.get("M-RS1") == "mismatch" and "M-RS2" not in kept, str(kept))
+            kept = {r["message_id"]: r["verdict"] for r in b.spool.unseen()}
+            check("every addressed arrival is listed whatever the journal answered: whether it is shown is the ledger's to say",
+                  kept.get("M-RS1") == "mismatch" and kept.get("M-RS2") == "ok", str(kept))
 
             n_rows = len(b.journal_rows)
             b.carrier.handle_event(b.carrier.session, {"event_type": "message.direct", "data": {
@@ -356,22 +357,22 @@ def main() -> int:
             a.carrier.handle_request({"op": "send", "message_id": "M-12", "text": msg("M-12", "h/alpha", to="h/beta")})
             check("and sending continues on it", until(lambda: gone(a, "M-12", "beta"), 15))
 
-            # -- claims -----------------------------------------------------
-            r1 = b.carrier.handle_request({"op": "claim", "message_id": "M-1", "via": "relay"})
-            r2 = b.carrier.handle_request({"op": "claim", "message_id": "M-1", "via": "interweave"})
-            check("the first claimant shows a message and the second does not",
-                  r1["first"] is True and r2["first"] is False and r2["shown_via"] == "relay")
-            unseen = {r["mid"]: r["mismatch_of"] for r in b.carrier.handle_request({"op": "unseen"})["records"]}
-            check("an InterWeave arrival not yet claimed is offered; a claimed one is not",
-                  "M-4" in unseen and unseen["M-4"] is None and "M-1" not in unseen)
-            b.carrier.handle_request({"op": "claim", "message_id": "M-4", "via": "relay"})
-            unseen = {r["mid"]: r["mismatch_of"] for r in b.carrier.handle_request({"op": "unseen"})["records"]}
-            check("a mismatch whose relay copy was shown first is offered once more, naming it",
-                  unseen.get("M-4") == "M-4")
-            again = b.carrier.handle_request({"op": "claim", "message_id": "M-4", "via": "interweave"})
-            third = b.carrier.handle_request({"op": "claim", "message_id": "M-4", "via": "interweave"})
-            check("that re-show is allowed once", again["first"] and again["reshow"] and not third["first"]
-                  and "M-4" not in {r["mid"] for r in b.carrier.handle_request({"op": "unseen"})["records"]})
+            # -- unseen and the shown ledger (the carrier reads it, the inbox writes it) --------
+            def ledger_put(mid_: str, via_: str, flagged_: bool = False) -> None:
+                from gzcoord.carrier import ledger as Lg
+                h = Lg.Ledger(b.ledger_path, iso_now=lambda: "2026-10-24T12:00:00Z").exclusive()
+                h.pending(mid_, via_, flagged_)
+                h.finish()
+            listed = lambda: {r["message_id"]: r["verdict"] for r in b.carrier.handle_request({"op": "unseen"})["records"]}  # noqa: E731
+            check("unseen lists a journaled arrival on every call until the ledger settles it",
+                  "M-1" in listed() and "M-1" in listed() and "M-4" in listed())
+            ledger_put("M-1", "relay")
+            check("an ok copy is settled by any final line", "M-1" not in listed() and "M-4" in listed())
+            ledger_put("M-4", "relay")
+            check("a mismatch copy the relay's final line settled is still listed: it is owed its flagged re-show",
+                  listed().get("M-4") == "mismatch")
+            ledger_put("M-4", "interweave", True)
+            check("... and is settled once the flagged copy's final line is there", "M-4" not in listed())
 
             # -- a roster that does not verify -------------------------------
             a.roster_breaks = True

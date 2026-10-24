@@ -2,7 +2,9 @@
 A part of tools/fabric/gzcoord/inbox.py, whose docstring is the contract."""
 from __future__ import annotations
 
+import hashlib
 import math
+import sys
 import threading
 import time
 from typing import Any, Callable
@@ -38,6 +40,20 @@ def bypass_inbound(records: list[dict]) -> dict:
     return {"ok": True, "said": []}
 
 
+def ledger_key(rec: dict, msg: dict) -> str:
+    """The id the ledger and the journal key a message by: its MESSAGE-ID, else its body's hash."""
+    mid = (msg.get("metadata") or {}).get("MESSAGE-ID")
+    return mid or "sha256:" + hashlib.sha256(str(rec.get("content", "")).encode("utf-8")).hexdigest()
+
+
+def _record(held: Any, d: Any, mid: str, via: str) -> None:
+    """The ledger line a showing starts with: a pending one, or, for a repeat, none (its final line is all)."""
+    if d.append_pending:
+        held.pending(mid, via, d.flagged)
+    else:
+        held.finish_repeat(mid, via, d.flagged)
+
+
 # ── the wait ─────────────────────────────────────────────────────────
 
 def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[Any], Any], wait_total: float,
@@ -49,7 +65,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
               on_journal_fail: Callable[[str, int], None] = lambda reason, n: None,
               journal_retry_ms: int = JOURNAL_RETRY_MS, deadline: float | None = None,
               session_gone: Callable[[], bool] = lambda: False, iw: Any = None,
-              on_arrival: Callable[[list[dict]], None] | None = None) -> dict:
+              on_arrival: Callable[[list[dict]], None] | None = None, ledger: Any = None) -> dict:
     """One arm of the waiter. `delivered` iff some slice carried a message
     for this session. Every slice's messages are acknowledged before the
     loop continues or returns — an acknowledgement means "shown this
@@ -68,13 +84,12 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     does, with `sessionEnded` in the result: a slice abandoned or a page that landed with it is unread and unacknowledged, so
     the relay shows it again to the next watch (a page already being journaled and shown is finished, and is in the journal).
 
-    `iw` is the second carrier's adapter (carrier/adapter.py), None when there is none. It adds two things and takes none away,
-    and it fails open: a relay copy is shown unless the carrier ANSWERS that a copy of the message was already shown over
-    the carrier (one message, shown once: ADR-064 rule 9, ADR-041 rule 5), and the carrier's arrivals the relay has not shown are
-    delivered as records of their own (no relay id, so never acknowledged to the relay, and already in the journal: the carrier
-    kept them before it receipted them). The claim is made after the journal has kept the page and just before the
-    acknowledgement, never earlier: a page held by the journal is shown later and must not find its message claimed.
-    `on_arrival` is told the relay records addressed here before the journal sees them (the arrival log, rule 11)."""
+    `iw` is the second carrier's adapter (carrier/adapter.py), None when there is none: it only supplies `unseen`, the arrivals
+    the carrier journaled, which pass through the same ledger as a relay record. `ledger` (carrier/ledger.py) decides what is shown:
+    with one, a delivered result carries `ledger`, the exclusive lock still held, and the caller must `finish()` it once it has
+    written the page (or `release()` it if it could not). The lock is taken before the relay's acknowledgement and the pending
+    lines are written before it, so a record the relay no longer holds is one the ledger already knows. `on_arrival` is told the
+    relay records addressed here before the journal sees them (the arrival log, rule 11)."""
     for_me_fn = for_me_fn or (lambda msg: False)
     keywords = keywords or []
     waited = 0.0
@@ -195,22 +210,57 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                 if waited >= wait_total:
                     return held_result()
                 continue
-        if iw is not None:
-            for c in classified:
-                mid = c["msg"]["metadata"].get("MESSAGE-ID") if c["isMine"] and c["msg"] else None
-                if mid and not iw.claim(mid, "relay").get("first", True):
-                    c["quiet"] = True   # shown over the carrier first: journaled and acknowledged, not shown twice
-            for u in iw.unseen():
-                got = iw.claim(u["mid"], CARRIER_NAME)
+        lock = None
+        if ledger is not None:
+            # What the session sees is the shown ledger's to decide (ledger.py), whichever
+            # carrier brought the message and with or without a carrier. The lock is taken
+            # here, the pending lines are written, and only then does the relay's
+            # acknowledgement follow; the caller shows the page and calls finish().
+            relay_mine = [c for c in classified if c["isMine"] and c["msg"]]
+            carrier_recs = iw.unseen() if iw is not None else []
+            if relay_mine or carrier_recs:
                 try:
-                    msg = gzmsg.parse(u["content"])
-                except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
-                    continue
-                if got.get("first", True):
-                    classified.append({"rec": {"id": None, "seq": CARRIER_NAME, "sender": u.get("sender") or u["mid"],
-                                               "timestamp": u["ts"], "content": u["content"]},
-                                       "msg": msg, "isMine": True, "iw": u, "reshow": bool(got.get("reshow"))})
-            delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
+                    lock = ledger.exclusive()
+                except OSError as e:
+                    # The ledger cannot be opened (a state directory that cannot be written):
+                    # the relay's messages are shown without it, as before, and say so; the
+                    # carrier's are not, for without the ledger they would be listed again on
+                    # every pass. A message is never lost; one may repeat.
+                    print(f"gzcoord: the shown ledger could not be opened ({e.strerror or e}); relay messages are shown "
+                          "without it and may repeat", file=sys.stderr)
+                    carrier_recs = []
+                    relay_mine = []
+                    delivered = any(c["isMine"] for c in classified)
+            if lock is not None:
+                try:
+                    for c in relay_mine:
+                        mid = ledger_key(c["rec"], c["msg"])
+                        d = lock.decide(mid, "relay", "unauthenticated")
+                        if not d.show:
+                            c["quiet"] = True     # shown before: journaled and acknowledged, not shown twice
+                            continue
+                        c["may_repeat"] = d.may_repeat
+                        _record(lock, d, mid, "relay")
+                    for u in carrier_recs:
+                        try:
+                            msg = gzmsg.parse(u["content"])
+                        except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
+                            continue
+                        d = lock.decide(u["message_id"], CARRIER_NAME, u["verdict"])
+                        if not d.show:
+                            continue
+                        classified.append({"rec": {"id": None, "seq": CARRIER_NAME, "sender": u.get("sender") or u["message_id"],
+                                                   "timestamp": u["ts"], "content": u["content"]},
+                                           "msg": msg, "isMine": True, "iw": {**u, "mid": u["message_id"]},
+                                           "flagged": d.flagged, "may_repeat": d.may_repeat})
+                        _record(lock, d, u["message_id"], CARRIER_NAME)
+                    delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
+                except BaseException:
+                    lock.release()
+                    raise
+                if not delivered:
+                    lock.release()
+                    lock = None
         for rec in retired:
             try:
                 ack(rec.get("id"))
@@ -233,7 +283,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                     break
         if delivered or hit or wait_total == 0 or waited >= wait_total:
             return {"classified": [c for c in classified if not c.get("quiet")], "waited": waited,
-                    "delivered": delivered, "keywordHit": hit,
+                    "delivered": delivered, "keywordHit": hit, "ledger": lock,
                     "othersPassed": len([c for c in classified if not c["isMine"]])}
         # Nothing for this session, no keyword hit: the cursor is past the
         # slice, and the remaining budget keeps waiting.

@@ -70,7 +70,7 @@ class Carrier:
     me_fn: Callable[[], Me]
     roster_fn: Callable[[], tuple[roster.Roster, list[dict]]]
     outbox: record.Outbox
-    inbox: arrivals.Inbox
+    spool: arrivals.Spool
     arrival_log: arrivals.ArrivalLog
     connect: Callable[[], ipc.Session]
     journal: Callable[[str, str], str]          # (text, iso ts) -> "written" | "same" | raises
@@ -181,12 +181,8 @@ class Carrier:
                 return {"ok": False, "error": f"only {out['queued']} of {out['carried']} recipients recorded: "
                                               f"{out.get('problem', 'unknown')}", **{k: v for k, v in out.items() if k != 'problem'}}
             return {"ok": True, **out}
-        if op == "claim":
-            if req["via"] not in ("relay", "interweave"):
-                raise ValueError("via is relay or interweave")
-            return {"ok": True, **self.inbox.claim(str(req["message_id"]), req["via"])}
         if op == "unseen":
-            return {"ok": True, "records": self.inbox.unseen()}
+            return {"ok": True, "records": self.spool.unseen()}
         if op == "status":
             return {"ok": True, **self.status()}
         if op == "abandon":
@@ -301,16 +297,14 @@ class Carrier:
             self.arrival_log.append(mid, me.address, CARRIER_NAME, verdict)
             try:
                 ts = self.iso_now()
-                outcome = self.journal(text, ts)
+                self.journal(text, ts)
             except Exception as e:  # noqa: BLE001 — a journal that cannot keep it is a refusal to receipt
                 self.counters.not_journaled += 1
                 log(f"the journal could not keep {mid}: {type(e).__name__}: {e}")
                 return
-            # A mismatch is kept whatever the journal said: when the relay's copy was
-            # journaled first the outcome is "same", and the flagged re-show of
-            # rule 9 is exactly this copy.
-            if outcome == "written" or verdict == "mismatch":
-                self.inbox.keep(mid, text, ts, verdict, f"{self.host}/{row['login']}")
+            # Every addressed arrival is listed by `unseen` until the shown ledger settles
+            # it: whether it is SHOWN is the ledger's to say, not the journal's outcome.
+            self.spool.keep(mid, text, ts, verdict, f"{self.host}/{row['login']}")
         self.send_receipt(session, row, mid)
 
     def send_receipt(self, session: ipc.Session, row: dict, mid: str) -> None:

@@ -70,7 +70,8 @@ def render(res: dict, me: dict, channel: str, taxonomy: gzmsg.Taxonomy | None, c
                                                                        "sender": js.get(rec, "sender")})})
             continue
         (mine if c["isMine"] else others).append({"rec": rec, "msg": msg, "iw": c.get("iw"),
-                                                   "reshow": c.get("reshow", False),
+                                                   "flagged": c.get("flagged", False),
+                                                   "may_repeat": c.get("may_repeat", False),
                                                    "retransmitOf": c.get("retransmitOf", js.UNDEFINED)})
     # The reminder rides the head line and nothing else: the one line read
     # on every drain and every delivery; the cap measures the head as it
@@ -87,6 +88,8 @@ def render(res: dict, me: dict, channel: str, taxonomy: gzmsg.Taxonomy | None, c
         # Only under a cap: the drain shows every validator line.
         if math.isfinite(cap) and len(flags) > MAX_FLAG_LINES:
             flags = [*flags[:MAX_FLAG_LINES], t("delivery.flags-more", {"n": len(flags) - MAX_FLAG_LINES})]
+        if p["may_repeat"]:
+            flags.insert(0, t("delivery.may-repeat"))
         if p["retransmitOf"] is not js.UNDEFINED:
             flags = [t("delivery.retransmission", {"seq": p["retransmitOf"]}), *flags]
         if p["iw"]:
@@ -97,7 +100,7 @@ def render(res: dict, me: dict, channel: str, taxonomy: gzmsg.Taxonomy | None, c
             if p["iw"].get("verdict") == "mismatch":
                 flags.insert(0, t("delivery.carrier-mismatch", {"from": p["msg"]["metadata"].get("FROM"),
                                                                     "sender": js.get(rec, "sender")}))
-            if p["reshow"]:
+            if p["flagged"]:
                 flags.insert(0, t("delivery.carrier-reshow", {"carrier": CARRIER_LABEL, "id": p["iw"]["mid"]}))
         else:
             title = t("delivery.title", {"seq": js.get(rec, "seq"), "sender": js.get(rec, "sender"),

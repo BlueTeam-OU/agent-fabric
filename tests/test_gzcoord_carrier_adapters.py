@@ -1,35 +1,40 @@
 #!/usr/bin/env python3
 """The inbox side of the InterWeave carrier (ADR-064 rules 9, 11; CARRIER-
-CONTRACT.md §6): carrier/adapter.py, wait_loop's use of it and the rendering
-of an InterWeave arrival. The relay's own behaviour stays with
+CONTRACT.md §6): carrier/adapter.py, wait_loop's use of the shown ledger and of
+the carrier's `unseen`, the spool behind `unseen`, the arrival log and the
+rendering of an InterWeave arrival. The relay's own behaviour stays with
 test_gzcoord_protocol.py and test_gzcoord_port.py, which run unchanged.
 
-What is held: with no carrier the adapter is a no-op that costs a stat and
-the relay page is untouched; a relay copy is shown unless the carrier ANSWERS
-that the message was shown over InterWeave; the claim is made after the
-journal kept the page, so a page held by the journal is shown later; an
-InterWeave arrival is delivered with no relay acknowledgement; a carrier that
-does not answer fails open; the arrival log gets one line per relay copy
-before the journal sees it; an arrival is shown as from the roster's address
-with the mismatch said. Plain script: prints ok/FAIL, exit 1 on any failure."""
+What is held: with no carrier the adapter is a no-op that costs a stat; a relay
+copy is shown unless the LEDGER says it was shown, with no carrier at all; the
+pending line is written before the relay is acknowledged; a page the journal
+holds writes nothing to the ledger; the carrier's arrivals pass through the same
+ledger and are never acknowledged to the relay; a mismatch revealed after the
+relay's copy is shown once more, flagged; a showing that died after its pending
+line is shown again, flagged; a carrier that does not answer never holds a relay
+delivery; an arrival is shown as from the roster's address with the mismatch
+said. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
 import json
 import os
 import sys
 import tempfile
+import threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 from gzcoord import gzmsg  # noqa: E402
 from gzcoord.carrier import adapter as A  # noqa: E402
-from gzcoord.carrier import arrivals, server  # noqa: E402
+from gzcoord.carrier import arrivals, ledger as L, server  # noqa: E402
+from gzcoord.inbox import show_page  # noqa: E402
 from gzcoord.inbox_parts import render as R  # noqa: E402
 from gzcoord.inbox_parts.tokens import for_me  # noqa: E402
 from gzcoord.inbox_parts.watch import wait_loop  # noqa: E402
 
 fails = 0
 ME = {"address": "h/beta", "slug": "dev"}
+NOW = "2026-10-24T12:00:00Z"
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -43,48 +48,48 @@ def text(mid: str, frm: str = "h/alpha", to: str = "h/beta") -> str:
 
 
 def rrec(n: int, mid: str, **kw) -> dict:
-    return {"id": f"id{n}", "seq": n, "sender": "h/alpha", "timestamp": "2026-10-24T12:00:00Z",
-            "content": text(mid, **kw)}
+    return {"id": f"id{n}", "seq": n, "sender": "h/alpha", "timestamp": NOW, "content": text(mid, **kw)}
 
 
-class FakeAdapter:
-    def __init__(self) -> None:
-        self.claims: dict[str, str] = {}
-        self.records: list[dict] = []
-        self.calls: list[tuple] = []
-        self.down = False
+def urec(mid: str, verdict: str = "ok", frm: str = "h/alpha") -> dict:
+    return {"content": text(mid, frm=frm), "ts": NOW, "seq": None, "message_id": mid, "verdict": verdict,
+            "sender": "h/alpha"}
 
-    def claim(self, mid: str, via: str) -> dict:
-        self.calls.append(("claim", mid, via))
-        if self.down:
-            return {"first": True, "shown_via": None, "reshow": False}
-        if mid in self.claims:
-            if via == "interweave" and self.claims[mid] == "relay" and self.reshow_ok(mid):
-                self.claims[mid] = "both"
-                return {"first": True, "shown_via": "relay", "reshow": True}
-            return {"first": False, "shown_via": self.claims[mid], "reshow": False}
-        self.claims[mid] = via
-        return {"first": True, "shown_via": None, "reshow": False}
 
-    def reshow_ok(self, mid: str) -> bool:
-        return any(r["mid"] == mid and r["verdict"] == "mismatch" for r in self.records)
+class FakeCarrier:
+    """What wait_loop asks of the adapter: `unseen`, nothing else."""
+
+    def __init__(self, records: list[dict] | None = None) -> None:
+        self.records = records or []
+        self.asked = 0
 
     def unseen(self) -> list[dict]:
-        self.calls.append(("unseen",))
-        return [] if self.down else [dict(r) for r in self.records if self.claims.get(r["mid"]) is None
-                                    or (r["verdict"] == "mismatch" and self.claims.get(r["mid"]) == "relay")]
+        self.asked += 1
+        return [dict(r) for r in self.records]
 
 
-def loop(pages: list[list[dict]], iw, journal=None, on_arrival=None, wait_total: float = 0):
+def loop(pages, led, iw=None, journal=None, on_arrival=None, ack_probe=None):
     acked: list = []
     it = iter(pages)
 
     def fetch(slice_, abort):
         return {"messages": next(it, [])}
 
-    res = wait_loop(fetch, lambda i: acked.append(i), wait_total, lambda m: for_me(m, ME), [], ME["address"],
-                    journal=journal, iw=iw, on_arrival=on_arrival, sleep=lambda ms: None)
+    def ack(i):
+        acked.append(i)
+        if ack_probe:
+            ack_probe(i)
+
+    res = wait_loop(fetch, ack, 0, lambda m: for_me(m, ME), [], ME["address"], journal=journal, iw=iw,
+                    on_arrival=on_arrival, sleep=lambda ms: None, ledger=led)
     return res, acked
+
+
+def lines(path: str) -> list[dict]:
+    try:
+        return [json.loads(x) for x in open(path) if x.strip()]
+    except FileNotFoundError:
+        return []
 
 
 def main() -> int:
@@ -93,216 +98,255 @@ def main() -> int:
         path = os.path.join(d, "none.sock")
         a = A.Adapter(path)
         check("with no carrier socket the adapter is absent and every call is a no-op",
-              not a.present() and a.post("M", "t") == "absent" and a.claim("M", "relay")["first"] is True
-              and a.unseen() == [])
+              not a.present() and a.post("M", "t") == "absent" and a.unseen() == [])
 
         seen: list[dict] = []
         replies = {"send": {"ok": True, "carried": 2, "queued": 2, "posted": 0}}
 
         def handler(req: dict) -> dict:
             seen.append(req)
-            return replies.get(req["op"], {"ok": True, "first": False, "shown_via": "interweave", "reshow": False,
-                                           "records": [{"mid": "X"}]})
+            return replies.get(req["op"], {"ok": True, "records": [{"message_id": "X"}]})
 
         srv = server.Server(path, handler)
         b = A.Adapter(path)
-        check("a present carrier that queued every recipient is accepted", b.post("M", "t") == "accepted")
+        check("a present carrier that recorded every recipient is accepted", b.post("M", "t") == "accepted")
         replies["send"] = {"ok": True, "carried": 0, "queued": 0, "posted": 0}
         check("an address no roster row carries is not-carried, not a failure", b.post("M", "t") == "not-carried")
         replies["send"] = {"ok": True, "carried": 2, "queued": 1, "posted": 0}
-        check("a recipient that was not durably queued is a failure, never accepted", b.post("M", "t") == "failed")
-        replies["send"] = {"ok": False, "error": "no"}
-        check("a refusal is a failure", b.post("M", "t") == "failed")
+        check("ok:true with queued != carried is a failure, never accepted", b.post("M", "t") == "failed")
+        replies["send"] = {"ok": False, "error": "only 1 of 2 recipients recorded", "carried": 2, "queued": 1}
+        check("ok:false (partly durable) is a failure", b.post("M", "t") == "failed")
+        check("unseen is passed through", b.unseen() == [{"message_id": "X"}])
         replies["send"] = {"ok": True, "carried": 2, "queued": 2, "posted": 0}
         before = len(seen)
         check("a message over 4 MiB is refused before a byte is written: the relay carries it",
               b.post("M", "x" * (4 * 1024 * 1024 + 1)) == "failed" and len(seen) == before
               and b.post("M", "x" * (4 * 1024 * 1024)) == "accepted" and len(seen) == before + 1)
-        check("claim and unseen are passed through", b.claim("M", "relay")["first"] is False and b.unseen() == [{"mid": "X"}])
+        before = len(seen)
+        check("a request line over 9 MiB is refused too: 2 MiB of control characters escape to six bytes each",
+              b.post("M", "\x01" * (2 * 1024 * 1024)) == "failed" and len(seen) == before)
         srv.close()
         open(path, "w").close()
         os.unlink(path)
-        dead = socket_left_behind(path)
-        check("a socket file with no carrier behind it fails open: claim says show it",
-              dead.present() and dead.claim("M", "relay")["first"] is True and dead.unseen() == []
-              and dead.post("M", "t") == "failed")
+        sock = socket_left_behind(path)
+        check("a socket file with no carrier behind it fails open: unseen is nothing, a post fails",
+              sock.present() and sock.unseen() == [] and sock.post("M", "t") == "failed")
 
-    # -- wait_loop ---------------------------------------------------------
-    r, acked = loop([[rrec(1, "R-1")]], None)
-    check("without an adapter the relay page is exactly as before",
-          r["delivered"] and len(r["classified"]) == 1 and acked == ["id1"])
-
-    iw = FakeAdapter()
-    r, acked = loop([[rrec(1, "R-1")]], iw)
-    check("a relay copy nobody showed first is shown, and claimed after the journal",
-          r["delivered"] and [c["rec"]["id"] for c in r["classified"]] == ["id1"] and iw.claims == {"R-1": "relay"})
-
-    iw = FakeAdapter()
-    iw.claims["R-2"] = "interweave"
-    r, acked = loop([[rrec(1, "R-2")]], iw)
-    check("a relay copy of a message already shown over InterWeave is acknowledged and not shown again",
-          not r["delivered"] and r["classified"] == [] and acked == ["id1"])
-
-    iw = FakeAdapter()
-    iw.records = [{"mid": "W-1", "content": text("W-1"), "ts": "2026-10-24T12:01:00Z", "verdict": "ok", "sender": "h/alpha",
-                   "mismatch_of": None}]
-    r, acked = loop([[]], iw)
-    shown = r["classified"]
-    check("an InterWeave arrival the relay has not shown is delivered",
-          r["delivered"] and len(shown) == 1 and shown[0]["iw"]["mid"] == "W-1" and iw.claims == {"W-1": "interweave"})
-    check("  and no relay acknowledgement is made for it", acked == [])
-
-    iw = FakeAdapter()
-    iw.down = True
-    r, acked = loop([[rrec(1, "R-3")]], iw)
-    check("a carrier that cannot be asked never holds a relay delivery", r["delivered"] and acked == ["id1"])
-
-    # the claim comes after the journal: a page the journal holds is shown later
-    iw = FakeAdapter()
-    state = {"fail": True}
-
-    def journal(recs):
-        return {"ok": False, "reason": "held"} if state["fail"] else {"ok": True, "said": []}
-
-    def run_held():
-        loop([[rrec(1, "H-1")]], iw, journal=journal, wait_total=0)
-    run_held()
-    check("a page held by the journal has claimed nothing", "H-1" not in iw.claims)
-    state["fail"] = False
-    r, _ = loop([[rrec(1, "H-1")]], iw, journal=journal)
-    check("  so when the journal recovers the message is shown", r["delivered"] and iw.claims == {"H-1": "relay"})
-
-    # rule 9: relay copy first, the InterWeave copy reveals a mismatch
-    iw = FakeAdapter()
-    iw.records = [{"mid": "S-1", "content": text("S-1", frm="h/gamma"), "ts": "t", "verdict": "mismatch",
-                   "sender": "h/alpha", "mismatch_of": "S-1"}]
-    r, _ = loop([[rrec(1, "S-1", frm="h/gamma")]], iw)
-    kinds = [("iw" if c.get("iw") else "relay", bool(c.get("reshow"))) for c in r["classified"]]
-    check("a relay copy shown, and the InterWeave copy that reveals its FROM mismatch shown again, flagged",
-          kinds == [("relay", False), ("iw", True)], str(kinds))
-    r, _ = loop([[]], iw)
-    check("  and that re-show happens once", not r["delivered"])
-
-    # -- the arrival log hook ---------------------------------------------
-    got: list[list[dict]] = []
-    order: list[str] = []
-    loop([[rrec(1, "L-1"), rrec(2, "L-2", to="h/other")]], None,
-         journal=lambda recs: order.append("journal") or {"ok": True, "said": []},
-         on_arrival=lambda recs: (order.append("arrival"), got.append(recs)))
-    check("the arrival hook sees only the copies addressed here, before the journal",
-          order == ["arrival", "journal"] and [r["id"] for r in got[0]] == ["id1"])
-
-    with tempfile.TemporaryDirectory(prefix="gz-arr-") as d:
-        log = arrivals.ArrivalLog(os.path.join(d, "a", "gzcoord-arrivals.jsonl"), iso_now=lambda: "T")
-        A.relay_arrivals(log, "h/beta", ["L-1", "L-1"])
-        lines = [json.loads(l) for l in open(log.path)]
-        A.relay_arrivals(log, "h/beta", ["L-1"])
-        lines = [json.loads(l) for l in open(log.path)]
-        check("a relay copy is a line with the relay's verdict unauthenticated; a re-read of the same record is not another",
-              [(x["mid"], x["carrier"], x["verdict"], x["addressee"]) for x in lines]
-              == [("L-1", "relay", "unauthenticated", "h/beta")]
-              and oct(os.stat(log.path).st_mode & 0o777) == "0o600")
-
-    with tempfile.TemporaryDirectory(prefix="gz-spool-") as d:
-        box = arrivals.Inbox(d, iso_now=lambda: "T")
-        box.keep("K-1", "c", "t", "ok", "h/a")
-        box.keep("K-1", "c", "t", "ok", "h/a")
-        again = arrivals.Inbox(d, iso_now=lambda: "T")
-        check("the spool keeps the first copy of a message once, across a restart too",
-              len(box.spool) == 1 and len(again.spool) == 1 and len(open(os.path.join(d, "inbox.jsonl")).readlines()) == 1)
-
-    with tempfile.TemporaryDirectory(prefix="gz-pend-") as d:
-        calls: list[dict] = []
-        state = {"up": False}
-
-        def call(path, req, timeout=0):
-            calls.append(req)
-            if not state["up"]:
-                raise OSError("no answer")
-            return {"ok": True, "first": True, "shown_via": None, "reshow": False, "records": []}
-        sock = os.path.join(d, "c.sock")
-        open(sock, "w").close()
         now = [0.0]
-        pend = os.path.join(d, "pending.jsonl")
-        ad = A.Adapter(sock, call, pending=pend, clock=lambda: now[0])
-        got = ad.claim("P-1", "relay")
-        check("a relay show the carrier could not be told of fails open and is noted for later",
-              got["first"] is True and open(pend).read().strip() == '{"mid":"P-1"}')
-        n = len(calls)
-        ad.claim("P-2", "relay")
+        calls: list[dict] = []
+
+        def refusing(p, req, timeout=0):
+            calls.append(req)
+            raise OSError("no answer")
+        os.unlink(path)
+        open(path, "w").close()
+        ad = A.Adapter(path, refusing, clock=lambda: now[0])
         ad.unseen()
-        check("a carrier that did not answer is not asked again for a while: the relay is not delayed per record",
-              len(calls) == n and "P-2" in open(pend).read() or False)
-        state["up"] = True
+        ad.unseen()
+        check("a carrier that did not answer is not asked again for a while: the relay is not delayed per pass",
+              len(calls) == 1)
         now[0] += A.DOWN_FOR + 1
-        calls.clear()
         ad.unseen()
-        check("when it answers again the noted shows reach it first, then the question, and the note is gone",
-              [(c["op"], c.get("message_id"), c.get("via")) for c in calls]
-              == [("claim", "P-1", "relay"), ("claim", "P-2", "relay"), ("unseen", None, None)] and not os.path.exists(pend),
-              str(calls))
-        os.unlink(sock)
-        spool = os.path.join(d, "inbox.jsonl")
-        open(spool, "w").write('{"mid":"X"}\n')
-        ad2 = A.Adapter(sock, call, pending=pend, spool=spool, clock=lambda: now[0])
-        ad2.claim("P-3", "relay")
-        check("with the carrier gone but its arrivals left behind, a relay show is still noted",
-              os.path.exists(pend) and "P-3" in open(pend).read())
-        os.unlink(pend)
-        ad3 = A.Adapter(sock, call, pending=pend, clock=lambda: now[0])
-        ad3.claim("P-4", "relay")
-        check("with no carrier and no arrivals nothing is noted (the relay alone, as before)", not os.path.exists(pend))
+        check("... and is asked again once the while has passed", len(calls) == 2)
 
-    with tempfile.TemporaryDirectory(prefix="gz-prune-") as d:
-        iso = [f"2026-10-{day:02d}T00:00:00Z" for day in (1, 20)]
-        box = arrivals.Inbox(d, iso_now=lambda: iso[0])
-        box.keep("S-1", "c1", "t", "ok", "h/a")
-        box.keep("S-2", "c2", "t", "ok", "h/a")
-        box.keep("S-3", "c3", "t", "mismatch", "h/a")
-        box.claim("S-1", "interweave")
-        box.claim("S-3", "relay")
-        check("a settled record leaves memory at once; an owed re-show and an unclaimed one stay",
-              sorted(r["mid"] for r in box.spool) == ["S-2", "S-3"])
-        with open(os.path.join(d, "inbox.jsonl"), "ab") as fh:
-            fh.write(b'{"mid":"S-9","content":"to')                     # a torn tail
-        again = arrivals.Inbox(d, iso_now=lambda: iso[1])
-        check("at open the file drops settled records and a torn tail; a claim past the bound goes with its record",
-              [r["mid"] for r in again.spool] == ["S-2"] and again.claims == {}
-              and len(open(os.path.join(d, "inbox.jsonl")).readlines()) == 1, str(again.claims))
-        again.keep("S-10", "c", "t", "ok", "h/a")
-        third = arrivals.Inbox(d, iso_now=lambda: iso[1])
-        check("an append after the repaired tail is a whole line", "S-10" in {r["mid"] for r in third.spool})
+    # -- wait_loop and the ledger ---------------------------------------------
+    with tempfile.TemporaryDirectory(prefix="gz-wl-") as d:
+        lpath = os.path.join(d, "gzcoord-shown.jsonl")
+        led = L.Ledger(lpath, iso_now=lambda: NOW)
 
-    with tempfile.TemporaryDirectory(prefix="gz-torn-") as d:
-        box = arrivals.Inbox(d, iso_now=lambda: "T")
-        box.keep("T-1", "c", "t", "ok", "h/a")
-        with open(os.path.join(d, "inbox.jsonl"), "ab") as fh:
-            fh.write(b'{"mid":"T-2","con')                  # a crash mid-append; nothing else to rewrite
-        again = arrivals.Inbox(d, iso_now=lambda: "T")
-        again.keep("T-3", "c", "t", "ok", "h/a")
-        check("a spool with a torn tail and nothing to prune: the next record is still a whole line after a restart",
-              [r["mid"] for r in arrivals.Inbox(d, iso_now=lambda: "T").spool] == ["T-1", "T-3"])
+        r, acked = loop([[rrec(1, "R-1")]], None)
+        check("without a ledger the relay page is exactly as before", r["delivered"] and acked == ["id1"] and "ledger" not in r
+              or (r["delivered"] and r.get("ledger") is None))
+
+        seen_when_acked: list[int] = []
+        r, acked = loop([[rrec(1, "R-1")]], led, ack_probe=lambda i: seen_when_acked.append(len(lines(lpath))))
+        check("a relay copy nothing showed is delivered, with the ledger's lock held for the caller",
+              r["delivered"] and r["ledger"] is not None and [c["rec"]["id"] for c in r["classified"]] == ["id1"])
+        check("the pending line was on disk when the relay was acknowledged (never after)",
+              seen_when_acked == [1] and lines(lpath)[0].get("pending") is True and acked == ["id1"], str(seen_when_acked))
+        out = []
+        show_page(r, lambda: out.append("written"))
+        check("show_page writes the page, then the final line, and releases the lock",
+              out == ["written"] and [x.get("pending") for x in lines(lpath)] == [True, None])
+        led.exclusive().release()          # would block for ever if the lock were still held
+
+        r, acked = loop([[rrec(1, "R-1")]], led)
+        check("the same relay record again (an acknowledgement that failed): acknowledged, not shown, no lock kept",
+              not r["delivered"] and r["classified"] == [] and acked == ["id1"] and r["ledger"] is None if "ledger" in r else
+              not r["delivered"] and acked == ["id1"])
+
+        # shown by the carrier first: the relay's copy is not shown
+        c2 = FakeCarrier([urec("C-1")])
+        r, _ = loop([[]], led, iw=c2)
+        check("a carrier arrival nobody showed is delivered, titled from its record, never acknowledged to the relay",
+              r["delivered"] and [c["iw"]["mid"] for c in r["classified"]] == ["C-1"], str(r))
+        show_page(r, lambda: None)
+        r, acked = loop([[rrec(2, "C-1")]], led, iw=c2)
+        check("... and the relay's later copy of it is acknowledged and not shown", not r["delivered"] and acked == ["id2"])
+
+        # shown by the relay first: an ok carrier copy is not shown, a mismatch one is, flagged, once
+        r, _ = loop([[rrec(3, "S-1", frm="h/gamma")]], led, iw=FakeCarrier([urec("S-1", "mismatch", frm="h/gamma")]))
+        kinds = [("iw" if c.get("iw") else "relay", bool(c.get("flagged"))) for c in r["classified"]]
+        check("the relay's copy shown, and the carrier's copy that reveals the FROM mismatch shown again, flagged",
+              kinds == [("relay", False), ("iw", True)], str(kinds))
+        show_page(r, lambda: None)
+        r, _ = loop([[]], led, iw=FakeCarrier([urec("S-1", "mismatch", frm="h/gamma")]))
+        check("... and that second showing happens once", not r["delivered"])
+        r, _ = loop([[rrec(4, "S-2")]], led, iw=FakeCarrier([urec("S-2", "ok")]))
+        show_page(r, lambda: None)
+        check("an ok carrier copy of a message the relay showed is not shown (the same page: one showing)",
+              [("iw" if c.get("iw") else "relay") for c in r["classified"]] == ["relay"])
+
+        # a showing that died after its pending line
+        h = led.exclusive()
+        h.pending("D-1", "relay")
+        h.release()
+        r, _ = loop([[rrec(5, "D-1")]], led)
+        check("a message whose showing died after the pending line is shown again, flagged may-repeat",
+              r["delivered"] and r["classified"][0]["may_repeat"] is True)
+        show_page(r, lambda: None)
+        r, _ = loop([[rrec(6, "D-1")]], led)
+        check("... and then it is settled", not r["delivered"])
+
+        # a page the journal holds writes nothing
+        before = lines(lpath)
+        r, _ = loop([[rrec(7, "H-1")]], led, journal=lambda recs: {"ok": False, "reason": "held"})
+        check("a page the journal holds is not recorded in the ledger (it is shown later)",
+              lines(lpath) == before and not r["delivered"])
+        r, _ = loop([[rrec(7, "H-1")]], led, journal=lambda recs: {"ok": True, "said": []})
+        check("... and when the journal recovers it is shown", r["delivered"])
+        show_page(r, lambda: None)
+
+        # the page cannot be written: the lock is released and the pending line stands
+        r, _ = loop([[rrec(8, "W-1")]], led)
+
+        def broken():
+            raise BrokenPipeError()
+        try:
+            show_page(r, broken)
+        except BrokenPipeError:
+            pass
+        led.exclusive().release()
+        check("a showing that raises releases the lock and leaves the pending line", lines(lpath)[-1].get("pending") is True
+              and lines(lpath)[-1]["mid"] == "W-1")
+
+        # a carrier that is down does not hold the relay
+        down = FakeCarrier([])
+        r, acked = loop([[rrec(9, "N-1")]], led, iw=down)
+        show_page(r, lambda: None)
+        check("a carrier with nothing to say never holds a relay delivery", r["delivered"] and acked == ["id9"])
+
+        # the arrival log hook
+        got: list[list[dict]] = []
+        order: list[str] = []
+        loop([[rrec(10, "L-1"), rrec(11, "L-2", to="h/other")]], None,
+             journal=lambda recs: order.append("journal") or {"ok": True, "said": []},
+             on_arrival=lambda recs: (order.append("arrival"), got.append(recs)))
+        check("the arrival hook sees only the copies addressed here, before the journal",
+              order == ["arrival", "journal"] and [x["id"] for x in got[0]] == ["id10"])
+
+    # -- a ledger that cannot be opened ----------------------------------------
+    with tempfile.TemporaryDirectory(prefix="gz-nol-") as d:
+        blocker = os.path.join(d, "agents")
+        open(blocker, "w").write("a file where the state directory should be")
+        led = L.Ledger(os.path.join(blocker, "me", "gzcoord-shown.jsonl"), iso_now=lambda: NOW)
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            r, acked = loop([[rrec(1, "NL-1")]], led, iw=FakeCarrier([urec("NL-2")]))
+        check("a ledger that cannot be opened is said, the relay's message is shown without it, the carrier's is not (it would repeat)",
+              r["delivered"] and [c["rec"]["id"] for c in r["classified"]] == ["id1"] and acked == ["id1"]
+              and "shown ledger could not be opened" in err.getvalue(), err.getvalue())
+
+    # -- two inbox paths cannot both show one message -------------------------
+    with tempfile.TemporaryDirectory(prefix="gz-two-") as d:
+        led = L.Ledger(os.path.join(d, "gzcoord-shown.jsonl"), iso_now=lambda: NOW)
+        shown: list[str] = []
+        gate = threading.Barrier(2)
+
+        def path(via_relay: bool) -> None:
+            gate.wait()
+            r, _ = loop([[rrec(1, "T-1")]] if via_relay else [[]], led, iw=None if via_relay else FakeCarrier([urec("T-1")]))
+            if r["delivered"]:
+                show_page(r, lambda: shown.append("relay" if via_relay else "carrier"))
+        ts = [threading.Thread(target=path, args=(v,)) for v in (True, False)]
+        [t.start() for t in ts]
+        [t.join(30) for t in ts]
+        check("the relay path and the carrier path racing for one message: it is shown once", len(shown) == 1, str(shown))
+
+    # -- the spool behind unseen ---------------------------------------------
+    with tempfile.TemporaryDirectory(prefix="gz-spool-") as d:
+        lpath = os.path.join(d, "gzcoord-shown.jsonl")
+        sp = arrivals.Spool(os.path.join(d, "iw"), lpath, iso_now=lambda: NOW)
+        sp.keep("K-1", "c1", NOW, "ok", "h/a")
+        sp.keep("K-1", "again", NOW, "ok", "h/a")
+        sp.keep("K-2", "c2", NOW, "mismatch", "h/a")
+        sp.keep("K-3", "c3", NOW, "ok", "h/a")
+        un = sp.unseen()
+        check("the spool lists a message once, in arrival order, with the contract's fields",
+              [r["message_id"] for r in un] == ["K-1", "K-2", "K-3"] and set(un[0]) == {
+                  "content", "ts", "seq", "message_id", "verdict", "sender"} and un[0]["seq"] is None)
+        led = L.Ledger(lpath, iso_now=lambda: NOW)
+        h = led.exclusive()
+        for mid, via in (("K-1", "relay"), ("K-2", "relay"), ("K-3", "interweave")):
+            h.pending(mid, via)
+        h.finish()
+        check("unseen drops an ok copy on any final line, a carrier-shown one on its own, and keeps a mismatch the relay showed",
+              [r["message_id"] for r in sp.unseen()] == ["K-2"])
+        check("unseen asks for nothing it already lists again: a record is listed on every call until settled",
+              [r["message_id"] for r in sp.unseen()] == ["K-2"])
+        h = led.exclusive()
+        h.pending("K-2", "interweave", True)
+        h.finish()
+        check("... until the ledger holds the flagged copy's final line", sp.unseen() == [])
+        sp.keep("K-4", "c4", NOW, "ok", "h/a")
+        with open(os.path.join(d, "iw", "inbox.jsonl"), "ab") as fh:
+            fh.write(b'{"mid":"K-5","con')
+        again = arrivals.Spool(os.path.join(d, "iw"), lpath, iso_now=lambda: NOW)
+        again.keep("K-6", "c6", NOW, "ok", "h/a")
+        check("a torn tail is cut at open and the next record is a whole line, across a restart",
+              [r["mid"] for r in arrivals.Spool(os.path.join(d, "iw"), lpath, iso_now=lambda: NOW).records] == ["K-4", "K-6"])
+        old = arrivals.Spool(os.path.join(d, "iw"), lpath, iso_now=lambda: "2026-12-01T00:00:00Z")
+        check("records older than the bound leave the spool at open", old.records == [])
+
+    # -- the arrival log -------------------------------------------------------
+    with tempfile.TemporaryDirectory(prefix="gz-arr-") as d:
+        log = arrivals.ArrivalLog(os.path.join(d, "a", "gzcoord-arrivals.jsonl"), iso_now=lambda: NOW)
+        A.relay_arrivals(log, "h/beta", ["L-1", "L-1"])
+        A.relay_arrivals(log, "h/beta", ["L-1"])
+        check("a relay copy is a line with the relay's verdict unauthenticated; a re-read of the same record is not another",
+              [(x["mid"], x["carrier"], x["verdict"], x["addressee"]) for x in lines(log.path)]
+              == [("L-1", "relay", "unauthenticated", "h/beta")] and oct(os.stat(log.path).st_mode & 0o777) == "0o600")
+
+        def writer(n: int) -> None:
+            for i in range(25):
+                log.append(f"W-{n}-{i}", "h/beta", "interweave", "ok")
+        ws = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
+        [w.start() for w in ws]
+        [w.join(30) for w in ws]
+        check("two writers appending at once leave whole lines only", len(lines(log.path)) == 101)
 
     # -- rendering ---------------------------------------------------------
     me = {"address": "h/beta", "slug": "dev"}
-    tax = None
     msg = gzmsg.parse(text("W-2", frm="h/gamma"))
-    rec = {"id": None, "seq": "interweave", "sender": "h/alpha", "timestamp": "2026-10-24T12:01:00Z",
-           "content": text("W-2", frm="h/gamma")}
-    out = R.render({"classified": [{"rec": rec, "msg": msg, "isMine": True,
-                                    "iw": {"mid": "W-2", "verdict": "mismatch"}, "reshow": True}]},
-                   me, "gzapp:gzcoord", tax)
-    check("an arrival is titled from the roster's address, not its FROM, with the mismatch and the re-show said",
+    rec = {"id": None, "seq": "interweave", "sender": "h/alpha", "timestamp": NOW, "content": text("W-2", frm="h/gamma")}
+
+    def entry(**kw) -> dict:
+        return {"rec": rec, "msg": msg, "isMine": True, "iw": {"mid": "W-2", "verdict": "mismatch"}, **kw}
+    out = R.render({"classified": [entry(flagged=True, may_repeat=True)]}, me, "gzapp:gzcoord", None)
+    check("an arrival is titled from the roster's address, not its FROM, with the mismatch, the re-show and the repeat said",
           "InterWeave, from h/alpha" in out and "FROM mismatch" in out and "says FROM h/gamma" in out
-          and "relay copy of W-2" in out and "relay seq" not in out, out)
-    ok_rec = {"classified": [{"rec": rec, "msg": gzmsg.parse(text("W-3")), "isMine": True,
-                              "iw": {"mid": "W-3", "verdict": "ok"}, "reshow": False}]}
-    check("a verified arrival carries no mismatch flag", "mismatch" not in R.render(ok_rec, me, "gzapp:gzcoord", tax))
+          and "relay copy of W-2" in out and "may repeat" in out and "relay seq" not in out, out)
+    ok_rec = {"classified": [{**entry(), "msg": gzmsg.parse(text("W-3")), "iw": {"mid": "W-3", "verdict": "ok"}}]}
+    check("a verified arrival carries no mismatch flag", "mismatch" not in R.render(ok_rec, me, "gzapp:gzcoord", None))
+    relay_repeat = R.render({"classified": [{"rec": rrec(1, "R-9"), "msg": gzmsg.parse(text("R-9")), "isMine": True,
+                                             "may_repeat": True}]}, me, "gzapp:gzcoord", None)
+    check("a relay copy shown again after an interrupted showing says so", "may repeat" in relay_repeat, relay_repeat)
     big = {"id": None, "seq": "interweave", "sender": "h/alpha", "timestamp": "t",
            "content": text("W-4").replace("body of W-4", "x" * 6000)}
     cut = R.render({"classified": [{"rec": big, "msg": gzmsg.parse(big["content"]), "isMine": True,
-                                    "iw": {"mid": "W-4", "verdict": "ok"}, "reshow": False}]},
-                   me, "gzapp:gzcoord", tax, cap=2000)
+                                    "iw": {"mid": "W-4", "verdict": "ok"}}]}, me, "gzapp:gzcoord", None, cap=2000)
     check("an arrival cut for the notification cap names the journal, not a relay replay",
           "fabric-history --thread W-4 --full" in cut and "--replay" not in cut, cut)
 

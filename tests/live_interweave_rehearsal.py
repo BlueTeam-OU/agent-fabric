@@ -198,7 +198,7 @@ def main() -> int:
             return "written"
         bbox = record.Outbox(bdir, iso_now=iso)
         bcar = engine.Carrier(
-            me_fn=lambda: bme, roster_fn=lambda: (rdoc, good), outbox=bbox, inbox=arrivals.Inbox(bdir, iso_now=iso),
+            me_fn=lambda: bme, roster_fn=lambda: (rdoc, good), outbox=bbox, spool=arrivals.Spool(bdir, os.path.join(bdir, "gzcoord-shown.jsonl"), iso_now=iso),
             arrival_log=arrivals.ArrivalLog(os.path.join(bdir, "arr.jsonl"), iso_now=iso),
             connect=lambda: ipc.Session.open(b.sock(), endpoint="gzcoord", kind="automated-client"),
             journal=bjournal, parse=parse, for_me=for_me, host=HOST, iso_now=iso)
@@ -226,7 +226,7 @@ def main() -> int:
         m2 = "01a16de0-0000-7000-8000-000000000002"
         t0 = time.monotonic()
         bcar.send(m2, mk(m2, f"{HOST}/othr", f"{HOST}/{LOGIN}"))
-        ok = until(lambda: [r["mid"] for r in a_call({"op": "unseen"})["records"]] == [m2] and
+        ok = until(lambda: [r["message_id"] for r in a_call({"op": "unseen"})["records"]] == [m2] and
                    not [x for x in bbox.outstanding()], 60)
         say(f"  B -> A direct: journaled at A (a real journal) and receipted in {time.monotonic() - t0:.2f} s")
         check("B -> A: A's arrival is in the inbox spool and B's delivery ended on A's receipt", ok)

@@ -280,15 +280,15 @@ def _arg_after(argv: list[str], flag: str) -> Any:
 
 
 def carrier_hooks(address: str, journal_off: bool):
-    """(the carrier's adapter, the arrival-log hook) of ADR-064, or (None, None)
-    with the journal off: then the route is the relay alone (rule 8) and the
-    arrival log, which sits beside the journal, is not kept. With no carrier
-    running the adapter is a no-op, so the relay-only session is as it was."""
-    if journal_off:
-        return None, None
-    from .carrier import CARRIER_NAME, adapter, arrivals
+    """(the carrier's adapter, the arrival-log hook, the shown ledger) of ADR-064.
+    The ledger decides what a session sees whichever carrier brought a message and
+    needs no carrier; the arrival log is parity evidence, kept journal on or off. The
+    carrier's adapter is None with the journal off: then the route is the relay alone
+    (rule 8). With no carrier running the adapter is a no-op."""
+    from .carrier import adapter, arrivals, ledger
     ep = _episodic()
     log = arrivals.ArrivalLog(os.path.join(ep.state_dir(), "gzcoord-arrivals.jsonl"), iso_now=ep.now)
+    shown = ledger.Ledger(os.path.join(ep.state_dir(), "gzcoord-shown.jsonl"), iso_now=ep.now)
 
     def on_arrival(recs: list[dict]) -> None:
         mids = []
@@ -303,8 +303,23 @@ def carrier_hooks(address: str, journal_off: bool):
         except OSError as e:
             # Evidence for the parity report, not a condition of delivery.
             print(f"gzcoord: the arrival log could not be written ({e.strerror or e}); the message is shown", file=sys.stderr)
-    return adapter.Adapter(pending=os.path.join(ep.state_dir(), f"{CARRIER_NAME}-claims-pending.jsonl"),
-                           spool=os.path.join(ep.state_dir(), CARRIER_NAME, "inbox.jsonl")), on_arrival
+    return (None if journal_off else adapter.Adapter()), on_arrival, shown
+
+
+def show_page(res: dict, write: Callable[[], None]) -> None:
+    """Write a delivered page to the session while the shown ledger's lock is held
+    (wait_loop took it), then record the showing; if the write fails the lock is
+    released with the pending lines standing, which is how an interrupted showing is
+    found (the message is then shown once more, flagged)."""
+    held = res.get("ledger")
+    try:
+        write()
+    except BaseException:
+        if held:
+            held.release()
+        raise
+    if held:
+        held.finish()
 
 
 def with_queued(shown: str, classified: list[dict], me: dict) -> str:
@@ -450,7 +465,7 @@ def main(argv: list[str]) -> int:
 
     off = bypass.is_off()
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
-    iw, on_arrival = carrier_hooks(me["address"], off)
+    iw, on_arrival, ledger = carrier_hooks(me["address"], off)
     cause = {"reason": None}
 
     def held_line(reason: str, n: int) -> str:
@@ -515,7 +530,8 @@ def main(argv: list[str]) -> int:
                                                            mine_fn, [], me["address"], held, on_hold, journal=journal,
                                                            on_journal_fail=on_journal_fail,
                                                            deadline=deadline if until_delivery else None,
-                                                           session_gone=session_gone, iw=iw, on_arrival=on_arrival))
+                                                           session_gone=session_gone, iw=iw, on_arrival=on_arrival,
+                                                           ledger=ledger))
             except _JournalHeld as e:
                 print(e.line, flush=True)
                 return 6
@@ -547,15 +563,15 @@ def main(argv: list[str]) -> int:
             if r["delivered"]:
                 cause["reason"] = None
                 mark_retransmissions(r["classified"], fetch_recent)
-                print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t, reminder=reminder),
-                                  r["classified"], me), flush=True)
+                show_page(r, lambda: print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t,
+                                                                reminder=reminder), r["classified"], me), flush=True))
                 if until_delivery:
                     return 0
 
     try:
         res = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, wait_total, mine_fn, keywords, me["address"],
                                                      journal=journal, on_journal_fail=on_journal_fail, iw=iw,
-                                                     on_arrival=on_arrival))
+                                                     on_arrival=on_arrival, ledger=ledger))
     except Exception as e:  # noqa: BLE001
         x = explain_relay_error(e, relay_url, t)
         print(x["line"], file=sys.stderr)
@@ -571,7 +587,8 @@ def main(argv: list[str]) -> int:
     if not res["delivered"]:
         return 0
     mark_retransmissions(res["classified"], fetch_recent)
-    print(with_queued(render(res, me, channel, taxonomy, t=t, reminder=reminder), res["classified"], me))
+    show_page(res, lambda: print(with_queued(render(res, me, channel, taxonomy, t=t, reminder=reminder),
+                                             res["classified"], me)))
     # The cursor is already past everything shown: wait_loop acknowledges
     # every slice it sees, delivered or passed.
     return 0

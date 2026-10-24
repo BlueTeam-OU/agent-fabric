@@ -154,7 +154,7 @@ def cmd_run() -> int:
         box = record.Outbox(state, iso_now=iso_now)
     except record.RecordError as e:
         return _refuse(str(e))
-    inbox = arrivals.Inbox(state, iso_now=iso_now)
+    spool = arrivals.Spool(state, os.path.join(_state(), "gzcoord-shown.jsonl"), iso_now=iso_now)
     log = arrivals.ArrivalLog(os.path.join(_state(), "gzcoord-arrivals.jsonl"), iso_now=iso_now)
 
     def stamp() -> object:
@@ -165,7 +165,7 @@ def cmd_run() -> int:
             return None
 
     carrier = engine.Carrier(
-        me_fn=make_me, roster_fn=verified_roster, outbox=box, inbox=inbox, arrival_log=log,
+        me_fn=make_me, roster_fn=verified_roster, outbox=box, spool=spool, arrival_log=log,
         connect=lambda: ipc.Session.open(data_socket, endpoint=r.endpoint, kind="automated-client"),
         journal=journal_inbound, parse=parse, for_me=for_me, host=host, iso_now=iso_now, roster_stamp=stamp)
     try:
