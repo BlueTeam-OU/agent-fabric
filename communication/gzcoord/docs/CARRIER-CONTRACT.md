@@ -131,10 +131,15 @@ refuse.
   `episodic.out_final` for the first carrier to accept and left by a later
   accept (rule 7).
 - `{"op":"unseen"}` -> `{"ok":true,"records":[{"content","ts","seq":null,
-  "message_id","verdict"}]}`: InterWeave arrivals journaled and not yet
-  handed to this inbox, in arrival order. Whether one is shown is not the
-  carrier's to decide: the inbox passes each through the shown ledger
-  below, exactly as it does a relay record.
+  "message_id","verdict"}]}`: InterWeave arrivals journaled, in arrival
+  order, each listed again on every call until the shown ledger below holds
+  its final line (`"via": "interweave"`, or, for an `ok` copy, any final
+  line for its MESSAGE-ID). The carrier reads the ledger for this and never
+  writes it, so an inbox that dies after `unseen` loses nothing: the next
+  call lists the record again, and the ledger keeps a re-listed record
+  from being shown twice. Whether one is shown is not the carrier's to
+  decide: the inbox passes each through the ledger, exactly as it does a
+  relay record.
 - `{"op":"status"}` -> counts per recipient: outstanding, blocked (with
   code), posted-awaiting-receipt, oldest age.
 - `{"op":"abandon","message_id":<id>,"recipient":<login>,"by":<operator>}`
@@ -154,17 +159,25 @@ peer's uid must equal the carrier's, else the connection is closed unread
 written by both inbox paths and by nothing else. Before showing a message,
 an inbox path takes an exclusive `flock` on the ledger and looks its
 MESSAGE-ID up:
-- absent: it shows the message, then appends `{"mid", "via": "relay" |
-  "interweave", "t"}` in one `write()`, then releases the lock;
+- absent: it appends `{"mid", "via": "relay" | "interweave", "t",
+  "pending": true}`, shows the message, then appends the final line (the
+  same without `pending`), each in one `write()`, then releases the lock;
+- pending only (an inbox path died between the two appends): the message
+  may or may not have reached the session, so it is shown once more,
+  flagged "may repeat: an earlier showing was interrupted", and its final
+  line appended;
 - present: it does not show it, with one exception (rule 9): a copy whose
   verdict is `mismatch`, when the copy already shown was the relay's, is
   shown again, flagged and naming the message shown first, and recorded
   with `"flagged": true`; a flagged copy is shown at most once.
 This holds whichever carrier arrives first, with the carrier running,
-stopped or crashed, and with the journal on or off. A crash after showing
-and before the append can show a message once more after the restart; no
-order loses one, the relay being the transport of record (ADR-064 rule
-11).
+stopped or crashed, and with the journal on or off. No order loses a
+message, and none shows one twice unannounced: the only second showings
+are rule 9's flagged mismatch copy and the flagged repeat after an
+interrupted showing, the one window no record-and-show order can close
+(recording first would lose a message instead). "Shows" inside the lock is
+writing the message to the session's output and nothing that waits on the
+session, so the lock is held for that write and no longer.
 
 **The relay path fails open.** When the carrier is unreachable (not
 started, crashed, journal off) the relay inbox does not wait for it: it
