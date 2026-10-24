@@ -337,7 +337,7 @@ def carrier_hooks(address: str, journal_off: bool):
                 meta = gzmsg.parse(r["content"])["metadata"]
             except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
                 continue
-            mids.append(meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(r["content"].encode("utf-8")).hexdigest())
+            mids.append(meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(r["content"].encode("utf-8", "surrogatepass")).hexdigest())
         try:
             adapter.relay_arrivals(log, address, mids)
         except OSError as e:

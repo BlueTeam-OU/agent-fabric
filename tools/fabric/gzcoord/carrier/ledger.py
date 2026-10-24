@@ -55,7 +55,9 @@ def body_hash(content: str) -> str:
     """A message's text, as the ledger tells two messages with one id apart. Line
     endings and trailing space are not part of it: the relay and the carrier may not
     carry them alike."""
-    return hashlib.sha256(content.replace("\r\n", "\n").strip().encode("utf-8")).hexdigest()[:32]
+    # surrogatepass: a relay record may carry a lone surrogate (the bypass suite's case),
+    # which utf-8 refuses to encode; it must hash, not raise.
+    return hashlib.sha256(content.replace("\r\n", "\n").strip().encode("utf-8", "surrogatepass")).hexdigest()[:32]
 
 
 @dataclass

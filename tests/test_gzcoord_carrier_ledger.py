@@ -101,6 +101,7 @@ def main() -> int:
           not L.decide(shown_by_relay, "M", "relay", "ok", "bbbb").show)
     check("a final line of another body settles nothing for this one",
           not L.settled([dict(x, h="aaaa") for x in fin_relay], "ok", "bbbb") and L.settled([dict(x, h="aaaa") for x in fin_relay], "ok", "aaaa"))
+    check("a lone surrogate in a relay record hashes, it does not raise", len(L.body_hash("a\ud800b")) == 32)
     check("the body hash ignores line endings and trailing space, and tells two texts apart",
           L.body_hash("a\r\nb\n") == L.body_hash("a\nb") and L.body_hash("a") != L.body_hash("b"))
 

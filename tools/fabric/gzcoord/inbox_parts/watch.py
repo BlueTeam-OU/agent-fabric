@@ -43,7 +43,7 @@ def bypass_inbound(records: list[dict]) -> dict:
 def ledger_key(rec: dict, msg: dict) -> str:
     """The id the ledger and the journal key a message by: its MESSAGE-ID, else its body's hash."""
     mid = (msg.get("metadata") or {}).get("MESSAGE-ID")
-    return mid or "sha256:" + hashlib.sha256(str(rec.get("content", "")).encode("utf-8")).hexdigest()
+    return mid or "sha256:" + hashlib.sha256(str(rec.get("content", "")).encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def body_hash(content: str) -> str:
