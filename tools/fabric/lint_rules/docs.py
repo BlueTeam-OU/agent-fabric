@@ -588,7 +588,11 @@ GENERIC_DIRS = ("identities/roles", "runtime/provisioning", "runtime/claude-code
                 "communication/gzcoord/skills")
 
 
-GENERIC_SKIP = ("history/", "/test_", "/tests/", "README.md")
+# tools/fabric/gzcoord/carrier/ is ADR-064's InterWeave carrier: InterWeave there is
+# the transport it drives, as libp2p is a dependency of InterWeave, not project truth of
+# the managed project of that name. The adapters outside it name it through the
+# package's constant, so the exemption stays this one directory.
+GENERIC_SKIP = ("history/", "/test_", "/tests/", "README.md", "tools/fabric/gzcoord/carrier/")
 
 
 # The shared skills under policies/ are generic too (ADR-016 rule 1). The
