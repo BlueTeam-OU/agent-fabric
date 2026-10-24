@@ -2626,7 +2626,8 @@ def case_the_python_pin_is_checkable_and_what_ci_runs() -> None:
         wheel = {"name": "Brotli", "version": "1.2.1", "url": "https://h/brotli-1.2.1-cp313-x.whl", "sha256": "b" * 64}
         def with_wheel(**w):
             return {**good, "imports": ["brotli"], "builds": {"x86_64": {**good["builds"]["x86_64"], "wheels": [{**wheel, **w}]}}}
-        assert got(with_wheel()) == [], got(with_wheel())
+        assert any("a pinned wheel is a third-party package" in f for f in got(with_wheel())), got(with_wheel())
+        assert got(good) == [] or not any("third-party" in f for f in got(good)), "no wheel, no such finding"
         assert any("an https .whl" in f for f in got(with_wheel(url="http://h/brotli.whl")))
         assert any("an https .whl" in f for f in got(with_wheel(url="https://h/brotli.tar.gz")))
         assert any("wheel Brotli: the sha256 must be 64 hex" in f for f in got(with_wheel(sha256="")))

@@ -92,7 +92,8 @@ dropped and counted, never admitted. For an admitted-by-roster message:
    off, for a copy addressed here only). A copy this agent filters out (a
    `TO-ROLE` it does not hold, a broadcast it does not take) is logged by
    neither path, so the parity report counts no miss for a member that was
-   never an addressee; it is still receipted (§3). The arrival log is the
+   never an addressee; it is still receipted (§3). ADR-064 rule 11's "one
+   line per copy received" is read so: a copy received for this agent. The arrival log is the
    parity report's evidence (rule 11) and
    decides nothing about showing (§6, the shown ledger). It has two
    writers, the carrier and the relay inbox path: each line is one

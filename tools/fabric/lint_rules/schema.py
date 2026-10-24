@@ -211,6 +211,9 @@ def python_pin_findings(root: str) -> list[str]:
         if not isinstance(wheels, list):
             findings.append(f"runtime/python.json: {arch}: wheels must be a list")
             wheels = []
+        if wheels:
+            findings.append(f"runtime/python.json: {arch}: a pinned wheel is a third-party package, which ADR-040 "
+                            "rule 1 allows none of; amend rule 1 before pinning one")
         for i, w in enumerate(wheels):
             label = f"runtime/python.json: {arch}: wheel {w.get('name', i) if isinstance(w, dict) else i}"
             if not (isinstance(w, dict) and all(isinstance(w.get(k), str) and w[k] for k in ("name", "version"))):

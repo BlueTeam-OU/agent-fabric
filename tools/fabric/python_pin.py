@@ -18,10 +18,13 @@ extracted; the extraction goes to a directory beside the target and is
 renamed into place, so a failure leaves the previous build and link as
 they were. Every file is readable by every account: each runs it.
 
-What the standard library lacks comes as wheels the pin names per
-machine, each checked against its sha256 like the archive and installed
-into the extracted tree by its own pip, offline and without
-dependencies, before the rename: the build in place always has them. The
+ADR-040 rule 1 allows no third-party package, and lint refuses a pinned
+wheel: the wheel machinery below stays for the day rule 1 is amended to
+allow one. It checks each wheel against its sha256 like the archive and
+installs it into the extracted tree by its own pip, offline and without
+dependencies, before the rename. Its known limit: a wheel's console
+scripts would carry the temporary tree's path in their shebangs, so one
+with entry points needs them rewritten after the rename first. The
 pin's `imports` are what the build must import, and both are part of
 "is this the pinned build", not only the version.
 
@@ -212,17 +215,19 @@ def install(p: dict, prefix: str = PREFIX, link: str = LINK, machine: str | None
             # A build already at dest (same version and release, its wheels
             # or imports not the pin's) may be the one the link and running
             # services use: it is moved aside, never deleted before its
-            # replacement is in, and moved back if that fails. The
-            # temporary directory sweeps it. BaseException: an interrupt
-            # between the two renames would otherwise leave the sweep to
-            # delete the only build.
+            # replacement is in, and moved back if either rename fails or
+            # is interrupted (BaseException: Ctrl-C included; both renames
+            # are inside the try, since an interrupt can land right after
+            # the first). The temporary directory sweeps it. A SIGKILL
+            # between the renames cannot be caught: the old build is then
+            # left at <tmp>/old, not deleted, for the next run or a person.
             old = os.path.join(tmp, "old")
-            if os.path.exists(dest):
-                os.rename(dest, old)
             try:
+                if os.path.exists(dest):
+                    os.rename(dest, old)
                 os.rename(built, dest)
             except BaseException:
-                if os.path.exists(old):
+                if os.path.exists(old) and not os.path.exists(dest):
                     os.rename(old, dest)
                 raise
     os.makedirs(os.path.dirname(link), exist_ok=True)

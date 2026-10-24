@@ -208,6 +208,21 @@ def main() -> int:
         finally:
             pp.os.rename = real_rename
 
+        def rename_interrupted_after_moving_aside(src: str, dst: str) -> None:
+            real_rename(src, dst)
+            if dst.endswith(os.sep + "old") and ".python-pin-" in dst:
+                # The first rename done, the interrupt right after it.
+                raise KeyboardInterrupt("interrupted after moving aside (test)")
+        pp.os.rename = rename_interrupted_after_moving_aside
+        try:
+            pp.install(q, wprefix, wlink, machine="x86_64", fetch=fetch)
+            check("an interrupt after the move aside is refused", False)
+        except KeyboardInterrupt as e:
+            check("an interrupt right after the move aside puts the previous build back",
+                  "after moving aside" in str(e) and pp.check(q2, wprefix, wlink, "x86_64") is None, e)
+        finally:
+            pp.os.rename = real_rename
+
         try:
             pp.install(wpin("3.13.16", wurl, "1.2.1", imports=("missing",)) | {"builds": {"x86_64": {
                 "url": "next", "sha256": hashlib.sha256(blobs["next"]).hexdigest(), "wheels": []}}},
