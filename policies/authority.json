@@ -20,6 +20,7 @@
         "runtime/provisioning/",
         "runtime/control/",
         "runtime/hostexec/",
+        "runtime/interweave/",
         "projects/gzapp/integration/gh/",
         "communication/gzcoord/tests/",
         "policies/bash-allowlist.json"
@@ -43,6 +44,7 @@
         "tests/test_charter_authority.py",
         "runtime/provisioning/github-host-keys",
         "runtime/provisioning/github-host-keys.fingerprints",
+        "runtime/interweave/roster.json",
         "tools/fabric/git.py",
         "tools/fabric/role.py",
         "tools/fabric/routing.py",
