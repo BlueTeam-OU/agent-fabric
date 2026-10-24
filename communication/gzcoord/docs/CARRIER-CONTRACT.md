@@ -134,7 +134,8 @@ refuse.
   "message_id","verdict"}]}`: InterWeave arrivals journaled, in arrival
   order, each listed again on every call until the shown ledger below holds
   its final line (`"via": "interweave"`, or, for an `ok` copy, any final
-  line for its MESSAGE-ID). The carrier reads the ledger for this and never
+  line for its MESSAGE-ID). The carrier reads the ledger, under a shared `flock` (`LOCK_SH`) so it
+  never reads a line half written, and never
   writes it, so an inbox that dies after `unseen` loses nothing: the next
   call lists the record again, and the ledger keeps a re-listed record
   from being shown twice. Whether one is shown is not the carrier's to
@@ -167,9 +168,14 @@ MESSAGE-ID up:
   flagged "may repeat: an earlier showing was interrupted", and its final
   line appended;
 - present: it does not show it, with one exception (rule 9): a copy whose
-  verdict is `mismatch`, when the copy already shown was the relay's, is
-  shown again, flagged and naming the message shown first, and recorded
-  with `"flagged": true`; a flagged copy is shown at most once.
+  verdict is `mismatch`, when the copy already shown was the relay's and
+  no flagged line exists for it, is shown again, flagged and naming the
+  message shown first, by the same two writes: `{"mid", "via":
+  "interweave", "t", "flagged": true, "pending": true}`, the flagged
+  showing, then the final line (the same without `pending`). A flagged
+  pending-only line is shown once more, flagged "may repeat", and its
+  final line appended; a flagged copy with its final line is never shown
+  again.
 This holds whichever carrier arrives first, with the carrier running,
 stopped or crashed, and with the journal on or off. No order loses a
 message, and none shows one twice unannounced: the only second showings
@@ -179,6 +185,11 @@ interrupted showing, the one window no record-and-show order can close
 writing the message to the session's output and nothing that waits on the
 session, so the lock is held for that write and no longer.
 
+Neither the ledger nor the arrival log is rotated during the dual run: a
+line dropped while a copy of its MESSAGE-ID can still arrive would show
+that copy again. How long a copy can still arrive is what the parity
+report measures (ADR-064 rule 11), and rotation is set from it then.
+
 **The relay path fails open.** When the carrier is unreachable (not
 started, crashed, journal off) the relay inbox does not wait for it: it
 shows through the shown ledger, which it reaches on its own.
@@ -186,6 +197,10 @@ shows through the shown ledger, which it reaches on its own.
 The inbox adapters feed `unseen` records into the same page flow as relay
 records (classification, journal, acknowledgement, rendering), so a
 delivery from either carrier takes the same path and the same exit codes.
+The ledger's pending line comes before the relay acknowledgement: a relay
+record is acknowledged only once the ledger holds a line for it, so an
+inbox that dies between the two loses nothing; the relay redelivers and
+the ledger decides.
 With `GZCOORD_JOURNAL=off` the adapters do not call the carrier and the
 carrier refuses to start (ADR-064 rule 8).
 
