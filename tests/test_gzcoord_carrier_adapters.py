@@ -191,9 +191,11 @@ def main() -> int:
         log = arrivals.ArrivalLog(os.path.join(d, "a", "gzcoord-arrivals.jsonl"), iso_now=lambda: "T")
         A.relay_arrivals(log, "h/beta", ["L-1", "L-1"])
         lines = [json.loads(l) for l in open(log.path)]
-        check("a relay copy is a line with the relay's verdict unauthenticated, repeats kept",
+        A.relay_arrivals(log, "h/beta", ["L-1"])
+        lines = [json.loads(l) for l in open(log.path)]
+        check("a relay copy is a line with the relay's verdict unauthenticated; a re-read of the same record is not another",
               [(x["mid"], x["carrier"], x["verdict"], x["addressee"]) for x in lines]
-              == [("L-1", "relay", "unauthenticated", "h/beta")] * 2
+              == [("L-1", "relay", "unauthenticated", "h/beta")]
               and oct(os.stat(log.path).st_mode & 0o777) == "0o600")
 
     with tempfile.TemporaryDirectory(prefix="gz-spool-") as d:
@@ -203,6 +205,68 @@ def main() -> int:
         again = arrivals.Inbox(d, iso_now=lambda: "T")
         check("the spool keeps the first copy of a message once, across a restart too",
               len(box.spool) == 1 and len(again.spool) == 1 and len(open(os.path.join(d, "inbox.jsonl")).readlines()) == 1)
+
+    with tempfile.TemporaryDirectory(prefix="gz-pend-") as d:
+        calls: list[dict] = []
+        state = {"up": False}
+
+        def call(path, req, timeout=0):
+            calls.append(req)
+            if not state["up"]:
+                raise OSError("no answer")
+            return {"ok": True, "first": True, "shown_via": None, "reshow": False, "records": []}
+        sock = os.path.join(d, "c.sock")
+        open(sock, "w").close()
+        now = [0.0]
+        pend = os.path.join(d, "pending.jsonl")
+        ad = A.Adapter(sock, call, pending=pend, clock=lambda: now[0])
+        got = ad.claim("P-1", "relay")
+        check("a relay show the carrier could not be told of fails open and is noted for later",
+              got["first"] is True and open(pend).read().strip() == '{"mid":"P-1"}')
+        n = len(calls)
+        ad.claim("P-2", "relay")
+        ad.unseen()
+        check("a carrier that did not answer is not asked again for a while: the relay is not delayed per record",
+              len(calls) == n and "P-2" in open(pend).read() or False)
+        state["up"] = True
+        now[0] += A.DOWN_FOR + 1
+        calls.clear()
+        ad.unseen()
+        check("when it answers again the noted shows reach it first, then the question, and the note is gone",
+              [(c["op"], c.get("message_id"), c.get("via")) for c in calls]
+              == [("claim", "P-1", "relay"), ("claim", "P-2", "relay"), ("unseen", None, None)] and not os.path.exists(pend),
+              str(calls))
+        os.unlink(sock)
+        spool = os.path.join(d, "inbox.jsonl")
+        open(spool, "w").write('{"mid":"X"}\n')
+        ad2 = A.Adapter(sock, call, pending=pend, spool=spool, clock=lambda: now[0])
+        ad2.claim("P-3", "relay")
+        check("with the carrier gone but its arrivals left behind, a relay show is still noted",
+              os.path.exists(pend) and "P-3" in open(pend).read())
+        os.unlink(pend)
+        ad3 = A.Adapter(sock, call, pending=pend, clock=lambda: now[0])
+        ad3.claim("P-4", "relay")
+        check("with no carrier and no arrivals nothing is noted (the relay alone, as before)", not os.path.exists(pend))
+
+    with tempfile.TemporaryDirectory(prefix="gz-prune-") as d:
+        iso = [f"2026-10-{day:02d}T00:00:00Z" for day in (1, 20)]
+        box = arrivals.Inbox(d, iso_now=lambda: iso[0])
+        box.keep("S-1", "c1", "t", "ok", "h/a")
+        box.keep("S-2", "c2", "t", "ok", "h/a")
+        box.keep("S-3", "c3", "t", "mismatch", "h/a")
+        box.claim("S-1", "interweave")
+        box.claim("S-3", "relay")
+        check("a settled record leaves memory at once; an owed re-show and an unclaimed one stay",
+              sorted(r["mid"] for r in box.spool) == ["S-2", "S-3"])
+        with open(os.path.join(d, "inbox.jsonl"), "ab") as fh:
+            fh.write(b'{"mid":"S-9","content":"to')                     # a torn tail
+        again = arrivals.Inbox(d, iso_now=lambda: iso[1])
+        check("at open the file drops settled records and a torn tail; a claim past the bound goes with its record",
+              [r["mid"] for r in again.spool] == ["S-2"] and again.claims == {}
+              and len(open(os.path.join(d, "inbox.jsonl")).readlines()) == 1, str(again.claims))
+        again.keep("S-10", "c", "t", "ok", "h/a")
+        third = arrivals.Inbox(d, iso_now=lambda: iso[1])
+        check("an append after the repaired tail is a whole line", "S-10" in {r["mid"] for r in third.spool})
 
     # -- rendering ---------------------------------------------------------
     me = {"address": "h/beta", "slug": "dev"}

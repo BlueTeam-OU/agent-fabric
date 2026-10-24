@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import arrivals, framing, ipc, record, roster
+from . import CARRIER_NAME, arrivals, framing, ipc, record, roster
 
 # After an Overloaded refusal nothing is sent for this long: the receiving
 # daemon's ingress bucket for this peer refills at two a second (InterWeave
@@ -104,8 +104,8 @@ class Carrier:
             r, good = self.roster_fn()
             if not any(row["agent_id"] == self.me_fn().agent_id for row in good):
                 raise roster.RosterError("this agent has no valid row in the roster")
-        except roster.RosterError as e:
-            log(f"the roster does not verify, carrying nothing: {e}")
+        except Exception as e:  # noqa: BLE001 — whatever stops the roster verifying, the answer is the same: nothing is carried
+            log(f"the roster does not verify, carrying nothing: {type(e).__name__}: {e}")
             r = getattr(self, "roster", None)
             good = []
         with self.lock:
@@ -279,9 +279,11 @@ class Carrier:
         mid = meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
         verdict = "ok" if meta.get("FROM") == f"{self.host}/{row['login']}" else "mismatch"
         self.counters.received += 1
-        # Before the journal: the journal collapses repeats, the log keeps them.
-        self.arrival_log.append(mid, me.address, "interweave", verdict)
         if self.for_me({"metadata": meta}, {"address": me.address, "slug": me.slug}):
+            # A line per copy ADDRESSED here, as the relay's inbox writes, and before
+            # the journal: it collapses repeats, the log keeps them. A copy this agent
+            # only filters out (a TO-ROLE it does not hold) is no pair of the report.
+            self.arrival_log.append(mid, me.address, CARRIER_NAME, verdict)
             try:
                 ts = self.iso_now()
                 outcome = self.journal(text, ts)
@@ -289,7 +291,10 @@ class Carrier:
                 self.counters.not_journaled += 1
                 log(f"the journal could not keep {mid}: {type(e).__name__}: {e}")
                 return
-            if outcome == "written":
+            # A mismatch is kept whatever the journal said: when the relay's copy was
+            # journaled first the outcome is "same", and the flagged re-show of
+            # rule 9 is exactly this copy.
+            if outcome == "written" or verdict == "mismatch":
                 self.inbox.keep(mid, text, ts, verdict, f"{self.host}/{row['login']}")
         self.send_receipt(session, row, mid)
 

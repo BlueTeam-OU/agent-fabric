@@ -55,7 +55,8 @@ def main() -> int:
         {"mid": m2, "to": "beta", "enc": "compressed", "queued": ISO(20), "state": "blocked", "code": "UnauthorizedPeer"},
         {"mid": m3, "to": "beta", "enc": "chunked", "queued": ISO(30), "state": "done"},
         {"mid": m5, "to": "beta", "enc": "plain", "queued": ISO(50), "state": "done"},
-        {"mid": mid(70, 7), "to": "gamma", "enc": "plain", "queued": ISO(70), "state": "posted"},   # lost: no copy at all
+        {"mid": mid(70, 7), "to": "gamma", "enc": "plain", "queued": ISO(70), "state": "posted"},   # stranded: no copy, no receipt
+        {"mid": mid(80, 8), "to": "gamma", "enc": "plain", "queued": ISO(80), "state": "done"},     # filtered out by gamma: receipted, no arrival line
     ]}
     kinds = {m1: "direct", m2: "direct", m3: "role", m4: "direct", m5: "broadcast", m6: "broadcast"}
     rep = P.compute(arrivals, senders, kinds, (T0, T0 + 1000), drill=(T0 + 15, T0 + 35), host="h")
@@ -72,12 +73,14 @@ def main() -> int:
           "refused by the daemon and still outstanding (UnauthorizedPeer)" in causes[(m2, "interweave")], str(causes))
     check("  a message the sender never queued says so", "recorded no InterWeave delivery" in causes[(m6, "interweave")])
     check("  a relay miss says the inbox recorded no relay copy", "no relay copy" in causes[(m4, "relay")])
-    check("the lost pair is listed with the sender's state",
-          [(x["sender"], x["state"]) for x in rep["lost"]] == [("alpha", "posted")] and len(rep["lost"]) == 1)
+    check("the stranded pair is listed with the sender's state; the receipted delivery to a non-holder is no pair",
+          [(x["sender"], x["state"]) for x in rep["stranded"]] == [("alpha", "posted")], str(rep["stranded"]))
+    check("  and the filtering member is not a miss of either carrier (7 pairs, not 8)", rep["pairs"] == 7 and
+          all(x["mid"] != mid(80, 8) for x in rep["missed"]), str(rep["missed"]))
     check("late copies are counted by carrier and kind: m5 (broadcast) arrived 250 s late on both",
           rep["late"]["broadcast"] == {"relay": 1, "interweave": 1} and rep["late"]["direct"] == {"relay": 0, "interweave": 0})
     check("compressed and chunked messages are counted once each from the sender's records",
-          rep["messages"] == {"plain": 3, "compressed": 1, "chunked": 1}, str(rep["messages"]))
+          rep["messages"] == {"plain": 4, "compressed": 1, "chunked": 1}, str(rep["messages"]))
     check("pairs to a TO-ROLE recipient are counted", rep["role_pairs"] == 1)
     d = rep["drill"]
     check("the drill lists the pairs made inside it; nothing lost when the relay carried each",
@@ -91,7 +94,7 @@ def main() -> int:
 
     md = P.render_markdown(rep)
     check("the markdown carries every section the rule names",
-          all(s in md for s in ("| relay |", "| interweave |", "Pairs a carrier missed", "Pairs no carrier delivered",
+          all(s in md for s in ("| relay |", "| interweave |", "Pairs a carrier missed", "Pairs the sender recorded sending",
                                 "was away", "Framing: 1 message(s) compressed, 1 chunked", "Rollback drill")), md)
 
     with tempfile.TemporaryDirectory(prefix="gz-par-") as d:

@@ -158,6 +158,16 @@ def main() -> int:
             ghost = Agent(d, "g", "00000000-0000-7000-8000-0000000000ff", "ghost")
             check("refused: an agent id the lineage does not know", list(refused_for([row(ghost, root, "g", 47109)], keys)) == ["ghost"])
 
+            for field, value in (("agent_id", 7), ("login", ["x"]), ("peer_id", None), ("endpoint", 1), ("port", "47103"),
+                                 ("port", True), ("identity_show", 5), ("login_signature", None)):
+                bad = dict(row(c, root, "c", 47103), **{field: value})
+                try:
+                    got = R.valid_rows(doc([ra, bad]), keys)[1]
+                    crashed = False
+                except Exception:  # noqa: BLE001 — a crash is what this case is for
+                    crashed = True
+                check(f"a row whose {field} is {value!r} is refused, never a crash", not crashed and len(got) == 1, str(got))
+
             dup = refused_for([row(a, root, "a", 47101), row(b, root, "b", 47101)], keys)
             check("a port claimed twice refuses both rows, neither is guessed", sorted(dup) == ["alpha", "beta"], str(dup))
             dup = refused_for([row(a, root, "a", 47101), row(b, root, "a", 47102)], keys)

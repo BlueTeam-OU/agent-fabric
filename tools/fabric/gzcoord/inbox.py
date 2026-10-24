@@ -303,7 +303,8 @@ def carrier_hooks(address: str, journal_off: bool):
         except OSError as e:
             # Evidence for the parity report, not a condition of delivery.
             print(f"gzcoord: the arrival log could not be written ({e.strerror or e}); the message is shown", file=sys.stderr)
-    return adapter.Adapter(), on_arrival
+    return adapter.Adapter(pending=os.path.join(ep.state_dir(), "interweave-claims-pending.jsonl"),
+                           spool=os.path.join(ep.state_dir(), "interweave", "inbox.jsonl")), on_arrival
 
 
 def with_queued(shown: str, classified: list[dict], me: dict) -> str:

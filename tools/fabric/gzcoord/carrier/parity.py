@@ -24,8 +24,12 @@ carrier its delivered, missed and duplicate counts; each pair a carrier
 missed, with its cause; the copies that arrived late (offline), direct,
 role and broadcast apart; the messages compressed and chunked; and the
 drill: pairs made inside it and whether each reached the addressee by the
-relay and by InterWeave. A pair no copy of which arrived, though the sender
-recorded sending it, is listed as lost.
+relay and by InterWeave. A pair the sender recorded sending that no copy of
+arrived for, and whose receipt has not come, is listed as stranded; one whose
+receipt came is a message the addressee filtered out (a TO-ROLE it does not
+hold, or a broadcast it is not addressed by), which is no pair at all. The
+arrival logs hold only copies ADDRESSED to their owner, so a non-holder of a
+role is never counted as a miss of either carrier.
 """
 from __future__ import annotations
 
@@ -80,18 +84,18 @@ def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[st
             sent[(r["mid"], f"{host}/{r['to']}" if host else r["to"])] = (login, r)
     first = {k: min(parse_t(a["t"]) for c in v.values() for a in c) for k, v in pairs.items()}
     inside = {k for k, t in first.items() if window[0] <= t < window[1]}
-    inside |= {k for k, (_, r) in sent.items() if k not in pairs and r.get("queued")
+    inside |= {k for k, (_, r) in sent.items() if k not in pairs and r.get("queued") and r["state"] != "done"
                and window[0] <= parse_t(r["queued"]) < window[1]}
 
     per = {c: {"delivered": 0, "missed": 0, "duplicates": 0, "mismatch": 0} for c in CARRIERS}
     missed: list[dict] = []
-    lost: list[dict] = []
+    stranded: list[dict] = []
     late = {k: {"relay": 0, "interweave": 0} for k in ("direct", "role", "broadcast", "unknown")}
     for key in sorted(inside):
         mid, addressee = key
         copies = pairs.get(key, {})
         if not copies:
-            lost.append({"mid": mid, "addressee": addressee, "sender": sent[key][0], "state": sent[key][1]["state"]})
+            stranded.append({"mid": mid, "addressee": addressee, "sender": sent[key][0], "state": sent[key][1]["state"]})
         kind = kinds.get(mid, "unknown")
         created = made_at(mid)
         for c in CARRIERS:
@@ -110,7 +114,7 @@ def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[st
         for r in recs:
             if r.get("queued") and window[0] <= parse_t(r["queued"]) < window[1]:
                 encs[r["enc"]].add(r["mid"])
-    out = {"window": window, "pairs": len(inside), "carriers": per, "missed": missed, "lost": lost,
+    out = {"window": window, "pairs": len(inside), "carriers": per, "missed": missed, "stranded": stranded,
            "late": late, "offline_after_s": offline_after,
            "messages": {e: len(encs[e]) for e in ("plain", "compressed", "chunked")}}
     if drill:
@@ -153,8 +157,8 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
         L.append(f"| {c} | {p['delivered']} | {p['missed']} | {p['duplicates']} | {p['mismatch']} |")
     L += ["", "## Pairs a carrier missed, with the cause", ""]
     L += [f"- {m['mid']} to {m['addressee']}, {m['carrier']}: {m['cause']}" for m in rep["missed"]] or ["- none"]
-    L += ["", "## Pairs no carrier delivered, though the sender recorded sending them", ""]
-    L += [f"- {m['mid']} to {m['addressee']} (sender {m['sender']}, {m['state']})" for m in rep["lost"]] or ["- none"]
+    L += ["", "## Pairs the sender recorded sending, no copy arrived and no receipt came", ""]
+    L += [f"- {m['mid']} to {m['addressee']} (sender {m['sender']}, {m['state']})" for m in rep["stranded"]] or ["- none"]
     L += ["", f"## Delivered to an addressee that was away (first copy over {int(rep['offline_after_s'])} s after the message was made)", "",
           "| kind | relay | interweave |", "|---|---|---|"]
     for k, v in rep["late"].items():

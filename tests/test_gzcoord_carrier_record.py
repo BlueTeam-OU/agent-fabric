@@ -149,6 +149,19 @@ def main() -> int:
               ("M3", "beta") in box.deliveries)
         box.close()
 
+        box = R.Outbox(iw, iso_now=clock())
+        box.queue("M5", "beta", "t5", 1)
+        box.close()
+        with open(os.path.join(iw, "deliveries.jsonl"), "ab") as fh:
+            fh.write(b'{"e":"posted","mid":"M5","to":"be')           # a crash in the middle of the next event
+        box = R.Outbox(iw, iso_now=clock())
+        box.queue("M6", "beta", "t6", 1)                              # fsync'd and answered to the adapter
+        box.close()
+        box = R.Outbox(iw, iso_now=clock())
+        check("an event appended after a torn tail is not merged into it: it survives the next restart",
+              {("M5", "beta"), ("M6", "beta")} <= {x.key for x in box.outstanding()}, str(sorted(x.key for x in box.outstanding())))
+        box.close()
+
         with open(os.path.join(iw, "deliveries.jsonl"), "rb") as fh:
             raw = fh.read()
         with open(os.path.join(iw, "deliveries.jsonl"), "wb") as fh:

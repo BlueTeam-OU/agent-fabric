@@ -105,7 +105,7 @@ def make_me() -> engine.Me:
     me = identity(who, taxonomy)
     agent_id = episodic.own_agent_id()
     if not agent_id:
-        raise SystemExit(_refuse("this account has no agent id (ADR-039): no roster row can be its own"))
+        raise roster.RosterError("this account has no agent id (ADR-039): no roster row can be its own")
     return engine.Me(agent_id, me["instance"], me["address"], me.get("slug"))
 
 

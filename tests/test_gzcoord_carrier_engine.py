@@ -93,6 +93,7 @@ class Node:
         os.makedirs(d)
         self.daemon = FakeDaemon(d, peer=pid(n))
         self.journal_rows: list[tuple[str, str]] = []
+        self.already: set[str] = set()        # ids the relay's inbox journaled first: the journal answers "same"
         self.arrivals_when_journaled: dict[str, int] = {}     # how many arrival lines existed when the journal was called
         self.journal_fail = journal_fail if journal_fail is not None else [False]
         iso = lambda: "2026-10-24T12:00:00Z"  # noqa: E731
@@ -118,6 +119,8 @@ class Node:
             raise OSError("journal is held")
         _, meta = parse(text)
         self.arrivals_when_journaled.setdefault(meta["MESSAGE-ID"], len(self.arrivals()))
+        if meta["MESSAGE-ID"] in self.already:
+            return "same"
         key = (meta["MESSAGE-ID"], text)
         if key in self.journal_rows:
             return "same"
@@ -218,8 +221,8 @@ def main() -> int:
                   until(lambda: any(r[0] == "M-3" for r in b.journal_rows))
                   and not any(r[0] == "M-3" for r in c.journal_rows)
                   and until(lambda: not [x for x in a.box.outstanding() if x.mid == "M-3"]))
-            check("the filtering member still logged the arrival",
-                  any(x["mid"] == "M-3" for x in c.arrivals()))
+            check("the filtering member logs no arrival line (it is no addressee of the pair), yet receipted",
+                  not any(x["mid"] == "M-3" for x in c.arrivals()) and receipts_for(c, "M-3") == 1)
 
             # -- verdict ---------------------------------------------------
             b.carrier.handle_event(b.carrier.session, {"event_type": "message.direct", "data": {
@@ -230,6 +233,18 @@ def main() -> int:
             v = [x for x in b.arrivals() if x["mid"] == "M-4"]
             check("a FROM that is not the sender's roster address is a mismatch verdict",
                   v and v[0]["verdict"] == "mismatch" and any(r["verdict"] == "mismatch" for r in b.inbox.unseen()))
+
+            # the relay's copy was journaled first (the usual order): the journal says "same"
+            b.already.update({"M-RS1", "M-RS2"})
+            for mid_, frm_ in (("M-RS1", "h/gamma"), ("M-RS2", "h/alpha")):
+                b.carrier.handle_event(b.carrier.session, {"event_type": "message.direct", "data": {
+                    "message_id": mid_.encode().hex()[:32].ljust(32, "0"), "mode": "direct", "source_peer": pid(0),
+                    "source_endpoint": "gzcoord", "destination_endpoint": "gzcoord", "received_at": 0,
+                    "payload": {"media_type": framing.MEDIA_MESSAGE,
+                                "bytes": ipc.b64u(msg(mid_, frm_, to="h/beta").encode())}}})
+            kept = {r["mid"]: r["verdict"] for r in b.inbox.unseen()}
+            check("a mismatch whose journal outcome is 'same' is still kept for the re-show (rule 9); an ok one is not",
+                  kept.get("M-RS1") == "mismatch" and "M-RS2" not in kept, str(kept))
 
             n_rows = len(b.journal_rows)
             b.carrier.handle_event(b.carrier.session, {"event_type": "message.direct", "data": {

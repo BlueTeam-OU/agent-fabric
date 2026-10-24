@@ -74,7 +74,12 @@ class GitMainKeys:
 
     def _show(self, rel: str) -> bytes | None:
         def git(*a: str) -> subprocess.CompletedProcess:
-            return subprocess.run(["git", "-C", self.root, *a], capture_output=True, timeout=30, check=False)
+            try:
+                return subprocess.run(["git", "-C", self.root, *a], capture_output=True, timeout=30, check=False)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                # A RosterError, so a stuck or missing git leaves the carrier carrying
+                # nothing (rule 2) and does not end it.
+                raise RosterError(f"git could not read the committed keys: {type(e).__name__}") from e
         if git("rev-parse", "-q", "--verify", "refs/remotes/origin/main").returncode:
             raise RosterError(f"{self.root} has no origin/main to read the keys from: fetch the fabric")
         r = git("show", f"refs/remotes/origin/main:{rel}")
@@ -196,16 +201,17 @@ def valid_rows(roster: Roster, keys: KeySource) -> tuple[list[dict], list[Refusa
         refused.setdefault(i, why)
 
     for i, row in enumerate(roster.rows):
-        if set(row) != ROW_KEYS or not all(isinstance(row[k], (str, int)) for k in ROW_KEYS):
-            refuse(i, "the row has other fields than the roster's")
+        if set(row) != ROW_KEYS or type(row["port"]) is not int or not all(
+                isinstance(row[k], str) for k in ROW_KEYS - {"port"}):
+            refuse(i, "the row has other fields than the roster's, or of other types")
             continue
-        if not AGENT_ID_RE.fullmatch(row["agent_id"]) or not LOGIN_RE.fullmatch(str(row["login"])):
+        if not AGENT_ID_RE.fullmatch(row["agent_id"]) or not LOGIN_RE.fullmatch(row["login"]):
             refuse(i, "agent id or login is malformed")
-        elif type(row["port"]) is not int or not roster.port_range[0] <= row["port"] <= roster.port_range[1]:
+        elif not roster.port_range[0] <= row["port"] <= roster.port_range[1]:
             refuse(i, "the port is outside the roster's range")
         elif row["endpoint"] != roster.endpoint:
             refuse(i, "the endpoint is not the roster's")
-        elif not peer_id_ok(str(row["peer_id"])):
+        elif not peer_id_ok(row["peer_id"]):
             refuse(i, "the PeerId is not a libp2p Ed25519 PeerId")
     # A collision refuses every row in it: which of two rows claiming one
     # port or PeerId is the real one is the coordinator's to say, not ours.

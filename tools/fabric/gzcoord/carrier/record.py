@@ -37,6 +37,8 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Callable
 
+from . import jsonl
+
 BACKOFF_FIRST = 1.0
 BACKOFF_CAP = 300.0
 
@@ -91,10 +93,10 @@ class Outbox:
 
     # -- storage ---------------------------------------------------------
     def _append(self, event: dict) -> None:
-        os.write(self._fd, (json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"))
-        os.fsync(self._fd)
+        jsonl.append(self._fd, event)
 
     def _load(self) -> None:
+        jsonl.repair(self.path)      # before any append: see jsonl.py
         with open(self.path, "rb") as fh:
             lines = fh.read().split(b"\n")
         for n, raw in enumerate(lines):
