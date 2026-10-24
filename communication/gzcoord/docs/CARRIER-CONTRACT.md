@@ -87,10 +87,12 @@ dropped and counted, never admitted. For an admitted-by-roster message:
 2. append one line to the arrival log, `<state>/agents/<login>/
    gzcoord-arrivals.jsonl`: `{"mid", "addressee", "carrier":
    "interweave", "t", "verdict"}` (the relay path writes the same line with
-   `"carrier": "relay"` and `"verdict": "unauthenticated"` before it shows
-   the message, whether the journal is on or off and whether the carrier is
-   reachable or not: that line is what keeps a message from being shown
-   twice, §6 `unseen`);
+   `"carrier": "relay"` and `"verdict": "unauthenticated"`, journal on or
+   off). The arrival log is the parity report's evidence (rule 11) and
+   decides nothing about showing (§6, the shown ledger). It has two
+   writers, the carrier and the relay inbox path: each line is one
+   `write()` on a descriptor opened `O_APPEND`, under an exclusive `flock`
+   on the log;
 3. if addressed to this agent (the inbox's `for_me`), append to the journal
    with carrier `interweave` (`episodic.inbound`); on failure send no
    receipt: the sender retries;
@@ -128,22 +130,11 @@ refuse.
   `failed` too: every call ends in exactly one of the three. Provenance is set by
   `episodic.out_final` for the first carrier to accept and left by a later
   accept (rule 7).
-- `{"op":"claim","message_id":<id>,"via":"relay"|"interweave"}` ->
-  `{"ok":true,"first":true|false,"shown_via":...}`. Each inbox path claims a
-  MESSAGE-ID before showing it; only the first claimant shows it. Whether
-  a session sees a message twice is decided by the claim and by the relay's
-  arrival-log line (§5 step 2, `unseen` below); rule 9's re-show is a
-  flagged record below.
 - `{"op":"unseen"}` -> `{"ok":true,"records":[{"content","ts","seq":null,
-  "message_id","verdict","mismatch_of"}]}`: InterWeave arrivals journaled
-  and not yet claimed, in arrival order, leaving out every MESSAGE-ID the
-  arrival log has a `relay` line for: the relay path wrote that line before
-  showing its copy, so the message has been shown, with or without a claim,
-  with the journal on or off, whichever carrier came first. The one
-  exception is a copy that reveals a FROM mismatch: it is listed with
-  `mismatch_of`. `mismatch_of` names the
-  MESSAGE-ID of the relay copy shown earlier when this copy reveals a
-  mismatch (the inbox shows it again, flagged, naming that message).
+  "message_id","verdict"}]}`: InterWeave arrivals journaled and not yet
+  handed to this inbox, in arrival order. Whether one is shown is not the
+  carrier's to decide: the inbox passes each through the shown ledger
+  below, exactly as it does a relay record.
 - `{"op":"status"}` -> counts per recipient: outstanding, blocked (with
   code), posted-awaiting-receipt, oldest age.
 - `{"op":"abandon","message_id":<id>,"recipient":<login>,"by":<operator>}`
@@ -158,13 +149,26 @@ Every connection is checked with `SO_PEERCRED` before a byte is read: the
 peer's uid must equal the carrier's, else the connection is closed unread
 (the directory and socket modes are the default, not the check).
 
-**The relay path fails open.** When the carrier is unreachable (not started,
-crashed, journal off) the relay inbox shows a message without a claim: the
-relay stays the transport of record (ADR-064 rule 11) and no inbox waits on
-the carrier. The relay path still writes its arrival-log line first (§5
-step 2), so the InterWeave copy of a message shown that way is left out of
-`unseen` and is not shown again unless rule 9 flags it, however the carrier
-was unreachable (not started, crashed, the journal off).
+**The shown ledger decides what a session sees, and needs no carrier.**
+`<state>/agents/<login>/gzcoord-shown.jsonl` is the inbox's own file,
+written by both inbox paths and by nothing else. Before showing a message,
+an inbox path takes an exclusive `flock` on the ledger and looks its
+MESSAGE-ID up:
+- absent: it shows the message, then appends `{"mid", "via": "relay" |
+  "interweave", "t"}` in one `write()`, then releases the lock;
+- present: it does not show it, with one exception (rule 9): a copy whose
+  verdict is `mismatch`, when the copy already shown was the relay's, is
+  shown again, flagged and naming the message shown first, and recorded
+  with `"flagged": true`; a flagged copy is shown at most once.
+This holds whichever carrier arrives first, with the carrier running,
+stopped or crashed, and with the journal on or off. A crash after showing
+and before the append can show a message once more after the restart; no
+order loses one, the relay being the transport of record (ADR-064 rule
+11).
+
+**The relay path fails open.** When the carrier is unreachable (not
+started, crashed, journal off) the relay inbox does not wait for it: it
+shows through the shown ledger, which it reaches on its own.
 
 The inbox adapters feed `unseen` records into the same page flow as relay
 records (classification, journal, acknowledgement, rendering), so a
