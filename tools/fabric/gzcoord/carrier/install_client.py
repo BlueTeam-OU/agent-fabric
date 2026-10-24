@@ -19,7 +19,7 @@ CONTRACT
   env     HOME only
   stderr  one line `install_client: <what>`
   exit    0 installed or already there; 1 the source is unreadable or the
-          copy could not be made, said
+          copy could not be made, said; 2 an argument was given (it takes none)
 """
 from __future__ import annotations
 

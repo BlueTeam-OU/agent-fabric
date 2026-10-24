@@ -119,7 +119,7 @@ class Schema(unittest.TestCase):
             with open(path, "w") as fh:
                 json.dump(doc, fh)
             self.assertEqual(R.load(path).profile, "gzcoord")
-            for bad in (True, 2, "1"):
+            for bad in (True, 2, "1", 1.0):
                 with open(path, "w") as fh:
                     json.dump({**good_doc(), "version": bad}, fh)
                 with self.assertRaises(R.RosterError, msg=repr(bad)):
