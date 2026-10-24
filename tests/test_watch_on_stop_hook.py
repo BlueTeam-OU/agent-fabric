@@ -64,6 +64,21 @@ def main() -> int:
         check("a watch under another session's harness: blocked, with the command",
               out and out["decision"] == "block" and "gzcoord-inbox --until-delivery" in out["reason"], out)
         fresh()
+        # The reason is the ask (j366: two sessions read "start it" as not
+        # asking after a memory-pressure reap) and says the host's memory.
+        mi = os.path.join(tmp, "meminfo")
+        with open(mi, "w", encoding="ascii") as fh:
+            fh.write("MemTotal:       16777216 kB\nMemFree:         1048576 kB\nMemAvailable:    4194304 kB\n")
+        out = mod.decide({"session_id": "s1"}, other, 1000.0, path, yes, own_pid=ME, run_dir=run_dir, meminfo=mi)
+        check("the reason says it is the ask, after a memory-pressure stop too",
+              out and "This is the ask" in out["reason"] and "only when asked" in out["reason"], out)
+        check("the reason says the memory available now", out and "4.0 of 16.0 GiB" in out["reason"], out)
+        fresh()
+        out = mod.decide({"session_id": "s1"}, other, 1000.0, path, yes, own_pid=ME, run_dir=run_dir,
+                         meminfo=os.path.join(tmp, "absent"))
+        check("unreadable meminfo: still the ask, no memory line",
+              out and "This is the ask" in out["reason"] and "Memory available" not in out["reason"], out)
+        fresh()
         # The same watch holding the login's one-watch lock, in the lock's
         # own format ("<pid>\n<started>\n"): the login has its watch, and a
         # second would be refused, so no block (review of #242, R2).

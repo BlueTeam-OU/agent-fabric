@@ -5,13 +5,14 @@ topic: "domain-free-port-same-port-reuseport"
 description: "two bind-port-0 \"free port\" asks in a row can return the same port; libp2p-tcp's SO_REUSEPORT lets both daemons bind it, and each one's dial to the other is stripped as its own listen address (NoAddresses)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
     project: interweave
     working_copy: InterWeave
 derived_from:
+  - 98150fa31bc82b32
   - a4d5740a7e9ea465
 ---
 
@@ -23,7 +24,9 @@ derived_from:
 - **Do not confuse with** the EADDRINUSE reuse-dial gap ([[domain-libp2p-reuse-dial-eaddrinuse]]). That one is an asynchronous dial failure. Also, DiscoveryReconnect dials use PortUse::New.
 - **Fix (2026-10-15, e8a56382 on #280):** `interweave_test_support::net::free_port` remembers every port it has answered in the process and keeps a repeated port bound while it asks again.
 - **Diagnose by** the error text the composition root drops: `DialRefusal::Backend("Dial error: no addresses for peer.")`.
+- **Second shape, same mechanism (2026-10-20, PR #319):** any test-port picker that answers from the kernel's port-0 range (ip_local_port_range) can hand out a port that a same-account port-0 listener with SO_REUSEPORT is then given before the answer is bound. They share it silently. A per-process set or a cross-process claim cannot see a port-0 listener, because it is not a caller. The class fix is to answer only below the range's low bound (from 1024, random start, bind-probed, claimed). On Linux, read the range or panic: a guessed default lower than the host's reopens the overlap. What stays open: a same-account SO_REUSEPORT binder whose port did not come through the claims, which shares silently, and another account, whose bind fails loudly because REUSEPORT needs one uid.
+- **A test that listens on a "free" port to prove a skip** must take that port from the claiming picker. An unclaimed one can be another process's answer.
 
 *References: domain-libp2p-reuse-dial-eaddrinuse*
 
-*Observed 2026-10-15 (p2p-network-dev)*
+*Observed 2026-10-20 (p2p-network-dev)*

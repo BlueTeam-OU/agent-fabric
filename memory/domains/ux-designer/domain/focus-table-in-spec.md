@@ -5,7 +5,7 @@ topic: "focus-table-in-spec"
 description: When a spec names focus targets, list every case once in a single focus table in the acceptance section, each with its check, instead of scattering focus rules across sections
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

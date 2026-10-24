@@ -89,7 +89,9 @@ serve as the parity oracle for each port, unchanged.
      (`ssh-template.sh`, `ssh-operator.sh`, `ssh-restore.sh`,
      `agent-fabric-accounts.rc`); and under
      `runtime/provisioning/moveto/` `install.sh`, `enter` (a login-shell
-     stub), `enter-ssh` (an sshd forced command) and `completion.bash`.
+     stub), `enter-ssh` (an sshd forced command) and `completion.bash`;
+     and `tools/fabric/control/completion.bash`, `fabric-ctl`'s completion,
+     which bash alone reads (A 2026-10-24).
      Adding to the list is a finding. A script that is not on it is not
      pre-Python for being a step of provisioning: `bootstrap.sh`, the
      account creation and the host executor all need the pin; the first
@@ -135,10 +137,11 @@ serve as the parity oracle for each port, unchanged.
    `policies/` checks a person or a hook runs, `fabric-secrets`) runs it.
    These keep the host's `python3`:
    - the hooks not yet ported — the git hooks' `pre-push` and the Claude
-     Code hooks (`session-start.sh`, `self-kill-guard.py`) — whose port
+     Code hook `self-kill-guard.py` — whose port
      moves them to the pin in Wave 9 (A 2026-10-11), as it moved the three
      guards of batch 5 (A 2026-10-19) and `pre-commit`, `commit-msg`,
-     `post-commit`, the fallback note and gzapp's host check (A 2026-10-19); the launcher, account creation and bootstrap
+     `post-commit`, the fallback note and gzapp's host check (A 2026-10-19)
+     and `session-start.sh` (A 2026-10-24); the launcher, account creation and bootstrap
      have moved, and bootstrap's helpers under `runtime/` run on the pin
      with it, but for step 7's language-detector venv, which is made with
      the host's `python3`;
@@ -336,7 +339,7 @@ entries removed.
 | 3 | `policies/` checks and their tests | 3 | 274 | fabric-coordinator | #323 |
 | 4 | git hooks and their helpers | 5 | 341 | fabric-coordinator | #329; `pre-push` stays on the host's `python3` (rule 4) |
 | 5 | Claude Code guards and their tests | 6 | 415 | fabric-coordinator | #329 |
-| 6 | Claude Code session hooks and their tests | 5 | 392 | fabric-coordinator | #329 the fallback note, #318 `plan-hold.sh`; `session-start.sh` not yet |
+| 6 | Claude Code session hooks and their tests | 5 | 392 | fabric-coordinator | #329 the fallback note, #318 `plan-hold.sh`; `session-start.sh` (A 2026-10-24) |
 | 7 | status line and tab title | 3 | 311 | fabric-coordinator | #318 |
 | 8 | installer tests under `runtime/claude-code/` | 2 | 293 | fabric-coordinator | #316 |
 | 9 | language detector installer; gzapp host check | 3 | 89 | fabric-coordinator | #314 the installer, #329 the host check |
@@ -361,8 +364,10 @@ the 150-line rule is replaced by the forwarder shape (at most 12 lines of
 code, no `case`, no loop); the file kinds it reads grow from `*.sh` to
 `*.sh`, `*.bash` and a bash shebang, so an extensionless hook is seen; and
 a finding names the rule a file breaks. Seeding `ports` is the one time
-adding to the list is not a finding. Until that change merges, a
-line rule is what lint enforces: 160 lines (A 2026-10-13).
+adding to the list is not a finding. Until that change merged, lint
+enforced a line rule: 160 lines (A 2026-10-13). The change seeded `ports`
+with the one file left (`fabric-ctl`'s completion), which then joined the
+closed list (A 2026-10-24).
 
 Wave 10 ports the managed projects' Node scripts. When it was set the
 projects held 16 `.mjs` scripts of their own, 2,897 lines, beside the
@@ -384,15 +389,13 @@ the upstream FleetDeck tracks (`herdrdev/herdr`) and stay as they are.
 
 ## 8. Decision Status
 
-Accepted and in force. Waves 0 to 8 are done: the bash allowlist is
-empty, and no fabric command runs Node (the control plane, the locale
+Accepted and in force. Waves 0 to 8 are done: the bash allowlist's
+`ports` is empty, and no fabric command runs Node (the control plane, the locale
 search server and the GZCoord tools are Python). Wave 9, the rest of
-the bash, has landed in all ten batches (§7's table) but for two files
-and the lint change: `session-start.sh` still does its `CLAUDE_ENV_FILE`
-export in bash and runs the host's `python3`; `pre-push` is a forwarder
-to the host's `python3`, and moving it to the pin is its own decision
-(rule 4); and lint still enforces the interim 160-line rule, not rule
-2's two sections and forwarder shape. Wave 10, the managed projects'
+the bash, has landed in all ten batches (§7's table), the lint change
+too (rule 2's two sections and the forwarder shape, the 160-line rule
+gone), but for one file: `pre-push` is a forwarder to the host's
+`python3`, and moving it to the pin is its own decision (rule 4). Wave 10, the managed projects'
 Node scripts, is dispatched (A 2026-10-19).
 
 ## References
@@ -426,3 +429,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-19 | a forwarder checks the pin before the module reads anything | §5 rule 5: the fourth departure covers any input the bash read before it needed Python, not only a verb |
 | 2026-10-19 | Wave 9 batch 5: the three Claude Code guards run on the pin | §5 rule 4: `model-switch-guard.sh` leaves the host-`python3` list; it, `pipe-status-guard.sh` and `subagent-clone-guard.sh` are fail-closed forwarders to modules on the pin |
 | 2026-10-19 | Wave 9 batches 4, 6 and 9: the git hooks, the fallback note and the host check run on the pin | §5 rule 4: of the git hooks only `pre-push` keeps the host's `python3`; `pre-commit`, `commit-msg`, `post-commit`, `model-fallback-note.sh` and gzapp's `host-check.sh` are forwarders to modules on the pin |
+| 2026-10-24 | fabric-ctl's bash completion joins the closed list | §5 rule 1 (the closed list) |
