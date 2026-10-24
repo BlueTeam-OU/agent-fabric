@@ -225,6 +225,118 @@ def main() -> int:
         except rc.CoverageError:
             check("an object the clone lacks is an error, not 'no'", True)
 
+    print("git in a partial clone: a missing object is refused, never fetched")
+    with tempfile.TemporaryDirectory() as scratch:
+        env = git_env()
+
+        def run(repo: str, *args: str, extra: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+            return subprocess.run(["git", "-C", repo, *args], capture_output=True, env={**env, **(extra or {})}, timeout=120, check=False)
+
+        def out(repo: str, *args: str) -> str:
+            r = run(repo, *args)
+            if r.returncode:
+                raise RuntimeError(f"git {args}: {r.stderr.decode()}")
+            return r.stdout.decode().strip()
+
+        src = os.path.join(scratch, "src")
+        os.mkdir(src)
+        out(src, "init", "-q", "-b", "main")
+        out(src, "config", "uploadpack.allowFilter", "true")
+        out(src, "config", "uploadpack.allowAnySHA1InWant", "true")
+        body = "".join(f"line {i}\n" for i in range(40))
+        for i, files in enumerate(({"old.txt": body}, {"old.txt": None, "new.txt": body + "tail\n"}, {"x.txt": "x\n"})):
+            for name, text in files.items():
+                if text is None:
+                    os.remove(os.path.join(src, name))
+                else:
+                    with open(os.path.join(src, name), "w", encoding="utf-8") as f:
+                        f.write(text)
+            out(src, "add", "-A")
+            out(src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", f"p{i}")
+        p0, p1, p2 = (out(src, "rev-parse", f"HEAD~{n}") for n in (2, 1, 0))
+        # blob:none misses the blobs a similarity-detected rename must read; depth 1 on a tree:0 clone misses p0 and p1 as commits.
+        made = 0
+
+        def clone(*filters: str) -> str:
+            """A fresh partial clone: a lazy fetch fills the clone it runs in, so no two trials may share one."""
+            nonlocal made
+            made += 1
+            dest = os.path.join(scratch, f"clone{made}")
+            out(scratch, "clone", "-q", "--no-checkout", *filters, f"file://{src}", dest)
+            return dest
+
+        def blobless() -> str:
+            return clone("--filter=blob:none")
+
+        def shallow() -> str:
+            return clone("--filter=tree:0", "--depth=1")
+
+        trace = os.path.join(scratch, "trace")
+
+        def trace_lines() -> list[str]:
+            return open(trace, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(trace) else []
+
+        def fetch_children(lines: list[str]) -> int:
+            return sum(1 for ln in lines if "run_command" in ln and " fetch" in ln)
+
+        def traced(repo: str, *args: str) -> list[str]:
+            if os.path.exists(trace):
+                os.remove(trace)
+            run(repo, *args, extra={"GIT_TRACE": trace})
+            return trace_lines()
+
+        d = traced(blobless(), "diff", "--name-only", f"{p0}..{p1}")
+        check("positive control: plain git diff in the blobless clone starts a fetch child", fetch_children(d) > 0, d[-3:])
+        a = traced(shallow(), "merge-base", "--is-ancestor", p0, p2)
+        check("positive control: plain git merge-base in the shallow clone starts a fetch child", fetch_children(a) > 0, a[-3:])
+        d = traced(blobless(), "--no-lazy-fetch", "diff", "--name-only", f"{p0}..{p1}")
+        check("negative control: --no-lazy-fetch makes the same diff start none, with a live trace", bool(d) and fetch_children(d) == 0, d[-3:])
+
+        saved = {k: os.environ.get(k) for k in ("GIT_TRACE", "GIT_NO_LAZY_FETCH")}
+        os.environ["GIT_TRACE"] = trace
+        os.environ.pop("GIT_NO_LAZY_FETCH", None)
+        try:
+            for label, call in (("diff_paths", lambda: rc.diff_paths(blobless(), p0, p1)),
+                                ("is_ancestor", lambda: rc.is_ancestor(shallow(), p0, p2))):
+                if os.path.exists(trace):
+                    os.remove(trace)
+                try:
+                    call()
+                    refusal = ""
+                except rc.CoverageError as e:
+                    refusal = str(e)
+                lines = trace_lines()
+                check(f"{label}: an object the promisor clone lacks is a named refusal", bool(refusal), "no refusal")
+                check(f"{label}: and it starts no fetch child", bool(lines) and fetch_children(lines) == 0,
+                      f"{fetch_children(lines)} fetch child(ren) of {len(lines)} trace lines")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        # Each switch is proved alone: the argv flag and the environment say it twice so a git that reads only one still refuses.
+        bl, sh = blobless(), shallow()
+        seen: list[tuple[list[str], dict[str, str]]] = []
+        real_run = subprocess.run
+
+        def spy(argv, *a, **kw):
+            seen.append((list(argv), dict(kw.get("env") or os.environ)))
+            return real_run(argv, *a, **kw)
+        rc.subprocess.run = spy
+        try:
+            for label, call in (("diff_paths", lambda: rc.diff_paths(bl, p0, p1)), ("is_ancestor", lambda: rc.is_ancestor(sh, p0, p2))):
+                seen.clear()
+                try:
+                    call()
+                except rc.CoverageError:
+                    pass
+                check(f"{label}: every git it runs carries --no-lazy-fetch", bool(seen) and all("--no-lazy-fetch" in a for a, _ in seen), seen)
+                check(f"{label}: and GIT_NO_LAZY_FETCH=1 in its environment", bool(seen) and all(e.get("GIT_NO_LAZY_FETCH") == "1" for _, e in seen), seen)
+        finally:
+            rc.subprocess.run = real_run
+
     print(f"\ntest_review_coverage: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 

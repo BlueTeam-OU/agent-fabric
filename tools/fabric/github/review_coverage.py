@@ -23,6 +23,7 @@ the caller shows it (classify's `partial`). v1 is not handled here; it counts as
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -257,13 +258,21 @@ def read_review(body: str) -> Review | None:
     return Review(marker, coverage, "")
 
 
+def _git(repo: str, *args: str) -> subprocess.CompletedProcess:
+    """git in `repo` that never fetches. In a promisor clone a missing object otherwise starts a `git fetch` child, from
+    post-review and the checkpoint reader alike, and that child writes (FETCH_HEAD, packs, config); the object is
+    reported missing instead, which both callers already read as a refusal. Said twice, by the flag and by the
+    environment, so a git that reads only one of them still refuses (review_mcp does the same)."""
+    return subprocess.run(["git", "--no-lazy-fetch", "-C", repo, *args], capture_output=True, stdin=subprocess.DEVNULL,
+                          timeout=GIT_TIMEOUT_S, env={**os.environ, "GIT_NO_LAZY_FETCH": "1"})
+
+
 def diff_paths(repo: str, base: str, head: str) -> list[str]:
     """`git diff --name-only <base>..<head>` in `repo`, NUL-separated so a path with a newline or a quote is one
     entry. Renames are detected, as git does by default and as the reviewer's own `git diff` shows them: pinned here
     so a user's diff.renames cannot change which paths a review owes. Raises CoverageError when git cannot say."""
     try:
-        r = subprocess.run(["git", "-C", repo, "-c", "diff.renames=true", "diff", "--name-only", "-z", "--no-ext-diff",
-                            f"{base}..{head}"], capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT_S)
+        r = _git(repo, "-c", "diff.renames=true", "diff", "--name-only", "-z", "--no-ext-diff", f"{base}..{head}")
     except (OSError, subprocess.TimeoutExpired) as e:
         raise CoverageError(f"git diff --name-only {base[:12]}..{head[:12]} could not run ({type(e).__name__})") from None
     if r.returncode != 0:
@@ -275,8 +284,7 @@ def diff_paths(repo: str, base: str, head: str) -> list[str]:
 def is_ancestor(repo: str, ancestor: str, descendant: str) -> bool:
     """git merge-base --is-ancestor, exit 0 yes, 1 no; anything else (an object the clone lacks, no git) is an error."""
     try:
-        r = subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", ancestor, descendant],
-                           capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT_S)
+        r = _git(repo, "merge-base", "--is-ancestor", ancestor, descendant)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise CoverageError(f"git merge-base --is-ancestor could not run ({type(e).__name__})") from None
     if r.returncode not in (0, 1):
