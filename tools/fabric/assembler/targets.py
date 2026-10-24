@@ -331,11 +331,45 @@ def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
         for claim in claims:
             claim["body"] = pattern.sub(lambda m: f"[[{names[m.group(1)]}]]", claim["body"])
 
+    def names_for(scopes: tuple[str | None, ...]) -> dict[str, str]:
+        return {name: stem for (r, name), stem in unique.items() if r in scopes}
+
     for role, buckets in run.per_role.items():
         for group in buckets.values():
             point(group, (role, None))
+        point_disk(run, [layout.class_home(k, role, run.project) for k in CLASS_FILES if k not in layout.IDENTITY_CLASSES],
+                   names_for((role, None)))
     for group in run.shared.values():
         point(group, (None,))
+    point_disk(run, sorted({layout.shared_home(k, run.project) for k in CLASS_FILES if k not in layout.IDENTITY_CLASSES}),
+               names_for((None,)))
+
+
+def point_disk(run: Run, bases: list[str], names: dict[str, str]) -> None:
+    """The same links in the sections already on disk. A link drained before the correction it names stands raw there,
+    and the harvest does not bring an unchanged memory again, so it would stay unresolved; and the memory arriving
+    again must read as the text on disk, not as another claim. Only the body is edited, and only a link a map names."""
+    if not names:
+        return
+    pattern = re.compile(r"\[\[(" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True)) + r")\]\]")
+    for base in sorted(set(bases)):
+        for dirpath, _dirs, files in os.walk(base):
+            for name in sorted(files):
+                path = os.path.join(dirpath, name)
+                if not name.endswith(".md") or name == "INDEX.md" or in_report(run, path) in run.held_files:
+                    continue
+                with open(path, encoding="utf-8") as fh:
+                    text = fh.read()
+                head = re.match(r"^---\n.*?\n---\n", text, re.S)
+                cut = head.end() if head else 0
+                body = pattern.sub(lambda m: f"[[{names[m.group(1)]}]]", text[cut:])
+                if body == text[cut:]:
+                    continue
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text[:cut] + body)
+                if path not in run.written:
+                    run.written.append(path)
+                run.migrated.append(f"{in_report(run, path)}: links to corrected memories pointed at the slice they were written into")
 
 
 def resolve_all_targets(run: Run) -> int | None:

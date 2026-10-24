@@ -2789,13 +2789,15 @@ def test_a_link_to_a_memory_written_into_another_slice_is_pointed_at_the_slice(t
     assert proc.returncode == 0, proc.stderr
     assert tree(out) == before
 
-    # The link drained BEFORE the correction stands raw on disk; the memory harvested again afterwards is its own text,
-    # not a collision with it.
+    # The link drained BEFORE the correction is pointed by the correction's run; the memory harvested again afterwards
+    # is its own text, not a collision with it.
     os.makedirs(os.path.join(tmp, "order"))
     d2, c2, out2 = build(os.path.join(tmp, "order"), {"alpha": claims("alpha", [base, user])})
     assert run_assemble(d2, c2, out2).returncode == 0
     set_claims(c2, "alpha", [fix])
     assert run_assemble(d2, c2, out2).returncode == 0
+    # the harvest does not bring an unchanged memory again: the correction's run points the link on disk
+    assert "[[labels-english-supplier]]" in read(proj(out2, "alpha", "solution.md"))
     set_claims(c2, "alpha", [user])
     proc = run_assemble(d2, c2, out2)
     assert proc.returncode == 0, proc.stderr
@@ -2846,6 +2848,21 @@ def test_a_link_is_pointed_only_at_the_slice_of_its_own_roles_memory(tmp: str) -
     assert "[[bar]]" in read(proj(out, "alpha", "solution.md")) or "[[bar]]" in "".join(
         read(os.path.join(proj(out, "alpha", "solution"), n)) for n in os.listdir(proj(out, "alpha", "solution")))
     assert "[[foo]]" in read(proj(out, "beta", "solution.md")), "another role's own memory keeps its link"
+
+
+def test_a_claim_differing_only_in_a_link_target_is_still_a_collision(tmp: str) -> None:
+    """Another agent's text under a heading that differs in where a link points is different text (review of #368,
+    F3): asked about, not replaced."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "deploy", "title": "Deploy", "body": "Run [[deploy-v1]] first.", "evidence": ["a1"]}])})
+    with_agents(drain, {"a1": "dev-01", "a2": "dev-02"})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [
+        {"class": "solution", "topic": "deploy", "title": "Deploy", "body": "Run [[deploy-v2]] first.", "evidence": ["a2"]}])
+    before = tree(out)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "SUPERSEDING?" in proc.stderr, proc.stderr
+    assert tree(out) == before
 
 
 def test_part_one_of_a_split_topic_is_always_the_topic_file(tmp: str) -> None:
@@ -4089,6 +4106,7 @@ def main() -> int:
         test_a_link_to_a_memory_written_into_another_slice_is_pointed_at_the_slice,
         test_an_older_flat_file_without_a_recorded_topic_is_not_split_by_one_new_topic,
         test_a_link_is_pointed_only_at_the_slice_of_its_own_roles_memory,
+        test_a_claim_differing_only_in_a_link_target_is_still_a_collision,
     ]
     # THE REGISTRY IS THE TRAP THIS GUARDS. Cases run because they are
     # listed here, not because they are named test_*, so a case that is
