@@ -56,7 +56,7 @@ def add(args) -> int:
                 return listed, False
             return new_job(doc, args.title, topic=args.topic, project=args.project,
                            working_copy=args.working_copy, source=source, priority=args.priority,
-                           project_from=(("--project, as the sending side's jobs-add gave it" if request_id_of(args.title) else "--project")
+                           project_from=(("--project, as the sending side's jobs-add gave it" if args.owner and request_id_of(args.title) else "--project")
                                          if args.project else None)), True
 
         job, added = mutate(add_titled)

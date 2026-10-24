@@ -105,7 +105,7 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
             # The project the work is in, as `add --request` reads it: REPOSITORY over the sender's directory (j372).
             project, project_from = jobs.request_project(meta, None)
             if project is not None and not PROJECT_SLUG.fullmatch(str(project)):
-                raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")
+                raise ValueError(f"its project {str(project)[:60]!r} is not a registry id")
             title = title_for(meta.get("SUBJECT") or f"message {mid}", mid)
 
             deliver_to = jobs.deliver_branch(msg)

@@ -537,6 +537,11 @@ def main() -> int:
                       and len(jobs()) == listed, p.stdout + p.stderr)
             p = run("add", "a titled job", "--project", "fixture-proj")
             check("a job added with --project records it as the source of its project", jobs()[-1].get("project_from") == "--project", repr(jobs()[-1]))
+            p = run("add", "--owner", "host/boss", "--project", "fixture-proj", "--", "sent (REQUEST 01a09fc1-0000-7000-8000-0000000000f1)")
+            check("a jobs-add of the sending side (--owner) for a REQUEST says so in project from", p.returncode == 0
+                  and "sending side" in jobs()[-1].get("project_from", ""), repr(jobs()[-1]))
+            p = run("add", "--project", "fixture-proj", "--", "by hand (REQUEST 01a09fc1-0000-7000-8000-0000000000f2)")
+            check("the same add by a person is plain --project", jobs()[-1].get("project_from") == "--project", repr(jobs()[-1]))
             p = run("project", "j99", "another")
             check("project names an unknown job", p.returncode == 1 and "no job j99" in p.stderr, p.stderr)
             # inbox exits 2 for a control channel too; only its own
