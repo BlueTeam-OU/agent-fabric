@@ -51,9 +51,17 @@ def read_json(file: str) -> Any:
         # O_NONBLOCK and a regular-file check: a FIFO with no writer (here, or behind a link) would hold the open for
         # good, and the read of every account behind it. Not a regular file is not JSON.
         fd = os.open(file, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
-        with os.fdopen(fd, encoding="utf-8") as fh:
-            if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+        try:
+            # Judged before fdopen: a directory opens, fdopen then refuses it without taking the descriptor, and the
+            # keeper that calls this every few hours would leak one each time.
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                os.close(fd)
                 return None
+            fh = os.fdopen(fd, encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with fh:
             return loads(fh.read())
     except (OSError, ValueError):
         return None

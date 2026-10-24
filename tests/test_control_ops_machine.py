@@ -311,6 +311,10 @@ class Accounts(Base):
         self.addCleanup(os.close, hold)
         os.write(hold, b'{"a": 1}')
         self.assertIsNone(util.read_json(fifo))
+        before = len(os.listdir("/proc/self/fd"))
+        for _ in range(20):
+            self.assertIsNone(util.read_json(d))   # a directory
+        self.assertEqual(len(os.listdir("/proc/self/fd")), before, "a refused read does not leak its descriptor")
         os.symlink(fifo, os.path.join(d, "link.json"))
         self.assertIsNone(util.read_json(os.path.join(d, "link.json")))
 
