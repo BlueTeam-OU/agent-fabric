@@ -20,7 +20,9 @@ is), then prints the rendered brief:
   mode               re-review
   range              the previous range's head, which must be a commit id,
                      .. HEAD of the request's repository (or --head)
-  previous_findings  --report, or the newest round saved for --pr
+  previous_findings  --report, or the newest round saved for --pr; none
+                     when the request names a PR, whose previous report is
+                     its last posted review, read by the brief (ADR-065)
   lenses             [general], unless --keep-lenses
   card_base          the first round's base, so the card stays the one the
                      first round read (review_brief.py); a symbolic first

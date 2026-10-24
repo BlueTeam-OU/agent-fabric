@@ -32,9 +32,9 @@ Output: a deny decision, or the command rewritten to run with a clean
 environment (CLEAN_ENV below) and no permission decision. Exit 0 always --
 exit 2 would block; a guard that cannot parse its input allows and says
 nothing. A guard that
-cannot RUN denies (the shim, when the fleet's Python is missing): the
-reviewer never needs Bash to finish, and the failure mode of allowing is a
-push to the session's real branch.
+cannot RUN denies (the shim, when the fleet's Python is missing): no class
+it fences needs Bash to finish, and the failure mode of allowing is a push
+to the session's real branch.
 
 Ported from bash when the round-3 fix took it past ADR-040's 150 lines; the
 patterns are the bash guard's, translated mechanically ([[:space:]] to \\s),

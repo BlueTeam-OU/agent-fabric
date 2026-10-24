@@ -14,8 +14,8 @@ Writes, idempotently, and only machine-local files:
                                      the capability-class agent files, from runtime/claude-code/agents/,
                                      via install_agent_files.py (the review pin, merged for this login)
   ~/.claude/hooks/review-bash-guard.{py,sh}
-                                     the review class's Bash fence and its shim; the code-review
-                                     agent file looks here when the launch project has no .claude/ copy
+                                     the Bash fence subagent-clone-guard applies to a class
+                                     dispatched without a worktree, and its shim
   ~/.claude/settings.json            the fabric's user-scope keys (runtime/claude-code/user-settings.py):
                                      attribution commit "", pr "", sessionUrl false — the harness's
                                      Co-Authored-By/Generated-with reminder off at its source —
@@ -507,10 +507,11 @@ class Bootstrap:
         self.workspace_settings()
         self.retire_role_command()
         self.agent_files()
-        # The review class's Bash fence rides with its agent file: the agent runs
-        # unisolated in the session's clone, and a review dispatched from
-        # projects/ (no .claude/ of its own) found no guard and lost Bash entirely
-        # (docs/live-checks/2026-09-13-openrouter-routing.md).
+        # The Bash fence for a class dispatched without a worktree, which
+        # subagent-clone-guard calls; user-scope, so a dispatch from projects/
+        # (no .claude/ of its own) still finds it
+        # (docs/live-checks/2026-09-13-openrouter-routing.md). The review class
+        # has no Bash (ADR-065).
         # The shim and its module, a pair: the shim finds the module beside itself.
         self.put_file(os.path.join(self.claude_home, "hooks", "review-bash-guard.py"),
                       "runtime/claude-code/hooks/review-bash-guard.py")

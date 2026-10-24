@@ -764,7 +764,7 @@ def _evidence_line(req: dict, info: dict | None, path: str | None) -> str | None
     if not (path and info and evidence_mode(req) == "pinned"):
         return None
     return (f"Evidence: pinned. The range's head {info['head_sha'][:12]} is checked out, detached, at {path}: read and run the "
-            "head's files there, naming that path in each command (no cd; git -C <path> for git); it is read-only for you, and you "
+            "head's files there by their full path, whatever reads or runs them names it (no cd; a git command takes -C <path>); it is read-only for you, and you "
             "make no extract or copy of your own. The clone at the path above may be a different state; git show <sha>:path stays valid.")
 
 
