@@ -7,7 +7,7 @@ import math
 import os
 import re
 import subprocess
-from fabric_jobs.base import DEFAULT_PRIORITY, FABRIC_ROOT, Job, MESSAGE_ID, Refused, TERMINAL, identity
+from fabric_jobs.base import DEFAULT_PRIORITY, FABRIC_ROOT, Job, MESSAGE_ID, Refused, TERMINAL, _load, identity
 
 
 def find(doc: dict, job_id: str) -> Job:
@@ -110,8 +110,19 @@ def working_copy_of(project: str) -> str | None:
     return None
 
 
+def named_working_copy(project: str | None, working_copy: str | None) -> str | None:
+    """The working copy a job is stored with: the one given, else this login's of `project`, else None."""
+    if working_copy:
+        # Stored as its checkout's toplevel, as a job added from inside it
+        # is: a subdirectory or a symlinked path would compare as another
+        # working copy in `next` and the session-start warning.
+        given = os.path.realpath(os.path.expanduser(working_copy))
+        return identity.resolve_context(cwd=given).get("working_copy") or given
+    return working_copy_of(project) if project else None
+
+
 def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None,
-            priority=DEFAULT_PRIORITY, deliver_to=None) -> Job:
+            priority=DEFAULT_PRIORITY, deliver_to=None, project_from=None) -> Job:
     # Control characters (C0, DEL, C1) would reach every terminal that
     # lists the job and the opening prompt of a fresh session. Tab, newline
     # and carriage return are whitespace, collapsed below as they always were
@@ -121,14 +132,7 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
     title = " ".join(title.split())
     if not title:
         raise Refused("a job needs a title")
-    if working_copy:
-        # Stored as its checkout's toplevel, as a job added from inside it
-        # is: a subdirectory or a symlinked path would compare as another
-        # working copy in `next` and the session-start warning.
-        given = os.path.realpath(os.path.expanduser(working_copy))
-        working_copy = identity.resolve_context(cwd=given).get("working_copy") or given
-    elif project:
-        working_copy = working_copy_of(project)
+    working_copy = named_working_copy(project, working_copy)
     ctx = identity.resolve_context(cwd=working_copy or os.getcwd())
     doc["seq"] = int(doc.get("seq", 0)) + 1
     now = identity.now_iso()
@@ -149,6 +153,8 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
     }
     if deliver_to:
         job["deliver_to"] = deliver_to
+    if project_from:
+        job["project_from"] = project_from
     doc["jobs"].append(job)
     return job
 
@@ -261,6 +267,40 @@ def listed_request(doc: dict, message_id: str) -> Job | None:
                  or request_id_of(str(j.get("title", ""))) == message_id), None)
 
 
+def registered_projects_of(repository: str) -> list[str]:
+    """The registered projects with a remote at `repository` (<org>/<repo>, case folded as GitHub reads it); any host, since the
+    header carries the path only. A registry that cannot be read is a refusal: the project is then unknown, never PROJECT's."""
+    wc = _load("fabric_workingcopy", os.path.join(FABRIC_ROOT, "tools", "fabric", "workingcopy.py"))
+    roots = _load("fabric_roots", os.path.join(FABRIC_ROOT, "tools", "fabric", "roots.py"))
+    path = roots.projects_registry(engine=FABRIC_ROOT)
+    try:
+        projects = wc.load_registry(path).get("projects") or {}
+        wanted = repository.strip().strip("/").casefold()
+        return [name for name, entry in projects.items()
+                if any((parsed := wc.parse_remote(remote)) and parsed["path"].strip("/").casefold() == wanted
+                       for remote in entry.get("remotes") or [])]
+    except (OSError, ValueError, AttributeError) as e:
+        raise Refused(f"cannot tell which project REPOSITORY {repository} is: {path} could not be read ({type(e).__name__}: {e}); "
+                      "pass --project") from None
+
+
+def request_project(meta: dict, project: str | None) -> tuple[str | None, str | None]:
+    """(the project a REQUEST's job belongs to, where that came from). --project wins; then the message's REPOSITORY when the
+    registry maps it to a project (it names the repository the work is in); PROJECT only when REPOSITORY is absent or
+    unregistered: gzcoord-compose stamps PROJECT from the sender's directory, which says nothing of the work. A repository two
+    projects claim is refused, never guessed."""
+    if project:
+        return project, "--project"
+    repository, header = meta.get("REPOSITORY"), meta.get("PROJECT")
+    if repository:
+        found = registered_projects_of(repository)
+        if len(found) > 1:
+            raise Refused(f"REPOSITORY {repository} is registered by {', '.join(found)}; pass --project")
+        if found:
+            return found[0], f"REPOSITORY {repository}" + (f" (the header PROJECT: {header} was not used)" if header and header != found[0] else "")
+    return (header, "PROJECT") if header else (None, None)
+
+
 def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=None, auto=False,
                 priority=DEFAULT_PRIORITY) -> Job | None:
     meta = msg.get("metadata") or {}
@@ -272,15 +312,13 @@ def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=
         if auto:
             return None
         raise Refused(f"message {mid} is already {listed['id']} ({listed['state']})")
-    wanted = project or meta.get("PROJECT")
+    wanted, project_from = request_project(meta, project)
     here = identity.resolve_context(cwd=os.path.abspath(os.path.expanduser(working_copy)) if working_copy else None)
     if wanted and not working_copy and own_project(here) != wanted:
+        # No refusal when there is none: a request lost from the list is worse than a job that cannot start (`start` says why).
         working_copy = working_copy_of(wanted)
-        if not working_copy:
-            raise Refused(f"the message is for project {wanted}, and no working copy of it is here or beside "
-                          "this one; run from its working copy or pass --working-copy")
     source = {"kind": "request" if msg.get("type") == "REQUEST" else (msg.get("type") or "message").lower(),
               "message_id": mid, "from": meta.get("FROM") or msg.get("sender"), "seq": msg.get("seq")}
     return new_job(doc, meta.get("SUBJECT") or f"message {mid}", topic=topic, project=wanted,
                    working_copy=working_copy, source=source, priority=priority,
-                   deliver_to=deliver_branch(msg))
+                   deliver_to=deliver_branch(msg), project_from=project_from)

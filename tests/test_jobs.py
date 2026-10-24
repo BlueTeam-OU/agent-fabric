@@ -22,8 +22,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JOBS = os.path.join(ROOT, "bin", "fabric-jobs")
 
 
-def message(kind: str, to: str, mid: str, subject: str, project: str = "fixture") -> str:
-    return (f"[GZCOORD/1] {kind}\nFROM: other-host/sender\nROLE: backend-dev\nPROJECT: {project}\n{to}\n"
+def message(kind: str, to: str, mid: str, subject: str, project: str = "fixture", repository: str | None = None) -> str:
+    repo = f"REPOSITORY: {repository}\n" if repository else ""
+    return (f"[GZCOORD/1] {kind}\nFROM: other-host/sender\nROLE: backend-dev\nPROJECT: {project}\n{repo}{to}\n"
             f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{mid}\nSUBJECT: {subject}\n\nREQUEST:\nplease\n")
 
 
@@ -427,15 +428,21 @@ def main() -> int:
             {"seq": 12, "id": "r12", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", "TO: h/someone-else", "b", "not mine")},
             {"seq": 13, "id": "r13", "ts": "T", "sender": "other-host/sender", "content": message("INFO", me, "c", "just news")},
             {"seq": 14, "id": "r14", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "d", "elsewhere", "another")},
+            {"seq": 15, "id": "r15", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "1", "repo wins", "another", "fixture-org/fixture-proj")},
+            {"seq": 16, "id": "r16", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "2", "repo without a checkout", "another", "Fixture-Org/fixture-nowhere")},
+            {"seq": 17, "id": "r17", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "3", "repo unregistered", "another", "elsewhere-org/unregistered")},
         ])
         env.update({"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}",
                     "GZCOORD_CHANNEL": "fixture:chan"})
         try:
             p = run("add", "--request", "01a09fc1-0000-7000-8000-00000000000a", "--topic", "thing")
-            check("a request outside its project's working copy asks for one", p.returncode == 1
-                  and "for project fixture" in p.stderr and not jobs(), p.stderr)
-            p = run("add", "--request", "01a09fc1-0000-7000-8000-00000000000a", "--topic", "thing",
-                    "--working-copy", repo_a)
+            check("a request for a project with no working copy here is filed with none", p.returncode == 0
+                  and len(jobs()) == 1 and jobs()[0]["project"] == "fixture" and jobs()[0]["working_copy"] is None, p.stderr + repr(jobs()))
+            p = run("start", "j1")
+            check("start refuses it by name, and says how to name a working copy", p.returncode == 1
+                  and "j1 has no working copy" in p.stderr and "project j1 fixture --working-copy DIR" in p.stderr
+                  and jobs()[0]["state"] == "queued", p.stderr)
+            p = run("project", "j1", "fixture", "--working-copy", repo_a)
             got = jobs()
             check("--request fills the job from the message", p.returncode == 0 and len(got) == 1
                   and got[0]["working_copy"] == repo_a
@@ -451,15 +458,61 @@ def main() -> int:
             check("a message not addressed to this login is refused", p.returncode == 1
                   and "not addressed to this login" in p.stderr and len(jobs()) == 1, p.stderr)
             p = run("add", "--request", "14")
-            check("a request for another project asks for its working copy", p.returncode == 1
-                  and "for project another" in p.stderr, p.stderr)
-            p = run("add", "--request", "14", "--working-copy", repo_b)
-            check("--working-copy settles it", p.returncode == 0 and jobs()[-1]["project"] == "another", p.stderr)
+            check("a request for another project is filed with no working copy", p.returncode == 0
+                  and jobs()[-1]["project"] == "another" and jobs()[-1]["working_copy"] is None, p.stderr)
+            p = run("project", "j2", "another", "--working-copy", repo_b)
+            check("project --working-copy settles it", p.returncode == 0 and jobs()[-1]["project"] == "another"
+                  and jobs()[-1]["working_copy"] == repo_b, p.stderr)
             p = run("add", "--request", "13", "--auto", "--working-copy", repo_a)
             check("the automatic intake skips what is not a REQUEST", p.returncode == 0 and len(jobs()) == 2, p.stderr)
             p = run("add", "--request", "11", "--auto")
             check("the automatic intake skips a listed request quietly", p.returncode == 0
                   and not p.stderr and len(jobs()) == 2, p.stderr)
+            # REPOSITORY is the work's repository; PROJECT is the sender's directory (j372).
+            p = run("add", "--request", "15")
+            repo_job = jobs()[-1]
+            check("REPOSITORY registered, PROJECT another: the job is REPOSITORY's, with its working copy", p.returncode == 0
+                  and repo_job["project"] == "fixture-proj" and repo_job["working_copy"] == gz
+                  and repo_job["project_from"].startswith("REPOSITORY fixture-org/fixture-proj")
+                  and "PROJECT: another was not used" in repo_job["project_from"], p.stderr + repr(repo_job))
+            p = run("show", repo_job["id"])
+            check("show prints where the project came from", p.returncode == 0
+                  and "project from: " in p.stdout and "REPOSITORY fixture-org/fixture-proj" in p.stdout, p.stdout)
+            p = run("add", "--request", "16")
+            nowhere = jobs()[-1]
+            check("REPOSITORY registered here with no checkout: filed with none, not PROJECT's, matched case-folded", p.returncode == 0
+                  and nowhere["project"] == "fixture-nowhere" and nowhere["working_copy"] is None, p.stderr + repr(nowhere))
+            p = run("start", nowhere["id"])
+            check("start refuses it by name", p.returncode == 1 and f"{nowhere['id']} has no working copy" in p.stderr
+                  and "fixture-nowhere" in p.stderr, p.stderr)
+            p = run("add", "--request", "17")
+            check("REPOSITORY unregistered: PROJECT decides", p.returncode == 0 and jobs()[-1]["project"] == "another"
+                  and jobs()[-1]["project_from"] == "PROJECT", p.stderr + repr(jobs()[-1]))
+            # The re-point verb: a plain job moves, logged; one with a branch or a worktree does not.
+            moved = jobs()[-1]["id"]
+            p = run("project", moved, "fixture-proj")
+            after = [j for j in jobs() if j["id"] == moved][0]
+            check("project moves a plain job to the project's working copy and logs it", p.returncode == 0
+                  and after["project"] == "fixture-proj" and after["working_copy"] == gz and after["project_from"] == "re-pointed"
+                  and after["log"][-1]["note"].startswith("project re-pointed from another to fixture-proj")
+                  and "at" in after["log"][-1] and "state" not in after["log"][-1], p.stderr + repr(after))
+            p = run("show", moved)
+            check("show names the re-pointing", "project from: re-pointed" in p.stdout, p.stdout)
+            lst = os.path.join(tmp, "state-request", "agents", login, "jobs.json")
+            for field in ("branch", "worktree"):
+                doc = json.loads(open(lst, encoding="utf-8").read())
+                [j for j in doc["jobs"] if j["id"] == moved][0][field] = "x"
+                with open(lst, "w", encoding="utf-8") as fh:
+                    json.dump(doc, fh)
+                p = run("project", moved, "another")
+                check(f"project refuses a job with a {field}, naming it", p.returncode == 1 and field in p.stderr
+                      and [j for j in jobs() if j["id"] == moved][0]["project"] == "fixture-proj", p.stderr)
+                doc = json.loads(open(lst, encoding="utf-8").read())
+                [j for j in doc["jobs"] if j["id"] == moved][0].pop(field)
+                with open(lst, "w", encoding="utf-8") as fh:
+                    json.dump(doc, fh)
+            p = run("project", "j99", "another")
+            check("project names an unknown job", p.returncode == 1 and "no job j99" in p.stderr, p.stderr)
             # inbox exits 2 for a control channel too; only its own
             # {"addressed": false} answer means "not for this login".
             p = subprocess.run([JOBS, "add", "--request", "11", "--working-copy", repo_a], cwd=repo_a,
