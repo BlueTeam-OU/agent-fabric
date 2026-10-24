@@ -964,6 +964,15 @@ def completion_dir() -> None:
     check("…another checkout's link of ours refreshed to this one",
           r.rc == 0 and os.readlink(mine) == f"{c.fr}/tools/fabric/control/completion.bash"
           and f"  +  {mine} -> {c.fr}/tools/fabric/control/completion.bash" in r.lines, r)
+    d = Account("compminebc", wcs=False)
+    mine = default.format(d.home)
+    put(mine, "complete -W mine fabric-ctl\n")
+    seen = f"{d.root}/bc/completions/fabric-ctl"
+    r = bootstrap(d, env=d.env(BASH_COMPLETION_USER_DIR=f"{d.root}/bc"))
+    check("a person's own file at the default, the variable set: linked at the first, the warning names it",
+          r.rc == 0 and os.path.islink(seen) and read(mine) == "complete -W mine fabric-ctl\n"
+          and r.err.splitlines() == [f"  !  {mine} is not a link this fabric made — left alone; "
+                                     f"fabric-ctl's completion is linked at {seen} only"], r)
 
 
 def user_manager() -> None:

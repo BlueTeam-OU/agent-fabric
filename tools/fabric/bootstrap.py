@@ -708,9 +708,13 @@ class Bootstrap:
     def link_completion(self) -> None:
         # fabric-ctl's tab completion (owner, 2026-10-22): a link, not a copy, so
         # a pulled checkout's new verbs complete without another bootstrap.
-        for d in self.completion_dirs():
-            self.link(os.path.join(d, "fabric-ctl"),
-                      "tools/fabric/control/completion.bash", [], "fabric-ctl has no tab completion")
+        # What is lost at the default depends on the first: refused there, the
+        # completion this shell loads still exists, so the warning says where.
+        dirs = self.completion_dirs()
+        for d in dirs:
+            lost = ("fabric-ctl has no tab completion" if d == dirs[0]
+                    else f"fabric-ctl's completion is linked at {os.path.join(dirs[0], 'fabric-ctl')} only")
+            self.link(os.path.join(d, "fabric-ctl"), "tools/fabric/control/completion.bash", [], lost)
 
     def link(self, link: str, rel: str, earlier: list[str], lost: str) -> None:
         """Point link at the checkout's rel. A link this fabric made — to this
