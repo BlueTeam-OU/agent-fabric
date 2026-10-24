@@ -105,7 +105,7 @@ def build_observed(slug: str, token: str | None, directory: str, *, probe: Calla
         out.update(signin_profile(directory))
         r = read_signin(directory)
         if r.get("status") == "ok":
-            out["model_weekly"] = [{"model": lim.get("model"), "percent": lim.get("percent"), "resets_at": lim.get("resets_at")}
+            out["model_weekly"] = [{"model": _str(lim.get("model")), "percent": lim.get("percent"), "resets_at": lim.get("resets_at")}
                                    for lim in r.get("limits") or [] if lim.get("kind") == "weekly_scoped"]
         else:
             out["signin"] = {"status": r.get("status"), "error": r.get("error")}
@@ -291,7 +291,7 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Map
     if not write:
         gather()
         for slug in observed:
-            print(f"{slug}: {observed[slug]['status']}; would {result[slug]} {path_of(slug)}" if not result[slug].startswith("refused")
+            print(f"{slug}: {observed[slug]['status']}; would {result[slug]} settings/accounts/{slug}.json" if not result[slug].startswith("refused")
                   else f"{slug}: {result[slug]}")
             print(json.dumps({KEY: observed[slug]}, indent=2, ensure_ascii=False))
         return 1 if failed else 0

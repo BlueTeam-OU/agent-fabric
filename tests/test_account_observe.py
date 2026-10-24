@@ -214,7 +214,8 @@ class Main(Base):
         self.assertEqual((self.puts, self.locks), ([], 0))
         with open(self.path_of("claude-a")) as fh:
             self.assertEqual(fh.read(), OWNER_FILE)
-        self.assertIn("claude-a: ok; would update", out)
+        self.assertIn("claude-a: ok; would update settings/accounts/claude-a.json", out)
+        self.assertNotIn(self.store, out, "the store's location is not printed")
         self.assertIn("claude-b: ok; would create", out)
         self.assertIn('"time_utc": "12:00"', out)
         for t in (TOKEN_A, TOKEN_B):
@@ -291,7 +292,7 @@ class Main(Base):
         self.go(["--write"], read_signin=lambda d, home=None: {"status": "ok", "limits": [
             {"kind": "weekly_scoped", "percent": 1, "resets_at": None, "model": "Fa\ud800ble"}]})
         o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
-        self.assertEqual(o["model_weekly"][0]["model"], "Fa?ble")
+        self.assertIsNone(o["model_weekly"][0]["model"], "malformed is unknown, not a made-up name")
 
     def test_a_sign_in_that_does_not_read_is_named_not_zeroed_and_a_token_in_its_error_is_scrubbed(self):
         self.sign_in(self.home, "claude-a")
