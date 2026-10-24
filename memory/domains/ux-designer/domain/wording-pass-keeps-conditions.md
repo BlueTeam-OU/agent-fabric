@@ -5,7 +5,7 @@ topic: "wording-pass-keeps-conditions"
 description: "Read every language/English pass on a spec as a diff for meaning: a reworded if/else can drop a case"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

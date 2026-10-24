@@ -3,7 +3,7 @@ role: "rust-services-dev"
 class: index
 description: "What rust-services-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 ---
 
 # rust-services-dev — knowledge index
@@ -30,8 +30,10 @@ control plane checked out beside it.
 - [`memory/domains/rust-services-dev/domain/cargo-machete-silent-pass.md`](memory/domains/rust-services-dev/domain/cargo-machete-silent-pass.md) — cargo-machete 0.9.2 default mode skips dev-deps; --with-metadata reports unreadable crates clean with exit 0
 - [`memory/domains/rust-services-dev/domain/hyper-cancellation-and-head-deadline.md`](memory/domains/rust-services-dev/domain/hyper-cancellation-and-head-deadline.md) — What hyper 1.x itself does on body drop and idle connections, and how gateway tests separate it from the gateway's own guards
 - [`memory/domains/rust-services-dev/domain/hyper-client-closes-finished-sized-body.md`](memory/domains/rust-services-dev/domain/hyper-client-closes-finished-sized-body.md) — A test proving the gateway closed an upstream connection must leave that response's body unfinished — hyper's client closes a fully-received sized body itself
+- [`memory/domains/rust-services-dev/domain/managed-settings-linux-path.md`](memory/domains/rust-services-dev/domain/managed-settings-linux-path.md) — Where Claude Code 2.1.286 reads an organisation's managed settings on Linux, and how to present them without root
 - [`memory/domains/rust-services-dev/domain/nofollow-directory-symlink-enotdir.md`](memory/domains/rust-services-dev/domain/nofollow-directory-symlink-enotdir.md) — openat(O_DIRECTORY|O_NOFOLLOW) on a symlink fails ENOTDIR on Linux, not ELOOP; classify with fstatat
 - [`memory/domains/rust-services-dev/domain/pipefail-head-sigpipe.md`](memory/domains/rust-services-dev/domain/pipefail-head-sigpipe.md) — `cmd | head -1` under set -o pipefail fails intermittently and silently; use sed's q instead
+- [`memory/domains/rust-services-dev/domain/s19-driver-shape.md`](memory/domains/rust-services-dev/domain/s19-driver-shape.md) — Driving a nested claude TUI through a pty: match menu text with spaces squeezed out, and redact ~/ paths
 - [`memory/domains/rust-services-dev/domain/serde-derive-accepts-arrays.md`](memory/domains/rust-services-dev/domain/serde-derive-accepts-arrays.md) — A derived serde struct also deserializes from a JSON array; a field probe that must only accept objects needs a map-only visitor
 - [`memory/domains/rust-services-dev/domain/serde-tagged-unit-variant-ignores-unknown.md`](memory/domains/rust-services-dev/domain/serde-tagged-unit-variant-ignores-unknown.md) — serde internally tagged enum unit variant accepts unknown keys despite deny_unknown_fields; use an empty struct variant
 - [`memory/domains/rust-services-dev/domain/spike-fact-is-its-configuration.md`](memory/domains/rust-services-dev/domain/spike-fact-is-its-configuration.md) — a spike's wire observation describes the client configuration it ran; check it in the configuration the gateway serves and commit it to the record before a contract relies on it

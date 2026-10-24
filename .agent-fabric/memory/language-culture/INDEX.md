@@ -3,7 +3,7 @@ role: "language-culture"
 class: index
 description: "What language-culture knows and where it lives."
 tier: 1
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 ---
 
 # language-culture — knowledge index
@@ -47,6 +47,7 @@ control plane checked out beside it.
 - [`memory/domains/language-culture/domain/ru-merge-verb-vlivat.md`](memory/domains/language-culture/domain/ru-merge-verb-vlivat.md) — In Russian, merging a branch or PR is «вливать», never «сливать»: colloquially «сливать» means to fail or give up, the exact opposite
 - [`memory/domains/language-culture/domain/ru-parenthesis-reads-as-restatement.md`](memory/domains/language-culture/domain/ru-parenthesis-reads-as-restatement.md) — A Russian parenthesis "(тот, что …)" reads as "that is"; put a narrower case in its own sentence
 - [`memory/domains/language-culture/domain/ru-pronoun-after-telefon-passazhira.md`](memory/domains/language-culture/domain/ru-pronoun-after-telefon-passazhira.md) — After «Телефон пассажира…», Russian «его» reads as the phone; repeat the noun
+- [`memory/domains/language-culture/domain/typed-names-not-joined.md`](memory/domains/language-culture/domain/typed-names-not-joined.md) — names a person types (contact names) are never joined into one list string; a name holding "and" or a comma reads as more people
 - [`memory/domains/language-culture/domain/unknown-enum-value-is-neizvestno.md`](memory/domains/language-culture/domain/unknown-enum-value-is-neizvestno.md) — ru word for a value the build does not know (status, role, model, language, kind) — «Неизвестно», not «Не распознано»
 - [`memory/domains/language-culture/domain/unknown-not-unrecognized.md`](memory/domains/language-culture/domain/unknown-not-unrecognized.md) — en word for a value the build does not know (status, role, enum, language, kind) — "Unknown", not "Unrecognized"
 - [`memory/domains/language-culture/domain/verbatim-placeholder-carries-no-case.md`](memory/domains/language-culture/domain/verbatim-placeholder-carries-no-case.md) — A verbatim placeholder (stop name, line code) never takes a Georgian case ending; the case sits on a generic carrier noun and the name stays quoted in the nominative.

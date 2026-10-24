@@ -3,7 +3,7 @@ role: "devex-tooling"
 class: index
 description: "What devex-tooling knows and where it lives."
 tier: 1
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 ---
 
 # devex-tooling — knowledge index
@@ -53,6 +53,7 @@ control plane checked out beside it.
 - [`memory/domains/devex-tooling/domain/popen-closed-stdin-communicate-py313.md`](memory/domains/devex-tooling/domain/popen-closed-stdin-communicate-py313.md) — a test that writes Popen stdin, closes it by hand, then calls communicate() raises ValueError on Python 3.13 (CI) though it passes on 3.14 locally
 - [`memory/domains/devex-tooling/domain/postgres-image-layout.md`](memory/domains/devex-tooling/domain/postgres-image-layout.md) — Postgres 18+ images moved the data directory under a version subdirectory
 - [`memory/domains/devex-tooling/domain/pretooluse-guard-cannot-enumerate-deny.md`](memory/domains/devex-tooling/domain/pretooluse-guard-cannot-enumerate-deny.md) — A custom PreToolUse hook that DENIES known-bad text shapes and stays silent otherwise fails open, not closed — it needs the opposite polarity
+- [`memory/domains/devex-tooling/domain/queued-pr-auto-merge-reads-null.md`](memory/domains/devex-tooling/domain/queued-pr-auto-merge-reads-null.md) — a PR queued by auto-merge reads autoMergeRequest null; the arming's time survives only as the timeline's AutoMergeEnabledEvent
 - [`memory/domains/devex-tooling/domain/setup-python-replaces-the-jobs-python3.md`](memory/domains/devex-tooling/domain/setup-python-replaces-the-jobs-python3.md) — actions/setup-python puts its python3 first for every later step; suites needing the runner's modules (PyYAML) break — use update-environment false and a per-suite PATH
 - [`memory/domains/devex-tooling/domain/splitlines-rejoin-rewrites-breaks.md`](memory/domains/devex-tooling/domain/splitlines-rejoin-rewrites-breaks.md) — Python str.splitlines breaks at U+2028/U+2029/U+0085/\x0b/\x0c/\x1c-\x1e too; filter lines with keepends=True and join "", never rejoin with "\n"
 - [`memory/domains/devex-tooling/domain/subagent-transcript-shape.md`](memory/domains/devex-tooling/domain/subagent-transcript-shape.md) — what a Claude Code subagent transcript shows about how the run ended, cost and effort (read 2026-10-14 over 348 transcripts on develop-qzapp)

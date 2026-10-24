@@ -5,7 +5,7 @@ topic: "domain-stand-in-holds-the-seams-shape"
 description: "a host stand-in for a device runner must enforce the device seam's value shape at its one funnel, for every case, or shape bugs show only on a phone"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
