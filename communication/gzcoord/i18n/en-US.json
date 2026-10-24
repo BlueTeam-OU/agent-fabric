@@ -134,9 +134,9 @@
   "history.head": "gzcoord history for {address}: {n} addressed to you in the relay's last {window} on {channel} (from seq {first}; the cursor does not move)",
   "history.replay-hint": "the whole message: {cmd} <seq>",
   "history.usage": "usage: gzcoord-inbox --history [<seq>]",
-  "delivery.carrier-title": "--- InterWeave, from {sender}, {when}",
+  "delivery.carrier-title": "--- {carrier}, from {sender}, {when}",
   "delivery.carrier-mismatch": "FROM mismatch: this copy says FROM {from}, but the roster's address for the PeerId that sent it is {sender}; shown as from {sender} (ADR-064 rule 9)",
-  "delivery.carrier-reshow": "flagged copy: the relay copy of {id} was shown before this InterWeave copy revealed the FROM mismatch",
+  "delivery.carrier-reshow": "flagged copy: the relay copy of {id} was shown before this {carrier} copy revealed the FROM mismatch",
   "cap.carrier-notice": "[gzcoord: body cut here to fit one notification — the whole message: fabric-history --thread {id} --full]",
   "delivery.retransmission": "retransmission: the same FROM and MESSAGE-ID arrived before as relay seq {seq} (SPEC §7.2) — one message, not two; act on it once"
 }
