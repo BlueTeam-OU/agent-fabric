@@ -363,9 +363,10 @@ def main() -> int:
             _fake[0].posted = _fake[1].posted = True
             _fake[2].blocked = "UnauthorizedPeer"
             real_out = a.box.outstanding
-            a.box.outstanding = lambda: _fake
-            st = a.carrier.status()["recipients"]
-            a.box.outstanding = real_out
+            with a.carrier.lock:      # the send loop takes this lock to look at what is due: it never sees the fakes
+                a.box.outstanding = lambda: _fake
+                st = a.carrier.status()["recipients"]
+                a.box.outstanding = real_out
             check("status counts per recipient: outstanding 3, two awaiting a receipt, one blocked by its code, the earliest queued",
                   st["zeta"] == {"outstanding": 3, "blocked": {"UnauthorizedPeer": 1}, "awaiting_receipt": 2,
                                  "oldest": "2026-10-24T09:00:00Z"}, str(st))
