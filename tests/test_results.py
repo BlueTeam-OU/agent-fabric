@@ -4,11 +4,13 @@ planted PRs and commits, a stub classifier, no network."""
 from __future__ import annotations
 
 import datetime as dt
+from json import dumps as jdumps
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "fabric"))
 import results  # noqa: E402
+from github import review_coverage as rcov  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 30, tzinfo=dt.timezone.utc)
 HEAD = "a" * 40
@@ -50,6 +52,27 @@ def main() -> int:
     check("a review of an earlier head is not a review of the head", r["status"] == "not verified" and "no review on its head" in r["reasons"], r)
     r = results.judge(pr(reviews=[{"body": "LGTM", "commit": {"oid": HEAD}}]), [], NOW, 14, cls)
     check("a comment without the marker is not the review", r["status"] == "not verified", r)
+    def v2(*statuses: str, head: str = HEAD, count: int = 1) -> str:
+        paths = {f"p{i}.py": ({"status": s} if s == "read" else {"status": s, "reason": "too big"}) for i, s in enumerate(statuses)}
+        block = f"```{rcov.BLOCK_INFO}\n{jdumps({'paths': paths, 'lenses': {}})}\n```\n" * count
+        return f"<!-- agent-fabric-review v2 base={'b' * 40} head={head} card={'c' * 40} config={'d' * 64} -->\n**Blind review**\n\n{block}"
+
+    for label, body, oid, verified in (
+        ("a complete v2 review of the head", v2("read", "read"), HEAD, True),
+        ("a v2 review with a path not read", v2("read", "not read"), HEAD, False),
+        ("a v2 review whose paths are all not read", v2("not read"), HEAD, False),
+        ("a v2 review of an earlier commit", v2("read", head="c" * 40), "c" * 40, False),
+        ("a v2 review whose marker names another head than its commit", v2("read", head="c" * 40), HEAD, False),
+        ("a v2 review with two blocks", v2("read", count=2), HEAD, False),
+        ("a v2 review with no block", v2("read").split("\n```")[0], HEAD, False),
+        ("a v2 marker quoted on the second line", "findings\n" + v2("read"), HEAD, False),
+    ):
+        r = results.judge(pr(reviews=[{"body": body, "commit": {"oid": oid}}]), [], NOW, 14, cls)
+        check(f"{label}: {'verified' if verified else 'no review on its head'}",
+              (r["status"] == "verified") is verified and ("no review on its head" in r["reasons"]) is not verified, r)
+    r = results.judge(pr(reviews=[{"body": v2("not read"), "commit": {"oid": HEAD}}, {"body": results.REVIEW_MARKER + "\nv1", "commit": {"oid": HEAD}}]), [], NOW, 14, cls)
+    check("a v1 review beside a partial v2 one still counts, as before", r["status"] == "verified", r)
+
     r = results.judge(pr(statusCheckRollup=[{"conclusion": "SUCCESS"}, {"conclusion": "FAILURE"}]), [], NOW, 14, cls)
     check("one red check: not verified", "checks not green" in r["reasons"], r)
     r = results.judge(pr(statusCheckRollup=[]), [], NOW, 14, cls)

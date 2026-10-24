@@ -15,9 +15,28 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
+TOOLS = os.path.join(HERE, "tools", "fabric")
 REVIEW = os.path.join(HERE, "bin", "fabric-review")
 GIT = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_AUTHOR_NAME": "t",
        "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+# What a re-review of a PR starts from is the PR's last v2 review, read from GitHub (agent-fabric ADR-065 §2 C): a gh
+# that answers the three calls the checkpoint makes from the case's state file, and refuses any other.
+FAKE_GH = r"""#!%(python)s
+import json, os, sys
+state = json.load(open(os.environ["GH_STATE_FILE"]))
+a = sys.argv[1:]
+if a[:2] == ["pr", "view"] and "author" in a:
+    print(json.dumps({"author": {"login": "me"}}))
+elif a[:2] == ["api", "-i"] and a[2].split("?")[0].endswith("/pulls/7/reviews"):
+    sys.stdout.write("HTTP/2.0 200 OK\r\n\r\n" + json.dumps(state["reviews"]))
+elif a[:2] == ["api", "-i"] and a[2].split("?")[0].endswith("/pulls/7/commits"):
+    sys.stdout.write("HTTP/2.0 200 OK\r\n\r\n" + json.dumps([{"sha": c} for c in state["commits"]]))
+else:
+    print("fake gh: unhandled " + " ".join(a), file=sys.stderr); sys.exit(1)
+"""
 
 
 def main() -> int:
@@ -34,6 +53,13 @@ def main() -> int:
         env.update(GIT, AGENT_FABRIC_STATE_DIR=os.path.join(tmp, "state"), HOME=os.path.join(tmp, "home"),
                    TMPDIR=os.path.join(tmp, "tmpdir"))
         os.makedirs(env["TMPDIR"])
+        fakebin = os.path.join(tmp, "bin")
+        os.makedirs(fakebin)
+        with open(os.path.join(fakebin, "gh"), "w") as f:
+            f.write(FAKE_GH % {"python": sys.executable})
+        os.chmod(os.path.join(fakebin, "gh"), 0o755)
+        gh_state = os.path.join(tmp, "gh-state.json")
+        env.update(PATH=f"{fakebin}:{env.get('PATH', '')}", GH_STATE_FILE=gh_state, GH_REPO="o/r")
         repo = os.path.join(tmp, "work", "myrepo")
         os.makedirs(repo)
 
@@ -53,6 +79,32 @@ def main() -> int:
             return subprocess.run([REVIEW, *args], env=env, input=stdin, capture_output=True, text=True,
                                   cwd=cwd, timeout=60)
 
+        def config_of(card: str) -> str:
+            """The fingerprint the child (bin/fabric-review, under `env`) computes: asked of a child under the same
+            env, never in this process, whose AGENT_FABRIC_ROOT (a fleet session's) would hash another checkout's
+            agent file instead of the tree under test."""
+            r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import review_brief; "
+                                "print(review_brief.config_fingerprint(sys.argv[2], sys.argv[3]))", TOOLS, repo, card],
+                               env=env, capture_output=True, text=True, timeout=60)
+            if r.returncode or len(r.stdout.strip()) != 64:
+                raise RuntimeError(f"config_fingerprint failed: {r.stderr}")
+            return r.stdout.strip()
+
+        def review_body(rbase: str, rhead: str, card: str, finding: str) -> str:
+            """A posted v2 review: the marker line, the report, the coverage block of a range that changed no path."""
+            marker = (f"<!-- agent-fabric-review v2 base={rbase} head={rhead} card={card} "
+                      f"config={config_of(card)} -->")
+            return (f"{marker}\n<!-- model: codex -->\n**Blind review**\n\n{finding}\n\n"
+                    f"```agent-fabric-coverage v1\n{json.dumps({'paths': {}, 'lenses': {}})}\n```\n")
+
+        def serve(reviews: list[dict], commits: list[str]) -> None:
+            with open(gh_state, "w") as fh:
+                json.dump({"reviews": reviews, "commits": commits}, fh)
+
+        def posted_review(text: str, rhead: str, at: str) -> dict:
+            return {"user": {"login": "me"}, "commit_id": rhead, "submitted_at": at, "body": text}
+
+        round1 = review_body(base, head1, base, "## Round 1\n\n1. **P2:** a finding.")
         req = os.path.join(tmp, "scratch", "REQUEST.yaml")
         os.makedirs(os.path.dirname(req))
         with open(req, "w") as f:
@@ -61,7 +113,7 @@ def main() -> int:
                     "lenses:\n  - general\n  - security\n")
 
         print("save")
-        r = run("save", "7", "1", stdin="## Round 1\n\n1. **P2:** a finding.\n")
+        r = run("save", "7", "1", stdin=round1)
         saved = r.stdout.strip()
         check("a round is kept under the account's state, by repository and PR",
               r.returncode == 0 and saved == os.path.join(tmp, "state", "agents", os.environ.get("USER") or
@@ -104,6 +156,12 @@ def main() -> int:
         elsewhere = os.path.join(tmp, "work", "otherrepo")
         os.makedirs(elsewhere)
         subprocess.run(["git", "init", "-q", elsewhere], env=env, check=True, timeout=30)
+        serve([], [head1, head2])
+        r = run("next", req, "--pr", "7", cwd=elsewhere)
+        check("a PR with no v2 review: refused with the full-review line, nothing written (the control is the next call)",
+              r.returncode == 1 and "render a full review" in r.stderr
+              and not os.path.exists(os.path.join(tmp, "scratch", "REQUEST-rr2.json")), (r.returncode, r.stderr))
+        serve([posted_review(round1, head1, "2026-10-23T10:00:00Z")], [head1, head2])
         r = run("next", req, "--pr", "7", cwd=elsewhere)
         nxt_path = os.path.join(tmp, "scratch", "REQUEST-rr2.json")
         check("--pr finds the round by the request's repository, not the cwd's (review of #89)",
@@ -111,23 +169,33 @@ def main() -> int:
         nxt = json.load(open(nxt_path)) if os.path.exists(nxt_path) else {}
         check("a moved head: REQUEST-rr2.json beside the request",
               r.returncode == 0 and os.path.isfile(nxt_path), r.stderr)
-        check("…mode re-review, range old head..new head, the saved report as previous findings",
+        # With a PR the previous report is its last posted review, which the
+        # brief reads; a typed copy would be refused (ADR-065 §5 rule 5).
+        check("…mode re-review, range old head..new head, no typed previous findings beside the PR",
               nxt.get("mode") == "re-review" and nxt.get("range") == f"{head1[:12]}..{head2[:12]}"
-              and nxt.get("previous_findings") == saved, nxt)
+              and nxt.get("pr") and "previous_findings" not in nxt, nxt)
         check("…lenses narrowed to general, everything else carried",
               nxt.get("lenses") == ["general"] and nxt.get("requirements") == ["It exists."]
               and nxt.get("repository") == repo, nxt)
         check("…and the brief is rendered to stdout, the saved report in it",
               "## Mode\nre-review" in r.stdout and "a finding." in r.stdout, r.stdout[:300])
         head3 = commit("fix 2")
+        round2 = review_body(head1, head2, base, "## Round 2\n\nclean")
+        serve([posted_review(round1, head1, "2026-10-23T10:00:00Z"), posted_review(round2, head2, "2026-10-23T11:00:00Z")],
+              [head1, head2, head3])
         report2 = os.path.join(tmp, "scratch", "report-2.md")
         with open(report2, "w") as f:
             f.write("## Round 2\n\nclean\n")
+        run("save", "7", "2", stdin=round2)
         r = run("next", nxt_path, "--report", report2, "--keep-lenses")
-        nxt3 = json.load(open(os.path.join(tmp, "scratch", "REQUEST-rr3.json")))
-        check("from a round's own request: REQUEST-rr3.json, range from that round's head, --report taken",
+        check("a request that names its PR refuses --report, naming --pr; exit 1, nothing written",
+              r.returncode == 1 and "run next with --pr, not --report" in r.stderr
+              and not os.path.exists(os.path.join(tmp, "scratch", "REQUEST-rr3.json")), (r.returncode, r.stderr))
+        r = run("next", nxt_path, "--pr", "7", "--keep-lenses")
+        nxt3 = json.load(open(os.path.join(tmp, "scratch", "REQUEST-rr3.json"))) if r.returncode == 0 else {}
+        check("from a round's own request: REQUEST-rr3.json, range from that round's head, --pr taken",
               r.returncode == 0 and nxt3["range"] == f"{head2[:12]}..{head3[:12]}"
-              and nxt3["previous_findings"] == report2, (r.stderr, nxt3))
+              and "previous_findings" not in nxt3, (r.stderr, nxt3))
         check("…the first round's base is carried as card_base, so the card stays the first round's",
               nxt.get("card_base") == base and nxt3.get("card_base") == base, (nxt.get("card_base"), nxt3.get("card_base"), base))
         check("…review_round counts up from 1 and the review_id and pr are filled",
@@ -140,7 +208,7 @@ def main() -> int:
               header)
         keep_req = os.path.join(tmp, "scratch", "KEEP.yaml")
         shutil.copy(req, keep_req)
-        r = run("next", keep_req, "--report", report2, "--keep-lenses")
+        r = run("next", keep_req, "--report", report2, "--keep-lenses")  # no PR named: --report as ever
         kept = json.load(open(os.path.join(tmp, "scratch", "KEEP-rr2.json")))
         check("--keep-lenses keeps a two-lens request's lenses; without it they narrow (review of #89)",
               r.returncode == 0 and kept["lenses"] == ["general", "security"] and nxt["lenses"] == ["general"],
@@ -175,7 +243,11 @@ def main() -> int:
             json.dump({**nxt3, "previous_findings": gone}, f)
         os.remove(gone)
         head4 = commit("fix 3")
-        r = run("next", chain, "--report", report2)
+        round3 = review_body(head2, head3, base, "## Round 3\n\nclean")
+        serve([posted_review(round1, head1, "2026-10-23T10:00:00Z"), posted_review(round2, head2, "2026-10-23T11:00:00Z"),
+               posted_review(round3, head3, "2026-10-23T12:00:00Z")], [head1, head2, head3, head4])
+        run("save", "7", "3", stdin=round3)
+        r = run("next", chain, "--pr", "7")
         check("an earlier round's report deleted since does not refuse the chain (review of #89)",
               r.returncode == 0 and json.load(open(os.path.join(tmp, "scratch", "CHAIN-rr3.json")))["range"]
               == f"{head3[:12]}..{head4[:12]}", r.stderr)
@@ -240,6 +312,21 @@ def main() -> int:
               "- a.py:24: def beta():" in out.split("enclosing symbol")[-1], out[-400:])
         nxt_d = json.load(open(os.path.join(tmp, "scratch", "DREQ-rr2.json")))
         check("…none of it is written into the derived request", "Locators" not in json.dumps(nxt_d) and "diff" not in nxt_d, nxt_d)
+
+        # A PR's Locators number the findings the brief shows: the checkpoint's posted body, never the saved round,
+        # whose numbering another engine may have written otherwise (round 3 R4 of #358).
+        dhead = dgit("rev-parse", "HEAD")
+        posted = review_body(b1, b1, b1, "## Posted\n\n1. P2 likely: `a.py:19` is a leftover.")
+        serve([posted_review(posted, b1, "2026-10-23T10:00:00Z")], [b1, dhead])
+        run("save", "7", "1", "--repo", "deltarepo",
+            stdin="## Saved\n\n1. P2 likely: `a.py:21` SAVEDONLY.\n")
+        preq = os.path.join(tmp, "scratch", "PREQ.yaml")
+        with open(preq, "w") as f:
+            f.write(f"mode: review\nrepository: {drepo}\nrange: {b1[:12]}..{b1[:12]}\nobjective: >-\n  It exists.\n")
+        r = run("next", preq, "--pr", "7", cwd=drepo)
+        check("a PR's Locators come from the posted body, not the saved round that differs",
+              r.returncode == 0 and "- finding 1: a.py:19 at " in r.stdout and "SAVEDONLY" not in r.stdout
+              and "a.py:21" not in r.stdout.split("## Locators")[-1], (r.stderr, r.stdout[-700:]))
 
         # Over the cap: the diffstat and a note, not the diff.
         with open(os.path.join(drepo, "big.txt"), "w") as f:

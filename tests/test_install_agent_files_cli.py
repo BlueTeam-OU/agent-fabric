@@ -191,6 +191,10 @@ class Fixture(unittest.TestCase):
         mem = os.path.join(self.fabric, "runtime", "mcp", "fabric-memory")
         os.makedirs(mem)
         shutil.copy(os.path.join(HERE, "runtime", "mcp", "fabric-memory", "install.py"), mem)
+        rev = os.path.join(self.fabric, "runtime", "mcp", "fabric-review")
+        os.makedirs(rev)
+        shutil.copy(os.path.join(HERE, "runtime", "mcp", "fabric-review", "install.py"), rev)
+        shutil.copy(os.path.join(HERE, "runtime", "mcp", "stdio_entry.py"), os.path.join(self.fabric, "runtime", "mcp"))
         for m in ("routing", "workingcopy", "layout", "install_agent_files", "fabric_writes", "launch_locale", "roots"):
             shutil.copy(os.path.join(HERE, "tools", "fabric", m + ".py"), os.path.join(self.fabric, "tools", "fabric"))
         # Present from the start: the installer runs it on every role, to
@@ -436,7 +440,7 @@ class ClassFiles(Fixture):
     def test_second_run_rewrites_nothing(self) -> None:
         self.bind("backend-dev")
         self.run_install()
-        self.assertIn("0 written, 6 already current", self.run_install())
+        self.assertIn("0 written, 7 already current", self.run_install())
 
     def test_backup_taken_once_not_on_every_run(self) -> None:
         self.bind("backend-dev")

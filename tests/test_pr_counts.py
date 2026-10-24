@@ -281,6 +281,23 @@ def main() -> int:
         del os.environ["AGENT_FABRIC_LEGACY_REVIEW_MARKERS"]
     check("…unless the environment lists it", "review claude ✓" in rows[0]["line"], rows[0]["line"])
 
+    print("v2 reviews: the gate's reader (review_coverage) decides, as for the gate")
+    h2 = "a" * 40
+
+    def v2_review(*statuses: str, head: str = h2, engine: str = "") -> dict:
+        paths = {f"p{i}": ({"status": st} if st == "read" else {"status": st, "reason": "r"}) for i, st in enumerate(statuses)}
+        marker = f"<!-- agent-fabric-review v2 base={'b' * 40} head={head} card={'c' * 40} config={'d' * 64} -->"
+        model = f"\n<!-- model: {engine} -->" if engine else ""
+        return {"body": f"{marker}{model}\n**Blind review**\n\n```agent-fabric-coverage v1\n{json.dumps({'paths': paths, 'lenses': {}})}\n```\n",
+                "commit": {"oid": h2}}
+
+    for what, rev, want in (("a complete v2 review of the head counts", v2_review("read", "read"), "review claude ✓"),
+                            ("a v2 review with a path not read does not", v2_review("read", "not read"), "review claude ✗"),
+                            ("a v2 review whose marker names another head does not", v2_review("read", head="c" * 40), "review claude ✗"),
+                            ("a v2 review of codex counts as codex's", v2_review("read", engine="codex"), "review claude ✗")):
+        rows = run_counts(["4"], Hub({"o/this": {4: pr_doc(4, [commit("a" * 40, "x")], head=h2, reviews=[rev])}}))
+        check(what, want in rows[0]["line"], rows[0]["line"])
+
     print("refs")
     two = {"gzapi-org/gzapp": {1075: docs[1]}, "gzapi-org/InterWeave": {3: docs[3]}, "BlueTeam-OU/agent-fabric-herdr": {4: docs[4]},
            "x/y": {9: docs[9]}, "o/this": {5: docs[5]}}

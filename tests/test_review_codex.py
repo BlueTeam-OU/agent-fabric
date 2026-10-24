@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 import os
 import pwd
 import signal
@@ -109,7 +110,9 @@ def answer(text, file=True, commands=1):
     usage_file = os.path.join(S, "usage.json")   # a case that means other counts writes them here
     ev({"type": "turn.completed", "usage": json.load(open(usage_file)) if os.path.exists(usage_file)
         else {"input_tokens": 20, "cached_input_tokens": 0, "output_tokens": 10}})
-OK = json.dumps({"findings": [
+COV = {"paths": [{"path": "app.py", "status": "read", "reason": ""}], "lenses": []}
+EMPTY = json.dumps({"findings": [], "coverage": COV})
+OK = json.dumps({"coverage": COV, "findings": [
     {"level": "P3", "file": "app.py", "line": 2, "scenario": "a\nmulti-line scenario", "expected": "e3", "fix": "f3"},
     {"level": "P1", "file": "app.py", "line": 1, "scenario": "s1", "expected": "e1", "fix": "f1"}]})
 HOST = ("Code Mode is unavailable because failed to spawn code-mode host /home/u/.local/bin/codex-code-mode-host: "
@@ -124,28 +127,28 @@ elif mode == "ok":
     print("2026-10-12T10:00:00Z  WARN codex_core: a log line, on stderr", file=sys.stderr)
     answer(OK)
 elif mode == "empty":
-    answer('{"findings": []}')
+    answer(EMPTY)
 elif mode == "retried":
     ev({"type": "thread.started", "thread_id": "t"})
     ev({"type": "error", "message": "Reconnecting... 1/5 (stream disconnected before completion: error sending request)"})
-    answer('{"findings": []}')
+    answer(EMPTY)
 elif mode == "eventonly":
-    answer('{"findings": []}', file=False)
+    answer(EMPTY, file=False)
 elif mode == "nohost":
     # The live defect (2026-10-12): the tool host missing, no command run, an empty answer from the brief alone.
     print("ERROR codex_core::tools::router: error=failed to spawn code-mode host", file=sys.stderr)
     ev({"type": "thread.started", "thread_id": "t"})
     item("error", message=HOST)
-    answer('{"findings": []}', commands=0)
+    answer(EMPTY, commands=0)
 elif mode == "nocommand":
-    answer('{"findings": []}', commands=0)
+    answer(EMPTY, commands=0)
 elif mode == "cmdfailed":
     ev({"type": "turn.started"})
     command("cat nope", code=1)
-    answer('{"findings": []}', commands=0)
+    answer(EMPTY, commands=0)
 elif mode == "othererror":
     item("error", message="something else went wrong")
-    answer('{"findings": []}')
+    answer(EMPTY)
 elif mode == "turnfailed":
     ev({"type": "turn.started"})
     ev({"type": "error", "message": "stream disconnected before completion: error sending request"})
@@ -167,13 +170,19 @@ elif mode in ("capacity", "allowance", "allowance-notime", "capacity-lookalike")
     sys.exit(1)
 elif mode == "capacity-item":
     item("error", message="Selected model is at capacity. Please try a different model.")
-    answer('{"findings": []}')
+    answer(EMPTY)
 elif mode == "prose":
     answer("Looks good to me! No findings.")
 elif mode == "fence":
-    answer('```json\n{"findings": []}\n```')
+    answer('```json\n' + EMPTY + '\n```')
 elif mode == "badschema":
     answer('{"findings": [{"level": "P2", "file": "app.py", "line": 3, "scenario": "s", "expected": "e"}]}')
+elif mode == "nocoverage":
+    answer('{"findings": []}')
+elif mode == "partialcov":
+    answer(json.dumps({"findings": [], "coverage": {"paths": [{"path": "app.py", "status": "not read", "reason": "too long"}], "lenses": []}}))
+elif mode == "wrongpaths":
+    answer(json.dumps({"findings": [], "coverage": {"paths": [{"path": "other.py", "status": "read", "reason": ""}], "lenses": []}}))
 elif mode == "exit1":
     print("backend said no", file=sys.stderr)
     sys.exit(3)
@@ -183,7 +192,7 @@ elif mode == "noanswer":
     ev({"type": "turn.completed", "usage": {}})
 elif mode == "noevents":
     with open(out, "w") as f:
-        f.write('{"findings": []}')
+        f.write(EMPTY)
 '''
 
 GH_MOCK = r"""#!%(python)s
@@ -202,6 +211,8 @@ if a[:1] == ["pr"]:
 if a[:1] == ["api"]:
     path = a[1]
     method = a[a.index("--method") + 1] if "--method" in a else "POST" if "--input" in a else "GET"  # gh's own default
+    if method == "GET" and "/compare/" in path:   # post-review ties the range's base to the PR: --jq .merge_base_commit.sha
+        sys.stdout.write(open(os.path.join(S, "mergebase")).read()); sys.exit(0)
     if method == "GET":
         with open(os.path.join(S, "reads"), "a") as f:
             f.write(path + "\\n")
@@ -250,23 +261,27 @@ def main() -> int:
         except review_codex.FailedReview as e:
             return str(e)
 
-    check("a valid answer passes", verdict(json.dumps({"findings": [good]})) == "ok")
-    check("no findings is a clean answer", verdict('{"findings": []}') == "ok")
-    for label, doc in (("a finding without fix", {"findings": [{k: v for k, v in good.items() if k != "fix"}]}),
-                       ("level P4", {"findings": [{**good, "level": "P4"}]}),
-                       ("line 0", {"findings": [{**good, "line": 0}]}),
-                       ("a line that is a string", {"findings": [{**good, "line": "4"}]}),
-                       ("an empty scenario", {"findings": [{**good, "scenario": "  "}]}),
-                       ("an extra key on a finding", {"findings": [{**good, "confidence": 1}]}),
-                       ("an extra top-level key", {"findings": [], "summary": "fine"}),
-                       ("no findings key", {}),
-                       ("an absolute file", {"findings": [{**good, "file": "/etc/passwd"}]}),
-                       ("a file climbing out", {"findings": [{**good, "file": "../x.py"}]})):
+    cov0 = {"paths": [{"path": "a/b.py", "status": "read", "reason": ""}], "lenses": [{"lens": "security", "status": "applied"}]}
+    cov_json = json.dumps(cov0)
+    wc = lambda doc: {"coverage": cov0, **doc}  # noqa: E731  # the schema requires coverage: an answer is built with it, so a refusal below is about its one defect
+    check("a valid answer passes", verdict(json.dumps(wc({"findings": [good]}))) == "ok")
+    check("no findings is a clean answer", verdict(json.dumps(wc({"findings": []}))) == "ok")
+    for label, doc in (("a finding without fix", wc({"findings": [{k: v for k, v in good.items() if k != "fix"}]})),
+                       ("level P4", wc({"findings": [{**good, "level": "P4"}]})),
+                       ("line 0", wc({"findings": [{**good, "line": 0}]})),
+                       ("a line that is a string", wc({"findings": [{**good, "line": "4"}]})),
+                       ("an empty scenario", wc({"findings": [{**good, "scenario": "  "}]})),
+                       ("an extra key on a finding", wc({"findings": [{**good, "confidence": 1}]})),
+                       ("an extra top-level key", wc({"findings": [], "summary": "fine"})),
+                       ("no findings key", wc({})),
+                       ("an absolute file", wc({"findings": [{**good, "file": "/etc/passwd"}]})),
+                       ("a file climbing out", wc({"findings": [{**good, "file": "../x.py"}]}))):
         check(f"refused: {label}", verdict(json.dumps(doc)) != "ok", verdict(json.dumps(doc)))
-    for label, text in (("prose", "No findings."), ("a fence", '```json\n{"findings": []}\n```'),
-                        ("two objects", '{"findings": []}{"findings": []}'), ("a list", "[]"), ("nothing", ""),
-                        ("a duplicate key", '{"findings": [], "findings": []}'),
-                        ("NaN", '{"findings": [{"level": "P1", "file": "a", "line": NaN, "scenario": "s", '
+    ok_text = '{"findings": [], "coverage": ' + cov_json + '}'
+    for label, text in (("prose", "No findings."), ("a fence", "```json\n" + ok_text + "\n```"),
+                        ("two objects", ok_text + ok_text), ("a list", "[]"), ("nothing", ""),
+                        ("a duplicate key", '{"findings": [], "findings": [], "coverage": ' + cov_json + '}'),
+                        ("NaN", '{"coverage": ' + cov_json + ', "findings": [{"level": "P1", "file": "a", "line": NaN, "scenario": "s", '
                                 '"expected": "e", "fix": "f"}]}')):
         check(f"refused: {label}", verdict(text) != "ok", verdict(text))
 
@@ -321,6 +336,78 @@ def main() -> int:
     check("…or that none was", "**effort:** Codex's default" in review_codex.render_review(
         "m", "a" * 40, "b..c", []).split("\n")[0])
 
+    print("the coverage of the answer: the shipped schema requires it, and the post is a v2 review (agent-fabric ADR-065 §2 C)")
+    from github import post_review, review_coverage  # noqa: E402
+    real_schema = json.load(open(review_codex.SCHEMA_PATH, encoding="utf-8"))
+
+    def cov_answer(paths, lenses=(("security", "applied"),), findings=()):
+        return json.dumps({"findings": list(findings), "coverage": {
+            "paths": [{"path": p, "status": st, "reason": r} for p, st, r in paths],
+            "lenses": [{"lens": l, "status": st} for l, st in lenses]}})
+
+    check("the schema as shipped requires coverage", "coverage" in real_schema["required"] and "coverage" in real_schema["properties"])
+    found, cov = review_codex.parse_answer_full(cov_answer([("a.py", "read", ""), ("b.py", "not read", "binary")]))
+    check("the answer's coverage becomes the block's data", cov.paths == {"a.py": ("read", ""), "b.py": ("not read", "binary")}
+          and cov.lenses == {"security": "applied"} and found == [], cov)
+    check("parse_answer still gives the findings alone", review_codex.parse_answer(cov_answer([("a.py", "read", "")], findings=[good])) == [good])
+    check("the prompt asks for coverage", review_codex.COVERAGE_SHAPE in review_codex.answer_shape()
+          and review_codex.answer_shape().startswith(review_codex.ANSWER_SHAPE))
+    check("positive control: the same answer with coverage passes", verdict(cov_answer([("a.py", "read", "")], findings=[good])) == "ok")
+    full = {"findings": [], "coverage": {"paths": [{"path": "a.py", "status": "read", "reason": ""}], "lenses": []}}
+    for label, doc in (("no coverage", {"findings": []}),
+                       ("coverage null", {**full, "coverage": None}),
+                       ("coverage without paths", {**full, "coverage": {"lenses": []}}),
+                       ("coverage without lenses", {**full, "coverage": {"paths": full["coverage"]["paths"]}}),
+                       ("a path entry without its reason", {**full, "coverage": {"paths": [{"path": "a.py", "status": "read"}], "lenses": []}}),
+                       ("a lens entry that carries a reason", {**full, "coverage": {"paths": [], "lenses": [
+                           {"lens": "l", "status": "applied", "reason": "x"}]}}),
+                       ("an empty path", {**full, "coverage": {"paths": [{"path": " ", "status": "read", "reason": ""}], "lenses": []}})):
+        check(f"refused: {label}", verdict(json.dumps(doc)) != "ok", verdict(json.dumps(doc)))
+    for label, text in (("a path given twice", cov_answer([("a.py", "read", ""), ("a.py", "read", "")])),
+                        ("a status that is neither", cov_answer([("a.py", "skimmed", "")])),
+                        ("not read without a reason", cov_answer([("a.py", "not read", "")])),
+                        ("a lens state that is neither", cov_answer([("a.py", "read", "")], lenses=(("l", "maybe"),))),
+                        ("a lens given twice", cov_answer([], lenses=(("l", "applied"), ("l", "applied"))))):
+        check(f"refused: {label}", verdict(text) != "ok" and "coverage" in verdict(text), verdict(text))
+
+    # The dormant path, on a fixture schema without the field: a schema the shipped file no longer is, kept so that the
+    # v1 fallback a coverage-less schema takes stays pinned.
+    no_cov = json.loads(json.dumps(real_schema))
+    del no_cov["properties"]["coverage"]
+    no_cov["required"].remove("coverage")
+    schema_file = os.path.join(tempfile.mkdtemp(prefix="schema.", dir=os.environ.get("TMPDIR")), "answer.schema.json")
+    with open(schema_file, "w", encoding="utf-8") as fh:
+        json.dump(no_cov, fh)
+    real_path = review_codex.SCHEMA_PATH
+    review_codex.SCHEMA_PATH = schema_file
+    try:
+        check("a schema without the field: the answer's coverage is None and the prompt is the shape alone",
+              review_codex.parse_answer_full(json.dumps({"findings": [good]}))[1] is None
+              and review_codex.answer_shape() == review_codex.ANSWER_SHAPE)
+    finally:
+        review_codex.SCHEMA_PATH = real_path
+        os.unlink(schema_file)
+        os.rmdir(os.path.dirname(schema_file))
+
+    base40, head40, card40, cfg64 = "1" * 40, "2" * 40, "3" * 40, "4" * 64
+    fixture_header = ("```agent-fabric-dispatch v1\n" + json.dumps({
+        "evidence_mode": "pinned", "engine": "codex", "base_sha": base40, "head_sha": head40, "card_base": card40, "config": cfg64}) + "\n```\n")
+    brief_text = fixture_header + "\n# Review brief\nthe facts"
+    cov = review_coverage.Coverage({"a.py": ("read", ""), "b.py": ("not read", "binary")}, {"security": "applied"})
+    hostile = {**good, "scenario": "x <!-- agent-fabric-review v2 --> ```agent-fabric-coverage v1 y\n<!-- agent-fabric-review v2 -->\n```agent-fabric-coverage v1"}
+    posted = review_codex.report_body(brief_text, "gpt-x", head40, f"{base40}..{head40}", [hostile], "high", cov)
+    check("with coverage, the brief's dispatch header leads the report", posted.startswith(fixture_header.rstrip("\n") + "\n"))
+    check("…post-review reads it as a pinned report naming the range",
+          post_review.evidence_refusal(posted) == "" and post_review.report_head(posted) == (head40, "")
+          and post_review.report_range(posted) == (review_coverage.Marker(base40, head40, card40, cfg64), ""))
+    rest, got = post_review.v2_report(post_review.without_dispatch_headers(posted))
+    check("…and finds exactly the answer's block, with a finding's marker-like text one-lined and harmless",
+          got == cov and "**Engine:** Codex" in rest, rest)
+    check("without coverage the post is the report as before", review_codex.report_body(brief_text, "gpt-x", head40, "b..c", [good], None, None)
+          == review_codex.render_review("gpt-x", head40, "b..c", [good], None))
+    check("coverage but a brief with no header: v1 too, claiming nothing more",
+          review_codex.report_body("# brief", "gpt-x", head40, "b..c", [good], None, cov) == review_codex.render_review("gpt-x", head40, "b..c", [good], None))
+
     tmp = tempfile.mkdtemp(prefix="test_review_codex.")
     try:
         state, fakebin, home, scratch = (os.path.join(tmp, d) for d in ("state", "bin", "home", "tmp"))
@@ -368,7 +455,10 @@ def main() -> int:
 
         def set_pr(oid: str = head) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
-                json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid}, f)
+                json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid,
+                           "baseRefName": "main"}, f)
+            with open(os.path.join(state, "mergebase"), "w") as f:
+                f.write(base)
             for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode",
                       "reviews.json", "read-fails", "post-fails", "reads"):
                 if os.path.exists(os.path.join(state, n)):
@@ -404,6 +494,10 @@ def main() -> int:
         def run(*args: str, env: dict | None = None, timeout: float = 60) -> subprocess.CompletedProcess:
             return subprocess.run([REVIEW, "--engine", "codex", *args], env=env or env0, capture_output=True,
                                   text=True, cwd=repo, timeout=timeout)
+
+        def shown(text: str) -> str:
+            """--no-post prints the report as post-review is given it, the brief's dispatch header first (a v2 report)."""
+            return post_review.without_dispatch_headers(text)
 
         def scratch_empty() -> bool:
             return os.listdir(scratch) == []
@@ -470,7 +564,7 @@ def main() -> int:
         check("the prompt opens with a dispatch header naming the second engine",
               '"engine": "codex"' in sent_header and '"purpose": "second-engine-review"' in sent_header, sent_header)
         check("the prompt is the rendered brief, unchanged, then the answer shape",
-              bool(brief) and after_header(rec["prompt"]) == after_header(brief).rstrip("\n") + "\n" + review_codex.ANSWER_SHAPE, rec["prompt"][-400:])
+              bool(brief) and after_header(rec["prompt"]) == after_header(brief).rstrip("\n") + "\n" + review_codex.answer_shape(), rec["prompt"][-400:])
         cenv = rec["env"]
         leaked = sorted(k for k in cenv if k.startswith(("ANTHROPIC_", "CLAUDE", "OPENAI_"))
                         or k in ("FABRIC_SESSION_SECRET", "GH_STATE", "AGENT_FABRIC_CODEX_BASE_URL"))
@@ -500,8 +594,12 @@ def main() -> int:
               and git("rev-parse", "HEAD") == head)
         b = payload_body()
         lines = b.split("\n")
-        check("posted with the review marker and --model codex",
-              lines[:2] == ["<!-- agent-fabric-review v1 -->", "<!-- model: codex -->"], lines[:3])
+        check("posted with the v2 review marker and --model codex",
+              re.fullmatch(r"<!-- agent-fabric-review v2 base=[0-9a-f]{40} head=%s card=[0-9a-f]{40} config=[0-9a-f]{64} -->" % head, lines[0])
+              is not None and lines[1] == "<!-- model: codex -->", lines[:3])
+        rest_v2, block = post_review.v2_report("\n".join(lines[2:]))
+        check("…the answer's coverage is the posted block, and the dispatch header is not in the body",
+              block == review_coverage.Coverage({"app.py": ("read", "")}, {}) and "agent-fabric-dispatch" not in b, b[-500:])
         check("the post names Codex, not the review class", "Codex, the second review engine" in b, b[:400])
         check("recorded on the head Codex read (post-review --head, ADR-020 §5 rule 6)",
               json.load(open(os.path.join(state, "payload.json"))).get("commit_id") == head)
@@ -660,10 +758,22 @@ def main() -> int:
         r = run("7", req, "--gateway", "openai")
         check("an unknown --gateway is a usage error", r.returncode == 2 and "chatgpt" in r.stderr and not codex_ran(), r.stderr)
 
+        print("coverage that post-review checks against the range: partial posts as partial, a wrong path set posts nothing")
+        set_pr(); mode("partialcov")
+        r = run("7", req)
+        pb = payload_body().split("\n")
+        check("a path not read: exit 0, posted v2 with the partial line after the marker",
+              r.returncode == 0 and posted() and pb[0].startswith("<!-- agent-fabric-review v2 ")
+              and pb[1] == "partial coverage: 1 path(s) not read", (r.stderr, pb[:3]))
+        set_pr(); mode("wrongpaths")
+        r = run("7", req)
+        check("a path set that is not the range's: refused by post-review, nothing posted",
+              r.returncode != 0 and not posted() and "not posting this report" in r.stderr, (r.returncode, r.stderr))
+
         print("--no-post prints the review and posts nothing")
         set_pr(); mode("empty")
         r = run("7", req, "--no-post")
-        check("exit 0 and the body on stdout", r.returncode == 0 and r.stdout.startswith("**Engine:** Codex")
+        check("exit 0 and the body on stdout", r.returncode == 0 and shown(r.stdout).startswith("**Engine:** Codex")
               and "No findings." in r.stdout, r.stderr + r.stdout)
         check("nothing posted", not posted())
 
@@ -675,7 +785,8 @@ def main() -> int:
                   r.stderr)
 
         for m, why in (("prose", "not one JSON object"), ("fence", "not one JSON object"),
-                       ("badschema", "codex-answer.schema.json"), ("exit1", "exited 3: backend said no"),
+                       ("badschema", "codex-answer.schema.json"), ("nocoverage", "missing required 'coverage'"),
+                       ("exit1", "exited 3: backend said no"),
                        ("noanswer", "without an agent message"),
                        ("nohost", "Codex ran no command: its tool host is missing (codex-code-mode-host)"),
                        ("nocommand", "ran no command that succeeded (0 failed)"),
@@ -1003,10 +1114,10 @@ def main() -> int:
         rec = record() if codex_ran() else {"argv": []}
         check("no --model and no AGENT_FABRIC_CODEX_MODEL: routing's model runs (gpt-6.1-sol, the owner, 2026-10-12)",
               r.returncode == 0 and rec["argv"][rec["argv"].index("--model") + 1] == "gpt-6.1-sol", r.stderr)
-        check("…and the review's first line names it", "`gpt-6.1-sol`" in r.stdout.split("\n")[0], r.stdout[:300])
+        check("…and the review's first line names it", "`gpt-6.1-sol`" in shown(r.stdout).split("\n")[0], r.stdout[:300])
         check("the environment's gateway still gets no level unless one is asked for (review of #224, F2)",
               not any(a.startswith("model_reasoning_effort") for a in rec["argv"]) and "-c" not in rec["argv"]
-              and "**effort:** Codex's default" in r.stdout.split("\n")[0], rec["argv"])
+              and "**effort:** Codex's default" in shown(r.stdout).split("\n")[0], rec["argv"])
         set_pr(); mode("empty")
         r = run("7", req, "--no-post", "--effort", "medium", env=no_model)
         check("--effort still names the level beside a routed model",
@@ -1028,13 +1139,13 @@ def main() -> int:
             set_pr(); mode("empty")
             r = run("7", req, "--no-post")
             check(f"{label}: an explicit model does not read routing on the environment's gateway",
-                  r.returncode == 0 and "`gpt-test`" in r.stdout.split("\n")[0], r.stderr)
+                  r.returncode == 0 and "`gpt-test`" in shown(r.stdout).split("\n")[0], r.stderr)
         with open(local_layer, "w") as f:
             json.dump({"providers": {"openai": {"capabilities": {"code-review": "gpt-6.1-sol"}}}}, f)
         set_pr(); mode("empty")
         r = run("7", req, "--no-post", env=no_model)
         check("an admitted model in the local layer is what runs", r.returncode == 0
-              and "`gpt-6.1-sol`" in r.stdout.split("\n")[0], r.stderr)
+              and "`gpt-6.1-sol`" in shown(r.stdout).split("\n")[0], r.stderr)
         os.remove(local_layer)
 
         print("the ledger: one row v1 per review that started Codex, on every way out (review economics P1)")

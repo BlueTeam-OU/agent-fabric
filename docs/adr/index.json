@@ -188,7 +188,7 @@
       "status": "Accepted",
       "date": "2026-09-20",
       "pillar": "P3",
-      "amendments": 5
+      "amendments": 6
     },
     {
       "number": "021",
@@ -485,7 +485,7 @@
       "status": "Accepted",
       "date": "2026-10-11",
       "pillar": "P1",
-      "amendments": 6
+      "amendments": 7
     },
     {
       "number": "054",
@@ -584,6 +584,15 @@
       "status": "Accepted",
       "date": "2026-10-23",
       "pillar": "P5",
+      "amendments": 0
+    },
+    {
+      "number": "065",
+      "file": "ADR-065-the-reviewer-reads-through-pinned-tools.md",
+      "title": "The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped",
+      "status": "Accepted",
+      "date": "2026-10-23",
+      "pillar": "P3",
       "amendments": 0
     }
   ]

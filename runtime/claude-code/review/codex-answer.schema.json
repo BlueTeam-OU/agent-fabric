@@ -2,24 +2,129 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:agent-fabric:codex-review-answer",
   "title": "The answer of the second review engine (agent-fabric ADR-053 rule 4)",
-  "description": "What `fabric-review --engine codex` accepts from Codex: one JSON object whose findings each carry a level, the place, the failure scenario, the expected behaviour and the fix. Anything else is a failed review and nothing is posted. The same file is handed to `codex exec --output-schema`, so it stays inside the subset OpenAI's strict structured outputs accept: every property required, no additional properties, a type on every value, and `pattern` rather than `minLength` for a non-empty string. An empty findings list is a clean review.",
+  "description": "What `fabric-review --engine codex` accepts from Codex: one JSON object whose findings each carry a level, the place, the failure scenario, the expected behaviour and the fix. Anything else is a failed review and nothing is posted. The same file is handed to `codex exec --output-schema`, so it stays inside the subset OpenAI's strict structured outputs accept: every property required, no additional properties, a type on every value, and `pattern` rather than `minLength` for a non-empty string. An empty findings list is a clean review only when coverage reads every path of the range.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["findings"],
+  "required": [
+    "findings",
+    "coverage"
+  ],
   "properties": {
     "findings": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["level", "file", "line", "scenario", "expected", "fix"],
+        "required": [
+          "level",
+          "file",
+          "line",
+          "scenario",
+          "expected",
+          "fix"
+        ],
         "properties": {
-          "level": {"type": "string", "enum": ["P1", "P2", "P3"], "description": "P1 breaks a requirement or invariant on a path that runs; P2 a defect a reachable input or state triggers; P3 everything worth fixing that is neither."},
-          "file": {"type": "string", "pattern": "\\S", "description": "The path the finding is about, relative to the repository's root."},
-          "line": {"type": "integer", "minimum": 1, "description": "The line in that file at the reviewed head."},
-          "scenario": {"type": "string", "pattern": "\\S", "description": "The inputs or state and the steps that make it fail, concretely."},
-          "expected": {"type": "string", "pattern": "\\S", "description": "What must happen instead, by the brief's requirements and invariants."},
-          "fix": {"type": "string", "pattern": "\\S", "description": "The smallest change that makes it hold."}
+          "level": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3"
+            ],
+            "description": "P1 breaks a requirement or invariant on a path that runs; P2 a defect a reachable input or state triggers; P3 everything worth fixing that is neither."
+          },
+          "file": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "The path the finding is about, relative to the repository's root."
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The line in that file at the reviewed head."
+          },
+          "scenario": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "The inputs or state and the steps that make it fail, concretely."
+          },
+          "expected": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "What must happen instead, by the brief's requirements and invariants."
+          },
+          "fix": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "The smallest change that makes it hold."
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paths",
+        "lenses"
+      ],
+      "description": "What the review read of its range (agent-fabric ADR-065 §2 C): every path `git diff --name-only` lists for the range, once, and every lens of the brief. Arrays, not objects keyed by path: a strict structured output has no open-ended keys.",
+      "properties": {
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "status",
+              "reason"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "A path of the range, relative to the repository's root."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "not read"
+                ],
+                "description": "read only for a file read in full."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why it was not read; an empty string when read."
+              }
+            }
+          }
+        },
+        "lenses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "lens",
+              "status"
+            ],
+            "properties": {
+              "lens": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "A lens the brief names."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "applied",
+                  "not applied"
+                ]
+              }
+            }
+          }
         }
       }
     }

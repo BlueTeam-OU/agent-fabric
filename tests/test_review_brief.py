@@ -43,9 +43,10 @@ def test_frontmatter_is_what_the_guards_and_installer_expect() -> None:
     assert lines[0] == "name: code-review", lines[0]
     # install-agent-files.sh rewrites the FIRST `model:` line; the guard reads the same one.
     assert lines[2] == "model: fable", "model: fable must be the third frontmatter line (the pin rewrite hits the first model: line)"
-    assert "tools: Read, Glob, Grep, Bash" in front, "the tools allow-list is the write fence"
-    assert "Write" not in front.split("tools:")[1].split("\n")[0]
-    assert "review-bash-guard.sh" in front and "permissionDecision" in front, "the Bash fence hook must stay in the frontmatter"
+    tools = [t.strip() for t in front.split("tools:")[1].split("\n")[0].split(",")]
+    assert tools == ["Read", "Glob", "Grep"] + [f"mcp__fabric-review__review_{v}" for v in ("diff", "log", "show", "blame", "grep", "check")], \
+        "the tools allow-list is the write fence: no Bash, Write, Edit or NotebookEdit (ADR-065 §5 rule 1)"
+    assert "hooks:" not in front, "the review class has no Bash to fence"
     assert re.search(r"\nmodel: ", front.split("model: fable", 1)[1]) is None, "one model: line only"
 
 
@@ -66,7 +67,7 @@ def test_the_incident_rules_are_still_there() -> None:
     """Each of these was bought by an incident; a rewrite may not lose one."""
     _, body = read_agent()
     for rule in ("revert test", "Quote the hunk", "in full", "One PR per dispatch", "re-review",
-                 "git log", "Change nothing", "--no-restore", "Never `pub\nget`",
+                 "review_log", "Change nothing", "--no-restore", "`pub get`", "agent-fabric-coverage v1", "not run",
                  "single-line mutation", "P1", "P2", "P3", "Do not pad", "six weeks from now",
                  "Feature flags that are not rollbacks", "Silent-drop", "CHECK clauses"):
         assert rule in body, f"rule lost in the rewrite: {rule!r}"
@@ -257,7 +258,11 @@ def test_the_dispatch_header(tmp: str) -> None:
         assert h["base_sha"] == base and h["head_sha"] == head, h
         assert h["pr"] is None and h["review_round"] == 1 and h["evidence_mode"] == "pinned", h
         assert set(h) == {"dispatch_id", "parent_session_id", "job_id", "project", "repository", "pr", "review_id", "review_round",
-                          "purpose", "engine", "evidence_mode", "base_sha", "head_sha", "started_at"}, sorted(h)
+                          "purpose", "engine", "evidence_mode", "base_sha", "head_sha", "card_base", "config",
+                          "started_at"}, sorted(h)
+        # ADR-065 §2 C: the card's commit and the fingerprint the next round compares
+        assert h["card_base"] == base and re.fullmatch(r"[0-9a-f]{64}", h["config"]), h
+        assert _header(rb.render(base_request(repo)))["config"] == h["config"], "the fingerprint is stable"
         assert out.startswith("```agent-fabric-dispatch v1\n{"), "the header is the first block"
         # minted at render: two renders do not share an id
         assert _header(rb.render(base_request(repo)))["dispatch_id"] != _header(rb.render(base_request(repo)))["dispatch_id"]
@@ -275,6 +280,7 @@ def test_the_dispatch_header(tmp: str) -> None:
         diff = os.path.join(tmp, "x.diff"); open(diff, "w").write("")
         h = _header(rb.render({k: v for k, v in {**base_request(repo), "diff": diff}.items() if k != "range"}))
         assert h["base_sha"] is None and h["head_sha"] is None and h["evidence_mode"] == "working-tree", h
+        assert h["card_base"] is None and h["config"] is None, h
     finally:
         if env0["CLAUDE_CODE_SESSION_ID"] is None:
             os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
@@ -712,6 +718,112 @@ def test_a_diff_file_reads_the_card_at_the_default_branch_tip(tmp: str) -> None:
     assert any(str(rb.CARD_CAP + 1) in p and "cap" in p for p in problems), problems
 
 
+def test_the_config_fingerprint_follows_the_card_and_the_agent_file(tmp: str) -> None:
+    """ADR-065 §2 C: a re-review may start from an earlier head only while the
+    fingerprint is unchanged, so every part it covers must move it."""
+    repo = mkrepo(tmp, "fingerprint")
+    base = g(repo, "rev-parse", "main")
+    none = rb.config_fingerprint(repo, base)
+    assert none == rb.config_fingerprint(repo, base), "stable"
+    g(repo, "checkout", "-q", "main")
+    commit(repo, "card", {".agent-fabric/review-card.md": "rule one\n"})
+    one = g(repo, "rev-parse", "HEAD")
+    commit(repo, "card again", {".agent-fabric/review-card.md": "rule two\n"})
+    two = g(repo, "rev-parse", "HEAD")
+    commit(repo, "empty card", {".agent-fabric/review-card.md": ""})
+    empty = g(repo, "rev-parse", "HEAD")
+    prints = {rb.config_fingerprint(repo, c) for c in (base, one, two, empty)}
+    assert len(prints) == 4, "no card, two cards and an empty card are four fingerprints"
+    saved = rb.AGENT_FILE
+    try:
+        rb.AGENT_FILE = os.path.join(tmp, "agent.md")
+        open(rb.AGENT_FILE, "w").write("a\n")
+        a = rb.config_fingerprint(repo, one)
+        open(rb.AGENT_FILE, "w").write("b\n")
+        b = rb.config_fingerprint(repo, one)
+        os.unlink(rb.AGENT_FILE)
+        gone = rb.config_fingerprint(repo, one)
+    finally:
+        rb.AGENT_FILE = saved
+    assert len({a, b, gone, rb.config_fingerprint(repo, one)}) == 4, "the agent file's text and its absence move it"
+
+
+def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
+    """ADR-065 §5 rule 5: a PR's re-review base and card come from its last v2
+    review; no checkpoint is a full review, and a typed value that disagrees
+    is refused, never silently replaced."""
+    repo = mkrepo(tmp, "checkpointed")
+    base, mid = g(repo, "rev-parse", "main"), g(repo, "rev-parse", "HEAD")
+    commit(repo, "fix", {"a.txt": "b\n"})
+    head = g(repo, "rev-parse", "HEAD")
+    asked = []
+    saved = rb.checkpoint
+    try:
+        def none(pr, h, r, exclude_head=None):
+            asked.append((pr, h)); return None
+        rb.checkpoint = none
+        req = {**base_request(repo), "mode": "re-review", "range": f"{mid}..HEAD", "pr": 9}
+        info, refused = rb.resolve_range(req)
+        assert info is None and any("has no review a re-review can start from" in r for r in refused), refused
+        assert asked == [(9, head)], asked
+        rb.checkpoint = lambda pr, h, r: (base, mid, base, "<!-- marker -->\nPOSTED REPORT\n")
+        info, refused = rb.resolve_range(req)
+        assert not refused and info == {"base_sha": mid, "head_sha": head, "card_base": base,
+                                        "previous_report": "<!-- marker -->\nPOSTED REPORT\n"}, (info, refused)
+        # the previous report is the posted body, and a typed one is refused
+        out = rb.render(req)
+        assert "## Previous findings" in out and "POSTED REPORT" in out, out[-600:]
+        report = os.path.join(tmp, "typed-report.md"); open(report, "w").write("TYPED\n")
+        assert any("leave previous_findings out" in r for r in refusals({**req, "previous_findings": report})), \
+            refusals({**req, "previous_findings": report})
+        info, refused = rb.resolve_range({**req, "range": f"{base}..HEAD"})
+        assert info is None and any("starts at its last review's head" in r for r in refused), refused
+        info, refused = rb.resolve_range({**req, "card_base": mid})
+        assert info is None and any("read the card at" in r for r in refused), refused
+        info, refused = rb.resolve_range({**req, "card_base": base})
+        assert not refused and info["card_base"] == base, refused
+        # a second engine of the same round: the newest review is this head's, so
+        # the round starts from the one before it, never from the other engine's report
+        calls = []
+        def rounds(pr, h, r, exclude_head=None):
+            calls.append(exclude_head)
+            return (mid, head, base, "OTHER ENGINE THIS ROUND") if exclude_head is None else (base, mid, base, "ROUND ONE")
+        rb.checkpoint = rounds
+        info, refused = rb.resolve_range(req)
+        assert not refused and info["base_sha"] == mid and info["previous_report"] == "ROUND ONE", (info, refused)
+        assert calls == [None, head], calls
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (mid, head, base, "X") if exclude_head is None else None
+        info, refused = rb.resolve_range(req)
+        assert info is None and any("has no review a re-review can start from" in r for r in refused), refused
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (base, mid, base, "<!-- marker -->\nPOSTED REPORT\n")
+        # a diff file names no commits to look a checkpoint up against: refused, not a KeyError
+        diff = os.path.join(tmp, "pr.diff"); open(diff, "w").write("")
+        no_range = {k: v for k, v in req.items() if k != "range"}
+        assert any("needs a base..head range" in r for r in refusals({**no_range, "diff": diff})), \
+            refusals({**no_range, "diff": diff})
+        # no PR: nothing posted to read, the typed range stands and nothing is asked
+        asked.clear(); rb.checkpoint = none
+        info, refused = rb.resolve_range({**{k: v for k, v in req.items() if k != "pr"}, "card_base": base})
+        assert not refused and info["base_sha"] == mid and not asked, (info, refused, asked)
+        # a first review never asks
+        info, refused = rb.resolve_range({**req, "mode": "review", "card_base": base})
+        assert not refused and not asked, (refused, asked)
+    finally:
+        rb.checkpoint = saved
+
+
+def test_the_report_lines_ask_for_the_coverage_block(tmp: str) -> None:
+    """ADR-065 §5 rule 4: post-review refuses a review without the block, so the
+    brief asks for it on a review and a re-review, never on an adjudication."""
+    repo = mkrepo(tmp, "covered")
+    out = rb.render(base_request(repo))
+    section = out.split("## Coverage\n", 1)[1].split("\n## ", 1)[0]
+    assert "`agent-fabric-coverage v1`" in section and out.index("## Coverage") < out.index("## Report lines"), out[-800:]
+    report = os.path.join(tmp, "judged.md"); open(report, "w").write("1. a finding\n")
+    adj = rb.render({**base_request(repo), "mode": "finding-adjudication", "previous_findings": report})
+    assert "## Coverage" not in adj and "agent-fabric-coverage" not in adj.split("## Findings to judge", 1)[0], adj[-400:]
+
+
 def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
@@ -721,7 +833,9 @@ def main() -> int:
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
-             test_the_readme_example_renders_as_documented]
+             test_the_readme_example_renders_as_documented, test_the_config_fingerprint_follows_the_card_and_the_agent_file,
+             test_a_prs_re_review_starts_at_its_last_checkpoint,
+             test_the_report_lines_ask_for_the_coverage_block]
     failures = 0
     # Removed when the run ends, however it ends: tests/run.sh names every
     # entry a run leaves under the temporary directory as a failure.

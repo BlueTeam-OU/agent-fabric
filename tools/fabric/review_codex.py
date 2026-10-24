@@ -161,6 +161,7 @@ import review_lines  # noqa: E402
 import routing  # noqa: E402
 from github.review_status.base import Die  # noqa: E402
 from github.review_status.config import read_config  # noqa: E402
+from github import post_review, review_coverage  # noqa: E402
 from github.review_status.verdicts import classify, engine_of, unavailable_of  # noqa: E402
 from lint_rules.schema import validate_json  # noqa: E402 — the fleet's no-dependency validator (ADR-040)
 
@@ -224,6 +225,21 @@ P1 breaks a requirement or invariant on a path that runs; P2 is a defect a reach
 triggers; P3 is anything else worth fixing. A finding about code the range did not change is
 reported only if the range makes it reachable. No findings: {"findings": []}.
 """
+
+
+# Asked only when the answer schema has the field: a strict schema rejects what it does not list, so a prompt asking
+# for it before the schema carries it would fail every review (ADR-065 §2 C; the schema is fabric-coordinator's).
+COVERAGE_SHAPE = """The object also carries "coverage", what you read of the range:
+ "coverage": {"paths": [{"path": "<every path `git diff --name-only` of the range lists>", "status": "read|not read",
+  "reason": "<why, when not read; else an empty string>"}], "lenses": [{"lens": "<each lens of the brief>",
+  "status": "applied|not applied"}]}
+Name every path of the range once, "read" only for a file you read in full."""
+
+
+def answer_shape() -> str:
+    with open(SCHEMA_PATH, encoding="utf-8") as f:
+        props = json.load(f).get("properties", {})
+    return ANSWER_SHAPE + (COVERAGE_SHAPE + "\n" if "coverage" in props else "")
 
 
 class Refused(Exception):
@@ -742,6 +758,11 @@ def _tail(path: str, limit: int = 1500) -> str:
 
 def parse_answer(text: str) -> list[dict]:
     """The findings of ONE JSON object valid against the schema, or FailedReview."""
+    return parse_answer_full(text)[0]
+
+
+def parse_answer_full(text: str) -> tuple[list[dict], review_coverage.Coverage | None]:
+    """(the findings, the coverage the answer states or None when the schema has no such field), or FailedReview."""
     def no_duplicates(pairs):
         out: dict = {}
         for k, v in pairs:
@@ -766,7 +787,29 @@ def parse_answer(text: str) -> list[dict]:
         file = finding["file"].strip()
         if file.startswith("/") or ".." in file.split("/"):
             raise FailedReview(f"answer/findings[{i}]/file: {file!r} is not a path inside the repository")
-    return doc["findings"]
+    return doc["findings"], answer_coverage(doc.get("coverage"))
+
+
+def answer_coverage(raw: object) -> review_coverage.Coverage | None:
+    """The answer's coverage as the posted block's data. The schema lists paths and lenses as arrays (a strict
+    structured output has no open-ended keys); the block is an object by path, so a path named twice is refused here
+    rather than collapsed to the last, and the rest is the block's own validation."""
+    if raw is None:
+        return None
+    try:
+        paths = {}
+        for entry in raw["paths"]:
+            if entry["path"] in paths:
+                raise ValueError(f"path {entry['path']!r} given twice")
+            paths[entry["path"]] = {"status": entry["status"], **({"reason": entry["reason"]} if entry["reason"] else {})}
+        lenses = {}
+        for entry in raw["lenses"]:
+            if entry["lens"] in lenses:
+                raise ValueError(f"lens {entry['lens']!r} given twice")
+            lenses[entry["lens"]] = entry["status"]
+        return review_coverage.parse_block(json.dumps({"paths": paths, "lenses": lenses}))
+    except (KeyError, TypeError, ValueError) as e:
+        raise FailedReview(f"answer/coverage: {e}") from None
 
 
 def _one_line(s: str) -> str:
@@ -860,6 +903,20 @@ def render_review(model: str, head: str, rng: str, findings: list[dict], effort_
     return "\n".join(out) + "\n"
 
 
+def report_body(brief: str, model: str, head: str, rng: str, findings: list[dict], level: str | None,
+                coverage: review_coverage.Coverage | None) -> str:
+    """What post-review is given. With the coverage the answer states, the brief's own dispatch header goes ahead of the
+    report, as the review class's does: post-review takes the range and the config of the v2 marker from it, strips it,
+    and checks the block against `git diff --name-only`. No coverage in the answer (a schema without the field) or no
+    header in the brief: the bare report is returned, and post-review refuses it (a review is posted as v2 only, and
+    its range comes from the header), so nothing is posted."""
+    body = render_review(model, head, rng, findings, level)
+    header = post_review.first_dispatch_header(brief)
+    if not coverage or not header:
+        return body
+    return header + "\n" + body + "\n" + review_coverage.render_block(coverage) + "\n"
+
+
 # Set once the post's child may have started: a signal after it cannot say "nothing posted", and a review
 # cannot be unsent (post_review.py).
 _posting = False
@@ -869,8 +926,8 @@ def post(repo: str, pr: str, head: str, body: str) -> int:
     global _posting
     _posting = True
     r = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-pr"), "post-review", pr, "--model", ENGINE,
-                        # The commit Codex read: the body carries no dispatch header, and post-review records a
-                        # report only on the head it names (ADR-020 §5 rule 6).
+                        # The commit Codex read: it must equal the head_sha of the dispatch header the body carries,
+                        # which post-review records the review on (ADR-020 §5 rule 6).
                         "--head", head],
                        cwd=repo, input=body, text=True, timeout=180)
     return r.returncode
@@ -982,7 +1039,7 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     root = scratch_root(repo, environ)
     observed.facts = {"brief": brief, "pr": pr, "head": head, "model": model, "level": level}
 
-    def attempt() -> list[dict]:
+    def attempt() -> tuple[list[dict], review_coverage.Coverage | None]:
         # Everything a run needs is made here and gone when it ends, so a retry is as fresh as the first run.
         # Every refusal of the gateway's (the sign-in, its token's lifetime, the installed gateway) comes before it starts.
         provider = (review_gateway.serve(review_gateway.prepare(gateway, environ, signin_home, timeout_min * 60), model, environ)
@@ -997,9 +1054,9 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
                 workdir = os.path.join(scratch, "head")
                 extract(repo, head, workdir)
                 env = child_env(environ, scratch, codex_home(scratch, base_url, account_id(env_run)), key)
-                prompt = brief.rstrip("\n") + "\n" + ANSWER_SHAPE
+                prompt = brief.rstrip("\n") + "\n" + answer_shape()
                 prove_sandbox(binary, workdir, env)
-                return parse_answer(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level, observed))
+                return parse_answer_full(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level, observed))
             finally:
                 shutil.rmtree(scratch, ignore_errors=True)
 
@@ -1007,7 +1064,7 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     while True:
         runs += 1
         try:
-            findings = attempt()
+            findings, coverage = attempt()
             break
         except ModelUnavailable as e:
             # An allowance is spent for hours: a wait of a minute cannot help, so only the provider's capacity is retried.
@@ -1028,7 +1085,7 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     observed.status = ("completed", "codex:answer")   # the run's; what happens to its answer after is not
     if not no_post and pr_head(repo, pr) != head:
         raise Refused(f"PR #{pr} moved while Codex read {head[:12]}; nothing posted — run it on the new head")
-    body = render_review(model, head, req["range"], findings, level)
+    body = report_body(brief, model, head, req["range"], findings, level, coverage)
     if no_post:
         sys.stdout.write(body)
         return 0

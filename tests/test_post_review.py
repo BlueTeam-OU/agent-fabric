@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 import results  # noqa: E402
 import review_brief  # noqa: E402
-from github import post_review, pr_reply, pr_review_status  # noqa: E402
+from github import post_review, pr_reply, pr_review_status, review_coverage  # noqa: E402
 
 LOC = "identities/roles/language-culture/locale/ge/team.md"
 
@@ -210,7 +210,11 @@ def main() -> int:
     # The repository is named, never read from the checkout's origin (a copy without a remote has none).
     os.environ["GH_REPO"] = "o/r"
     try:
-        post_review.run(["552", "--head", "a" * 40], "findings")
+        # A v2 report, since a report without a range is refused before the PR is read; its range is checked later.
+        header = json.dumps({"evidence_mode": "pinned", "base_sha": "b" * 40, "head_sha": "a" * 40, "card_base": "c" * 40,
+                             "config": "d" * 64})
+        post_review.run(["552"], f"```{review_brief.DISPATCH_VERSION}\n{header}\n```\nfindings\n\n"
+                                 f"```{review_coverage.BLOCK_INFO}\n{{\"paths\": {{}}, \"lenses\": {{}}}}\n```\n")
         check("refused", False)
     except post_review.Refused as e:
         check("refused, naming the branch", "head branch" in str(e))
@@ -220,6 +224,70 @@ def main() -> int:
             os.environ.pop("GH_REPO", None)
         else:
             os.environ["GH_REPO"] = real_repo
+
+    print("the read-back compares what the shared parser finds with what was validated")
+    mk = review_coverage.Marker("b" * 40, "a" * 40, "c" * 40, "d" * 64)
+    cov = review_coverage.Coverage({"x.py": ("read", "")}, {})
+    whole = mk.line() + "\nreport\n\n" + review_coverage.render_block(cov) + "\n"
+    check("a body that reads as the validated marker and coverage: no refusal", post_review.readback_refusal(whole, mk, cov) == "")
+    check("another coverage: refused",
+          "another range or another coverage" in post_review.readback_refusal(
+              whole, mk, review_coverage.Coverage({"y.py": ("read", "")}, {})))
+    check("another marker: refused",
+          "another range or another coverage" in post_review.readback_refusal(
+              whole, review_coverage.Marker("e" * 40, "a" * 40, "c" * 40, "d" * 64), cov))
+    check("a block swallowed by an open fence: refused",
+          "does not read back" in post_review.readback_refusal(
+              mk.line() + "\nreport\n```text\n" + review_coverage.render_block(cov) + "\n", mk, cov))
+    print("the range the headers name: one v2 marker, or none (agent-fabric ADR-065 §5 rule 4)")
+    B, H, C, K = "1" * 40, "2" * 40, "3" * 40, "4" * 64
+
+    def ranged(**over) -> str:
+        fields = {"evidence_mode": "pinned", "base_sha": B, "head_sha": H, "card_base": C, "config": K, **over}
+        return "```agent-fabric-dispatch v1\n" + json.dumps({k: v for k, v in fields.items() if v != "-"}) + "\n```\n"
+
+    want = review_coverage.Marker(B, H, C, K)
+    check("every header naming the same four: the marker", post_review.report_range(ranged() + "F1") == (want, ""))
+    check("the same range twice is one", post_review.report_range(ranged() + "x\n" + ranged()) == (want, ""))
+    check("a header from before the fields: no marker, no refusal (v1)", post_review.report_range(ranged(card_base="-", config="-") + "F1") == (None, ""))
+    check("no header: no marker", post_review.report_range("F1") == (None, ""))
+    for label, text, why in (
+        ("a different config", ranged() + ranged(config="5" * 64), "different ranges"),
+        ("a different base", ranged() + ranged(base_sha=C), "different ranges"),
+        ("a different card", ranged() + ranged(card_base=B), "different ranges"),
+        ("one with the fields and one without", ranged() + ranged(card_base="-", config="-"), "some of its dispatch headers"),
+        ("no card_base", ranged(card_base="-"), "card_base"), ("no config but a card_base", ranged(config="-"), "config"),
+        ("no base_sha", ranged(base_sha="-"), "base_sha"), ("a null base_sha", ranged(base_sha=None), "base_sha"),
+        ("an abbreviated head", ranged(head_sha=H[:12]), "head_sha"), ("a number for the config", ranged(config=7), "config"),
+        ("a sha256-length base", ranged(base_sha="1" * 64), "base_sha"),
+    ):
+        got, refusal = post_review.report_range(text + "F1")
+        check(f"{label}: refused", got is None and why in refusal)
+    # The producer's own header (review_brief.dispatch_header) for a ranged request: once it carries card_base and
+    # config, post-review reads exactly those into the marker; before, it names a v1 report. Either way the two agree.
+    info = {"base_sha": B, "head_sha": H, "card_base": C}
+    made = "\n".join(review_brief.dispatch_header({"mode": "review", "repository": "/nowhere", "range": f"{B}..{H}"}, info,
+                                                  "claude", None, "d-1", "2026-10-14T00:00:00Z"))
+    fields = json.loads(made.split("\n", 1)[1].rsplit("\n", 1)[0])
+    got, refusal = post_review.report_range(made + "\nF1")
+    if "config" in fields:
+        check("the renderer's own header is read into the v2 marker", refusal == "" and got == review_coverage.Marker(B, H, C, fields["config"]))
+    else:
+        check("a renderer whose header lacks the fields posts v1", (got, refusal) == (None, ""))
+    check("first_dispatch_header gives the fenced block as written", post_review.first_dispatch_header("x\n" + ranged() + "y") == ranged().rstrip("\n"))
+    check("…and nothing for none, or for one never closed", post_review.first_dispatch_header("x") == ""
+          and post_review.first_dispatch_header("```agent-fabric-dispatch v1\n{}") == "")
+
+    one = f"```{review_coverage.BLOCK_INFO}\n" + json.dumps({"paths": {"a.py": {"status": "read"}}, "lenses": {}}) + "\n```"
+    rest, cov = post_review.v2_report("findings\n\n" + one + "\n")
+    check("v2_report: the report without its block, and the block read", rest == "findings" and list(cov.paths) == ["a.py"])
+    for label, text in (("a marker-like line", "<!-- agent-fabric-review v2 -->\n" + one), ("a second block", one + "\n" + one),
+                        ("no block", "findings"), ("only a block", one)):
+        try:
+            post_review.v2_report(text)
+            check(f"v2_report: {label}: refused", False)
+        except post_review.Refused:
+            check(f"v2_report: {label}: refused", True)
 
     print("--help and a usage error never wait on an open stdin (review of #71)")
     shim = [os.path.join(HERE, "bin", "fabric-pr"), "post-review"]
@@ -235,7 +303,7 @@ def main() -> int:
         finally:
             held.stdin.close()
         check(f"{' '.join(args)} exits {want} with stdin still open", rc == want)
-    print("--help's examples: the review class's form is the one its guard admits (review of #283, F2)")
+    print("--help's examples: the review class's form, and that the guard no longer exempts it (review of #283, F2; ADR-065)")
     spec = importlib.util.spec_from_file_location(
         "review_bash_guard", os.path.join(HERE, "runtime", "claude-code", "hooks", "review-bash-guard.py"))
     guard = importlib.util.module_from_spec(spec)
@@ -249,17 +317,15 @@ def main() -> int:
             if line == "  EOF":
                 examples.append("\n".join(cur))
                 cur = None
-    check(f"two examples, the first without --head and the second with it ({len(examples)} found)",
-          len(examples) == 2 and "--head" not in examples[0].splitlines()[0]
-          and "--head" in examples[1].splitlines()[0])
-    if len(examples) == 2:
-        check("the first opens its body with an agent-fabric-dispatch v1 block",
+    check(f"one example, the review class's form: no --head, and no header-less form is shown ({len(examples)} found)",
+          len(examples) == 1 and "--head" not in examples[0].splitlines()[0])
+    if len(examples) == 1:
+        check("it opens its body with an agent-fabric-dispatch v1 block",
               examples[0].splitlines()[1] == f"```{review_brief.DISPATCH_VERSION}")
-        check("the review class's guard admits the first", guard.posted_review(examples[0]) is not None)
-        # With a real sha for the placeholder: a guard widened to exempt a 40-hex --head must fail this.
-        real = examples[1].replace("<full sha of the commit reviewed>", "a" * 40)
-        check("and gives the second, the --head path outside the review class, no exemption",
-              "<" not in real.splitlines()[0].split("<<")[0] and guard.posted_review(real) is None)
+        # The session posts (ADR-065 §5 rule 6): the guard keeps no exemption
+        # for the review class's form, which its ordinary rules refuse.
+        check("the guard has no review-post exemption, and refuses the review class's form",
+              not hasattr(guard, "posted_review") and guard.verdict(examples[0]) is not None)
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

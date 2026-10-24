@@ -68,6 +68,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | hidden Unicode; bidi, zero-width, tag characters in skills, slices and charters | ADR-062 |
 | fabric-ctl assist; asking about the fabric with the fleet down; the claude-pzhuy API key; who may spend an API key | ADR-063 |
 | GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
+| the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -461,32 +462,33 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-020 — The review class is the review (Accepted)
 
-- The review class's blind review is the review of every PR: on every
-  head, to judge a finding, to re-review a fix range; no automated
-  reviewer is assumed (§5 rule 1).
+- The review class's blind review is the review of every PR: each head,
+  each finding's judgement, each fix range; no automated reviewer is
+  assumed (§5 rule 1).
 - Dispatch: `code-review`, `model: fable`, description "review…" or
-  "re-review…", no isolation; the guard drops the alias so the agent
-  file's routed model decides (§5 rules 2–3).
-- The reviewer writes nothing (`review-bash-guard.sh`); its brief is
-  facts, never conclusions (§5 rules 4–5).
+  "re-review…", no isolation; the agent file's routed model decides
+  (§5 rules 2–3).
+- The reviewer writes nothing; its brief is facts, never conclusions
+  (§5 rules 4–5).
 - Posted by `fabric-pr post-review` with the marker; counted only when marked
   and posted by the PR's account or a named poster, or unmarked from a
   trusted account (§5 rules 6–7). Legacy markers until the sunset (§5
   rule 8).
-- A 2026-10-05 — the reviewer inherits no secret: its commands run with
-  a clean environment (§5 rule 4).
+- A 2026-10-05 — the reviewer inherits no secret: a clean environment
+  (§5 rule 4).
 - A 2026-10-14 — the review card governs from the base (§5 rule 9);
   only a `pinned` review covers a head (§5 rule 10).
 - A 2026-10-15 — a pinned review reads a detached head worktree (§5
   rule 10).
-- A 2026-10-16 — a review covers the commit it read (`head_sha`, or
-  `--head`); none or a foreign commit is refused (§5 rule 6).
+- A 2026-10-16 — a review covers the commit it read; none or a foreign
+  one is refused (§5 rule 6).
 - A 2026-10-22 — a supplier dispatches no review of its own part; the
   caller reviews the folded head (§5 rule 11).
+- A 2026-10-24 — pinned read tools and a proved sandbox, no Bash; v2
+  posts only (§5 rules 4, 6; ADR-065).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
-  review-grade, substitute, review card, evidence mode, pinned,
-  working-tree, supplier, supply.
+  review-grade, review card, pinned, supplier.
 
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 
@@ -1167,24 +1169,24 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-053 — A second review engine: Codex reviews beside the review class, one-shot, through the gateway (Accepted)
 
 - `fabric-review --engine codex <PR>`: the review class's blind brief,
-  unchanged, run once by the pinned `codex exec`, read-only, on a `git
-  archive` extract of the head, 20 minutes by default (§5 rules 1-2).
+  unchanged, run once by the pinned `codex exec`, read-only, on an
+  extract of the head (§5 rules 1-2).
 - Codex goes through its own gateway (`openai-responses`, key by env
   only); the session's Anthropic key and `~/.codex` never reach it (§5
   rule 3).
-- One JSON object of findings or nothing posted; posted with
-  `fabric-pr post-review <PR> --model codex --head <sha>`, judged like
-  any finding (§5 rules 4-5).
+- One JSON object of findings and coverage or nothing posted; posted as
+  v2 with `--model codex`, judged like any finding (§5 rules 4-5).
 - A review is required: `fabric-pr arm` refuses until every engine the
   arming policy names (`reviews`, `boundary_reviews`; data, not this
   record) has reviewed the head with no open P1/P2 (§5 rule 6). Codex is
   pinned (§5 rule 7).
 - A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
-- A 2026-10-13 — every login reviews on a synced access token; both engines by default (§5 rules 6, 8).
-- A 2026-10-13 — the record requires a review; the arming policy names the engines (now both) (§5 rule 6).
+- A 2026-10-13 — every login on a synced access token; both engines by default (§5 rules 6, 8).
+- A 2026-10-13 — a review is required; the arming policy names the engines (§5 rule 6).
 - A 2026-10-13 — codex additional: its review or unavailable marker per head (§5 rule 6, ADR-055 rule 8).
 - A 2026-10-14 — findings judged once per head, one dispatch for both engines (§5 rule 5).
 - A 2026-10-16 — the post names the commit read (`--head`) (§5 rule 4).
+- A 2026-10-24 — v2 posts: header and coverage block (§5 rule 4).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 
@@ -1402,3 +1404,21 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Accepted; the build waits on a tagged InterWeave release (§8).
 - Keywords: InterWeave, carrier, transport, relay, dual run, parity,
   PeerId, roster, allowlist, loopback, one host, P5.
+
+### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
+
+- The review class loses Bash; it reads through `Read`, `Glob`, `Grep`
+  and a stdlib review server whose tools run git with a fixed argv, no
+  shell and a clean environment (§2 A, §5 rules 1–2).
+- Its checks run one argv at a time in a bubblewrap sandbox: read-only
+  filesystem, fresh `/tmp`, no network, proved by a start probe and a
+  refused write per review; unproved, nothing runs (§2 B, §5 rule 3).
+- A posted review carries a `v2` marker (base, head, card, config hash) and a
+  coverage block naming every path of the range; a path `not read`
+  uncounts it, and a re-review's base is derived from the last marker,
+  fail-closed (§2 C, §5 rules 4–5).
+- The session posts the report; `review-bash-guard` stays only for other
+  unisolated classes (§5 rules 6–7).
+- Keywords: review class, reviewer, Bash guard, pinned tools, MCP,
+  read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
+  marker, re-review, card_base, open-code-review, P3.

@@ -105,3 +105,15 @@ supplier's own tests had passed. §5 rule 11 now says so; the
 `SUPPLIER-REVIEW` section and trailer keep their names and carry the
 supplier's own checks; `dispatch_guard.py` denies a code-review dispatch
 from a session with a `for/` branch checked out, with a suite case.
+
+### Amendment 2026-10-24 — The reviewer reads through pinned tools and posts nothing headerless
+
+§5 rule 4 said the reviewer had Bash behind review-bash-guard, a fence
+that read shell text and took 32 commits and two PRs of review rounds
+to keep (#96, #97, the 2026-10-10 `cd` series) without closing every
+spelling. ADR-065, accepted by the owner on 2026-10-23, replaces it
+with pinned read tools and a proved bubblewrap sandbox; the guard stays
+only for the other classes dispatched without a worktree. Rule 6's
+headerless `--head` post goes with it: post-review now writes only the
+v2 marker with a coverage block, so a report that names no range
+cannot post (ADR-065 §5 rule 4). Built on #358.

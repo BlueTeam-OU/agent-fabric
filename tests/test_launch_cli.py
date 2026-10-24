@@ -194,8 +194,10 @@ def main() -> int:
             shutil.copytree(f"{ROOT}/runtime/claude-code/agents", f"{fabric}/runtime/claude-code/agents")
             # The installer's MCP step reads its helper from the fabric.
             shutil.copytree(f"{ROOT}/runtime/mcp/websearch-locale", f"{fabric}/runtime/mcp/websearch-locale")
-            shutil.copytree(f"{ROOT}/runtime/mcp/fabric-memory", f"{fabric}/runtime/mcp/fabric-memory",
-                            ignore=shutil.ignore_patterns("__pycache__"))
+            for server in ("fabric-memory", "fabric-review"):
+                shutil.copytree(f"{ROOT}/runtime/mcp/{server}", f"{fabric}/runtime/mcp/{server}",
+                                ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copy(f"{ROOT}/runtime/mcp/stdio_entry.py", f"{fabric}/runtime/mcp/")
             shutil.copy(f"{ROOT}/runtime/identity.py", f"{fabric}/runtime/")
             # install-agent-files.sh is a shim for its module, which imports
             # fabric_writes (ADR-040 §5 rule 5).

@@ -274,14 +274,17 @@ def main() -> int:
             rendered = review_brief.dispatch_header(
                 {"mode": "re-review", "repository": repo, "range": "a..b", "evidence": mode, "pr": 251,
                  "review_round": 2, "job_id": "j7"},
-                {"base_sha": "ade76f23" * 5, "head_sha": "0123456789abcdef0123456789abcdef01234567"},
+                {"base_sha": "ade76f23" * 5, "head_sha": "0123456789abcdef0123456789abcdef01234567", "card_base": "ade76f23" * 5},
                 "claude", None, "d-1", "2026-10-14T09:59:00Z")
             produced = json.loads("\n".join(rendered[1:-1]))
             check(f"the producer sets every field it writes (evidence_mode {mode})",
                   all(v is not None for v in produced.values()), json.dumps(produced))
             _, row = fresh(variant(f"rendered{mode}", brief("\n".join(rendered) + "\n\n# Review brief")))
             renamed = {"evidence_mode": "evidence"}
-            want = {renamed.get(k, k): v for k, v in produced.items() if k != "engine"}
+            # card_base and config are what a review read and under which config
+            # (ADR-065 §2 C): the review's marker carries them, not a cost row,
+            # whose v1 key set stays as it is.
+            want = {renamed.get(k, k): v for k, v in produced.items() if k not in ("engine", "card_base", "config")}
             want["repository"] = produced["repository"].split("/", 1)[1] if produced["repository"] else None
             got = {k: row.get(k, "<absent>") for k in want}
             check(f"every field review_brief writes reaches the row (evidence_mode {mode})",
