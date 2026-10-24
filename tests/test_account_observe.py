@@ -175,12 +175,14 @@ class Main(Base):
         self.home = self.tmp()
         self.store = self.tmp()
         self.puts: list[dict[str, str]] = []
+        self.heads: list = []
         self.locks = 0
 
     def path_of(self, slug):
         return os.path.join(self.store, f"{slug}.json")
 
-    def put(self, tree):
+    def put(self, tree, expect_head=None):
+        self.heads.append(expect_head)
         files = {}
         for dirpath, _, names in os.walk(tree):
             for n in names:
@@ -195,7 +197,7 @@ class Main(Base):
     @contextlib.contextmanager
     def locked(self):
         self.locks += 1
-        yield
+        yield "head-at-read"
 
     def go(self, argv, tokens=None, probe=probe_ok, read_signin=None):
         out, err = io.StringIO(), io.StringIO()
@@ -227,6 +229,7 @@ class Main(Base):
         code, out, err = self.go(["--write"])
         self.assertEqual(code, 0, err)
         self.assertEqual((len(self.puts), self.locks), (1, 1))
+        self.assertEqual(self.heads, ["head-at-read"], "the write names the head the files were read at")
         a = self.puts[0]["accounts/claude-a.json"]
         self.assertTrue(a.startswith(OWNER_FILE[:OWNER_FILE.index("\n}")] + ","), "the owner's text is untouched up to the new key")
         got = json.loads(a)
@@ -294,13 +297,31 @@ class Main(Base):
         o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
         self.assertIsNone(o["model_weekly"][0]["model"], "malformed is unknown, not a made-up name")
 
-    def test_a_sign_in_that_does_not_read_is_named_not_zeroed_and_a_token_in_its_error_is_scrubbed(self):
+    def test_a_failed_probe_carries_no_sign_in_figures_even_when_the_sign_in_reads(self):
         self.sign_in(self.home, "claude-a")
-        code, out, err = self.go(["--write"], read_signin=lambda d, home=None: {"status": "failed", "error": f"boom {TOKEN_B}"})
+        self.go(["--write"], probe=lambda t: {"status": "read-failed"},
+                read_signin=lambda d, home=None: {"status": "ok", "limits": [{"kind": "weekly_scoped", "percent": 5, "resets_at": None, "model": "M"}]})
+        o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
+        self.assertEqual(set(o), {"read_at", "status", "error"})
+
+    def test_malformed_meters_from_the_sign_in_are_null_and_do_not_stop_the_write(self):
+        self.sign_in(self.home, "claude-a")
+        code, _, err = self.go(["--write"], read_signin=lambda d, home=None: {"status": "ok", "limits": [
+            {"kind": "weekly_scoped", "percent": float("inf"), "resets_at": {"x": 1}, "model": "A"},
+            {"kind": "weekly_scoped", "percent": 7, "resets_at": "not a date", "model": "B"},
+            {"kind": "weekly_scoped", "percent": True, "resets_at": "2026-10-01T12:00:00Z", "model": "C"}]})
+        self.assertEqual(code, 0, err)
+        m = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]["model_weekly"]
+        self.assertEqual([(x["percent"], x["resets_at"]) for x in m], [(None, None), (7, None), (None, "2026-10-01T12:00:00Z")])
+
+    def test_a_sign_in_that_does_not_read_is_named_not_zeroed_and_its_free_text_is_never_kept(self):
+        self.sign_in(self.home, "claude-a")
+        code, out, err = self.go(["--write"], read_signin=lambda d, home=None: {"status": "failed", "error": ("x" * 190) + TOKEN_B[:12]})
         o = json.loads(self.puts[0]["accounts/claude-a.json"])["observed"]
         self.assertEqual(code, 1, "a sign-in that did not read is a lost read")
         self.assertIn("claude-a: ok; sign-in failed; created", out)
-        self.assertEqual(o["signin"], {"status": "failed", "error": "boom [token]"})
+        self.assertEqual(o["signin"], {"status": "failed", "error": "the sign-in's /usage read did not give a report"})
+        self.assertNotIn(TOKEN_B[:12], json.dumps(self.puts) + out + err, "not even the front of a token cut by the harness's 200 characters")
         self.assertNotIn("model_weekly", o)
         self.assertEqual(o["status"], "ok", "the probe's reading stands")
         self.assertNotIn(TOKEN_B, json.dumps(self.puts) + out + err)
@@ -316,7 +337,7 @@ class Main(Base):
             self.assertEqual(fh.read(), "plan: Max\n")
 
     def test_a_store_that_refuses_writes_nothing_and_says_so_without_a_token(self):
-        def refuse(tree):
+        def refuse(tree, expect_head=None):
             raise RuntimeError(f"the store said no about {TOKEN_A}")
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):

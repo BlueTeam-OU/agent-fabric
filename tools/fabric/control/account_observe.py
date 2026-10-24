@@ -76,6 +76,14 @@ def _str(v: Any) -> str | None:
     return v
 
 
+def _percent(v: Any) -> Any:
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) != float("inf") else None
+
+
+def _instant(v: Any) -> str | None:
+    return v if isinstance(v, str) and util.date_parse_ms(v) is not None else None
+
+
 def signin_profile(directory: str) -> dict:
     """The sign-in's account facts, from its .claude.json; None where absent or not of the field's type."""
     p = util.read_json(os.path.join(directory, ".claude.json"))
@@ -101,14 +109,19 @@ def build_observed(slug: str, token: str | None, directory: str, *, probe: Calla
                        five_hour=_window(p.get("five_hour")), seven_day=_window(p.get("seven_day")),
                        weekly_reset=weekly_reset(p.get("seven_day")),
                        overage=p.get("overage") or {"status": None, "disabled_reason": None})
-    if os.path.exists(os.path.join(directory, ".credentials.json")):
+    # A failed read carries its status and error and nothing else: the sign-in's plan and meters are not added
+    # beside it, or the file would hold figures next to "read-failed".
+    if out["status"] == "ok" and os.path.exists(os.path.join(directory, ".credentials.json")):
         out.update(signin_profile(directory))
         r = read_signin(directory)
         if r.get("status") == "ok":
-            out["model_weekly"] = [{"model": _str(lim.get("model")), "percent": lim.get("percent"), "resets_at": lim.get("resets_at")}
+            out["model_weekly"] = [{"model": _str(lim.get("model")), "percent": _percent(lim.get("percent")),
+                                    "resets_at": _instant(lim.get("resets_at"))}
                                    for lim in r.get("limits") or [] if lim.get("kind") == "weekly_scoped"]
         else:
-            out["signin"] = {"status": r.get("status"), "error": r.get("error")}
+            # Fixed text, not the harness's: its error is free text cut at 200 characters, which can leave the front
+            # of a token that scrub() (which matches whole tokens) would not recognise.
+            out["signin"] = {"status": r.get("status"), "error": "the sign-in's /usage read did not give a report"}
     return out
 
 
@@ -209,9 +222,15 @@ def read_text(path: str) -> str | None:
             raise FileRefused("not UTF-8") from None
 
 
-def store_put(tree: str) -> dict:
+def store_put(tree: str, expect_head: str | None = None) -> dict:
     from secretstore.settings import settings_put
-    return settings_put(tree)
+    return settings_put(tree, expect_head=expect_head)
+
+
+def store_head() -> str:
+    from secretstore.core import store_dir
+    from secretstore.settings import remote_tip
+    return remote_tip(store_dir())
 
 
 def _locked() -> Any:
@@ -223,7 +242,7 @@ def _locked() -> Any:
         s = store_dir()
         with write_lock(s):
             _before_write(s)   # the files are read on the remote's head: whole-file replacement must not lose a newer edit
-            yield
+            yield store_head()   # settings-put refuses if the store moves past it before the write
     return cm()
 
 
@@ -247,7 +266,7 @@ def scrub(v: Any, secrets: Sequence[str]) -> Any:
 
 def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Mapping[str, str] | None = None,
          tokens: Callable[[], dict[str, str | None]] = store_tokens, path_of: Callable[[str], str] = account_path,
-         put: Callable[[str], dict] = store_put, locked: Callable[[], Any] = _locked,
+         put: Callable[..., dict] = store_put, locked: Callable[[], Any] = _locked,
          probe: Callable[..., dict] = usage.probe_account, read_signin: Callable[..., dict] = usage.read_account,
          now: Callable[[], float] = lambda: time.time() * 1000,
          say: Callable[[str], None] = lambda m: print(m, file=sys.stderr)) -> int:
@@ -301,7 +320,7 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Map
             print(json.dumps({KEY: observed[slug]}, indent=2, ensure_ascii=False))
         return 1 if failed else 0
     try:
-        with locked(), tempfile.TemporaryDirectory(prefix="observe-") as tree:
+        with locked() as head, tempfile.TemporaryDirectory(prefix="observe-") as tree:
             gather()
             os.makedirs(os.path.join(tree, "accounts"), mode=0o700)
             for slug in observed:
@@ -309,7 +328,7 @@ def main(argv: Sequence[str] | None = None, *, home: str | None = None, env: Map
                     continue
                 with open(os.path.join(tree, "accounts", f"{slug}.json"), "w", encoding="utf-8") as fh:
                     fh.write(render(slug))
-            r = put(tree) if any(not v.startswith("refused") for v in result.values()) else {"changed": False}
+            r = put(tree, expect_head=head) if any(not v.startswith("refused") for v in result.values()) else {"changed": False}
     except Exception as e:  # noqa: BLE001 — a store refusal is one line, never a traceback
         # The commit may already exist locally when the push is what failed; the next settings-put pushes it.
         say(f"fabric-accounts: the store refused or failed (a commit may be made but not pushed): {str(scrub(str(e), secrets))[:200]}")
