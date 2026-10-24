@@ -15,8 +15,9 @@ from gzcoord.carrier import ipc  # noqa: E402
 
 
 class FakeDaemon:
-    def __init__(self, directory: str, peer: str = "12D3KooWFakeDaemonPeer", endpoint: str = "gzcoord") -> None:
-        self.path = os.path.join(directory, "p.sock")
+    def __init__(self, directory: str, peer: str = "12D3KooWFakeDaemonPeer", endpoint: str = "gzcoord",
+                 name: str = "p.sock") -> None:
+        self.path = os.path.join(directory, name)
         self.peer, self.endpoint = peer, endpoint
         self.sends: list[dict] = []          # every direct.send params, in order
         self.send_answers: list = []         # per send: None accepts, else an error code

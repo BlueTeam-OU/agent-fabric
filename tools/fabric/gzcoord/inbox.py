@@ -152,6 +152,7 @@ is logged when the drain or the watch delivers it.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import math
 import os
@@ -276,6 +277,33 @@ def deadline_arg(argv: list[str]) -> float | None:
 def _arg_after(argv: list[str], flag: str) -> Any:
     i = argv.index(flag) if flag in argv else -1
     return (argv[i + 1] if i + 1 < len(argv) else js.UNDEFINED) if i >= 0 else None
+
+
+def interweave_hooks(address: str, journal_off: bool):
+    """(the carrier's adapter, the arrival-log hook) of ADR-064, or (None, None)
+    with the journal off: then the route is the relay alone (rule 8) and the
+    arrival log, which sits beside the journal, is not kept. With no carrier
+    running the adapter is a no-op, so the relay-only session is as it was."""
+    if journal_off:
+        return None, None
+    from .carrier import adapter, arrivals
+    ep = _episodic()
+    log = arrivals.ArrivalLog(os.path.join(ep.state_dir(), "gzcoord-arrivals.jsonl"), iso_now=ep.now)
+
+    def on_arrival(recs: list[dict]) -> None:
+        mids = []
+        for r in recs:
+            try:
+                meta = gzmsg.parse(r["content"])["metadata"]
+            except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
+                continue
+            mids.append(meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(r["content"].encode("utf-8")).hexdigest())
+        try:
+            adapter.relay_arrivals(log, address, mids)
+        except OSError as e:
+            # Evidence for the parity report, not a condition of delivery.
+            print(f"gzcoord: the arrival log could not be written ({e.strerror or e}); the message is shown", file=sys.stderr)
+    return adapter.Adapter(), on_arrival
 
 
 def with_queued(shown: str, classified: list[dict], me: dict) -> str:
@@ -421,6 +449,7 @@ def main(argv: list[str]) -> int:
 
     off = bypass.is_off()
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
+    iw, on_arrival = interweave_hooks(me["address"], off)
     cause = {"reason": None}
 
     def held_line(reason: str, n: int) -> str:
@@ -485,7 +514,7 @@ def main(argv: list[str]) -> int:
                                                            mine_fn, [], me["address"], held, on_hold, journal=journal,
                                                            on_journal_fail=on_journal_fail,
                                                            deadline=deadline if until_delivery else None,
-                                                           session_gone=session_gone))
+                                                           session_gone=session_gone, iw=iw, on_arrival=on_arrival))
             except _JournalHeld as e:
                 print(e.line, flush=True)
                 return 6
@@ -524,7 +553,8 @@ def main(argv: list[str]) -> int:
 
     try:
         res = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, wait_total, mine_fn, keywords, me["address"],
-                                                     journal=journal, on_journal_fail=on_journal_fail))
+                                                     journal=journal, on_journal_fail=on_journal_fail, iw=iw,
+                                                     on_arrival=on_arrival))
     except Exception as e:  # noqa: BLE001
         x = explain_relay_error(e, relay_url, t)
         print(x["line"], file=sys.stderr)

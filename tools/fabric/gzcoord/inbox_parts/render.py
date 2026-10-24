@@ -68,7 +68,8 @@ def render(res: dict, me: dict, channel: str, taxonomy: gzmsg.Taxonomy | None, c
             others.append({"rec": rec, "line": t("inbox.not-a-message", {"id": js.get(rec, "id"),
                                                                        "sender": js.get(rec, "sender")})})
             continue
-        (mine if c["isMine"] else others).append({"rec": rec, "msg": msg,
+        (mine if c["isMine"] else others).append({"rec": rec, "msg": msg, "iw": c.get("iw"),
+                                                   "reshow": c.get("reshow", False),
                                                    "retransmitOf": c.get("retransmitOf", js.UNDEFINED)})
     # The reminder rides the head line and nothing else: the one line read
     # on every drain and every delivery; the cap measures the head as it
@@ -87,12 +88,22 @@ def render(res: dict, me: dict, channel: str, taxonomy: gzmsg.Taxonomy | None, c
             flags = [*flags[:MAX_FLAG_LINES], t("delivery.flags-more", {"n": len(flags) - MAX_FLAG_LINES})]
         if p["retransmitOf"] is not js.UNDEFINED:
             flags = [t("delivery.retransmission", {"seq": p["retransmitOf"]}), *flags]
-        title = t("delivery.title", {"seq": js.get(rec, "seq"), "sender": js.get(rec, "sender"),
-                                     "when": js.get(rec, "timestamp")})
+        if p["iw"]:
+            # An InterWeave arrival (ADR-064 rule 9): shown as from the address the
+            # roster maps its authenticated PeerId to, never as from its FROM.
+            title = t("delivery.interweave-title", {"sender": js.get(rec, "sender"), "when": js.get(rec, "timestamp")})
+            if p["iw"].get("verdict") == "mismatch":
+                flags.insert(0, t("delivery.interweave-mismatch", {"from": p["msg"]["metadata"].get("FROM"),
+                                                                    "sender": js.get(rec, "sender")}))
+            if p["reshow"]:
+                flags.insert(0, t("delivery.interweave-reshow", {"id": p["iw"]["mid"]}))
+        else:
+            title = t("delivery.title", {"seq": js.get(rec, "seq"), "sender": js.get(rec, "sender"),
+                                         "when": js.get(rec, "timestamp")})
         if flags:
             title += "\n    " + "\n    ".join(flags)
         text = _drop_final_newline(rec["content"])
-        parts.append({"rec": rec, "title": title, "text": text, **split_message(text)})
+        parts.append({"rec": rec, "iw": p["iw"], "title": title, "text": text, **split_message(text)})
     other_lines = [f"  {o['line'] if 'line' in o else one_line(o['msg'], t)}" for o in others]
     others_block = ["", t("inbox.others-header"), *other_lines] if others else []
     whole = "\n".join([head, *[x for p in parts for x in ("", p["title"], "```text", p["text"], "```")], *others_block])
@@ -107,6 +118,8 @@ def render(res: dict, me: dict, channel: str, taxonomy: gzmsg.Taxonomy | None, c
             if lst else ""
 
     def notice(p: dict) -> str:
+        if p["iw"]:   # no relay record to replay: the journal holds the whole message
+            return t("cap.interweave-notice", {"id": p["iw"]["mid"]})
         return t("cap.notice", {"replay_cmd": REPLAY_CMD, "seq": js.get(p["rec"], "seq")})
 
     others_count = ["", t("cap.others-count", {"count": len(others), "range": seqs(others)})] if others else []
@@ -123,7 +136,7 @@ def render(res: dict, me: dict, channel: str, taxonomy: gzmsg.Taxonomy | None, c
         # Too many messages for one notification: one line each, read by
         # seq, and the tail says how many lines this listing dropped.
         lines = [head, t("cap.by-seq", {"replay_cmd": REPLAY_CMD})]
-        rows = [t("cap.row", {"seq": js.get(p["rec"], "seq"), "line": one_line(gzmsg.parse(p["rec"]["content"]), t)})
+        rows = [t("cap.row", {"seq": p["iw"]["mid"] if p["iw"] else js.get(p["rec"], "seq"), "line": one_line(gzmsg.parse(p["rec"]["content"]), t)})
                 for p in parts]
 
         def tail_for(n: int) -> str:

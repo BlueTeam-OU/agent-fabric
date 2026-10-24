@@ -47,7 +47,8 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
               journal: Callable[[list[dict]], dict] | None = None,
               on_journal_fail: Callable[[str, int], None] = lambda reason, n: None,
               journal_retry_ms: int = JOURNAL_RETRY_MS, deadline: float | None = None,
-              session_gone: Callable[[], bool] = lambda: False) -> dict:
+              session_gone: Callable[[], bool] = lambda: False, iw: Any = None,
+              on_arrival: Callable[[list[dict]], None] | None = None) -> dict:
     """One arm of the waiter. `delivered` iff some slice carried a message
     for this session. Every slice's messages are acknowledged before the
     loop continues or returns — an acknowledgement means "shown this
@@ -64,7 +65,15 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     counts nominal slice seconds, while a relay that accepts and never answers
     holds a slice for up to the request timeout on top. `session_gone` is asked as `held` is, and ends the wait the way a deadline
     does, with `sessionEnded` in the result: a slice abandoned or a page that landed with it is unread and unacknowledged, so
-    the relay shows it again to the next watch (a page already being journaled and shown is finished, and is in the journal)."""
+    the relay shows it again to the next watch (a page already being journaled and shown is finished, and is in the journal).
+
+    `iw` is the InterWeave carrier's adapter (carrier/adapter.py), None when there is none. It adds two things and takes none away,
+    and it fails open: a relay copy is shown unless the carrier ANSWERS that a copy of the message was already shown over
+    InterWeave (one message, shown once: ADR-064 rule 9, ADR-041 rule 5), and the carrier's arrivals the relay has not shown are
+    delivered as records of their own (no relay id, so never acknowledged to the relay, and already in the journal: the carrier
+    kept them before it receipted them). The claim is made after the journal has kept the page and just before the
+    acknowledgement, never earlier: a page held by the journal is shown later and must not find its message claimed.
+    `on_arrival` is told the relay records addressed here before the journal sees them (the arrival log, rule 11)."""
     for_me_fn = for_me_fn or (lambda msg: False)
     keywords = keywords or []
     waited = 0.0
@@ -140,6 +149,8 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
             classified.append({"rec": rec, "msg": msg, "isMine": is_mine})
             delivered = delivered or is_mine
         mine = [c for c in classified if c["isMine"]]
+        if on_arrival and mine:
+            on_arrival([c["rec"] for c in mine])
         if journal and mine:
             kept = journal([c["rec"] for c in mine])
             if not kept.get("ok"):
@@ -183,12 +194,30 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                 if waited >= wait_total:
                     return held_result()
                 continue
+        if iw is not None:
+            for c in classified:
+                mid = c["msg"]["metadata"].get("MESSAGE-ID") if c["isMine"] and c["msg"] else None
+                if mid and not iw.claim(mid, "relay").get("first", True):
+                    c["quiet"] = True   # shown over InterWeave first: journaled and acknowledged, not shown twice
+            for u in iw.unseen():
+                got = iw.claim(u["mid"], "interweave")
+                try:
+                    msg = gzmsg.parse(u["content"])
+                except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
+                    continue
+                if got.get("first", True):
+                    classified.append({"rec": {"id": None, "seq": "interweave", "sender": u.get("sender") or u["mid"],
+                                               "timestamp": u["ts"], "content": u["content"]},
+                                       "msg": msg, "isMine": True, "iw": u, "reshow": bool(got.get("reshow"))})
+            delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
         for rec in retired:
             try:
                 ack(rec.get("id"))
             except Exception:  # noqa: BLE001 — re-read on the next arm
                 pass
         for c in classified:
+            if c.get("iw"):
+                continue   # the carrier's own arrival: there is no relay record to acknowledge
             try:
                 ack(c["rec"].get("id"))
             except Exception:  # noqa: BLE001 — the next arm re-shows it
@@ -202,7 +231,8 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                     hit = c["rec"]
                     break
         if delivered or hit or wait_total == 0 or waited >= wait_total:
-            return {"classified": classified, "waited": waited, "delivered": delivered, "keywordHit": hit,
+            return {"classified": [c for c in classified if not c.get("quiet")], "waited": waited,
+                    "delivered": delivered, "keywordHit": hit,
                     "othersPassed": len([c for c in classified if not c["isMine"]])}
         # Nothing for this session, no keyword hit: the cursor is past the
         # slice, and the remaining budget keeps waiting.
