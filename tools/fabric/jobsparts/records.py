@@ -111,7 +111,7 @@ def working_copy_of(project: str) -> str | None:
 
 
 def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None,
-            priority=DEFAULT_PRIORITY) -> Job:
+            priority=DEFAULT_PRIORITY, deliver_to=None) -> Job:
     # Control characters (C0, DEL, C1) would reach every terminal that
     # lists the job and the opening prompt of a fresh session. Tab, newline
     # and carriage return are whitespace, collapsed below as they always were
@@ -147,8 +147,51 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
         "updated": now,
         "log": [{"at": now, "state": "queued"}],
     }
+    if deliver_to:
+        job["deliver_to"] = deliver_to
     doc["jobs"].append(job)
     return job
+
+
+# A for/ branch as DELIVER-TO writes it. A word with an angle bracket is the protocol's placeholder
+# ("<host>/<login>/for/<caller>/<what>"), which the charset excludes.
+FOR_BRANCH = re.compile(r"(?<![\w./-])([A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*/for/[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w./-]*)", re.ASCII)
+
+
+SECTION_MARKER = re.compile(r"[A-Z][A-Z0-9-]*:\Z", re.ASCII)       # gzmsg's _MARKER: the name alone on its line
+
+
+def section_of(text: str, name: str) -> str | None:
+    """A message section's body from the message text (the inbox's replay carries the text, not its parse): the lines after
+    `NAME:` up to the next marker; a section named twice resumes, as gzmsg.parse reads it. Metadata lines carry a space after the
+    colon and are never markers."""
+    body: list[str] | None = None
+    current = None
+    for line in text.splitlines():
+        if SECTION_MARKER.match(line):
+            current = line[:-1]
+            if current == name and body is None:
+                body = []
+        elif current == name and body is not None:
+            body.append(line)
+    return "\n".join(body) if body is not None else None
+
+
+def deliver_branch(msg: dict) -> str | None:
+    """The for/ branch a REQUEST's DELIVER-TO section names for this login, or None: no section, no branch in it, or one of another
+    login's, which this job would not own. The first one named wins; the section is the sender's free text, so the name is
+    matched by shape and never trusted further (it is checked out only after git accepts it as a branch name)."""
+    text = (msg.get("sections") or {}).get("DELIVER-TO") if isinstance(msg.get("sections"), dict) else None
+    if text is None and isinstance(msg.get("text"), str):
+        text = section_of(msg["text"], "DELIVER-TO")
+    if not isinstance(text, str):
+        return None
+    mine = f"{identity.current_host()}/{identity.current_agent()}/for/"
+    for name in FOR_BRANCH.findall(text):
+        name = name.rstrip(".,;:/")
+        if name.startswith(mine) and ".." not in name and not name.endswith(".lock"):
+            return name
+    return None
 
 
 INBOX = os.path.join(FABRIC_ROOT, "bin", "gzcoord-inbox")
@@ -239,4 +282,5 @@ def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=
     source = {"kind": "request" if msg.get("type") == "REQUEST" else (msg.get("type") or "message").lower(),
               "message_id": mid, "from": meta.get("FROM") or msg.get("sender"), "seq": msg.get("seq")}
     return new_job(doc, meta.get("SUBJECT") or f"message {mid}", topic=topic, project=wanted,
-                   working_copy=working_copy, source=source, priority=priority)
+                   working_copy=working_copy, source=source, priority=priority,
+                   deliver_to=deliver_branch(msg))
