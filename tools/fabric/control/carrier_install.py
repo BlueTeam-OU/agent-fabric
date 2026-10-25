@@ -267,8 +267,9 @@ def unpack(archive: str, root: str, dest: str) -> str:
         with tarfile.open(archive, "r:gz") as tf:
             members = _judge_members(tf, root)
         with tarfile.open(archive, "r:gz") as tf:
-            for info in tf:
-                parts = tuple(p for p in info.name.split("/") if p not in ("", "."))
+            for (judged, parts), info in zip(members, tf):
+                if info.name != judged.name or info.size != judged.size or info.type != judged.type:
+                    raise InstallError("the archive changed between its check and its extraction")
                 target = os.path.join(dest, *parts)
                 if info.isdir():
                     os.makedirs(target, mode=0o755, exist_ok=True)
@@ -368,7 +369,7 @@ def unit_state(unit: str, run: Callable[..., Any], home: str) -> str | None:
     """The unit's ActiveState, or None when no user manager answers (no systemctl, no session bus: the account has
     no unit running, as install.sh itself takes it). A manager that does not answer in time raises ChannelUnknown."""
     try:
-        r = run(["systemctl", "--user", "show", "--property=ActiveState", "--value", unit], capture_output=True, text=True,
+        r = run(["systemctl", "--user", "show", "--property=ActiveState", "--value", unit], capture_output=True, encoding="utf-8", errors="replace",
                 timeout=SYSTEMCTL_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
     except subprocess.TimeoutExpired:
         raise ChannelUnknown(f"the user manager did not answer within {SYSTEMCTL_TIMEOUT_S} s") from None
@@ -387,7 +388,7 @@ def restart_units(units: list[str], run: Callable[..., Any], home: str) -> str |
     """None when each unit was asked to restart and the manager took it; else why not."""
     for u in units:
         try:
-            r = run(["systemctl", "--user", "restart", u], capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT_S, check=False,
+            r = run(["systemctl", "--user", "restart", u], capture_output=True, encoding="utf-8", errors="replace", timeout=SYSTEMCTL_TIMEOUT_S, check=False,
                     stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
         except subprocess.TimeoutExpired:
             return f"restarting {u} did not finish within {SYSTEMCTL_TIMEOUT_S} s"
@@ -439,7 +440,7 @@ def channel_check(profile: str, running: list[str], build: dict, root: str, run:
             if i:
                 sleep(POLL_S)
             try:
-                r = run([os.path.join(root, "bin", "gzcoord-carrier"), "status"], capture_output=True, text=True,
+                r = run([os.path.join(root, "bin", "gzcoord-carrier"), "status"], capture_output=True, encoding="utf-8", errors="replace",
                         timeout=STATUS_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
             except subprocess.TimeoutExpired:
                 reason = f"gzcoord-carrier status did not answer within {STATUS_TIMEOUT_S} s"
@@ -620,6 +621,10 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
 def _install(version: str, release: dict, build: dict, state: str, home: str, root: str, fetch: Callable[..., tuple[int, str]],
              run: Callable[..., Any], token: Callable[[str], str | None] | None, sleep: Callable[[float], None]) -> dict:
     bindir = bin_dir(home)
+    work = os.path.join(state, WORK)
+    # Under the lock nothing else is writing here: whatever is left is a killed install's, and it is removed before
+    # any answer, "current" included.
+    shutil.rmtree(work, ignore_errors=True)
     marker = read_marker(state)
     recorded = _marker_programs(marker)
     if (marker and recorded and marker.get("version") == version and marker.get("sha256") == build["sha256"]
@@ -635,11 +640,8 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
     tok = token("GH_TOKEN")
     if not tok:
         return _failed(version, "no GH_TOKEN is synced for this account (fabric-secrets sync): the release asset needs one")
-    work = os.path.join(state, WORK)
     tree_dir = os.path.join(work, "tree")
     try:
-        # Under the lock nothing else is writing here: whatever is left is a killed install's.
-        shutil.rmtree(work, ignore_errors=True)
         os.makedirs(tree_dir, mode=0o700)
     except OSError as e:
         return _failed(version, f"the install directories cannot be prepared ({_why(e, tok)})")
@@ -687,7 +689,7 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
             return out
 
         try:
-            r = run([os.path.join(tree, "install.sh")], capture_output=True, text=True, timeout=INSTALL_SH_TIMEOUT_S, check=False,
+            r = run([os.path.join(tree, "install.sh")], capture_output=True, encoding="utf-8", errors="replace", timeout=INSTALL_SH_TIMEOUT_S, check=False,
                     stdin=subprocess.DEVNULL, cwd=tree, env=child_env(home))
         except subprocess.TimeoutExpired:
             return roll_back(f"install.sh did not finish within {INSTALL_SH_TIMEOUT_S} s")
@@ -763,8 +765,6 @@ def installed(home: str | None = None, state: str | None = None, run: Callable[.
     reporting &= set(names)
     if not reporting:
         return {"status": "unreadable", "units": units, "reason": "neither the pin nor the marker names a program that reports a version"}
-    if not names:
-        return {"status": "unreadable", "units": units, "reason": "neither the marker nor the pin names a program"}
     present = [n for n in names if os.path.lexists(os.path.join(bindir, n))]
     if not present:
         return {"status": "absent", "units": units}

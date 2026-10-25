@@ -425,6 +425,54 @@ class Install(Case):
         self.release()
         self.assertEqual(self.install()["status"], "installed", "positive control: the same archive without the member")
 
+    def test_the_bounds_on_many_members_and_on_what_unpacks_hold(self):
+        self.release()
+        self.assertEqual(self.install()["status"], "installed", "positive control")
+        for name, value, why in (("MAX_MEMBERS", 3, "more than 3 members"), ("MAX_UNPACKED_BYTES", 10, "more than 10 bytes")):
+            shutil.rmtree(self.home)
+            os.makedirs(self.home)
+            shutil.rmtree(self.state)
+            with unittest.mock.patch.object(iw, name, value):
+                r = self.install()
+            self.assertEqual(r["status"], "failed", name)
+            self.assertIn(why, r["reason"], name)
+            self.assertEqual(self.installed_names(), [], f"{name}: nothing was installed")
+
+    def test_extraction_writes_only_what_was_judged(self):
+        self.release()
+        real = iw._judge_members
+
+        def other(tf, root):
+            out = real(tf, root)
+            info, parts = out[1]
+            swapped = tarfile.TarInfo(info.name + "x")
+            swapped.size, swapped.type = info.size, info.type
+            return [out[0], (swapped, parts)] + out[2:]
+        with unittest.mock.patch.object(iw, "_judge_members", other):
+            r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("changed between its check and its extraction", r["reason"])
+        self.nothing_installed()
+
+    def test_output_that_is_not_utf8_from_install_sh_is_a_failure_with_a_reply(self):
+        self.release(members=default_members({"install.sh": (install_sh(after="printf '\\377\\376' >&2", code=1), "exec")}))
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("install.sh exited 1", r["reason"])
+
+    def test_a_directory_a_killed_install_left_is_removed_before_current_and_before_a_missing_token(self):
+        self.release()
+        self.install()
+        left = os.path.join(self.state, iw.WORK, "tree")
+        os.makedirs(left)
+        self.assertEqual(self.install()["status"], "current")
+        self.assertFalse(os.path.exists(os.path.join(self.state, iw.WORK)), "current does not keep a killed install's 480 MB")
+        os.makedirs(left)
+        with open(os.path.join(self.bindir, "transportctl"), "ab") as fh:
+            fh.write(b"# edited\n")
+        self.assertEqual(self.install(token=lambda n: None)["status"], "failed")
+        self.assertFalse(os.path.exists(os.path.join(self.state, iw.WORK)), "nor does a refusal for want of a token")
+
     def test_an_archive_with_nothing_to_install_from_is_refused(self):
         for label, members in (("no root directory", [(f"{ROOT}/install.sh", install_sh(), "exec")]),
                                ("no install.sh", [m for m in default_members() if not m[0].endswith("install.sh")]),
