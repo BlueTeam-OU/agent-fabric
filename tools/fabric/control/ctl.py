@@ -1245,10 +1245,8 @@ def _table_gateway_install(rs: list) -> list[str]:
             lines.append(_row(r))
             continue
         digest = S(dig(u, "sha256"))[:12] if T(dig(u, "sha256")) else "-"
-        # The units' check is the news on an installed row; a failure's reason already carries it.
-        note = nullish(dig(u, "reason"), "") or (f"units: {S(dig(u, 'units', 'check'))}" if T(dig(u, "units", "check")) else "")
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
-                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(note)}")))
+                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(nullish(dig(u, 'reason'), ''))}")))
     return lines
 
 
@@ -1278,8 +1276,10 @@ def _table_carrier_install(rs: list) -> list[str]:
             lines.append(_row(r))
             continue
         digest = S(dig(u, "sha256"))[:12] if T(dig(u, "sha256")) else "-"
+        # The units' check is the news on an installed row; a failure's reason already carries it.
+        note = nullish(dig(u, "reason"), "") or (f"units: {S(dig(u, 'units', 'check'))}" if T(dig(u, "units", "check")) else "")
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
-                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(nullish(dig(u, 'reason'), ''))}")))
+                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(note)}")))
     return lines
 
 

@@ -918,6 +918,22 @@ class Channel(Case):
         self.assertEqual(r["status"], "failed")
         self.assertIn("no main process", r["checks"][0]["reason"])
 
+    def test_a_second_failed_restore_does_not_replace_the_first_ones_kept_copies(self):
+        self.release()
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.after_restart[DAEMON_UNIT] = "failed"
+        block = os.path.join(self.bindir, ".transport-daemon.restore", "x")
+        os.makedirs(block)
+        first = self.install()
+        self.systemd.states = {DAEMON_UNIT: "active"}       # the first attempt left it failed
+        second = self.install()
+        self.assertEqual((first["restored"], second["restored"]), (False, False))
+        kept = sorted(n for n in os.listdir(self.state) if n.startswith(f"{iw.INSTALL_OP}-previous."))
+        self.assertEqual(len(kept), 2, "each attempt keeps its own")
+        self.assertEqual(digest_of(os.path.join(self.state, kept[0], "transportctl")), old["transportctl"],
+                         "the first attempt's copy is still the account's true previous program")
+
     def test_a_program_that_was_a_link_is_a_link_again_even_over_a_killed_restores_leftover(self):
         self.release()
         self.seed_old()
@@ -945,7 +961,7 @@ class Channel(Case):
         self.assertIn("transport-daemon", r["reason"])
         self.assertEqual(digest_of(os.path.join(self.bindir, "transportctl")), old["transportctl"], "the other program was still put back")
         self.assertEqual(len(r["checks"]), 1, "the check that caused the rollback is in the reply")
-        kept = os.path.join(self.state, f"{iw.INSTALL_OP}-previous")
+        kept, = (os.path.join(self.state, n) for n in os.listdir(self.state) if n.startswith(f"{iw.INSTALL_OP}-previous."))
         self.assertIn(kept, r["reason"])
         self.assertEqual(sorted(os.listdir(kept)), sorted(old), "the old programs survive the work directory's removal")
         self.assertFalse(os.path.exists(os.path.join(self.state, iw.WORK)))
@@ -1032,6 +1048,22 @@ class Channel(Case):
         self.assertEqual(c["status"], "off")
         self.assertIn("has been replaced", c["reason"])
 
+    def test_a_manager_that_stops_answering_mid_check_is_unknown_not_off(self):
+        self.release()
+        self.install()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        real = self.systemd.__call__
+        seen = []
+
+        def stalls(argv, **kw):
+            if os.path.basename(argv[0]) == "systemctl" and argv[2] == "show":
+                seen.append(argv)
+                if len(seen) > 2:                      # the two state queries of running_units answered
+                    raise subprocess.TimeoutExpired(argv, 1)
+            return real(argv, **kw)
+        c = iw.installed(self.home, self.state, root=self.root, run=stalls)["channel"]
+        self.assertEqual(c["status"], "unknown")
+
     def read_channel(self):
         return iw.installed(self.home, self.state, root=self.root, run=self.systemd)["channel"]
 
@@ -1078,19 +1110,22 @@ class Operator(unittest.TestCase):
         self.assertIn(req["op"], ACTION_OPS)
 
     def test_the_tables_say_each_account_and_never_an_unanswered_one_as_installed(self):
-        rows = [{"account": "a", "status": "ok", "interweaveInstall": {"status": "installed", "version": VERSION, "sha256": "ab" * 32},
-                 "interweave": {"status": "ok", "version": VERSION, "pinned": True, "units": {u: True for u in UNITS}}},
+        rows = [{"account": "a", "status": "ok", "interweaveInstall": {"status": "installed", "version": VERSION, "sha256": "ab" * 32,
+                                                          "units": {"running_before": [], "check": "not run: no unit was running"}},
+                 "interweave": {"status": "ok", "version": VERSION, "pinned": True, "units": {u: True for u in UNITS},
+                                "channel": {"status": "off", "reason": "status exited 3"}}},
                 {"account": "b", "status": "no answer"},
                 {"account": "c", "status": "ok", "interweaveInstall": {"status": "failed", "version": VERSION,
                                                                           "reason": "sha256 mismatch: x\u0007"},
                  "interweave": {"status": "absent", "units": {u: False for u in UNITS}}}]
         install = ctl.table("interweave-install", rows).split("\n")
         self.assertRegex(install[1], r"^a +installed +0\.1\.0 +abababababab")
+        self.assertIn("units: not run: no unit was running", install[1], "the news on an installed row")
         self.assertEqual(install[2].split()[:2], ["b", "no"])
         self.assertIn("sha256 mismatch", install[3])
         self.assertNotIn("\u0007", install[3], "an account's words reach the terminal escaped")
         read = ctl.table("interweave", rows).split("\n")
-        self.assertRegex(read[1], r"^a +ok +0\.1\.0 +yes +both")
+        self.assertRegex(read[1], r"^a +ok +0\.1\.0 +yes +both +off +status exited 3", "an account off the channel is not a clean row")
         self.assertRegex(read[3], r"^c +absent +- +- +no")
         self.assertIn("installed", ctl.ACTION_OK["interweave-install"])
         self.assertIn("current", ctl.ACTION_OK["interweave-install"])

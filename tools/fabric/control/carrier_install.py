@@ -439,8 +439,8 @@ def channel_check(profile: str, running: list[str], build: dict, root: str, run:
         return {"status": "not-running", "units": {}}
     seen: dict[str, str | None] = {}
 
-    def failed(reason: str) -> dict:
-        return {"status": "failed", "reason": reason, "units": seen}
+    def failed(reason: str, unknown: bool = False) -> dict:
+        return {"status": "failed", "reason": reason, "units": seen, **({"unknown": True} if unknown else {})}
 
     for u in running:
         streak = 0
@@ -450,7 +450,7 @@ def channel_check(profile: str, running: list[str], build: dict, root: str, run:
             try:
                 st = unit_state(u, run, home)
             except ChannelUnknown as e:
-                return failed(str(e))
+                return failed(str(e), unknown=True)
             seen[u] = st
             streak = streak + 1 if st == "active" else 0
             if streak >= (2 if polls > 1 else 1):
@@ -461,7 +461,7 @@ def channel_check(profile: str, running: list[str], build: dict, root: str, run:
         try:
             bad = daemon_process_problem(daemon, bin_dir(home), run, home)
         except ChannelUnknown as e:
-            return failed(str(e))
+            return failed(str(e), unknown=True)
         if bad:
             return failed(bad)
     if daemon in running and pinned:
@@ -716,9 +716,10 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
             left = undo.restore()
             if left:
                 # The kept copies are the only ones: they leave the work directory, which is removed, for a place a person can read.
-                kept = os.path.join(state, f"{INSTALL_OP}-previous")
+                # A name of its own each time: a retry whose restore also fails must not replace the copies of the first,
+                # which are the only true previous programs.
+                kept = os.path.join(state, f"{INSTALL_OP}-previous.{time.time_ns()}")
                 try:
-                    shutil.rmtree(kept, ignore_errors=True)
                     shutil.move(undo.keep, kept)
                     where = f"; the previous programs are kept in {kept}"
                 except OSError:
@@ -868,6 +869,8 @@ def read_channel(root: str, build: dict | None, run: Callable[..., Any], home: s
     c = channel_check(profile, running, build, root, run, home, time.sleep, polls=1)
     if c["status"] == "passed":
         return {"status": "ok", "units": states}
+    if c.get("unknown"):
+        return {"status": "unknown", "units": states, "reason": _channel_text(c)}
     return {"status": "off", "units": states, "reason": _channel_text(c)}
 
 
