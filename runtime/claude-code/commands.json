@@ -4,6 +4,7 @@
     "gzcoord-inbox": "bin/gzcoord-inbox",
     "gzcoord-send": "bin/gzcoord-send",
     "gzcoord-compose": "bin/gzcoord-compose",
+    "gzcoord-carrier": "bin/gzcoord-carrier",
     "gzmsg": "bin/gzmsg",
     "fabric-accounts": "bin/fabric-accounts",
     "fabric-adr": "bin/fabric-adr",
@@ -74,6 +75,7 @@
   "not_allowed": {
     "fabric-genimage": "every run spends on the OpenAI account (the owner, 2026-10-07): a person approves each one, so no session spends unattended",
     "fabric-lease": "runs whatever command follows `--`: an allow rule for it would allow every command, so it asks as any command does",
+    "gzcoord-carrier": "`run` is the carrier's long-lived process (ADR-064 rule 5), started by the account's client unit and never by a session: an allow rule would let a session hang on it; `abandon` ends a delivery for good (rule 7), the operator's act. `status` and `render-config` are reads a session may ask for",
     "fabric-resume": "starts a session: it is run in an account's shell by a person or by moveto --resume, never by a session, so no allow rule",
     "fabric-watch": "a status pane's loop until q, started by moveto --watch in an account's pane, never by a session: an allow rule would let a session hang on it",
     "fabric-secret-run": "runs whatever command follows `--`, with the agent's own secrets in its environment: an allow rule would allow every command, so it asks as any command does",
