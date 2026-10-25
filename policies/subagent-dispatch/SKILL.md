@@ -139,7 +139,9 @@ workspace settings bootstrap writes register (the `PreToolUse` hook for `Agent`;
 5. a session **not on a `<host>/<login>/for/` branch**: a supplier
    dispatches no review of its own part, the integrator's review covers
    it (ADR-020 §5 rule 11). The guard reads the dispatching session's
-   branch; a supplier on a detached HEAD is held by the rule alone.
+   branch, and the login's active job: a cwd inside that job's worktree
+   or working copy, when the job has a `deliver_to`, is a supplier on any
+   branch. A supplier outside both is held by the rule alone.
 
 All five, or the dispatch is **denied** — never asked. These were
 learned one at a time, and each was load-bearing on its own:

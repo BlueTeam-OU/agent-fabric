@@ -476,19 +476,20 @@ its record disagree, the record wins. Look it up, never read it whole:
   rule 8).
 - A 2026-10-05 — the reviewer inherits no secret: a clean environment
   (§5 rule 4).
-- A 2026-10-14 — the review card governs from the base (§5 rule 9);
-  only a `pinned` review covers a head (§5 rule 10).
+- A 2026-10-14 — the card governs from the base; only a `pinned`
+  review covers a head (§5 rules 9–10).
 - A 2026-10-15 — a pinned review reads a detached head worktree (§5
   rule 10).
-- A 2026-10-16 — a review covers the commit it read; none or a foreign
-  one is refused (§5 rule 6).
+- A 2026-10-16 — a review covers the commit it read (§5 rule 6).
 - A 2026-10-22 — a supplier dispatches no review of its own part; the
   caller reviews the folded head (§5 rule 11).
-- A 2026-10-24 — pinned read tools and a proved sandbox, no Bash; v2
-  posts only (§5 rules 4, 6; ADR-065).
+- A 2026-10-24 — pinned read tools in a proved sandbox, no Bash (§5
+  rules 4, 6; ADR-065).
+- A 2026-10-25 — the guard also knows a supplier by its active job's
+  `deliver_to` (§5 rule 11).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
-  review-grade, review card, pinned, supplier.
+  review card, pinned, supplier.
 
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 
@@ -509,27 +510,28 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-022 — The session lifecycle: auto mode, the watch armed at launch, the inbox held while planning and visible to senders (Accepted)
 
-- Every session watches its inbox from first turn to last, one watch per
-  session; the launcher's opening prompt arms it, and the start hook says
+- Every session watches its inbox from first turn to last, one watch each;
+  the opening prompt arms it; the start hook says
   `NO INBOX WATCH` on start, resume or compaction without one (§2, §5
   rules 1–3).
-- Every login's user settings start sessions in auto mode (§5 r4).
+- User settings start every session in auto mode (§5 r4).
 - While a session plans, `plan-hold.sh` holds the account and the watch
   polls nothing; held messages arrive after approval; sending, the start
-  drain and `--wait` are not held (§5 rules 5–7).
-- Presence reports `planning`; `fabric-ctl presence` shows it;
+  drain, `--wait` are not held (§5 rules 5–7).
+- Presence reports `planning`, shown by `fabric-ctl presence`;
   `gzcoord-send` tells the sender, without refusing (§5 r8).
 - A clone-started session is held only if its project wires the hooks
-  (§5 r9, §7).
-- A 2026-09-28 — a finished job runs `fabric-fresh` (rule 10).
+  (r9, §7).
+- A 2026-09-28 — a finished job runs `fabric-fresh` (r10).
 - A 2026-09-28 — `fabric-branches --sweep` weekly (r11).
 - A 2026-09-28 — `fabric-jobs next`, `fabric-fresh --job` (r12).
 - A 2026-09-30 — the opening prompt names no command (§5 r1).
-- A 2026-10-10 — the watch is `gzcoord-inbox --until-delivery` in the
-  background (§5 r1, r2, r6).
-- A 2026-10-11 — after a worked job, every next one starts fresh (§5 r12).
+- A 2026-10-10 — the watch is a background `gzcoord-inbox
+  --until-delivery` (§5 r1, r2, r6).
+- A 2026-10-11 — after a worked job, the next starts fresh (§5 r12).
 - A 2026-10-19 — sweep pushed worktrees, session scratch; at switch (r11).
 - A 2026-10-20 — unreadable registry keeps all (r11).
+- A 2026-10-24 — live job's worktree kept (r11).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.

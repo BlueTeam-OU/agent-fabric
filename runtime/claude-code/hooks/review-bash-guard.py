@@ -361,9 +361,13 @@ def judged(cmd: str) -> str | None:
     _, status, usage = os.wait4(pid, 0)
     # Equal soft and hard limits end the child by SIGKILL, not SIGXCPU, so the
     # CPU it used tells the budget from a kill for another reason (the OOM
-    # killer) that stays an error.
+    # killer) that stays an error. The floor is half the budget, not the budget
+    # less a tolerance: the kernel kills at the precise limit, but wait4's
+    # figure is tick-sampled and reads low under load (2.889 s for a 3 s kill
+    # at load 62, python-dev-04's repro, 2026-10-25), and 0.1 s turned the
+    # budget into "error" in full runs.
     if (not answer and os.WIFSIGNALED(status) and os.WTERMSIG(status) in (signal.SIGXCPU, signal.SIGKILL)
-            and usage.ru_utime + usage.ru_stime >= CPU_BUDGET_S - 0.1):
+            and usage.ru_utime + usage.ru_stime >= CPU_BUDGET_S / 2):
         return "slow"
     if answer == "allow":
         return None
