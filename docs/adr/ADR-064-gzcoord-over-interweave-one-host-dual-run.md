@@ -227,6 +227,21 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     other sent (ADR-033 rule 4), and with one account's daemon refused
     the port another's holds: InterWeave ADR-0055 decision 5 rests that
     on the kernel's rule and has not measured it.
+14. Installing or updating the InterWeave programs takes the account's
+    InterWeave channel down, and a failure there leaves the agent
+    unreachable on it without anyone being told (A 2026-10-25). So an
+    install or update is a control-plane action (ADR-029), which rule 12
+    keeps on the relay and so reaches the account while that channel is
+    down. The action restarts the units that were running before it,
+    then checks them through the control plane: the daemon and the carrier
+    active, the daemon reporting the pinned version, the carrier answering
+    `status`. It reports done only after that check. A failed check puts
+    back the programs the account had, restarts them, checks again and
+    reports a failure with both results. The same check is the control
+    plane's read of every account's InterWeave state, run after any
+    restart of those units. An account the check cannot confirm is
+    reported as off the InterWeave channel, and the relay carries for it
+    alone (rule 11).
 
 ## 6. Consequences
 
@@ -285,3 +300,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-24 | the carrier's codec is zlib, a receipt also answers a message not addressed here, and the carrier contract is written | §2 (delivery), §5 rules 7 and 8 |
+| 2026-10-25 | an InterWeave install or update is a control-plane action, checked after the restart | §5 rule 14 |

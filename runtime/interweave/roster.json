@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "profile": "gzcoord",
+  "endpoint": "gzcoord",
+  "port_range": [47100, 47199],
+  "rows": []
+}
