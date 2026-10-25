@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "description": "The InterWeave release every account installs (agent-fabric ADR-064 §5 rule 4): a tagged release's Linux archive, pinned by the SHA-256 fabric-coordinator computed from its own download and matched against the release page, the page's .sha256 asset and the release run on the tag, never taken from the page alone. An account installs `current` by downloading `url` (the asset endpoint, asked with Accept: application/octet-stream) with its GitHub token, refusing any other digest or size, extracting the archive and running the archive's own `root`/install.sh with no argument (programs into ~/.local/bin, the two user-unit templates into ~/.config/systemd/user, nothing enabled, no profile touched); never a checkout build. `reports` is what the programs the fleet runs, transportctl and transport-daemon, must print under --version; the archive's other programs (the human clients) are installed by install.sh and not checked. `program_sha256` is the SHA-256 of those same two programs as the archive carries them and install.sh copies them unchanged into ~/.local/bin, so a tool that runs one (roster-row) can refuse a lookalike, a checkout build of the same commit included, which prints the same --version. Moving the pin is a commit here, and the accounts install the new one.",
+  "current": "0.1.0",
+  "releases": {
+    "0.1.0": {
+      "tag": "v0.1.0",
+      "commit": "7196157887c2642366f36db5dbf197eabb924972",
+      "release_run": "BlueTeam-OU/InterWeave actions run 40179792207 attempt 2, success",
+      "x86_64": {
+        "url": "https://api.github.com/repos/BlueTeam-OU/InterWeave/releases/assets/674907924",
+        "name": "interweave-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+        "size": 117226072,
+        "sha256": "77fcc622473016a5232bf10783c67581b8404cdeb910a9cd29855412c67e5115",
+        "root": "interweave-0.1.0-x86_64-unknown-linux-gnu",
+        "reports": {
+          "transportctl": "transportctl 0.1.0+7196157887c2",
+          "transport-daemon": "transport-daemon 0.1.0+7196157887c2"
+        },
+        "program_sha256": {
+          "transportctl": "49e3bb059b6ef04d994d573805da9a05d2f19fbdb02a5c37d7d004f36a4a6a73",
+          "transport-daemon": "ec92c2b38d0bec1a50300c0da26838d383007e934d8a3628738ad562561391b0"
+        }
+      }
+    }
+  }
+}

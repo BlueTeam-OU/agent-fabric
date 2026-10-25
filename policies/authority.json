@@ -45,6 +45,7 @@
         "runtime/provisioning/github-host-keys",
         "runtime/provisioning/github-host-keys.fingerprints",
         "runtime/interweave/roster.json",
+        "runtime/interweave/release.json",
         "tools/fabric/git.py",
         "tools/fabric/role.py",
         "tools/fabric/routing.py",

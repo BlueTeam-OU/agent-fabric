@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-23, in the session ("adr 064 approved arm 356"), and for the text after review rounds 1 and 2 in the same session ("Yes, arm on clean")
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the InterWeave carrier of GZCOORD/1 on the host the fleet shares: its roster (`runtime/interweave/roster.json`, to be built), each account's InterWeave profile and units, the carrier process, the send and inbox adapters in `tools/fabric/gzcoord/`, and the parity report that decides a switch; ADR-033's relay stays as it is
+**Scope:** the InterWeave carrier of GZCOORD/1 on the host the fleet shares: its roster (`runtime/interweave/roster.json`), each account's InterWeave profile and units, the carrier process, the send and inbox adapters in `tools/fabric/gzcoord/`, and the parity report that decides a switch; ADR-033's relay stays as it is
 **Pillar:** P5
 
 ## 1. Context and Problem
@@ -227,6 +227,26 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     other sent (ADR-033 rule 4), and with one account's daemon refused
     the port another's holds: InterWeave ADR-0055 decision 5 rests that
     on the kernel's rule and has not measured it.
+14. Installing or updating the InterWeave programs takes the account's
+    InterWeave channel down, and a failure there leaves the agent
+    unreachable on it without anyone being told (A 2026-10-25). So an
+    install or update is a control-plane action (ADR-029), which rule 12
+    keeps on the relay and so reaches the account while that channel is
+    down. The action restarts the units that were running before it,
+    then checks them through the control plane: each of those units
+    active; the daemon unit's process running the program now installed
+    (not the file it replaced, which a `--version` on disk cannot tell);
+    the programs `release.json` `reports` pins printing their pinned
+    version; the carrier, which is the fabric's own client and not an
+    archive program, answering `status`. It reports done only after that
+    check. A failed check puts back the programs the account had,
+    restarts them, checks again and reports a failure with both results.
+    On a first install no unit was running and there is nothing to put
+    back: the check is the pinned programs' version, and the reply says
+    that no unit was running. The same check is the control plane's read
+    of every account's InterWeave state, run after any restart of those
+    units. An account the check cannot confirm is reported as off the
+    InterWeave channel, and the relay carries for it alone (rule 11).
 
 ## 6. Consequences
 
@@ -242,7 +262,8 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
   every other profile's allowlist; a retired one, its entry removed and
   the renders repeated, or a `transportctl trust revoke` until then.
 - Agents on another host — none today — stay on the relay alone.
-- Nothing builds until an InterWeave release is tagged (rule 4).
+- The build rests on a tagged, pinned release: v0.1.0, in
+  `runtime/interweave/release.json` (rule 4).
 
 ## 7. Future Evolution
 
@@ -262,7 +283,8 @@ here.
 
 ## 8. Decision Status
 
-Accepted. Its build waits on a tagged InterWeave release (§5 rule 4).
+Accepted. Its build runs on InterWeave v0.1.0, pinned in
+`runtime/interweave/release.json` (§5 rule 4).
 
 ## References
 
@@ -285,3 +307,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-24 | the carrier's codec is zlib, a receipt also answers a message not addressed here, and the carrier contract is written | §2 (delivery), §5 rules 7 and 8 |
+| 2026-10-25 | an InterWeave install or update is a control-plane action, checked after the restart | §5 rule 14; §6, §8 and Scope name v0.1.0 |

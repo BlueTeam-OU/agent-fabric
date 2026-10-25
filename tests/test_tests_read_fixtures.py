@@ -53,6 +53,7 @@ DELIBERATE = {
     "tests/test_hygiene_host_paths.py": "the committed policies/hygiene.json keeps recorded /var/tmp and ~/scratch artifact paths out of a slice: the operator's own list",
     "tests/test_hygiene_private_network.py": "the committed policies/hygiene.json keeps private-network addresses and /home/<login>/ paths out of a slice: the operator's own list",
     "tests/test_project_import.py": "the import is acceptance-tested --like real registered projects (the request's acceptance): a copy of the operator's tree, lint run on it; on a stripped copy it finds no sibling, says so and passes",
+    "tests/test_registry_id.py": "every id the committed projects/registry.json holds matches the registry-id grammar, so the two cannot drift: the operator's own file",
     "tests/test_githooks_prepush.py": "the brand projects' committed direct.pr_paths send secret-shaped files to a pull request and design files direct: the operator's own files",
 }
 
