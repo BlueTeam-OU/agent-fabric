@@ -82,6 +82,8 @@ sudo are in the loop.
 | `gateway-install` | *action*: the pinned gateway release (`runtime/gateway.json`), its SHA-256 checked before anything is extracted, the one pinned member only, run with `--version --json` and required to match the pin before it is renamed into `~/.local/bin` (`tools/fabric/control/gateway.py`) |
 | `interweave` | read: the account's InterWeave programs as they report themselves (version, digests), whether they are the release `runtime/interweave/release.json` pins, whether the two user-unit templates are installed, and the channel: `ok`, `off`, `not-running` or `unknown` (a check that could not be made, which ADR-064 rule 14 counts as off the channel), from that rule's check of the running units (`tools/fabric/control/carrier_install.py`) |
 | `interweave-install` | *action*, no arguments: the release the pin names as `current`, its size and SHA-256 checked before anything is extracted, an archive with any member outside its root refused, the archive's own `install.sh` run, the pinned programs' `--version` and digests checked; the units that were running restarted and checked through the control plane, and the previous programs put back on a failed check (ADR-064 rules 4, 14). One download at a time per host, under the host lease `interweave-download` (`tools/fabric/control/carrier_install.py`) |
+| `interweave-start` | *action*, no arguments: the dual run's switch for one account (ADR-064 rule 11). Refused, nothing touched, unless the account lingers, its programs are the pin's and both unit templates are installed; the profile's `config.yaml` rendered from the roster (refused for an account with no valid row), the daemon unit then the client unit enabled and started, and ADR-064 rule 14's check polled; a unit that does not come up or a failed check stops both and says so, and the relay carries alone (`tools/fabric/control/carrier_install.py`) |
+| `interweave-stop` | *action*, no arguments: the client unit then the daemon unit disabled and stopped, answered `stopped` only once neither runs; `config.yaml` and the programs stay. The rollback drill of ADR-064 rule 11 (`tools/fabric/control/carrier_install.py`) |
 | `pool-add` | *action*, on the pool's holder only: a job on a role's pool (ADR-037 rule 9) |
 | `status` | identity, usage, keys, fabric and session together |
 
@@ -155,7 +157,7 @@ claimant (rule 4).
    `tools.py` `tools_install`'s one `tool`, matched by `TOOL_NAME`, and
    `gateway-install`'s one `version`, a key of `runtime/gateway.json`;
    `interweave-install` takes none, the release being the pin's
-   `current`).
+   `current`, nor do `interweave-start` and `interweave-stop`).
 4. A daemon answers a request only when its `from` is a host operator's
    address as `runtime/hosts/registry.json` places it — re-read for every
    record — or, for a public op (`PUBLIC_OPS`: `presence`, `pool-list` and
@@ -205,7 +207,9 @@ claimant (rule 4).
     per account at a time, and a second upgrade or `secrets-sync` sent
     while one runs is answered `busy`, as is an upgrade sent while a
     `secrets-sync` is restarting the session; a second `gateway-install`
-    or `interweave-install` is answered `refused` by the install's own lock. `fabric-ctl` waits for an
+    is answered `refused` by the install's own lock, and so is any of
+    `interweave-install`, `interweave-start` and `interweave-stop` while
+    another of the three runs on the account (one lock for the three). `fabric-ctl` waits for an
     answer as long as the operation's own budget (`tools/fabric/control/ctl.py`):
     20 s by default, 5 s for `ping`, 60 s for `tokens`, 120 s for a drain,
     200 s for `disk`, 240 s for `secrets-sync`, 300 s for `accounts`,
@@ -216,7 +220,10 @@ claimant (rule 4).
     `interweave`, 2668 s for `interweave-install` (a 1200 s wait for the
     host's download turn and 60 s of grace before the install's own
     1408 s: the download, the archive, `install.sh`, the version runs and
-    two restart-and-check rounds), 480 s for
+    two restart-and-check rounds), 930 s for `interweave-start` (its
+    rule-14 check polls the carrier's `status` up to 45 times, a cold
+    carrier having taken 29 s to open its socket with 26 roster rows),
+    156 s for `interweave-stop`, 480 s for
     `secrets-selftest`, and an upgrade's
     computed budget; `--timeout` overrides it (A 2026-09-27).
 13. `jobs` is an operator's read of an account's open jobs, and
@@ -341,3 +348,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-18 | tools-install runs installer and cargo pins | §2 table: the `tools-install` row names the `installer` and `cargo` pin kinds and what each checks; rule 12: its budget 1230 s past the account's 1200 s bound (#303) |
 | 2026-10-19 | tools-install runs rustup-target pins | §2 table: the `tools-install` row names the `rustup-target` kind (#317) |
 | 2026-10-25 | The InterWeave programs are installed and read through the control plane | §2 table: `interweave` and `interweave-install`; §5 rule 3: no arguments; rule 12: their budgets |
+| 2026-10-25 | The InterWeave units are started and stopped through the control plane | §2 table: `interweave-start` and `interweave-stop`; §5 rule 3: no arguments; rule 12: one lock for the three ops, their budgets |
