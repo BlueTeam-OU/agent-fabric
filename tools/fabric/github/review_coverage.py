@@ -35,9 +35,11 @@ BLOCK_INFO = "agent-fabric-coverage v1"
 READ, NOT_READ = "read", "not read"
 APPLIED, NOT_APPLIED = "applied", "not applied"
 
-# The block is what grows with the PR's paths, so it is bounded well inside the review's limit, and a larger one is
-# refused at post time instead of rejected by GitHub after the fact.
-MAX_BLOCK_CHARS = 48_000
+# The block is what grows with the PR's paths, so it is bounded inside the review's limit, with room left for the
+# marker and the pointer to a report moved to a comment, and a larger one is refused at post time instead of
+# rejected by GitHub after the fact. It is posted compact (render_block): a few hundred paths with long names are
+# tens of thousands of characters, and the limit must not be what a review of a memory drain meets.
+MAX_BLOCK_CHARS = 60_000
 # GitHub takes at most 65536 characters in a review's body; a margin is left for what a review adds around the block.
 MAX_REVIEW_CHARS = 65_000
 MAX_NAME_CHARS = 1_000
@@ -198,8 +200,9 @@ def read_block(body: str) -> tuple[Coverage, tuple[int, int]]:
 
 def render_block(coverage: Coverage) -> str:
     """The block as posted: the parsed data re-written, never the model's text, with ASCII escapes (a path's bidi
-    or line-separator characters stay visible as what they are) and a fence longer than any run of backticks in it."""
-    text = json.dumps(coverage.as_json(), indent=2, ensure_ascii=True)
+    or line-separator characters stay visible as what they are) and a fence longer than any run of backticks in it.
+    Compact on one line, as the reviews write it: indentation re-expanded a block that fitted into one that did not."""
+    text = json.dumps(coverage.as_json(), separators=(",", ":"), ensure_ascii=True)
     runs = [len(r) for r in re.findall(r"`+", text)]
     fence = "`" * max(3, max(runs, default=0) + 1)
     return f"{fence}{BLOCK_INFO}\n{text}\n{fence}"
@@ -267,18 +270,42 @@ def _git(repo: str, *args: str) -> subprocess.CompletedProcess:
                           timeout=GIT_TIMEOUT_S, env={**os.environ, "GIT_NO_LAZY_FETCH": "1"})
 
 
-def diff_paths(repo: str, base: str, head: str) -> list[str]:
-    """`git diff --name-only <base>..<head>` in `repo`, NUL-separated so a path with a newline or a quote is one
-    entry. Renames are detected, as git does by default and as the reviewer's own `git diff` shows them: pinned here
-    so a user's diff.renames cannot change which paths a review owes. Raises CoverageError when git cannot say."""
+def diff_changes(repo: str, base: str, head: str) -> tuple[list[str], list[str]]:
+    """(the paths `git diff --name-only <base>..<head>` prints, the source paths of its renames and copies) in `repo`,
+    read from one `--name-status -z` so the two cannot disagree. NUL-separated so a path with a newline or a quote is
+    one entry. Renames are detected, as git does by default and as the reviewer's own `git diff` shows them: pinned
+    here so a user's diff.renames cannot change which paths a review owes. A source is a path the reviewer sees in
+    `--name-status` and `review_diff` and a review may name; `--name-only`, the brief's own instruction, does not
+    print it, so a review is never required to. Raises CoverageError when git cannot say."""
     try:
-        r = _git(repo, "-c", "diff.renames=true", "diff", "--name-only", "-z", "--no-ext-diff", f"{base}..{head}")
+        r = _git(repo, "-c", "diff.renames=true", "diff", "--name-status", "-z", "--no-ext-diff", f"{base}..{head}")
     except (OSError, subprocess.TimeoutExpired) as e:
-        raise CoverageError(f"git diff --name-only {base[:12]}..{head[:12]} could not run ({type(e).__name__})") from None
+        raise CoverageError(f"git diff --name-status {base[:12]}..{head[:12]} could not run ({type(e).__name__})") from None
     if r.returncode != 0:
-        raise CoverageError(f"git diff --name-only {base[:12]}..{head[:12]} failed: "
+        raise CoverageError(f"git diff --name-status {base[:12]}..{head[:12]} failed: "
                             f"{r.stderr.decode(errors='replace').strip()[:200] or r.returncode}")
-    return [p.decode("utf-8", errors="surrogateescape") for p in r.stdout.split(b"\0") if p]
+    fields = [f.decode("utf-8", errors="surrogateescape") for f in r.stdout.split(b"\0")]
+    if fields and fields[-1] == "":
+        fields.pop()   # the terminator of the last record, not an empty path
+    paths: list[str] = []
+    sources: list[str] = []
+    i = 0
+    while i < len(fields):
+        status = fields[i]
+        # R<score> and C<score> carry two paths (source, destination), every other status one.
+        width = 2 if status[:1] in ("R", "C") else 1
+        names = fields[i + 1:i + 1 + width]
+        if not status or len(names) != width or not all(names):
+            raise CoverageError(f"git diff --name-status {base[:12]}..{head[:12]} printed a record that cannot be read")
+        paths.append(names[-1])
+        sources += names[:-1]
+        i += 1 + width
+    return paths, sources
+
+
+def diff_paths(repo: str, base: str, head: str) -> list[str]:
+    """The paths of `git diff --name-only <base>..<head>`; diff_changes has the rest."""
+    return diff_changes(repo, base, head)[0]
 
 
 def is_ancestor(repo: str, ancestor: str, descendant: str) -> bool:
@@ -293,13 +320,14 @@ def is_ancestor(repo: str, ancestor: str, descendant: str) -> bool:
     return r.returncode == 0
 
 
-def check_paths(coverage: Coverage, expected: list[str]) -> str:
+def check_paths(coverage: Coverage, expected: list[str], sources: list[str] | tuple[str, ...] = ()) -> str:
     """Why the block does not name exactly the range's paths, or "". Both directions: a path left out is a path
-    unaccounted for, one named that the range does not change is a claim about nothing."""
+    unaccounted for, one named that the range does not change is a claim about nothing. `sources` (the source side of
+    a rename) may be named and need not be: the range does change them, only `--name-only` does not say so."""
     for p in expected:
         _plain(p, "a changed path")
     want, have = set(expected), set(coverage.paths)
-    missing, extra = sorted(want - have), sorted(have - want)
+    missing, extra = sorted(want - have), sorted(have - want - set(sources))
     if missing:
         return f"the coverage block omits {len(missing)} path(s) of the range, first {missing[0]!r}"
     if extra:
