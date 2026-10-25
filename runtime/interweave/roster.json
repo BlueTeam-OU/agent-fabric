@@ -2,6 +2,30 @@
   "version": 1,
   "profile": "gzcoord",
   "endpoint": "gzcoord",
-  "port_range": [47100, 47199],
-  "rows": []
+  "port_range": [
+    47100,
+    47199
+  ],
+  "rows": [
+    {
+      "agent_id": "01a11615-14e1-7139-975c-84ad21a5c91f",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWFmMwKdw2SsDThQVG47TcRS8ETKCcALvoU68PHnME7ExA\n",
+      "login": "python-dev-02",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWB2+sumzebJBm6S1LqnJRphf9UwUCat5R2QAKCRBLqnJRphf9\nU2UTAP9TKajzYFY1GA1ai7qxqjsMEcMiG9ZtduZjOMsI/BTCWgEAmffpQSOIXgnT\nH3+S7MFikQd17jQKL0bclYrrRPWJgA0=\n=+c4m\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWFmMwKdw2SsDThQVG47TcRS8ETKCcALvoU68PHnME7ExA",
+      "port": 47101,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5SFgAKCRDXDobMImJA\n6k+cAQCI6HJnY401CeqRFm2CdakjgMoW+1Y2ykJqkiovfSVdJwD+Kt13tvMTuylC\nZe0/eywxHw5JcuHsRJ/gWXGp9NnwdQ0=\n=FH/H\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a11a69-f363-7de9-b212-88785c3128e2",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWLHjHbABsmz2d2ZuyJQVsPDwyR9AY2X1pVArJpGhr2RFL\n",
+      "login": "python-dev-03",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQSaXbEiP6NxjcGq4BcP1Xa9WAlprwUCat5R7gAKCRAP1Xa9WAlp\nryzmAP90JHMNT/xOhF/lSx/5jao6Sz17J4LJ4ugkK10fuOobTwD/e8+6Mi0cJU83\nrlDxGaxzAEop71HRXzeOThHJZxR15wA=\n=GMMo\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWLHjHbABsmz2d2ZuyJQVsPDwyR9AY2X1pVArJpGhr2RFL",
+      "port": 47102,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5SFwAKCRDXDobMImJA\n6rw2AP9Q7zw+lXRv/StLMtqezxpmxM6A5IEk5huyOrtvN6B2wgD9HFSKhJ0nifjT\nmKAVFkWlul5IZojaAZWqnYvNnGIDKQk=\n=VY0W\n-----END PGP SIGNATURE-----\n"
+    }
+  ]
 }
