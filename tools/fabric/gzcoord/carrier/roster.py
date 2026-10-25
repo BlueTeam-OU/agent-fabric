@@ -116,6 +116,21 @@ def canonical_row(row: dict) -> bytes:
                       ensure_ascii=True).encode("ascii")
 
 
+def _drop_homedir_agents(home: str) -> None:
+    """Stop the agents gpg started for a scratch homedir and remove the socket
+    directory gpg made for it under /run/user/<uid>/gnupg/, which nothing else
+    removes: one per verification would otherwise pile up for as long as the
+    carrier runs."""
+    socketdir = subprocess.run(["gpgconf", "--homedir", home, "--list-dirs", "socketdir"], capture_output=True,
+                               text=True, timeout=30, check=False).stdout.strip()
+    subprocess.run(["gpgconf", "--homedir", home, "--kill", "all"], capture_output=True, timeout=30, check=False)
+    if os.path.basename(socketdir).startswith("d."):
+        try:
+            os.rmdir(socketdir)
+        except OSError:
+            pass
+
+
 def verify_detached(armored_sig: str, data: bytes, public_key: bytes, primary_fpr: str) -> str | None:
     """None when `armored_sig` is a good signature over `data` by a signing
     SUBKEY of `public_key`, whose primary is `primary_fpr`; else the reason.
@@ -140,8 +155,7 @@ def verify_detached(armored_sig: str, data: bytes, public_key: bytes, primary_fp
         except (OSError, subprocess.TimeoutExpired) as e:
             return f"gpg could not run: {type(e).__name__}"
         finally:
-            subprocess.run(["gpgconf", "--homedir", tmp, "--kill", "all"], capture_output=True,
-                           timeout=30, check=False)
+            _drop_homedir_agents(tmp)
         status = r.stdout.decode("utf-8", "replace").splitlines()
         valid = [l.split() for l in status if l.startswith("[GNUPG:] VALIDSIG ")]
         bad = [l for l in status if l.split(" ")[1:2] in (["BADSIG"], ["EXPKEYSIG"], ["REVKEYSIG"],
