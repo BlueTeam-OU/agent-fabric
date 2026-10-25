@@ -31,9 +31,11 @@ Nothing here reads a keyring for trust: the committed keys (KeySource) decide.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
+import re
 import subprocess
 import tempfile
 from dataclasses import replace
@@ -48,17 +50,47 @@ class AdmitError(Exception):
     """A refusal with the fact that fixes it; nothing was written, and no transport key is minted after one."""
 
 
-def pinned_version(release_path: str, machine: str | None = None) -> str:
-    """What `transportctl --version` must print: release.json's `reports` for the current release on this machine."""
+def _release_entry(release_path: str, machine: str | None = None) -> dict:
     arch = machine or platform.machine()
     try:
         with open(release_path, encoding="utf-8") as fh:
             doc = json.load(fh)
-        return doc["releases"][doc["current"]][arch]["reports"]["transportctl"]
+        return doc["releases"][doc["current"]][arch]
     except (OSError, ValueError) as e:
         raise AdmitError(f"{release_path}: {e}") from e
     except (KeyError, TypeError) as e:
-        raise AdmitError(f"{release_path} pins no transportctl for {arch}") from e
+        raise AdmitError(f"{release_path} pins no release for {arch}") from e
+
+
+def pinned_version(release_path: str, machine: str | None = None) -> str:
+    """What `transportctl --version` must print: release.json's `reports` for the current release on this machine."""
+    try:
+        return _release_entry(release_path, machine)["reports"]["transportctl"]
+    except (KeyError, TypeError) as e:
+        raise AdmitError(f"{release_path} pins no transportctl version") from e
+
+
+def pinned_digest(release_path: str, machine: str | None = None) -> str:
+    """release.json's `program_sha256` for transportctl: the installed program must be the release's, which its
+    own --version cannot show (a checkout build of the pinned commit prints the same string, ADR-064 rule 4)."""
+    try:
+        digest = _release_entry(release_path, machine)["program_sha256"]["transportctl"]
+    except (KeyError, TypeError) as e:
+        raise AdmitError(f"{release_path} pins no program_sha256 for transportctl") from e
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise AdmitError(f"{release_path}: program_sha256 for transportctl is not lowercase hex SHA-256")
+    return digest
+
+
+def file_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError as e:
+        raise AdmitError(f"{path} cannot be read: {e.strerror or type(e).__name__}") from e
+    return h.hexdigest()
 
 
 def _ctl(argv: list[str], env: dict[str, str]) -> str:
@@ -116,8 +148,18 @@ def require_secret_subkey(primary: str, env: dict[str, str]) -> None:
                            env=env, capture_output=True, timeout=GPG_TIMEOUT, check=False)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise AdmitError(f"gpg could not list the secret keys: {type(e).__name__}") from e
-    if r.returncode or not any(l.startswith(b"ssb:") for l in r.stdout.splitlines()):
+    if r.returncode or not _secret_available(r.stdout.decode("utf-8", "replace"), sub):
         raise AdmitError(f"this account holds no secret key for the signing subkey {sub} of {primary}")
+
+
+def _secret_available(listing: str, sub: str) -> bool:
+    """The `ssb` record whose fingerprint is `sub` is not a stub: gpg lists the whole keyblock when any part of
+    it has a secret, and marks a subkey whose secret is absent with `#` in field 15 (`>` is a card, usable)."""
+    rows = [l.split(":") for l in listing.splitlines()]
+    for i, f in enumerate(rows):
+        if f[0] == "ssb" and i + 1 < len(rows) and rows[i + 1][0] == "fpr" and rows[i + 1][9].upper() == sub.upper():
+            return len(f) > 14 and f[14] != "#"
+    return False
 
 
 def _committed(keys: roster.KeySource, agent_id: str) -> tuple[dict, bytes]:
@@ -139,7 +181,10 @@ def make_row(*, rost: roster.Roster, keys: roster.KeySource, agent_id: str, logi
         raise AdmitError(f"the lineage names {rec.get('login')!r} for agent {agent_id}, not {login!r}")
     # Before anything is minted: an account without the committed key must refuse with no key made.
     require_secret_subkey(rec["fingerprint"], env)
-    want = pinned_version(release_path)
+    want, digest = pinned_version(release_path), pinned_digest(release_path)
+    # Hashed before it is run: what is run must be the release's program, not one that answers --version as it.
+    if file_sha256(transportctl) != digest:
+        raise AdmitError(f"{transportctl} is not the pinned release's program (SHA-256 differs from release.json): reinstall it")
     have = _ctl([transportctl, "--version"], env).strip()
     if have != want:
         raise AdmitError(f"transportctl reports {have!r}, the pin is {want!r}: install the pinned release first")

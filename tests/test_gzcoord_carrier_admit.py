@@ -8,6 +8,7 @@ its calls. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import shutil
@@ -69,13 +70,18 @@ def main() -> int:
         stranger = T.Agent(d, "s", "00000000-0000-7000-8000-0000000000aa", "alpha")   # a key the lineage does not commit
         keys = T.Keys([a, b, c], root)
         release = os.path.join(d, "release.json")
-        json.dump({"current": "0.1.0", "releases": {"0.1.0": {"x86_64": {"reports": {"transportctl": VERSION}},
-                                                                  "aarch64": {"reports": {"transportctl": VERSION}}}}},
-                  open(release, "w"))
         ctl = os.path.join(d, "fake", "transportctl")
         os.makedirs(os.path.dirname(ctl))
         open(ctl, "w").write(FAKE.format(py=sys.executable))
         os.chmod(ctl, 0o755)
+        digest = hashlib.sha256(open(ctl, "rb").read()).hexdigest()
+
+        def write_release(sha: object = digest, drop: bool = False) -> None:
+            entry = {"reports": {"transportctl": VERSION}}
+            if not drop:
+                entry["program_sha256"] = {"transportctl": sha}
+            json.dump({"current": "0.1.0", "releases": {"0.1.0": {"x86_64": entry, "aarch64": entry}}}, open(release, "w"))
+        write_release()
         fake = os.path.dirname(ctl)
 
         def env_of(agent: T.Agent, name: str, version: str = VERSION, show: str | None = None) -> dict:
@@ -173,6 +179,18 @@ def main() -> int:
             check("a relative XDG_DATA_HOME is ignored, as the XDG spec says",
                   A.identity_key_path("gzcoord", {"HOME": "/h", "XDG_DATA_HOME": "rel"}) == "/h/.local/share/interweave/profiles/gzcoord/identity.key")
 
+            # the program is the release's: its digest is checked before it is run
+            for label, kw in (("another digest", dict(sha="0" * 64)), ("a digest that is not hex", dict(sha="XYZ")),
+                              ("no program_sha256", dict(drop=True))):
+                write_release(**kw)
+                reset()
+                e = env_of(c, "c2")
+                msg = refuses(A.make_row, rost=base, keys=keys, agent_id=c.agent_id, login="gamma", release_path=release,
+                              environ=e, transportctl=ctl)
+                check(f"roster-row refuses {label}, runs nothing and mints nothing",
+                      msg is not None and calls() == [] and not os.path.exists(A.identity_key_path("gzcoord", e)), str(msg) + str(calls()))
+            write_release()
+
             # not the committed login / key
             check("roster-row refuses a login other than the lineage's for the agent id",
                   refuses(A.make_row, rost=base, keys=keys, agent_id=c.agent_id, login="other", release_path=release,
@@ -232,6 +250,22 @@ def main() -> int:
                   msg is not None and "secret" in msg and calls() == [] and not os.path.exists(A.identity_key_path("gzcoord", ep)),
                   str(msg) + str(calls()))
             subprocess.run(["gpgconf", "--homedir", pubhome, "--kill", "all"], capture_output=True, timeout=30)
+            # the primary's secret and the other subkeys' stay, the signing subkey's is gone: still a refusal before init
+            nohome = os.path.join(d, "nosubsecret")
+            shutil.copytree(a.home, nohome)
+            os.chmod(nohome, 0o700)
+            subprocess.run(["gpgconf", "--homedir", nohome, "--kill", "all"], capture_output=True, timeout=30)
+            subprocess.run(["gpg", "--batch", "--yes", "--homedir", nohome, "--delete-secret-keys", a.sub + "!"],
+                           capture_output=True, timeout=60, check=True)
+            reset()
+            en = env_of(a, "nosub")
+            en["GNUPGHOME"] = nohome
+            msg = refuses(A.make_row, rost=base, keys=keys, agent_id=a.agent_id, login="alpha", release_path=release,
+                          environ=en, transportctl=ctl)
+            check("roster-row whose signing subkey has no secret (the primary's does) refuses before it mints anything",
+                  msg is not None and "secret" in msg and calls() == [] and not os.path.exists(A.identity_key_path("gzcoord", en)),
+                  str(msg) + str(calls()))
+            subprocess.run(["gpgconf", "--homedir", nohome, "--kill", "all"], capture_output=True, timeout=30)
             check("roster-row refuses a signature that does not verify against the committed key", "does not verify" in (stale_msg or ""), str(stale_msg))
             check("roster-admit signed by a key that is not the lineage's root refuses",
                   refuses(admit, rc, 47103, rost1, out, signer=c) is not None)
@@ -276,7 +310,7 @@ def main() -> int:
             # a holder that never lets go ends the wait, loudly
             dfd = os.open(rd, os.O_RDONLY)
             fcntl.flock(dfd, fcntl.LOCK_EX)
-            M.ADMIT_LOCK_WAIT = 1.0
+            wait_was, M.ADMIT_LOCK_WAIT = M.ADMIT_LOCK_WAIT, 1.0
             done2 = threading.Event()
             codes2: list[int] = []
             errs = os.path.join(d, "errs.txt")
@@ -289,6 +323,7 @@ def main() -> int:
             fcntl.flock(dfd, fcntl.LOCK_UN)
             os.close(dfd)
             th.join()
+            M.ADMIT_LOCK_WAIT = wait_was
             check("roster-admit gives up with a refusal when the lock is never released",
                   ended and codes2 == [2] and "nothing admitted" in open(errs).read(), f"{ended} {codes2}")
             for k, v in saved_env.items():
