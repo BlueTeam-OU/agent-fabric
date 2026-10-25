@@ -60,7 +60,7 @@ HOST = socket.gethostname().split(".")[0]
 CMD = os.path.join(ROOT, "bin", "gzcoord-carrier")
 RELEASE = os.path.join(ROOT, "runtime", "interweave", "release.json")
 ROSTER = os.path.join(ROOT, "runtime", "interweave", "roster.json")
-FREE_PORT = 47190
+FREE_PORT_OFFSET = 90  # own roster port + 90, in the roster's range: two accounts' controls never meet
 
 
 def say(line: str) -> None:
@@ -248,13 +248,14 @@ def phase_portcheck() -> int:
     from gzcoord.carrier import roster
     doc = json.load(open(ROSTER, encoding="utf-8"))
     theirs = next(row["port"] for row in doc["rows"] if row["login"] != LOGIN)
+    free = next(row["port"] for row in doc["rows"] if row["login"] == LOGIN) + FREE_PORT_OFFSET
     # The control that makes a refusal mean something: the port is held right now.
     try:
         socket.create_connection(("127.0.0.1", theirs), timeout=5).close()
     except OSError as e:
         return die(f"nothing answers on the other account's port {theirs} ({e}): their daemon must be up first")
     results = {}
-    for label, port, expect_start in (("the other account's port", theirs, False), ("a free port (control)", FREE_PORT, True)):
+    for label, port, expect_start in (("the other account's port", theirs, False), ("a free port (control)", free, True)):
         work = os.path.join(WORK, f"x{port}")
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(WORK, mode=0o700, exist_ok=True)
