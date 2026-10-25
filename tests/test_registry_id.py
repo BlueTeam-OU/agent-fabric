@@ -22,7 +22,7 @@ import registry_id  # noqa: E402
 from control import jobs as control_jobs  # noqa: E402
 from gzcoord import intake  # noqa: E402
 
-GOOD = ["a", "0", "agent-fabric", "gzapi.ge", "blueteam.brand", "a.b.c", "a1-b2.c3", "a" * 63]
+GOOD = ["a", "0", "agent-fabric", "gzapi.ge", "blueteam.brand", "a.b.c", "a1-b2.c3", "a" * 63, "a-.b"]   # a-.b: an inner segment may end in a hyphen, as decided
 BAD = ["", "a" * 64, ".a", "a.", "a..b", "-a", "a-", "a.-b", "A", "a_b", "a b", "a/b", "../etc", "a\n", "é", "a.b-"]
 
 
@@ -52,6 +52,8 @@ def test_the_three_consumers_hold_the_one_pattern() -> None:
 def test_jobs_add_checks_a_dotted_project_and_refuses_a_bad_one() -> None:
     assert control_jobs.check_job_args({"title": "x", "project": "gzapi.ge"}) is None
     assert "registry id" in (control_jobs.check_job_args({"title": "x", "project": "gzapi..ge"}) or "")
+    # js.string(1.5) is "1.5": a number reads as its text, as the contract in control/jobs.py says.
+    assert control_jobs.check_job_args({"title": "x", "project": 1.5}) is None
 
 
 def main() -> int:

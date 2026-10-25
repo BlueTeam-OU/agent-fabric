@@ -57,7 +57,7 @@ by name until `project <id> <project> --working-copy DIR` names one (`switch` re
 `project` re-points a job whose headers were both wrong; it is refused while the job has a branch or a worktree (the one-job guard
 and the sweep key on them) or is closed, and the old and new project are logged on the job. `show` prints "project from": the
 --project, REPOSITORY, PROJECT or re-pointing that decided it (a job added before it was recorded, from the pool, or in a working copy with no --project shows none; one the sending side added
-through the control plane says so, until the receiving side, which reads REPOSITORY, replaces that label while the job is queued).
+through the control plane says so, until the receiving side, which reads REPOSITORY, replaces that label while the job is queued and its project is the one the receiving side resolves).
 
 `sweep` looks again at every delivered job of this list (`switch` looked once, when the agent left it) and moves to done the ones
 whose evidence has landed, by the test `switch` applies to a done job: a pull request merged, a commit or a branch tip (a branch

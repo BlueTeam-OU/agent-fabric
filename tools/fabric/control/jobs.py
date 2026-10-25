@@ -12,7 +12,7 @@ the tool and the identity it loads are one tree's; the arguments of
 jobs-add are a closed set, checked before anything runs.
 
 CONTRACT, frozen from jobs.mjs:
-  PROJECT_SLUG, TITLE_MAX, TOPIC_MAX, PRIORITIES      as Node's
+  TITLE_MAX, TOPIC_MAX, PRIORITIES                    as Node's
   jobs(home, root, run)      {"status": "ok", "jobs": [...]}, each job's
                              id, state, title, project, topic, priority,
                              source, blocked_on, artifacts, updated, and
@@ -31,6 +31,12 @@ JavaScript's whitespace, String() of a value is JavaScript's (null is
 "null", which a project slug matches, and then no --project is passed,
 as Node passed none), `$` never before a trailing newline, and an
 object's keys in JavaScript's order.
+
+WHAT IS NOT NODE'S: PROJECT_SLUG is registry_id.py's grammar, shared with the
+job list and the intake. It admits a dot inside an id (the registry has ids
+that Node refused), refuses a trailing hyphen Node admitted, and a number
+as `project` now reads as its text ("1.5") and passes; tests/test_registry_id.py
+holds the registry to it. The refusal text is Node's.
 
 WHAT IS NOT NODE'S, where Node's refusal said nothing: its reason was
 its error's stderr, the empty string, when jobs.py gave no answer within
