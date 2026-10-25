@@ -245,10 +245,12 @@ def phase_exchange() -> int:
 
     def delivery_state(mid: str) -> str | None:
         return next((d["state"] for d in record.read_deliveries(outbox) if d["mid"] == mid), None)
-    # The arrival log and the outbox outlive a run: a number used before would let its messages stand for this run's
+    # The outbox outlives a run: a number used before would let its receipts stand for this run's. Only our own ids are
+    # checked: the other account may legitimately have sent first, so its ids in our arrival log prove nothing; it
+    # refuses a number it used itself, and its result file says it sent and was receipted in this run.
     own = {mid_of(LOGIN, tag, t0) for tag in ("small", "big")}
     theirs = {mid_of(other, tag, t0) for tag in ("small", "big")}
-    used = (own & {d["mid"] for d in record.read_deliveries(outbox)}) | (theirs & {x["mid"] for x in seen()})
+    used = own & {d["mid"] for d in record.read_deliveries(outbox)}
     if used:
         return die(f"J92_RUN {t0} was used before (message ids {sorted(used)} are already recorded): take a new number")
     big = "".join(hashlib.sha256(str(i).encode()).hexdigest() for i in range(3200))
