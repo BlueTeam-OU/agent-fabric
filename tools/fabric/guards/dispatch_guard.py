@@ -35,8 +35,10 @@ TWO CLASSES OF DISPATCH, decided in this order:
                      beginning "review" / "re-review" (any word
                      form: Reviewing, Re-review of ...) AND model
                      "fable" AND NO isolation AND a session not on a
-                     <host>/<login>/for/ branch (a supplier reviews
-                     nothing of its own part, ADR-020 §5 rule 11). All
+                     <host>/<login>/for/ branch nor inside the active
+                     job's worktree or working copy when that job has a
+                     deliver_to (a supplier reviews nothing of its own
+                     part, ADR-020 §5 rule 11). All
                      five, or denied -- never asked. Standing authorisation for the
                      class: a review's failure mode is not a retry,
                      it is a green PR that merges, so no per-dispatch

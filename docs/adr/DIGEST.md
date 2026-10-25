@@ -476,19 +476,20 @@ its record disagree, the record wins. Look it up, never read it whole:
   rule 8).
 - A 2026-10-05 — the reviewer inherits no secret: a clean environment
   (§5 rule 4).
-- A 2026-10-14 — the review card governs from the base (§5 rule 9);
-  only a `pinned` review covers a head (§5 rule 10).
+- A 2026-10-14 — the card governs from the base; only a `pinned`
+  review covers a head (§5 rules 9–10).
 - A 2026-10-15 — a pinned review reads a detached head worktree (§5
   rule 10).
-- A 2026-10-16 — a review covers the commit it read; none or a foreign
-  one is refused (§5 rule 6).
+- A 2026-10-16 — a review covers the commit it read (§5 rule 6).
 - A 2026-10-22 — a supplier dispatches no review of its own part; the
   caller reviews the folded head (§5 rule 11).
-- A 2026-10-24 — pinned read tools and a proved sandbox, no Bash; v2
-  posts only (§5 rules 4, 6; ADR-065).
+- A 2026-10-24 — pinned read tools in a proved sandbox, no Bash (§5
+  rules 4, 6; ADR-065).
+- A 2026-10-25 — the guard also knows a supplier by its active job's
+  `deliver_to` (§5 rule 11).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
-  review-grade, review card, pinned, supplier.
+  review card, pinned, supplier.
 
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 
