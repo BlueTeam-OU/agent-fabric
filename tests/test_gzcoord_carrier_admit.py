@@ -252,7 +252,7 @@ def main() -> int:
             subprocess.run(["gpgconf", "--homedir", pubhome, "--kill", "all"], capture_output=True, timeout=30)
             # the primary's secret and the other subkeys' stay, the signing subkey's is gone: still a refusal before init
             nohome = os.path.join(d, "nosubsecret")
-            shutil.copytree(a.home, nohome)
+            shutil.copytree(a.home, nohome, ignore=shutil.ignore_patterns("S.*"))   # a running agent's sockets, kept in the home where /run/user is absent
             os.chmod(nohome, 0o700)
             subprocess.run(["gpgconf", "--homedir", nohome, "--kill", "all"], capture_output=True, timeout=30)
             subprocess.run(["gpg", "--batch", "--yes", "--homedir", nohome, "--delete-secret-keys", a.sub + "!"],

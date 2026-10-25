@@ -3,8 +3,13 @@ row (ADR-064 rules 2-3); roster.py is the half that judges one.
 
 CONTRACT.
   make_row(...)   runs in the login's own account. Refuses unless the
-                  installed `transportctl --version` is the one
-                  runtime/interweave/release.json pins for this machine;
+                  program at ~/.local/bin/transportctl (never a PATH lookup)
+                  has the SHA-256 that runtime/interweave/release.json pins
+                  as program_sha256.transportctl, checked before the program
+                  is run (a release.json without that field refuses), and
+                  its `--version` is the one `reports` pins for this machine;
+                  refuses before anything is minted unless the account holds
+                  the secret half of the committed signing subkey;
                   mints the profile's transport key with `identity init` only
                   when the profile has no identity.key (a key is never
                   overwritten, and never leaves the account, rule 3);
