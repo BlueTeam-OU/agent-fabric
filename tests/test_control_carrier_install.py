@@ -357,7 +357,7 @@ class Refusals(Case):
         self.addCleanup(os.close, fd)
         fcntl.flock(fd, fcntl.LOCK_EX)
         r = self.install()
-        self.assertEqual(r, {"status": "refused", "reason": "another interweave-install is running on this account"})
+        self.assertEqual(r, {"status": "refused", "reason": iw.LOCK_BUSY})
         self.assertEqual(self.fetched, [])
 
 
@@ -1235,6 +1235,403 @@ class Operator(unittest.TestCase):
         self.assertIn("current", ctl.ACTION_OK["interweave-install"])
         self.assertNotIn("failed", ctl.ACTION_OK["interweave-install"])
         self.assertNotIn("refused", ctl.ACTION_OK["interweave-install"])
+
+
+class UnitSystemd(Systemd):
+    """Adds to the manager what a start and a stop ask of it: `enable --now`, `disable --now`, loginctl and the carrier's
+    render-config. Every unit is knocked down by `disable` unless it is in `stuck`."""
+
+    def __init__(self):
+        super().__init__()
+        self.linger = "yes"                    # loginctl's answer; None: loginctl cannot be run; "hang": it never answers
+        self.render_rc = 0
+        self.render_err = ""
+        self.rendered: list[str] = []
+        self.enabled: list[str] = []
+        self.disabled: list[str] = []
+        self.enable_rc: dict[str, int] = {}
+        self.disable_rc: dict[str, int] = {}
+        self.after_enable: dict[str, str] = {}  # unit -> the state it reaches (default active)
+        self.stuck: set[str] = set()            # units that stay active after a disable
+        self.on_enable = None
+        self.restarted: list[str] = []
+
+    def __call__(self, argv, **kw):
+        name = os.path.basename(argv[0])
+        if name == "loginctl":
+            self.calls.append(list(argv))
+            if self.linger is None:
+                raise FileNotFoundError("loginctl")
+            if self.linger == "hang":
+                raise subprocess.TimeoutExpired(argv, kw["timeout"])
+            return subprocess.CompletedProcess(argv, 0, f"{self.linger}\n", "")
+        if name == "gzcoord-carrier" and argv[1] == "render-config":
+            self.calls.append(list(argv))
+            if self.render_rc == 0:
+                os.makedirs(os.path.dirname(argv[3]), exist_ok=True)
+                with open(argv[3], "w") as fh:
+                    fh.write("config\n")
+            self.rendered.append(argv[3])
+            return subprocess.CompletedProcess(argv, self.render_rc, "", self.render_err)
+        if name == "systemctl" and argv[2] == "restart":
+            self.calls.append(list(argv))
+            self.restarted.append(argv[3])
+            self.states[argv[3]] = "active"
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if name == "systemctl" and argv[2] in ("enable", "disable"):
+            self.calls.append(list(argv))
+            unit = argv[-1]
+            assert argv[3] == "--now", argv
+            if argv[2] == "enable":
+                self.enabled.append(unit)
+                if self.on_enable:
+                    self.on_enable(unit)
+                if self.enable_rc.get(unit):
+                    return subprocess.CompletedProcess(argv, self.enable_rc[unit], "", "Failed to enable unit: nope\n")
+                self.states[unit] = self.after_enable.get(unit, "active")
+            else:
+                self.disabled.append(unit)
+                if self.disable_rc.get(unit):
+                    return subprocess.CompletedProcess(argv, self.disable_rc[unit], "", "")
+                if unit not in self.stuck:
+                    self.states[unit] = "inactive"
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        return super().__call__(argv, **kw)
+
+
+class StartStop(Case):
+    def setUp(self):
+        super().setUp()
+        self.systemd = UnitSystemd()
+        self.systemd.proc = os.path.join(self._tmp.name, "proc")
+        self.systemd.bindir = os.path.join(self.home, ".local", "bin")
+        self.release()
+        self.assertEqual(self.install()["status"], "installed", "the account has the pin's programs and both templates")
+        self.client_program = os.path.join(self.home, iw.CLIENT_PROGRAM_REL)
+        os.makedirs(os.path.dirname(self.client_program))
+        with open(self.client_program, "w") as fh:
+            fh.write("#!/bin/sh\n")
+        os.chmod(self.client_program, 0o755)
+        self.systemd.calls.clear()
+
+    def start(self, request=None, **kw):
+        opts = dict(root=self.root, home=self.home, state=self.state, machine="x86_64", run=self.systemd, sleep=lambda s: None, login="agent")
+        opts.update(kw)
+        return iw.carrier_start({} if request is None else request, **opts)
+
+    def stop(self, request=None, **kw):
+        opts = dict(root=self.root, home=self.home, state=self.state, run=self.systemd, sleep=lambda s: None)
+        opts.update(kw)
+        return iw.carrier_stop({} if request is None else request, **opts)
+
+    def config(self):
+        return iw.config_path(self.home, "gzcoord")
+
+    def nothing_touched(self, why=""):
+        self.assertEqual(self.systemd.rendered, [], why)
+        self.assertEqual(self.systemd.enabled, [], why)
+        self.assertEqual(self.systemd.disabled, [], why)
+        self.assertFalse(os.path.exists(self.config()), why)
+
+    def test_a_start_renders_then_enables_the_daemon_then_the_client_and_checks_the_channel(self):
+        r = self.start()
+        self.assertEqual(r, {"status": "started", "units": {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}, "check": "passed"})
+        self.assertEqual(self.systemd.rendered, [self.config()])
+        self.assertTrue(self.config().endswith(os.path.join(".config", "interweave", "profiles", "gzcoord", "config.yaml")))
+        self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT], "daemon first")
+        seq = [os.path.basename(c[0]) if c[0] != "systemctl" else c[2] for c in self.systemd.calls]
+        seq = [("render" if c[1] == "render-config" else "status") if os.path.basename(c[0]) == "gzcoord-carrier" else x for c, x in zip(self.systemd.calls, seq)]
+        self.assertLess(seq.index("loginctl"), seq.index("render"), "the linger question before anything is written")
+        self.assertLess(seq.index("render"), seq.index("enable"), "config before units")
+        self.assertLess(seq.index("enable"), seq.index("status"))
+        self.assertGreater(self.systemd.status_calls, 0, "the carrier was asked its status")
+        self.assertFalse(os.path.exists(os.path.join(self.state, iw.WORK)))
+
+    def test_the_request_takes_no_argument(self):
+        for args in ({"profile": "x"}, {"path": "/tmp/x"}, ["x"], "x", 0):
+            for op in (self.start, self.stop):
+                r = op({"args": args})
+                self.assertEqual(r["status"], "refused", (op.__name__, args))
+                self.assertIn("takes no argument", r["reason"])
+        self.nothing_touched()
+        for ok in ({}, {"args": None}, {"args": {}}):
+            self.assertEqual(self.start(ok)["status"], "started", f"positive control {ok}")
+            self.assertEqual(self.stop(ok)["status"], "stopped")
+
+    def test_an_account_without_linger_is_refused_before_anything_is_written_or_started(self):
+        for linger, said in (("no", "has no linger"), ("hang", "could not be asked"), (None, "could not be asked"), ("maybe", "could not be read")):
+            self.systemd.linger = linger
+            r = self.start()
+            self.assertEqual(r["status"], "refused", linger)
+            self.assertIn(said, r["reason"], linger)
+            self.nothing_touched(f"linger={linger}")
+        self.systemd.linger = "yes"
+        self.assertEqual(self.start()["status"], "started", "positive control: the same account lingering")
+
+    def test_no_valid_roster_row_is_a_refusal_and_a_render_that_breaks_a_failure_neither_starting_a_unit(self):
+        self.systemd.render_rc, self.systemd.render_err = 2, "gzcoord-carrier: this agent has no valid row in the roster: nothing to render\n"
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("no valid row in the roster", r["reason"])
+        self.assertEqual((self.systemd.enabled, self.systemd.disabled), ([], []))
+        self.assertFalse(os.path.exists(self.config()))
+        self.systemd.render_rc, self.systemd.render_err = 1, "boom\n"
+        r = self.start()
+        self.assertEqual(r["status"], "failed")
+        self.assertEqual((self.systemd.enabled, self.systemd.disabled), ([], []))
+        self.systemd.render_rc = 0
+        self.assertEqual(self.start()["status"], "started", "positive control")
+
+    def test_programs_that_are_not_the_pins_or_templates_that_are_missing_are_refused(self):
+        with open(os.path.join(self.bindir, "transportctl"), "wb") as fh:
+            fh.write(program("transportctl", f"transportctl {VERSION}+deadbeef0000"))
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("not the pin's", r["reason"])
+        self.nothing_touched("a program that prints another version")
+        with open(os.path.join(self.bindir, "transportctl"), "wb") as fh:
+            fh.write(program("transportctl"))
+        os.unlink(os.path.join(iw.unit_dir(self.home), UNITS[1]))
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn(UNITS[1], r["reason"])
+        self.nothing_touched("a missing template")
+        shutil.copy(os.path.join(iw.unit_dir(self.home), UNITS[0]), os.path.join(iw.unit_dir(self.home), UNITS[1]))
+        self.assertEqual(self.start()["status"], "started", "positive control")
+        shutil.rmtree(self.bindir)
+        self.assertEqual(self.start()["status"], "refused", "no programs at all")
+
+    def test_a_missing_client_program_is_refused_before_the_daemon_is_started(self):
+        os.chmod(self.client_program, 0o644)
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn(self.client_program, r["reason"])
+        self.nothing_touched("a client program that is not executable")
+        os.unlink(self.client_program)
+        self.assertEqual(self.start()["status"], "refused", "absent")
+        self.nothing_touched("a client program that is absent")
+        os.symlink("/bin/true", self.client_program)
+        self.assertEqual(self.start()["status"], "started", "positive control")
+
+    def test_a_refused_enable_names_the_failure_not_the_symlink_it_printed_first(self):
+        def enable(argv, **kw):
+            return subprocess.CompletedProcess(argv, 1, "", "Job failed: see journalctl\nCreated symlink /a -> /b.\n")
+        self.assertIn("Job failed", iw._systemctl(["enable", "--now", "u"], enable, self.home))
+
+    def test_a_unit_that_does_not_come_up_stops_both_and_says_failed(self):
+        for label, setup in (("the daemon dies", lambda: self.systemd.after_enable.update({DAEMON_UNIT: "failed"})),
+                             ("the client dies", lambda: self.systemd.after_enable.update({CLIENT_UNIT: "inactive"})),
+                             ("enable of the client is refused", lambda: self.systemd.enable_rc.update({CLIENT_UNIT: 1})),
+                             ("the carrier does not answer", lambda: setattr(self.systemd, "status_rcs", [3]))):
+            self.systemd.states.clear()
+            self.systemd.after_enable.clear(); self.systemd.enable_rc.clear(); self.systemd.status_rcs = [0]
+            self.systemd.disabled.clear(); self.systemd.enabled.clear()
+            setup()
+            r = self.start()
+            self.assertEqual(r["status"], "failed", label)
+            self.assertTrue(r["stopped"], label)
+            self.assertIn("both units are stopped", r["reason"], label)
+            self.assertEqual(sorted(self.systemd.disabled), sorted([DAEMON_UNIT, CLIENT_UNIT]), f"{label}: both taken down, whichever one was the trouble")
+            self.assertLessEqual(set(r["units"].values()), {"inactive", "failed"}, label)
+            self.assertEqual(r["checks"][0]["status"], "failed", label)
+
+    def test_a_failed_start_that_cannot_stop_what_it_started_says_so(self):
+        self.systemd.after_enable[CLIENT_UNIT] = "failed"
+        self.systemd.stuck = {DAEMON_UNIT}
+        r = self.start()
+        self.assertEqual(r["status"], "failed")
+        self.assertIs(r["stopped"], False)
+        self.assertIn("may still run", r["reason"])
+        self.assertEqual(r["units"][DAEMON_UNIT], "active")
+        self.systemd.stuck = set()
+        self.systemd.disable_rc = {CLIENT_UNIT: 1}
+        self.systemd.states.clear()
+        r = self.start()
+        self.assertIs(r["stopped"], False, "a disable that exits non-zero is not a stop even when the unit is inactive")
+
+    def test_a_carrier_that_is_slow_to_open_its_socket_is_waited_for_but_not_for_ever(self):
+        self.systemd.status_rcs = [3] * (iw.STARTUP_STATUS_POLLS - 1) + [0]
+        r = self.start()
+        self.assertEqual(r["status"], "started", "answering on the last look is an answer")
+        self.assertEqual(self.systemd.status_calls, iw.STARTUP_STATUS_POLLS)
+        self.systemd.status_calls = 0
+        self.systemd.status_rcs = [3] * iw.STARTUP_STATUS_POLLS + [0]
+        os.unlink(self.config())
+        self.systemd.states.clear()
+        r = self.start()
+        self.assertEqual(r["status"], "failed", "one look beyond the bound")
+        self.assertEqual(self.systemd.status_calls, iw.STARTUP_STATUS_POLLS)
+
+    def test_with_both_units_running_a_start_changes_nothing_and_still_checks(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.systemd.rendered.clear(); self.systemd.enabled.clear()
+        os.unlink(self.config())
+        r = self.start()
+        self.assertEqual((r["status"], r["already_running"], r["check"]), ("started", True, "passed"))
+        self.assertEqual((self.systemd.rendered, self.systemd.enabled), ([], []), "a running daemon read the old config: not rewritten")
+        self.systemd.exe = "/tmp/other"
+        r = self.start()
+        self.assertEqual(r["status"], "failed", "already running is not already well: the daemon's process is checked")
+        self.assertTrue(r["stopped"])
+
+    def test_with_one_unit_running_the_start_goes_the_whole_way(self):
+        self.systemd.states = {CLIENT_UNIT: "active"}
+        r = self.start()
+        self.assertEqual(r["status"], "started")
+        self.assertNotIn("already_running", r)
+        self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT])
+        self.assertEqual(self.systemd.restarted, [CLIENT_UNIT], "a unit that ran read the old config.yaml")
+
+    def test_with_only_the_daemon_running_it_is_restarted_after_the_render_so_it_reads_the_new_config(self):
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        r = self.start()
+        self.assertEqual(r["status"], "started")
+        self.assertEqual(self.systemd.restarted, [DAEMON_UNIT])
+        self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT])
+        self.systemd.restarted.clear()
+        self.assertTrue(self.start()["already_running"])
+        self.assertEqual(self.systemd.restarted, [], "both running: nothing restarted")
+
+    def test_a_restart_the_manager_refuses_stops_both_and_says_failed(self):
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        orig = self.systemd.__call__
+        def refusing(argv, **kw):
+            if argv[:3] == ["systemctl", "--user", "restart"]:
+                return subprocess.CompletedProcess(argv, 1, "", "Job failed\n")
+            return orig(argv, **kw)
+        r = self.start(run=refusing)
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("restart", r["reason"])
+        self.assertEqual(self.systemd.enabled, [], "nothing enabled after a failed restart")
+        self.assertIs(r["stopped"], True)
+
+    def test_a_second_start_while_one_runs_is_refused_by_the_lock_and_touches_nothing(self):
+        inner = []
+        self.systemd.on_enable = lambda unit: inner.append(self.start()) if not inner else None
+        r = self.start()
+        self.assertEqual(r["status"], "started")
+        self.assertEqual(inner, [{"status": "refused", "reason": iw.LOCK_BUSY}])
+        self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT], "the refused start enabled nothing")
+        self.assertEqual(len(self.systemd.rendered), 1)
+        self.systemd.on_enable = None
+        self.assertEqual(self.start()["status"], "started", "the lock is released: positive control")
+
+    def test_one_lock_covers_a_start_a_stop_and_an_install(self):
+        fd = os.open(os.path.join(self.state, iw.LOCK), os.O_WRONLY | os.O_CREAT, 0o600)
+        self.addCleanup(lambda: os.close(fd) if fd >= 0 else None)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        want = {"status": "refused", "reason": iw.LOCK_BUSY}
+        self.assertEqual(self.start(), want)
+        self.assertEqual(self.stop(), want)
+        self.assertEqual(self.install(), want)
+        self.nothing_touched()
+        os.close(fd)
+        fd = -1
+        self.assertEqual(self.stop()["status"], "stopped", "positive control")
+
+    def test_a_stop_disables_the_client_then_the_daemon_and_confirms_neither_runs(self):
+        self.assertEqual(self.start()["status"], "started")
+        r = self.stop()
+        self.assertEqual(r, {"status": "stopped", "units": {DAEMON_UNIT: "inactive", CLIENT_UNIT: "inactive"}})
+        self.assertEqual(self.systemd.disabled, [CLIENT_UNIT, DAEMON_UNIT])
+        self.assertTrue(os.path.exists(self.config()), "a stop leaves the rendered config and the programs")
+        self.assertEqual(self.stop()["status"], "stopped", "stopping what is stopped is stopped")
+
+    def test_a_stop_that_leaves_a_unit_running_or_cannot_ask_is_failed_never_stopped(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.systemd.stuck = {DAEMON_UNIT}
+        r = self.stop()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn(f"{DAEMON_UNIT} is active", r["reason"])
+        self.systemd.stuck = set()
+        self.systemd.disable_rc = {CLIENT_UNIT: 1}
+        r = self.stop()
+        self.assertEqual(r["status"], "failed", "a disable that exited non-zero")
+        self.assertIn("exited 1", r["reason"])
+        self.systemd.disable_rc = {}
+        self.systemd.hang = "show"
+        r = self.stop()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("did not answer", r["reason"])
+        self.systemd.hang = None
+        self.systemd.manager = False
+        r = self.stop()
+        self.assertEqual(r["status"], "failed", "no user manager: nobody confirmed anything stopped")
+        self.systemd.manager = True
+        self.assertEqual(self.stop()["status"], "stopped", "positive control")
+
+    def test_without_a_roster_profile_there_is_nothing_to_start_or_stop(self):
+        os.unlink(os.path.join(self.root, iw.ROSTER_REL))
+        for r in (self.start(), self.stop()):
+            self.assertEqual(r["status"], "failed")
+            self.assertIn("roster", r["reason"])
+        self.nothing_touched()
+
+    def test_the_account_ends_with_no_scratch_and_no_unit_it_did_not_ask_for(self):
+        self.start()
+        self.stop()
+        self.assertLessEqual(set(os.listdir(self.state)), {iw.LOCK, iw.MARKER}, "no work directory, no temporary file")
+
+
+class StartStopWiring(Case):
+    def test_both_are_operator_actions_with_budgets_a_table_and_a_success_set(self):
+        for op in ("interweave-start", "interweave-stop"):
+            self.assertIn(op, ops.OPS)
+            self.assertIn(op, ACTION_OPS)
+            self.assertNotIn(op, ops.PUBLIC_OPS)
+        self.assertEqual(ctl.ACTION_OK["interweave-start"], ["started"])
+        self.assertEqual(ctl.ACTION_OK["interweave-stop"], ["stopped"])
+        a = ctl.parse_args(["db-admin", "interweave-start"])
+        self.assertEqual((a["op"], a["timeout"]), ("interweave-start", iw.CARRIER_START_BUDGET_S))
+        a = ctl.parse_args(["all", "interweave-stop"])
+        self.assertEqual((a["op"], a["timeout"]), ("interweave-stop", iw.CARRIER_STOP_BUDGET_S))
+        req = ctl.build_request(a, id="i", from_="h/user", to="*", cfg={"ttl_s": 30})
+        self.assertNotIn("args", req)
+        for argv in (["all", "interweave-start", "--version", "0.1.0"], ["all", "interweave-stop", "--version", "0.1.0"]):
+            with self.assertRaises(ctl.CtlError, msg=argv):
+                ctl.parse_args(argv)
+
+    def test_the_budget_is_the_sum_of_what_the_action_may_wait_for(self):
+        c = iw.CHECK_BUDGET_S
+        sysctl, polls = iw.SYSTEMCTL_TIMEOUT_S, iw.CHECK_POLLS
+        settle = polls * sysctl + (polls - 1) * iw.POLL_S
+        # term by term, so a wait taken out of the budget (a restart, the cold carrier's longer status wait) is seen
+        self.assertEqual(iw.CARRIER_START_BUDGET_S,
+                         iw.LOGINCTL_TIMEOUT_S + 2 * iw.VERSION_TIMEOUT_S + iw.RENDER_TIMEOUT_S
+                         + 2 * sysctl                                   # the two units' states before
+                         + sysctl                                       # the restart of the one unit that ran
+                         + 2 * sysctl                                   # enable --now, daemon then client
+                         + c + (iw.STARTUP_STATUS_POLLS - polls) * (iw.STATUS_TIMEOUT_S + iw.POLL_S)
+                         + 2 * sysctl + 2 * settle + 20)                # a failure: disable --now both, settled
+        self.assertGreater(iw.CARRIER_STOP_BUDGET_S, 2 * iw.SYSTEMCTL_TIMEOUT_S)
+
+    def test_the_daemon_answers_both_in_the_wires_reply_shape_and_a_refusal_is_one(self):
+        systemd = UnitSystemd()
+        t = self._tmp.name
+        systemd.proc = os.path.join(t, "proc")
+        systemd.bindir = os.path.join(self.home, ".local", "bin")
+        self.release()
+        self.assertEqual(self.install(run=systemd)["status"], "installed")
+        ctx = {"me": {"address": "h/a"}, "started": "2026-10-25T10:00:00.000Z", "home": self.home, "root": self.root,
+               "carrier_unit_opts": {"state": self.state, "run": systemd, "sleep": lambda s: None}}
+        r = agentd.answer({"id": "q", "op": "interweave-stop", "to": "*", "from": "h/user"}, ctx)
+        self.assertEqual((r["op"], list(r["data"]), r["data"]["interweave-stop"]["status"]), ("interweave-stop", ["interweave-stop", "agentd"], "stopped"))
+        r = agentd.answer({"id": "q2", "op": "interweave-start", "to": "*", "args": {"x": 1}, "from": "h/user"}, ctx)
+        self.assertEqual((list(r["data"]), r["data"]["interweave-start"]["status"]), (["interweave-start", "agentd"], "refused"))
+
+    def test_the_tables_name_each_account_and_never_an_unanswered_one_as_started(self):
+        rows = [{"account": "a", "status": "ok", "interweaveStart": {"status": "started", "units": {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}, "check": "passed"}},
+                {"account": "b", "status": "no answer"},
+                {"account": "c", "status": "ok", "interweaveStart": {"status": "refused", "reason": "c has no linger\u0007"}},
+                {"account": "d", "status": "ok", "interweaveStart": {"status": "started", "already_running": True, "units": {DAEMON_UNIT: "active"}}}]
+        t = ctl.table("interweave-start", rows).split("\n")
+        self.assertRegex(t[1], r"^a +started +daemon active, client active")
+        self.assertEqual(t[2].split()[:2], ["b", "no"])
+        self.assertIn("has no linger", t[3])
+        self.assertNotIn("\u0007", t[3])
+        self.assertIn("already running", t[4])
+        s = ctl.table("interweave-stop", [{"account": "a", "status": "ok", "interweaveStop": {"status": "stopped", "units": {DAEMON_UNIT: "inactive"}}}]).split("\n")
+        self.assertRegex(s[1], r"^a +stopped +daemon inactive")
 
 
 if __name__ == "__main__":

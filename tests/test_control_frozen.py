@@ -39,7 +39,7 @@ TIMEOUT_S = 300
 # Added to every ctl row after the Node was deleted (the gateway ops, control/gateway.py, and the
 # InterWeave ops, control/carrier_install.py); null on a row of any other op, so removing exactly this text
 # puts the Node's row back.
-AFTER_NODE_ROW_KEYS = '"gateway":null,"gatewayInstall":null,"interweave":null,"interweaveInstall":null,'
+AFTER_NODE_ROW_KEYS = '"gateway":null,"gatewayInstall":null,"interweave":null,"interweaveInstall":null,"interweaveStart":null,"interweaveStop":null,'
 # ...and the restart action's (control/restart.py), after secretsSync.
 AFTER_NODE_RESTART_KEY = '"restart":null,'
 # --version goes with gateway-install too now; the Node's words said "with upgrade only".

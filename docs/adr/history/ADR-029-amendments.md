@@ -166,3 +166,16 @@ carrier package's constant in the code (the project-name lint), and
 read as written here. The first fleet install, four accounts at a time,
 put InterWeave 0.1.0 on all 30 accounts (`fabric-ctl all interweave`:
 30 ok).
+
+### Amendment 2026-10-25 — The InterWeave units are started and stopped through the control plane
+
+python-dev-01's #385 (j172, at the coordinator's request 01a174c8)
+added `interweave-start` and `interweave-stop`. The send adapter
+already posts through the carrier whenever it runs, so starting an
+account's units is the dual run's switch for that account and stopping
+them its rollback (ADR-064 rule 11); both are control-plane actions for
+the reason rule 14 gives an install. The three InterWeave actions share
+one lock per account. The start's budget allows 45 looks for the
+carrier's `status`: in the PR's live run a cold carrier took 29 s to
+open its socket with 26 roster rows. Asked for by #385's blind review
+(F3); the record had none of it.
