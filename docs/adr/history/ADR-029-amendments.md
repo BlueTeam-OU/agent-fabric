@@ -152,3 +152,17 @@ toolchain and a target, each matched by pattern, never a shell word; it
 is added through the rustup the `installer` kind linked, and proved by
 `rustup target list --installed --toolchain <toolchain>`. Built by
 python-dev-01 (#317); the op's budget needed no change.
+
+### Amendment 2026-10-25 — The InterWeave programs are installed and read through the control plane
+
+python-dev-01's #375 (j168, 2026-10-25) added the `interweave-install`
+action and the `interweave` read, the install path ADR-064 rule 4 asks
+for, with rule 14's restart and control-plane check after it; #380 made
+the action take the host lease `interweave-download`, after a fleet
+install fanned 28 downloads of the 117 MB archive out at once and every
+one hit its 600 s bound. The record had no row, argument rule or budget
+for either op; they are added. The ops' names are built from the
+carrier package's constant in the code (the project-name lint), and
+read as written here. The first fleet install, four accounts at a time,
+put InterWeave 0.1.0 on all 30 accounts (`fabric-ctl all interweave`:
+30 ok).
