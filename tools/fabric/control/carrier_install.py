@@ -101,7 +101,7 @@ from typing import Any, Callable
 from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME
 from control.gateway import ARCHES, SHA256, PinError, _arch, _fsync_dir, _why, download, file_sha256
 from control.ops import util
-from control.upgrade import VERSION_RE, LeaseRefused, hold_lease
+from control.upgrade import LEASE_HELD, VERSION_RE, LeaseRefused, hold_lease
 
 PIN_REL = os.path.join("runtime", CARRIER_NAME, "release.json")
 INSTALL_OP = f"{CARRIER_NAME}-install"
@@ -699,7 +699,10 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
         try:
             turn = lease(root, wait_s=LEASE_WAIT_S, name=DOWNLOAD_LEASE)
         except LeaseRefused as e:
-            return _failed(version, f"no turn on the host's download lease ({_oneline(e)}); nothing was fetched")
+            # e.reason is fabric-lease's one-word code; e.line is the sentence that says what to do.
+            return _failed(version, f"the host's download lease stayed held for {LEASE_WAIT_S} s; nothing was fetched — run it again"
+                           if e.code == LEASE_HELD else
+                           f"the host's download queue is unavailable ({e.line[:160]}); nothing was fetched")
         try:
             tree = fetch_and_unpack(build, tok, tree_dir, fetch)
         except InstallError as e:

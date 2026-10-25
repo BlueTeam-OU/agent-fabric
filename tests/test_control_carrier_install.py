@@ -236,9 +236,13 @@ class Case(unittest.TestCase):
             fh.write(self.artifact)
         return len(self.artifact), hashlib.sha256(self.artifact).hexdigest()
 
+    def logged_run(self, argv, **kw):
+        self.events.append(f"run {os.path.basename(argv[0])}")
+        return self.systemd(argv, **kw)
+
     def install(self, request=None, **kw):
         opts = dict(root=self.root, home=self.home, state=self.state, fetch=self.fetch, token=lambda name: TOKEN, machine="x86_64",
-                    run=self.systemd, sleep=lambda s: None, lease=self.lease)
+                    run=self.logged_run, sleep=lambda s: None, lease=self.lease)
         opts.update(kw)
         return iw.carrier_install({} if request is None else request, **opts)
 
@@ -770,15 +774,22 @@ class DownloadLease(Case):
     def test_the_download_waits_for_its_turn_and_gives_it_back_before_the_install_goes_on(self):
         self.release()
         self.assertEqual(self.install()["status"], "installed")
-        self.assertEqual(self.events, [f"lease {iw.DOWNLOAD_LEASE} wait_s={iw.LEASE_WAIT_S}", "fetch", "release"],
-                         "the turn is taken before the fetch and released once the archive is extracted, not held through the restart")
+        ev = self.events
+        self.assertEqual(ev[:3], [f"lease {iw.DOWNLOAD_LEASE} wait_s={iw.LEASE_WAIT_S}", "fetch", "release"],
+                         "the turn is taken before the fetch and released once the archive is extracted")
+        later = [e for e in ev[3:] if e.startswith("run ")]
+        self.assertTrue(later, "positive control: the install did run commands after the turn")
+        self.assertEqual(ev.count("release"), 1)
+        self.assertLess(ev.index("release"), ev.index(later[0]), "not held through install.sh or the restart")
 
     def test_a_refused_turn_fetches_nothing_and_installs_nothing(self):
         self.release()
         self.lease_refused = iw.LeaseRefused(75, "fabric-lease: held", "held")
         r = self.install()
         self.assertEqual(r["status"], "failed")
-        self.assertIn("download lease", r["reason"])
+        self.assertIn("download lease stayed held", r["reason"])
+        self.lease_refused = iw.LeaseRefused(2, "no lease directory at /run/lock/x", "nodir")
+        self.assertIn("no lease directory at /run/lock/x", self.install()["reason"])
         self.assertEqual(self.fetched, [], "never queued-around")
         self.nothing_installed()
 
