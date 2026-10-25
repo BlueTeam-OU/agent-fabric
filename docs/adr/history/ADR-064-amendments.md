@@ -41,9 +41,9 @@ back the previous programs and says so. The same check is the control
 plane's read of each account's InterWeave state after any restart.
 
 Why: the archive's `install.sh` replaces the programs and enables
-nothing, so a running daemon and carrier keep the old binaries until
-they are restarted, and the restart takes the account's InterWeave
-channel down. If the restart goes wrong, the agent is unreachable on
+nothing, so a running daemon keeps the old binary until it is
+restarted (the carrier, the fabric's own client, restarts after it),
+and the restart takes the account's InterWeave channel down. If the restart goes wrong, the agent is unreachable on
 that channel and nobody is told. The control plane stays on the relay
 (rule 12), so it can still reach the account while that channel is
 down. It is therefore the one place that can confirm the account came
@@ -62,5 +62,5 @@ review (PR #376, round 1) found two gaps in rule 14 as first written,
 closed before it landed: a first install has no running unit and no
 previous programs, so its check is the version and its reply says so;
 and a program's `--version` on disk reports the new version even when
-the running process was never restarted, so the check is that each
-running unit's process runs the program now installed.
+the running process was never restarted, so the check is that the
+daemon unit's process runs the program now installed.
