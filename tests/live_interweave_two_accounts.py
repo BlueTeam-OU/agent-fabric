@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """NOT part of the suite (the name is not test_*): ADR-064 rule 13's live
 check, run by TWO accounts of one host, each in its own session, in phases.
-Needs a checkout build of InterWeave (INTERWEAVE_BIN: a directory holding
-`transport-daemon` and `transportctl`) and this repository at the commit being
-checked. Everything an account creates lives in one scratch directory of its
+Needs the PINNED InterWeave release (runtime/interweave/release.json), which
+the `fetch` phase downloads, verifies and unpacks into the account's scratch
+directory, and this repository at the commit being checked. INTERWEAVE_BIN
+(a directory holding `transport-daemon` and `transportctl`) overrides where
+the programs are taken from; the run's record says which it was. Everything an account creates lives in one scratch directory of its
 own (J89_WORK, default ~/j89-live, mode 0700), with its own XDG directories, so
 nothing of the account's own InterWeave or journal is touched; what the two
 accounts share is a directory J89_SHARE (default /var/tmp/j89-live-share,
 mode 1777, files readable by all): each account's PeerId, the roster, a
 scratch fabric holding the throwaway keys that sign it, and the results.
 
+    fetch      every account   downloads the pinned archive with its GitHub
+                               token (GH_TOKEN, else `gh auth token`), refuses
+                               any size or digest but the pin's, unpacks it
+                               under <work>/iw and checks each program's
+                               --version against the pin; runs nothing of it
     init       every account   mints its transport key; writes <share>/<login>.json
     roster     ONE account     reads both, signs a roster with THROWAWAY keys,
                                writes <share>/roster.json and <share>/fabric
@@ -46,10 +53,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 
-BIN = os.environ.get("INTERWEAVE_BIN", "")
 SHARE = os.environ.get("J89_SHARE", "/var/tmp/j89-live-share")
 LOGIN = pwd.getpwuid(os.getuid()).pw_name
 WORK = os.environ.get("J89_WORK", os.path.join(os.path.expanduser("~"), "j89-live"))
+BIN = os.environ.get("INTERWEAVE_BIN") or os.path.join(WORK, "iw", "bin")
 HOST = socket.gethostname().split(".")[0]
 CMD = os.path.join(ROOT, "bin", "gzcoord-carrier")
 PORT_RANGE = (47100, 47199)
@@ -99,9 +106,41 @@ def carrier_env() -> dict[str, str]:
     return env
 
 
+def github_token() -> str:
+    tok = os.environ.get("GH_TOKEN", "")
+    if tok:
+        return tok
+    r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=30)
+    if r.returncode or not r.stdout.strip():
+        raise RuntimeError("no GitHub token: set GH_TOKEN or log gh in")
+    return r.stdout.strip()
+
+
+def phase_fetch() -> int:
+    from control import interweave
+    pin = interweave.load_pin(ROOT)
+    version, build = interweave.pinned_build(pin)
+    mkdirs(WORK)
+    dest = os.path.join(WORK, "iw")
+    shutil.rmtree(dest, ignore_errors=True)
+    os.makedirs(dest, mode=0o700)
+    try:
+        top = interweave.fetch_and_unpack(build, github_token(), dest)
+    except (interweave.InstallError, RuntimeError) as e:
+        return die(f"fetch: {e}")
+    os.symlink(os.path.join(top, "bin"), os.path.join(dest, "bin"))
+    for prog, want in build["reports"].items():
+        r = subprocess.run([os.path.join(dest, "bin", prog), "--version"], capture_output=True, text=True, timeout=30)
+        got = r.stdout.strip()
+        if r.returncode or got != want:
+            return die(f"fetch: {prog} --version printed {got!r}, the pin says {want!r}")
+    say(f"fetch: InterWeave {version} ({build['name']}, {build['size']} bytes, sha256 {build['sha256']}) -> {top}")
+    return 0
+
+
 def phase_init() -> int:
     if not os.path.exists(os.path.join(BIN, "transport-daemon")):
-        return die("INTERWEAVE_BIN must name the directory holding transport-daemon and transportctl")
+        return die("no transport-daemon under " + BIN + ": run the fetch phase, or set INTERWEAVE_BIN")
     import episodic
     mkdirs(WORK)
     if not os.path.exists(os.path.join(dirs()["data"], "interweave", "profiles", "gzcoord", "identity.key")):
@@ -306,7 +345,7 @@ def phase_stop() -> int:
 
 
 def main(argv: list[str]) -> int:
-    phases = {"init": phase_init, "roster": phase_roster, "serve": phase_serve, "exchange": phase_exchange,
+    phases = {"fetch": phase_fetch, "init": phase_init, "roster": phase_roster, "serve": phase_serve, "exchange": phase_exchange,
               "portcheck": phase_portcheck, "stop": phase_stop}
     if len(argv) != 1 or argv[0] not in phases:
         print(__doc__.split("\n\n")[0] + "\nusage: " + " | ".join(phases), file=sys.stderr)
