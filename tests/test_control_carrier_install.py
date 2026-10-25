@@ -1301,6 +1301,11 @@ class StartStop(Case):
         self.systemd.bindir = os.path.join(self.home, ".local", "bin")
         self.release()
         self.assertEqual(self.install()["status"], "installed", "the account has the pin's programs and both templates")
+        self.client_program = os.path.join(self.home, iw.CLIENT_PROGRAM_REL)
+        os.makedirs(os.path.dirname(self.client_program))
+        with open(self.client_program, "w") as fh:
+            fh.write("#!/bin/sh\n")
+        os.chmod(self.client_program, 0o755)
         self.systemd.calls.clear()
 
     def start(self, request=None, **kw):
@@ -1389,6 +1394,23 @@ class StartStop(Case):
         self.assertEqual(self.start()["status"], "started", "positive control")
         shutil.rmtree(self.bindir)
         self.assertEqual(self.start()["status"], "refused", "no programs at all")
+
+    def test_a_missing_client_program_is_refused_before_the_daemon_is_started(self):
+        os.chmod(self.client_program, 0o644)
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn(self.client_program, r["reason"])
+        self.nothing_touched("a client program that is not executable")
+        os.unlink(self.client_program)
+        self.assertEqual(self.start()["status"], "refused", "absent")
+        self.nothing_touched("a client program that is absent")
+        os.symlink("/bin/true", self.client_program)
+        self.assertEqual(self.start()["status"], "started", "positive control")
+
+    def test_a_refused_enable_names_the_failure_not_the_symlink_it_printed_first(self):
+        def enable(argv, **kw):
+            return subprocess.CompletedProcess(argv, 1, "", "Created symlink /a -> /b.\nJob failed: see journalctl\n")
+        self.assertIn("Job failed", iw._systemctl(["enable", "--now", "u"], enable, self.home))
 
     def test_a_unit_that_does_not_come_up_stops_both_and_says_failed(self):
         for label, setup in (("the daemon dies", lambda: self.systemd.after_enable.update({DAEMON_UNIT: "failed"})),

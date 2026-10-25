@@ -846,6 +846,7 @@ def _landed(bindir: str, home: str, programs: dict[str, str]) -> str | None:
 
 # --- start and stop ------------------------------------------------------------------------------------------------
 
+CLIENT_PROGRAM_REL = os.path.join(".local", "libexec", "interweave", "client")
 STOPPED = ("inactive", "failed")     # `failed` is a unit that ended badly: it does not run, which is all a stop asks
 
 
@@ -898,7 +899,8 @@ def _systemctl(verb: list[str], run: Callable[..., Any], home: str) -> str | Non
     except OSError as e:
         return f"systemctl --user {shown} could not be run ({_oneline(e)})"
     if r.returncode != 0:
-        lines = [ln for ln in (r.stderr or "").splitlines() if ln.strip()]
+        # `enable` prints "Created symlink ..." before the start fails; that line is not the reason.
+        lines = [ln for ln in (r.stderr or "").splitlines() if ln.strip() and not ln.startswith("Created symlink")]
         return f"systemctl --user {shown} exited {r.returncode}" + (f": {lines[-1][:120]}" if lines else "")
     return None
 
@@ -972,6 +974,12 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
     for unit in UNITS:
         if not os.path.isfile(os.path.join(unit_dir(home), unit)):
             return _refused(f"{unit} is not in {unit_dir(home)}; run {INSTALL_OP} first")
+    # The client template's ExecStart: not in the release (InterWeave ships no automated client) but put there per account by
+    # gzcoord/carrier/install_client.py; without it the daemon would start and the client unit crash-loop on 203/EXEC.
+    client_program = os.path.join(home, CLIENT_PROGRAM_REL)
+    if not (os.path.isfile(client_program) and os.access(client_program, os.X_OK)):
+        return _refused(f"the client unit's program {client_program} is not installed (tools/fabric/gzcoord/carrier/install_client.py, "
+                        f"which bootstrap.sh runs); nothing was started")
     try:
         _, running = running_units(profile, run, home)
     except ChannelUnknown as e:
