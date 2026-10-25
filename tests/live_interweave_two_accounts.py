@@ -117,7 +117,7 @@ def github_token() -> str:
 
 
 def phase_fetch() -> int:
-    from control import interweave
+    from control import carrier_install as interweave
     pin = interweave.load_pin(ROOT)
     version, build = interweave.pinned_build(pin)
     mkdirs(WORK)
