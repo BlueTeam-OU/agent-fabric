@@ -43,6 +43,7 @@ import pwd
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -119,11 +120,14 @@ def phase_check() -> int:
     build = pinned_build()
     for prog, want in build["reports"].items():
         path = os.path.join(BIN, prog)
+        # the digest first: a program that is not the pinned one is never started
+        if not os.path.isfile(path):
+            return die(f"{path} is missing: install the pinned release first")
+        if sha256_of(path) != build["program_sha256"][prog]:
+            return die(f"{path} is not the pinned program (digest differs)")
         run = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=30)
         if run.returncode or run.stdout.strip() != want:
             return die(f"{path} --version printed {run.stdout.strip()!r}, the pin says {want!r}")
-        if sha256_of(path) != build["program_sha256"][prog]:
-            return die(f"{path} is not the pinned program (digest differs)")
         say(f"check: {prog} is the pinned program: {want}")
     r, good, refused = judged_roster()
     for x in refused:
@@ -167,15 +171,20 @@ def phase_serve() -> int:
         return die("no valid roster row for this account")
     want = roster.render_config(r, good, mine["agent_id"])
     cfg = config_path()
-    state = {"wrote_config": False}
+    os.makedirs(WORK, mode=0o700, exist_ok=True)
+    state_file = os.path.join(WORK, "state.json")
+    try:
+        state = json.load(open(state_file))
+    except (OSError, ValueError):
+        state = {"wrote_config": None}
     if os.path.exists(cfg):
         if open(cfg, encoding="utf-8").read() != want:
             return die(f"{cfg} exists and is not what the roster renders: not replacing it")
     else:
         roster.write_config(cfg, want)
-        state["wrote_config"] = True
-    os.makedirs(WORK, mode=0o700, exist_ok=True)
-    json.dump(state, open(os.path.join(WORK, "state.json"), "w"))
+        # the path and digest, not a flag: stop removes exactly this file, and only while it is still this content
+        state["wrote_config"] = {"path": cfg, "sha256": hashlib.sha256(want.encode("utf-8")).hexdigest()}
+    json.dump(state, open(state_file, "w"))
     rd = os.environ["XDG_RUNTIME_DIR"]
     spawn([os.path.join(BIN, "transport-daemon"), "--profile", "gzcoord"], dict(os.environ), os.path.join(WORK, "daemon.log"))
     if not until(lambda: os.path.exists(os.path.join(rd, "interweave", "gzcoord.sock")), 30):
@@ -187,14 +196,26 @@ def phase_serve() -> int:
     return 0
 
 
-def share_dir() -> str:
-    # makedirs' mode is cut by the umask; the other account must be able to write here
+def write_result(name: str, doc: object) -> None:
+    """Results go to a directory both accounts write; another local user may have made it first, so it is used only if it is a
+    real directory that is ours, or sticky and world-writable, and the file is created fresh, never through a link."""
     os.makedirs(SHARE, exist_ok=True)
-    try:
+    st = os.lstat(SHARE)
+    if not stat.S_ISDIR(st.st_mode):
+        raise SystemExit(f"j92-live: {SHARE} is not a directory")
+    if st.st_uid == os.getuid():
+        # makedirs' mode is cut by the umask; the other account must be able to write here
         os.chmod(SHARE, 0o1777)
-    except PermissionError:
+    elif st.st_mode & 0o1777 != 0o1777:
+        raise SystemExit(f"j92-live: {SHARE} belongs to another user and is not sticky and world-writable")
+    path = os.path.join(SHARE, name)
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
         pass
-    return SHARE
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
 
 
 def mid_of(sender: str, tag: str, t0: int) -> str:
@@ -204,7 +225,7 @@ def mid_of(sender: str, tag: str, t0: int) -> str:
 
 def phase_exchange() -> int:
     import episodic
-    from gzcoord.carrier import server
+    from gzcoord.carrier import CARRIER_NAME, record, server
     try:
         t0 = int(os.environ["J92_RUN"])
     except (KeyError, ValueError):
@@ -213,6 +234,23 @@ def phase_exchange() -> int:
     doc = json.load(open(ROSTER, encoding="utf-8"))
     other = next(row["login"] for row in doc["rows"] if row["login"] != LOGIN)
     out: dict[str, object] = {"login": LOGIN, "other": other, "run": t0, "sent": {}}
+    arr = os.path.join(episodic.state_dir(), "gzcoord-arrivals.jsonl")
+    outbox = os.path.join(episodic.state_dir(), CARRIER_NAME)
+
+    def seen() -> list[dict]:
+        try:
+            return [json.loads(line) for line in open(arr)]
+        except FileNotFoundError:
+            return []
+
+    def delivery_state(mid: str) -> str | None:
+        return next((d["state"] for d in record.read_deliveries(outbox) if d["mid"] == mid), None)
+    # The arrival log and the outbox outlive a run: a number used before would let its messages stand for this run's
+    own = {mid_of(LOGIN, tag, t0) for tag in ("small", "big")}
+    theirs = {mid_of(other, tag, t0) for tag in ("small", "big")}
+    used = (own & {d["mid"] for d in record.read_deliveries(outbox)}) | (theirs & {x["mid"] for x in seen()})
+    if used:
+        return die(f"J92_RUN {t0} was used before (message ids {sorted(used)} are already recorded): take a new number")
     big = "".join(hashlib.sha256(str(i).encode()).hexdigest() for i in range(3200))
     for tag, body in (("small", "hello across accounts"), ("big", big)):
         mid = mid_of(LOGIN, tag, t0)
@@ -220,25 +258,21 @@ def phase_exchange() -> int:
                 f"SUBJECT: j92 rule 13 live check {tag}\n\nCONTEXT:\n{body}\n")
         t = time.monotonic()
         ans = server.call(sock, {"op": "send", "message_id": mid, "text": text}, timeout=30)
-        done = until(lambda: mid not in [x["mid"] for x in server.call(sock, {"op": "status"})["outstanding"]], 180)
+        if not (ans.get("ok") and ans.get("carried") == 1 and ans.get("queued") == 1):
+            return die(f"the carrier did not queue {tag} for {other}: {ans}")
+        # "done" is the recipient's receipt; an abandoned delivery is another state
+        done = until(lambda: delivery_state(mid) == "done", 180)
         out["sent"][tag] = {"mid": mid, "bytes": len(text), "queued": ans, "receipted": done,
                             "seconds": round(time.monotonic() - t, 2)}
         say(f"exchange: sent {tag} ({len(text)} bytes) to {other}: receipted={done} in {out['sent'][tag]['seconds']} s")
-    arr = os.path.join(episodic.state_dir(), "gzcoord-arrivals.jsonl")
-    expect = {mid_of(other, tag, t0) for tag in ("small", "big")}
+    expect = theirs
 
-    def seen() -> list[dict]:
-        try:
-            return [json.loads(line) for line in open(arr)]
-        except FileNotFoundError:
-            return []
-    got = until(lambda: expect <= {x["mid"] for x in seen()}, 180)
+    def arrived() -> set[str]:
+        return {x["mid"] for x in seen() if x["carrier"] == CARRIER_NAME and x["verdict"] == "ok"}
+    got = until(lambda: expect <= arrived(), 180)
     out["arrived"] = [{k: x[k] for k in ("mid", "carrier", "verdict")} for x in seen() if x["mid"] in expect]
     say(f"exchange: {other}'s messages arrived here: {got} {out['arrived']}")
-    share_dir()
-    path = os.path.join(SHARE, f"{LOGIN}.result.json")
-    json.dump(out, open(path, "w"))
-    os.chmod(path, 0o644)
+    write_result(f"{LOGIN}.result.json", out)
     ok = got and all(v["receipted"] for v in out["sent"].values())
     say("exchange: " + ("OK" if ok else "FAILED"))
     return 0 if ok else 1
@@ -246,6 +280,8 @@ def phase_exchange() -> int:
 
 def phase_portcheck() -> int:
     from gzcoord.carrier import roster
+    if phase_check():
+        return 2
     doc = json.load(open(ROSTER, encoding="utf-8"))
     theirs = next(row["port"] for row in doc["rows"] if row["login"] != LOGIN)
     free = next(row["port"] for row in doc["rows"] if row["login"] == LOGIN) + FREE_PORT_OFFSET
@@ -277,6 +313,8 @@ def phase_portcheck() -> int:
             rc = p.wait(timeout=15)
             started = False
             tail = (p.stdout.read() or "").strip().splitlines()[-2:]
+            if rc != 1 or not any("Address already in use" in line for line in tail):
+                return die(f"the daemon exited {rc} with {tail}, which is not a refusal of the port")
         except subprocess.TimeoutExpired:
             started, rc, tail = True, None, []
             p.send_signal(signal.SIGTERM)
@@ -288,10 +326,7 @@ def phase_portcheck() -> int:
         if started != expect_start:
             say("portcheck: UNEXPECTED")
             return 1
-    share_dir()
-    path = os.path.join(SHARE, f"{LOGIN}.portcheck.json")
-    json.dump(results, open(path, "w"))
-    os.chmod(path, 0o644)
+    write_result(f"{LOGIN}.portcheck.json", results)
     say("portcheck: OK")
     return 0
 
@@ -307,11 +342,16 @@ def phase_stop() -> int:
     try:
         wrote = json.load(open(os.path.join(WORK, "state.json")))["wrote_config"]
     except (OSError, ValueError, KeyError):
-        wrote = False
+        wrote = None
+    removed = False
     if wrote:
-        os.unlink(config_path())
+        if os.path.isfile(wrote["path"]) and sha256_of(wrote["path"]) == wrote["sha256"]:
+            os.unlink(wrote["path"])
+            removed = True
+        else:
+            say(f"stop: {wrote['path']} is not what serve wrote: left in place")
     shutil.rmtree(WORK, ignore_errors=True)
-    say(f"stop: {LOGIN} processes ended, {WORK} removed" + (", the config it wrote removed" if wrote else ""))
+    say(f"stop: {LOGIN} processes ended, {WORK} removed" + (", the config it wrote removed" if removed else ""))
     return 0
 
 
