@@ -68,6 +68,12 @@ member is ignored.
 - One delivery per (MESSAGE-ID, recipient), its transport `message_id`s
   minted once and kept across retries and restarts in
   `<state>/agents/<login>/interweave/deliveries.jsonl`.
+- The sender's record of a delivery keeps `enc`, how the payload went:
+  `plain`, `compressed` or `chunked` (§2). It is written on the `queued`
+  event, kept across retries and restarts, and kept when the delivery moves
+  to `delivered.jsonl` (done or abandoned). A record written without it
+  reads as `plain`. It is the parity report's evidence for what each
+  encoding cost; it is not on the wire and not in `status`.
 - Retry: 1 s doubling to 5 min, no count limit, until the receipt. A daemon
   refusal that a retry cannot mend (`UnauthorizedPeer`, `InvalidArgument`,
   `PayloadTooLarge`) is recorded on the delivery as blocked and the
@@ -137,7 +143,7 @@ refuse.
   `episodic.out_final` for the first carrier to accept and left by a later
   accept (rule 7).
 - `{"op":"unseen"}` -> `{"ok":true,"records":[{"content","ts","seq":null,
-  "message_id","verdict"}]}`: InterWeave arrivals journaled, in arrival
+  "message_id","verdict","sender"}]}`: InterWeave arrivals journaled, in arrival
   order, each listed again on every call until the shown ledger below holds
   its final line (`"via": "interweave"`, or, for an `ok` copy, any final
   line for its MESSAGE-ID). The carrier reads the ledger, under a shared `flock` (`LOCK_SH`) so it
@@ -146,7 +152,11 @@ refuse.
   call lists the record again, and the ledger keeps a re-listed record
   from being shown twice. Whether one is shown is not the carrier's to
   decide: the inbox passes each through the ledger, exactly as it does a
-  relay record.
+  relay record. `sender` is the address the valid roster maps the sending
+  PeerId to (`<host>/<login>`, §5), which is what the inbox shows as the
+  message's sender (rule 9); it is never the message's `FROM`, which a
+  `mismatch` verdict says differs from it. A record the carrier cannot
+  attribute is not listed (§5 drops a PeerId absent from the roster).
 - `{"op":"status"}` -> counts per recipient: outstanding, blocked (with
   code), posted-awaiting-receipt, oldest age.
 - `{"op":"abandon","message_id":<id>,"recipient":<login>,"by":<operator>}`
