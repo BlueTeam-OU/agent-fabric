@@ -1395,19 +1395,18 @@ its record disagree, the record wins. Look it up, never read it whole:
   countersigned by the coordinator, renders every profile's
   deny-by-default allowlist; keys minted in their own account; programs
   from a tagged, pinned release (§5 rules 2-4).
-- One direct send per recipient, no GossipSub; each recipient's receipt
-  awaited, retried under one message_id, never given up without its
-  operator; compress, then chunk, past 48 KiB; FROM
-  checked against the PeerId's address; no transport value as metadata
-  (§5 rules 6-10).
+- One direct send per recipient, no GossipSub; a receipt awaited,
+  retried under one message_id, never given up without its operator;
+  compress, then chunk, past 48 KiB; FROM checked against the PeerId;
+  no transport value as metadata (§5 rules 6-10).
 - A 2026-10-24 — zlib, not brotli; receipts for messages not addressed
   here; CARRIER-CONTRACT.md (§5 rules 7, 8).
-- The soak's report, from each inbox's per-copy arrival log, names
-  missed, duplicate and offline-delivered counts and a rollback drill
-  (§5 rule 11).
-- Accepted; the build waits on a tagged InterWeave release (§8).
-- Keywords: InterWeave, carrier, transport, relay, dual run, parity,
-  PeerId, roster, allowlist, loopback, one host, P5.
+- A 2026-10-25 — an install is a control-plane action, checked after
+  the restart (§5 rule 14).
+- The parity report, from each inbox's arrival log: missed, duplicate,
+  offline counts and a rollback drill (§5 rule 11).
+- Accepted; built on v0.1.0 (release.json, §8).
+- Keywords: InterWeave, carrier, relay, P5.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
 
