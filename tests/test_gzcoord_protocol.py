@@ -1663,23 +1663,32 @@ def _():
     import time
     t0 = time.monotonic()
     inbox.mark_retransmissions(failed, lambda done: done.wait(60), 200)
-    ok(time.monotonic() - t0 < 1.5, f"the lookup waited {time.monotonic() - t0:.2f} s")
+    # The contract is "gives up at its bound (0.2 s), not at the callback's 60 s"; the 30 s ceiling is the margin a
+    # starved thread join may use, half of what the callback would hold it.
+    waited = time.monotonic() - t0
+    ok(waited < 30, f"the lookup waited {waited:.2f} s (bound 0.2 s, ceiling 30 s, the callback holds 60 s)")
     eq(failed[0].get("retransmitOf"), None)
     # A lookup that settles at once leaves nothing behind: a process that ran it
-    # with a ten-second bound exits at once, not when the bound expires.
+    # with a sixty-second bound exits at once, not when the bound expires.
     t1 = time.monotonic()
     child = subprocess.run([sys.executable, "-c",
                             "import sys; sys.path.insert(0, sys.argv[1]); from gzcoord import inbox\n"
-                            "inbox.mark_retransmissions([], lambda d: {'messages': []}, 10000)\n"
+                            "inbox.mark_retransmissions([], lambda d: {'messages': []}, 60000)\n"
                             "inbox.mark_retransmissions([{'isMine': True, 'rec': {'seq': 2}, 'msg': {'metadata': "
-                            "{'FROM': 'a', 'MESSAGE-ID': 'x'}}}], lambda d: {'messages': []}, 10000)",
-                            os.path.join(HERE, "tools", "fabric")], capture_output=True, text=True, timeout=9)
+                            "{'FROM': 'a', 'MESSAGE-ID': 'x'}}}], lambda d: {'messages': []}, 60000)",
+                            os.path.join(HERE, "tools", "fabric")], capture_output=True, text=True, timeout=120)
     eq(child.returncode, 0, child.stderr)
-    ok(time.monotonic() - t1 < 5, f"the process lingered {time.monotonic() - t1:.2f} s after the lookup settled")
+    # The contract is "not at the bound" (60 s here); the margin below it covers a starved interpreter start.
+    ok(time.monotonic() - t1 < 30, f"the process lingered {time.monotonic() - t1:.2f} s after the lookup settled")
 
 
-def follow_until(env: dict, done: Callable[[str], bool], seconds: float = 8.0) -> str:
-    """inbox --follow, read until `done(out)` or the time is up, then killed
+# A wait on state ends when the state arrives; this is only the cap that turns a hang into a failure. It is long because
+# the child is a python start that a CPU-starved runner delays by many seconds (j67: 8 s failed at 20x oversubscription).
+STATE_WAIT_CAP_S = 90.0
+
+
+def follow_until(env: dict, done: Callable[[str], bool], seconds: float = STATE_WAIT_CAP_S) -> str:
+    """inbox --follow, read until `done(out)` or the cap is up, then killed
     as the harness kills it (SIGKILL, the shim first)."""
     import time
     child = subprocess.Popen([INBOX_CMD, "--follow"], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -1766,7 +1775,7 @@ def _():
         # makes it slow: wait for its "inbox held" line, then watch the hold
         # for longer than the poll interval (HOLD_POLL_MS, 1 s) so a watch
         # that polled anyway would have done so by then.
-        started = time.monotonic() + 30
+        started = time.monotonic() + STATE_WAIT_CAP_S
         while not re.search(rb"inbox held", err) and time.monotonic() < started:
             time.sleep(0.05)
             err += child.stderr.read() or b""
@@ -1775,7 +1784,7 @@ def _():
         err += child.stderr.read() or b""
         waits_while_held, out_while_held = waits[0], out
         os.unlink(marker)   # the plan is approved
-        deadline = time.monotonic() + 8
+        deadline = time.monotonic() + STATE_WAIT_CAP_S
         while b"HELD-BODY" not in out and time.monotonic() < deadline:
             time.sleep(0.05)
             out += child.stdout.read() or b""
@@ -1827,13 +1836,13 @@ def _():
     try:
         env = cmd_env(CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fabric:control")
         for args in ([], ["--follow"], ["--wait", "1"]):
-            r = subprocess.run([INBOX_CMD, *args], env=env, capture_output=True, text=True, timeout=10)
+            r = subprocess.run([INBOX_CMD, *args], env=env, capture_output=True, text=True, timeout=120)
             eq(r.returncode, 2, f"inbox {' '.join(args)}: exit {r.returncode}\n{r.stderr}")
             ok(re.search(r"control channel", r.stderr), r.stderr)
         f = os.path.join(env["HOME"], "m.txt")
         with open(f, "w", encoding="utf-8") as fh:
             fh.write(valid_message())
-        sres = subprocess.run([SEND_CMD, f], env=env, capture_output=True, text=True, timeout=10)
+        sres = subprocess.run([SEND_CMD, f], env=env, capture_output=True, text=True, timeout=120)
     finally:
         stub.close()
     eq(sres.returncode, 2, f"send: exit {sres.returncode}\n{sres.stderr}")
@@ -2792,7 +2801,7 @@ def _():
     os.set_blocking(child.stdout.fileno(), False)
     out = b""
     try:
-        end = time.time() + 8
+        end = time.time() + STATE_WAIT_CAP_S
         while time.time() < end and b"FOLLOW-BODY" not in out:
             out += child.stdout.read() or b""
             time.sleep(0.05)

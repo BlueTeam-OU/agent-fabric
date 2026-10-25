@@ -206,6 +206,9 @@ def main() -> int:
             check("beta journaled it once", len([r for r in b.journal_rows if r[0] == "M-2"]) == 1)
 
             # -- a copy that arrives twice: two arrival lines, one row, a receipt each time
+            # The receipts for THIS message before and after, not the carrier's running total: how many resends of
+            # earlier messages b answered by now depends on how the loop was scheduled.
+            receipts_before = receipts_for(b, "M-2")
             b.carrier.handle_event(b.carrier.session, {"event_type": "message.direct", "data": {
                 "message_id": "f" * 32, "mode": "direct", "source_peer": pid(0), "source_endpoint": "gzcoord",
                 "destination_endpoint": "gzcoord", "received_at": 0,
@@ -213,7 +216,8 @@ def main() -> int:
             lines = [x for x in b.arrivals() if x["mid"] == "M-2"]
             check("a repeat is another arrival line, the journal still one row, and a receipt again",
                   len(lines) >= 2 and len([r for r in b.journal_rows if r[0] == "M-2"]) == 1
-                  and b.carrier.counters.receipts_out >= 3)
+                  and receipts_for(b, "M-2") == receipts_before + 1,
+                  f"lines {len(lines)}, receipts {receipts_before} -> {receipts_for(b, 'M-2')}")
 
             # -- TO-ROLE and broadcast ------------------------------------
             m3 = msg("M-3", "h/alpha", to_role="dev")
@@ -345,14 +349,14 @@ def main() -> int:
                   res["ok"] is True and res["queued"] == 2, str(res))
 
             # -- presence over the carrier is receipted and nothing else; status has the contract's counts
-            nrows = len(b.journal_rows)
             hello = msg("M-HELLO", "h/alpha", to="h/beta").replace("[GZCOORD/1] INFO", "[GZCOORD/1] HELLO")
             b.carrier.handle_event(b.carrier.session, {"event_type": "message.direct", "data": {
                 "message_id": "b" * 32, "mode": "direct", "source_peer": pid(0), "source_endpoint": "gzcoord",
                 "destination_endpoint": "gzcoord", "received_at": 0,
                 "payload": {"media_type": framing.MEDIA_MESSAGE, "bytes": ipc.b64u(hello.encode())}}})
             check("a retired HELLO over the carrier is not journaled, logged or listed, yet receipted",
-                  len(b.journal_rows) == nrows and not any(x["mid"] == "M-HELLO" for x in b.arrivals())
+                  # Its own row, not the row count: a resend of an earlier message may land on b meanwhile.
+                  not any(r[0] == "M-HELLO" for r in b.journal_rows) and not any(x["mid"] == "M-HELLO" for x in b.arrivals())
                   and "M-HELLO" not in {r["message_id"] for r in b.spool.unseen()} and receipts_for(b, "M-HELLO") == 1)
             # status counts, on deliveries made here so that no retry or receipt can change them
             from gzcoord.carrier import record as _rec
