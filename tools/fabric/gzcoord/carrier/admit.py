@@ -17,7 +17,8 @@ CONTRACT.
   admit_row(...)  runs in the coordinator's account. Adds the port, signs
                   canonical_row with the signing subkey of the lineage's root,
                   and judges the roster WITH the new row through roster.py's
-                  valid_rows: the row must be among the rows that count. It
+                  valid_rows (its port range, endpoint, signatures and collisions among valid
+                  rows included): the row must be among the rows that count. It
                   also refuses any collision with an existing row, valid or
                   not, on agent id, login, PeerId or port: valid_rows ignores
                   an already-refused row when it looks for collisions, and a
@@ -142,8 +143,8 @@ def admit_row(*, doc: dict, rost: roster.Roster, keys: roster.KeySource, row_in:
     env = dict(os.environ if environ is None else environ)
     if not isinstance(row_in, dict) or set(row_in) != ROW_IN_KEYS or not all(isinstance(v, str) for v in row_in.values()):
         raise AdmitError("the row must have exactly: " + ", ".join(sorted(ROW_IN_KEYS)) + ", all text")
-    if type(port) is not int or not rost.port_range[0] <= port <= rost.port_range[1]:
-        raise AdmitError(f"port {port!r} is outside the roster's range {rost.port_range[0]}-{rost.port_range[1]}")
+    if type(port) is not int:
+        raise AdmitError(f"port {port!r} is not an integer")
     for field, value in (("agent_id", row_in["agent_id"]), ("login", row_in["login"]),
                          ("peer_id", row_in["peer_id"]), ("port", port)):
         for other in rost.rows:

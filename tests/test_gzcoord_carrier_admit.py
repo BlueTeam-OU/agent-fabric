@@ -79,7 +79,7 @@ def main() -> int:
             home = os.path.join(d, "home-" + name)
             os.makedirs(home, exist_ok=True)
             open(os.path.join(fake, "version"), "w").write(version + "\n")
-            open(os.path.join(fake, "show"), "w").write(show if show is not None else T.peer_id(name))
+            open(os.path.join(fake, "show"), "w").write(show if show is not None else T.peer_id(name) + "\n")
             return {"PATH": os.environ["PATH"], "GNUPGHOME": agent.home, "FAKE_CTL": fake, "HOME": home,
                     "XDG_DATA_HOME": os.path.join(home, "data")}
 
@@ -108,7 +108,7 @@ def main() -> int:
                   calls() == ["--version", "--profile gzcoord identity init", "--profile gzcoord identity show"], str(calls()))
             check("roster-row: the row has the reader's fields minus port and countersignature, the PeerId, the roster's endpoint",
                   set(ra) == A.ROW_IN_KEYS and ra["peer_id"] == T.peer_id("a") and ra["endpoint"] == "gzcoord"
-                  and ra["identity_show"] == T.peer_id("a"))
+                  and ra["identity_show"] == T.peer_id("a") + "\n")
             out = admit(ra, 47101)
             check("roster-admit: a row roster-row made is valid to valid_rows (positive control)",
                   [r["login"] for r in R.valid_rows(R.Roster("gzcoord", "gzcoord", (47100, 47199), tuple(out["rows"])), keys)[0]]
@@ -158,7 +158,7 @@ def main() -> int:
 
             # admit refusals
             t = copy.deepcopy(rb)
-            t["identity_show"] = T.peer_id("b") + "\n"
+            t["identity_show"] = T.peer_id("b") + "\n\n"
             check("roster-admit refuses an identity_show edited after the login signed it",
                   refuses(admit, t, 47103, rost1, out) is not None)
             t = dict(rb, login_signature=stranger.sign(rb["identity_show"].encode()))
@@ -178,10 +178,16 @@ def main() -> int:
                   refuses(admit, dict(rc, endpoint="other"), 47110, rost1, out) is not None)
             # a collision with an already-refused row is still a collision
             junk = dict(out["rows"][0], agent_id="00000000-0000-7000-8000-0000000000ee", login="junk",
-                        peer_id=T.peer_id("junk"), port=47150, countersignature="x")
+                        peer_id=T.peer_id("junk"), port=47150, countersignature="x", endpoint="other")
             rostj = R.Roster("gzcoord", "gzcoord", (47100, 47199), tuple(out["rows"]) + (junk,))
             check("roster-admit refuses a port an already-refused row still claims",
                   refuses(admit, rc, 47150, rostj, out) is not None)
+            class StaleKeys(T.Keys):          # the committed .asc is not the key the account holds
+                def public_key(self, agent_id: str) -> bytes | None:
+                    return stranger.pub if agent_id == a.agent_id else super().public_key(agent_id)
+            msg = refuses(A.make_row, rost=base, keys=StaleKeys([a, b, c], root), agent_id=a.agent_id, login="alpha",
+                          release_path=release, environ=env_of(a, "a"), transportctl=ctl)
+            check("roster-row refuses a signature that does not verify against the committed key", "does not verify" in (msg or ""), str(msg))
             check("roster-admit signed by a key that is not the lineage's root refuses",
                   refuses(admit, rc, 47103, rost1, out, signer=c) is not None)
             check("roster-admit: positive control for the refusals above — the same row at a free port is admitted",
