@@ -129,8 +129,15 @@ origin:
 derived_from:                    # observation content hashes
   - 42bc0c9685ab878c
 distilled_at: "2026-09-05"       # when
-topic: release                   # the memory this file is (not on a flat <class>.md)
+topic: release                   # the memory this file is (a flat <class>.md too, since #368)
 ```
+
+A flat `<class>.md` holds one topic and records it; a second topic moves
+the class into its `<class>/` directory, the flat file named for the
+topic it records (#368: the flat file has one INDEX row, so a second
+topic written into it lost its cue). A flat file written before then
+records no topic and may hold several; it keeps that reading until the
+class splits.
 
 `topic` is what tells a budget part from a memory named like one: part
 two of `release` is `release-2.md`, and so is a memory named `release-2`
@@ -332,9 +339,9 @@ section one agent wrote — that agent's own — is the same memory
 rewritten (a tracker's "OPEN" become "MERGED"), not a second fact.
 Only the topic's own file answers that — `<class>/<topic>.md` and its
 budget parts, or the shared `<class>-<topic>.md` and its parts: the
-flat `<class>.md` holds every memory of its class until the class
-splits, and a carried file every memory it moved with, so a claim
-landing there is never a retitle (a drain's blind review, 2026-09-26:
+flat `<class>.md` written before #368 may hold several memories of its
+class, and a carried file every memory it moved with, so a claim
+landing in either is never a retitle (a drain's blind review, 2026-09-26:
 one agent's second memory in a flat file deleted its first); a new
 text under a heading one agent wrote there still falls under the rule
 below, which replaces that one section and touches no other memory.
