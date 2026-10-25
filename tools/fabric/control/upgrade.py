@@ -213,11 +213,12 @@ def _close_pipes(child: subprocess.Popen) -> None:
                 pass   # a write end that was never flushed to a holder that is gone
 
 
-def hold_lease(root: str, *, spawn: Callable[..., subprocess.Popen] = subprocess.Popen, wait_s: float = LEASE_WAIT_S) -> Lease:
+def hold_lease(root: str, *, spawn: Callable[..., subprocess.Popen] = subprocess.Popen, wait_s: float = LEASE_WAIT_S,
+               name: str = INSTALL_LEASE) -> Lease:
     """No bin/fabric-lease, or no lease directory (exit 2), is a queue that is
     unavailable — refused, not bypassed, since installing unqueued is what
     failed nine accounts."""
-    cmd = [os.path.join(root, "bin", "fabric-lease"), INSTALL_LEASE, "--wait", str(wait_s), "--", "sh", "-c", "echo held; exec cat >/dev/null"]
+    cmd = [os.path.join(root, "bin", "fabric-lease"), name, "--wait", str(wait_s), "--", "sh", "-c", "echo held; exec cat >/dev/null"]
     try:
         child = spawn(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except OSError as e:

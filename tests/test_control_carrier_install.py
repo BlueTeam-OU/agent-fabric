@@ -193,6 +193,8 @@ class Case(unittest.TestCase):
         with open(os.path.join(self.root, iw.ROSTER_REL), "w") as fh:
             json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", "port_range": [47100, 47199], "rows": []}, fh)
         self.systemd = Systemd()
+        self.events: list[str] = []
+        self.lease_refused: iw.LeaseRefused | None = None
         self.systemd.proc = os.path.join(t, "proc")
         self.systemd.bindir = os.path.join(self.home, ".local", "bin")
         os.makedirs(self.systemd.proc)
@@ -216,7 +218,19 @@ class Case(unittest.TestCase):
         self.artifact = art
         return art
 
+    def lease(self, root, wait_s, name):
+        self.events.append(f"lease {name} wait_s={wait_s}")
+        if self.lease_refused:
+            raise self.lease_refused
+        case = self
+
+        class Turn:
+            def release(self):
+                case.events.append("release")
+        return Turn()
+
     def fetch(self, url, token, dest, **k):
+        self.events.append("fetch")
         self.fetched.append((url, token, k))
         with open(dest, "wb") as fh:
             fh.write(self.artifact)
@@ -224,7 +238,7 @@ class Case(unittest.TestCase):
 
     def install(self, request=None, **kw):
         opts = dict(root=self.root, home=self.home, state=self.state, fetch=self.fetch, token=lambda name: TOKEN, machine="x86_64",
-                    run=self.systemd, sleep=lambda s: None)
+                    run=self.systemd, sleep=lambda s: None, lease=self.lease)
         opts.update(kw)
         return iw.carrier_install({} if request is None else request, **opts)
 
@@ -750,6 +764,72 @@ class Read(Case):
         self.assertEqual(self.read()["status"], "unreadable")
 
 
+class DownloadLease(Case):
+    """The host's download turn: 28 accounts fetching 117 MB at once all hit their bound (2026-10-25)."""
+
+    def test_the_download_waits_for_its_turn_and_gives_it_back_before_the_install_goes_on(self):
+        self.release()
+        self.assertEqual(self.install()["status"], "installed")
+        self.assertEqual(self.events, [f"lease {iw.DOWNLOAD_LEASE} wait_s={iw.LEASE_WAIT_S}", "fetch", "release"],
+                         "the turn is taken before the fetch and released once the archive is extracted, not held through the restart")
+
+    def test_a_refused_turn_fetches_nothing_and_installs_nothing(self):
+        self.release()
+        self.lease_refused = iw.LeaseRefused(75, "fabric-lease: held", "held")
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("download lease", r["reason"])
+        self.assertEqual(self.fetched, [], "never queued-around")
+        self.nothing_installed()
+
+    def test_the_turn_is_given_back_when_the_download_fails(self):
+        self.release()
+
+        def broken(url, token, dest, **k):
+            self.events.append("fetch")
+            raise OSError(5, "boom")
+        r = self.install(fetch=broken)
+        self.assertEqual(r["status"], "failed")
+        self.assertEqual(self.events[-1], "release")
+
+    def test_an_account_that_is_current_does_not_queue_for_a_download_it_will_not_make(self):
+        self.release()
+        self.install()
+        self.events.clear()
+        self.assertEqual(self.install()["status"], "current")
+        self.assertEqual(self.events, [])
+
+    def test_the_budget_covers_the_wait_for_a_turn(self):
+        self.assertGreater(iw.CARRIER_INSTALL_BUDGET_S, iw.LEASE_WAIT_S + iw.DOWNLOAD_TIMEOUT_S)
+
+    def test_the_real_lease_serialises_two_turns_under_its_own_name_not_the_claude_installs(self):
+        import threading
+        import time
+        leases = os.path.join(self.root, "leases")
+        os.makedirs(leases)
+        repo = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+        with unittest.mock.patch.dict(os.environ, {"AGENT_FABRIC_LEASES": leases, "AGENT_FABRIC_PYTHON": sys.executable}):
+            first = iw.hold_lease(repo, wait_s=20, name=iw.DOWNLOAD_LEASE)
+            other = iw.hold_lease(repo, wait_s=20, name="claude-install")      # another lease is not queued behind it
+            other.release()
+            got: list[float] = []
+            t0 = time.monotonic()
+
+            def second():
+                turn = iw.hold_lease(repo, wait_s=20, name=iw.DOWNLOAD_LEASE)
+                got.append(time.monotonic() - t0)
+                turn.release()
+            th = threading.Thread(target=second)
+            th.start()
+            time.sleep(1.5)
+            self.assertEqual(got, [], "the second account waits while the first holds its turn")
+            first.release()
+            th.join(30)
+        self.assertEqual(len(got), 1)
+        self.assertGreaterEqual(got[0], 1.5)
+        self.assertEqual(iw.DOWNLOAD_LEASE, "interweave-download")
+
+
 class Channel(Case):
     """ADR-064 rule 14: the units that were running are restarted and checked; a check that fails puts the previous programs back."""
 
@@ -1094,7 +1174,7 @@ class Wiring(Case):
     def test_the_daemon_answers_both_in_the_wires_reply_shape(self):
         self.release()
         ctx = {"me": {"address": "h/a"}, "started": "2026-10-25T10:00:00.000Z", "home": self.home, "root": self.root,
-               "carrier_install_opts": {"state": self.state, "fetch": self.fetch, "token": lambda n: TOKEN, "machine": "x86_64"},
+               "carrier_install_opts": {"state": self.state, "fetch": self.fetch, "lease": self.lease, "token": lambda n: TOKEN, "machine": "x86_64"},
                "carrier_opts": {"state": self.state}}
         r = agentd.answer({"id": "q", "op": "interweave-install", "to": "*", "from": "h/user"}, ctx)
         self.assertEqual((r["op"], list(r["data"]), r["data"]["interweave-install"]["status"]), ("interweave-install", ["interweave-install", "agentd"], "installed"))
