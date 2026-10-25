@@ -1409,7 +1409,7 @@ class StartStop(Case):
 
     def test_a_refused_enable_names_the_failure_not_the_symlink_it_printed_first(self):
         def enable(argv, **kw):
-            return subprocess.CompletedProcess(argv, 1, "", "Created symlink /a -> /b.\nJob failed: see journalctl\n")
+            return subprocess.CompletedProcess(argv, 1, "", "Job failed: see journalctl\nCreated symlink /a -> /b.\n")
         self.assertIn("Job failed", iw._systemctl(["enable", "--now", "u"], enable, self.home))
 
     def test_a_unit_that_does_not_come_up_stops_both_and_says_failed(self):
