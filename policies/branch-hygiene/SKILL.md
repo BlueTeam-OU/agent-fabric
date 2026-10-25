@@ -48,8 +48,9 @@ are **not** on the default branch:
   (untracked files included), no ignored files (a `.env`, a build that
   removal would delete; Python bytecode does not count, any run
   regenerates it) and no lock, and is neither the one you run in
-  nor one a live session stands in; the
-  others are listed with the reason they stay. You do this without
+  nor one a live session stands in, nor one a queued, active, paused
+  or blocked job of yours names as its worktree ("named by job jN
+  (state)"); the others are listed with the reason they stay. You do this without
   asking; losing nothing is provable.
 - **More than 0**: kept, and listed with its commits and its pull
   request. This is either work you still owe or a decision for the
@@ -67,7 +68,9 @@ The same sweep removes the scratch of this login's ended Claude Code
 sessions, judged by the harness's own session registry; when that
 cannot be read it keeps all the scratch and every worktree it would
 have removed, each listed as "session registry unreadable", and says
-so. `--sweep --all` does
+so. A job list that cannot be read, or a record in it the sweep does
+not understand, does the same for worktrees, each listed as "job list
+unreadable". `--sweep --all` does
 all of it in every working copy of the login; `fabric-jobs switch` runs
 the worktree half for the job it leaves.
 

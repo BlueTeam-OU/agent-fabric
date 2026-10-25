@@ -152,7 +152,10 @@ the same command asks on one account and not on another.
     `git ls-remote` shows by name and commit; that ref alone is no
     proof, a fetch without prune keeps a deleted branch's), attached or
     detached, never the one it runs in nor one a live session stands in
-    (by the session registry below, or `AGENT_FABRIC_BRANCHES_KEEP`);
+    (by the session registry below, or `AGENT_FABRIC_BRANCHES_KEEP`),
+    nor one a queued, active, paused or blocked job of the login names
+    as its worktree; a job list that cannot be read, or a record in it
+    the sweep does not understand, keeps every worktree (A 2026-10-24);
     a branch with commits off it is kept and brought to the person.
     `--sweep --all` does it in every working copy of the login, each
     after its own fetch, naming and skipping one that refuses; the same
@@ -242,3 +245,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-10-11 | Every job starts in a fresh session | §5 rule 12: `next` gives a fresh session whenever this session has worked a job; in place only for one that has worked none |
 | 2026-10-19 | Stale worktrees and ended sessions' scratch are swept | §5 rule 11: a clean worktree whose commits are on a branch the remote still has goes, `--sweep --all` covers every working copy, ended sessions' scratch goes, and `fabric-jobs switch` runs the worktree half at a job's end |
 | 2026-10-20 | An unreadable session registry keeps every worktree | §5 rule 11: no worktree is removed when the registry cannot be read, not only the ones `AGENT_FABRIC_BRANCHES_KEEP` names (#337) |
+| 2026-10-24 | A worktree a live job names is kept | §5 rule 11: a queued, active, paused or blocked job's worktree is not removed; an unreadable job list keeps every worktree (#364) |
