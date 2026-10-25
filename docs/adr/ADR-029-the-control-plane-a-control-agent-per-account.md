@@ -80,8 +80,8 @@ sudo are in the loop.
 | `gateway` | read: the installed agent-fabric-gateway's version and runtime contract as the binary reports them, and the release digest its install marker recorded (not compared with `runtime/gateway.json`: after the pin moves, `gateway-install` is what brings an account to it); beside a live usage relay also `setup_tokens`, one per relayed entry in order, the setup-token fingerprint its generation is joined to in the account's `gateway-generations.json` or null, and `sessions`, `{status: ok|unknown, gateway: N, other: M}`, how many running harness sessions are on the gateway transport and how many are not (ADR-052) |
 | `switch` | read, operator only: the switch controller's policy mode and the last lines of its move log (`<state>/account-switch.jsonl`, ADR-052 rule 11); only the coordinator's account keeps one, any other answers `{"status": "none"}` |
 | `gateway-install` | *action*: the pinned gateway release (`runtime/gateway.json`), its SHA-256 checked before anything is extracted, the one pinned member only, run with `--version --json` and required to match the pin before it is renamed into `~/.local/bin` (`tools/fabric/control/gateway.py`) |
-| `interweave` | read: the account's InterWeave programs as they report themselves (version, digests), whether they are the release `runtime/interweave/release.json` pins, whether the two user-unit templates are installed, and the channel: `ok`, `off`, `not-running` or `unknown`, from ADR-064 rule 14's check of the running units (`tools/fabric/control/carrier_install.py`) |
-| `interweave-install` | *action*, no arguments: the release the pin names as `current`, its size and SHA-256 checked before anything is extracted, every member kept under the archive's root, the archive's own `install.sh` run, the pinned programs' `--version` and digests checked; the units that were running restarted and checked through the control plane, and the previous programs put back on a failed check (ADR-064 rules 4, 14). One download at a time per host, under the host lease `interweave-download` (`tools/fabric/control/carrier_install.py`) |
+| `interweave` | read: the account's InterWeave programs as they report themselves (version, digests), whether they are the release `runtime/interweave/release.json` pins, whether the two user-unit templates are installed, and the channel: `ok`, `off`, `not-running` or `unknown` (a check that could not be made, which ADR-064 rule 14 counts as off the channel), from that rule's check of the running units (`tools/fabric/control/carrier_install.py`) |
+| `interweave-install` | *action*, no arguments: the release the pin names as `current`, its size and SHA-256 checked before anything is extracted, an archive with any member outside its root refused, the archive's own `install.sh` run, the pinned programs' `--version` and digests checked; the units that were running restarted and checked through the control plane, and the previous programs put back on a failed check (ADR-064 rules 4, 14). One download at a time per host, under the host lease `interweave-download` (`tools/fabric/control/carrier_install.py`) |
 | `pool-add` | *action*, on the pool's holder only: a job on a role's pool (ADR-037 rule 9) |
 | `status` | identity, usage, keys, fabric and session together |
 
@@ -205,7 +205,7 @@ claimant (rule 4).
     per account at a time, and a second upgrade or `secrets-sync` sent
     while one runs is answered `busy`, as is an upgrade sent while a
     `secrets-sync` is restarting the session; a second `gateway-install`
-    is answered `refused` by the install's own lock. `fabric-ctl` waits for an
+    or `interweave-install` is answered `refused` by the install's own lock. `fabric-ctl` waits for an
     answer as long as the operation's own budget (`tools/fabric/control/ctl.py`):
     20 s by default, 5 s for `ping`, 60 s for `tokens`, 120 s for a drain,
     200 s for `disk`, 240 s for `secrets-sync`, 300 s for `accounts`,
