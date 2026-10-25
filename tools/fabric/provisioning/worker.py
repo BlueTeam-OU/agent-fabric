@@ -427,6 +427,7 @@ def finish(w: Worker) -> int:
     if not a.human:     # 7-9 never for a human (ADR-044 rule 2)
         record_launch_provider(w)
         bootstrap_and_bind(w)
+        install_client(w)
         toolchains(w)
         operator_ssh(w)
     # ---- 10. verify, and what is left for a person
@@ -543,6 +544,23 @@ def operator_ssh(w: Worker) -> None:
     w.must([*w.sudo, "-n", PY, "-I", script, w.a.login], describe=f"{script} {w.a.login} (the operator's ssh)")
     if not w.a.dry:
         w.say(f"9b. ssh: {w.a.login} is in AllowUsers with its keys file, sshd restarted")
+
+
+def install_client(w: Worker) -> None:
+    """---- 7b. the program of the carrier's client unit (ADR-064 §5 rule 5), from the account's own clone as step 6b
+    does: homes are 700. After bootstrap only by habit, not need: the program finds gzcoord-carrier when the unit
+    starts, not when it is installed."""
+    login = w.a.login
+    script = os.path.join(w.home, "projects", "agent-fabric", "tools", "fabric", "gzcoord", "carrier", "install_client.py")
+    if w.a.dry:
+        w.say(f"would: as {login}: install_client.py")
+        return
+    got = w.as_login([PY, "-I", script], login_shell=False)
+    if got.returncode != 0:
+        tail(got.stdout)
+        w.die(f"step failed: install_client.py as {login}; nothing after it ran")
+    # The installer's own word tells a write from a re-run that found it in place.
+    w.say("7b. carrier client unit program " + ("already in place" if "install_client: already" in (got.stdout or "") else "installed"))
 
 
 def toolchains(w: Worker) -> None:

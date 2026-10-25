@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-fabric/runtime/interweave/roster.schema.json",
+  "title": "InterWeave carrier roster (agent-fabric ADR-064 §5 rule 2)",
+  "description": "Shape only. Whether a row counts is decided by tools/fabric/gzcoord/carrier/roster.py (valid_rows): the login's signature over identity_show with the signing subkey of the key committed for agent_id, the coordinator's countersignature over agent_id, login, peer_id, endpoint and port, a port inside port_range, no other row on the same agent id, login, PeerId or port. A schema cannot check a signature; a row it accepts is not thereby valid. The reader is stricter in one direction: it takes version and the port range only as JSON integers, so 1.0 and 47100.0, which a schema validator counts as integers, pass here and the carrier refuses them.",
+  "type": "object",
+  "required": [
+    "version",
+    "profile",
+    "endpoint",
+    "port_range",
+    "rows"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "profile": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "endpoint": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+    },
+    "port_range": {
+      "description": "[low, high], loopback ports the roster allocates; the carrier listens on 127.0.0.1 only (rule 1).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/port"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/row"
+      }
+    }
+  },
+  "$defs": {
+    "port": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 65535
+    },
+    "armored_signature": {
+      "description": "An ASCII-armored detached OpenPGP signature.",
+      "type": "string",
+      "pattern": "^-----BEGIN PGP SIGNATURE-----\\n(?:.*\\n)*-----END PGP SIGNATURE-----\\n?$"
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_id",
+        "login",
+        "peer_id",
+        "endpoint",
+        "port",
+        "identity_show",
+        "login_signature",
+        "countersignature"
+      ],
+      "properties": {
+        "agent_id": {
+          "description": "ADR-039; the row's key.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "login": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+        },
+        "peer_id": {
+          "description": "A libp2p Ed25519 PeerId; the pattern is necessary, not sufficient (the reader decodes the multihash).",
+          "type": "string",
+          "pattern": "^12D3KooW[1-9A-HJ-NP-Za-km-z]{44}$"
+        },
+        "endpoint": {
+          "description": "Equal to the roster's endpoint.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+        },
+        "port": {
+          "$ref": "#/$defs/port"
+        },
+        "identity_show": {
+          "description": "Exactly what `transportctl --profile <p> identity show` printed in the login's account; the login signs these bytes.",
+          "type": "string",
+          "minLength": 1
+        },
+        "login_signature": {
+          "$ref": "#/$defs/armored_signature"
+        },
+        "countersignature": {
+          "$ref": "#/$defs/armored_signature"
+        }
+      }
+    }
+  }
+}
