@@ -189,8 +189,10 @@ outage procedure.
     review of the batch costs and cannot see how the hunks meet: #354's one
     batch review found two P1s in a supplied hunk whose supplier's own
     checks had passed. `dispatch_guard.py` denies a `code-review` dispatch
-    whose session has a `for/` branch checked out at its cwd; a supplier
-    working elsewhere is held by this rule, not by the guard.
+    whose session has a `for/` branch checked out at its cwd, or whose cwd
+    is inside the worktree or working copy of the login's active job when
+    that job has a `deliver_to`; a supplier outside both is held by this
+    rule, not by the guard.
 
 ## 6. Consequences
 
@@ -247,3 +249,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | 2026-10-16 | A review covers the commit it read | §5 rule 6: post-review records a review on the head its report names (dispatch header `head_sha`, or `--head` for a headerless report) and refuses a report naming none, several or a commit outside the PR; a review posted after a push no longer covers the new head |
 | 2026-10-22 | A supplier dispatches no review of its own part | §5 rule 11: the caller folds every supply and dispatches the one blind review of the head; a supplier sends its own checks, never a review-class review; the dispatch guard denies a review from a `for/` branch |
 | 2026-10-24 | The reviewer reads through pinned tools and posts nothing headerless | §5 rule 4: no Bash, the fabric-review tools and a proved sandbox (ADR-065); rule 6: no headerless `--head` post |
+| 2026-10-25 | The guard also knows a supplier by its job | §5 rule 11: the dispatch guard denies a review from inside the active job's worktree or working copy when the job has a `deliver_to`, on any branch |

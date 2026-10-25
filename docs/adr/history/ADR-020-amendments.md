@@ -117,3 +117,13 @@ only for the other classes dispatched without a worktree. Rule 6's
 headerless `--head` post goes with it: post-review now writes only the
 v2 marker with a coverage block, so a report that names no range
 cannot post (ADR-065 §5 rule 4). Built on #358.
+
+### Amendment 2026-10-25 — The guard also knows a supplier by its job
+
+§5 rule 11's last sentence said the guard held only a session on a
+`for/` branch, and a supplier working elsewhere (a detached HEAD, a
+renamed branch) was held by the rule alone. python-dev-01's j365 (#371,
+67edba3d) adds a second test: the login's active job has a `deliver_to`
+and the dispatching cwd is inside that job's worktree or working copy.
+The sentence now names both; a supplier outside both is still held by
+the rule alone. Raised by #371's blind review, F3.

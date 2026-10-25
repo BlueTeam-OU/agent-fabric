@@ -35,8 +35,10 @@ TWO CLASSES OF DISPATCH, decided in this order:
                      beginning "review" / "re-review" (any word
                      form: Reviewing, Re-review of ...) AND model
                      "fable" AND NO isolation AND a session not on a
-                     <host>/<login>/for/ branch (a supplier reviews
-                     nothing of its own part, ADR-020 §5 rule 11). All
+                     <host>/<login>/for/ branch nor inside the active
+                     job's worktree or working copy when that job has a
+                     deliver_to (a supplier reviews nothing of its own
+                     part, ADR-020 §5 rule 11). All
                      five, or denied -- never asked. Standing authorisation for the
                      class: a review's failure mode is not a retry,
                      it is a green PR that merges, so no per-dispatch
@@ -108,6 +110,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -151,6 +154,39 @@ def supply_branch(cwd) -> str:
         return ""
     branch = r.stdout.strip() if r.returncode == 0 else ""
     return branch if SUPPLY_BRANCH.match(branch) else ""
+
+
+def supplier_job(cwd) -> tuple[str, str]:
+    """(job id, DELIVER-TO) of this login's active job that carries a deliver_to and whose working
+    copy or worktree contains the call's cwd, else ("", ""). A REQUEST worked on a feat/ branch or on
+    the caller's own PR branch is a supply all the same (ADR-020 §5 rule 11), and fabric-jobs records
+    the request's DELIVER-TO on the job. The same rule as supply_branch: a jobs file or a cwd this
+    cannot read is no supplier, and nothing is guessed from a job whose directory is another's.
+    The record is read here, not through the fabric's job code, because this hook imports nothing of it.
+    A job whose record predates deliver_to is no supplier: the record keeps no request text to compare,
+    and a hook reads no relay (j365's clause (c), left out on purpose)."""
+    if not isinstance(cwd, str) or not cwd:
+        return "", ""
+    try:
+        agent = pwd.getpwuid(os.geteuid()).pw_name
+        override = os.environ.get("AGENT_FABRIC_STATE_DIR")
+        root = os.path.abspath(override) if override else os.path.join(
+            os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"),
+            "agent-fabric")
+        with open(os.path.join(root, "agents", agent, "jobs.json"), encoding="utf-8") as fh:
+            jobs = json.load(fh)["jobs"]
+        here = os.path.realpath(cwd)
+        for job in jobs:
+            deliver = job.get("deliver_to")
+            if job.get("state") != "active" or not isinstance(deliver, str) or not deliver:
+                continue
+            for key in ("worktree", "working_copy"):
+                where = job.get(key)
+                if isinstance(where, str) and where and os.path.commonpath([here, os.path.realpath(where)]) == os.path.realpath(where):
+                    return str(job.get("id", "")), deliver
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return "", ""
+    return "", ""
 
 
 class Malformed(Exception):
@@ -315,6 +351,13 @@ def decide(call) -> dict | None:
                         "back to you (agent-fabric ADR-020 §5 rule 11). Keep your own checks -- the test failing "
                         "before and passing after, the mutations, tests/run.sh -- and send them with the supply. "
                         + SKILL)
+        job, deliver = supplier_job(call.get("cwd"))
+        if job:
+            return deny(f"Review dispatch from job {job}, a supply to {deliver}. A supplier dispatches no review of "
+                        "its own part, on a for/ branch or not: the caller's one blind review of the whole head "
+                        "covers your hunks (agent-fabric ADR-020 §5 rule 11). Keep your own checks -- the test "
+                        "failing before and passing after, the mutations, tests/run.sh -- and send them with the "
+                        "supply. " + SKILL)
         if not review_desc:
             return deny("code-review dispatch whose description does not BEGIN with review or re-review. The review "
                         "class is read-only and unisolated; a writing task under this type would run in the session "

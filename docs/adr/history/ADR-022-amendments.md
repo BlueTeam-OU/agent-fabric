@@ -120,3 +120,17 @@ as "session registry unreadable", branch deletion is unchanged, and
 `fabric-branches --json` reads the registry too, so the control plane's
 removable count agrees with the sweep. A readable registry that lists no
 one still lets a worktree go.
+
+### Amendment 2026-10-24 — A worktree a live job names is kept
+
+python-dev-04 built it in #364 (merged 2026-10-24, its job j65). A job
+records its worktree, and `fabric-jobs switch` and `fabric-fresh --job`
+send the next session there; the sweep removed a clean, pushed worktree
+whatever named it, so a queued job could be left pointing at a
+directory that no longer existed (j64, 2026-10-24). Now a worktree a
+queued, active, paused or blocked job of the login names is kept and
+listed as "named by job jN (state)"; a delivered, done or dropped job
+names nothing. Unknown is not none: a job list that cannot be read, a
+record whose worktree is not a path, or a state outside those
+`fabric-jobs` writes keeps every worktree, listed as "job list
+unreadable", and branch deletion is unchanged (#364 review F1).
