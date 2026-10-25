@@ -20,7 +20,9 @@ THE SEQUENCE, for one account, as that login and with no root:
   2. "current", nothing downloaded and nothing touched, when the marker names
      this release and every program it lists is in ~/.local/bin with the
      digest the marker recorded;
-  3. the archive is downloaded with the account's GH_TOKEN (the repository is
+  3. the account waits for its turn on the host's download lease (one
+     download at a time across the host's accounts; a refused turn is a
+     failure, not a bypass), then the archive is downloaded with the account's GH_TOKEN (the repository is
      internal): into the install's own temporary directory, the token in a
      header only and dropped on the redirect to storage;
   4. its size AND its SHA-256 must equal the pin's before anything is
@@ -99,7 +101,7 @@ from typing import Any, Callable
 from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME
 from control.gateway import ARCHES, SHA256, PinError, _arch, _fsync_dir, _why, download, file_sha256
 from control.ops import util
-from control.upgrade import VERSION_RE
+from control.upgrade import LEASE_HELD, VERSION_RE, LeaseRefused, hold_lease
 
 PIN_REL = os.path.join("runtime", CARRIER_NAME, "release.json")
 INSTALL_OP = f"{CARRIER_NAME}-install"
@@ -116,6 +118,14 @@ INSTALL_SH_TIMEOUT_S = 120
 VERSION_TIMEOUT_S = 10
 MAX_UNPACKED_BYTES = 2 * 1024 * 1024 * 1024
 MAX_MEMBERS = 1000
+# One download at a time per HOST, across its accounts: `fabric-ctl all <carrier>-install` made 28 accounts fetch the
+# 117 MB archive at once on 2026-10-25 and every one hit its DOWNLOAD_TIMEOUT_S where each alone took well under it.
+# The host lease (bin/fabric-lease, ADR-010) queues them as `upgrade claude` does; it is held from before the fetch
+# until the archive is extracted, never through the restart, which costs the account and not the link. The wait is
+# the number of accounts (30 on develop-qzapp) at about 40 s a turn.
+DOWNLOAD_LEASE = f"{CARRIER_NAME}-download"
+LEASE_WAIT_S = 1200
+LEASE_GRACE_S = 60
 SYSTEMCTL_TIMEOUT_S = 10
 CHECK_POLLS = 5                # the channel check looks this many times, POLL_S apart, before it says the unit did not come back
 POLL_S = 2
@@ -125,7 +135,7 @@ STATUS_TIMEOUT_S = 10
 CHECK_BUDGET_S = (2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + SYSTEMCTL_TIMEOUT_S + VERSION_TIMEOUT_S
                   + CHECK_POLLS * STATUS_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S)
 # An install asks the units' states before, then twice (the install, the restore) restarts both and checks.
-CARRIER_INSTALL_BUDGET_S = (DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
+CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
                             + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S))
 # The read: the installed programs' versions, the units' states, and one look of the check (which asks the states and the
 # daemon's version again).
@@ -627,7 +637,7 @@ def _failed(version: str | None, reason: str) -> dict:
 def carrier_install(request: Any, root: str | None = None, home: str | None = None, state: str | None = None,
                        fetch: Callable[..., tuple[int, str]] = download, run: Callable[..., Any] = subprocess.run,
                        token: Callable[[str], str | None] | None = None, machine: str | None = None,
-                    sleep: Callable[[float], None] = time.sleep) -> dict:
+                    sleep: Callable[[float], None] = time.sleep, lease: Callable[..., Any] = hold_lease) -> dict:
     a = request.get("args") if isinstance(request, dict) else None
     if not (a is None or a == {}):
         return _refused(f"{INSTALL_OP} takes no argument: it installs the release the reviewed pin names")
@@ -651,13 +661,14 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             return _refused(f"another {INSTALL_OP} is running on this account")
-        return _install(version, pin["releases"][version], build, state, home, root, fetch, run, token, sleep)
+        return _install(version, pin["releases"][version], build, state, home, root, fetch, run, token, sleep, lease)
     finally:
         os.close(lock_fd)
 
 
 def _install(version: str, release: dict, build: dict, state: str, home: str, root: str, fetch: Callable[..., tuple[int, str]],
-             run: Callable[..., Any], token: Callable[[str], str | None] | None, sleep: Callable[[float], None]) -> dict:
+             run: Callable[..., Any], token: Callable[[str], str | None] | None, sleep: Callable[[float], None],
+             lease: Callable[..., Any]) -> dict:
     bindir = bin_dir(home)
     work = os.path.join(state, WORK)
     # Under the lock nothing else is writing here: whatever is left is a killed install's, and it is removed before
@@ -684,10 +695,20 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
     except OSError as e:
         return _failed(version, f"the install directories cannot be prepared ({_why(e, tok)})")
     try:
+        # Refused, not bypassed: fetching unqueued is what failed 28 accounts at once.
+        try:
+            turn = lease(root, wait_s=LEASE_WAIT_S, name=DOWNLOAD_LEASE)
+        except LeaseRefused as e:
+            # e.reason is fabric-lease's one-word code; e.line is the sentence that says what to do.
+            return _failed(version, f"the host's download lease stayed held for {LEASE_WAIT_S} s; nothing was fetched — run it again"
+                           if e.code == LEASE_HELD else
+                           f"the host's download queue is unavailable ({e.line[:160]}); nothing was fetched")
         try:
             tree = fetch_and_unpack(build, tok, tree_dir, fetch)
         except InstallError as e:
             return _failed(version, str(e))
+        finally:
+            turn.release()
         try:
             programs = tree_programs(tree)
         except OSError as e:
