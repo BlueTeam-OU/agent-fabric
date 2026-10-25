@@ -167,8 +167,11 @@ CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + 
 # failure two `disable --now` and the states.
 LOGINCTL_TIMEOUT_S = 10
 RENDER_TIMEOUT_S = 30
+# A carrier that has just started verifies every roster row before it opens its socket (29 s measured with 26 rows, 2026-10-25), so the
+# start waits for `status` much longer than a restart's check, which finds a carrier that was already up.
+STARTUP_STATUS_POLLS = 45
 CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
-                          + CHECK_BUDGET_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20)
+                          + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20)
 CARRIER_STOP_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20
 # The read: the installed programs' versions, the units' states, and one look of the check (which asks the states and the
 # daemon's version again).
@@ -472,7 +475,7 @@ def restart_units(units: list[str], run: Callable[..., Any], home: str) -> str |
 
 
 def channel_check(profile: str, running: list[str], build: dict, root: str, run: Callable[..., Any], home: str,
-                  sleep: Callable[[float], None], polls: int = CHECK_POLLS, pinned: bool = True) -> dict:
+                  sleep: Callable[[float], None], polls: int = CHECK_POLLS, pinned: bool = True, status_polls: int | None = None) -> dict:
     """The check of the units in `running`: each active (and still active one poll later, so a crash loop is not
     mistaken for a start), the daemon's process running the installed file, every program the pin reports printing its
     value, and the carrier answering `status` when its
@@ -513,7 +516,7 @@ def channel_check(profile: str, running: list[str], build: dict, root: str, run:
         if bad:
             return failed(bad)
     if client in running:
-        for i in range(polls):
+        for i in range(polls if status_polls is None else status_polls):
             if i:
                 sleep(POLL_S)
             try:
@@ -1008,7 +1011,7 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
     else:
         problem = None
     check = ({"status": "failed", "reason": problem, "units": {}} if problem
-             else channel_check(profile, both, build, root, run, home, sleep))
+             else channel_check(profile, both, build, root, run, home, sleep, status_polls=STARTUP_STATUS_POLLS))
     if check["status"] == "passed":
         out: dict = {"status": "started", "units": check["units"], "check": "passed"}
         if already:

@@ -1443,6 +1443,19 @@ class StartStop(Case):
         r = self.start()
         self.assertIs(r["stopped"], False, "a disable that exits non-zero is not a stop even when the unit is inactive")
 
+    def test_a_carrier_that_is_slow_to_open_its_socket_is_waited_for_but_not_for_ever(self):
+        self.systemd.status_rcs = [3] * (iw.STARTUP_STATUS_POLLS - 1) + [0]
+        r = self.start()
+        self.assertEqual(r["status"], "started", "answering on the last look is an answer")
+        self.assertEqual(self.systemd.status_calls, iw.STARTUP_STATUS_POLLS)
+        self.systemd.status_calls = 0
+        self.systemd.status_rcs = [3] * iw.STARTUP_STATUS_POLLS + [0]
+        os.unlink(self.config())
+        self.systemd.states.clear()
+        r = self.start()
+        self.assertEqual(r["status"], "failed", "one look beyond the bound")
+        self.assertEqual(self.systemd.status_calls, iw.STARTUP_STATUS_POLLS)
+
     def test_with_both_units_running_a_start_changes_nothing_and_still_checks(self):
         self.assertEqual(self.start()["status"], "started")
         self.systemd.rendered.clear(); self.systemd.enabled.clear()
