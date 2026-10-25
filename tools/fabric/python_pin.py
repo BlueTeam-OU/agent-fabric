@@ -96,11 +96,13 @@ def builds_of(p: dict, prefix: str = PREFIX) -> list[str]:
 
 
 def _build_of_link(p: dict, prefix: str, link: str) -> str | None:
-    """The build directory the link reaches, when it is a build of this pin."""
+    """The build directory the link reaches, when it is a build of this pin.
+    Each build's bin/python3 is resolved too, not matched by name: in a real
+    build it is itself a link to python3.<minor>, so the link's realpath ends
+    there (CI's root install, #371)."""
     real = os.path.realpath(link)
-    build = os.path.dirname(os.path.dirname(real))
-    mine = {os.path.realpath(b) for b in builds_of(p, prefix)}
-    return build if os.path.basename(real) == "python3" and build in mine else None
+    return next((b for b in builds_of(p, prefix)
+                 if os.path.realpath(os.path.join(b, "bin", "python3")) == real), None)
 
 
 def version_of(interpreter: str) -> str | None:
