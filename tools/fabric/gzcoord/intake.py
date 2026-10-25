@@ -17,7 +17,11 @@ on stderr, never a failed delivery or a failed post:
             MESSAGE-ID as its source, or "(REQUEST <MESSAGE-ID>)" in its
             title — adds no job, so a redelivery and a second watch are
             one job; it only gains the branch its DELIVER-TO names when it is
-            still queued, has none and has not begun on a branch of its own.
+            still queued, has none and has not begun on a branch of its own,
+            and, while queued, the "project from" reason the sender's
+            title-only add could not give (only on a label that add wrote
+            itself, or on a job the owner added with none, and never beside
+            another project than the one the registry names).
   sender    queue_for_addressee(): gzcoord-send, once a REQUEST TO a login
             is posted, when the sender is the operator of the addressee's
             host (runtime/hosts/registry.json), asks the control plane's
@@ -46,13 +50,13 @@ import sys
 from typing import Any, Callable
 
 from . import paths
+from registry_id import REGISTRY_ID as PROJECT_SLUG  # noqa: E402 — paths put tools/fabric on sys.path; one grammar with jobs-add and the job list
 
 TITLE_MAX = 300           # tools/fabric/control/jobs.py TITLE_MAX: jobs-add refuses a longer title
 CTL = os.path.join(paths.CHECKOUT, "bin", "fabric-ctl")
 CTL_TIMEOUT_S = 30
 _ADDED = re.compile(r"\b(added|listed)\s+(j[1-9][0-9]*)\b", re.ASCII)
 MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)   # jobs.py's
-PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)       # tools/fabric/control/jobs.py's: a registry id
 
 
 def _jobs():
@@ -119,7 +123,8 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
                     if deliver_to and not held.get("deliver_to") and not held.get("branch") and held.get("state") == "queued":
                         held["deliver_to"] = deliver_to
                     # The sender's jobs-add could only say it was given --project, or nothing: the resolver says why that project, and
-                    # only fills in a label the sender's add wrote itself. A job filed under another project than the resolver names
+                    # only fills in a label the sender's add wrote itself, and only while queued: a job taken since has begun on the
+                    # project it was given, and a reason written after that would claim a choice nobody made. A job filed under another project than the resolver names
                     # keeps no reason: a label naming REPOSITORY beside a project it did not choose would contradict itself.
                     if project_from and held.get("state") == "queued" and (
                             (held.get("project") == project and held.get("project_from") == jobs.SENDER_ADD_LABEL)

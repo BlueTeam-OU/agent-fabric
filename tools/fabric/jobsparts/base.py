@@ -56,6 +56,11 @@ def _load(name: str, path: str):
 identity = _load("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identity.py"))
 
 
+# The registry-id grammar, loaded by path like identity: the parts never import
+# a top-level name a fixture fabric on sys.path could answer.
+PROJECT_SLUG = _load("fabric_registry_id", os.path.join(HERE, "registry_id.py")).REGISTRY_ID
+
+
 STATES = ("queued", "active", "paused", "blocked", "delivered", "done", "dropped")
 
 
