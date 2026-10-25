@@ -99,7 +99,9 @@ def local_pin(tmp: str, wheel_version: str) -> dict:
     """A pin whose archive and wheel are files under tmp, the url being the path."""
     files = os.path.join(tmp, "files")
     os.makedirs(files, exist_ok=True)
-    arc = os.path.join(files, "python.tar.gz")
+    # One archive per pin: tarfile's gzip header carries the second it was
+    # written, so a second pin rewriting a shared file breaks the first's sha256.
+    arc = os.path.join(files, f"python-{wheel_version}.tar.gz")
     whl = os.path.join(files, f"brotli-{wheel_version}-cp314-cp314-manylinux_2_17_x86_64.whl")
     with open(arc, "wb") as fh:
         fh.write(archive("3.13.15"))

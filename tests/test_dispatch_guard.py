@@ -138,7 +138,9 @@ def main() -> int:
         why = judged(feat)
         check("a feat/ branch, active job with deliver_to: denied, naming the job and its DELIVER-TO",
               why is not None and "j77" in why and "h/u/for/c/w" in why and "rule 11" in why)
-        write_jobs({**job, "working_copy": os.path.dirname(feat), "worktree": feat})
+        # The real layout: fabric-jobs makes a supply's worktree beside its
+        # working copy, so only the worktree key can match the cwd here.
+        write_jobs({**job, "working_copy": feat + "-clone", "worktree": feat})
         check("the job's worktree contains the cwd: denied", judged(os.path.join(feat, ".git")) is not None)
         write_jobs({k: v for k, v in job.items() if k != "deliver_to"})
         check("the same branch, the job without deliver_to: a caller, as today", judged(feat) is None)
