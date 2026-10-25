@@ -120,14 +120,20 @@ SYSTEMCTL_TIMEOUT_S = 10
 CHECK_POLLS = 5                # the channel check looks this many times, POLL_S apart, before it says the unit did not come back
 POLL_S = 2
 STATUS_TIMEOUT_S = 10
-# What one channel check may take at most: a state query per unit and a poll loop of them, then the carrier's status.
-CHECK_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + CHECK_POLLS * (POLL_S + 2 * SYSTEMCTL_TIMEOUT_S) + STATUS_TIMEOUT_S
+# What one channel check may take at most, for the two units: CHECK_POLLS state queries each with a POLL_S pause between,
+# the daemon's MainPID, its --version, and CHECK_POLLS asks of the carrier's status with the same pauses.
+CHECK_BUDGET_S = (2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + SYSTEMCTL_TIMEOUT_S + VERSION_TIMEOUT_S
+                  + CHECK_POLLS * STATUS_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S)
+# An install asks the units' states before, then twice (the install, the restore) restarts both and checks.
 CARRIER_INSTALL_BUDGET_S = (DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
-                            + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S))
-# The read asks each unit's state once, the daemon's version and the carrier's status.
-CARRIER_READ_BUDGET_S = 2 * VERSION_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + STATUS_TIMEOUT_S + 10
+                            + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S))
+# The read: the installed programs' versions, the units' states, and one look of the check (which asks the states and the
+# daemon's version again).
+CARRIER_READ_BUDGET_S = (2 * VERSION_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
+                         + 2 * SYSTEMCTL_TIMEOUT_S + SYSTEMCTL_TIMEOUT_S + VERSION_TIMEOUT_S + STATUS_TIMEOUT_S + 10)
 # The only variables of the session install.sh and the programs see besides HOME and PATH: where the
 # user's systemd manager and configuration are. The token and the rest of the session never reach them.
+PROC_ROOT = "/proc"      # a test points it at a directory of its own
 ROSTER_REL = os.path.join("runtime", CARRIER_NAME, "roster.json")
 PASS_ENV = ("XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "DBUS_SESSION_BUS_ADDRESS")
 
@@ -368,8 +374,12 @@ def unit_names(profile: str) -> tuple[str, str]:
 def unit_state(unit: str, run: Callable[..., Any], home: str) -> str | None:
     """The unit's ActiveState, or None when no user manager answers (no systemctl, no session bus: the account has
     no unit running, as install.sh itself takes it). A manager that does not answer in time raises ChannelUnknown."""
+    return show_property(unit, "ActiveState", run, home)
+
+
+def show_property(unit: str, prop: str, run: Callable[..., Any], home: str) -> str | None:
     try:
-        r = run(["systemctl", "--user", "show", "--property=ActiveState", "--value", unit], capture_output=True, encoding="utf-8", errors="replace",
+        r = run(["systemctl", "--user", "show", f"--property={prop}", "--value", unit], capture_output=True, encoding="utf-8", errors="replace",
                 timeout=SYSTEMCTL_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
     except subprocess.TimeoutExpired:
         raise ChannelUnknown(f"the user manager did not answer within {SYSTEMCTL_TIMEOUT_S} s") from None
@@ -382,6 +392,25 @@ def running_units(profile: str, run: Callable[..., Any], home: str) -> tuple[dic
     """(state of each unit, the units that run, daemon first)."""
     states = {u: unit_state(u, run, home) for u in unit_names(profile)}
     return states, [u for u, st in states.items() if st in RUNNING]
+
+
+def daemon_process_problem(daemon: str, bindir: str, run: Callable[..., Any], home: str) -> str | None:
+    """None when the daemon unit's process runs the program installed now; else why not. install.sh renames over the
+    old file, so `--version` of the file on disk is the new one even when the restart never happened: the process's own
+    /proc/<pid>/exe is what tells, and a replaced file reads as "<path> (deleted)"."""
+    pid_text = show_property(daemon, "MainPID", run, home)
+    if not (pid_text and pid_text.isdigit() and int(pid_text) > 0):
+        return f"{daemon} has no main process"
+    try:
+        exe = os.readlink(os.path.join(PROC_ROOT, pid_text, "exe"))
+    except OSError as e:
+        return f"the process of {daemon} ({pid_text}) cannot be inspected ({errno.errorcode.get(e.errno or 0) or e})"
+    if exe.endswith(" (deleted)"):
+        return f"{daemon} still runs a program that has been replaced ({exe})"
+    want = os.path.realpath(os.path.join(bindir, DAEMON_PROGRAM))
+    if exe != want:
+        return f"{daemon} runs {exe}, not the installed {want}"
+    return None
 
 
 def restart_units(units: list[str], run: Callable[..., Any], home: str) -> str | None:
@@ -428,6 +457,13 @@ def channel_check(profile: str, running: list[str], build: dict, root: str, run:
                 break
         else:
             return failed(f"{u} is {seen[u] or 'not answering'} after {polls} look(s)")
+    if daemon in running:
+        try:
+            bad = daemon_process_problem(daemon, bin_dir(home), run, home)
+        except ChannelUnknown as e:
+            return failed(str(e))
+        if bad:
+            return failed(bad)
     if daemon in running and pinned:
         want = build["reports"].get(DAEMON_PROGRAM)
         if want is None:
@@ -477,11 +513,15 @@ class _Undo:
                 self.before[n] = ("absent", None)
 
     def restore(self) -> str | None:
-        """None when every program is as it was; else the first thing that could not be put back."""
+        """None when every program is as it was; else every one that could not be put back. It does not stop at the first:
+        the others are still worth restoring."""
+        problems = []
         for n, (kind, target) in self.before.items():
             path = os.path.join(self.bindir, n)
             tmp = os.path.join(self.bindir, f".{n}.restore")
             try:
+                if os.path.lexists(tmp):      # a killed restore's
+                    os.unlink(tmp)
                 if kind == "absent":
                     if os.path.lexists(path):
                         os.unlink(path)
@@ -493,8 +533,8 @@ class _Undo:
                     shutil.copy2(os.path.join(self.keep, n), tmp)
                     os.replace(tmp, path)
             except OSError as e:
-                return f"{n} could not be put back ({errno.errorcode.get(e.errno or 0) or e})"
-        return None
+                problems.append(f"{n} ({errno.errorcode.get(e.errno or 0) or e})")
+        return ", ".join(problems) or None
 
 
 # --- the programs ------------------------------------------------------------------------------------------------
@@ -675,8 +715,18 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
             out = _failed(version, reason)
             left = undo.restore()
             if left:
-                out["reason"] += f"; the previous programs could not all be restored ({left})"
+                # The kept copies are the only ones: they leave the work directory, which is removed, for a place a person can read.
+                kept = os.path.join(state, f"{INSTALL_OP}-previous")
+                try:
+                    shutil.rmtree(kept, ignore_errors=True)
+                    shutil.move(undo.keep, kept)
+                    where = f"; the previous programs are kept in {kept}"
+                except OSError:
+                    where = "; the previous programs could not be kept"
+                out["reason"] += f"; the previous programs could not all be restored ({left}){where}"
                 out["restored"] = False
+                if first:
+                    out["checks"] = [first]
                 return out
             out["restored"] = True
             out["reason"] += "; the previous programs are back"

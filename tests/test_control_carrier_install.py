@@ -135,6 +135,10 @@ class Systemd:
         self.hang: str | None = None                   # "show" | "restart" | "status": that command times out
         self.on_restart = None                         # called with the unit, to change something else
         self.calls: list[list[str]] = []
+        self.proc: str | None = None                   # a directory standing for /proc; set by the case
+        self.bindir: str | None = None
+        self.exe: str | None = None                    # what the daemon's /proc/<pid>/exe says (default: the installed file)
+        self.main_pid = 4242
 
     def __call__(self, argv, **kw):
         name = os.path.basename(argv[0])
@@ -154,6 +158,14 @@ class Systemd:
         if verb == "show":
             if self.hang == "show":
                 raise subprocess.TimeoutExpired(argv, kw["timeout"])
+            if argv[3] == "--property=MainPID":
+                d = os.path.join(self.proc, str(self.main_pid))
+                os.makedirs(d, exist_ok=True)
+                link = os.path.join(d, "exe")
+                if os.path.lexists(link):
+                    os.unlink(link)
+                os.symlink(self.exe or os.path.realpath(os.path.join(self.bindir, "transport-daemon")), link)
+                return done(0, f"{self.main_pid}\n")
             return done(0, self.states.get(argv[-1], "inactive") + "\n")
         if self.hang == "restart":
             raise subprocess.TimeoutExpired(argv, kw["timeout"])
@@ -181,6 +193,12 @@ class Case(unittest.TestCase):
         with open(os.path.join(self.root, iw.ROSTER_REL), "w") as fh:
             json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", "port_range": [47100, 47199], "rows": []}, fh)
         self.systemd = Systemd()
+        self.systemd.proc = os.path.join(t, "proc")
+        self.systemd.bindir = os.path.join(self.home, ".local", "bin")
+        os.makedirs(self.systemd.proc)
+        patcher_proc = unittest.mock.patch.object(iw, "PROC_ROOT", self.systemd.proc)
+        patcher_proc.start()
+        self.addCleanup(patcher_proc.stop)
         self.fetched: list[tuple[str, str, dict]] = []
         self.sentinel = os.path.join(t, "ran")
         env = {"XDG_CONFIG_HOME": "", "XDG_RUNTIME_DIR": "", "DBUS_SESSION_BUS_ADDRESS": ""}
@@ -870,6 +888,68 @@ class Channel(Case):
         self.assertIn("transport-daemon --version prints", r["checks"][0]["reason"])
         self.assert_previous_back(old)
 
+    def test_a_unit_that_is_active_on_a_replaced_file_is_not_a_restart(self):
+        # install.sh renames over the old file, so `--version` of the file on disk is the new one even if the restart
+        # never happened: only the process's own exe tells.
+        self.release()
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.exe = os.path.join(self.bindir, "transport-daemon") + " (deleted)"
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("has been replaced", r["checks"][0]["reason"])
+        self.assert_previous_back(old)
+
+    def test_a_daemon_running_some_other_program_is_not_the_installed_one(self):
+        self.release()
+        self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.exe = "/usr/bin/sleep"
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("not the installed", r["checks"][0]["reason"])
+
+    def test_a_daemon_without_a_main_process_fails_the_check(self):
+        self.release()
+        self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.main_pid = 0
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("no main process", r["checks"][0]["reason"])
+
+    def test_a_program_that_was_a_link_is_a_link_again_even_over_a_killed_restores_leftover(self):
+        self.release()
+        self.seed_old()
+        path = os.path.join(self.bindir, "transportctl")
+        os.unlink(path)
+        os.symlink("transport-daemon", path)
+        with open(os.path.join(self.bindir, ".transportctl.restore"), "w") as fh:
+            fh.write("stale")
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.after_restart[DAEMON_UNIT] = "failed"
+        r = self.install()
+        self.assertEqual((r["status"], r["restored"]), ("failed", True))
+        self.assertEqual(os.readlink(path), "transport-daemon")
+
+    def test_a_restore_that_cannot_finish_tries_every_program_keeps_the_copies_and_still_names_the_check(self):
+        self.release()
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.after_restart[DAEMON_UNIT] = "failed"
+        os.makedirs(os.path.join(self.bindir, ".transport-daemon.restore", "x"))      # in the way of that one program
+        with open(os.path.join(self.bindir, ".transportctl.restore"), "w") as fh:     # a killed restore's leftover
+            fh.write("stale")
+        r = self.install()
+        self.assertEqual((r["status"], r["restored"]), ("failed", False))
+        self.assertIn("transport-daemon", r["reason"])
+        self.assertEqual(digest_of(os.path.join(self.bindir, "transportctl")), old["transportctl"], "the other program was still put back")
+        self.assertEqual(len(r["checks"]), 1, "the check that caused the rollback is in the reply")
+        kept = os.path.join(self.state, f"{iw.INSTALL_OP}-previous")
+        self.assertIn(kept, r["reason"])
+        self.assertEqual(sorted(os.listdir(kept)), sorted(old), "the old programs survive the work directory's removal")
+        self.assertFalse(os.path.exists(os.path.join(self.state, iw.WORK)))
+
     def test_a_restart_the_manager_refuses_restores(self):
         self.release()
         old = self.seed_old()
@@ -941,6 +1021,16 @@ class Channel(Case):
         self.assertEqual(self.read_channel()["status"], "off", "a unit that runs but is not active is off the channel")
         self.systemd.hang = "show"
         self.assertEqual(self.read_channel()["status"], "unknown")
+
+    def test_the_read_sees_a_daemon_that_never_restarted(self):
+        self.release()
+        self.install()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.assertEqual(self.read_channel()["status"], "ok")
+        self.systemd.exe = os.path.join(self.bindir, "transport-daemon") + " (deleted)"
+        c = self.read_channel()
+        self.assertEqual(c["status"], "off")
+        self.assertIn("has been replaced", c["reason"])
 
     def read_channel(self):
         return iw.installed(self.home, self.state, root=self.root, run=self.systemd)["channel"]

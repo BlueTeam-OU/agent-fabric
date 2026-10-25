@@ -204,10 +204,10 @@ VERBS: tuple[Verb, ...] = (
          args="--version V", signed="always", options=(("--version V", "digits.digits.digits: the release (required)"),) + COMMON),
     Verb(CARRIER_NAME, f"Each account's {CARRIER_LABEL} programs: the version they print, their digests, and whether the two user-unit templates are there.",
          f"fabric-ctl all {CARRIER_NAME}",
-         usage=((f"<login|all> {CARRIER_NAME}", f"each account: the {CARRIER_LABEL} version it has installed, its digests, and whether the unit templates are present"),), options=COMMON),
+         usage=((f"<login|all> {CARRIER_NAME}", f"each account: the {CARRIER_LABEL} version it has installed, its digests, whether the unit templates are present, and whether its units are on the channel"),), options=COMMON),
     Verb(INSTALL_OP, f"Install the {CARRIER_LABEL} release the reviewed pin names, from its archive with the archive's own install.sh; size and SHA-256 checked first. Enables nothing.",
          f"fabric-ctl all {INSTALL_OP}",
-         usage=((f"<login|all> {INSTALL_OP}", f"an action: install the {CARRIER_LABEL} release the reviewed pin names with the archive's own install.sh, size and SHA-256 checked first; enables nothing"),),
+         usage=((f"<login|all> {INSTALL_OP}", f"an action: install the {CARRIER_LABEL} release the reviewed pin names with the archive's own install.sh, size and SHA-256 checked first; the units that ran are restarted and checked, or the old programs come back; enables nothing"),),
          signed="always", options=COMMON),
     Verb("jobs-add", "Add a job to one agent's list. A job is one agent's, never the fleet's.", 'fabric-ctl db-admin jobs-add --project agent-fabric "port the thing"',
          usage=(('<login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<login>",
@@ -1245,13 +1245,15 @@ def _table_gateway_install(rs: list) -> list[str]:
             lines.append(_row(r))
             continue
         digest = S(dig(u, "sha256"))[:12] if T(dig(u, "sha256")) else "-"
+        # The units' check is the news on an installed row; a failure's reason already carries it.
+        note = nullish(dig(u, "reason"), "") or (f"units: {S(dig(u, 'units', 'check'))}" if T(dig(u, "units", "check")) else "")
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
-                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(nullish(dig(u, 'reason'), ''))}")))
+                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(note)}")))
     return lines
 
 
 def _table_carrier(rs: list) -> list[str]:
-    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} {pad_end('version', 9)} {pad_end('pinned', 7)} {pad_end('units', 6)} reason"]
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} {pad_end('version', 9)} {pad_end('pinned', 7)} {pad_end('units', 6)} {pad_end('channel', 12)} reason"]
     for r in rs:
         u = r.get(CARRIER_NAME)
         if _unless(r, u):
@@ -1260,9 +1262,11 @@ def _table_carrier(rs: list) -> list[str]:
         units_ = dig(u, "units")
         have = "-" if not isinstance(units_, dict) else "both" if units_ and all(v is True for v in units_.values()) else "no"
         pinned = dig(u, "pinned")
+        channel = dig(u, "channel")
+        why = nullish(dig(u, "reason"), "") or nullish(dig(channel, "reason"), "")
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 11)} "
                                   f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end('yes' if pinned is True else 'no' if pinned is False else '-', 7)} "
-                                  f"{pad_end(have, 6)} {S(nullish(dig(u, 'reason'), ''))}")))
+                                  f"{pad_end(have, 6)} {pad_end(S(nullish(dig(channel, 'status'), '-')), 12)} {S(why)}")))
     return lines
 
 
