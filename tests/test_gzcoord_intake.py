@@ -74,7 +74,14 @@ class FakeJobs:
     def deliver_branch(self, msg: dict) -> Any:
         return _real_jobs().deliver_branch(msg)
 
-    def new_job(self, doc: dict, title: str, *, project: Any = None, source: Any = None, deliver_to: Any = None) -> dict:
+    SENDER_ADD_LABEL = _real_jobs().SENDER_ADD_LABEL
+
+    def request_project(self, meta: dict, project: Any) -> Any:
+        """jobs.py's answer where the registry maps no REPOSITORY: the PROJECT header."""
+        return meta.get("PROJECT"), ("PROJECT" if meta.get("PROJECT") else None)
+
+    def new_job(self, doc: dict, title: str, *, project: Any = None, source: Any = None, deliver_to: Any = None,
+                project_from: Any = None) -> dict:
         job = {"id": f"j{len(doc['jobs']) + 1}", "title": title, "project": project, "source": source}
         if deliver_to:
             job["deliver_to"] = deliver_to
@@ -284,6 +291,133 @@ def sent(ctl: FakeCtl, sender: str = "boss", **over: Any) -> tuple[str | None, s
     return intake.queue_for_addressee(msg, sender=sender, hosts=HOSTS, run=ctl, err=err), err.getvalue()
 
 
+@case("the sender half names the REPOSITORY's project to jobs-add, as the receiver half does (j372, re-review F2)")
+def _():
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    try:
+        with tempfile.TemporaryDirectory() as operator:
+            os.makedirs(os.path.join(operator, "projects"))
+            with open(os.path.join(operator, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+                json.dump({"version": 1, "projects": {"repo-project": {"remotes": ["git@example.org:some-org/some-repo.git"]}}}, fh)
+            os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            ctl = FakeCtl("dev-01 added j9\n")
+            job, err = sent(ctl, PROJECT="sender-dir", REPOSITORY="some-org/some-repo")
+            check(job == "j9" and err == "" and ctl.adds()[0][3:5] == ["--project", "repo-project"], (job, err, ctl.calls))
+            ctl = FakeCtl("dev-01 added j9\n")
+            job, err = sent(ctl, PROJECT="sender-dir", REPOSITORY="nobody/unregistered")
+            check(ctl.adds()[0][3:5] == ["--project", "sender-dir"], ctl.calls)
+            # An unreadable registry files by PROJECT on this half too: a REQUEST is never dropped for what it carries.
+            os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(operator, "nowhere")
+            real = intake._jobs()
+            check(real.request_project({"PROJECT": "sender-dir", "REPOSITORY": "some-org/some-repo"}, None)
+                  [0] == "sender-dir")
+            with open(os.path.join(operator, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+                fh.write("{")
+            os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            got = real.request_project({"PROJECT": "sender-dir", "REPOSITORY": "some-org/some-repo"}, None)
+            check(got[0] == "sender-dir" and got[1].startswith("PROJECT: REPOSITORY some-org/some-repo: registry unreadable (JSONDecodeError: "), got)
+            os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(operator, "nowhere")
+            # No PROJECT header: no project, and the reason is still said.
+            got = real.request_project({"REPOSITORY": "some-org/some-repo"}, None)
+            check(got[0] is None and got[1].startswith("none: REPOSITORY some-org/some-repo: registry unreadable"), got)
+            ctl = FakeCtl("dev-01 added j9\n")
+            job, err = sent(ctl, PROJECT="sender-dir", REPOSITORY="some-org/some-repo")
+            check(job == "j9" and err == "" and ctl.adds()[0][3:5] == ["--project", "sender-dir"], (job, err, ctl.calls))
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
+@case("both halves take the project from the one resolver, jobs.request_project (j372, coordinator's risk 2)")
+def _():
+    real, saved = intake._jobs(), os.environ.get("AGENT_FABRIC_STATE_DIR")
+    seen: list[dict] = []
+    original = real.request_project
+
+    def spy(meta: dict, project: Any) -> Any:
+        seen.append(meta)
+        return "spy-project", "spy"
+    real.request_project = spy
+    try:
+        with tempfile.TemporaryDirectory() as state:
+            os.environ["AGENT_FABRIC_STATE_DIR"] = state
+            ctl = FakeCtl("dev-01 added j9\n")
+            sent(ctl, PROJECT="sender-dir")
+            intake.queue_received([delivery(PROJECT="sender-dir")], {"address": ME}, err=io.StringIO())
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(len(seen) == 2 and ctl.adds()[0][3:5] == ["--project", "spy-project"]
+                  and doc["jobs"][0]["project"] == "spy-project" and doc["jobs"][0]["project_from"] == "spy", (seen, ctl.calls, doc))
+    finally:
+        real.request_project = original
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+        else:
+            os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+
+
+@case("the receiver half fills in why the project is PROJECT's on a job the sender's jobs-add made first (j372, re-review F2)")
+def _():
+    saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_OPERATOR")}
+    real = intake._jobs()
+    try:
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as operator:
+            os.environ["AGENT_FABRIC_STATE_DIR"], os.environ["AGENT_FABRIC_OPERATOR"] = state, operator  # no registry: unreadable
+            sender_label = real.SENDER_ADD_LABEL
+            real.mutate(lambda doc: real.new_job(doc, f"a subject (REQUEST {MID})", project="sender-dir", project_from=sender_label))
+            intake.queue_received([delivery(PROJECT="sender-dir", REPOSITORY="some-org/some-repo")], {"address": ME}, err=io.StringIO())
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(len(doc["jobs"]) == 1 and doc["jobs"][0]["project_from"].startswith("PROJECT: REPOSITORY some-org/some-repo: registry unreadable"),
+                  doc["jobs"])
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+@case("the receiver half also names the reason on a sender-first job that had no --project (j372, re-review 2 F2)")
+def _():
+    saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_OPERATOR")}
+    real = intake._jobs()
+    try:
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as operator:
+            os.environ["AGENT_FABRIC_STATE_DIR"], os.environ["AGENT_FABRIC_OPERATOR"] = state, operator
+            real.mutate(lambda doc: real.new_job(doc, f"a subject (REQUEST {MID})", source={"kind": "owner", "from": "host-a/boss"}))
+            intake.queue_received([delivery(PROJECT=None, REPOSITORY="some-org/some-repo")], {"address": ME}, err=io.StringIO())
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(len(doc["jobs"]) == 1 and doc["jobs"][0]["project_from"].startswith("none: REPOSITORY some-org/some-repo")
+                  and "the adding checkout's" in doc["jobs"][0]["project_from"], doc["jobs"])
+            # The resolver's reason is not written onto a job whose project it did not choose.
+            real.mutate(lambda doc: doc["jobs"].clear())
+            real.mutate(lambda doc: real.new_job(doc, f"a subject (REQUEST {MID})", project="elsewhere", source={"kind": "owner", "from": "host-a/boss"}))
+            real_rp, real.request_project = real.request_project, lambda meta, project: ("other-project", "REPOSITORY some-org/some-repo")
+            try:
+                intake.queue_received([delivery(PROJECT=None, REPOSITORY="some-org/some-repo")], {"address": ME}, err=io.StringIO())
+            finally:
+                real.request_project = real_rp
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(len(doc["jobs"]) == 1 and not doc["jobs"][0].get("project_from"), doc["jobs"])
+            # The same, when the resolver names the job's own project: the reason is written.
+            real.mutate(lambda doc: doc["jobs"].clear())
+            real.mutate(lambda doc: real.new_job(doc, f"a subject (REQUEST {MID})", project="other-project", source={"kind": "owner", "from": "host-a/boss"}))
+            real.request_project = lambda meta, project: ("other-project", "REPOSITORY some-org/some-repo")
+            try:
+                intake.queue_received([delivery(PROJECT=None, REPOSITORY="some-org/some-repo")], {"address": ME}, err=io.StringIO())
+            finally:
+                real.request_project = real_rp
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(len(doc["jobs"]) == 1 and doc["jobs"][0].get("project_from") == "REPOSITORY some-org/some-repo", doc["jobs"])
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 @case("the host's operator asks the addressee's control agent for the job, the id in its title")
 def _():
     ctl = FakeCtl("dev-01   added  j9\n")
@@ -402,6 +536,29 @@ def _():
             os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
         else:
             os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+
+
+@case("a REQUEST whose REPOSITORY the registry maps is queued under that project, not the PROJECT header, and says so (j372, review F2)")
+def _():
+    saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_OPERATOR")}
+    try:
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as operator:
+            os.makedirs(os.path.join(operator, "projects"))
+            with open(os.path.join(operator, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+                json.dump({"version": 1, "projects": {"repo-project": {"remotes": ["git@example.org:some-org/some-repo.git"]}}}, fh)
+            os.environ["AGENT_FABRIC_STATE_DIR"], os.environ["AGENT_FABRIC_OPERATOR"] = state, operator
+            err = io.StringIO()
+            lines = intake.queue_received([delivery(PROJECT="sender-dir", REPOSITORY="some-org/some-repo")], {"address": ME}, err=err)
+            check(len(lines) == 1 and err.getvalue() == "", (lines, err.getvalue()))
+            doc = json.load(open([os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"][0], encoding="utf-8"))
+            check(doc["jobs"][0]["project"] == "repo-project" and doc["jobs"][0]["project_from"].startswith("REPOSITORY some-org/some-repo"),
+                  doc["jobs"])
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 @case("the intake asks the jobs module it was given whether the request is listed, never another copy of jobs.py (blind review F2)")

@@ -113,7 +113,7 @@ def choose(job: dict, *, kind: str, needs_merged: bool) -> Choice:
     wc = job.get("working_copy")
     if not wc or not vcs.toplevel(wc):
         raise Refused(f"{job['id']} has no working copy that is a git checkout ({wc or 'none recorded'}): no branch can be chosen; "
-                      "re-add the job with --working-copy")
+                      f"name one with fabric-jobs project {job['id']} {job.get('project') or '<project>'} --working-copy DIR")
     try:
         vcs.fetch(wc)
         default = vcs.default_branch(wc)

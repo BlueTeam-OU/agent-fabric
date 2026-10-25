@@ -9,7 +9,8 @@ on stderr, never a failed delivery or a failed post:
   receiver  queue_received(): the inbox, for each REQUEST it delivers whose
             TO is this login's own address, adds a queued job to this
             login's list through jobs.py: source the REQUEST (MESSAGE-ID,
-            sender, seq), project its PROJECT, title "<SUBJECT> (REQUEST
+            sender, seq), project as `add --request` reads it (--project, else the project the
+            registry maps REPOSITORY to, else PROJECT), title "<SUBJECT> (REQUEST
             <MESSAGE-ID>)". A project with no working copy here is still
             the job's project (what jobs-add does); the job then carries no
             working copy. A message already on the list — a job with that
@@ -101,23 +102,32 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
             # PeerId maps to (ADR-064 rule 9), never to the FROM it claims.
             sender = rec.get("sender") if c.get("iw") else (meta.get("FROM") or rec.get("sender"))
             source = {"kind": "request", "message_id": mid, "from": sender, "seq": rec.get("seq")}
-            project = meta.get("PROJECT")
+            # The project the work is in, as `add --request` reads it: REPOSITORY over the sender's directory (j372).
+            project, project_from = jobs.request_project(meta, None)
             if project is not None and not PROJECT_SLUG.fullmatch(str(project)):
-                raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")
+                raise ValueError(f"its project {str(project)[:60]!r} is not a registry id")
             title = title_for(meta.get("SUBJECT") or f"message {mid}", mid)
 
             deliver_to = jobs.deliver_branch(msg)
 
             def add(doc: dict, source: dict = source, project: Any = project, title: str = title, mid: str = mid,
-                    deliver_to: Any = deliver_to) -> Any:
+                    deliver_to: Any = deliver_to, project_from: Any = project_from) -> Any:
                 held = jobs.listed_request(doc, mid)
                 if held:
                     # The sender's title-only add may have come first and carries no DELIVER-TO: the branch is filled in, never replaced.
                     # Only a job not yet taken: one that began on its own branch keeps it, or switch would leave its work behind.
                     if deliver_to and not held.get("deliver_to") and not held.get("branch") and held.get("state") == "queued":
                         held["deliver_to"] = deliver_to
+                    # The sender's jobs-add could only say it was given --project, or nothing: the resolver says why that project, and
+                    # only fills in a label the sender's add wrote itself. A job filed under another project than the resolver names
+                    # keeps no reason: a label naming REPOSITORY beside a project it did not choose would contradict itself.
+                    if project_from and held.get("state") == "queued" and (
+                            (held.get("project") == project and held.get("project_from") == jobs.SENDER_ADD_LABEL)
+                            or (not held.get("project_from") and (held.get("source") or {}).get("kind") == "owner"
+                                and (project is None or held.get("project") == project))):
+                        held["project_from"] = project_from
                     return None
-                return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to)
+                return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to, project_from=project_from)
 
             job = jobs.mutate(add)
         except BaseException as e:  # noqa: BLE001 — any failure is a line; the delivery stands (SystemExit: identity's refusals)
@@ -174,9 +184,10 @@ def queue_for_addressee(msg: dict, *, sender: str, hosts: Any, run: Callable[...
         login = to.split("/", 1)[1]
         if addressee_lists(login, mid, run):
             return None
-        project = meta.get("PROJECT")
+        # The same answer the receiver half gives, so whichever half adds the job first names the same project.
+        project, _ = _jobs().request_project(meta, None)
         if project is not None and not PROJECT_SLUG.fullmatch(str(project)):
-            raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")
+            raise ValueError(f"its project {str(project)[:60]!r} is not a registry id")
         argv = [CTL, login, "jobs-add", *(["--project", project] if project is not None else []),
                 "--", title_for(meta.get("SUBJECT", ""), mid)]
         r = run(argv, capture_output=True, text=True, timeout=CTL_TIMEOUT_S)

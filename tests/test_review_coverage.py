@@ -138,6 +138,10 @@ def main() -> int:
     check("it reads back to the same data", rc.read_block(text)[0] == hostile)
     check("non-ASCII is escaped, so a separator stays visible", " " not in text and "\\u2028" in text)
     check("one line holds no raw newline of a value", all(rc.parse_block(text.split("\n", 1)[1].rsplit("\n", 1)[0]).paths))
+    many = rc.Coverage({f"d/{i:04d}-{'n' * 80}.md": ("read", "") for i in range(400)}, {"security": "applied"})
+    rendered = rc.render_block(many)
+    check("a rendered block is no larger than the compact JSON of its data", len(rendered) < len(json.dumps(many.as_json(), separators=(",", ":"))) + 100, str(len(rendered)))
+    check("400 paths render to a block that parses back to the same coverage and fits", len(rendered) < rc.MAX_BLOCK_CHARS and rc.read_block(rendered)[0] == many, str(len(rendered)))
     check("a plain block uses three backticks", rc.render_block(rc.Coverage({"a": ("read", "")}, {})).startswith("```" + rc.BLOCK_INFO))
 
     print("what a review reads as (the readers' one question)")
@@ -212,6 +216,15 @@ def main() -> int:
         for setting in ("true", "false"):
             subprocess.run(["git", "-C", tmp, "config", "diff.renames", setting], check=True, env=env, timeout=30)
             check(f"a rename is read the same under diff.renames={setting}", rc.diff_paths(tmp, c2, c3) == ["sub/b2.py"], rc.diff_paths(tmp, c2, c3))
+        # The rename's source: not in --name-only, in --name-status, and accepted (never required) by check_paths.
+        check("diff_changes: the destination is the path, the source apart", rc.diff_changes(tmp, c2, c3) == (["sub/b2.py"], ["sub/b.py"]), str(rc.diff_changes(tmp, c2, c3)))
+        check("diff_changes: no rename, no source", rc.diff_changes(tmp, c0, c1) == (["a.py", "sub/c.py"], []))
+        named = rc.Coverage({"sub/b2.py": ("read", "")}, {})
+        both = rc.Coverage({"sub/b2.py": ("read", ""), "sub/b.py": ("read", "")}, {})
+        check("check_paths: a block naming the source is inside the range", rc.check_paths(both, ["sub/b2.py"], ["sub/b.py"]) == "")
+        check("  a block leaving the source out is too", rc.check_paths(named, ["sub/b2.py"], ["sub/b.py"]) == "")
+        check("  without the source given it is outside the range (positive control)", "outside the range" in rc.check_paths(both, ["sub/b2.py"]))
+        check("  the destination is still owed", "omits 1" in rc.check_paths(rc.Coverage({"sub/b.py": ("read", "")}, {}), ["sub/b2.py"], ["sub/b.py"]))
         try:
             rc.diff_paths(tmp, "9" * 40, c1)
             check("a commit the clone lacks: refused", False)

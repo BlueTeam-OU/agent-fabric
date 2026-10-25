@@ -39,6 +39,8 @@ READER = os.path.join(ROOT, "tools", "fabric", "github", "pr_review_status.py")
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 from github.review_status.verdicts import head_covered  # noqa: E402 — the gate's own coverage test
 from github import review_coverage as rcov  # noqa: E402
+from github import post_review as post_review_mod  # noqa: E402
+import errors as errs  # noqa: E402
 # The card and config every header below names; a case that needs the config the tool itself computes asks for it.
 CARD, CONFIG = "5" * 40, "6" * 64
 
@@ -83,6 +85,13 @@ case "$1" in
       prev="$a"
     done
     echo "POST $2" >> "$S/calls"
+    # Every payload kept in call order (payload.json is the last): a report moved to a comment is two posts.
+    for a in "$@"; do
+      [ "$prev" = "--input" ] && cp "$a" "$S/payload.$(wc -l < "$S/calls").json"
+      prev="$a"
+    done
+    [ -f "$S/api_fail_reviews" ] && case "$2" in */reviews) echo "gh: Validation Failed (HTTP 422)" >&2; exit 1 ;; esac
+    [ -f "$S/api_empty_reviews" ] && case "$2" in */reviews) echo ""; exit 0 ;; esac
     [ -f "$S/api_fail" ] && { echo "gh: Validation Failed (HTTP 422)" >&2; exit 1; }
     [ -f "$S/api_empty" ] && { echo ""; exit 0; }
     echo "https://github.com/gzapi-org/gzapp/pull/1#pullrequestreview-1"
@@ -559,7 +568,7 @@ def main() -> int:
         def cover(*paths: str, bad: tuple = (), lenses: dict | None = None) -> str:
             doc = {"paths": {p: ({"status": "not read", "reason": "too large"} if p in bad else {"status": "read"}) for p in paths},
                    "lenses": {"security": "applied"} if lenses is None else lenses}
-            return f"```{rcov.BLOCK_INFO}\n{json.dumps(doc, indent=1)}\n```\n"
+            return f"```{rcov.BLOCK_INFO}\n{json.dumps(doc, separators=(',', ':'))}\n```\n"
 
         def v2_pr(head: str = c1, *, listed: tuple = (c0, c1), merge_base: str = c0) -> None:
             put("pr.json", json.dumps({"number": 552, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": head,
@@ -569,6 +578,8 @@ def main() -> int:
             put("commits.json", json.dumps([[{"sha": c} for c in listed]]) + "\n")
             put("calls", "")
             drop("payload.json")
+            for n in range(1, 4):
+                drop(f"payload.{n}.json")
 
         def v2_post(report: str, *args: str, header: str | None = None, raw: bool = False) -> tuple[int, str]:
             """raw: the report as given, with no coverage block added to a header that has none."""
@@ -604,6 +615,113 @@ def main() -> int:
         v2_pr()
         rc, out = v2_post(report + cover("a.py", "sub/c.py"), "--dry-run")
         check("--dry-run shows the v2 body and sends nothing", rc == 0 and not posted() and want in out and rcov.BLOCK_INFO in out, out)
+
+        print("post-review: a review of hundreds of paths posts, and its coverage reads back")
+        home = git("rev-parse", "--abbrev-ref", "HEAD")
+        git("checkout", "-q", "-b", "big", c0)
+        names = [f"memory/drain/{'long-directory-name' * 3}/{i:04d}-{'a-slug-of-a-memory-file' * 2}.md" for i in range(400)]
+        cb = commit("a drain", {n: "x\n" for n in names})
+        git("mv", "b.py", "memory/drain/renamed.md")
+        git("commit", "-q", "-m", "a rename")
+        cr = git("rev-parse", "HEAD")
+        git("checkout", "-q", home)
+        # Both what `git diff --name-only` prints (the brief's instruction) and the rename's source, which it does not.
+        only = git("diff", "--name-only", f"{c0}..{cr}").splitlines()
+        check("control: 401 paths in the range, the rename's source not among them", len(only) == 401 and "b.py" not in only, str(len(only)))
+
+        def gate_counts(body: str, commit: str) -> bool:
+            c = verdicts.classify([{"user": {"login": "me"}, "commit_id": commit, "body": body, "author_association": "NONE"}], "me", rs_cfg())
+            return len(c.blind) == 1 and not c.partial
+
+        def counts(body: str, wanted: list[str]) -> bool:
+            r = rcov.read_review(body)
+            return bool(r and r.counts and r.coverage and sorted(r.coverage.paths) == sorted(wanted))
+
+        v2_pr(cr, listed=(c0, cb, cr))
+        big = fence_header(base_sha=c0, head_sha=cr)
+        # The block as the review writes it: compact. The old render re-expanded it past what the check let a block hold.
+        compact = f"```{rcov.BLOCK_INFO}\n" + json.dumps({"paths": {p: {"status": "read"} for p in only}, "lenses": {}}, separators=(",", ":")) + "\n```\n"
+        check("control: the written block is over the old 48000, and fits the new bound", 48_000 < len(compact) - 40 < rcov.MAX_BLOCK_CHARS, str(len(compact)))
+        rc, out = v2_post(report + compact, header=big)
+        check("400 paths: posts", rc == 0 and posted(), out)
+        check("  as one review, the report in it", calls().count("POST") == 1 and "Found a P2" in body_of(), calls())
+        check("  its coverage reads back and counts", counts(body_of(), only), body_of()[:300])
+        check("  and the gate's own test counts it for the head", gate_counts(body_of(), cr), body_of()[:200])
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + cover(*only, "b.py"), header=big)
+        check("the rename's source named as well: posts", rc == 0 and posted() and counts(body_of(), [*only, "b.py"]), out)
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + cover(*only, "memory/drain/never-there.md"), header=big)
+        check("a path that is no rename's source and not in the range: still refused",
+              rc == 2 and not posted() and "outside the range" in out, out)
+
+        v2_pr(cr, listed=(c0, cb, cr))
+        prose = "Finding F1: " + "a long account of what was read. " * 1200 + "\n\n"
+        bare = prose
+        prose += "Finding: F9 | P3 | possible | - | a placeholder finding\n"
+        rc, out = v2_post(prose + compact, header=big)
+        check("400 paths and a report over the cap: posts", rc == 0 and calls().count("POST") == 2, f"{out}\n{calls()}")
+        check("  the report first, as a PR comment",
+              calls().splitlines()[0] == "POST repos/gzapi-org/gzapp/issues/552/comments"
+              and calls().splitlines()[1] == "POST repos/gzapi-org/gzapp/pulls/552/reviews", calls())
+
+        def sent(n: int) -> dict:
+            try:
+                with open(f"{state}/payload.{n}.json", encoding="utf-8") as fh:
+                    return json.load(fh)
+            except (OSError, ValueError):
+                return {}
+        review = sent(2).get("body", "")
+        check("  the comment holds the report", "Finding F1:" in sent(1).get("body", "") and len(sent(1).get("body", "")) <= rcov.MAX_REVIEW_CHARS)
+        check("  the review holds marker and coverage, points at the comment, and has no report",
+              counts(review, only) and "pullrequestreview-1" in review and "Finding F1:" not in review
+              and len(review) <= rcov.MAX_REVIEW_CHARS, review[:400])
+        check("  on the commit the headers name", sent(2).get("commit_id") == cr and sent(2).get("event") == "COMMENT")
+        check("  the gate's own test counts it for the head", gate_counts(review, cr))
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(prose + compact, "--dry-run", header=big)
+        check("--dry-run shows both and sends neither", rc == 0 and not posted() and "comment, posted first" in out, out)
+        v2_pr(cr, listed=(c0, cb, cr))
+        put("api_fail", "")
+        rc, out = v2_post(prose + compact, header=big)
+        drop("api_fail")
+        check("a comment GitHub rejects: no review is posted", rc == 2 and calls().count("POST") == 1 and "rejected" in out, f"{out}\n{calls()}")
+
+        for flag, why in (("api_fail_reviews", "rejected"), ("api_empty_reviews", "NOT posted")):
+            v2_pr(cr, listed=(c0, cb, cr))
+            put(flag, "")
+            rc, out = v2_post(prose + compact, header=big)
+            drop(flag)
+            check(f"the review failing after the comment ({flag}): says the comment is already there",
+                  rc == 2 and why in out and "pull/552#issuecomment" not in out and "is already there" in out
+                  and calls().count("POST") == 2, f"{out}\n{calls()}")
+        v2_pr(cr, listed=(c0, cb, cr))
+        found = "Finding: F1 | P2 | certain | a.py:3 | a thing\nFinding: F2 | P3 | likely | - | another\n"
+        rc, out = v2_post(bare + found + compact, header=big)
+        review = sent(2).get("body", "")
+        check("a split review keeps the report's Finding lines, and fabric-errors reads them from it",
+              rc == 0 and "Finding: F1 | P2" in review and errs.read_review(review).findings == [("F1", "P2"), ("F2", "P3")]
+              and "Finding:" in sent(1).get("body", ""), review[:500])
+        lines = ("Finding: x", "Judgement: y", " Finding: z", "xFinding:", "finding: q", "Finding:", "text")
+        check("a machine line is what errors reads one as, over lines of both kinds",
+              all(bool(post_review_mod.MACHINE_LINE.match(l)) == bool(errs.FINDING_LINE.match(l) or errs.JUDGEMENT_LINE.match(l))
+                  for l in lines) and sum(bool(post_review_mod.MACHINE_LINE.match(l)) for l in lines) == 3)
+
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post("**F1 (P2)** a finding in the old shape. " + bare + compact, header=big)
+        check("a split report with no machine lines is refused, nothing posted",
+              rc == 2 and not posted() and "no Finding:/Judgement: lines" in out, f"rc={rc}\n{out[:300]}")
+
+        git("checkout", "-q", "-b", "wide", c0)
+        wide = [f"w/{'é' * 100}{i:03d}.md" for i in range(150)]
+        cw = commit("non-ASCII names", {n: "x\n" for n in wide})
+        git("checkout", "-q", home)
+        v2_pr(cw, listed=(c0, cw))
+        # Raw in the report (small), \uXXXX once re-written ASCII-only: the block that fitted is not the one to post.
+        raw_block = f"```{rcov.BLOCK_INFO}\n" + json.dumps({"paths": {p: {"status": "read"} for p in wide}, "lenses": {}}, ensure_ascii=False, separators=(",", ":")) + "\n```\n"
+        rc, out = v2_post(report + "Finding: none\n\n" + raw_block, header=fence_header(base_sha=c0, head_sha=cw))
+        check("a block that re-renders past the review's cap is refused, nothing posted",
+              rc == 2 and not posted() and "coverage block and machine lines alone" in out, f"rc={rc}\n{out[:300]}")
 
         print("post-review: v2 refusals — each leaves nothing posted")
         for label, body, header, why in (
