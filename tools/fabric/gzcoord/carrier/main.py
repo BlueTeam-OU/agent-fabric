@@ -25,7 +25,8 @@ CONTRACT
                                to PATH (0600). Refuses when this agent has no
                                valid roster row
           roster-row           in the login's account (ADR-064 rule 3): refuses unless
-                               the installed transportctl reports the version
+                               the transportctl in ~/.local/bin (where the release's
+                               install.sh puts it, never a PATH lookup) reports the version
                                runtime/interweave/release.json pins; mints the profile's
                                key only when it has none; prints this login's row as JSON,
                                without port and countersignature, its identity_show signed
@@ -69,6 +70,7 @@ if TOOLS not in sys.path:
 
 from gzcoord.carrier import CARRIER_NAME, admit, arrivals, engine, ipc, record, roster, server  # noqa: E402
 
+ADMIT_LOCK_WAIT = 30.0
 USAGE = ("usage: gzcoord-carrier run [--profile P] | status | abandon <message-id> <recipient-login> | "
          "render-config [--write PATH] | roster-row | roster-admit ROW.json --port N | parity --window START END --arrivals FILE... --senders DIR... "
          "[--journal DB...] [--drill START END] [--host HOST]")
@@ -272,7 +274,16 @@ def cmd_roster_admit(args: list[str]) -> int:
         # old file and one row would vanish. The lock is on the directory, which the replace does not swap.
         dfd = os.open(os.path.dirname(os.path.abspath(path)), os.O_RDONLY)
         try:
-            fcntl.flock(dfd, fcntl.LOCK_EX)
+            deadline = time.monotonic() + ADMIT_LOCK_WAIT
+            while True:
+                try:
+                    fcntl.flock(dfd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() > deadline:
+                        return _refuse(f"another roster-admit has held {os.path.dirname(os.path.abspath(path))} for "
+                                       f"{ADMIT_LOCK_WAIT:g} s: nothing admitted")
+                    time.sleep(0.1)
             r = roster.load(path)
             with open(path, encoding="utf-8") as fh:
                 doc = json.load(fh)

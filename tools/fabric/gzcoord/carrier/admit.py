@@ -104,6 +104,22 @@ def sign_detached(data: bytes, primary: str, env: dict[str, str]) -> str:
     return r.stdout.decode("ascii")
 
 
+def require_secret_subkey(primary: str, env: dict[str, str]) -> None:
+    """The account holds the SECRET half of the signing subkey: `--list-keys` (signing_subkey) lists public keys,
+    and an account that imported only the committed public key must refuse before anything is minted."""
+    try:
+        sub = fabric_sign.signing_subkey(primary, env)
+    except fabric_sign.Failure as e:
+        raise AdmitError(str(e)) from None
+    try:
+        r = subprocess.run([env.get("FABRIC_SIGN_GPG") or "gpg", "--batch", "--no-tty", "--list-secret-keys", "--with-colons", sub + "!"],
+                           env=env, capture_output=True, timeout=GPG_TIMEOUT, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise AdmitError(f"gpg could not list the secret keys: {type(e).__name__}") from e
+    if r.returncode or not any(l.startswith(b"ssb:") for l in r.stdout.splitlines()):
+        raise AdmitError(f"this account holds no secret key for the signing subkey {sub} of {primary}")
+
+
 def _committed(keys: roster.KeySource, agent_id: str) -> tuple[dict, bytes]:
     rec = keys.lineage().get(agent_id)
     pub = keys.public_key(agent_id)
@@ -122,10 +138,7 @@ def make_row(*, rost: roster.Roster, keys: roster.KeySource, agent_id: str, logi
     if rec.get("login") != login:
         raise AdmitError(f"the lineage names {rec.get('login')!r} for agent {agent_id}, not {login!r}")
     # Before anything is minted: an account without the committed key must refuse with no key made.
-    try:
-        fabric_sign.signing_subkey(rec["fingerprint"], env)
-    except fabric_sign.Failure as e:
-        raise AdmitError(str(e)) from None
+    require_secret_subkey(rec["fingerprint"], env)
     want = pinned_version(release_path)
     have = _ctl([transportctl, "--version"], env).strip()
     if have != want:

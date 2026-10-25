@@ -11,6 +11,7 @@ import copy
 import json
 import os
 import shutil
+import subprocess
 import stat
 import threading
 import sys
@@ -218,7 +219,20 @@ def main() -> int:
                     return stranger.pub if agent_id == a.agent_id else super().public_key(agent_id)
             msg = refuses(A.make_row, rost=base, keys=StaleKeys([a, b, c], root), agent_id=a.agent_id, login="alpha",
                           release_path=release, environ=env_of(a, "a"), transportctl=ctl)
-            check("roster-row refuses a signature that does not verify against the committed key", "does not verify" in (msg or ""), str(msg))
+            stale_msg = msg
+            pubhome = os.path.join(d, "pubonly")
+            os.makedirs(pubhome, mode=0o700)
+            subprocess.run(["gpg", "--batch", "--homedir", pubhome, "--import"], input=a.pub, capture_output=True, check=True, timeout=60)
+            reset()
+            ep = env_of(a, "pub")
+            ep["GNUPGHOME"] = pubhome
+            msg = refuses(A.make_row, rost=base, keys=keys, agent_id=a.agent_id, login="alpha", release_path=release,
+                          environ=ep, transportctl=ctl)
+            check("roster-row in an account with only the committed PUBLIC key refuses before it mints anything",
+                  msg is not None and "secret" in msg and calls() == [] and not os.path.exists(A.identity_key_path("gzcoord", ep)),
+                  str(msg) + str(calls()))
+            subprocess.run(["gpgconf", "--homedir", pubhome, "--kill", "all"], capture_output=True, timeout=30)
+            check("roster-row refuses a signature that does not verify against the committed key", "does not verify" in (stale_msg or ""), str(stale_msg))
             check("roster-admit signed by a key that is not the lineage's root refuses",
                   refuses(admit, rc, 47103, rost1, out, signer=c) is not None)
             check("roster-admit: positive control for the refusals above — the same row at a free port is admitted",
@@ -242,6 +256,7 @@ def main() -> int:
             os.makedirs(rd)
             rp = os.path.join(rd, "roster.json")
             json.dump(doc, open(rp, "w"))
+            saved_env = {k: os.environ.get(k) for k in ("GZCOORD_CARRIER_ROSTER", "AGENT_FABRIC_OPERATOR")}
             os.environ["GZCOORD_CARRIER_ROSTER"] = rp
             os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(d, "no-operator")
             import fcntl
@@ -258,6 +273,26 @@ def main() -> int:
             released = done.wait(30)
             th.join()
             sys.stderr = saved
+            # a holder that never lets go ends the wait, loudly
+            dfd = os.open(rd, os.O_RDONLY)
+            fcntl.flock(dfd, fcntl.LOCK_EX)
+            M.ADMIT_LOCK_WAIT = 1.0
+            done2 = threading.Event()
+            codes2: list[int] = []
+            errs = os.path.join(d, "errs.txt")
+            sys.stderr, saved = open(errs, "w"), sys.stderr
+            th = threading.Thread(target=lambda: (codes2.append(M.main(["roster-admit", rj, "--port", "47103"])), done2.set()))
+            th.start()
+            ended = done2.wait(15)
+            sys.stderr.close()
+            sys.stderr = saved
+            fcntl.flock(dfd, fcntl.LOCK_UN)
+            os.close(dfd)
+            th.join()
+            check("roster-admit gives up with a refusal when the lock is never released",
+                  ended and codes2 == [2] and "nothing admitted" in open(errs).read(), f"{ended} {codes2}")
+            for k, v in saved_env.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
             check("roster-admit waits while another admit holds the roster's lock, and goes on when it is released",
                   held and released and codes == [2], f"{held} {released} {codes}")
 
