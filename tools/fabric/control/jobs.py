@@ -59,9 +59,9 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from control import js  # noqa: E402
+from registry_id import REGISTRY_ID as PROJECT_SLUG  # noqa: E402 — one grammar for jobs-add, the job list and the intake
 
 JOBS_TIMEOUT_S = 15
-PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")   # matched whole: JavaScript's /^…$/
 TITLE_MAX = 300
 TOPIC_MAX = 60
 # ADR-037 rule 7; tools/fabric/jobs.py PRIORITIES is the same list.
