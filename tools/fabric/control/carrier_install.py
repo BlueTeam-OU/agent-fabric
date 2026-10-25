@@ -529,6 +529,11 @@ def installed(home: str | None = None, state: str | None = None, run: Callable[.
     except (PinError, InstallError):
         pass
     names = sorted(recorded) if recorded else sorted(wanted) if wanted else []
+    marker_reports = marker.get("reports") if marker else None
+    reporting = set(wanted) if wanted else set(marker_reports) if isinstance(marker_reports, dict) else set()
+    reporting &= set(names)
+    if not reporting:
+        return {"status": "unreadable", "units": units, "reason": "neither the pin nor the marker names a program that reports a version"}
     if not names:
         return {"status": "unreadable", "units": units, "reason": "neither the marker nor the pin names a program"}
     present = [n for n in names if os.path.lexists(os.path.join(bindir, n))]
@@ -542,7 +547,10 @@ def installed(home: str | None = None, state: str | None = None, run: Callable[.
             if not (os.path.isfile(path) and os.stat(path).st_mode & 0o111):
                 return {"status": "unreadable", "units": units, "reason": f"{n} in {bindir} is not an executable file"}
             digests[n] = file_sha256(path)
-            lines[n] = version_line(path, run, home)
+            # Only the programs the pin says report a version are run: the others (a desktop program, a launcher)
+            # have no --version contract, and one that exits 1 would make the whole read "unreadable".
+            if n in reporting:
+                lines[n] = version_line(path, run, home)
         except subprocess.TimeoutExpired:
             return {"status": "unreadable", "units": units, "reason": f"{n} did not answer --version within {VERSION_TIMEOUT_S} s"}
         except subprocess.CalledProcessError as e:

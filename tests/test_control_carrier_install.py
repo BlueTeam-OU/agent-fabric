@@ -37,7 +37,11 @@ REPORTS = {"transportctl": f"transportctl {VERSION}+abcdef123456", "transport-da
 UNITS = ("interweave-daemon@.service", "interweave-client@.service")
 
 
-def program(name: str, line: str | None = None, extra: str = "", code: int = 0) -> bytes:
+def program(name: str, line: str | None = None, extra: str = "", code: int | None = None) -> bytes:
+    # The real archive carries desktop programs that have no --version contract (human-desktop exits 1 under it):
+    # only the pin's `reports` are asked, and the read must not depend on the others.
+    if code is None:
+        code = 0 if name in REPORTS else 1
     line = REPORTS.get(name, f"{name} {VERSION}") if line is None else line
     return f"#!/bin/sh\n{extra}\nprintf '%s\\n' '{line}'\nexit {code}\n".encode()
 
@@ -574,7 +578,8 @@ class Read(Case):
         got = self.read()
         self.assertEqual(got["status"], "ok")
         self.assertEqual(got["version"], VERSION)
-        self.assertEqual(got["reports"], {n: REPORTS[n] for n in REPORTS} | {n: f"{n} {VERSION}" for n in PROGRAMS if n not in REPORTS})
+        self.assertEqual(got["reports"], REPORTS, "only the programs the pin says report a version are run")
+        self.assertEqual(sorted(got["programs"]), sorted(PROGRAMS), "all of them are digested")
         self.assertEqual(got["programs"], r["programs"])
         self.assertEqual(got["release_sha256"], hashlib.sha256(art).hexdigest())
         self.assertIs(got["pinned"], True)
