@@ -13,6 +13,8 @@ usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|
        fabric-ctl <login|all> gateway-install --version V   (an action: install the gateway release the reviewed pin names, SHA-256 checked; a running gateway is never stopped)
        fabric-ctl <login|all> interweave   (each account: the InterWeave version it has installed, its digests, whether the unit templates are present, and whether its units are on the channel)
        fabric-ctl <login|all> interweave-install   (an action: install the InterWeave release the reviewed pin names with the archive's own install.sh, size and SHA-256 checked first; the units that ran are restarted and checked, or the old programs come back; enables nothing)
+       fabric-ctl <login|all> interweave-start   (an action: render the profile's config.yaml, enable --now the daemon then the client unit, and check the channel; refused without a valid roster row, the pin's programs or linger; a unit that does not come up stops both)
+       fabric-ctl <login|all> interweave-stop   (an action: disable --now the InterWeave client and daemon units and confirm both are inactive (the rollback of interweave-start))
        fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
        fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"
        fabric-ctl <login|all> secrets-selftest

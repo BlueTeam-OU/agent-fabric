@@ -1254,6 +1254,7 @@ class UnitSystemd(Systemd):
         self.after_enable: dict[str, str] = {}  # unit -> the state it reaches (default active)
         self.stuck: set[str] = set()            # units that stay active after a disable
         self.on_enable = None
+        self.restarted: list[str] = []
 
     def __call__(self, argv, **kw):
         name = os.path.basename(argv[0])
@@ -1272,6 +1273,11 @@ class UnitSystemd(Systemd):
                     fh.write("config\n")
             self.rendered.append(argv[3])
             return subprocess.CompletedProcess(argv, self.render_rc, "", self.render_err)
+        if name == "systemctl" and argv[2] == "restart":
+            self.calls.append(list(argv))
+            self.restarted.append(argv[3])
+            self.states[argv[3]] = "active"
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if name == "systemctl" and argv[2] in ("enable", "disable"):
             self.calls.append(list(argv))
             unit = argv[-1]
@@ -1474,6 +1480,30 @@ class StartStop(Case):
         self.assertEqual(r["status"], "started")
         self.assertNotIn("already_running", r)
         self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT])
+        self.assertEqual(self.systemd.restarted, [CLIENT_UNIT], "a unit that ran read the old config.yaml")
+
+    def test_with_only_the_daemon_running_it_is_restarted_after_the_render_so_it_reads_the_new_config(self):
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        r = self.start()
+        self.assertEqual(r["status"], "started")
+        self.assertEqual(self.systemd.restarted, [DAEMON_UNIT])
+        self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT])
+        self.systemd.restarted.clear()
+        self.assertTrue(self.start()["already_running"])
+        self.assertEqual(self.systemd.restarted, [], "both running: nothing restarted")
+
+    def test_a_restart_the_manager_refuses_stops_both_and_says_failed(self):
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        orig = self.systemd.__call__
+        def refusing(argv, **kw):
+            if argv[:3] == ["systemctl", "--user", "restart"]:
+                return subprocess.CompletedProcess(argv, 1, "", "Job failed\n")
+            return orig(argv, **kw)
+        r = self.start(run=refusing)
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("restart", r["reason"])
+        self.assertEqual(self.systemd.enabled, [], "nothing enabled after a failed restart")
+        self.assertIs(r["stopped"], True)
 
     def test_a_second_start_while_one_runs_is_refused_by_the_lock_and_touches_nothing(self):
         inner = []
@@ -1563,7 +1593,8 @@ class StartStopWiring(Case):
 
     def test_the_budget_is_the_sum_of_what_the_action_may_wait_for(self):
         c = iw.CHECK_BUDGET_S
-        self.assertGreater(iw.CARRIER_START_BUDGET_S, c + iw.RENDER_TIMEOUT_S + iw.LOGINCTL_TIMEOUT_S)
+        self.assertGreater(iw.CARRIER_START_BUDGET_S, c + iw.RENDER_TIMEOUT_S + iw.LOGINCTL_TIMEOUT_S
+                           + (iw.STARTUP_STATUS_POLLS - iw.CHECK_POLLS) * (iw.STATUS_TIMEOUT_S + iw.POLL_S))
         self.assertGreater(iw.CARRIER_STOP_BUDGET_S, 2 * iw.SYSTEMCTL_TIMEOUT_S)
 
     def test_the_daemon_answers_both_in_the_wires_reply_shape_and_a_refusal_is_one(self):

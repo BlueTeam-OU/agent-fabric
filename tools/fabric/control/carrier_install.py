@@ -1003,8 +1003,14 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
             # Exit 2 is the carrier declining (no valid roster row for this agent, ...): a refusal. Any other is a render that broke.
             out = _refused if r.returncode == 2 else (lambda reason: _failed(None, reason))
             return out(f"gzcoord-carrier render-config: {why}; nothing was started")
+        # A unit that already runs read the old config.yaml and `enable --now` leaves it be: restart it, or the file and the
+        # process disagree and the next start (both running) would never repair it.
         problem = None
-        for u in both:
+        for u in running:
+            problem = _systemctl(["restart", u], run, home)
+            if problem:
+                break
+        for u in both if not problem else ():
             problem = _systemctl(["enable", "--now", u], run, home)
             if problem:
                 break
