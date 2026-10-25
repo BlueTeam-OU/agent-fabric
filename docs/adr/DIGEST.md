@@ -659,24 +659,25 @@ its record disagree, the record wins. Look it up, never read it whole:
   fresh Ed25519 operator signature, newer than the last (§5 rules 3–5).
 - Replies carry no secret; a gap is named; silence or failure exits 1
   (§5 rules 6–9).
-- A 2026-09-27 — actions beside reads (§5 rule 12).
-- A 2026-09-27 — each op's answer budget (§5 rule 12).
-- A 2026-09-28 — `jobs`, `jobs-add` (§5 rule 13).
-- A 2026-09-29 — secrets-migrate (§5 rule 14).
-- A 2026-09-30 — rule 14 withdrawn (§5 rule 5).
-- A 2026-10-06 — local, local-prune (§5 rule 15).
+- A 2026-09-27 — actions beside reads (rule 12).
+- A 2026-09-27 — each op's answer budget (rule 12).
+- A 2026-09-28 — `jobs`, `jobs-add` (rule 13).
+- A 2026-09-29 — secrets-migrate (rule 14).
+- A 2026-09-30 — rule 14 withdrawn (rule 5).
+- A 2026-10-06 — local, local-prune (rule 15).
 - A 2026-10-07 — session state (rule 16).
 - A 2026-10-07 — secrets-selftest (rule 17).
-- A 2026-10-08 — resumable state (§5 rule 16).
-- A 2026-10-08 — public ops (§5 rule 4).
-- A 2026-10-09 — forged claims (§5 rule 4).
+- A 2026-10-08 — resumable state (rule 16).
+- A 2026-10-08 — public ops (rule 4).
+- A 2026-10-09 — forged claims (rule 4).
 - A 2026-10-09 — Scope: runtime/control/.
-- A 2026-10-09 — `tools-install` (§5 rules 3, 12).
+- A 2026-10-09 — `tools-install` (rules 3, 12).
 - A 2026-10-09 — closed-job read (§2).
-- A 2026-10-10 — gateway ops (§2, §5 rules 3, 12).
+- A 2026-10-10 — gateway ops (§2, rules 3, 12).
 - A 2026-10-12 — switch controller (§2).
 - A 2026-10-18 — installer, cargo pins (§2, rule 12).
 - A 2026-10-19 — rustup-target pins (§2).
+- A 2026-10-25 — InterWeave install/read (§2, rules 3, 12).
 - Keywords: agentd, fabric-ctl, ops, keys, keygen, operator_key, usage,
   tokens, herdr, resume, gateway, switch.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
