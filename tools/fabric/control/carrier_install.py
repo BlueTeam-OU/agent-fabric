@@ -32,14 +32,24 @@ THE SEQUENCE, for one account, as that login and with no root:
   6. every program in `reports` is run from the extracted tree with --version
      and must print exactly its value: a build that does not say who it is
      installs nothing;
-  7. `<root>/install.sh` runs with no argument, in a minimal environment
+  7. the units of the roster's profile that are running are noted and the
+     programs install.sh will replace are kept (ADR-064 rule 14); then
+     `<root>/install.sh` runs with no argument, in a minimal environment
      (programs into ~/.local/bin, the two user-unit templates into the
      user's systemd directory; it enables nothing and touches no profile);
   8. each program the archive carries in bin/ must now be in ~/.local/bin
      byte for byte, the two unit templates must be there, and every program
      in `reports` is run from ~/.local/bin and must print its value again;
-  9. the marker (<state>/<carrier>-install.json) is written whole, by rename;
- 10. the temporary directory is removed however the install ends, and one a
+  9. exactly the units that were running are restarted and checked: each
+     active (twice, a poll apart), the daemon printing the pin's value, the
+     carrier answering `gzcoord-carrier status` when its client runs. With no
+     unit running there is nothing to restart and the check is the version
+     alone, which the reply says. A check that fails, or any failure after
+     install.sh began, puts the kept programs back, restarts the same units
+     again, checks again and replies failed with both results;
+ 10. the marker (<state>/<carrier>-install.json) is written whole, by rename,
+     only after the check passed;
+ 11. the temporary directory is removed however the install ends, and one a
      killed install left is removed at the start of the next.
 
 THE REPLY, data["<carrier>-install"]: status "installed" | "current" |
@@ -47,9 +57,12 @@ THE REPLY, data["<carrier>-install"]: status "installed" | "current" |
 programs (name -> digest of the file now in ~/.local/bin); reason on a refusal
 or a failure. A refusal is a request the action will not take (an argument,
 an architecture the pin has no build for); a failure is an install that was
-tried or could not start. A failure at step 6 or before leaves the account as
-it was; one after step 7 may leave the programs install.sh copied, which the
-next run replaces: the marker is written only after step 8.
+tried or could not start. A failure leaves the account on its previous
+programs (`restored`: true), except where the restoring itself failed
+(`restored`: false, the reason says which program), or where only the marker
+could not be written. `units` on an install: the units that were running and the
+check's result; `checks` on a failure that had restarted them: [the first
+check, the check after restoring].
 
 THE READ, data["<carrier>"]: status "ok" | "absent" | "unreadable"; version
 and reports, as the installed programs print them under --version; programs
@@ -57,7 +70,9 @@ and reports, as the installed programs print them under --version; programs
 agrees); pinned (whether what is installed prints what the pin says); units
 (whether each template is in the user's systemd directory). A program that
 will not report makes the status "unreadable" with the reason, never a guessed
-version.
+version. channel: the check of step 9 looked at once, now: "ok" | "off" (a unit
+runs and fails it) | "not-running" | "unknown" (it could not be made), with the
+units' states and a reason, so that an account off the channel is seen.
 
 fetch_and_unpack is the part of steps 3-5 another tool needs without an
 install (the two-account live check): it downloads, verifies and extracts into
@@ -76,6 +91,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import time
 import urllib.error
 import zlib
 from typing import Any, Callable
@@ -100,9 +116,19 @@ INSTALL_SH_TIMEOUT_S = 120
 VERSION_TIMEOUT_S = 10
 MAX_UNPACKED_BYTES = 2 * 1024 * 1024 * 1024
 MAX_MEMBERS = 1000
-CARRIER_INSTALL_BUDGET_S = DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
+SYSTEMCTL_TIMEOUT_S = 10
+CHECK_POLLS = 5                # the channel check looks this many times, POLL_S apart, before it says the unit did not come back
+POLL_S = 2
+STATUS_TIMEOUT_S = 10
+# What one channel check may take at most: a state query per unit and a poll loop of them, then the carrier's status.
+CHECK_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + CHECK_POLLS * (POLL_S + 2 * SYSTEMCTL_TIMEOUT_S) + STATUS_TIMEOUT_S
+CARRIER_INSTALL_BUDGET_S = (DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
+                            + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S))
+# The read asks each unit's state once, the daemon's version and the carrier's status.
+CARRIER_READ_BUDGET_S = 2 * VERSION_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + STATUS_TIMEOUT_S + 10
 # The only variables of the session install.sh and the programs see besides HOME and PATH: where the
 # user's systemd manager and configuration are. The token and the rest of the session never reach them.
+ROSTER_REL = os.path.join("runtime", CARRIER_NAME, "roster.json")
 PASS_ENV = ("XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "DBUS_SESSION_BUS_ADDRESS")
 
 
@@ -308,6 +334,168 @@ def unpack_checked(archive: str, build: dict, dest: str) -> str:
     return tree
 
 
+# --- the channel (agent-fabric ADR-064 §5 rule 14) ----------------------------------------------------------------
+# An install replaces the programs under a running daemon and carrier; if the new ones do not come back, the agent is
+# off the channel and nobody is told. So the units that were running are restarted and checked, and a check that
+# fails puts the previous programs back.
+
+DAEMON_PROGRAM = "transport-daemon"
+RUNNING = ("active", "activating", "reloading")
+
+
+class ChannelUnknown(Exception):
+    """The user manager did not answer in time: whether a unit runs is not known, which is not 'not running'."""
+
+
+def roster_profile(root: str) -> str:
+    """The profile the units are templated on, from the committed roster; InstallError if it cannot be read."""
+    try:
+        with open(os.path.join(root, ROSTER_REL), encoding="utf-8") as fh:
+            profile = json.load(fh).get("profile")
+    except (OSError, ValueError, AttributeError) as e:
+        raise InstallError(f"the {CARRIER_LABEL} roster {ROSTER_REL} cannot be read ({_oneline(e)})") from None
+    if not (isinstance(profile, str) and NAME_RE.fullmatch(profile)):
+        raise InstallError(f"the {CARRIER_LABEL} roster {ROSTER_REL} has no profile name")
+    return profile
+
+
+def unit_names(profile: str) -> tuple[str, str]:
+    """(daemon, client)."""
+    return (f"{CARRIER_NAME}-daemon@{profile}.service", f"{CARRIER_NAME}-client@{profile}.service")
+
+
+def unit_state(unit: str, run: Callable[..., Any], home: str) -> str | None:
+    """The unit's ActiveState, or None when no user manager answers (no systemctl, no session bus: the account has
+    no unit running, as install.sh itself takes it). A manager that does not answer in time raises ChannelUnknown."""
+    try:
+        r = run(["systemctl", "--user", "show", "--property=ActiveState", "--value", unit], capture_output=True, text=True,
+                timeout=SYSTEMCTL_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
+    except subprocess.TimeoutExpired:
+        raise ChannelUnknown(f"the user manager did not answer within {SYSTEMCTL_TIMEOUT_S} s") from None
+    except OSError:
+        return None
+    return (r.stdout or "").strip() or None if r.returncode == 0 else None
+
+
+def running_units(profile: str, run: Callable[..., Any], home: str) -> tuple[dict[str, str | None], list[str]]:
+    """(state of each unit, the units that run, daemon first)."""
+    states = {u: unit_state(u, run, home) for u in unit_names(profile)}
+    return states, [u for u, st in states.items() if st in RUNNING]
+
+
+def restart_units(units: list[str], run: Callable[..., Any], home: str) -> str | None:
+    """None when each unit was asked to restart and the manager took it; else why not."""
+    for u in units:
+        try:
+            r = run(["systemctl", "--user", "restart", u], capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT_S, check=False,
+                    stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
+        except subprocess.TimeoutExpired:
+            return f"restarting {u} did not finish within {SYSTEMCTL_TIMEOUT_S} s"
+        except OSError as e:
+            return f"restarting {u} could not be run ({_oneline(e)})"
+        if r.returncode != 0:
+            return f"restarting {u} exited {r.returncode}"
+    return None
+
+
+def channel_check(profile: str, running: list[str], build: dict, root: str, run: Callable[..., Any], home: str,
+                  sleep: Callable[[float], None], polls: int = CHECK_POLLS, pinned: bool = True) -> dict:
+    """The check of the units in `running`: each active (and still active one poll later, so a crash loop is not
+    mistaken for a start), the daemon program printing the pin's value, and the carrier answering `status` when its
+    client unit runs. `pinned` False (the check after a restore) leaves the version out: the programs put back are
+    the account's own, which the pin says nothing of. {"status": "passed" | "failed" | "not-running", "reason"?, "units": {unit: state}}."""
+    daemon, client = unit_names(profile)
+    if not running:
+        return {"status": "not-running", "units": {}}
+    seen: dict[str, str | None] = {}
+
+    def failed(reason: str) -> dict:
+        return {"status": "failed", "reason": reason, "units": seen}
+
+    for u in running:
+        streak = 0
+        for i in range(polls):
+            if i:
+                sleep(POLL_S)
+            try:
+                st = unit_state(u, run, home)
+            except ChannelUnknown as e:
+                return failed(str(e))
+            seen[u] = st
+            streak = streak + 1 if st == "active" else 0
+            if streak >= (2 if polls > 1 else 1):
+                break
+        else:
+            return failed(f"{u} is {seen[u] or 'not answering'} after {polls} look(s)")
+    if daemon in running and pinned:
+        want = build["reports"].get(DAEMON_PROGRAM)
+        if want is None:
+            return failed(f"the pin has no value for {DAEMON_PROGRAM} --version")
+        bad = check_reports(bin_dir(home), {DAEMON_PROGRAM: want}, run, home)
+        if bad:
+            return failed(bad)
+    if client in running:
+        for i in range(polls):
+            if i:
+                sleep(POLL_S)
+            try:
+                r = run([os.path.join(root, "bin", "gzcoord-carrier"), "status"], capture_output=True, text=True,
+                        timeout=STATUS_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
+            except subprocess.TimeoutExpired:
+                reason = f"gzcoord-carrier status did not answer within {STATUS_TIMEOUT_S} s"
+            except OSError as e:
+                return failed(f"gzcoord-carrier status could not be run ({_oneline(e)})")
+            else:
+                if r.returncode == 0:
+                    break
+                reason = f"gzcoord-carrier status exited {r.returncode}: the carrier does not answer"
+        else:
+            return failed(reason)
+    return {"status": "passed", "units": seen}
+
+
+def _channel_text(c: dict) -> str:
+    return "passed" if c["status"] == "passed" else c.get("reason") or c["status"]
+
+
+class _Undo:
+    """The programs the install is about to replace, kept so a failure puts them back."""
+
+    def __init__(self, bindir: str, keep: str, names: list[str]) -> None:
+        self.bindir, self.keep = bindir, keep
+        self.before: dict[str, tuple[str, str | None]] = {}
+        os.makedirs(keep, mode=0o700, exist_ok=True)
+        for n in names:
+            path = os.path.join(bindir, n)
+            if os.path.islink(path):
+                self.before[n] = ("link", os.readlink(path))
+            elif os.path.lexists(path):
+                shutil.copy2(path, os.path.join(keep, n))
+                self.before[n] = ("file", None)
+            else:
+                self.before[n] = ("absent", None)
+
+    def restore(self) -> str | None:
+        """None when every program is as it was; else the first thing that could not be put back."""
+        for n, (kind, target) in self.before.items():
+            path = os.path.join(self.bindir, n)
+            tmp = os.path.join(self.bindir, f".{n}.restore")
+            try:
+                if kind == "absent":
+                    if os.path.lexists(path):
+                        os.unlink(path)
+                elif kind == "link":
+                    assert target is not None
+                    os.symlink(target, tmp)
+                    os.replace(tmp, path)
+                else:
+                    shutil.copy2(os.path.join(self.keep, n), tmp)
+                    os.replace(tmp, path)
+            except OSError as e:
+                return f"{n} could not be put back ({errno.errorcode.get(e.errno or 0) or e})"
+        return None
+
+
 # --- the programs ------------------------------------------------------------------------------------------------
 
 def tree_programs(tree: str) -> dict[str, str]:
@@ -399,7 +587,8 @@ def _failed(version: str | None, reason: str) -> dict:
 
 def carrier_install(request: Any, root: str | None = None, home: str | None = None, state: str | None = None,
                        fetch: Callable[..., tuple[int, str]] = download, run: Callable[..., Any] = subprocess.run,
-                       token: Callable[[str], str | None] | None = None, machine: str | None = None) -> dict:
+                       token: Callable[[str], str | None] | None = None, machine: str | None = None,
+                    sleep: Callable[[float], None] = time.sleep) -> dict:
     a = request.get("args") if isinstance(request, dict) else None
     if not (a is None or a == {}):
         return _refused(f"{INSTALL_OP} takes no argument: it installs the release the reviewed pin names")
@@ -423,19 +612,23 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             return _refused(f"another {INSTALL_OP} is running on this account")
-        return _install(version, pin["releases"][version], build, state, home, fetch, run, token)
+        return _install(version, pin["releases"][version], build, state, home, root, fetch, run, token, sleep)
     finally:
         os.close(lock_fd)
 
 
-def _install(version: str, release: dict, build: dict, state: str, home: str, fetch: Callable[..., tuple[int, str]],
-             run: Callable[..., Any], token: Callable[[str], str | None] | None) -> dict:
+def _install(version: str, release: dict, build: dict, state: str, home: str, root: str, fetch: Callable[..., tuple[int, str]],
+             run: Callable[..., Any], token: Callable[[str], str | None] | None, sleep: Callable[[float], None]) -> dict:
     bindir = bin_dir(home)
     marker = read_marker(state)
     recorded = _marker_programs(marker)
     if (marker and recorded and marker.get("version") == version and marker.get("sha256") == build["sha256"]
             and set(build["reports"]) <= set(recorded) and _digests_match(bindir, recorded)):
         return {"status": "current", "version": version, "sha256": build["sha256"], "programs": recorded}
+    try:
+        profile = roster_profile(root)
+    except InstallError as e:
+        return _failed(version, str(e))
     if token is None:
         from gzcoord.inbox_parts.tokens import synced_var
         token = lambda name: synced_var(name, home)   # noqa: E731
@@ -466,27 +659,61 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, fe
         if bad:
             return _failed(version, f"the archive's programs disagree with the pin ({bad}); nothing was installed")
         try:
+            _, running = running_units(profile, run, home)
+        except ChannelUnknown as e:
+            return _failed(version, f"whether the {CARRIER_LABEL} units run is not known ({e}); nothing was installed")
+        try:
+            undo = _Undo(bindir, os.path.join(work, "previous"), sorted(programs))
+        except OSError as e:
+            return _failed(version, f"the programs now installed could not be kept ({_why(e, tok)}); nothing was installed")
+
+        def roll_back(reason: str, first: dict | None = None, restarted: bool = False) -> dict:
+            """Failure after install.sh began: the previous programs back, the units that were restarted restarted
+            again and checked, and a reply that says every result."""
+            out = _failed(version, reason)
+            left = undo.restore()
+            if left:
+                out["reason"] += f"; the previous programs could not all be restored ({left})"
+                out["restored"] = False
+                return out
+            out["restored"] = True
+            out["reason"] += "; the previous programs are back"
+            if restarted:
+                again = restart_units(running, run, home)
+                second = ({"status": "failed", "reason": again, "units": {}} if again
+                          else channel_check(profile, running, build, root, run, home, sleep, pinned=False))
+                out["reason"] += f"; restarted again, check: {_channel_text(second)}"
+                out["checks"] = [first, second]
+            return out
+
+        try:
             r = run([os.path.join(tree, "install.sh")], capture_output=True, text=True, timeout=INSTALL_SH_TIMEOUT_S, check=False,
                     stdin=subprocess.DEVNULL, cwd=tree, env=child_env(home))
         except subprocess.TimeoutExpired:
-            return _failed(version, f"install.sh did not finish within {INSTALL_SH_TIMEOUT_S} s")
+            return roll_back(f"install.sh did not finish within {INSTALL_SH_TIMEOUT_S} s")
         except OSError as e:
-            return _failed(version, f"install.sh could not be run ({_why(e, tok)})")
+            return roll_back(f"install.sh could not be run ({_why(e, tok)})")
         if r.returncode != 0:
             lines = [ln for ln in (r.stderr or "").splitlines() if ln.strip()]
-            return _failed(version, f"install.sh exited {r.returncode}" + (f": {_why(Exception(lines[-1]), tok)}" if lines else ""))
+            return roll_back(f"install.sh exited {r.returncode}" + (f": {_why(Exception(lines[-1]), tok)}" if lines else ""))
         landed = _landed(bindir, home, programs)
         if landed:
-            return _failed(version, landed)
+            return roll_back(landed)
         bad = check_reports(bindir, build["reports"], run, home)
         if bad:
-            return _failed(version, f"the installed programs disagree with the pin ({bad}); the next install replaces them")
+            return roll_back(f"the installed programs disagree with the pin ({bad})")
+        restart_failed = restart_units(running, run, home) if running else None
+        check = ({"status": "failed", "reason": restart_failed, "units": {}} if restart_failed
+                 else channel_check(profile, running, build, root, run, home, sleep))
+        if check["status"] == "failed":
+            return roll_back(f"the {CARRIER_LABEL} channel did not come back on the new programs ({_channel_text(check)})", check, True)
         try:
             _write_marker(state, {"version": version, "tag": release["tag"], "sha256": build["sha256"], "size": build["size"],
                                   "programs": programs, "bin_dir": bindir, "reports": build["reports"]})
         except OSError as e:
             return _failed(version, f"the programs are in place but could not be recorded ({_why(e, tok)}); a retry installs them again")
-        return {"status": "installed", "version": version, "sha256": build["sha256"], "programs": programs}
+        return {"status": "installed", "version": version, "sha256": build["sha256"], "programs": programs,
+                "units": {"running_before": running, "check": "passed" if running else "not run: no unit was running"}}
     finally:
         try:
             shutil.rmtree(work)
@@ -522,9 +749,11 @@ def installed(home: str | None = None, state: str | None = None, run: Callable[.
     units = {u: os.path.isfile(os.path.join(unit_dir(home), u)) for u in UNITS}
     marker = read_marker(state)
     recorded = _marker_programs(marker)
+    root = _code_root() if root is None else root
     wanted: dict | None = None
+    build: dict | None = None
     try:
-        _, build = pinned_build(load_pin(_code_root() if root is None else root))
+        _, build = pinned_build(load_pin(root))
         wanted = build["reports"]
     except (PinError, InstallError):
         pass
@@ -568,7 +797,28 @@ def installed(home: str | None = None, state: str | None = None, run: Callable[.
         out["release_sha256"] = marker["sha256"]
     if wanted is not None:
         out["pinned"] = all(lines.get(n) == v for n, v in wanted.items())
+    out["channel"] = read_channel(root, build, run, home)
     return out
+
+
+def read_channel(root: str, build: dict | None, run: Callable[..., Any], home: str) -> dict:
+    """The same check an install ends with, run now and looking once: {"status": "ok" | "off" | "not-running" | "unknown",
+    "units": {unit: state}, "reason"?}. Off is a unit that runs and fails the check; unknown is a check that could not be made."""
+    try:
+        profile = roster_profile(root)
+        states, running = running_units(profile, run, home)
+    except InstallError as e:
+        return {"status": "unknown", "reason": str(e)}
+    except ChannelUnknown as e:
+        return {"status": "unknown", "reason": str(e)}
+    if not running:
+        return {"status": "not-running", "units": states}
+    if build is None:
+        return {"status": "unknown", "units": states, "reason": "the pin cannot be read, so the daemon's version cannot be compared"}
+    c = channel_check(profile, running, build, root, run, home, time.sleep, polls=1)
+    if c["status"] == "passed":
+        return {"status": "ok", "units": states}
+    return {"status": "off", "units": states, "reason": _channel_text(c)}
 
 
 def _code_root() -> str:

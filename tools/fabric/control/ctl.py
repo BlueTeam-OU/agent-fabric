@@ -113,7 +113,7 @@ from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, pu
 from control import units
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
-from control.carrier_install import CARRIER_INSTALL_BUDGET_S, INSTALL_OP
+from control.carrier_install import CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDGET_S, INSTALL_OP
 from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, VERSION_RE, pinned_version
@@ -584,6 +584,7 @@ def parse_args(argv: list[str]) -> dict:
                           else 240 if op == "secrets-sync" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
                           else CARRIER_INSTALL_BUDGET_S if op == INSTALL_OP
+                          else CARRIER_READ_BUDGET_S if op == CARRIER_NAME
                           else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
                           else 90 if op == "drift"
                           else SELFTEST_BUDGET_S if op == "secrets-selftest" else 20)

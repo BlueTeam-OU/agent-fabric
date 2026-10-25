@@ -16,6 +16,7 @@ import shutil
 import stat
 import sys
 import tarfile
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -119,6 +120,56 @@ def digest_of(path: str) -> str:
         return hashlib.sha256(fh.read()).hexdigest()
 
 
+class Systemd:
+    """The user manager and the carrier's status command, as the module's `run` sees them; every other command really runs.
+    states: unit -> ActiveState (missing = inactive); manager=False: no user manager (systemctl cannot connect)."""
+
+    def __init__(self):
+        self.states: dict[str, str] = {}
+        self.manager = True
+        self.restarts: list[str] = []
+        self.restart_rc: dict[str, int] = {}
+        self.after_restart: dict[str, str] = {}        # unit -> the state it is in once restarted (default active)
+        self.status_rcs: list[int] = [0]               # one per `status` call; the last repeats
+        self.status_calls = 0
+        self.hang: str | None = None                   # "show" | "restart" | "status": that command times out
+        self.on_restart = None                         # called with the unit, to change something else
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv, **kw):
+        name = os.path.basename(argv[0])
+        if name not in ("systemctl", "gzcoord-carrier"):
+            return subprocess.run(argv, **kw)
+        self.calls.append(list(argv))
+        done = lambda rc=0, out="": subprocess.CompletedProcess(argv, rc, out, "")   # noqa: E731
+        if name == "gzcoord-carrier":
+            if self.hang == "status":
+                raise subprocess.TimeoutExpired(argv, kw["timeout"])
+            rc = self.status_rcs[min(self.status_calls, len(self.status_rcs) - 1)]
+            self.status_calls += 1
+            return done(rc, "{}\n" if rc == 0 else "")
+        if not self.manager:
+            raise FileNotFoundError("systemctl")
+        verb = argv[2]
+        if verb == "show":
+            if self.hang == "show":
+                raise subprocess.TimeoutExpired(argv, kw["timeout"])
+            return done(0, self.states.get(argv[-1], "inactive") + "\n")
+        if self.hang == "restart":
+            raise subprocess.TimeoutExpired(argv, kw["timeout"])
+        unit = argv[-1]
+        self.restarts.append(unit)
+        if self.on_restart:
+            self.on_restart(unit)
+        if self.restart_rc.get(unit):
+            return done(self.restart_rc[unit])
+        self.states[unit] = self.after_restart.get(unit, "active")
+        return done()
+
+
+DAEMON_UNIT, CLIENT_UNIT = "interweave-daemon@gzcoord.service", "interweave-client@gzcoord.service"
+
+
 class Case(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(prefix="test_control_carrier_install.")
@@ -127,6 +178,9 @@ class Case(unittest.TestCase):
         self.root, self.home, self.state = (os.path.join(t, n) for n in ("root", "home", "state"))
         for d in (os.path.join(self.root, "runtime", "interweave"), self.home):
             os.makedirs(d)
+        with open(os.path.join(self.root, iw.ROSTER_REL), "w") as fh:
+            json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", "port_range": [47100, 47199], "rows": []}, fh)
+        self.systemd = Systemd()
         self.fetched: list[tuple[str, str, dict]] = []
         self.sentinel = os.path.join(t, "ran")
         env = {"XDG_CONFIG_HOME": "", "XDG_RUNTIME_DIR": "", "DBUS_SESSION_BUS_ADDRESS": ""}
@@ -151,7 +205,8 @@ class Case(unittest.TestCase):
         return len(self.artifact), hashlib.sha256(self.artifact).hexdigest()
 
     def install(self, request=None, **kw):
-        opts = dict(root=self.root, home=self.home, state=self.state, fetch=self.fetch, token=lambda name: TOKEN, machine="x86_64")
+        opts = dict(root=self.root, home=self.home, state=self.state, fetch=self.fetch, token=lambda name: TOKEN, machine="x86_64",
+                    run=self.systemd, sleep=lambda s: None)
         opts.update(kw)
         return iw.carrier_install({} if request is None else request, **opts)
 
@@ -275,7 +330,8 @@ class Install(Case):
         art = self.release()
         r = self.install()
         archive_programs = {n: hashlib.sha256(program(n)).hexdigest() for n in PROGRAMS}
-        self.assertEqual(r, {"status": "installed", "version": VERSION, "sha256": hashlib.sha256(art).hexdigest(), "programs": archive_programs})
+        self.assertEqual(r, {"status": "installed", "version": VERSION, "sha256": hashlib.sha256(art).hexdigest(), "programs": archive_programs,
+                                  "units": {"running_before": [], "check": "not run: no unit was running"}})
         self.assertEqual(self.installed_names(), sorted(PROGRAMS))
         for n in PROGRAMS:
             self.assertEqual(digest_of(os.path.join(self.bindir, n)), archive_programs[n], n)
@@ -296,7 +352,7 @@ class Install(Case):
         self.release()
         first = self.install()
         again = self.install()
-        self.assertEqual(again, {**first, "status": "current"})
+        self.assertEqual(again, {k: v for k, v in {**first, "status": "current"}.items() if k != "units"})
         self.assertEqual(len(self.fetched), 1)
         with open(os.path.join(self.bindir, "transportctl"), "ab") as fh:
             fh.write(b"# edited\n")
@@ -566,7 +622,7 @@ class FetchAndUnpack(Case):
 
 class Read(Case):
     def read(self):
-        return iw.installed(self.home, self.state, root=self.root)
+        return iw.installed(self.home, self.state, root=self.root, run=self.systemd)
 
     def test_nothing_installed_is_absent_with_the_units_said(self):
         self.release()
@@ -626,6 +682,220 @@ class Read(Case):
         self.assertNotIn("pinned", got, "unknown stays unknown")
         shutil.rmtree(self.state)
         self.assertEqual(self.read()["status"], "unreadable")
+
+
+class Channel(Case):
+    """ADR-064 rule 14: the units that were running are restarted and checked; a check that fails puts the previous programs back."""
+
+    def seed_old(self, names=("transportctl", "transport-daemon")) -> dict:
+        os.makedirs(self.bindir)
+        old = {}
+        for n in names:
+            body = program(n, f"{n} 0.0.9+old")
+            with open(os.path.join(self.bindir, n), "wb") as fh:
+                fh.write(body)
+            os.chmod(os.path.join(self.bindir, n), 0o755)
+            old[n] = hashlib.sha256(body).hexdigest()
+        return old
+
+    def bin_digests(self) -> dict:
+        return {n: digest_of(os.path.join(self.bindir, n)) for n in self.installed_names() if not n.startswith(".")}
+
+    def assert_previous_back(self, old):
+        self.assertEqual(self.bin_digests(), old, "the programs the account had are back and nothing else is left")
+        self.assertIsNone(iw.read_marker(self.state), "no marker for programs that did not stay")
+        self.assertFalse(os.path.exists(os.path.join(self.state, iw.WORK)))
+        self.assertEqual([n for n in self.installed_names() if n.startswith(".")], [], "no temporary file in the bin directory")
+
+    def test_nothing_running_means_no_restart_and_the_reply_says_so(self):
+        self.release()
+        r = self.install()
+        self.assertEqual((r["status"], r["units"]), ("installed", {"running_before": [], "check": "not run: no unit was running"}))
+        self.assertEqual(self.systemd.restarts, [])
+        self.assertEqual(self.systemd.status_calls, 0)
+
+    def test_no_user_manager_is_nothing_running_as_install_sh_takes_it(self):
+        self.release()
+        self.systemd.manager = False
+        r = self.install()
+        self.assertEqual((r["status"], r["units"]["running_before"]), ("installed", []))
+
+    def test_exactly_the_units_that_were_running_are_restarted_daemon_first_and_checked(self):
+        self.release()
+        self.systemd.states = {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}
+        r = self.install()
+        self.assertEqual((r["status"], r["units"]), ("installed", {"running_before": [DAEMON_UNIT, CLIENT_UNIT], "check": "passed"}))
+        self.assertEqual(self.systemd.restarts, [DAEMON_UNIT, CLIENT_UNIT])
+        self.assertGreaterEqual(self.systemd.status_calls, 1, "the carrier is asked when its client runs")
+        self.assertIsNotNone(iw.read_marker(self.state))
+
+    def test_a_unit_that_was_not_running_is_not_started(self):
+        self.release()
+        self.systemd.states = {DAEMON_UNIT: "active", CLIENT_UNIT: "inactive"}
+        r = self.install()
+        self.assertEqual((r["status"], self.systemd.restarts, self.systemd.status_calls), ("installed", [DAEMON_UNIT], 0))
+        self.assertEqual(self.systemd.states[CLIENT_UNIT], "inactive")
+
+    def test_a_unit_that_does_not_come_back_restores_the_previous_programs_and_says_failed_with_both_checks(self):
+        self.release()
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        calls = []
+
+        def on_restart(unit):
+            calls.append(unit)
+            self.systemd.after_restart[DAEMON_UNIT] = "failed" if len(calls) == 1 else "active"     # the old programs come back up
+        self.systemd.on_restart = on_restart
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIs(r["restored"], True)
+        self.assertEqual(self.systemd.restarts, [DAEMON_UNIT, DAEMON_UNIT], "restarted again on the restored programs")
+        first, second = r["checks"]
+        self.assertEqual((first["status"], second["status"]), ("failed", "passed"))
+        self.assertIn("failed", r["reason"])
+        self.assertIn("check: passed", r["reason"])
+        self.assert_previous_back(old)
+
+    def test_a_restore_that_cannot_bring_the_channel_back_says_so_in_the_second_result(self):
+        self.release()
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.after_restart[DAEMON_UNIT] = "failed"
+        r = self.install()
+        self.assertEqual((r["status"], r["checks"][0]["status"], r["checks"][1]["status"]), ("failed", "failed", "failed"))
+        self.assert_previous_back(old)
+
+    def test_a_program_that_did_not_exist_before_is_removed_by_the_restore(self):
+        self.release()
+        old = self.seed_old(("transportctl",))
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.after_restart[DAEMON_UNIT] = "failed"
+        self.install()
+        self.assert_previous_back(old)
+        self.assertNotIn("human-desktop", self.installed_names())
+
+    def test_the_carrier_not_answering_after_the_restart_restores(self):
+        self.release()
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}
+        self.systemd.status_rcs = [3]
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("status exited 3", r["checks"][0]["reason"])
+        self.assertEqual(self.systemd.restarts, [DAEMON_UNIT, CLIENT_UNIT, DAEMON_UNIT, CLIENT_UNIT])
+        self.assert_previous_back(old)
+
+    def test_a_carrier_that_answers_on_a_later_look_passes(self):
+        self.release()
+        self.systemd.states = {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}
+        self.systemd.status_rcs = [3, 3, 0]
+        self.assertEqual(self.install()["status"], "installed")
+        self.assertEqual(self.systemd.status_calls, 3)
+
+    def test_a_crash_loop_is_not_a_start(self):
+        self.release()
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        seq = iter(["active", "activating", "active", "activating", "active", "activating", "active", "activating", "active", "activating"])
+        real = self.systemd.__call__
+
+        def flap(argv, **kw):
+            if os.path.basename(argv[0]) == "systemctl" and argv[2] == "show" and self.systemd.restarts:
+                return subprocess.CompletedProcess(argv, 0, next(seq) + "\n", "")
+            return real(argv, **kw)
+        r = self.install(run=flap)
+        self.assertEqual(r["status"], "failed", "active on one look and not on the next is not two active looks in a row")
+        self.assertEqual(self.bin_digests(), old)
+
+    def test_a_daemon_that_prints_another_version_once_restarted_restores(self):
+        self.release()
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        real = self.systemd.__call__
+
+        def drifting(argv, **kw):
+            if os.path.basename(argv[0]) == "transport-daemon" and self.systemd.restarts:
+                return subprocess.CompletedProcess(argv, 0, "transport-daemon 9.9.9\n", "")
+            return real(argv, **kw)
+        r = self.install(run=drifting)
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("transport-daemon --version prints", r["checks"][0]["reason"])
+        self.assert_previous_back(old)
+
+    def test_a_restart_the_manager_refuses_restores(self):
+        self.release()
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.restart_rc[DAEMON_UNIT] = 1
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("exited 1", r["checks"][0]["reason"])
+        self.assert_previous_back(old)
+
+    def test_a_restart_that_hangs_is_a_failure_within_the_bound_and_restores(self):
+        self.release()
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.hang = "restart"
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("did not finish", r["checks"][0]["reason"])
+        self.assert_previous_back(old)
+
+    def test_a_manager_that_does_not_answer_before_the_install_installs_nothing(self):
+        self.release()
+        self.systemd.hang = "show"
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("not known", r["reason"])
+        self.nothing_installed("unknown is not 'not running'")
+
+    def test_a_version_that_disagrees_after_install_sh_restores_without_a_restart(self):
+        self.release(members=default_members({"install.sh": (install_sh(after='printf "%s" \'#!/bin/sh\necho transport-daemon 9.9.9\' > "$HOME/.local/bin/transport-daemon"'), "exec")}))
+        old = self.seed_old()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        r = self.install()
+        self.assertEqual((r["status"], r["restored"]), ("failed", True))
+        self.assertEqual(self.systemd.restarts, [], "the units were never restarted onto programs that were already wrong")
+        self.assert_previous_back(old)
+
+    def test_an_install_sh_that_fails_midway_puts_the_previous_programs_back(self):
+        self.release(members=default_members({"install.sh": (install_sh(code=1), "exec")}))
+        old = self.seed_old()
+        r = self.install()
+        self.assertEqual((r["status"], r["restored"]), ("failed", True))
+        self.assert_previous_back(old)
+
+    def test_a_roster_that_cannot_be_read_installs_nothing(self):
+        self.release()
+        os.unlink(os.path.join(self.root, iw.ROSTER_REL))
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("roster", r["reason"])
+        self.nothing_installed()
+
+    def test_the_read_says_whether_the_channel_is_up(self):
+        self.release()
+        self.install()
+        self.assertEqual(self.read_channel()["status"], "not-running")
+        self.systemd.states = {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}
+        c = self.read_channel()
+        self.assertEqual((c["status"], c["units"]), ("ok", {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}))
+        self.systemd.status_rcs = [3]
+        c = self.read_channel()
+        self.assertEqual(c["status"], "off")
+        self.assertIn("status exited 3", c["reason"])
+        self.systemd.status_rcs = [0]
+        self.systemd.states[DAEMON_UNIT] = "failed"
+        self.systemd.states[CLIENT_UNIT] = "active"
+        self.assertEqual(self.read_channel()["status"], "ok", "a unit that is not running is not the check's business")
+        self.systemd.states[CLIENT_UNIT] = "activating"
+        self.assertEqual(self.read_channel()["status"], "off", "a unit that runs but is not active is off the channel")
+        self.systemd.hang = "show"
+        self.assertEqual(self.read_channel()["status"], "unknown")
+
+    def read_channel(self):
+        return iw.installed(self.home, self.state, root=self.root, run=self.systemd)["channel"]
 
 
 class Wiring(Case):
