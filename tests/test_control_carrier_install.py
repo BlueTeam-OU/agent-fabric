@@ -1593,9 +1593,16 @@ class StartStopWiring(Case):
 
     def test_the_budget_is_the_sum_of_what_the_action_may_wait_for(self):
         c = iw.CHECK_BUDGET_S
-        self.assertGreater(iw.CARRIER_START_BUDGET_S, c + iw.RENDER_TIMEOUT_S + iw.LOGINCTL_TIMEOUT_S
-                           + (iw.STARTUP_STATUS_POLLS - iw.CHECK_POLLS) * (iw.STATUS_TIMEOUT_S + iw.POLL_S)
-                           + iw.SYSTEMCTL_TIMEOUT_S + 2 * iw.SYSTEMCTL_TIMEOUT_S)
+        sysctl, polls = iw.SYSTEMCTL_TIMEOUT_S, iw.CHECK_POLLS
+        settle = polls * sysctl + (polls - 1) * iw.POLL_S
+        # term by term, so a wait taken out of the budget (a restart, the cold carrier's longer status wait) is seen
+        self.assertEqual(iw.CARRIER_START_BUDGET_S,
+                         iw.LOGINCTL_TIMEOUT_S + 2 * iw.VERSION_TIMEOUT_S + iw.RENDER_TIMEOUT_S
+                         + 2 * sysctl                                   # the two units' states before
+                         + sysctl                                       # the restart of the one unit that ran
+                         + 2 * sysctl                                   # enable --now, daemon then client
+                         + c + (iw.STARTUP_STATUS_POLLS - polls) * (iw.STATUS_TIMEOUT_S + iw.POLL_S)
+                         + 2 * sysctl + 2 * settle + 20)                # a failure: disable --now both, settled
         self.assertGreater(iw.CARRIER_STOP_BUDGET_S, 2 * iw.SYSTEMCTL_TIMEOUT_S)
 
     def test_the_daemon_answers_both_in_the_wires_reply_shape_and_a_refusal_is_one(self):
