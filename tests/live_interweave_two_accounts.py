@@ -187,6 +187,16 @@ def phase_serve() -> int:
     return 0
 
 
+def share_dir() -> str:
+    # makedirs' mode is cut by the umask; the other account must be able to write here
+    os.makedirs(SHARE, exist_ok=True)
+    try:
+        os.chmod(SHARE, 0o1777)
+    except PermissionError:
+        pass
+    return SHARE
+
+
 def mid_of(sender: str, tag: str, t0: int) -> str:
     h = f"{t0 + (0 if tag == 'small' else 1):012x}"
     return f"{h[:8]}-{h[8:]}-7000-8000-{hashlib.sha256((sender + tag).encode()).hexdigest()[:12]}"
@@ -206,7 +216,7 @@ def phase_exchange() -> int:
     big = "".join(hashlib.sha256(str(i).encode()).hexdigest() for i in range(3200))
     for tag, body in (("small", "hello across accounts"), ("big", big)):
         mid = mid_of(LOGIN, tag, t0)
-        text = (f"[GZCOORD/1] INFO\nFROM: {HOST}/{LOGIN}\nROLE: r\nTO: {HOST}/{other}\nMESSAGE-ID: {mid}\n"
+        text = (f"[GZCOORD/1] INFO\nFROM: {HOST}/{LOGIN}\nROLE: python-dev\nPROJECT: agent-fabric\nTO: {HOST}/{other}\nMESSAGE-ID: {mid}\n"
                 f"SUBJECT: j92 rule 13 live check {tag}\n\nCONTEXT:\n{body}\n")
         t = time.monotonic()
         ans = server.call(sock, {"op": "send", "message_id": mid, "text": text}, timeout=30)
@@ -225,7 +235,7 @@ def phase_exchange() -> int:
     got = until(lambda: expect <= {x["mid"] for x in seen()}, 180)
     out["arrived"] = [{k: x[k] for k in ("mid", "carrier", "verdict")} for x in seen() if x["mid"] in expect]
     say(f"exchange: {other}'s messages arrived here: {got} {out['arrived']}")
-    os.makedirs(SHARE, mode=0o1777, exist_ok=True)
+    share_dir()
     path = os.path.join(SHARE, f"{LOGIN}.result.json")
     json.dump(out, open(path, "w"))
     os.chmod(path, 0o644)
@@ -277,7 +287,7 @@ def phase_portcheck() -> int:
         if started != expect_start:
             say("portcheck: UNEXPECTED")
             return 1
-    os.makedirs(SHARE, mode=0o1777, exist_ok=True)
+    share_dir()
     path = os.path.join(SHARE, f"{LOGIN}.portcheck.json")
     json.dump(results, open(path, "w"))
     os.chmod(path, 0o644)
