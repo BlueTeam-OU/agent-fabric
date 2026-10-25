@@ -41,7 +41,7 @@ THE SEQUENCE, for one account, as that login and with no root:
      byte for byte, the two unit templates must be there, and every program
      in `reports` is run from ~/.local/bin and must print its value again;
   9. exactly the units that were running are restarted and checked: each
-     active (twice, a poll apart), the daemon printing the pin's value, the
+     active (twice, a poll apart), the daemon's process running the installed file, every program the pin reports printing its value, the
      carrier answering `gzcoord-carrier status` when its client runs. With no
      unit running there is nothing to restart and the check is the version
      alone, which the reply says. A check that fails, or any failure after
@@ -431,7 +431,8 @@ def restart_units(units: list[str], run: Callable[..., Any], home: str) -> str |
 def channel_check(profile: str, running: list[str], build: dict, root: str, run: Callable[..., Any], home: str,
                   sleep: Callable[[float], None], polls: int = CHECK_POLLS, pinned: bool = True) -> dict:
     """The check of the units in `running`: each active (and still active one poll later, so a crash loop is not
-    mistaken for a start), the daemon program printing the pin's value, and the carrier answering `status` when its
+    mistaken for a start), the daemon's process running the installed file, every program the pin reports printing its
+    value, and the carrier answering `status` when its
     client unit runs. `pinned` False (the check after a restore) leaves the version out: the programs put back are
     the account's own, which the pin says nothing of. {"status": "passed" | "failed" | "not-running", "reason"?, "units": {unit: state}}."""
     daemon, client = unit_names(profile)
@@ -464,11 +465,8 @@ def channel_check(profile: str, running: list[str], build: dict, root: str, run:
             return failed(str(e), unknown=True)
         if bad:
             return failed(bad)
-    if daemon in running and pinned:
-        want = build["reports"].get(DAEMON_PROGRAM)
-        if want is None:
-            return failed(f"the pin has no value for {DAEMON_PROGRAM} --version")
-        bad = check_reports(bin_dir(home), {DAEMON_PROGRAM: want}, run, home)
+    if pinned:
+        bad = check_reports(bin_dir(home), build["reports"], run, home)     # every program the pin reports, not the daemon alone
         if bad:
             return failed(bad)
     if client in running:

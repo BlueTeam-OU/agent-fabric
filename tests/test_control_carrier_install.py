@@ -931,8 +931,10 @@ class Channel(Case):
         self.assertEqual((first["restored"], second["restored"]), (False, False))
         kept = sorted(n for n in os.listdir(self.state) if n.startswith(f"{iw.INSTALL_OP}-previous."))
         self.assertEqual(len(kept), 2, "each attempt keeps its own")
-        self.assertEqual(digest_of(os.path.join(self.state, kept[0], "transportctl")), old["transportctl"],
-                         "the first attempt's copy is still the account's true previous program")
+        self.assertEqual(digest_of(os.path.join(self.state, kept[0], "transport-daemon")), old["transport-daemon"],
+                         "the first attempt's copy is still the account's true previous program, the one whose restore failed")
+        self.assertNotEqual(digest_of(os.path.join(self.state, kept[1], "transport-daemon")), old["transport-daemon"],
+                            "the second attempt kept what the first left, not the first's copy")
 
     def test_a_program_that_was_a_link_is_a_link_again_even_over_a_killed_restores_leftover(self):
         self.release()
@@ -1037,6 +1039,17 @@ class Channel(Case):
         self.assertEqual(self.read_channel()["status"], "off", "a unit that runs but is not active is off the channel")
         self.systemd.hang = "show"
         self.assertEqual(self.read_channel()["status"], "unknown")
+
+    def test_the_read_sees_a_reported_program_that_prints_another_version_whatever_the_daemon_does(self):
+        self.release()
+        self.install()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.assertEqual(self.read_channel()["status"], "ok")
+        with open(os.path.join(self.bindir, "transportctl"), "wb") as fh:
+            fh.write(program("transportctl", f"transportctl {VERSION}+deadbeef0000"))
+        c = self.read_channel()
+        self.assertEqual(c["status"], "off")
+        self.assertIn("transportctl --version prints", c["reason"])
 
     def test_the_read_sees_a_daemon_that_never_restarted(self):
         self.release()
