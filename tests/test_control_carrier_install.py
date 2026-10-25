@@ -1594,7 +1594,8 @@ class StartStopWiring(Case):
     def test_the_budget_is_the_sum_of_what_the_action_may_wait_for(self):
         c = iw.CHECK_BUDGET_S
         self.assertGreater(iw.CARRIER_START_BUDGET_S, c + iw.RENDER_TIMEOUT_S + iw.LOGINCTL_TIMEOUT_S
-                           + (iw.STARTUP_STATUS_POLLS - iw.CHECK_POLLS) * (iw.STATUS_TIMEOUT_S + iw.POLL_S))
+                           + (iw.STARTUP_STATUS_POLLS - iw.CHECK_POLLS) * (iw.STATUS_TIMEOUT_S + iw.POLL_S)
+                           + iw.SYSTEMCTL_TIMEOUT_S + 2 * iw.SYSTEMCTL_TIMEOUT_S)
         self.assertGreater(iw.CARRIER_STOP_BUDGET_S, 2 * iw.SYSTEMCTL_TIMEOUT_S)
 
     def test_the_daemon_answers_both_in_the_wires_reply_shape_and_a_refusal_is_one(self):

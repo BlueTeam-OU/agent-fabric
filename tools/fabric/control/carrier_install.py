@@ -163,14 +163,14 @@ CHECK_BUDGET_S = (2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * P
 # An install asks the units' states before, then twice (the install, the restore) restarts both and checks.
 CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
                             + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S))
-# A start: the linger question, the programs' versions, the config render, two `enable --now`, one channel check, and on a
-# failure two `disable --now` and the states.
+# A start: the linger question, the programs' versions, the config render, at most one restart (the one unit that ran), two
+# `enable --now`, one channel check, and on a failure two `disable --now` and the states.
 LOGINCTL_TIMEOUT_S = 10
 RENDER_TIMEOUT_S = 30
 # A carrier that has just started verifies every roster row before it opens its socket (29 s measured with 26 rows, 2026-10-25), so the
 # start waits for `status` much longer than a restart's check, which finds a carrier that was already up.
 STARTUP_STATUS_POLLS = 45
-CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
+CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_TIMEOUT_S + SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
                           + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20)
 CARRIER_STOP_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20
 # The read: the installed programs' versions, the units' states, and one look of the check (which asks the states and the
