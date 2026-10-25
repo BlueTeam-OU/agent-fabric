@@ -849,7 +849,7 @@ def _landed(bindir: str, home: str, programs: dict[str, str]) -> str | None:
 
 # --- start and stop ------------------------------------------------------------------------------------------------
 
-CLIENT_PROGRAM_REL = os.path.join(".local", "libexec", "interweave", "client")
+CLIENT_PROGRAM_REL = os.path.join(".local", "libexec", CARRIER_NAME, "client")
 STOPPED = ("inactive", "failed")     # `failed` is a unit that ended badly: it does not run, which is all a stop asks
 
 
@@ -977,7 +977,7 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
     for unit in UNITS:
         if not os.path.isfile(os.path.join(unit_dir(home), unit)):
             return _refused(f"{unit} is not in {unit_dir(home)}; run {INSTALL_OP} first")
-    # The client template's ExecStart: not in the release (InterWeave ships no automated client) but put there per account by
+    # The client template's ExecStart: not in the release (the release ships no automated client) but put there per account by
     # gzcoord/carrier/install_client.py; without it the daemon would start and the client unit crash-loop on 203/EXEC.
     client_program = os.path.join(home, CLIENT_PROGRAM_REL)
     if not (os.path.isfile(client_program) and os.access(client_program, os.X_OK)):
