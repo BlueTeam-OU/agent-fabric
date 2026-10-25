@@ -26,6 +26,246 @@
       "peer_id": "12D3KooWLHjHbABsmz2d2ZuyJQVsPDwyR9AY2X1pVArJpGhr2RFL",
       "port": 47102,
       "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5SFwAKCRDXDobMImJA\n6rw2AP9Q7zw+lXRv/StLMtqezxpmxM6A5IEk5huyOrtvN6B2wgD9HFSKhJ0nifjT\nmKAVFkWlul5IZojaAZWqnYvNnGIDKQk=\n=VY0W\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "019ffcb2-78fd-7670-93fc-a3577216395f",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWM3d5cqcjBnFei9yzf9jqToTNbuqNp3M9n59r2L1bznJk\n",
+      "login": "architect-cto-01",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHQEABYKAB0WIQSvUy4H9Qq74riqhzKSzyB4Aq7HaAUCat5iywAKCRCSzyB4Aq7H\naOYoAP9sW/y/V02mUyu1+wPUN7OuEtAZv2u2ZHEEX8hxQR8GZQD2KL4ZCtLjYqU8\nnKC4SZa8itOtEiKfdna34tqnDI4dDQ==\n=S5K4\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWM3d5cqcjBnFei9yzf9jqToTNbuqNp3M9n59r2L1bznJk",
+      "port": 47103,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5khQAKCRDXDobMImJA\n6phLAP4i4THBQP+RA5u/bGH52Df8V/51BFVemggmfCAa+zrYPAEAqqI+gCnzt8Nb\nS3EJf2yOVVOFsj/eqXKQ6jARYO54ywk=\n=Uq1c\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a00bc1-4716-7e1f-bc43-931dc632f798",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWG4KVkeRBTXNoB1jDJBzw2totcTU5VXw1uJDP9gZqyGme\n",
+      "login": "backend-dev-01",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQQ9obxJxnOzS0jpmqR4VQgFEpsGnAUCat5i4AAKCRB4VQgFEpsG\nnBkBAP0R4RHQg2N4vdXm+xfw+Gkdo4ANccgWiMM2yVcvrTLmJgD/SnGYHGnE+y6T\nvk78m/8ZPsGPhHQFyO9VUKdP6ZPLCQE=\n=0Jdo\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWG4KVkeRBTXNoB1jDJBzw2totcTU5VXw1uJDP9gZqyGme",
+      "port": 47104,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kiAAKCRDXDobMImJA\n6qGaAP489Pk9QIlGi2cctwkWQq7D7PwwgSMu3Q4SAm4f4qFbPAD/cS1vdLdAOOr4\nRR0+vIkbDWxvXK4J/JxRCS3YraYCVAo=\n=fhuh\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a00bc1-473a-7be3-bfe2-4b1814f37e09",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWQg5XjAjNnmRzd5z1R8CW6SeTrbCSxRiYx2aj2RP44a9V\n",
+      "login": "backend-dev-02",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQQtKlFm+TO3GVMeZ5qDUYqrkk4KCAUCat5i7wAKCRCDUYqrkk4K\nCFJcAP9jeD/bRdgRnymyl1cafj+8Be6hzZESbAyUuGwgq6sIvAD/SC30XBqknaGJ\nyrjd4VgLk5qlcJw8quLP2WWlJSh9lQo=\n=Lpkn\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWQg5XjAjNnmRzd5z1R8CW6SeTrbCSxRiYx2aj2RP44a9V",
+      "port": 47105,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kiwAKCRDXDobMImJA\n6vFAAQD7hsyBAsljgzmo7//iT0QUdffUyOoeP0gOAF5xgNWXUQEAv8Vcvmfudru0\n4A+NpudaMT0s2anOvhkffwKYga6AKw0=\n=doq9\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a0a6a1-bfd6-7967-af5c-34ea643640a3",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWN8anav4A58jHWtvbNG3kVnSyrFpBsjvh8wvWrPueo7Wy\n",
+      "login": "brand-comms-01",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTsQ6xEKeouew9Kx90L3CLyfPkMtAUCat5jHQAKCRAL3CLyfPkM\ntKWZAP9A2tDGthwPTm1HpmV6wG7cF31M6+yvnwMnKO6Z1zaLYwD/RVam4JF7qctt\nE15gXomY+shLoT40+60pCS+qXXazZwg=\n=KA7e\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWN8anav4A58jHWtvbNG3kVnSyrFpBsjvh8wvWrPueo7Wy",
+      "port": 47106,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kjgAKCRDXDobMImJA\n6rFSAQDGHDj2gLA+b1IsO6oJu4kyxPUXIyMf1gj/igTobuoB/gD8Dlk9Mx7byKjw\nqxLMIN9MFHnHA0rcVFM2us6/LdE8/Qo=\n=AowC\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a00bc1-475f-791e-a72f-4ce38715e628",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWGCkeWWgXjFTuLDJTwkvXbCB2qihA2GAt28U1K9RhfAsQ\n",
+      "login": "db-admin",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQQRBZm5azuVulitzY+MpipumMyL8AUCat5i8wAKCRCMpipumMyL\n8IDBAQDxHRv1rR0l6YEQUj1NbkAJs7/6j/NHl/U8U57VKRguJgEA23+fCMOrZGgP\ndAhmbtkPbljsIdobmIaGlmKHWgDYEAU=\n=ldn7\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWGCkeWWgXjFTuLDJTwkvXbCB2qihA2GAt28U1K9RhfAsQ",
+      "port": 47107,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kkQAKCRDXDobMImJA\n6m3qAP0V/lqiaNlgVDSdUWT8V05NBt+axBXwtS6DShuTEsIoYQEA4R2Vp/4Z96p1\n+XDptLsHdYsL0pJ3DaXD4x2BZOcudg4=\n=/efQ\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a00bc1-47e7-7bc8-9a0d-2e436f5740de",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWKrPKCQcfatopt55Q4p7p92AvVbt5KVZc5TCEFwnkS5Hq\n",
+      "login": "devex-tooling",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTorAC8Cj1Nrw2MaSrdq2i9FKew/wUCat5i5AAKCRDdq2i9FKew\n/3r1AP0X5jKNJuGDoV8M4ItcMZKltjpinJ8Uq053+CBzAo1i9wD9GpF1g6WgHx5T\n9KVqOTN03eye/+/ObOR5xVsAnOSetAk=\n=11AG\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWKrPKCQcfatopt55Q4p7p92AvVbt5KVZc5TCEFwnkS5Hq",
+      "port": 47108,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5klQAKCRDXDobMImJA\n6gFVAP9tV6Cr8jtK8VMDlXB7ATr/rHsHI1B45+FUnEzRu0zRpQEAke8NXGEpOFVu\nm86cyd+96JXcwRhyPbZzpaxFqjk/JAE=\n=ZFYi\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a00bc1-4824-7ace-a01e-6e46a11f9acc",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWPHpG1xQ9CwzW5wcjP9FfQicMEath4bvvLUxB2RyLrPse\n",
+      "login": "domain-transit",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQQaJPD2mikksGZmSmPWaLpLUHpK3gUCat5i/gAKCRDWaLpLUHpK\n3qX7AP9wlu5BCAfCqVoFhV9MAOU3gANsChume3bt6JtgzvqdmQEAj5DxxBnFueCp\ngU03/EPQ5g2XQJ8KAkaNdjJHj2m6pAU=\n=Jmr0\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWPHpG1xQ9CwzW5wcjP9FfQicMEath4bvvLUxB2RyLrPse",
+      "port": 47109,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kmgAKCRDXDobMImJA\n6lvFAQCm9lOaX7U1+baNDWtBkYzopbpg7/g9ElN2fVW4gp2JbAEAlts0ERs2XvF+\nLFqAqrY27ggW1RPZ4oyoYdm2mLkpNgw=\n=j5gv\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a00bc1-4805-7e5b-ab38-2fe6e65b2eed",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWShnbNnP9g2QXbJZ8hW2uW8VyStScnb2u3p96kZtUZ6qF\n",
+      "login": "edge-hosting",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQSePGFK03IzksKPhGqkjmMhKLGLhAUCat5i+AAKCRCkjmMhKLGL\nhDTwAP9t2AfkqM+sX+JmGxZZMyZcCsDHAdBpavEDo8ZJ3S1DGgEAp6tSAyBSRdLL\nKc5Ir6jU/mcn5u5x8Y+CBNovpAEWdwU=\n=WxZk\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWShnbNnP9g2QXbJZ8hW2uW8VyStScnb2u3p96kZtUZ6qF",
+      "port": 47110,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kngAKCRDXDobMImJA\n6gfBAP0YTqHqWhAXRPVatFCUCl0SXSzJUeG87A5Y8eocMwBBoAEAw3YZwdqglI1n\nZpVMYEqPClWhqddPvgqbJGGHaBLjGgQ=\n=2A+/\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a00bc1-47ae-77e3-82cd-263b23004b9a",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWETetK58HZgtHQsNAvYeBfjwKBw9ZibBv4qxRv5kaUu5r\n",
+      "login": "flutter-dev-01",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQRkf02/qTpfJYVLAfPYsG4WzeJ5ZgUCat5i2wAKCRDYsG4WzeJ5\nZluQAP4mU9nGJuqtbMEmfos7kYYlxHpm1qrzx9PjQ5CcTfKtEQEAs4C0of33RyaG\nxwtn4gX0lULS78SigtYSNEw5FMVqWAI=\n=CUvF\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWETetK58HZgtHQsNAvYeBfjwKBw9ZibBv4qxRv5kaUu5r",
+      "port": 47111,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kowAKCRDXDobMImJA\n6pWnAQDGH2CwhoB2gMQlGzJDqq4c2TvLf86K36kxUVVK+IZU4QD/ZfBv3CU6xV1R\nwM9U+Fmaa19MgJGnnSM+RetMS+r83AQ=\n=NApD\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a1181e-00d9-7754-9b26-445987f94160",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWNSt21zJrQgVUg2bpmnAKFTgLahyMqaBuQM3WKLhoRtnh\n",
+      "login": "language-culture-en",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQQxewvOBXDk2zGclBwX4SKDt64NxgUCat5jQQAKCRAX4SKDt64N\nxkSaAP95aDwLuHjK/RazTXJbAJzhm8nzAnLS3lCo6KzRF3ajQAEAzRpV3ZzLchuX\nJmeuTPYEbfCclCRBW9znI34yURAddgc=\n=P6Fw\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWNSt21zJrQgVUg2bpmnAKFTgLahyMqaBuQM3WKLhoRtnh",
+      "port": 47112,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kqAAKCRDXDobMImJA\n6jjHAQCkCJCpVai1pDlpRfGwnWpSz4j7txM23cS1ysa+hfo0GwEApQaFtOLEVxm0\nn6+46aa6ykxFkdtWHmE+bDcd6c05gAU=\n=Sa2B\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a0add8-5248-73ec-a60d-34cff7e5e3e7",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWEEJKiUxzuRZ9vrtpUPUuofogKERkY4BK9u6iRSZhJbTq\n",
+      "login": "language-culture-ge",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQR6NMHLqmRr/imBPm4lcEdDN2TeRQUCat5jNAAKCRAlcEdDN2Te\nRVJJAPsGGj8xdpDcgorrPwSngTr7HILU7vAQdtIIYoxvzuQfCwEApujfHcb/jQP1\nMPJ+yXsJytXoabRcd5IQ5c9ozN4psgI=\n=23an\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWEEJKiUxzuRZ9vrtpUPUuofogKERkY4BK9u6iRSZhJbTq",
+      "port": 47113,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5krgAKCRDXDobMImJA\n6nAUAQDTxkJuzlGZrSba3qGtUXKj46r3LMhw8l3sObDRDsDb2wEA9jfsaxQtROyQ\nzJlmhTG0/j4hxO1iqNeYZ11KTWw/zAU=\n=I68G\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a14174-8c0b-729f-ac13-fa44f6453336",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWKs8oatNg3D1xirxofKV78GP6G86i9d7PvqG4kHfSys7r\n",
+      "login": "legal-expert-ch",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTQymxdWaWHmiboOypzDIwi7PnVYwUCat5j4gAKCRBzDIwi7PnV\nYwvTAQDG99palsT6WW5GuWK+3gAqGfWMrqj7lPRGilJwMNzHHgEAiuMXxUv0/7RU\nBIVzWNHdz4vfyUGTj3zOPAqFQbOofwE=\n=qDEJ\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWKs8oatNg3D1xirxofKV78GP6G86i9d7PvqG4kHfSys7r",
+      "port": 47114,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5ktQAKCRDXDobMImJA\n6mUCAP9c1vcxZqcUvMiK+JR+Kf3m0f5j58Z0iLY6qVDP8CzHKwD/W7eaAcBqvdvU\nH8FYplcTXlXysyKXWF22BLG+YmiHww4=\n=vgzu\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a14107-9ab9-761e-971a-3994d937546a",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWGNawDvxMGLYqo1zkr57J9arf36F8AwTZZpJvAA2LCDRT\n",
+      "login": "legal-expert-ee-eu",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQSkB0k6CDsXcLhOIoJTkyLK45XLCQUCat5juwAKCRBTkyLK45XL\nCYInAQDXR4814xexBYBRHVdnzxxemrYWdFlPAI9CmPLLUuDglwD9FmcVQnrkKqcj\nWX8VcMlkVeoNvBBm5bsjz4ruc8C7ngw=\n=jnZk\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWGNawDvxMGLYqo1zkr57J9arf36F8AwTZZpJvAA2LCDRT",
+      "port": 47115,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kuwAKCRDXDobMImJA\n6mdFAP4tSdY8MY6Pm6ybdoFjFMRqGL4/UtJcBhSe2gvaziFI1QEAjCmX3Z+VOLW0\nnddUD3zJkk4Zq+LigF0mz7IEA9YewAE=\n=b3PI\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a1417b-3c0f-723d-a7a6-a5a13e19532a",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWDvfaeWewxtpTgQCAEXkMng2RDStTz6dUENLxKYUKjGF8\n",
+      "login": "legal-expert-ge",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQT3ZuGn7mPGLd78oz78vgMQXWQ4BQUCat5j4QAKCRD8vgMQXWQ4\nBeMDAQDAX7b2rUqStgtVXEIJUX2irErw8HT6AlEI/cPs9smZ6gD+LzowaOdRLiwb\n7sZD+PapSTOu2YqLJnqid2mwE65Knw0=\n=O6F+\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWDvfaeWewxtpTgQCAEXkMng2RDStTz6dUENLxKYUKjGF8",
+      "port": 47116,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kwAAKCRDXDobMImJA\n6rLiAQDGHusYeKnOnK8qMS+bc92pfDgFKGi1dOBwZeLmwsXvWwD+J17bOJ9NIidF\n+m3JBJ9MNTnciXbUKftzeF9b1b9XpAg=\n=5Ukd\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a0af8f-16e9-7ea7-87fb-de56cec54f8b",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWQLehN7SQH4bdM5aeWDu7mwcsbodGcxjziYzohJKBqJ4t\n",
+      "login": "p2p-network-dev-01",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQQWCoFQtqv+INW++FuPz4OYPmNOvwUCat5jKgAKCRCPz4OYPmNO\nv+TJAPwKv8xBbsSd9q6DFHLZM8iQZ6mOXjFF/Wf6/0zyYaX+swEA1q1vFukxRxtQ\nHvqrPf46iz3EmFNKkv0QGkOgXWbx3wk=\n=aQbX\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWQLehN7SQH4bdM5aeWDu7mwcsbodGcxjziYzohJKBqJ4t",
+      "port": 47117,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kxwAKCRDXDobMImJA\n6ub2AQDoWVucBFwEjdW83nBF9R3nyQi3j600EoLjN2/t9Q4vfAEA8tPEaX0EFh8F\nObLisrv1L3xDT50Ao/1x3PTcg5pHNw0=\n=ZE6e\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a11619-eab1-74c0-bbd0-42fafa15c39b",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWFt9jFnBpaq2LZmbKyuQxJFzZLnaf5WKPLMm4QM6aH3pj\n",
+      "login": "p2p-network-dev-02",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTmmCvDh8XnGTbg4TpSMVFz4rzw+QUCat5jiAAKCRBSMVFz4rzw\n+RIQAQDbsz3AUxHJR5d8Qxy6snivnSlipw8OWSmDLJAzFfc7rgEA4b3GIpV1zZvd\nGBwiHhBhUx/8q14HKMnTt0w4rImf5Ak=\n=mH/W\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWFt9jFnBpaq2LZmbKyuQxJFzZLnaf5WKPLMm4QM6aH3pj",
+      "port": 47118,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5kzAAKCRDXDobMImJA\n6r7HAQDbkmnWhaLJqlhUQJtWAjgnUlhTV/MQn+qbzeFYSAG2+gD/ThBV2nkqaRHJ\n7rbDWZ2byHIyUCcZLTJU/bZL49WfiA8=\n=6YtK\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a0f782-7e06-7dee-811f-0a860ed93bf3",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWKs35afutDfueRsCixdRGt2DgqLZkaCu4Drp5PxvmAwV9\n",
+      "login": "python-dev-01",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQST+7p4XE7jdTMZfurHYRKob6IQyQUCat5jUgAKCRDHYRKob6IQ\nyV5ZAP4iLEheghyipGxfgHy2aYXERLghU1HayzBcgGb0gtZIpQD/YIEswdDmacy5\nvqJoIJfCmDAYB49yiuvHQPMO5y8DKAY=\n=17Gy\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWKs35afutDfueRsCixdRGt2DgqLZkaCu4Drp5PxvmAwV9",
+      "port": 47119,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5k1AAKCRDXDobMImJA\n6rfVAP9pX+iCAdr12UUfQZj35GV4FsIgr6+78BGLbNMYu1+FeQEAha91L4BDIPOx\nD9uh/PkXv8LYZRcv71MHuWp3+U/fsgk=\n=A9OX\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a11fdd-7964-789c-9bd2-ff45c9b4db16",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWBb2cMgXutJXfcY8KgBtHHEhKo4fmUK8sCj7BdgfRHAXB\n",
+      "login": "python-dev-04",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQQcartYikyeMekb/VMnMVwm+Cj8LwUCat5jmgAKCRAnMVwm+Cj8\nL9RAAQDJTGjMP5iYDNr8z5AU9OoM5Pf6ZwrnrsLzc2cu1GKp5wD/Uf7jssXGTowM\nk+YkQUYrAppYk5MkIvS1Un6HRVTx+gk=\n=1fQq\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWBb2cMgXutJXfcY8KgBtHHEhKo4fmUK8sCj7BdgfRHAXB",
+      "port": 47120,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5k2wAKCRDXDobMImJA\n6gPQAQDSSfFilPTtPgQtF6EXBTsPpJHTOymogAXlBQZjOBUJZgEAhtowi5lUc2Ib\nisAM/bagEo22LoAQMmRK5EXcQ0Rq0Q8=\n=4c1x\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a11618-0f9b-7e96-8272-dad8faa1defa",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWCfEnrpTTe5dsfCp2q2tMaLWuDTui8d7BWQXviG5GazLQ\n",
+      "login": "rust-services-dev-01",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQT81jNY3gcMuGVykQMNB06rQ7R5fgUCat5jhgAKCRANB06rQ7R5\nfiEOAQCD/cEwPafS5yZLFKFhveMvMuR+kDX16z+LSVxRIS/WPgD+MBDL7GM6XB0r\nuzIQEKAX4yhC8CC9MGkosXLkjlOM6wU=\n=TSdE\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWCfEnrpTTe5dsfCp2q2tMaLWuDTui8d7BWQXviG5GazLQ",
+      "port": 47121,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5k4wAKCRDXDobMImJA\n6goeAQCl2UFtDbsJxnsUhUw+ORfEHJcqIZ09+XaS8fBKCF9drwEA8A8HGOOgS6Yd\n3I+Eus+aebGxgfkP5XEZxtMDnB2D0gs=\n=pLoG\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a12051-ae61-7f33-a9ae-eedb3153ed42",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWPaVtwRtrtGA54HKgvig5VsnbMJ5VaT2hATSR63iB7bjf\n",
+      "login": "rust-services-dev-02",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQQ7qjJfvzuDjj5aNlKVAdzUMwQmigUCat5jwQAKCRCVAdzUMwQm\nijX+AP9gEY7gOznpwi3drfoQg/2lhOOmjzoyLG7+gohxt1VfgwEA9RDxDibfPnCD\nn5iArx2qmDYR/h6mH4os68xWQBjePQM=\n=/jgx\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWPaVtwRtrtGA54HKgvig5VsnbMJ5VaT2hATSR63iB7bjf",
+      "port": 47122,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5k7AAKCRDXDobMImJA\n6k7IAQDLqnsf+kH9+sKxYstmfQw0Im02sAi5c+E6Lf4+tL9dtQEA1PNvXprbgH3D\nbm8ukEVzahiFl+LUiPjAaItE+D4lYgA=\n=b/JF\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a129e5-3558-7a18-9443-f4b58ead1cf6",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWEse5eky8Y2qioiDGHJ2fDxmfXZM8VDGXyq62xEQQhzWc\n",
+      "login": "rust-ui-dev-02",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQQzUtJULPJMfZr7ljkmqbmrJC4h7QUCat5jcQAKCRAmqbmrJC4h\n7duaAPsGRCPbOsGBwg/uBP6j+4sPErZpD6VwxkgmVp4cHEZTEwD/Vy5EkAbZtA7Z\nrLEwt4OZxAaFNP6UeFA78TRIEWLR1Ao=\n=HK3u\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWEse5eky8Y2qioiDGHJ2fDxmfXZM8VDGXyq62xEQQhzWc",
+      "port": 47123,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5k9wAKCRDXDobMImJA\n6qRoAQDGedfXe2wpn8F3Ckr4N2y6Ua9cFhE3+k6KpCLAuOLNzQD/Y2VIqltYGFu7\nWnmvhfSXyVqy012HW3/nO/isUFYclA0=\n=lDmP\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "019bbe31-2fff-7a2f-9849-96bdf286e011",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWKtavJDsdJ65uM6z9GZr8mHnBPEmLYEHYi3HKwfdqNKDa\n",
+      "login": "user",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5iiwAKCRDXDobMImJA\n6rfAAP9+0UhKRSUgZJG9vQAFpXsUTmQBkeSOGSaBP04OxbaQJwEA6nlNHSeNxn9t\n3XnGyOeLeuoPTgqUxHar9K/mu/+4HQI=\n=X5l2\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWKtavJDsdJ65uM6z9GZr8mHnBPEmLYEHYi3HKwfdqNKDa",
+      "port": 47124,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5lAwAKCRDXDobMImJA\n6sAgAP9wawvTRk6JYF8Morp5peM+rXWL/fGVbr97OpWpK06J7AD/WWfCkUOt3Suf\na5YTIovm3gjjuKVWn/ujasvwpbKxPgE=\n=JSGg\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a00bc1-4782-7de9-88a5-8f6ee3849c46",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWMtw9WqaYXNVcPXoVFFTxBRfjsK41ET8XbnDYu1BLhTMj\n",
+      "login": "web-dev-01",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQR/Xe4RsMfwn8u2FTkjerEp0EMLaQUCat5i5AAKCRAjerEp0EML\nad6iAQCAzY5oz42NLw0mCOFqy+BZj1iOE1ZQe5ezDo3oNG2E7AD+JJtnrE7ToU+B\nolG9kEwdXxLbyPtFVms00G6fpTttkAo=\n=nlcC\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWMtw9WqaYXNVcPXoVFFTxBRfjsK41ET8XbnDYu1BLhTMj",
+      "port": 47125,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5lCgAKCRDXDobMImJA\n6vFFAP426admWY5QqWLeIY0wERUp3K2I6k/U/y5avFKDdVEZBAD/Zh38jpQKiCdZ\nuZmtie/l9foJYRP4ZQBVBTl/pnTd7w4=\n=S3ey\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a00bc1-4796-745d-ae76-02c0cf34501c",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWSZJZ4LDA97rXiC9nXZXGCxJgJJYRGvp28VbCmfxY3MwT\n",
+      "login": "web-dev-02",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTDivaQ9oakEhH0aLee9b+X9jVMcwUCat5jGQAKCRCe9b+X9jVM\nc98IAP4sD9P9FF5EA9nH8sdSkKCvsKD0/XBnS10Q2TxnngmxxQEA9TLXrWARtiYB\nTBCn7H+ByXhbcjwkVzTbXiFiOYoJEgs=\n=huBt\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWSZJZ4LDA97rXiC9nXZXGCxJgJJYRGvp28VbCmfxY3MwT",
+      "port": 47126,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5lEQAKCRDXDobMImJA\n6jC0AQDupMZyDe+mk0FFGjdc6vcUYzSlNUMVfs8aiJ38aAudAgD+JO3h9CUPNUiu\ntuXPZtDR01887HIlImETrGBshOyz2AE=\n=EMHA\n-----END PGP SIGNATURE-----\n"
     }
   ]
 }
