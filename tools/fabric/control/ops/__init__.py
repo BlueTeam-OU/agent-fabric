@@ -57,10 +57,11 @@ from .activity import (script_counts, langid_cmd, languages, recall_kind, recall
                        WORKER_TYPE, worker_transcripts, source_locale, SOURCE_TAG)
 from .memory import MEMORY_PART_BYTES, memory_slug, memory_dirs, memory  # noqa: F401
 from .account_drift import FINDINGS_MAX, drift_report, section as _drift_section  # noqa: F401
+from gzcoord.carrier import CARRIER_NAME
 
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
        "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "tools-install", "local", "local-prune",
-       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", "branches", "branches-sweep", "restart",
+       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", CARRIER_NAME, f"{CARRIER_NAME}-install", "branches", "branches-sweep", "restart",
        "switch", "drift"]
 
 # Answered for any placed account, not only an operator: whether a session
@@ -102,6 +103,11 @@ def _tools(ctx: Mapping[str, Any]) -> Any:
 def _gateway(ctx: Mapping[str, Any]) -> Any:
     from control.gateway import gateway
     return gateway(home=ctx.get("home"), root=ctx.get("root"), **(ctx.get("gateway_opts") or {}))
+
+
+def _carrier(ctx: Mapping[str, Any]) -> Any:
+    from control.carrier_install import installed
+    return installed(home=ctx.get("home"), root=ctx.get("root"), **(ctx.get("carrier_opts") or {}))
 
 
 def _local(ctx: Mapping[str, Any]) -> Any:
@@ -192,6 +198,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "inbox": _inbox,
     "tools": _tools,
     "gateway": _gateway,
+    CARRIER_NAME: _carrier,
     "switch": _switch,
     "accounts": lambda c: c["accounts_cached"]() if c.get("accounts_cached") else accounts(c.get("home"), **(c.get("accounts_opts") or {})),
 }

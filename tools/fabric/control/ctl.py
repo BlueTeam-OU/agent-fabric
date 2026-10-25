@@ -14,6 +14,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login|all> drift
     fabric-ctl <login|all> tools-install <tool>
     fabric-ctl <login|all> gateway | gateway-install --version V
+    fabric-ctl <login|all> <carrier> | <carrier>-install      (the carrier's transport; gzcoord.carrier.CARRIER_NAME)
     fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <login|all> states [--follow] [--json]
@@ -112,6 +113,8 @@ from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, pu
 from control import units
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
+from control.carrier_install import CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDGET_S, INSTALL_OP
+from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, VERSION_RE, pinned_version
 import roots
@@ -199,6 +202,13 @@ VERBS: tuple[Verb, ...] = (
          "fabric-ctl all gateway-install --version 1.2.3",
          usage=(("<login|all> gateway-install --version V", "an action: install the gateway release the reviewed pin names, SHA-256 checked; a running gateway is never stopped"),),
          args="--version V", signed="always", options=(("--version V", "digits.digits.digits: the release (required)"),) + COMMON),
+    Verb(CARRIER_NAME, f"Each account's {CARRIER_LABEL} programs: the version they print, their digests, and whether the two user-unit templates are there.",
+         f"fabric-ctl all {CARRIER_NAME}",
+         usage=((f"<login|all> {CARRIER_NAME}", f"each account: the {CARRIER_LABEL} version it has installed, its digests, whether the unit templates are present, and whether its units are on the channel"),), options=COMMON),
+    Verb(INSTALL_OP, f"Install the {CARRIER_LABEL} release the reviewed pin names, from its archive with the archive's own install.sh; size and SHA-256 checked first. Enables nothing.",
+         f"fabric-ctl all {INSTALL_OP}",
+         usage=((f"<login|all> {INSTALL_OP}", f"an action: install the {CARRIER_LABEL} release the reviewed pin names with the archive's own install.sh, size and SHA-256 checked first; the units that ran are restarted and checked, or the old programs come back; enables nothing"),),
+         signed="always", options=COMMON),
     Verb("jobs-add", "Add a job to one agent's list. A job is one agent's, never the fleet's.", 'fabric-ctl db-admin jobs-add --project agent-fabric "port the thing"',
          usage=(('<login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<login>",
          args='[--topic T] [--project P] [--priority P] [--] "<title>"', signed="always",
@@ -573,6 +583,8 @@ def parse_args(argv: list[str]) -> dict:
                           else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
                           else 240 if op == "secrets-sync" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
+                          else CARRIER_INSTALL_BUDGET_S if op == INSTALL_OP
+                          else CARRIER_READ_BUDGET_S if op == CARRIER_NAME
                           else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
                           else 90 if op == "drift"
                           else SELFTEST_BUDGET_S if op == "secrets-selftest" else 20)
@@ -795,7 +807,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "keys": g("keys"), "fabric": g("fabric"), "session": g("session"), "script": g("script"), "recall": g("recall"),
                     "tokens": g("tokens"), "memory": g("memory"), "machine": g("host"), "disk": g("disk"), "accounts": g("accounts"),
                     "upgrade": g("upgrade"), "secretsSync": g("secrets-sync"), "restart": g("restart"), "presence": g("presence"), "jobs": g("jobs"), "tools": g("tools"),
-                    "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), "poolAdd": g("pool-add"), "local": g("local"),
+                    "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), CARRIER_NAME: g(CARRIER_NAME), f"{CARRIER_NAME}Install": g(INSTALL_OP), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
                     **{k: g(k) for k in ("harness", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
@@ -806,7 +818,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
 # What counts as success for each action; anything else fails the run.
 ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added", "listed"], "local-prune": ["pruned", "clean"],
              "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"],
-             "gateway-install": ["installed", "current"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
+             "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
 
 
 def targets_of(targets: list[str], placed: list[dict]) -> dict:
@@ -1235,6 +1247,39 @@ def _table_gateway_install(rs: list) -> list[str]:
         digest = S(dig(u, "sha256"))[:12] if T(dig(u, "sha256")) else "-"
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
                                   f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(nullish(dig(u, 'reason'), ''))}")))
+    return lines
+
+
+def _table_carrier(rs: list) -> list[str]:
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} {pad_end('version', 9)} {pad_end('pinned', 7)} {pad_end('units', 6)} {pad_end('channel', 12)} reason"]
+    for r in rs:
+        u = r.get(CARRIER_NAME)
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        units_ = dig(u, "units")
+        have = "-" if not isinstance(units_, dict) else "both" if units_ and all(v is True for v in units_.values()) else "no"
+        pinned = dig(u, "pinned")
+        channel = dig(u, "channel")
+        why = nullish(dig(u, "reason"), "") or nullish(dig(channel, "reason"), "")
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 11)} "
+                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end('yes' if pinned is True else 'no' if pinned is False else '-', 7)} "
+                                  f"{pad_end(have, 6)} {pad_end(S(nullish(dig(channel, 'status'), '-')), 12)} {S(why)}")))
+    return lines
+
+
+def _table_carrier_install(rs: list) -> list[str]:
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('version', 9)} {pad_end('verified sha256', 16)} reason"]
+    for r in rs:
+        u = r.get(f"{CARRIER_NAME}Install")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        digest = S(dig(u, "sha256"))[:12] if T(dig(u, "sha256")) else "-"
+        # The units' check is the news on an installed row; a failure's reason already carries it.
+        note = nullish(dig(u, "reason"), "") or (f"units: {S(dig(u, 'units', 'check'))}" if T(dig(u, "units", "check")) else "")
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
+                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(note)}")))
     return lines
 
 
@@ -1800,6 +1845,10 @@ def table(op: str, rs: list) -> str:
         lines = _table_switch(rs)
     elif op == "gateway-install":
         lines = _table_gateway_install(rs)
+    elif op == CARRIER_NAME:
+        lines = _table_carrier(rs)
+    elif op == INSTALL_OP:
+        lines = _table_carrier_install(rs)
     elif op == "restart":
         lines = _table_restart(rs)
     elif op == "jobs-add":

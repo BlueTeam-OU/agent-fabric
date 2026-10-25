@@ -4,7 +4,7 @@ runs this file under the pinned fabric-python. One process per account, run as t
 login: it answers the coordinator's requests on the control channel with
 what the account can say about itself (control/ops), and carries out the
 signed actions (upgrade, secrets-sync, jobs-add, local-prune,
-secrets-selftest, pool-add, tools-install, gateway-install, restart).
+secrets-selftest, pool-add, tools-install, gateway-install, the carrier's install, restart).
 
   python3 tools/fabric/control/agentd.py          the daemon: block, answer, repeat
   python3 tools/fabric/control/agentd.py --once   answer what is pending, then exit
@@ -91,6 +91,8 @@ WHERE THE PORT DIFFERS (each listed because a reader of the Node would look):
   - gateway-install (control/gateway.py, after the Node was deleted) and the
     `gateway` read are Python-only: gateway_install_opts and gateway_opts are
     their context keys.
+  - the carrier's install and read (control/carrier_install.py) are Python-only likewise:
+    carrier_install_opts and carrier_opts.
 """
 from __future__ import annotations
 
@@ -110,8 +112,9 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-from control import gateway as gateway_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
+from control import gateway as gateway_mod, carrier_install as carrier_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
+from control.carrier_install import CARRIER_NAME, INSTALL_OP  # noqa: E402
 from control.jobs import jobs_add  # noqa: E402
 from control.branches_op import branches_sweep  # noqa: E402
 from control.local import local_prune  # noqa: E402
@@ -225,7 +228,7 @@ ACCOUNTS_CACHE_MS = 5 * 60 * 1000
 # minutes, and the loop must keep answering behind it. `gateway` hashes
 # the installed binary and runs it, up to ten seconds; `branches` asks git of every working copy of the account
 # (a status per copy and per linked worktree), up to a minute each.
-BESIDE_LOOP_OPS = ["disk", "gateway", "branches", "drift"]
+BESIDE_LOOP_OPS = ["disk", "gateway", CARRIER_NAME, "branches", "drift"]
 # One disk scan per daemon, shared by every request that arrives while it
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).
@@ -620,6 +623,8 @@ def answer(request: dict, ctx: dict) -> dict:
             threading.Thread(target=ctx["tools_refresh"], name="tools report after install", daemon=True).start()
     elif op == "gateway-install":
         data = {"gateway-install": gateway_mod.gateway_install(request, home=home, root=root, **(ctx.get("gateway_install_opts") or {}))}
+    elif op == INSTALL_OP:
+        data = {INSTALL_OP: carrier_mod.carrier_install(request, home=home, root=root, **(ctx.get("carrier_install_opts") or {}))}
     elif op == "local-prune":
         data = {"local-prune": local_prune(request, home=home, root=root)}
     elif op == "branches-sweep":
