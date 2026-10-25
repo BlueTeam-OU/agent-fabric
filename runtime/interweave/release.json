@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "description": "The InterWeave release every account installs (agent-fabric ADR-064 §5 rule 4): a tagged release's Linux archive, pinned by the SHA-256 fabric-coordinator computed from its own download and matched against the release page, the page's .sha256 asset and the release run on the tag, never taken from the page alone. An account installs `current` by downloading `url` with its GitHub token, refusing any other digest or size, extracting the archive and running the archive's own `root`/install.sh with no argument (programs into ~/.local/bin, the two user-unit templates into ~/.config/systemd/user, nothing enabled, no profile touched); never a checkout build. `reports` is what each installed program's --version must print. Moving the pin is a commit here, and the accounts install the new one.",
+  "current": "0.1.0",
+  "releases": {
+    "0.1.0": {
+      "tag": "v0.1.0",
+      "commit": "7196157887c2642366f36db5dbf197eabb924972",
+      "release_run": "BlueTeam-OU/InterWeave actions run 40179792207 attempt 2, success",
+      "x86_64": {
+        "url": "https://api.github.com/repos/BlueTeam-OU/InterWeave/releases/assets/674907924",
+        "name": "interweave-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+        "size": 117226072,
+        "sha256": "77fcc622473016a5232bf10783c67581b8404cdeb910a9cd29855412c67e5115",
+        "root": "interweave-0.1.0-x86_64-unknown-linux-gnu",
+        "reports": {
+          "transportctl": "transportctl 0.1.0+7196157887c2",
+          "transport-daemon": "transport-daemon 0.1.0+7196157887c2"
+        }
+      }
+    }
+  }
+}
