@@ -6,9 +6,9 @@ each refuse a project that is no registry id; they share this one pattern so
 they cannot disagree about which REQUESTs are queued. A registry id is
 segments joined by single dots, each segment lowercase letters and digits
 with hyphens inside it, the whole at most 63 characters, no leading or
-trailing dot or hyphen. The registry holds ids with a dot (gzapi.ge,
-blueteam.brand), so a dot is part of the grammar; tests/test_registry_id.py
-checks every id in projects/registry.json against it.
+trailing dot or hyphen. The registry holds ids with a dot (a brand or a
+locale of a product, written product.part), so a dot is part of the grammar;
+tests/test_registry_id.py checks every id in projects/registry.json against it.
 
 Standard library only: the jobs parts load this file by path, never by name.
 """
