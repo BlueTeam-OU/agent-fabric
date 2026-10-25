@@ -32,9 +32,11 @@ coordinator's session).
 
 What changed: §5 gains rule 14. Installing or updating the InterWeave
 programs is a control-plane action. It restarts the units that were
-running, checks them through the control plane (the daemon and the
-carrier active, the pinned version reported, the carrier answering
-`status`), and reports done only after that check. A failed check puts
+running, checks them through the control plane (each of those units
+active, the daemon's process running the program now installed, the
+programs release.json pins printing their version, the carrier
+answering `status`; on a first install, the version alone), and
+reports done only after that check. A failed check puts
 back the previous programs and says so. The same check is the control
 plane's read of each account's InterWeave state after any restart.
 

@@ -234,18 +234,19 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     keeps on the relay and so reaches the account while that channel is
     down. The action restarts the units that were running before it,
     then checks them through the control plane: each of those units
-    active, its process running the program now installed (not the file
-    it replaced, which a program's `--version` on disk cannot tell), the
-    installed programs reporting the pinned version, the carrier
-    answering `status`. It reports done only after that check. A failed
-    check puts back the programs the account had, restarts them, checks
-    again and reports a failure with both results. On a first install no
-    unit was running and there is nothing to put back: the check is the
-    installed programs' version, and the reply says that no unit was
-    running. The same check is the control plane's read of every
-    account's InterWeave state, run after any restart of those units. An
-    account the check cannot confirm is reported as off the InterWeave
-    channel, and the relay carries for it alone (rule 11).
+    active; the daemon unit's process running the program now installed
+    (not the file it replaced, which a `--version` on disk cannot tell);
+    the programs `release.json` `reports` pins printing their pinned
+    version; the carrier, which is the fabric's own client and not an
+    archive program, answering `status`. It reports done only after that
+    check. A failed check puts back the programs the account had,
+    restarts them, checks again and reports a failure with both results.
+    On a first install no unit was running and there is nothing to put
+    back: the check is the pinned programs' version, and the reply says
+    that no unit was running. The same check is the control plane's read
+    of every account's InterWeave state, run after any restart of those
+    units. An account the check cannot confirm is reported as off the
+    InterWeave channel, and the relay carries for it alone (rule 11).
 
 ## 6. Consequences
 
@@ -306,4 +307,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-24 | the carrier's codec is zlib, a receipt also answers a message not addressed here, and the carrier contract is written | §2 (delivery), §5 rules 7 and 8 |
-| 2026-10-25 | an InterWeave install or update is a control-plane action, checked after the restart | §5 rule 14 |
+| 2026-10-25 | an InterWeave install or update is a control-plane action, checked after the restart | §5 rule 14; §6, §8 and Scope name v0.1.0 |
