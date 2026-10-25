@@ -44,14 +44,20 @@ exit 0
 
 
 def archive(version: str, *, escape: str | None = None) -> bytes:
-    """A tar.gz shaped like python-build-standalone's install_only: python/bin/python3."""
+    """A tar.gz shaped like python-build-standalone's install_only: the
+    interpreter is bin/python3.<minor> and bin/python3 a link to it, as in a
+    real build, so a link's realpath ends in python3.<minor> (#371)."""
     script = FAKE.replace("{version}", version).encode()
+    real = "python3." + version.split(".")[1]
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-        for name, data, mode in (("python/bin/python3", script, 0o755), ("python/lib/x.txt", b"x\n", 0o600)):
+        for name, data, mode in ((f"python/bin/{real}", script, 0o755), ("python/lib/x.txt", b"x\n", 0o600)):
             ti = tarfile.TarInfo(name)
             ti.size, ti.mode = len(data), mode
             tf.addfile(ti, io.BytesIO(data))
+        ti = tarfile.TarInfo("python/bin/python3")
+        ti.type, ti.linkname = tarfile.SYMTYPE, real
+        tf.addfile(ti)
         if escape:
             ti = tarfile.TarInfo(escape)
             ti.size = 2
@@ -111,7 +117,7 @@ def kill_matrix(check) -> None:
     kill between the renames leaves nothing at the link's target."""
     env = {"PATH": "/usr/bin:/bin"}
     for start in ("stamped", "flat"):
-        n, steps, bad, last = 1, 0, [], ""
+        n, steps, bad = 1, 0, []
         while True:
             with tempfile.TemporaryDirectory() as tmp:
                 prefix, link = os.path.join(tmp, "lib"), os.path.join(tmp, "bin", "fabric-python")
@@ -134,7 +140,6 @@ def kill_matrix(check) -> None:
                 if not served:
                     bad.append((n, os.path.realpath(link)))
                 if r.returncode == 0:
-                    last = r.stdout.strip()
                     check(f"[{start}] uncontrolled run completes: the link is the new pin's, the old build gone",
                           pp.check(new, prefix, link, "x86_64") is None and len(pp.builds_of(new, prefix)) == 1, r.stderr)
                     # The interrupted runs, re-run, finish the job: nothing a kill left stops the next install.
