@@ -45,7 +45,7 @@ TRANSPORTCTL_TIMEOUT = 60
 GPG_TIMEOUT = 60
 
 class AdmitError(Exception):
-    """A refusal with the fact that fixes it; nothing was written or minted."""
+    """A refusal with the fact that fixes it; nothing was written, and no transport key is minted after one."""
 
 
 def pinned_version(release_path: str, machine: str | None = None) -> str:
@@ -81,7 +81,9 @@ def identity_key_path(profile: str, environ: dict[str, str] | None = None) -> st
     """Where transportctl keeps a profile's transport key (XDG data home, as the
     two-account live run showed); only its presence is read, never its content."""
     env = os.environ if environ is None else environ
-    data = env.get("XDG_DATA_HOME") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".local", "share")
+    data = env.get("XDG_DATA_HOME", "")
+    if not os.path.isabs(data):      # the XDG spec: a relative value is ignored, as the transport's own lookup does
+        data = os.path.join(env.get("HOME") or os.path.expanduser("~"), ".local", "share")
     return os.path.join(data, "interweave", "profiles", profile, "identity.key")
 
 
@@ -91,7 +93,7 @@ def sign_detached(data: bytes, primary: str, env: dict[str, str]) -> str:
         sub = fabric_sign.signing_subkey(primary, env)
     except fabric_sign.Failure as e:
         raise AdmitError(str(e)) from None
-    argv = ["gpg", "--batch", "--no-tty", "--armor", "--detach-sign", "--local-user", sub + "!"]
+    argv = [env.get("FABRIC_SIGN_GPG") or "gpg", "--batch", "--no-tty", "--armor", "--detach-sign", "--local-user", sub + "!"]
     try:
         r = subprocess.run(argv, input=data, env=env, capture_output=True, timeout=GPG_TIMEOUT, check=False)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -111,17 +113,25 @@ def _committed(keys: roster.KeySource, agent_id: str) -> tuple[dict, bytes]:
 
 
 def make_row(*, rost: roster.Roster, keys: roster.KeySource, agent_id: str, login: str, release_path: str,
-             environ: dict[str, str] | None = None, transportctl: str = "transportctl") -> dict:
+             environ: dict[str, str] | None = None, transportctl: str | None = None) -> dict:
     env = dict(os.environ if environ is None else environ)
+    # Where the release's install.sh puts it, never a PATH lookup: a program earlier on PATH
+    # answers --version as it likes, and what it prints for identity show would be signed.
+    transportctl = transportctl or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".local", "bin", "transportctl")
     rec, pub = _committed(keys, agent_id)
     if rec.get("login") != login:
         raise AdmitError(f"the lineage names {rec.get('login')!r} for agent {agent_id}, not {login!r}")
+    # Before anything is minted: an account without the committed key must refuse with no key made.
+    try:
+        fabric_sign.signing_subkey(rec["fingerprint"], env)
+    except fabric_sign.Failure as e:
+        raise AdmitError(str(e)) from None
     want = pinned_version(release_path)
     have = _ctl([transportctl, "--version"], env).strip()
     if have != want:
         raise AdmitError(f"transportctl reports {have!r}, the pin is {want!r}: install the pinned release first")
     ctl = [transportctl, "--profile", rost.profile]
-    if not os.path.exists(identity_key_path(rost.profile, env)):
+    if not os.path.lexists(identity_key_path(rost.profile, env)):
         _ctl(ctl + ["identity", "init"], env)
     shown = _ctl(ctl + ["identity", "show"], env)
     peer_id = shown.strip()

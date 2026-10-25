@@ -54,6 +54,7 @@ The carrier never opens the admin socket and never carries fabric:control
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import signal
@@ -267,12 +268,19 @@ def cmd_roster_admit(args: list[str]) -> int:
     try:
         with open(args[0], encoding="utf-8") as fh:
             row_in = json.load(fh)
-        r = roster.load(path)
-        with open(path, encoding="utf-8") as fh:
-            doc = json.load(fh)
-        out = admit.admit_row(doc=doc, rost=r, keys=roster.GitMainKeys(paths.operator_root()), row_in=row_in,
-                              port=int(args[2]))
-        admit.write_roster(path, out)
+        # One admit at a time: two read-modify-replace runs would each write only their own row over the
+        # old file and one row would vanish. The lock is on the directory, which the replace does not swap.
+        dfd = os.open(os.path.dirname(os.path.abspath(path)), os.O_RDONLY)
+        try:
+            fcntl.flock(dfd, fcntl.LOCK_EX)
+            r = roster.load(path)
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+            out = admit.admit_row(doc=doc, rost=r, keys=roster.GitMainKeys(paths.operator_root()), row_in=row_in,
+                                  port=int(args[2]))
+            admit.write_roster(path, out)
+        finally:
+            os.close(dfd)
     except (roster.RosterError, admit.AdmitError, OSError, ValueError) as e:
         return _refuse(str(e))
     say(f"admitted {row_in['login']} at port {args[2]}")

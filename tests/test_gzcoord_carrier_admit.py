@@ -10,7 +10,9 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 import stat
+import threading
 import sys
 import tempfile
 
@@ -132,6 +134,15 @@ def main() -> int:
                   "--profile gzcoord identity init" not in calls() and (open(keyfile).read(), os.stat(keyfile).st_mtime_ns) == before,
                   str(calls()))
 
+            # a dangling link at the key path is a key that is there
+            reset()
+            ed = env_of(b, "dl")
+            kp = A.identity_key_path("gzcoord", ed)
+            os.makedirs(os.path.dirname(kp), exist_ok=True)
+            os.symlink(os.path.join(d, "nowhere"), kp)
+            make(b, "dl", environ=ed)
+            check("a dangling link at the key path counts as a key: identity init is not run", "--profile gzcoord identity init" not in calls(), str(calls()))
+
             # version
             for label, ver in (("an older transportctl", "transportctl 0.0.9"), ("a different build of the pin", VERSION + "x")):
                 reset()
@@ -143,6 +154,24 @@ def main() -> int:
                           release_path=os.path.join(d, "nope.json"), environ=env_of(c, "c"), transportctl=ctl)
             check("roster-row refuses when release.json is absent", msg is not None)
 
+            # the program is the one install.sh put in ~/.local/bin, never a PATH lookup
+            e = env_of(c, "c")
+            lookalike = os.path.join(d, "lookalike")
+            os.makedirs(lookalike)
+            os.symlink(ctl, os.path.join(lookalike, "transportctl"))
+            os.makedirs(os.path.join(e["HOME"], ".local", "bin"), exist_ok=True)
+            e["PATH"] = lookalike + os.pathsep + e["PATH"]
+            reset()
+            msg = refuses(A.make_row, rost=base, keys=keys, agent_id=c.agent_id, login="gamma", release_path=release, environ=e)
+            check("roster-row does not use a transportctl found on PATH (none in ~/.local/bin: refused, nothing run)",
+                  msg is not None and calls() == [], str(msg))
+            os.symlink(ctl, os.path.join(e["HOME"], ".local", "bin", "transportctl"))
+            check("  and uses the one in ~/.local/bin (positive control)",
+                  A.make_row(rost=base, keys=keys, agent_id=c.agent_id, login="gamma", release_path=release, environ=e)["login"] == "gamma")
+            shutil.rmtree(os.path.join(e["HOME"], "data"), ignore_errors=True)
+            check("a relative XDG_DATA_HOME is ignored, as the XDG spec says",
+                  A.identity_key_path("gzcoord", {"HOME": "/h", "XDG_DATA_HOME": "rel"}) == "/h/.local/share/interweave/profiles/gzcoord/identity.key")
+
             # not the committed login / key
             check("roster-row refuses a login other than the lineage's for the agent id",
                   refuses(A.make_row, rost=base, keys=keys, agent_id=c.agent_id, login="other", release_path=release,
@@ -152,7 +181,9 @@ def main() -> int:
             os.unlink(os.path.join(fake, "calls")) if os.path.exists(os.path.join(fake, "calls")) else None
             msg = refuses(A.make_row, rost=base, keys=keys, agent_id=a.agent_id, login="alpha", release_path=release,
                           environ=e, transportctl=ctl)
-            check("roster-row with a foreign key (the account holds another key than the committed one) signs nothing", msg is not None, str(msg))
+            check("roster-row with a foreign key (the account holds another key than the committed one) signs nothing, "
+                  "and mints nothing: no transportctl call, no key", msg is not None and calls() == []
+                  and not os.path.exists(A.identity_key_path("gzcoord", e)), str(msg) + str(calls()))
             msg = refuses(make, c, "c", environ=env_of(c, "c", show="not a peer id"))
             check("roster-row refuses an identity show that is not one PeerId", msg is not None, str(msg))
 
@@ -205,6 +236,30 @@ def main() -> int:
                 sys.stderr = saved
             check("the commands' argv: a missing, non-numeric or negative --port and a stray argument are usage errors (1)",
                   usage == [1] * 5, str(usage))
+
+            # one admit at a time: a second waits on the roster directory's lock
+            rd = os.path.join(d, "locked")
+            os.makedirs(rd)
+            rp = os.path.join(rd, "roster.json")
+            json.dump(doc, open(rp, "w"))
+            os.environ["GZCOORD_CARRIER_ROSTER"] = rp
+            os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(d, "no-operator")
+            import fcntl
+            dfd = os.open(rd, os.O_RDONLY)
+            fcntl.flock(dfd, fcntl.LOCK_EX)
+            done = threading.Event()
+            codes: list[int] = []
+            sys.stderr, saved = sink, sys.stderr
+            th = threading.Thread(target=lambda: (codes.append(M.main(["roster-admit", rj, "--port", "47103"])), done.set()))
+            th.start()
+            held = not done.wait(1.0)
+            fcntl.flock(dfd, fcntl.LOCK_UN)
+            os.close(dfd)
+            released = done.wait(30)
+            th.join()
+            sys.stderr = saved
+            check("roster-admit waits while another admit holds the roster's lock, and goes on when it is released",
+                  held and released and codes == [2], f"{held} {released} {codes}")
 
             # atomic write
             path = os.path.join(d, "out", "roster.json")
