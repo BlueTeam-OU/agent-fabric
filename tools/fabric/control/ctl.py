@@ -113,7 +113,8 @@ from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, pu
 from control import units
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
-from control.carrier_install import CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDGET_S, INSTALL_OP
+from control.carrier_install import (CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDGET_S, CARRIER_START_BUDGET_S, CARRIER_STOP_BUDGET_S,
+                                     INSTALL_OP, START_OP, STOP_OP)
 from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, VERSION_RE, pinned_version
@@ -208,6 +209,14 @@ VERBS: tuple[Verb, ...] = (
     Verb(INSTALL_OP, f"Install the {CARRIER_LABEL} release the reviewed pin names, from its archive with the archive's own install.sh; size and SHA-256 checked first. Enables nothing.",
          f"fabric-ctl all {INSTALL_OP}",
          usage=((f"<login|all> {INSTALL_OP}", f"an action: install the {CARRIER_LABEL} release the reviewed pin names with the archive's own install.sh, size and SHA-256 checked first; the units that ran are restarted and checked, or the old programs come back; enables nothing"),),
+         signed="always", options=COMMON),
+    Verb(START_OP, f"Start the {CARRIER_LABEL} units of the roster's profile: config.yaml rendered from the roster, the daemon then the client enabled and started, the channel checked. A check that fails stops both.",
+         f"fabric-ctl db-admin {START_OP}",
+         usage=((f"<login|all> {START_OP}", f"an action: render the profile's config.yaml, enable --now the daemon then the client unit, and check the channel; refused without a valid roster row, the pin's programs or linger; a unit that does not come up stops both"),),
+         signed="always", options=COMMON),
+    Verb(STOP_OP, f"Stop the {CARRIER_LABEL} units: disable --now the client and the daemon and confirm neither runs. The relay carries alone again.",
+         f"fabric-ctl db-admin {STOP_OP}",
+         usage=((f"<login|all> {STOP_OP}", f"an action: disable --now the {CARRIER_LABEL} client and daemon units and confirm both are inactive (the rollback of {START_OP})"),),
          signed="always", options=COMMON),
     Verb("jobs-add", "Add a job to one agent's list. A job is one agent's, never the fleet's.", 'fabric-ctl db-admin jobs-add --project agent-fabric "port the thing"',
          usage=(('<login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<login>",
@@ -584,6 +593,8 @@ def parse_args(argv: list[str]) -> dict:
                           else 240 if op == "secrets-sync" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
                           else CARRIER_INSTALL_BUDGET_S if op == INSTALL_OP
+                          else CARRIER_START_BUDGET_S if op == START_OP
+                          else CARRIER_STOP_BUDGET_S if op == STOP_OP
                           else CARRIER_READ_BUDGET_S if op == CARRIER_NAME
                           else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
                           else 90 if op == "drift"
@@ -807,7 +818,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "keys": g("keys"), "fabric": g("fabric"), "session": g("session"), "script": g("script"), "recall": g("recall"),
                     "tokens": g("tokens"), "memory": g("memory"), "machine": g("host"), "disk": g("disk"), "accounts": g("accounts"),
                     "upgrade": g("upgrade"), "secretsSync": g("secrets-sync"), "restart": g("restart"), "presence": g("presence"), "jobs": g("jobs"), "tools": g("tools"),
-                    "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), CARRIER_NAME: g(CARRIER_NAME), f"{CARRIER_NAME}Install": g(INSTALL_OP), "poolAdd": g("pool-add"), "local": g("local"),
+                    "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), CARRIER_NAME: g(CARRIER_NAME), f"{CARRIER_NAME}Install": g(INSTALL_OP), f"{CARRIER_NAME}Start": g(START_OP), f"{CARRIER_NAME}Stop": g(STOP_OP), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
                     **{k: g(k) for k in ("harness", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
@@ -818,7 +829,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
 # What counts as success for each action; anything else fails the run.
 ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added", "listed"], "local-prune": ["pruned", "clean"],
              "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"],
-             "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
+             "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], START_OP: ["started"], STOP_OP: ["stopped"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
 
 
 def targets_of(targets: list[str], placed: list[dict]) -> dict:
@@ -1280,6 +1291,20 @@ def _table_carrier_install(rs: list) -> list[str]:
         note = nullish(dig(u, "reason"), "") or (f"units: {S(dig(u, 'units', 'check'))}" if T(dig(u, "units", "check")) else "")
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
                                   f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(note)}")))
+    return lines
+
+
+def _table_carrier_units(rs: list, op: str) -> list[str]:
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} units / reason"]
+    for r in rs:
+        u = r.get(f"{CARRIER_NAME}{'Start' if op == START_OP else 'Stop'}")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        units = dig(u, "units")
+        states = ", ".join(f"{k.split('@')[0].split('-')[-1]} {S(v)}" for k, v in units.items()) if isinstance(units, dict) else ""
+        note = nullish(dig(u, "reason"), "") or ("already running; " if dig(u, "already_running") is True else "") + states
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} {S(note)}")))
     return lines
 
 
@@ -1849,6 +1874,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_carrier(rs)
     elif op == INSTALL_OP:
         lines = _table_carrier_install(rs)
+    elif op in (START_OP, STOP_OP):
+        lines = _table_carrier_units(rs, op)
     elif op == "restart":
         lines = _table_restart(rs)
     elif op == "jobs-add":

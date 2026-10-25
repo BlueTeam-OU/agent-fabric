@@ -76,6 +76,28 @@ version. channel: the check of step 9 looked at once, now: "ok" | "off" (a unit
 runs and fails it) | "not-running" | "unknown" (it could not be made), with the
 units' states and a reason, so that an account off the channel is seen.
 
+THE START (`<carrier>-start`, no arguments; agent-fabric ADR-064 rule 11: starting an account's units is the dual
+run's switch) writes the profile's config.yaml and brings the roster's profile up as two units of the user manager:
+  1. the account's lock, the install's (a start, a stop and an install never run at once on one account);
+  2. refused, nothing touched, unless the account lingers (its units would die with its last session), the programs
+     in ~/.local/bin print what the pin says and both unit templates are in the user's systemd directory;
+  3. `gzcoord-carrier render-config --write` of the installed release writes
+     $XDG_CONFIG_HOME/<carrier>/profiles/<profile>/config.yaml (atomic, 0600); the carrier refuses it when this
+     agent has no valid roster row, and that refusal is the action's (a row is a fact of the roster, not of this
+     account). With both units already running the file is left alone: a running daemon read the old one, and
+     re-rendering on a roster change is another operation;
+  4. `systemctl --user enable --now` the daemon unit, then the client unit;
+  5. rule 14's check through channel_check, polled: both units active, the daemon's process the installed
+     program, every program the pin reports printing its value, the carrier answering `status`;
+  6. a unit that did not come up, or a check that failed, disables --now both and the reply says so (the relay
+     carries alone, rule 11).
+THE STOP (`<carrier>-stop`, no arguments) disables --now the client then the daemon and replies stopped only once the
+manager says neither runs. It leaves config.yaml and the programs where they are.
+
+THE REPLIES, data["<carrier>-start"]: status "started" | "refused" | "failed"; units (unit -> state), check (what the
+channel check said) and `already_running` when nothing was changed; on a failure `stopped` (whether both units are
+inactive now) and `checks`; reason on a refusal or a failure. data["<carrier>-stop"]: "stopped" | "failed", units.
+
 fetch_and_unpack is the part of steps 3-5 another tool needs without an
 install (the two-account live check): it downloads, verifies and extracts into
 a directory it is given and runs nothing.
@@ -105,6 +127,10 @@ from control.upgrade import LEASE_HELD, VERSION_RE, LeaseRefused, hold_lease
 
 PIN_REL = os.path.join("runtime", CARRIER_NAME, "release.json")
 INSTALL_OP = f"{CARRIER_NAME}-install"
+START_OP = f"{CARRIER_NAME}-start"
+STOP_OP = f"{CARRIER_NAME}-stop"
+# One lock for the three: an install restarts the units a start brings up and a stop takes down.
+LOCK_BUSY = f"another {INSTALL_OP}, {START_OP} or {STOP_OP} is running on this account"
 MARKER = f"{INSTALL_OP}.json"
 LOCK = f"{INSTALL_OP}.lock"
 WORK = INSTALL_OP
@@ -137,6 +163,13 @@ CHECK_BUDGET_S = (2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * P
 # An install asks the units' states before, then twice (the install, the restore) restarts both and checks.
 CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
                             + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S))
+# A start: the linger question, the programs' versions, the config render, two `enable --now`, one channel check, and on a
+# failure two `disable --now` and the states.
+LOGINCTL_TIMEOUT_S = 10
+RENDER_TIMEOUT_S = 30
+CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
+                          + CHECK_BUDGET_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20)
+CARRIER_STOP_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20
 # The read: the installed programs' versions, the units' states, and one look of the check (which asks the states and the
 # daemon's version again).
 CARRIER_READ_BUDGET_S = (2 * VERSION_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
@@ -660,7 +693,7 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            return _refused(f"another {INSTALL_OP} is running on this account")
+            return _refused(LOCK_BUSY)
         return _install(version, pin["releases"][version], build, state, home, root, fetch, run, token, sleep, lease)
     finally:
         os.close(lock_fd)
@@ -809,6 +842,206 @@ def _landed(bindir: str, home: str, programs: dict[str, str]) -> str | None:
         if not os.path.isfile(os.path.join(unit_dir(home), unit)):
             return f"install.sh finished but {unit} is not in {unit_dir(home)}"
     return None
+
+
+# --- start and stop ------------------------------------------------------------------------------------------------
+
+STOPPED = ("inactive", "failed")     # `failed` is a unit that ended badly: it does not run, which is all a stop asks
+
+
+def _lock(state: str) -> tuple[int | None, dict | None]:
+    """(fd holding the account's lock, None), or (None, the reply that says why not)."""
+    try:
+        os.makedirs(state, mode=0o700, exist_ok=True)
+        fd = os.open(os.path.join(state, LOCK), os.O_WRONLY | os.O_CREAT, 0o600)
+    except OSError as e:
+        return None, {"status": "failed", "reason": f"the state directory cannot be prepared ({errno.errorcode.get(e.errno or 0) or e})"}
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None, _refused(LOCK_BUSY)
+    return fd, None
+
+
+def config_path(home: str, profile: str, environ: Any = None) -> str:
+    cfg = (os.environ if environ is None else environ).get("XDG_CONFIG_HOME")
+    return os.path.join(cfg if cfg else os.path.join(home, ".config"), CARRIER_NAME, "profiles", profile, "config.yaml")
+
+
+def linger_problem(login: str, run: Callable[..., Any], home: str) -> str | None:
+    """None when the login lingers; else why not. A loginctl that does not answer is not 'no linger' and not 'lingers':
+    the reason says it could not be asked."""
+    try:
+        r = run(["loginctl", "show-user", login, "--property=Linger", "--value"], capture_output=True, encoding="utf-8", errors="replace",
+                timeout=LOGINCTL_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
+    except subprocess.TimeoutExpired:
+        return f"whether {login} lingers could not be asked: loginctl did not answer within {LOGINCTL_TIMEOUT_S} s"
+    except OSError as e:
+        return f"whether {login} lingers could not be asked: loginctl could not be run ({_oneline(e)})"
+    answer = (r.stdout or "").strip()
+    if r.returncode == 0 and answer == "yes":
+        return None
+    if r.returncode == 0 and answer == "no":
+        return f"{login} has no linger (loginctl enable-linger {login}): units started now would die with its last session"
+    return f"whether {login} lingers could not be read (loginctl exited {r.returncode}, answered {answer[:40]!r})"
+
+
+def _systemctl(verb: list[str], run: Callable[..., Any], home: str) -> str | None:
+    """None when `systemctl --user <verb>` exited 0; else one line of why."""
+    shown = " ".join(verb)
+    try:
+        r = run(["systemctl", "--user", *verb], capture_output=True, encoding="utf-8", errors="replace", timeout=SYSTEMCTL_TIMEOUT_S, check=False,
+                stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
+    except subprocess.TimeoutExpired:
+        return f"systemctl --user {shown} did not finish within {SYSTEMCTL_TIMEOUT_S} s"
+    except OSError as e:
+        return f"systemctl --user {shown} could not be run ({_oneline(e)})"
+    if r.returncode != 0:
+        lines = [ln for ln in (r.stderr or "").splitlines() if ln.strip()]
+        return f"systemctl --user {shown} exited {r.returncode}" + (f": {lines[-1][:120]}" if lines else "")
+    return None
+
+
+def _disable_now(units: list[str], run: Callable[..., Any], home: str) -> str | None:
+    """Each unit asked to disable --now (all of them, whatever the first answered); None when every one was taken."""
+    problems = [p for p in (_systemctl(["disable", "--now", u], run, home) for u in units) if p]
+    return "; ".join(problems) or None
+
+
+def _settled(units: list[str], run: Callable[..., Any], home: str, sleep: Callable[[float], None]) -> tuple[dict[str, str | None], str | None]:
+    """(each unit's state, None) once none runs, polled; else (the last states, why not). An unanswered manager is a reason."""
+    seen: dict[str, str | None] = {}
+    for i in range(CHECK_POLLS):
+        if i:
+            sleep(POLL_S)
+        try:
+            seen = {u: unit_state(u, run, home) for u in units}
+        except ChannelUnknown as e:
+            return seen, str(e)
+        if None in seen.values():
+            return seen, "the user manager does not answer"
+        if all(st in STOPPED for st in seen.values()):
+            return seen, None
+    return seen, ", ".join(f"{u} is {st}" for u, st in seen.items() if st not in STOPPED)
+
+
+def _login() -> str:
+    import pwd
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
+def carrier_start(request: Any, root: str | None = None, home: str | None = None, state: str | None = None,
+                  run: Callable[..., Any] = subprocess.run, machine: str | None = None,
+                  sleep: Callable[[float], None] = time.sleep, login: str | None = None) -> dict:
+    a = request.get("args") if isinstance(request, dict) else None
+    if not (a is None or a == {}):
+        return _refused(f"{START_OP} takes no argument: it starts the units of the roster's profile")
+    root = _code_root() if root is None else root
+    home = os.path.expanduser("~") if home is None else home
+    state = util.state_dir() if state is None else state
+    login = _login() if login is None else login
+    try:
+        _, build = pinned_build(load_pin(root), machine)
+    except PinError as e:
+        return _failed(None, str(e))
+    except InstallError as e:
+        return _refused(str(e))
+    try:
+        profile = roster_profile(root)
+    except InstallError as e:
+        return _failed(None, str(e))
+    fd, reply = _lock(state)
+    if fd is None:
+        return reply or _refused(LOCK_BUSY)
+    try:
+        return _start(build, profile, root, home, run, sleep, login)
+    finally:
+        os.close(fd)
+
+
+def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., Any], sleep: Callable[[float], None], login: str) -> dict:
+    daemon, client = unit_names(profile)
+    both = [daemon, client]
+    bad = linger_problem(login, run, home)
+    if bad:
+        return _refused(bad)
+    bad = check_reports(bin_dir(home), build["reports"], run, home)
+    if bad:
+        return _refused(f"the installed programs are not the pin's ({bad}); run {INSTALL_OP} first")
+    for unit in UNITS:
+        if not os.path.isfile(os.path.join(unit_dir(home), unit)):
+            return _refused(f"{unit} is not in {unit_dir(home)}; run {INSTALL_OP} first")
+    try:
+        _, running = running_units(profile, run, home)
+    except ChannelUnknown as e:
+        return _failed(None, f"whether the {CARRIER_LABEL} units run is not known ({e}); nothing was started")
+    already = len(running) == len(both)
+    if not already:
+        path = config_path(home, profile)
+        try:
+            r = run([os.path.join(root, "bin", "gzcoord-carrier"), "render-config", "--write", path], capture_output=True, encoding="utf-8",
+                    errors="replace", timeout=RENDER_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
+        except subprocess.TimeoutExpired:
+            return _failed(None, f"gzcoord-carrier render-config did not finish within {RENDER_TIMEOUT_S} s; nothing was started")
+        except OSError as e:
+            return _failed(None, f"gzcoord-carrier render-config could not be run ({_oneline(e)}); nothing was started")
+        if r.returncode != 0:
+            lines = [ln for ln in (r.stderr or "").splitlines() if ln.strip()]
+            why = (lines[-1][:200] if lines else f"exit {r.returncode}")
+            # Exit 2 is the carrier declining (no valid roster row for this agent, ...): a refusal. Any other is a render that broke.
+            out = _refused if r.returncode == 2 else (lambda reason: _failed(None, reason))
+            return out(f"gzcoord-carrier render-config: {why}; nothing was started")
+        problem = None
+        for u in both:
+            problem = _systemctl(["enable", "--now", u], run, home)
+            if problem:
+                break
+    else:
+        problem = None
+    check = ({"status": "failed", "reason": problem, "units": {}} if problem
+             else channel_check(profile, both, build, root, run, home, sleep))
+    if check["status"] == "passed":
+        out: dict = {"status": "started", "units": check["units"], "check": "passed"}
+        if already:
+            out["already_running"] = True
+        return out
+    # The relay carries alone (rule 11): whatever came up is taken down, and the reply says whether that worked.
+    out = _failed(None, f"the {CARRIER_LABEL} units did not come up ({_channel_text(check)})")
+    left = _disable_now(both, run, home)
+    states, still = _settled(both, run, home, sleep)
+    out["units"] = states
+    out["checks"] = [check]
+    out["stopped"] = not left and not still
+    out["reason"] += ("; both units are stopped" if out["stopped"]
+                      else f"; stopping them failed ({left or still}): the units may still run")
+    return out
+
+
+def carrier_stop(request: Any, root: str | None = None, home: str | None = None, state: str | None = None,
+                 run: Callable[..., Any] = subprocess.run, sleep: Callable[[float], None] = time.sleep) -> dict:
+    a = request.get("args") if isinstance(request, dict) else None
+    if not (a is None or a == {}):
+        return _refused(f"{STOP_OP} takes no argument: it stops the units of the roster's profile")
+    root = _code_root() if root is None else root
+    home = os.path.expanduser("~") if home is None else home
+    state = util.state_dir() if state is None else state
+    try:
+        profile = roster_profile(root)
+    except InstallError as e:
+        return _failed(None, str(e))
+    fd, reply = _lock(state)
+    if fd is None:
+        return reply or _refused(LOCK_BUSY)
+    try:
+        daemon, client = unit_names(profile)
+        left = _disable_now([client, daemon], run, home)       # the client first: it talks to the daemon
+        states, still = _settled([daemon, client], run, home, sleep)
+        if left or still:
+            return {"status": "failed", "units": states, "reason": f"the units are not both stopped ({left or still})"}
+        return {"status": "stopped", "units": states}
+    finally:
+        os.close(fd)
 
 
 # --- the read ----------------------------------------------------------------------------------------------------
