@@ -220,7 +220,7 @@ claimant (rule 4).
     `interweave`, 2668 s for `interweave-install` (a 1200 s wait for the
     host's download turn and 60 s of grace before the install's own
     1408 s: the download, the archive, `install.sh`, the version runs and
-    two restart-and-check rounds), 930 s for `interweave-start` (its
+    two restart-and-check rounds), 940 s for `interweave-start` (its
     rule-14 check polls the carrier's `status` up to 45 times, a cold
     carrier having taken 29 s to open its socket with 26 roster rows),
     156 s for `interweave-stop`, 480 s for
