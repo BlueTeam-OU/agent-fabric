@@ -10,13 +10,18 @@ Run by the host's own /usr/bin/python3, which the host contract already
 requires (platform/detect.sh): the installer cannot need the Python it
 installs. Standard library only.
 
-The build lands in /usr/local/lib/agent-fabric/python-<version>+<release>/
-(on a Qubes AppVM, /usr/local is one of the two trees that survive a
-reboot) and /usr/local/bin/fabric-python points at its interpreter. The
-archive is checked against the sha256 the pin carries before anything is
+Each build lands in its own directory,
+/usr/local/lib/agent-fabric/python-<version>+<release>~<stamp>/ (on a
+Qubes AppVM, /usr/local is one of the two trees that survive a reboot),
+and /usr/local/bin/fabric-python points at its interpreter. The archive
+is checked against the sha256 the pin carries before anything is
 extracted; the extraction goes to a directory beside the target and is
-renamed into place, so a failure leaves the previous build and link as
-they were. Every file is readable by every account: each runs it.
+renamed to a name nothing has, so nothing existing is ever renamed away
+or overwritten: the one os.replace of the link is the only moment the
+fleet's interpreter changes, and a failure or a SIGKILL at any step leaves
+the link on a build that runs. A build installed before the stamp existed,
+python-<version>+<release> itself, is still a build of its pin. Every file
+is readable by every account: each runs it.
 
 ADR-040 rule 1 allows no third-party package, and lint refuses a pinned
 wheel: the wheel machinery below stays for the day rule 1 is amended to
@@ -37,6 +42,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -70,7 +76,31 @@ def pin(path: str = PIN) -> dict:
 
 
 def target(p: dict, prefix: str = PREFIX) -> str:
+    """The pin's name stem: the whole directory of a build installed before
+    builds were stamped, and what a stamped one's name starts with."""
     return os.path.join(prefix, f"python-{p['python']}+{p['release']}")
+
+
+def builds_of(p: dict, prefix: str = PREFIX) -> list[str]:
+    """Every directory that is, by its name, a build of this pin: the flat
+    one and each stamped one. The stamp is fixed-shape hex after "~", so a
+    release that merely begins with this one's ("1" and "1.5") is no match."""
+    stem = target(p, prefix)
+    pattern = re.compile(re.escape(os.path.basename(stem)) + r"~[0-9a-f]{16}", re.ASCII)
+    try:
+        names = sorted(os.listdir(prefix))
+    except FileNotFoundError:
+        names = []
+    found = [os.path.join(prefix, n) for n in names if pattern.fullmatch(n)]
+    return ([stem] if os.path.lexists(stem) else []) + found
+
+
+def _build_of_link(p: dict, prefix: str, link: str) -> str | None:
+    """The build directory the link reaches, when it is a build of this pin."""
+    real = os.path.realpath(link)
+    build = os.path.dirname(os.path.dirname(real))
+    mine = {os.path.realpath(b) for b in builds_of(p, prefix)}
+    return build if os.path.basename(real) == "python3" and build in mine else None
 
 
 def version_of(interpreter: str) -> str | None:
@@ -128,11 +158,10 @@ def build_problem(interpreter: str, p: dict, machine: str | None = None) -> str 
 def check(p: dict, prefix: str = PREFIX, link: str = LINK, machine: str | None = None) -> str | None:
     """None when the link reaches the pinned build and it runs as that
     version, with its wheels and imports; otherwise what is wrong."""
-    want = os.path.join(target(p, prefix), "bin", "python3")
     if not os.path.lexists(link):
         return f"{link} is absent"
-    if os.path.realpath(link) != os.path.realpath(want):
-        return f"{link} points at {os.path.realpath(link)}, not the pinned {want}"
+    if _build_of_link(p, prefix, link) is None:
+        return f"{link} points at {os.path.realpath(link)}, not a build of the pinned {os.path.basename(target(p, prefix))}"
     return build_problem(link, p, machine)
 
 
@@ -175,18 +204,37 @@ def _install_wheels(python: str, wheels: list[dict], tmp: str, fetch) -> None:
         raise PinError(f"pip could not install {', '.join(w['name'] for w in wheels)}: {last}; nothing installed")
 
 
+def _sweep(p: dict, prefix: str, keep: str) -> None:
+    """Remove the other builds of this pin once the link is on `keep` and
+    passes. Left until then (not removed before the switch) because a service
+    started from the old one still maps its files; swept here rather than
+    left for a person because they are the same version and release, which
+    nothing can want again. A failure to remove is not the install's: what is
+    left is unlinked, fails build_problem or is merely extra, and the next
+    run sweeps it. Older pins' directories are not touched. Two installs at
+    once are not supported (root, by hand, one host): the later sweep could
+    remove the other's build before it links."""
+    for b in builds_of(p, prefix):
+        if os.path.realpath(b) != os.path.realpath(keep):
+            shutil.rmtree(b, ignore_errors=True)
+
+
 def install(p: dict, prefix: str = PREFIX, link: str = LINK, machine: str | None = None,
             fetch=_download) -> str:
     """Make the link reach the pinned build; what was done, in one line."""
     if check(p, prefix, link, machine) is None:
+        _sweep(p, prefix, keep=_build_of_link(p, prefix, link))
         return f"{link}: Python {p['python']} ({p['release']}) already in place"
     arch = machine or platform.machine()
     build = p["builds"].get(arch)
     if not build:
         raise PinError(f"no pinned build for {arch} (runtime/python.json has {', '.join(sorted(p['builds']))})")
-    dest = target(p, prefix)
     os.makedirs(prefix, mode=0o755, exist_ok=True)
-    if build_problem(os.path.join(dest, "bin", "python3"), p, arch) is not None:
+    # A build of this pin that already runs as pinned (the flat one of an
+    # earlier layout, or a stamped one a run was cut off after) is linked as
+    # it is: nothing is downloaded for a link that only points elsewhere.
+    dest = next((b for b in builds_of(p, prefix) if build_problem(os.path.join(b, "bin", "python3"), p, arch) is None), None)
+    if dest is None:
         with tempfile.TemporaryDirectory(dir=prefix, prefix=".python-pin-") as tmp:
             archive = os.path.join(tmp, "python.tar.gz")
             fetch(build["url"], archive)
@@ -212,24 +260,14 @@ def install(p: dict, prefix: str = PREFIX, link: str = LINK, machine: str | None
                     path = os.path.join(d, name)
                     if not os.path.islink(path):
                         os.chmod(path, os.stat(path).st_mode | 0o444)
-            # A build already at dest (same version and release, its wheels
-            # or imports not the pin's) may be the one the link and running
-            # services use: it is moved aside, never deleted before its
-            # replacement is in, and moved back if either rename fails or
-            # is interrupted (BaseException: Ctrl-C included; both renames
-            # are inside the try, since an interrupt can land right after
-            # the first). The temporary directory sweeps it. A SIGKILL
-            # between the renames cannot be caught: the old build is then
-            # left at <tmp>/old, not deleted, for the next run or a person.
-            old = os.path.join(tmp, "old")
-            try:
-                if os.path.exists(dest):
-                    os.rename(dest, old)
-                os.rename(built, dest)
-            except BaseException:
-                if os.path.exists(old) and not os.path.exists(dest):
-                    os.rename(old, dest)
-                raise
+            # Same version and release with other wheels or imports is a
+            # different build in a different directory, never a rename over
+            # the one the link and running services use: any interval between
+            # two renames would leave the link dangling for every command of
+            # the account. A random stamp makes the name one nothing has, and
+            # the only thing that ever moves is the link.
+            dest = f"{target(p, prefix)}~{os.urandom(8).hex()}"
+            os.rename(built, dest)
     os.makedirs(os.path.dirname(link), exist_ok=True)
     tmp_link = f"{link}.new"
     if os.path.lexists(tmp_link):
@@ -239,6 +277,7 @@ def install(p: dict, prefix: str = PREFIX, link: str = LINK, machine: str | None
     problem = check(p, prefix, link, arch)
     if problem:
         raise PinError(f"installed, but {problem}")
+    _sweep(p, prefix, keep=dest)
     return f"{link}: Python {p['python']} ({p['release']}) installed at {dest}"
 
 
