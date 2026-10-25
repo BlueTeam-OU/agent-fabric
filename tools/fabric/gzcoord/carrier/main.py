@@ -24,13 +24,25 @@ CONTRACT
                                roster for THIS agent; to stdout, or atomically
                                to PATH (0600). Refuses when this agent has no
                                valid roster row
+          roster-row           in the login's account (ADR-064 rule 3): refuses unless
+                               the installed transportctl reports the version
+                               runtime/interweave/release.json pins; mints the profile's
+                               key only when it has none; prints this login's row as JSON,
+                               without port and countersignature, its identity_show signed
+                               by the login's signing subkey (admit.py)
+          roster-admit ROW.json --port N
+                               in the coordinator's account: judges the row as the reader
+                               will, adds the port, countersigns it and replaces the
+                               roster file atomically; refuses a collision on agent id,
+                               login, PeerId or port, and a port outside the range
   env     XDG_RUNTIME_DIR (required: the data socket and the adapter socket
           live under it), GZCOORD_JOURNAL=off (the carrier refuses to run: the
           route is the relay alone, ADR-064 rule 8), AGENT_FABRIC_ROOT /
           AGENT_FABRIC_OPERATOR / AGENT_FABRIC_STATE_DIR (as every GZCoord
           tool reads them), GZCOORD_CARRIER_ROSTER (a roster file other than
-          runtime/interweave/roster.json: a test)
-  stdout  `status`'s JSON; `render-config`'s YAML
+          runtime/interweave/roster.json: a test), GZCOORD_CARRIER_RELEASE (a
+          release.json other than runtime/interweave/release.json: a test)
+  stdout  `status`'s JSON; `render-config`'s YAML; `roster-row`'s JSON
   stderr  every other line, prefixed `gzcoord-carrier:`; no secret, no body
   exit    0 done (run: stopped by SIGTERM/SIGINT); 1 usage; 2 refused to run
           (journal off, no valid roster row, another carrier already holds the
@@ -54,10 +66,10 @@ TOOLS = os.path.dirname(os.path.dirname(HERE))
 if TOOLS not in sys.path:
     sys.path.insert(0, TOOLS)
 
-from gzcoord.carrier import CARRIER_NAME, arrivals, engine, ipc, record, roster, server  # noqa: E402
+from gzcoord.carrier import CARRIER_NAME, admit, arrivals, engine, ipc, record, roster, server  # noqa: E402
 
 USAGE = ("usage: gzcoord-carrier run [--profile P] | status | abandon <message-id> <recipient-login> | "
-         "render-config [--write PATH] | parity --window START END --arrivals FILE... --senders DIR... "
+         "render-config [--write PATH] | roster-row | roster-admit ROW.json --port N | parity --window START END --arrivals FILE... --senders DIR... "
          "[--journal DB...] [--drill START END] [--host HOST]")
 
 
@@ -229,6 +241,44 @@ def cmd_render(path: str | None) -> int:
     return 0
 
 
+def release_path() -> str:
+    return os.environ.get("GZCOORD_CARRIER_RELEASE") or os.path.join(_checkout(), "runtime", "interweave", "release.json")
+
+
+def cmd_roster_row() -> int:
+    import pwd
+    from gzcoord import paths
+    try:
+        r = roster.load(roster_path())
+        row = admit.make_row(rost=r, keys=roster.GitMainKeys(paths.operator_root()), agent_id=make_me().agent_id,
+                             login=pwd.getpwuid(os.getuid()).pw_name, release_path=release_path())
+    except (roster.RosterError, admit.AdmitError, OSError) as e:
+        return _refuse(str(e))
+    print(json.dumps(row, sort_keys=True, indent=2))
+    return 0
+
+
+def cmd_roster_admit(args: list[str]) -> int:
+    from gzcoord import paths
+    if len(args) != 3 or args[1] != "--port" or not args[2].isdigit():
+        print(USAGE, file=sys.stderr)
+        return 1
+    path = roster_path()
+    try:
+        with open(args[0], encoding="utf-8") as fh:
+            row_in = json.load(fh)
+        r = roster.load(path)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        out = admit.admit_row(doc=doc, rost=r, keys=roster.GitMainKeys(paths.operator_root()), row_in=row_in,
+                              port=int(args[2]))
+        admit.write_roster(path, out)
+    except (roster.RosterError, admit.AdmitError, OSError, ValueError) as e:
+        return _refuse(str(e))
+    say(f"admitted {row_in['login']} at port {args[2]}")
+    return 0
+
+
 def cmd_parity(args: list[str]) -> int:
     import argparse
     from gzcoord.carrier import parity
@@ -276,6 +326,10 @@ def main(argv: list[str]) -> int:
         return cmd_status()
     if cmd == "abandon" and len(rest) == 2:
         return cmd_abandon(rest[0], rest[1])
+    if cmd == "roster-row" and not rest:
+        return cmd_roster_row()
+    if cmd == "roster-admit":
+        return cmd_roster_admit(rest)
     if cmd == "parity":
         return cmd_parity(rest)
     if cmd == "render-config" and (not rest or (len(rest) == 2 and rest[0] == "--write")):
