@@ -43,6 +43,7 @@ class Job(_JobKeys, total=False):
     branch: str
     worktree: str
     deliver_to: str
+    project_from: str
 
 
 def _load(name: str, path: str):

@@ -15,7 +15,7 @@ from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
 from fabric_jobs.base import MESSAGE_ID, Job, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
-from fabric_jobs.records import active, fetch_message, find, listed_request, new_job, request_id_of, request_job, session_id, session_worked, transition
+from fabric_jobs.records import active, fetch_message, find, listed_request, named_working_copy, new_job, request_id_of, request_job, SENDER_ADD_LABEL, session_id, session_worked, transition
 from fabric_jobs.queue import stream_waits
 from fabric_jobs.pool import Unanswered, ask_pool, claimed_job, pool_job, pool_line, pool_offer, printable
 from fabric_jobs.render import blockers_note, line, show, summary
@@ -55,7 +55,9 @@ def add(args) -> int:
             if (mid := request_id_of(args.title)) and (listed := listed_request(doc, mid)):
                 return listed, False
             return new_job(doc, args.title, topic=args.topic, project=args.project,
-                           working_copy=args.working_copy, source=source, priority=args.priority), True
+                           working_copy=args.working_copy, source=source, priority=args.priority,
+                           project_from=((SENDER_ADD_LABEL if args.owner and request_id_of(args.title) else "--project")
+                                         if args.project else None)), True
 
         job, added = mutate(add_titled)
         print(f"{'added' if added else 'already listed'} {line(job)}")
@@ -63,7 +65,7 @@ def add(args) -> int:
             return 0
         if not job.get("working_copy"):
             print(f"  no working copy of {job.get('project') or 'its project'} found beside this one: "
-                  f"fabric-fresh would start it in the wrong directory; re-add it with --working-copy to fix",
+                  f"fabric-fresh would start it in the wrong directory; name one with fabric-jobs project {job['id']} {job.get('project') or '<project>'} --working-copy DIR",
                   file=sys.stderr)
     return 0
 
@@ -314,6 +316,32 @@ def switch_job(args) -> int:
     return 0
 
 
+def repoint(args) -> int:
+    """project: the receiver's correction of a job whose headers named the wrong project, or whose working copy was not found."""
+    def edit(doc):
+        job = find(doc, args.id)
+        if job["state"] in TERMINAL:
+            raise Refused(f"{job['id']} is {job['state']}; a closed job is not re-pointed")
+        # The one-job guard and the sweep key on these: a job with work in a checkout is that checkout's.
+        held = [f"{k} {job[k]}" for k in ("branch", "worktree") if job.get(k)]
+        if held:
+            raise Refused(f"{job['id']} has {' and '.join(held)}: its work is in that project's checkout, so it is not re-pointed")
+        old = job.get("project")
+        working_copy = named_working_copy(args.project, args.working_copy)
+        job["project"], job["working_copy"], job["project_from"] = args.project, working_copy, "re-pointed"
+        now = identity.now_iso()
+        job["updated"] = now
+        # No `state`: fleet.log_times reads the state of an entry as a transition.
+        job.setdefault("log", []).append({"at": now, "kind": "project", "note": f"project re-pointed from {old or '-'} to {args.project}"
+                                          + (f"; working copy {working_copy}" if working_copy else "; no working copy")})
+        return job
+    job = mutate(edit)
+    print(line(job))
+    if not job.get("working_copy"):
+        print(f"  no working copy of {job['project']} found beside this one: re-run with --working-copy DIR before starting it", file=sys.stderr)
+    return 0
+
+
 def branch_here() -> dict:
     """The branch checked out where `pause` runs, with its checkout; nothing when that is the default branch, detached, or not
     a checkout: a paused job names the branch holding its work or switch refuses it."""
@@ -340,6 +368,10 @@ def change(args) -> int:
             job["priority"] = args.priority
             job["updated"] = identity.now_iso()
         elif args.cmd == "start":
+            # A job with no project at all (added in a directory that is no checkout) never had one to find: it starts as it always did.
+            if job.get("project") and not job.get("working_copy") and job["state"] not in TERMINAL:
+                raise Refused(f"{job['id']} has no working copy ({job['project']} has none here or beside this one): "
+                              f"name one with fabric-jobs project {job['id']} {job['project']} --working-copy DIR")
             transition(doc, job, "active")
         elif args.cmd == "pause":
             if job["state"] != "active":

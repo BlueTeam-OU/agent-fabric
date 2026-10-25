@@ -16,6 +16,7 @@ behind bin/fabric-jobs.
     fabric-jobs done <id> [--no-artifact "<what was done>"]      the reason is the evidence of work that leaves no artifact
     fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
     fabric-jobs drop <id> "<why>"
+    fabric-jobs project <id> <project> [--working-copy W]        re-point a job that has no branch or worktree yet; logged on the job
     fabric-jobs show <id> [--json]
     fabric-jobs switch [<id>] [--json] [--type feat|fix|docs|chore|test|refactor] [--needs-merged] [--keep-targets]
     fabric-jobs next [<id>] ...                                  alias of switch
@@ -46,6 +47,17 @@ path adds it and in whatever order or at once: every add checks, under the
 list's lock, for a job holding the message as its source or naming it in its
 title. `add --request` for such a message is refused by name; `add -- <title>`
 with such a title prints "already listed jN ..." and adds nothing.
+
+A REQUEST's project is, in order: --project; the project the registry maps the message's REPOSITORY to (the repository the
+work is in: gzcoord-compose stamps PROJECT from the sender's directory, which says nothing of it); PROJECT, only when
+REPOSITORY is absent, unregistered, registered by two projects, or the registry cannot be read; `show` then prints why. Nothing a
+REQUEST carries is a reason not to queue it.
+The working copy is this login's of that project; when there is none the job is still listed, with none, and `start` refuses
+by name until `project <id> <project> --working-copy DIR` names one (`switch` refuses a job with no working copy as before).
+`project` re-points a job whose headers were both wrong; it is refused while the job has a branch or a worktree (the one-job guard
+and the sweep key on them) or is closed, and the old and new project are logged on the job. `show` prints "project from": the
+--project, REPOSITORY, PROJECT or re-pointing that decided it (a job added before it was recorded, from the pool, or in a working copy with no --project shows none; one the sending side added
+through the control plane says so).
 
 `sweep` looks again at every delivered job of this list (`switch` looked once, when the agent left it) and moves to done the ones
 whose evidence has landed, by the test `switch` applies to a done job: a pull request merged, a commit or a branch tip (a branch
@@ -192,13 +204,13 @@ _spec.loader.exec_module(sys.modules["fabric_jobs"])
 from fabric_jobs.base import HERE, FABRIC_ROOT, _JobKeys, Job, _load, identity, STATES, OPEN, TERMINAL, MESSAGE_ID, POOL_ID, PRIORITIES, DEFAULT_PRIORITY, Refused, NothingQueued, Stale, mutate  # noqa: E402, F401
 from fabric_jobs import blockers  # noqa: E402, F401
 from fabric_jobs.ranking import stored_priority, message_of, waiters, effective_priority, queue_order, named  # noqa: E402, F401
-from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job, listed_request, deliver_branch, request_id_of  # noqa: E402, F401
+from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job, request_project, SENDER_ADD_LABEL, listed_request, deliver_branch, request_id_of  # noqa: E402, F401
 from fabric_jobs.queue import QUEUE, QUEUE_TIMEOUT_S, Unreachable, ask_queue, stream_waits  # noqa: E402, F401
 from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, claimed_job, pool_job, printable, pool_line  # noqa: E402, F401
 from fabric_jobs.render import line, show, summary  # noqa: E402, F401
 from fabric_jobs.branching import TYPES  # noqa: E402, F401
 from fabric_jobs.sweep import sweep  # noqa: E402, F401
-from fabric_jobs.verbs import decide, add, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
+from fabric_jobs.verbs import decide, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -247,6 +259,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--json", action="store_true")
     s.add_argument("--line", action="store_true", help="one line, for an opening prompt")
     s.add_argument("--field", help="one field's value, for the launcher")
+    rp = sub.add_parser("project", help="re-point a job to another project (and working copy); refused once it has a branch or worktree")
+    rp.add_argument("id")
+    rp.add_argument("project")
+    rp.add_argument("--working-copy")
     pa = sub.add_parser("pause", help="set the active job aside, to be taken back by name")
     pa.add_argument("id")
     pa.add_argument("why")
@@ -267,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--working-copy")
     args = ap.parse_args(argv)
 
-    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep}.get(args.cmd, change)
+    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep, "project": repoint}.get(args.cmd, change)
     try:
         return verb(args)
     except Refused as exc:
