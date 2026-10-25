@@ -52,3 +52,13 @@ session: "when an install/update of interweave happens the
 channel/communication become unavailable, if things go wrong agent
 become 'invisible' so a control plane check after the restart should
 be required".
+
+The same amendment records that the build's precondition is met: §6,
+§8 and the Scope line name InterWeave v0.1.0, pinned in
+`runtime/interweave/release.json`, instead of waiting on a tag. Its
+review (PR #376, round 1) found two gaps in rule 14 as first written,
+closed before it landed: a first install has no running unit and no
+previous programs, so its check is the version and its reply says so;
+and a program's `--version` on disk reports the new version even when
+the running process was never restarted, so the check is that each
+running unit's process runs the program now installed.
