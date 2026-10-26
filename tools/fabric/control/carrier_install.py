@@ -88,11 +88,14 @@ run's switch) writes the profile's config.yaml and brings the roster's profile u
   1. the account's lock, the install's (a start, a stop and an install never run at once on one account);
   2. refused, nothing touched, unless the account lingers (its units would die with its last session), the programs
      in ~/.local/bin print what the pin says and both unit templates are in the user's systemd directory;
-     and, before any render, unless the host reserves the roster's port_range from outgoing connections
+     and, before any render that starts a unit or replaces config.yaml, unless the host reserves the roster's port_range from outgoing connections
      (net.ipv4.ip_local_reserved_ports; a daemon cannot bind a port a connection took as its source), and
      unless a local socket of any state already uses this agent's own roster port (a connection older than the
      reservation keeps it; nothing is started, and the refusal names the socket's state, uid and peer); a daemon
      unit that is active holds that port itself, so with it the sockets are not looked at;
+     a running pair whose render equals the file is not checked for the reservation (nothing is restarted); one whose
+     file differs is, before the file is written, and a refusal or failure before the restart leaves both units running
+     on the previous file;
   3. in its turn on the host's `<carrier>-render` lease (released before the units start),
      `gzcoord-carrier render-config --write` of the installed release writes
      $XDG_CONFIG_HOME/<carrier>/profiles/<profile>/config.yaml (atomic, 0600); the carrier refuses it when this
