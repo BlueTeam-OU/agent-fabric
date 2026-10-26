@@ -71,6 +71,13 @@ where this plan and that note differ, the note is right.
    record, and a restart relaunch (`fabric-ctl restart`, an upgrade) takes
    it over the `--provider` of the original launch; declared `anthropic`
    with a last launch through the gateway comes back through the gateway.
+   When that moves the session to another provider (gateway and anthropic
+   count as one), the original launch's `--model`, `--fallback-model` and
+   `--effort` are dropped, said in one line, so model, effort and shim are
+   the new provider's (j417: a broker `--model` once reached plain claude).
+   The launcher refuses a session model its provider cannot serve, and a
+   relaunch refused after a restart ends with a `launch: RESTART NOT
+   COMPLETED: …` line, so the pane says why it is at a shell.
    A first activation with no launch on record takes the provider of that
    file for its role or the defaults.
 6. **What the deck shows** per tab, in the deck's own output only (a

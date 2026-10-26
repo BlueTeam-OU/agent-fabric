@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import traceback
 from urllib.parse import urlsplit
@@ -108,6 +109,45 @@ def is_broker_url(url: str) -> bool:
     except ValueError:
         h = ""
     return h == "openrouter.ai" or h.endswith(".openrouter.ai")
+
+
+# ── the session model must be the provider's ──────────────────────────
+# What plain claude's --model takes besides a native id: its own aliases, with
+# the 1M-context suffix (the gateway suite's `opus[1m]`). The fabric's own
+# vocabulary is routing.HARNESS_REF; `default` and `opusplan` are claude's too,
+# and a caller may name them.
+CLAUDE_ALIAS = re.compile(r"(default|haiku|sonnet|opus|fable|opusplan)(\[1m\])?")
+
+
+def session_source(caller: bool, layer: str, role: str, agent: str, local_path: str) -> str:
+    """Where the session model came from, in the words a person fixes it by."""
+    if caller:
+        return "from --model on the command line"
+    return {"defaults": "from routing/profiles.json defaults", "role": f"from routing/profiles.json roles.{role}",
+            "agent": f"from routing/profiles.json agents.{agent}", "local": f"from {local_path}"}.get(
+        layer, f"from the {layer} layer")
+
+
+def foreign_session_model(routing, provider: str, model: str, source: str) -> str | None:
+    """The refusal when the session model is not one `provider` can serve, else
+    None. Plain claude (anthropic, and the gateway, which routes as anthropic)
+    sends the model to Anthropic, which refuses anything but its own: a broker
+    composite there was a session that could not run one turn (2026-10-26,
+    j417). The broker, the other way round, names Claude anthropic/claude-…,
+    so a native id would reach OpenRouter as a model it does not have; any
+    other broker spelling stays the caller's and ori's to judge, as before."""
+    native = routing.ADAPTERS["anthropic"].is_model(model)
+    if provider in ("anthropic", "gateway"):
+        if native or CLAUDE_ALIAS.fullmatch(model):
+            return None
+        how = "plain claude through the gateway" if provider == "gateway" else "plain claude"
+        return (f"the session model '{model}' ({source}) is not an Anthropic model: {how} cannot run it, and "
+                "Anthropic would refuse every turn. Nothing started. A native Claude id (claude-…) or a harness "
+                "alias runs there; with no --model, the profile's anthropic session decides.")
+    if native:
+        return (f"the session model '{model}' ({source}) is a native Claude id: the OpenRouter broker names it "
+                f"{routing.ADAPTERS['anthropic'].openrouter_id(model)}. Nothing started.")
+    return None
 
 
 # PLAIN CLAUDE MEANS ANTHROPIC DIRECT, and it carries nothing the broker

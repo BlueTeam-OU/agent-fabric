@@ -25,10 +25,22 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             --help (or -h) before any `--` installs no agent files: a help
             read rewrote the account's for the launcher's default provider
             and the dispatch guard then refused reviews (2026-10-02).
+            A relaunch after a restart (below) re-executes the shim with
+            the original arguments, its resume flags replaced, and with the
+            agent layer's declared launch_provider (routing/profiles.json
+            agents.<login>, read by resume.py; anthropic over a gateway
+            record in launch-provider.json is gateway) in place of their
+            --provider. When that moves the session to another routing
+            column (gateway and anthropic are one), the original's
+            --model, --fallback-model and --effort go too, said in one
+            line, and the new provider's routing decides them.
   stdin     never read; the session inherits it.
   env       AGENT_FABRIC_ROOT (defaults to the repository this file is in),
             AGENT_FABRIC_STATE_DIR (identity.py), AGENT_FABRIC_ALLOW_STALE,
             AGENT_FABRIC_PULLED, AGENT_FABRIC_RESTART_WAIT_S,
+            AGENT_FABRIC_RESTARTING (set by a restart for its relaunch,
+            dropped before that session starts: a refusal while it is set
+            is followed by a `launch: RESTART NOT COMPLETED: …` line),
             AGENT_FABRIC_FRESH_NOTE, AGENT_FABRIC_FRESH_JOB,
             AGENT_FABRIC_GW_BIN (the gateway executable, else the pin's in
             ~/.local/bin or on PATH), AGENT_FABRIC_GW_READY_TIMEOUT_S (its
@@ -45,7 +57,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             TMPDIR.
   files     reads the settings scopes, ~/.config/agent-fabric/secrets.env,
             the agent's state directory (binding.json,
-            model-profile.local.json, restart.json); writes
+            model-profile.local.json, restart.json, and on a relaunch
+            launch-provider.json), on a relaunch routing/profiles.json's
+            agent layer (resume.py, or AGENT_FABRIC_RESUME_PROFILES); writes
             $STATE_DIR/launch-prompt.md (launch_prompt.py),
             $STATE_DIR/launch-locale.json (launch_locale.py; for --print and
             --help too),
@@ -215,6 +229,11 @@ REFUSES, fail-closed, before spawning anything:
     outranks every agent file's effort: in every subagent at once)
   - a merged model that is not a model id (a local override of null, a
     number, "" or prose)
+  - a session model, the caller's --model or the resolved one, that the
+    provider cannot serve: on anthropic and gateway anything but a native
+    Claude id or one of claude's aliases, on openrouter a native Claude id
+    (the broker spells it anthropic/claude-…); one line naming the model
+    and where it came from (2026-10-26, j417)
   - ori not authenticated, or authenticated from anything but the
     environment (`ori auth --json`: authenticated AND source.kind ==
     environment, exit 0)
@@ -272,6 +291,7 @@ from fabric_launcher.base import VALUE_OPTIONS, PATH_OPTIONS, Refused, die, say 
 from fabric_launcher.base import logical_cwd, helper, stripped, env_with  # noqa: E402, F401
 from fabric_launcher.argv import parse_argv, refuse_passthrough, asks_help, wants_opening  # noqa: E402, F401
 from fabric_launcher.argv import without_resume, resumes, absolute_path_options  # noqa: E402, F401
+from fabric_launcher.argv import without_options, PROVIDER_BOUND  # noqa: E402, F401
 from fabric_launcher.currency import git_status_ok, git_text, behind_count, pull_ff, fabric_verdict  # noqa: E402, F401
 from fabric_launcher.currency import keep_working_copy_current, toplevel  # noqa: E402, F401
 from fabric_launcher.settings import settings_scopes, settings_pins, refuse_pins, refuse_cli_settings  # noqa: E402, F401
@@ -279,6 +299,7 @@ from fabric_launcher.routing import ResolveError, load_routing, resolve, resolve
 from fabric_launcher.routing import is_broker_url, drop_broker_env, set_pins, ori_auth_ok  # noqa: E402, F401
 from fabric_launcher.routing import check_ori_auth, caller_value, effort_for  # noqa: E402, F401
 from fabric_launcher.routing import session_effort as routed_session_effort  # noqa: E402, F401
+from fabric_launcher.routing import foreign_session_model, session_source  # noqa: E402, F401
 from fabric_launcher.secrets import synced_values, synced_oauth_token, settle_oauth_token  # noqa: E402, F401
 from fabric_launcher.secrets import SYNCED_SECRETS, HARNESS_CREDENTIAL, HARNESS_EXPANDS  # noqa: E402, F401
 from fabric_launcher.secrets import settle_secrets  # noqa: E402, F401
@@ -364,6 +385,38 @@ def declared_provider_args(args: list[str]) -> list[str]:
         return args
 
 
+def relaunch_args(args: list[str]) -> list[str]:
+    """The original arguments with the declared provider in place of theirs,
+    and, when that moves the session to another routing column, without what
+    the original launch chose for the old column's models (PROVIDER_BOUND):
+    the relaunch then resolves model, shim, effort and transport for the new
+    provider alone. Replaying them was the 2026-10-26 incident (j417): a
+    broker launch's own --model z-ai/glm-5.2@preset/glm2claude-shim reached
+    plain claude, whose launcher takes a caller's --model as given, and
+    Anthropic refused every turn. Gateway and anthropic share a column, so
+    a move between them keeps the arguments."""
+    out = declared_provider_args(args)
+
+    def column(a: list[str]) -> str:
+        p = parse_argv(a)[1]
+        return "anthropic" if p == "gateway" else p
+    was, now = column(args), column(out)
+    if was == now:
+        return out
+    out, dropped = without_options(out, PROVIDER_BOUND)
+    if dropped:
+        say(f"launch: the restart moves this session from {was} to {now}; dropped what the original launch passed "
+            f"for {was}'s models: {' '.join(dropped)}")
+    return out
+
+
+# Set by restart() for the launch it re-executes, and dropped before that
+# launch's session starts: a refusal while it is set is a session the control
+# plane stopped and the launcher did not bring back, which main() says beyond
+# the refusal itself, since the pane is left at the account's shell.
+RESTARTING = "AGENT_FABRIC_RESTARTING"
+
+
 def restart(state_dir: str, started: int, opening: bool, status: int, orig_args: list[str],
             fabric_root: str, cwd: str) -> None:
     marker = f"{state_dir}/restart.json"
@@ -377,8 +430,9 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
         pass
     if resume is None:
         return
-    nxt = declared_provider_args(without_resume(orig_args))
+    nxt = relaunch_args(without_resume(orig_args))
     base = {k: v for k, v in os.environ.items() if k != "AGENT_FABRIC_PULLED"}
+    base[RESTARTING] = "1"
     if resume.startswith("fresh:"):
         if not opening:
             # A marker not written by fabric-fresh's own check: never
@@ -508,6 +562,14 @@ def launch(argv: list[str]) -> int:
     # is not appended (the same trailing-flag hole --effort had, and older).
     caller_model_value, caller_model, _ = caller_value(args, "--model")
     effective_session = caller_model_value if caller_model_value is not None else session
+    # The model must be one this provider serves, whoever chose it: the resolve
+    # checks the classes against the column, but a caller's --model is taken as
+    # given and the session's own model was never checked here. --print refuses
+    # too, as for the review grade: it reports a launch that would start.
+    refusal = foreign_session_model(routing, provider, effective_session, session_source(
+        caller_model_value is not None, str(resolved["session"].get("source", "")), role, agent, local_override))
+    if refusal:
+        die(refusal)
     # The session's own effort, beside its model: routing/effort.json names a
     # level or a class whose level to take, and the adapter has already
     # clamped it to what this model admits. The caller's own --effort wins and
@@ -731,6 +793,9 @@ def launch(argv: list[str]) -> int:
     if provider == "gateway" and not asks_help(args):
         gw = gateway.launch_gateway(env, fabric_root, agent, role, state_dir, session,
                                     caller_model_value if caller_model else None)
+    # Every refusal is behind us: the session starts, and it, and a restart of
+    # it, are no longer the relaunch that restart() asked for.
+    env.pop(RESTARTING, None)
     try:
         status = run_session(cmd)
     finally:
@@ -756,6 +821,10 @@ def main(argv: list[str]) -> int:
         return status
     except Refused as exc:
         say(f"launch: {exc}")
+        if os.environ.get(RESTARTING):
+            say("launch: RESTART NOT COMPLETED: the session stopped for a restart was not brought back; the refusal "
+                "above stopped its relaunch, and this pane is at the account's shell. Fix what it names, then "
+                "fabric-resume.")
         return 1
     except BrokenPipeError:
         # `--print | head`: the reader left; bash's echo died of SIGPIPE.
