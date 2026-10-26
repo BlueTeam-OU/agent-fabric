@@ -89,6 +89,11 @@ class Tables(unittest.TestCase):
         with_provider = [{**replies[0], "data": {**replies[0]["data"], "session": {"provider": p}}} for p in ("openrouter", "gateway")]
         for reply_, want in zip(with_provider, ("openrouter", "gateway")):
             self.assertRegex(ctl.table("status", ctl.rows(placed("db-admin"), [reply_])), rf"db-admin\s+{want}\s+abc1234")
+        # A joined provider list shows as `mixed` so the fabric column stays under its header.
+        joined = {**replies[0], "data": {**replies[0]["data"], "session": {"provider": "anthropic,openrouter"}}}
+        jt = ctl.table("status", ctl.rows(placed("db-admin"), [joined])).splitlines()
+        self.assertRegex(jt[1], r"db-admin\s+mixed\s+abc1234")
+        self.assertEqual(jt[1].index("abc1234"), jt[0].index("fabric"))
         self.assertRegex(t, r"web-dev-01\s+no answer")
         self.assertRegex(ctl.table("ping", rs), r"db-admin\s+ok\s+120 ms")
         # The script table: the workers column — input and answers binned — and `-` when there are none.

@@ -1842,7 +1842,11 @@ def _table_status(rs: list) -> list[str]:
             fab = S(nullish(dig(fb, "status"), "-"))
         usage = (f"{pct(r['five_hour'])}  {pad_end(at(r['five_hour']), 16)} {pct(r['seven_day'])}  {pad_end(at(r['seven_day']), 16)}"
                  if r.get("usage_status") == "ok" else pad_end(S(nullish(r.get("usage_status"), "-")), 42))
-        lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(S(nullish(r['email'], '-')), 30)} {usage} {pad_end(S(nullish(r['role'], '-')), 18)} {pad_end(S(nullish(dig(r.get('session'), 'provider'), '-')), 10)} {fab}"
+        # The provider column is 10 wide and pad_end never truncates, so a joined list
+        # ("anthropic,openrouter") would shift the fabric column; the JSON carries the list.
+        prov = S(nullish(dig(r.get('session'), 'provider'), '-'))
+        prov = "mixed" if "," in prov else prov
+        lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(S(nullish(r['email'], '-')), 30)} {usage} {pad_end(S(nullish(r['role'], '-')), 18)} {pad_end(prov, 10)} {fab}"
                      + _drift_cells(r))
     return lines
 
