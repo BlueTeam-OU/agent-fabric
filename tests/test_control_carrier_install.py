@@ -1236,6 +1236,16 @@ class ClientProgram(Case):
         os.unlink(self.target())
         self.assertEqual(self.read()["client"], {"status": "absent"}, "a missing file is still absent")
 
+    def test_a_program_file_that_cannot_be_read_is_unreadable_not_differs(self):
+        self.release()
+        self.install()
+        os.chmod(self.target(), 0)
+        if os.geteuid() == 0:
+            self.skipTest("root reads any file")
+        self.assertEqual(self.read()["client"]["status"], "unreadable")
+        os.chmod(self.target(), 0o755)
+        self.assertEqual(self.read()["client"], {"status": "ok"}, "positive control")
+
     def test_a_copy_that_cannot_be_made_fails_the_reply_and_the_next_run_retries_it(self):
         self.release()
         os.makedirs(self.target())          # a directory where the file goes: os.replace refuses it
@@ -1489,6 +1499,8 @@ class StartStop(Case):
         r = self.start()
         self.assertEqual(r["status"], "refused")
         self.assertIn(self.client_program, r["reason"])
+        self.assertIn(f"run {iw.INSTALL_OP}", r["reason"], "the refusal names a remedy that exists")
+        self.assertNotIn("bootstrap", r["reason"])
         self.nothing_touched("a client program that is not executable")
         os.unlink(self.client_program)
         self.assertEqual(self.start()["status"], "refused", "absent")

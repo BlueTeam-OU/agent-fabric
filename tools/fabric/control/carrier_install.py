@@ -1032,8 +1032,8 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
     # gzcoord/carrier/install_client.py; without it the daemon would start and the client unit crash-loop on 203/EXEC.
     client_program = os.path.join(home, CLIENT_PROGRAM_REL)
     if not (os.path.isfile(client_program) and os.access(client_program, os.X_OK)):
-        return _refused(f"the client unit's program {client_program} is not installed (tools/fabric/gzcoord/carrier/install_client.py, "
-                        f"which bootstrap.sh runs, or {INSTALL_OP}); nothing was started")
+        return _refused(f"the client unit's program {client_program} is not installed (run {INSTALL_OP}, which runs "
+                        f"tools/fabric/gzcoord/carrier/install_client.py); nothing was started")
     try:
         _, running = running_units(profile, run, home)
     except ChannelUnknown as e:
