@@ -351,6 +351,19 @@ def reexec(env: dict, args: list[str]) -> "NoReturn":  # noqa: F821
         sys.exit(127)
 
 
+def declared_provider_args(args: list[str]) -> list[str]:
+    """The relaunch replays the original arguments, whose --provider the
+    profile may have moved since; resume.py's resolution puts the agent
+    layer's declaration in its place (fabric-ctl restart, an upgrade). Loaded
+    by path as the parts are; anything that cannot be resolved leaves the
+    arguments as they were."""
+    try:
+        return _load("fabric_resume", os.path.join(HERE, "resume.py")).with_declared_provider(args)
+    except Exception as exc:  # noqa: BLE001 — a relaunch is never lost to a profile it cannot read
+        say(f"launch: could not read the declared provider ({type(exc).__name__}); keeping the arguments' own.")
+        return args
+
+
 def restart(state_dir: str, started: int, opening: bool, status: int, orig_args: list[str],
             fabric_root: str, cwd: str) -> None:
     marker = f"{state_dir}/restart.json"
@@ -364,7 +377,7 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
         pass
     if resume is None:
         return
-    nxt = without_resume(orig_args)
+    nxt = declared_provider_args(without_resume(orig_args))
     base = {k: v for k, v in os.environ.items() if k != "AGENT_FABRIC_PULLED"}
     if resume.startswith("fresh:"):
         if not opening:

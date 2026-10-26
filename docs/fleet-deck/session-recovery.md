@@ -68,8 +68,11 @@ where this plan and that note differ, the note is right.
      (the account's status, jobs and open pull requests).
 
    An agent's own `routing/profiles.json` `launch_provider` outranks the
-   record; a first activation with no launch on record takes the provider
-   of that file for its role or the defaults.
+   record, and a restart relaunch (`fabric-ctl restart`, an upgrade) takes
+   it over the `--provider` of the original launch; declared `anthropic`
+   with a last launch through the gateway comes back through the gateway.
+   A first activation with no launch on record takes the provider of that
+   file for its role or the defaults.
 6. **What the deck shows** per tab, in the deck's own output only (a
    tab's label stays the bare account: the label is the mapping):
    - dormant: the harness waits for Enter;

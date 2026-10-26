@@ -297,7 +297,9 @@ def main() -> int:
             check("…then the role's", resume.profile_provider("pd-y", "python-dev") == "anthropic")
             check("…then the defaults'", resume.profile_provider("pd-y", "web-dev") == "openrouter")
             last, who = resume.install_agent_files.last_launch_provider, resume.identity.current_agent
+            transport = resume.last_launch_transport   # else the running account's own launch-provider.json answers
             try:
+                resume.last_launch_transport = lambda: ""
                 resume.identity.current_agent = lambda: "pd-x"
                 resume.install_agent_files.last_launch_provider = lambda: None
                 check("a first launch takes the profile's provider",
@@ -315,8 +317,39 @@ def main() -> int:
                 check("…with no record, the role's", resume.provider_args([], {"role": "python-dev"}) == ["--provider", "anthropic"])
                 resume.identity.current_agent = lambda: "pd-x"
                 check("…and the caller's --provider over both", resume.provider_args(["--provider", "x"], {}) == [])
+                # A declaration of anthropic names the column; the record's transport is how it is reached.
+                profiles({"agents": {"pd-x": {"launch_provider": "anthropic"}}})
+                resume.install_agent_files.last_launch_provider = lambda: "anthropic"
+                resume.last_launch_transport = lambda: "gateway"
+                check("anthropic declared, anthropic over the gateway on record: gateway",
+                      resume.provider_args([], {}) == ["--provider", "gateway"])
+                resume.last_launch_transport = lambda: ""
+                check("…plain anthropic on record: anthropic", resume.provider_args([], {}) == ["--provider", "anthropic"])
+                profiles({"agents": {"pd-x": {"launch_provider": "openrouter"}}})
+                resume.last_launch_transport = lambda: "gateway"
+                check("…a declaration of openrouter is not turned into the gateway",
+                      resume.provider_args([], {}) == ["--provider", "openrouter"])
+                # The restart path: the original arguments, the declaration in place of their provider.
+                resume.last_launch_transport = lambda: ""
+                profiles({"agents": {"pd-x": {"launch_provider": "anthropic"}}})
+                w = resume.with_declared_provider
+                check("restart: the declared provider replaces the original's",
+                      w(["--provider", "openrouter", "-p", "x"]) == ["--provider", "anthropic", "-p", "x"])
+                check("restart: …spelled with =", w(["--provider=openrouter", "-p"]) == ["--provider=anthropic", "-p"])
+                check("restart: …the same provider is left as it is", w(["--provider", "anthropic"]) == ["--provider", "anthropic"])
+                check("restart: …none given, the launcher's default openrouter is not it, so it is put in front",
+                      w(["-p", "x"]) == ["--provider", "anthropic", "-p", "x"])
+                resume.last_launch_transport = lambda: "gateway"
+                check("restart: …declared anthropic over a gateway record: gateway",
+                      w(["--provider", "anthropic"]) == ["--provider", "gateway"])
+                profiles({"agents": {"pd-x": {"launch_provider": "openrouter"}}})
+                check("restart: …declared openrouter, none given, is the default already", w(["-p"]) == ["-p"])
+                profiles({"roles": {"python-dev": {"launch_provider": "anthropic"}}})
+                check("restart: no agent-layer declaration keeps the original's provider (a role's does not count)",
+                      w(["--provider", "openrouter", "-p"]) == ["--provider", "openrouter", "-p"])
             finally:
                 resume.install_agent_files.last_launch_provider, resume.identity.current_agent = last, who
+                resume.last_launch_transport = transport
             profiles({"defaults": {}, "agents": {"pd-x": {"launch_provider": "moon"}}})
             check("an unknown provider is none", resume.profile_provider("pd-x", None) is None)
             profiles("not json")

@@ -189,6 +189,46 @@ def last_launch_transport(record: str | None = None) -> str:
     return transport if transport == "gateway" else ""
 
 
+def through_gateway(p: str | None) -> str | None:
+    """A session that ran through the gateway comes back through it: the
+    provider names the column, the record's transport is how it was reached,
+    so an anthropic column over a gateway record is "gateway"."""
+    return "gateway" if p == "anthropic" and last_launch_transport() == "gateway" else p
+
+
+def declared_provider(agent: str) -> str | None:
+    """The agent layer's own launch_provider, the declared and reviewed
+    choice, with the record's gateway transport applied: a declaration of
+    anthropic names the column and must not drop an account off the gateway
+    it reaches that column by."""
+    return through_gateway(profile_provider(agent, None, agent_only=True))
+
+
+def with_declared_provider(args: list[str]) -> list[str]:
+    """`args` with the agent layer's declared provider in place of the
+    --provider they carry (or put in front when they carry none and the
+    launcher's default is another): a relaunch after a restart replays the
+    original arguments, whose provider would otherwise outlive a profile
+    that has since moved the account. No declaration leaves them as given."""
+    p = declared_provider(identity.current_agent())
+    if not p:
+        return list(args)
+    out, replaced, i = [], False, 0
+    while i < len(args):
+        a = args[i]
+        if a == "--provider" and i + 1 < len(args):
+            out += ["--provider", p]
+            replaced, i = True, i + 2
+        elif a.startswith("--provider="):
+            out.append(f"--provider={p}")
+            replaced, i = True, i + 1
+        else:
+            out.append(a)
+            i += 1
+    # The launcher's own default, which a declaration of it need not restate.
+    return out if replaced or p == "openrouter" else ["--provider", p, *out]
+
+
 def provider_args(extra: list[str], binding: dict | None = None) -> list[str]:
     """The caller's --provider wins; then the agent's own launch_provider in
     the profile, the declared and reviewed choice (a record that outranked it
@@ -200,13 +240,7 @@ def provider_args(extra: list[str], binding: dict | None = None) -> list[str]:
     if any(a == "--provider" or a.startswith("--provider=") for a in extra):
         return []
     agent = identity.current_agent()
-    p = profile_provider(agent, None, agent_only=True)
-    if not p:
-        p = install_agent_files.last_launch_provider()
-        # A session that ran through the gateway comes back through it: the record's
-        # provider is the column, the transport is how it was reached.
-        if p == "anthropic" and last_launch_transport() == "gateway":
-            p = "gateway"
+    p = declared_provider(agent) or through_gateway(install_agent_files.last_launch_provider())
     if not p:
         b = binding if binding is not None else identity.read_binding(agent)
         p = profile_provider(agent, b.get("role"))

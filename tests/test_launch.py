@@ -349,6 +349,8 @@ def main() -> int:
                                                  "from": "1", "to": "2"}))
         saved = dict(os.environ)
         os.environ["AGENT_FABRIC_PULLED"] = "1"
+        # No profile to read: the running login's real declaration must not reach the arguments checked below.
+        os.environ["AGENT_FABRIC_RESUME_PROFILES"] = f"{tmp}/no-profiles.json"
         try:
             with redirect_stderr(io.StringIO()):
                 launch.restart(state, launched, True, 143, ["--resume", "old", "-p", "x"], tmp, tmp)
@@ -362,6 +364,27 @@ def main() -> int:
               len(calls) == 1 and "AGENT_FABRIC_PULLED" not in calls[0][0]
               and calls[0][1] == ["-p", "x", "--resume", "sess-9"])
         check("…and the marker is consumed", not os.path.exists(f"{state}/restart.json"))
+        # A restart replays the original --provider; the agent layer's declaration replaces it (j411 review F1).
+        login = pwd.getpwuid(os.geteuid()).pw_name
+        put(f"{tmp}/profiles.json", json.dumps({"agents": {login: {"launch_provider": "openrouter"}}}))
+        for orig, want in ((["--provider", "anthropic", "-p", "x"], ["--provider", "openrouter", "-p", "x", "--resume", "sess-9"]),
+                           (["--provider=gateway", "-p", "x"], ["--provider=openrouter", "-p", "x", "--resume", "sess-9"])):
+            calls.clear()
+            put(f"{state}/restart.json", json.dumps({"requested_at": when, "status": "done", "piece": "claude",
+                                                     "from": "1", "to": "2"}))
+            launch.reexec = lambda env, args: calls.append((env, args)) or (_ for _ in ()).throw(SystemExit(0))
+            os.environ["AGENT_FABRIC_RESUME_PROFILES"] = f"{tmp}/profiles.json"
+            try:
+                with redirect_stderr(io.StringIO()):
+                    launch.restart(state, launched, True, 143, orig, tmp, tmp)
+            except SystemExit:
+                pass
+            finally:
+                os.environ.clear()
+                os.environ.update(saved)
+                launch.reexec = launch_reexec
+            check(f"a restart relaunches on the declared provider, not the original's ({orig[0]})",
+                  len(calls) == 1 and calls[0][1] == want)
         check("the caller's resume flags are replaced, a bare -r keeps the option after it",
               launch.without_resume(["-c", "--resume=a", "-r", "--model", "m", "--continue", "x"])
               == ["--model", "m", "x"])
