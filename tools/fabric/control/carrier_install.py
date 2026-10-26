@@ -52,7 +52,12 @@ THE SEQUENCE, for one account, as that login and with no root:
  10. the marker (<state>/<carrier>-install.json) is written whole, by rename,
      only after the check passed;
  11. the temporary directory is removed however the install ends, and one a
-     killed install left is removed at the start of the next.
+     killed install left is removed at the start of the next;
+ 12. last, after "installed" and after "current" alike, the client unit's program
+     (runtime/<carrier>/client of this clone) is put in ~/.local/libexec/<carrier>/client
+     by gzcoord/carrier/install_client.py (agent-fabric ADR-064 rule 5): current means the
+     archive, not that program. The reply says `client`: "installed" | "already"; a copy that
+     fails makes the reply failed (`client`: "failed"), the programs staying as installed.
 
 THE REPLY, data["<carrier>-install"]: status "installed" | "current" |
 "refused" | "failed"; version; sha256 (the verified archive digest, the pin's);
@@ -62,11 +67,13 @@ an architecture the pin has no build for); a failure is an install that was
 tried or could not start. A failure leaves the account on its previous
 programs (`restored`: true), except where the restoring itself failed
 (`restored`: false, the reason says which program), or where only the marker
-could not be written. `units` on an install: the units that were running and the
+could not be written. `client` on an installed or current reply: see step 12. `units` on an install: the units that were running and the
 check's result; `checks` on a failure that had restarted them: [the first
 check, the check after restoring].
 
-THE READ, data["<carrier>"]: status "ok" | "absent" | "unreadable"; version
+THE READ, data["<carrier>"]: client: {status "ok" | "absent" | "differs" | "unreadable"}, whether the client
+unit's program is in place and is this clone's byte for byte and mode (whatever the status below);
+status "ok" | "absent" | "unreadable"; version
 and reports, as the installed programs print them under --version; programs
 (name -> digest); release_sha256 (the marker's, when every digest still
 agrees); pinned (whether what is installed prints what the pin says); units
@@ -120,7 +127,7 @@ import urllib.error
 import zlib
 from typing import Any, Callable
 
-from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME
+from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, install_client
 from control.gateway import ARCHES, SHA256, PinError, _arch, _fsync_dir, _why, download, file_sha256
 from control.ops import util
 from control.upgrade import LEASE_HELD, VERSION_RE, LeaseRefused, hold_lease
@@ -697,7 +704,8 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             return _refused(LOCK_BUSY)
-        return _install(version, pin["releases"][version], build, state, home, root, fetch, run, token, sleep, lease)
+        reply = _install(version, pin["releases"][version], build, state, home, root, fetch, run, token, sleep, lease)
+        return _with_client(reply, home, root)
     finally:
         os.close(lock_fd)
 
@@ -829,6 +837,40 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
             pass
         except OSError as e:
             print(f"{INSTALL_OP}: could not remove {work} ({errno.errorcode.get(e.errno or 0) or e})", file=sys.stderr)
+
+
+def _with_client(reply: dict, home: str, root: str) -> dict:
+    """The last step (agent-fabric ADR-064 rule 5): the client unit's program, from this clone, in ~/.local/libexec.
+    It follows "installed" AND "current": current means the archive is the pinned one, not that the program is there,
+    and an account upgraded before this step existed is current with no program. A failed install leaves it alone."""
+    if reply.get("status") not in ("installed", "current"):
+        return reply
+    try:
+        wrote = install_client.install(home, client_source(root))
+    except OSError as e:
+        out = dict(reply, status="failed", client="failed",
+                   reason=f"the programs are in place but the client unit's program could not be installed ({_oneline(e)}); run it again")
+        return out
+    return dict(reply, client="installed" if wrote else "already")
+
+
+def client_source(root: str) -> str:
+    return os.path.join(root, "runtime", CARRIER_NAME, "client")
+
+
+def client_state(home: str, root: str) -> dict:
+    """{"status": "ok" | "absent" | "differs" | "unreadable"}: whether the client unit's program is in place and is the
+    clone's. A source that cannot be read is unreadable, never "ok" or "absent"."""
+    dst = os.path.join(home, CLIENT_PROGRAM_REL)
+    src = client_source(root)
+    try:
+        with open(src, "rb"):
+            pass
+    except OSError as e:
+        return {"status": "unreadable", "reason": f"the clone's {src}: {_oneline(e)}"}
+    if not os.path.lexists(dst):
+        return {"status": "absent"}
+    return {"status": "ok" if install_client.same(src, dst) else "differs"}
 
 
 def _landed(bindir: str, home: str, programs: dict[str, str]) -> str | None:
@@ -1066,12 +1108,16 @@ def carrier_stop(request: Any, root: str | None = None, home: str | None = None,
 def installed(home: str | None = None, state: str | None = None, run: Callable[..., Any] = subprocess.run,
               root: str | None = None) -> dict:
     home = os.path.expanduser("~") if home is None else home
+    root = _code_root() if root is None else root
+    return dict(_installed(home, state, run, root), client=client_state(home, root))
+
+
+def _installed(home: str, state: str | None, run: Callable[..., Any], root: str) -> dict:
     state = util.state_dir() if state is None else state
     bindir = bin_dir(home)
     units = {u: os.path.isfile(os.path.join(unit_dir(home), u)) for u in UNITS}
     marker = read_marker(state)
     recorded = _marker_programs(marker)
-    root = _code_root() if root is None else root
     wanted: dict | None = None
     build: dict | None = None
     try:

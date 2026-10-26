@@ -182,6 +182,9 @@ class Systemd:
 DAEMON_UNIT, CLIENT_UNIT = "interweave-daemon@gzcoord.service", "interweave-client@gzcoord.service"
 
 
+CLIENT_BYTES = b"#!/bin/sh\n# the clone's client unit program\n"
+
+
 class Case(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(prefix="test_control_carrier_install.")
@@ -190,6 +193,8 @@ class Case(unittest.TestCase):
         self.root, self.home, self.state = (os.path.join(t, n) for n in ("root", "home", "state"))
         for d in (os.path.join(self.root, "runtime", "interweave"), self.home):
             os.makedirs(d)
+        with open(os.path.join(self.root, "runtime", "interweave", "client"), "wb") as fh:
+            fh.write(CLIENT_BYTES)
         with open(os.path.join(self.root, iw.ROSTER_REL), "w") as fh:
             json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", "port_range": [47100, 47199], "rows": []}, fh)
         self.systemd = Systemd()
@@ -367,7 +372,7 @@ class Install(Case):
         r = self.install()
         archive_programs = {n: hashlib.sha256(program(n)).hexdigest() for n in PROGRAMS}
         self.assertEqual(r, {"status": "installed", "version": VERSION, "sha256": hashlib.sha256(art).hexdigest(), "programs": archive_programs,
-                                  "units": {"running_before": [], "check": "not run: no unit was running"}})
+                                  "client": "installed", "units": {"running_before": [], "check": "not run: no unit was running"}})
         self.assertEqual(self.installed_names(), sorted(PROGRAMS))
         for n in PROGRAMS:
             self.assertEqual(digest_of(os.path.join(self.bindir, n)), archive_programs[n], n)
@@ -388,7 +393,7 @@ class Install(Case):
         self.release()
         first = self.install()
         again = self.install()
-        self.assertEqual(again, {k: v for k, v in {**first, "status": "current"}.items() if k != "units"})
+        self.assertEqual(again, {k: v for k, v in {**first, "status": "current", "client": "already"}.items() if k != "units"})
         self.assertEqual(len(self.fetched), 1)
         with open(os.path.join(self.bindir, "transportctl"), "ab") as fh:
             fh.write(b"# edited\n")
@@ -710,7 +715,7 @@ class Read(Case):
 
     def test_nothing_installed_is_absent_with_the_units_said(self):
         self.release()
-        self.assertEqual(self.read(), {"status": "absent", "units": {u: False for u in UNITS}})
+        self.assertEqual(self.read(), {"status": "absent", "units": {u: False for u in UNITS}, "client": {"status": "absent"}})
 
     def test_an_install_reads_back_its_version_digests_and_units(self):
         art = self.release()
@@ -1172,6 +1177,70 @@ class Channel(Case):
         return iw.installed(self.home, self.state, root=self.root, run=self.systemd)["channel"]
 
 
+class ClientProgram(Case):
+    """Step 12 of the install and the read's `client` (agent-fabric ADR-064 rule 5)."""
+
+    def target(self):
+        return os.path.join(self.home, iw.CLIENT_PROGRAM_REL)
+
+    def read(self):
+        return iw.installed(self.home, self.state, root=self.root, run=self.systemd)
+
+    def test_a_current_account_without_the_program_gets_it_and_the_reply_says_so(self):
+        self.release()
+        self.assertEqual(self.install()["client"], "installed")
+        os.unlink(self.target())
+        before = len(self.fetched)
+        r = self.install()
+        self.assertEqual((r["status"], r["client"]), ("current", "installed"), "current means the archive, not the client program")
+        self.assertEqual(len(self.fetched), before, "nothing was downloaded for it")
+        with open(self.target(), "rb") as fh:
+            self.assertEqual(fh.read(), CLIENT_BYTES)
+        self.assertEqual(stat.S_IMODE(os.stat(self.target()).st_mode), 0o755)
+        self.assertEqual(self.install()["client"], "already")
+
+    def test_an_edited_copy_is_replaced_and_the_read_shows_each_state(self):
+        self.release()
+        self.assertEqual(self.read()["client"], {"status": "absent"})
+        self.install()
+        self.assertEqual(self.read()["client"], {"status": "ok"})
+        with open(self.target(), "ab") as fh:
+            fh.write(b"# edited\n")
+        self.assertEqual(self.read()["client"], {"status": "differs"})
+        self.assertEqual(self.install()["client"], "installed")
+        self.assertEqual(self.read()["client"], {"status": "ok"})
+        os.chmod(self.target(), 0o644)
+        self.assertEqual(self.read()["client"], {"status": "differs"}, "the mode is part of being the clone's")
+
+    def test_a_source_that_cannot_be_read_is_unreadable_never_absent_or_ok(self):
+        self.release()
+        self.install()
+        os.unlink(os.path.join(self.root, "runtime", "interweave", "client"))
+        got = self.read()["client"]
+        self.assertEqual(got["status"], "unreadable")
+        self.assertIn("runtime/interweave/client", got["reason"])
+
+    def test_a_copy_that_cannot_be_made_fails_the_reply_and_the_next_run_retries_it(self):
+        self.release()
+        os.makedirs(self.target())          # a directory where the file goes: os.replace refuses it
+        r = self.install()
+        self.assertEqual((r["status"], r["client"]), ("failed", "failed"))
+        self.assertIn("client unit's program", r["reason"])
+        self.assertEqual(self.installed_names(), sorted(PROGRAMS), "the programs stayed as installed")
+        self.assertFalse([n for n in os.listdir(os.path.dirname(self.target())) if n.startswith(".client.")], "no temporary file survives")
+        os.rmdir(self.target())
+        r = self.install()
+        self.assertEqual((r["status"], r["client"]), ("current", "installed"))
+
+    def test_a_failed_install_does_not_touch_the_program(self):
+        self.release()
+        self.lease_refused = iw.LeaseRefused(75, "fabric-lease: held", "held")
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertNotIn("client", r)
+        self.assertFalse(os.path.lexists(self.target()))
+
+
 class Wiring(Case):
     def test_the_op_is_an_operator_action_and_the_read_an_operator_read(self):
         self.assertIn("interweave-install", ops.OPS)
@@ -1308,10 +1377,8 @@ class StartStop(Case):
         self.release()
         self.assertEqual(self.install()["status"], "installed", "the account has the pin's programs and both templates")
         self.client_program = os.path.join(self.home, iw.CLIENT_PROGRAM_REL)
-        os.makedirs(os.path.dirname(self.client_program))
-        with open(self.client_program, "w") as fh:
-            fh.write("#!/bin/sh\n")
-        os.chmod(self.client_program, 0o755)
+        with open(self.client_program, "rb") as fh:
+            self.assertEqual(fh.read(), CLIENT_BYTES, "the install put the clone's client program in place")
         self.systemd.calls.clear()
 
     def start(self, request=None, **kw):
