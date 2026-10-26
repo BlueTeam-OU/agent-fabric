@@ -1351,6 +1351,8 @@ class UnitSystemd(Systemd):
         self.render_rc = 0
         self.render_err = ""
         self.rendered: list[str] = []
+        self.rendered_stdout = 0                # renders asked for on stdout, the read of a running pair
+        self.roster_text = "config\n"           # what the carrier renders from the roster now
         self.enabled: list[str] = []
         self.disabled: list[str] = []
         self.enable_rc: dict[str, int] = {}
@@ -1369,12 +1371,16 @@ class UnitSystemd(Systemd):
             if self.linger == "hang":
                 raise subprocess.TimeoutExpired(argv, kw["timeout"])
             return subprocess.CompletedProcess(argv, 0, f"{self.linger}\n", "")
+        if name == "gzcoord-carrier" and argv[1] == "render-config" and len(argv) == 2:
+            self.calls.append(list(argv))
+            self.rendered_stdout += 1
+            return subprocess.CompletedProcess(argv, self.render_rc, self.roster_text if self.render_rc == 0 else "", self.render_err)
         if name == "gzcoord-carrier" and argv[1] == "render-config":
             self.calls.append(list(argv))
             if self.render_rc == 0:
                 os.makedirs(os.path.dirname(argv[3]), exist_ok=True)
                 with open(argv[3], "w") as fh:
-                    fh.write("config\n")
+                    fh.write(self.roster_text)
             self.rendered.append(argv[3])
             return subprocess.CompletedProcess(argv, self.render_rc, "", self.render_err)
         if name == "systemctl" and argv[2] == "restart":
@@ -1640,13 +1646,13 @@ class StartStop(Case):
             json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", "port_range": [47100, 47199], "rows": []}, fh)
         self.assertEqual(self.start()["status"], "started", "positive control")
 
-    def test_a_running_pair_needs_neither_the_lease_nor_the_reservation(self):
+    def test_a_running_pair_needs_the_render_lease_for_its_read_but_not_the_reservation(self):
         self.assertEqual(self.start()["status"], "started")
         self.events.clear()
         self.reserve("")
         r = self.start()
         self.assertEqual((r["status"], r.get("already_running")), ("started", True))
-        self.assertEqual(self.events, [])
+        self.assertEqual(self.events, [f"lease {iw.RENDER_LEASE} wait_s={iw.RENDER_LEASE_WAIT_S}", "release"], "the read queues like every render; no port check")
 
     def test_programs_that_are_not_the_pins_or_templates_that_are_missing_are_refused(self):
         with open(os.path.join(self.bindir, "transportctl"), "wb") as fh:
@@ -1730,17 +1736,67 @@ class StartStop(Case):
         self.assertEqual(r["status"], "failed", "one look beyond the bound")
         self.assertEqual(self.systemd.status_calls, iw.STARTUP_STATUS_POLLS)
 
-    def test_with_both_units_running_a_start_changes_nothing_and_still_checks(self):
+    def test_with_both_units_running_and_the_config_current_a_start_changes_nothing_and_still_checks(self):
         self.assertEqual(self.start()["status"], "started")
-        self.systemd.rendered.clear(); self.systemd.enabled.clear()
-        os.unlink(self.config())
+        self.systemd.rendered.clear(); self.systemd.enabled.clear(); self.systemd.restarted.clear()
         r = self.start()
         self.assertEqual((r["status"], r["already_running"], r["check"]), ("started", True, "passed"))
-        self.assertEqual((self.systemd.rendered, self.systemd.enabled), ([], []), "a running daemon read the old config: not rewritten")
+        self.assertNotIn("rerendered", r)
+        self.assertEqual((self.systemd.rendered, self.systemd.enabled, self.systemd.restarted), ([], [], []), "a current file is not rewritten")
+        self.assertEqual(self.systemd.rendered_stdout, 1, "but the roster was read: that is how a change is found")
         self.systemd.exe = "/tmp/other"
         r = self.start()
         self.assertEqual(r["status"], "failed", "already running is not already well: the daemon's process is checked")
         self.assertTrue(r["stopped"])
+
+    def test_with_both_units_running_a_roster_change_replaces_the_config_and_restarts_both(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.systemd.restarted.clear()
+        self.systemd.roster_text = "config with a new peer\n"
+        r = self.start()
+        self.assertEqual((r["status"], r["check"], r.get("rerendered")), ("started", "passed", True))
+        self.assertNotIn("already_running", r, "something was changed")
+        with open(self.config()) as fh:
+            self.assertEqual(fh.read(), "config with a new peer\n")
+        self.assertEqual(self.systemd.restarted, [DAEMON_UNIT, CLIENT_UNIT])
+        self.assertEqual(stat.S_IMODE(os.stat(self.config()).st_mode), 0o600)
+        self.systemd.restarted.clear()
+        self.assertTrue(self.start()["already_running"], "the second start finds the file current")
+        self.assertEqual(self.systemd.restarted, [])
+
+    def test_with_both_units_running_a_missing_config_is_written_and_the_pair_restarted(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.systemd.restarted.clear()
+        os.unlink(self.config())
+        self.assertTrue(self.start()["rerendered"])
+        self.assertTrue(os.path.exists(self.config()))
+        self.assertEqual(self.systemd.restarted, [DAEMON_UNIT, CLIENT_UNIT])
+
+    def test_with_both_units_running_a_render_that_fails_leaves_file_and_units_alone(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.systemd.restarted.clear()
+        self.systemd.roster_text = "changed\n"
+        self.systemd.render_rc, self.systemd.render_err = 2, "gzcoord-carrier: no valid row\n"
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertEqual(self.systemd.restarted, [])
+        with open(self.config()) as fh:
+            self.assertEqual(fh.read(), "config\n")
+        self.systemd.render_rc = 1
+        self.assertEqual(self.start()["status"], "failed")
+        self.assertEqual(self.systemd.restarted, [])
+
+    def test_with_both_units_running_a_restart_the_manager_refuses_stops_both(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.systemd.roster_text = "changed\n"
+        orig = self.systemd.__call__
+        def refuse(argv, **kw):
+            if argv[:3] == ["systemctl", "--user", "restart"]:
+                return subprocess.CompletedProcess(argv, 1, "", "Failed\n")
+            return orig(argv, **kw)
+        r = self.start(run=refuse)
+        self.assertEqual(r["status"], "failed")
+        self.assertTrue(r["stopped"], "the relay carries alone (rule 11)")
 
     def test_with_one_unit_running_the_start_goes_the_whole_way(self):
         self.systemd.states = {CLIENT_UNIT: "active"}

@@ -97,8 +97,9 @@ run's switch) writes the profile's config.yaml and brings the roster's profile u
      `gzcoord-carrier render-config --write` of the installed release writes
      $XDG_CONFIG_HOME/<carrier>/profiles/<profile>/config.yaml (atomic, 0600); the carrier refuses it when this
      agent has no valid roster row, and that refusal is the action's (a row is a fact of the roster, not of this
-     account). With both units already running the file is left alone: a running daemon read the old one, and
-     re-rendering on a roster change is another operation;
+     account). With both units already running the render is read and compared with the file: identical, nothing is
+     touched; different (the roster changed after this profile was rendered), the file is replaced and both units
+     are restarted onto it, and the reply says `rerendered` instead of `already_running`;
   4. `systemctl --user enable --now` the daemon unit, then the client unit;
   5. rule 14's check through channel_check, polled: both units active, the daemon's process the installed
      program, every program the pin reports printing its value, the carrier answering `status`;
@@ -133,7 +134,7 @@ import urllib.error
 import zlib
 from typing import Any, Callable
 
-from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, install_client
+from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, install_client, roster
 from control.gateway import ARCHES, SHA256, PinError, _arch, _fsync_dir, _why, download, file_sha256
 from control.ops import util
 from control.upgrade import LEASE_HELD, VERSION_RE, LeaseRefused, hold_lease
@@ -1109,6 +1110,43 @@ def _login() -> str:
     return pwd.getpwuid(os.getuid()).pw_name
 
 
+def _render(root: str, home: str, run: Callable[..., Any], lease: Callable[..., Any], tail: list[str]) -> tuple[Any, dict | None]:
+    """(the finished `gzcoord-carrier render-config <tail>`, None), or (None, the reply that says why it could not run). The caller
+    reads the exit code."""
+    # Refused, not bypassed, as the download is: rendering unqueued is what timed out four of thirty accounts.
+    try:
+        turn = lease(root, wait_s=RENDER_LEASE_WAIT_S, name=RENDER_LEASE)
+    except LeaseRefused as e:
+        return None, _failed(None, f"the host's render lease stayed held for {RENDER_LEASE_WAIT_S} s; nothing was started — run it again"
+                             if e.code == LEASE_HELD else
+                             f"the host's render queue is unavailable ({e.line[:160]}); nothing was started")
+    try:
+        return run([os.path.join(root, "bin", "gzcoord-carrier"), "render-config", *tail], capture_output=True, encoding="utf-8",
+                   errors="strict", timeout=RENDER_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home)), None
+    except subprocess.TimeoutExpired:
+        return None, _failed(None, f"gzcoord-carrier render-config did not finish within {RENDER_TIMEOUT_S} s; nothing was started")
+    except (OSError, UnicodeDecodeError) as e:
+        return None, _failed(None, f"gzcoord-carrier render-config could not be run ({_oneline(e)}); nothing was started")
+    finally:
+        turn.release()
+
+
+def _render_refusal(r: Any) -> dict:
+    lines = [ln for ln in (r.stderr or "").splitlines() if ln.strip()]
+    why = (lines[-1][:200] if lines else f"exit {r.returncode}")
+    # Exit 2 is the carrier declining (no valid roster row for this agent, ...): a refusal. Any other is a render that broke.
+    return (_refused if r.returncode == 2 else (lambda reason: _failed(None, reason)))(f"gzcoord-carrier render-config: {why}; nothing was started")
+
+
+def _config_differs(path: str, text: str) -> bool:
+    """Whether the file on disk is not exactly `text`; a file that is missing or cannot be read differs (the daemon's copy is not known to match)."""
+    try:
+        with open(path, encoding="utf-8", errors="strict") as fh:
+            return fh.read() != text
+    except (OSError, UnicodeDecodeError):
+        return True
+
+
 def carrier_start(request: Any, root: str | None = None, home: str | None = None, state: str | None = None,
                   run: Callable[..., Any] = subprocess.run, machine: str | None = None,
                   sleep: Callable[[float], None] = time.sleep, login: str | None = None,
@@ -1163,6 +1201,7 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
     except ChannelUnknown as e:
         return _failed(None, f"whether the {CARRIER_LABEL} units run is not known ({e}); nothing was started")
     already = len(running) == len(both)
+    rerendered = False
     if not already:
         path = config_path(home, profile)
         try:
@@ -1178,28 +1217,11 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
         bad = own and port_holder_problem(own)
         if bad:
             return _refused(f"{bad}; nothing was started — close that connection and run it again")
-        # Refused, not bypassed, as the download is: rendering unqueued is what timed out four of thirty accounts.
-        try:
-            turn = lease(root, wait_s=RENDER_LEASE_WAIT_S, name=RENDER_LEASE)
-        except LeaseRefused as e:
-            return _failed(None, f"the host's render lease stayed held for {RENDER_LEASE_WAIT_S} s; nothing was started — run it again"
-                           if e.code == LEASE_HELD else
-                           f"the host's render queue is unavailable ({e.line[:160]}); nothing was started")
-        try:
-            r = run([os.path.join(root, "bin", "gzcoord-carrier"), "render-config", "--write", path], capture_output=True, encoding="utf-8",
-                    errors="replace", timeout=RENDER_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
-        except subprocess.TimeoutExpired:
-            return _failed(None, f"gzcoord-carrier render-config did not finish within {RENDER_TIMEOUT_S} s; nothing was started")
-        except OSError as e:
-            return _failed(None, f"gzcoord-carrier render-config could not be run ({_oneline(e)}); nothing was started")
-        finally:
-            turn.release()
+        r, bad_reply = _render(root, home, run, lease, ["--write", path])
+        if bad_reply:
+            return bad_reply
         if r.returncode != 0:
-            lines = [ln for ln in (r.stderr or "").splitlines() if ln.strip()]
-            why = (lines[-1][:200] if lines else f"exit {r.returncode}")
-            # Exit 2 is the carrier declining (no valid roster row for this agent, ...): a refusal. Any other is a render that broke.
-            out = _refused if r.returncode == 2 else (lambda reason: _failed(None, reason))
-            return out(f"gzcoord-carrier render-config: {why}; nothing was started")
+            return _render_refusal(r)
         # A unit that already runs read the old config.yaml and `enable --now` leaves it be: restart it, or the file and the
         # process disagree and the next start (both running) would never repair it.
         problem = None
@@ -1212,12 +1234,33 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
             if problem:
                 break
     else:
+        # A roster change (a new agent's row) must reach a running pair: its daemon allowlisted the peers of the roster it was rendered
+        # from and refuses the rest as UnauthorizedPeer (language-culture-ru, 2026-10-26). The render is read first and the pair
+        # restarted only when the file differs, so a start that changes nothing still changes nothing.
+        r, bad_reply = _render(root, home, run, lease, [])
+        if bad_reply:
+            return bad_reply
+        if r.returncode != 0:
+            return _render_refusal(r)
+        path = config_path(home, profile)
         problem = None
+        if _config_differs(path, r.stdout):
+            try:
+                roster.write_config(path, r.stdout)
+            except OSError as e:
+                return _failed(None, f"{path} could not be written ({_oneline(e)}); the running units were left as they were")
+            rerendered = True
+            for u in both:
+                problem = _systemctl(["restart", u], run, home)
+                if problem:
+                    break
     check = ({"status": "failed", "reason": problem, "units": {}} if problem
              else channel_check(profile, both, build, root, run, home, sleep, status_polls=STARTUP_STATUS_POLLS))
     if check["status"] == "passed":
         out: dict = {"status": "started", "units": check["units"], "check": "passed"}
-        if already:
+        if rerendered:
+            out["rerendered"] = True
+        elif already:
             out["already_running"] = True
         return out
     # The relay carries alone (rule 11): whatever came up is taken down, and the reply says whether that worked.
