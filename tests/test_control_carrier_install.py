@@ -1220,6 +1220,22 @@ class ClientProgram(Case):
         self.assertEqual(got["status"], "unreadable")
         self.assertIn("runtime/interweave/client", got["reason"])
 
+    def test_a_program_that_cannot_be_inspected_is_unreadable_not_absent(self):
+        self.release()
+        self.install()
+        d = os.path.dirname(self.target())
+        os.chmod(d, 0)
+        self.addCleanup(os.chmod, d, 0o755)
+        if os.geteuid() == 0:
+            self.skipTest("root searches any directory")
+        got = self.read()["client"]
+        self.assertEqual(got["status"], "unreadable")
+        self.assertIn("client", got["reason"])
+        os.chmod(d, 0o755)
+        self.assertEqual(self.read()["client"], {"status": "ok"}, "positive control: searchable again")
+        os.unlink(self.target())
+        self.assertEqual(self.read()["client"], {"status": "absent"}, "a missing file is still absent")
+
     def test_a_copy_that_cannot_be_made_fails_the_reply_and_the_next_run_retries_it(self):
         self.release()
         os.makedirs(self.target())          # a directory where the file goes: os.replace refuses it

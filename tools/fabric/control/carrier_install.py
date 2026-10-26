@@ -868,8 +868,17 @@ def client_state(home: str, root: str) -> dict:
             pass
     except OSError as e:
         return {"status": "unreadable", "reason": f"the clone's {src}: {_oneline(e)}"}
-    if not os.path.lexists(dst):
+    # lexists() and same() fold every OSError into "not there" / "different": a program in a directory the account
+    # cannot search would read absent. Only a missing path is absent; one that cannot be inspected is unknown.
+    try:
+        st = os.lstat(dst)
+        if stat.S_ISREG(st.st_mode):
+            with open(dst, "rb"):
+                pass
+    except (FileNotFoundError, NotADirectoryError):
         return {"status": "absent"}
+    except OSError as e:
+        return {"status": "unreadable", "reason": f"{dst}: {_oneline(e)}"}
     return {"status": "ok" if install_client.same(src, dst) else "differs"}
 
 
@@ -1019,12 +1028,12 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
     for unit in UNITS:
         if not os.path.isfile(os.path.join(unit_dir(home), unit)):
             return _refused(f"{unit} is not in {unit_dir(home)}; run {INSTALL_OP} first")
-    # The client template's ExecStart: not in the release (the release ships no automated client) but put there per account by
+    # The client template's ExecStart: not in the release (the release ships no automated client) but put there per account by {INSTALL_OP} and
     # gzcoord/carrier/install_client.py; without it the daemon would start and the client unit crash-loop on 203/EXEC.
     client_program = os.path.join(home, CLIENT_PROGRAM_REL)
     if not (os.path.isfile(client_program) and os.access(client_program, os.X_OK)):
         return _refused(f"the client unit's program {client_program} is not installed (tools/fabric/gzcoord/carrier/install_client.py, "
-                        f"which bootstrap.sh runs); nothing was started")
+                        f"which bootstrap.sh runs, or {INSTALL_OP}); nothing was started")
     try:
         _, running = running_units(profile, run, home)
     except ChannelUnknown as e:
