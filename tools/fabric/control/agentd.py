@@ -112,7 +112,7 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-from control import gateway as gateway_mod, carrier_install as carrier_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
+from control import gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
 from control.jobs import jobs_add  # noqa: E402
@@ -629,6 +629,8 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {START_OP: carrier_mod.carrier_start(request, home=home, root=root, **(ctx.get("carrier_unit_opts") or {}))}
     elif op == STOP_OP:
         data = {STOP_OP: carrier_mod.carrier_stop(request, home=home, root=root, **(ctx.get("carrier_unit_opts") or {}))}
+    elif op == evidence_mod.EVIDENCE_OP:
+        data = {evidence_mod.EVIDENCE_OP: evidence_mod.carrier_evidence(request, **(ctx.get("carrier_evidence_opts") or {}))}
     elif op == "local-prune":
         data = {"local-prune": local_prune(request, home=home, root=root)}
     elif op == "branches-sweep":

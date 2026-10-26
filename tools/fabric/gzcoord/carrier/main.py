@@ -13,12 +13,19 @@ CONTRACT
           abandon <message-id> <recipient-login>
                                the operator ends a delivery (ADR-064 rule 7),
                                recorded with this login as who
-          parity --window START END --arrivals FILE... --senders DIR...
-                 [--journal DB...] [--drill START END] [--host HOST]
+          parity --window START END (--arrivals FILE... --senders DIR...
+                 [--journal DB...] | --collected PATH)
+                 [--drill START END] [--host HOST]
                                  the ADR-064 rule 11 parity report as Markdown
                                  on stdout, computed from the files the
                                  accounts keep (parity.py); START/END are
-                                 YYYY-MM-DDTHH:MM:SSZ. It measures, the owner decides
+                                 YYYY-MM-DDTHH:MM:SSZ. --collected reads what
+                                 `fabric-ctl <login|all> interweave-evidence`
+                                 gathered from the accounts: its --out directory
+                                 (one directory per account) or a file of its
+                                 --json lines; it is refused when any account's
+                                 collection is incomplete or does not cover the
+                                 window. It measures, the owner decides
           render-config [--write PATH]
                                the profile's config.yaml rendered from the
                                roster for THIS agent; to stdout, or atomically
@@ -72,8 +79,8 @@ from gzcoord.carrier import CARRIER_NAME, admit, arrivals, engine, ipc, record, 
 
 ADMIT_LOCK_WAIT = 30.0
 USAGE = ("usage: gzcoord-carrier run [--profile P] | status | abandon <message-id> <recipient-login> | "
-         "render-config [--write PATH] | roster-row | roster-admit ROW.json --port N | parity --window START END --arrivals FILE... --senders DIR... "
-         "[--journal DB...] [--drill START END] [--host HOST]")
+         "render-config [--write PATH] | roster-row | roster-admit ROW.json --port N | parity --window START END (--arrivals FILE... --senders DIR... "
+         "[--journal DB...] | --collected PATH) [--drill START END] [--host HOST]")
 
 
 def say(msg: str) -> None:
@@ -303,20 +310,34 @@ def cmd_parity(args: list[str]) -> int:
     from gzcoord.carrier import parity
     p = argparse.ArgumentParser(prog="gzcoord-carrier parity", add_help=False, allow_abbrev=False)
     p.add_argument("--window", nargs=2, required=True)
-    p.add_argument("--arrivals", nargs="+", required=True)
-    p.add_argument("--senders", nargs="+", required=True)
+    p.add_argument("--arrivals", nargs="+", default=[])
+    p.add_argument("--senders", nargs="+", default=[])
     p.add_argument("--journal", nargs="+", default=[])
+    p.add_argument("--collected")
     p.add_argument("--drill", nargs=2)
     p.add_argument("--host", default="")
     try:
         a = p.parse_args(args)
         window = (parity.parse_t(a.window[0]), parity.parse_t(a.window[1]))
         drill = (parity.parse_t(a.drill[0]), parity.parse_t(a.drill[1])) if a.drill else None
+        if a.collected is None and not (a.arrivals and a.senders):
+            raise ValueError("--collected PATH, or --arrivals and --senders")
+        if a.collected is not None and (a.arrivals or a.senders or a.journal):
+            raise ValueError("--collected does not go with --arrivals, --senders or --journal")
     except (SystemExit, ValueError) as e:
         print(USAGE, file=sys.stderr)
         say(f"bad arguments: {e}")
         return 1
     lines: list[dict] = []
+    if a.collected is not None:
+        try:
+            lines, senders, kinds, journals = parity.load_collected(a.collected, window)
+            rep = parity.compute(lines, senders, kinds, window, drill, host=a.host)
+        except parity.CollectedError as e:
+            return _refuse(f"cannot compute the report: {e}")
+        rep["accounts"] = journals
+        sys.stdout.write(parity.render_markdown(rep))
+        return 0
     try:
         for f in a.arrivals:
             with open(f, encoding="utf-8") as fh:

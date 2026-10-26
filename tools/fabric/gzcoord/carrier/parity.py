@@ -4,7 +4,9 @@ never decides. The owner's word on a switch is given on this report
 (docs/live-checks/) and is not this code's.
 
 INPUTS (all files an account already keeps, collected by whoever runs the
-report; nothing is read from a live process):
+report; nothing is read from a live process; `fabric-ctl <login|all>
+interweave-evidence` collects them from the accounts, and load_collected reads
+what it filed or printed):
   arrivals   every account's gzcoord-arrivals.jsonl: one line per copy
              received {mid, addressee, carrier (relay|interweave), t, verdict}
   senders    every account's interweave/ directory, read by
@@ -35,6 +37,7 @@ from __future__ import annotations
 
 import calendar
 import json
+import os
 import re
 import sqlite3
 import time
@@ -56,19 +59,113 @@ def made_at(mid: str) -> float | None:
     return int(mid.replace("-", "")[:12], 16) / 1000.0
 
 
+def kind_of(metadata_json: str | None) -> str | None:
+    """direct, role or broadcast, from the header fields a journal row keeps; None for a row whose
+    header cannot be read (the report then counts the message's kind as unknown, never as direct)."""
+    try:
+        m = json.loads(metadata_json or "{}")
+    except ValueError:
+        return None
+    if not isinstance(m, dict):
+        return None
+    return "broadcast" if m.get("BROADCAST") == "true" else "role" if "TO-ROLE" in m else "direct"
+
+
 def kinds_from_journal(db_path: str) -> dict[str, str]:
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        out = {}
-        for mid, meta in con.execute("SELECT message_id, metadata_json FROM episodes WHERE direction='inbound'"):
-            try:
-                m = json.loads(meta or "{}")
-            except ValueError:
-                continue
-            out[mid] = "broadcast" if m.get("BROADCAST") == "true" else "role" if "TO-ROLE" in m else "direct"
-        return out
+        rows = con.execute("SELECT message_id, metadata_json FROM episodes WHERE direction='inbound'")
+        return {mid: k for mid, meta in rows if (k := kind_of(meta))}
     finally:
         con.close()
+
+
+class CollectedError(Exception):
+    """A collection the report must not be computed from; the message says which account and why."""
+
+
+ARRIVAL_KEYS = ("mid", "addressee", "carrier", "t", "verdict")
+DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state")
+KINDS = ("direct", "role", "broadcast")
+
+
+def _jsonl(path: str, who: str) -> list[dict]:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return [json.loads(x) for x in fh if x.strip()]
+    except (OSError, ValueError) as e:
+        raise CollectedError(f"{who}: cannot read {os.path.basename(path)}: {e}") from e
+
+
+def _account(who: str, meta: dict, arrivals: list, deliveries: list, kinds: dict, window: tuple[float, float]) -> None:
+    """Refuse an account whose collection cannot stand for its whole window, or whose rows are not what the op sends."""
+    if meta.get("complete") is not True:
+        raise CollectedError(f"{who}: the collection is not complete ({meta.get('reason') or 'no reason given'}); a report from half a log reads as carrier misses")
+    try:
+        since, until = parse_t(meta["since"]), parse_t(meta["until"])
+    except (KeyError, ValueError, TypeError) as e:
+        raise CollectedError(f"{who}: the collection does not say its window ({e})") from e
+    if not (since <= window[0] and window[1] <= until):
+        raise CollectedError(f"{who}: collected for {meta['since']} to {meta['until']}, which does not cover the report's window")
+    if not isinstance(kinds, dict) or any(k not in KINDS for k in kinds.values()) or any(not isinstance(m, str) for m in kinds):
+        raise CollectedError(f"{who}: kinds is not {{message-id: direct|role|broadcast}}")
+    for rows, keys, name in ((arrivals, ARRIVAL_KEYS, "arrival"), (deliveries, DELIVERY_KEYS, "delivery")):
+        for r in rows:
+            if not (isinstance(r, dict) and all(isinstance(r.get(k), str) for k in keys)):
+                raise CollectedError(f"{who}: a {name} row is not {{{', '.join(keys)}}}")
+            if set(r) - set(keys) - {"code", "by"}:
+                raise CollectedError(f"{who}: a {name} row carries a key the op does not send ({sorted(set(r) - set(keys))[0]})")
+            if name == "arrival" and not (r["carrier"] in CARRIERS):
+                raise CollectedError(f"{who}: an arrival row names the carrier {r['carrier'][:20]!r}")
+    want = meta.get("counts")
+    if isinstance(want, dict) and (want.get("arrivals"), want.get("deliveries"), want.get("kinds")) != (len(arrivals), len(deliveries), len(kinds)):
+        raise CollectedError(f"{who}: the files do not hold what the collection counted (cut short, or edited)")
+
+
+def load_collected(path: str, window: tuple[float, float]) -> tuple[list[dict], dict[str, list[dict]], dict[str, str], dict[str, str]]:
+    """(arrivals, senders, kinds, journals) from `path`: a directory of <login>/{arrivals.jsonl, deliveries.jsonl,
+    kinds.json, meta.json} as `fabric-ctl --out` files them, or a file of `fabric-ctl --json` lines. `journals`
+    says per account whether its kinds could be read, because a kind the report cannot know is `unknown`, not direct."""
+    parts: dict[str, tuple[dict, list, list, dict]] = {}
+    if os.path.isdir(path):
+        for login in sorted(os.listdir(path)):
+            d = os.path.join(path, login)
+            if not os.path.isdir(d):
+                continue
+            try:
+                with open(os.path.join(d, "meta.json"), encoding="utf-8") as fh:
+                    meta = json.load(fh)
+                with open(os.path.join(d, "kinds.json"), encoding="utf-8") as fh:
+                    kinds = json.load(fh)
+            except (OSError, ValueError) as e:
+                raise CollectedError(f"{login}: cannot read its collection ({e}); a directory written by a run that stopped has no meta.json") from e
+            if not isinstance(meta, dict) or meta.get("login") != login:
+                raise CollectedError(f"{login}: meta.json is not this account's")
+            parts[login] = (meta, _jsonl(os.path.join(d, "arrivals.jsonl"), login), _jsonl(os.path.join(d, "deliveries.jsonl"), login), kinds)
+    else:
+        for n, line in enumerate(_jsonl(path, "collected"), 1):
+            body = line.get("interweaveEvidence") if isinstance(line, dict) else None
+            login = line.get("account") if isinstance(line, dict) else None
+            if not (isinstance(login, str) and isinstance(body, dict) and all(isinstance(body.get(k), list) for k in ("arrivals", "deliveries"))):
+                raise CollectedError(f"line {n}: not a row of `fabric-ctl --json interweave-evidence` with its rows (was it printed with --out?)")
+            if login in parts:
+                raise CollectedError(f"{login}: collected twice")
+            parts[login] = (body, body["arrivals"], body["deliveries"], body.get("kinds") or {})
+    if not parts:
+        raise CollectedError("nothing was collected")
+    arrivals: list[dict] = []
+    senders: dict[str, list[dict]] = {}
+    kinds_all: dict[str, str] = {}
+    journals: dict[str, str] = {}
+    for login, (meta, arr, dels, kinds) in parts.items():
+        _account(login, meta, arr, dels, kinds, window)
+        arrivals += arr
+        senders[login] = dels
+        for mid, k in kinds.items():
+            if kinds_all.setdefault(mid, k) != k:
+                raise CollectedError(f"{login}: the kind of {mid} differs from another account's")
+        journals[login] = str(meta.get("journal") or "ok")
+    return arrivals, senders, kinds_all, journals
 
 
 def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[str, str], window: tuple[float, float],
@@ -163,6 +260,12 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
           "| kind | relay | interweave |", "|---|---|---|"]
     for k, v in rep["late"].items():
         L.append(f"| {k} | {v['relay']} | {v['interweave']} |")
+    if "accounts" in rep:
+        a = rep["accounts"]
+        blind = sorted(login for login, j in a.items() if j != "ok")
+        L += ["", f"## Collected from {len(a)} account(s)", "",
+              ", ".join(sorted(a)) or "none",
+              *(["", f"The journal could not be read on {', '.join(blind)}: the kind of a message only they received is unknown."] if blind else [])]
     m = rep["messages"]
     L += ["", f"## Framing: {m['compressed']} message(s) compressed, {m['chunked']} chunked, {m['plain']} sent plain", ""]
     if "drill" in rep:

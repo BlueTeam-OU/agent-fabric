@@ -29,7 +29,8 @@ from control.sign import (ACTION_TTL_MAX_S, generate_operator_key, private_key_f
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, UPGRADE_BUDGET_S, pinned_version  # noqa: E402
 
 BASE = {"targets": [], "op": "status", "json": False, "timeout": 20, "out": None, "days": None, "piece": None, "version": None, "force": False,
-        "expect": None, "restart": False, "title": None, "topic": None, "project": None, "priority": None, "role": None, "follow": False, "tool": None}
+        "expect": None, "restart": False, "title": None, "topic": None, "project": None, "priority": None, "role": None, "follow": False, "tool": None,
+        "since": None, "until": None, "section": None}
 
 
 def raw_controls(text: str, keep: str = "\n") -> list[str]:
@@ -1510,9 +1511,11 @@ class Help(unittest.TestCase):
 
     # What a verb needs beside the option under test for parse_args to accept the line, and a value each option takes.
     NEEDS = {"upgrade": ["claude"], "memory": ["--out", "d"], "gateway-install": ["--version", "1.2.3"], "jobs-add": ["a title"],
-             "pool-add": ["--role", "python-dev", "a title"], "tools-install": ["shellcheck"]}
+             "pool-add": ["--role", "python-dev", "a title"], "tools-install": ["shellcheck"],
+             "interweave-evidence": ["--since", "2026-10-26T00:00:00Z", "--until", "2026-10-27T00:00:00Z"]}
     VALUES = {"--timeout": "5", "--days": "3", "--version": "1.2.3", "--expect": "0123456789ab", "--out": "d", "--topic": "t", "--project": "p",
-              "--priority": "normal", "--role": "python-dev"}
+              "--priority": "normal", "--role": "python-dev", "--since": "2026-10-26T00:00:00Z", "--until": "2026-10-27T00:00:00Z",
+              "--section": "arrivals"}
 
     def takes(self, verb: str, flag: str) -> bool:
         argv = ["alice", verb, *self.NEEDS.get(verb, [])]
