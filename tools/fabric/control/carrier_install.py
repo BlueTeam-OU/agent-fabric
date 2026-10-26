@@ -95,7 +95,8 @@ run's switch) writes the profile's config.yaml and brings the roster's profile u
      unit that is active holds that port itself, so with it the sockets are not looked at;
      a running pair whose render equals the file is not checked for the reservation (nothing is restarted); one whose
      file differs is, before the file is written, and a refusal or failure before the restart leaves both units running
-     on the previous file;
+     on the previous file; that path never looks at the own-port sockets, so a daemon that is "activating" with a changed file is
+     restarted unchecked and the channel check that follows is what stops the pair;
   3. in its turn on the host's `<carrier>-render` lease (released before the units start),
      `gzcoord-carrier render-config --write` of the installed release writes
      $XDG_CONFIG_HOME/<carrier>/profiles/<profile>/config.yaml (atomic, 0600); the carrier refuses it when this
