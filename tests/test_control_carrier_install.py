@@ -1406,9 +1406,18 @@ class StartStop(Case):
         with open(self.client_program, "rb") as fh:
             self.assertEqual(fh.read(), CLIENT_BYTES, "the install put the clone's client program in place")
         self.systemd.calls.clear()
+        self.events.clear()
+        self.reserve("47100-47199")
+
+    def reserve(self, text):
+        path = os.path.join(iw.PROC_ROOT, iw.RESERVED_PORTS_REL)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(text + "\n")
 
     def start(self, request=None, **kw):
-        opts = dict(root=self.root, home=self.home, state=self.state, machine="x86_64", run=self.systemd, sleep=lambda s: None, login="agent")
+        opts = dict(root=self.root, home=self.home, state=self.state, machine="x86_64", run=self.systemd, sleep=lambda s: None, login="agent",
+                    lease=self.lease)
         opts.update(kw)
         return iw.carrier_start({} if request is None else request, **opts)
 
@@ -1474,6 +1483,83 @@ class StartStop(Case):
         self.assertEqual((self.systemd.enabled, self.systemd.disabled), ([], []))
         self.systemd.render_rc = 0
         self.assertEqual(self.start()["status"], "started", "positive control")
+
+    def test_the_render_is_taken_in_turn_on_the_host_lease_and_released_before_the_units_start(self):
+        def logged(argv, **kw):
+            if os.path.basename(argv[0]) == "gzcoord-carrier":
+                self.events.append("render")
+            elif "enable" in argv:
+                self.events.append("enable")
+            return self.systemd(argv, **kw)
+        self.assertEqual(self.start(run=logged)["status"], "started")
+        self.assertEqual(self.events[:4], [f"lease {iw.RENDER_LEASE} wait_s={iw.RENDER_LEASE_WAIT_S}", "render", "release", "enable"],
+                         "held for the render alone, not through the units' start")
+
+    def test_a_render_that_times_out_still_gives_the_turn_back(self):
+        def slow(argv, **kw):
+            if os.path.basename(argv[0]) == "gzcoord-carrier" and argv[1] == "render-config":
+                raise subprocess.TimeoutExpired(argv, kw["timeout"])
+            return self.systemd(argv, **kw)
+        r = self.start(run=slow)
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("did not finish", r["reason"])
+        self.assertEqual(self.events, [f"lease {iw.RENDER_LEASE} wait_s={iw.RENDER_LEASE_WAIT_S}", "release"])
+
+    def test_a_lease_held_or_unavailable_renders_nothing(self):
+        self.lease_refused = iw.LeaseRefused(75, "fabric-lease: held", iw.LEASE_HELD)
+        r = self.start()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("render lease stayed held", r["reason"])
+        self.lease_refused = iw.LeaseRefused(2, "no lease directory", "unavailable")
+        r = self.start()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("render queue is unavailable", r["reason"])
+        self.nothing_touched()
+        self.lease_refused = None
+        self.assertEqual(self.start()["status"], "started", "positive control")
+
+    def test_a_host_that_does_not_reserve_the_rosters_ports_is_refused_naming_the_setting(self):
+        for text in ("", "47100-47150", "47101-47199", "32768", "47100-47150,47152-47199", "junk", "47100-"):
+            self.reserve(text)
+            r = self.start()
+            self.assertEqual(r["status"], "refused", text)
+            self.assertIn("ip_local_reserved_ports", r["reason"], text)
+            self.assertIn("47100-47199", r["reason"], text)
+            self.nothing_touched(text)
+            self.assertEqual(self.events, [], "no turn is taken for a host that will be refused")
+        os.unlink(os.path.join(iw.PROC_ROOT, iw.RESERVED_PORTS_REL))
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("cannot be read", r["reason"])
+        for text in ("47100-47199", "47000-47300", "47100-47150,47151-47199", "47100-47199,50000", "47100-47120\n47121-47199"):
+            self.reserve(text)
+            self.assertEqual(self.start()["status"], "started", text)
+            self.stop()
+
+    def test_a_roster_without_a_usable_port_range_fails_the_start_touching_nothing(self):
+        roster = os.path.join(self.root, iw.ROSTER_REL)
+        for rng in (None, [47100], [47199, 47100], [47100, "47199"], [0, 47199], "47100-47199"):
+            with open(roster, "w") as fh:
+                json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", **({} if rng is None else {"port_range": rng}), "rows": []}, fh)
+            r = self.start()
+            self.assertEqual(r["status"], "failed", rng)
+            self.assertIn("port_range", r["reason"], rng)
+            self.nothing_touched(str(rng))
+            self.assertEqual(self.events, [])
+        with open(roster, "w") as fh:
+            fh.write("{")
+        self.assertEqual(self.start()["status"], "failed")
+        with open(roster, "w") as fh:
+            json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", "port_range": [47100, 47199], "rows": []}, fh)
+        self.assertEqual(self.start()["status"], "started", "positive control")
+
+    def test_a_running_pair_needs_neither_the_lease_nor_the_reservation(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.events.clear()
+        self.reserve("")
+        r = self.start()
+        self.assertEqual((r["status"], r.get("already_running")), ("started", True))
+        self.assertEqual(self.events, [])
 
     def test_programs_that_are_not_the_pins_or_templates_that_are_missing_are_refused(self):
         with open(os.path.join(self.bindir, "transportctl"), "wb") as fh:
@@ -1693,6 +1779,7 @@ class StartStopWiring(Case):
         # term by term, so a wait taken out of the budget (a restart, the cold carrier's longer status wait) is seen
         self.assertEqual(iw.CARRIER_START_BUDGET_S,
                          iw.LOGINCTL_TIMEOUT_S + 2 * iw.VERSION_TIMEOUT_S + iw.RENDER_TIMEOUT_S
+                         + iw.RENDER_LEASE_WAIT_S + iw.LEASE_GRACE_S    # the queue for the render, the lease's own grace
                          + 2 * sysctl                                   # the two units' states before
                          + sysctl                                       # the restart of the one unit that ran
                          + 2 * sysctl                                   # enable --now, daemon then client
