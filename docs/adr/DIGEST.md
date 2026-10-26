@@ -675,7 +675,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-09 — closed jobs (§2).
 - A 2026-10-10 — gateway ops (§2).
 - A 2026-10-12 — switch controller.
-- A 2026-10-18 — installer, cargo pins (§2).
+- A 2026-10-18 — installer pins (§2).
 - A 2026-10-19 — rustup-target pins (§2).
 - A 2026-10-25 — install/read.
 - A 2026-10-25 — start/stop.
@@ -684,7 +684,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-26 — evidence.
 - A 2026-10-26 — re-render.
 - Keywords: agentd, fabric-ctl, keys, operator_key, usage,
-  tokens, herdr, resume, gateway, switch, evidence.
+  tokens, herdr, resume, gateway, switch, evidence, interweave-evidence.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
