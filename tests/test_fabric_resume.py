@@ -303,7 +303,17 @@ def main() -> int:
                 check("a first launch takes the profile's provider",
                       resume.provider_args([], {"role": "python-dev"}) == ["--provider", "openrouter"])
                 resume.install_agent_files.last_launch_provider = lambda: "anthropic"
-                check("…a recorded launch wins over it", resume.provider_args([], {"role": "python-dev"}) == ["--provider", "anthropic"])
+                check("…the agent's own layer outranks a recorded launch (the declared choice, not the memory)",
+                      resume.provider_args([], {"role": "python-dev"}) == ["--provider", "openrouter"])
+                resume.identity.current_agent = lambda: "pd-y"
+                resume.install_agent_files.last_launch_provider = lambda: "openrouter"
+                check("…an agent with no layer of its own keeps its record over the role's",
+                      resume.provider_args([], {"role": "python-dev"}) == ["--provider", "openrouter"])
+                resume.install_agent_files.last_launch_provider = lambda: "anthropic"
+                check("…and over the defaults'", resume.provider_args([], {"role": "web-dev"}) == ["--provider", "anthropic"])
+                resume.install_agent_files.last_launch_provider = lambda: None
+                check("…with no record, the role's", resume.provider_args([], {"role": "python-dev"}) == ["--provider", "anthropic"])
+                resume.identity.current_agent = lambda: "pd-x"
                 check("…and the caller's --provider over both", resume.provider_args(["--provider", "x"], {}) == [])
             finally:
                 resume.install_agent_files.last_launch_provider, resume.identity.current_agent = last, who

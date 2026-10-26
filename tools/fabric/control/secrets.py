@@ -160,6 +160,24 @@ def old_sign_in_pids(home: str | None, *, uid: int | None = None, pids: list[int
     return old
 
 
+def running_provider(*, uid: int | None = None, pids: list[int] | None = None,
+                     env_of: Callable[[int], bytes | str] | None = None, pgrep: Callable[..., Any] | None = None) -> str | None:
+    """What the account's running session is launched on, from its own environment (session_env): "gateway"
+    when the launcher stamped that transport, else the stamped provider; a session with no stamp is plain
+    claude. None where no session runs or the table cannot be read, so a status row says "-" and never guesses."""
+    try:
+        running = pids if pids is not None else upgrade().session_pids(uid=uid, **({"run": pgrep} if pgrep else {}))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for pid in running:
+        try:
+            env = session_env(pid, env_of)
+        except OSError:
+            continue   # gone, or not readable
+        return "gateway" if env["transport"] == "gateway" else (env["provider"] or "anthropic")
+    return None
+
+
 def process_started(pid: int, proc: str = "/proc") -> str | None:
     """When the process began, UTC to the second (stat field 22 in clock ticks since boot, plus /proc/stat's
     btime); None where either cannot be read. A pid reused after the listing would name another process's

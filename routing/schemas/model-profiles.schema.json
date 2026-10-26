@@ -51,7 +51,7 @@
           }
         },
         "launch_provider": {
-          "description": "The provider fabric-resume launches on when it is given none and the account has no launch on record (launch-provider.json): a first activation from Fleet Deck. A recorded launch, or an explicit --provider, always wins; the launcher run directly keeps its own default. Nearest layer first: the agent's, the role's, the defaults'. \"gateway\" is the anthropic column reached through agent-fabric-gateway (tools/fabric/launcher/gateway.py), not a routing column of its own.",
+          "description": "The provider fabric-resume launches on when it is given none. The agent's own layer is the declared choice and outranks the account's last launch (launch-provider.json), which only remembers; the role's and the defaults' layers apply only to an account with no launch on record (a first activation from Fleet Deck). An explicit --provider always wins; the launcher run directly keeps its own default. \"gateway\" is the anthropic column reached through agent-fabric-gateway (tools/fabric/launcher/gateway.py), not a routing column of its own.",
           "enum": [
             "anthropic",
             "gateway",

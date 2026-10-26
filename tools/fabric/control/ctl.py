@@ -1830,7 +1830,7 @@ def _drift_cells(r: dict) -> str:
 
 def _table_status(rs: list) -> list[str]:
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('claude account', 30)} {pad_start('5h', 4)}  {pad_end('5h resets (UTC)', 16)} {pad_start('7d', 4)}  "
-             f"{pad_end('7d resets (UTC)', 16)} {pad_end('role', 18)} fabric"]
+             f"{pad_end('7d resets (UTC)', 16)} {pad_end('role', 18)} {pad_end('provider', 10)} fabric"]
     for r in rs:
         if r["status"] != "ok":
             lines.append(_row(r))
@@ -1842,7 +1842,7 @@ def _table_status(rs: list) -> list[str]:
             fab = S(nullish(dig(fb, "status"), "-"))
         usage = (f"{pct(r['five_hour'])}  {pad_end(at(r['five_hour']), 16)} {pct(r['seven_day'])}  {pad_end(at(r['seven_day']), 16)}"
                  if r.get("usage_status") == "ok" else pad_end(S(nullish(r.get("usage_status"), "-")), 42))
-        lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(S(nullish(r['email'], '-')), 30)} {usage} {pad_end(S(nullish(r['role'], '-')), 18)} {fab}"
+        lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(S(nullish(r['email'], '-')), 30)} {usage} {pad_end(S(nullish(r['role'], '-')), 18)} {pad_end(S(nullish(dig(r.get('session'), 'provider'), '-')), 10)} {fab}"
                      + _drift_cells(r))
     return lines
 

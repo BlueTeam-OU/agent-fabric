@@ -161,8 +161,11 @@ def _session(ctx: Mapping[str, Any]) -> Any:
         proc = opts.pop("proc", "/proc")
         old = secrets.old_sign_in_pids(ctx.get("home"), **{"uid": ctx.get("uid"), **opts})
         started = sorted(t for t in (secrets.process_started(p, proc) for p in old or []) if t)
+        provider = secrets.running_provider(**{"uid": ctx.get("uid"), **opts})
     except Exception:  # noqa: BLE001 — the additive keys never cost the frozen ones
-        old, started = None, []
+        old, started, provider = None, [], None
+    if provider:
+        out["provider"] = provider   # absent with no session: the status table's "-"
     if old is not None:
         out["on_old_sign_in"] = len(old)
         if started:

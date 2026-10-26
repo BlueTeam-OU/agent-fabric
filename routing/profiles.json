@@ -33,7 +33,15 @@
     },
     "python-dev-03": {
       "launch_provider": "anthropic",
-      "notes": "The Sonnet pilot's account (the owner, 2026-10-08); its session model is now the python-dev role's (roles.python-dev). launch_provider stays: fabric-resume reads it on a first launch."
+      "notes": "The Sonnet pilot's account (the owner, 2026-10-08); its session model is now the python-dev role's (roles.python-dev). launch_provider stays: fabric-resume reads it before the account's last-launch record."
+    },
+    "language-culture-ru": {
+      "launch_provider": "openrouter",
+      "notes": "Runs on the OpenRouter provider (the owner, 2026-10-26); declared here so a resume follows the profile, not the account's last launch."
+    },
+    "language-culture-ge": {
+      "launch_provider": "openrouter",
+      "notes": "Runs on the OpenRouter provider like language-culture-ru (the owner, 2026-10-26); declared here so a resume follows the profile, not the account's last launch."
     }
   }
 }
