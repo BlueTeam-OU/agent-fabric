@@ -406,6 +406,10 @@ class Findings(Collect):
         with self.assertRaisesRegex(parity.CollectedError, "stale or a missing account"):
             parity.load_collected(out, (T0, T0 + 1000))
         os.rmdir(os.path.join(out, "gamma"))
+        with open(os.path.join(out, "collection.json"), "w") as fh:
+            json.dump({"logins": [1, "alpha"]}, fh)
+        with self.assertRaisesRegex(parity.CollectedError, "stale or a missing account"):
+            parity.load_collected(out, (T0, T0 + 1000))
         os.unlink(os.path.join(out, "collection.json"))
         with self.assertRaisesRegex(parity.CollectedError, "collection.json cannot be read"):
             parity.load_collected(out, (T0, T0 + 1000))
@@ -468,6 +472,7 @@ class Findings(Collect):
         rep["accounts"] = {"alpha": "absent", "beta": "unreadable", "gamma": "ok"}
         text = parity.render_markdown(rep)
         self.assertIn("The journal is absent on alpha", text)
+        self.assertIn("further apart than that across an edge may show a miss", text, "the bound of the margin is in the report")
         self.assertIn("The journal could not be read on beta", text)
         self.assertNotIn("gamma:", text.split("Collected from")[1].split("Framing")[0].replace("gamma\n", ""))
 

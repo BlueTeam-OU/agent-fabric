@@ -141,7 +141,7 @@ def load_collected(path: str, window: tuple[float, float]) -> tuple[list[dict], 
         except (OSError, ValueError, KeyError, TypeError) as e:
             raise CollectedError(f"{MANIFEST} cannot be read ({e}); it names the accounts the run asked, and a directory without it is not one") from e
         found = sorted(d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d)))
-        if not isinstance(listed, list) or sorted(listed) != found:
+        if not (isinstance(listed, list) and all(isinstance(x, str) for x in listed)) or sorted(listed) != found:
             raise CollectedError(f"the directories {found} are not the accounts the run asked ({listed}): a stale or a missing account")
         for login in sorted(os.listdir(path)):
             d = os.path.join(path, login)
@@ -278,7 +278,9 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
     if "accounts" in rep:
         a = rep["accounts"]
         said = {"unreadable": "could not be read", "absent": "is absent"}
-        L += ["", f"## Collected from {len(a)} account(s)", "", ", ".join(sorted(a)) or "none"]
+        L += ["", f"## Collected from {len(a)} account(s)", "", ", ".join(sorted(a)) or "none",
+              "", f"Arrivals were collected {MARGIN_S // 60} minutes beyond each edge of the window: a pair whose two copies are further apart than that "
+              "across an edge may show a miss the full files would not."]
         for state, words in said.items():
             blind = sorted(login for login, j in a.items() if j == state)
             if blind:

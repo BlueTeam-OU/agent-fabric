@@ -52,8 +52,8 @@ DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state", "code", "by")
 # The relay's message limit is 128 KiB and a record is posted as a JSON string inside a JSON record, which
 # escapes every quote: 64 KiB of rows is the most that always fits with the reply's own fields.
 PAGE_BYTES = 64 * 1024
-# Where the deliveries of a window start: a message queued shortly before the window and delivered inside it
-# is a pair of the window, and the parity report names the sender of a pair a carrier missed from this record.
+# How far beyond a window's edges a collection reaches (parity.MARGIN_S): a delivery queued before the window and
+# delivered inside it is a pair of the window, and the first or the other copy of a pair may lie just outside it.
 LOOKBACK_S = parity.MARGIN_S
 # One page: a read of the two logs and at most a few hundred journal lookups (each bounded by the connection's 5 s).
 EVIDENCE_BUDGET_S = 60
