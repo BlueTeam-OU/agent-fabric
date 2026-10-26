@@ -81,6 +81,6 @@ refusal of a held port; this is the same refusal from a port no daemon
 meant to hold. The owner reserved 47100-47199 the same day
 (`/etc/sysctl.d/90-interweave-roster-ports.conf`); reserved ports stay
 bindable explicitly. A second host needs the same before its first
-start. Raised by the coordinator from that start; the owner set the
-reservation in the coordinator's session, which is the word for this
-amendment.
+start. Raised by the coordinator from that start. Accepted by the owner,
+2026-10-26 ("yes", in the coordinator's session, asked whether the
+rule 1 amendment is accepted).
