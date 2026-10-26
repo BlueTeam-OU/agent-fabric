@@ -1171,7 +1171,8 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
         bad = reserved_ports_problem(low, high)
         if bad:
             return _refused(f"{bad}; nothing was started")
-        own = roster_port(root, login)
+        # A running daemon holds its own port, with its peers' connections on it: only a start that is to bind it can find it taken.
+        own = roster_port(root, login) if daemon not in running else None
         bad = own and port_holder_problem(own)
         if bad:
             return _refused(f"{bad}; nothing was started — close that connection and run it again")

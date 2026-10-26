@@ -1479,6 +1479,19 @@ class StartStop(Case):
         self.tcp_table("   0: 0100007F:B81B 0100007F:0016 01 00000000:00000000 02:000957A2 00000000  1000        0 440987 2\n")
         self.assertEqual(self.start()["status"], "started")
 
+    def test_a_daemon_that_runs_holds_its_own_port_and_the_start_goes_on(self):
+        self.roster_row("agent", 47130)
+        listen = "   0: 0100007F:B81A 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 440987 2\n"
+        peer = "   1: 0100007F:B81A 0100007F:9999 01 00000000:00000000 00:00000000 00000000  1000        0 440988 2\n"
+        self.tcp_table(listen, peer)
+        self.systemd.states[DAEMON_UNIT] = "active"
+        r = self.start()
+        self.assertEqual(r["status"], "started", r)
+        self.assertEqual(self.systemd.restarted, [DAEMON_UNIT], "the half-running pair is still restarted after the render")
+        # the positive control: the same table with only the client running is a start that must bind, and is refused
+        self.systemd.states = {CLIENT_UNIT: "active"}
+        self.assertEqual(self.start()["status"], "refused")
+
     def test_a_port_held_on_the_ipv6_table_is_refused_too(self):
         self.roster_row("agent", 47130)
         self.tcp_table(v6=("   0: 00000000000000000000000001000000:B81A 00000000000000000000000001000000:0016 01 00000000:00000000 02:0009 00000000  1000        0 1 2\n",))
