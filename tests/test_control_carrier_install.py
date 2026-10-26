@@ -1536,6 +1536,23 @@ class StartStop(Case):
             self.assertEqual(self.start()["status"], "started", text)
             self.stop()
 
+    def test_a_roster_without_a_usable_port_range_fails_the_start_touching_nothing(self):
+        roster = os.path.join(self.root, iw.ROSTER_REL)
+        for rng in (None, [47100], [47199, 47100], [47100, "47199"], [0, 47199], "47100-47199"):
+            with open(roster, "w") as fh:
+                json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", **({} if rng is None else {"port_range": rng}), "rows": []}, fh)
+            r = self.start()
+            self.assertEqual(r["status"], "failed", rng)
+            self.assertIn("port_range", r["reason"], rng)
+            self.nothing_touched(str(rng))
+            self.assertEqual(self.events, [])
+        with open(roster, "w") as fh:
+            fh.write("{")
+        self.assertEqual(self.start()["status"], "failed")
+        with open(roster, "w") as fh:
+            json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", "port_range": [47100, 47199], "rows": []}, fh)
+        self.assertEqual(self.start()["status"], "started", "positive control")
+
     def test_a_running_pair_needs_neither_the_lease_nor_the_reservation(self):
         self.assertEqual(self.start()["status"], "started")
         self.events.clear()

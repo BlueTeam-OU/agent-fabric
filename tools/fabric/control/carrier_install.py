@@ -88,7 +88,10 @@ run's switch) writes the profile's config.yaml and brings the roster's profile u
   1. the account's lock, the install's (a start, a stop and an install never run at once on one account);
   2. refused, nothing touched, unless the account lingers (its units would die with its last session), the programs
      in ~/.local/bin print what the pin says and both unit templates are in the user's systemd directory;
-  3. `gzcoord-carrier render-config --write` of the installed release writes
+     and, before any render, unless the host reserves the roster's port_range from outgoing connections
+     (net.ipv4.ip_local_reserved_ports; a daemon cannot bind a port a connection took as its source);
+  3. in its turn on the host's `<carrier>-render` lease (released before the units start),
+     `gzcoord-carrier render-config --write` of the installed release writes
      $XDG_CONFIG_HOME/<carrier>/profiles/<profile>/config.yaml (atomic, 0600); the carrier refuses it when this
      agent has no valid roster row, and that refusal is the action's (a row is a fact of the roster, not of this
      account). With both units already running the file is left alone: a running daemon read the old one, and
@@ -175,8 +178,8 @@ CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + 
 LOGINCTL_TIMEOUT_S = 10
 RENDER_TIMEOUT_S = 30
 # `fabric-ctl all interweave-start` made 30 accounts render at once on 2026-10-26: each render verifies the roster's rows with gpg, and four
-# of them overran RENDER_TIMEOUT_S where each alone finished well inside it. One render at a time per HOST, on the same lease
-# queue as the download; held for the render alone, never through the restart. The wait is the number of accounts at a render's turn.
+# of them overran RENDER_TIMEOUT_S where each alone finished well inside it. One render at a time per HOST, on the host lease
+# (bin/fabric-lease) under its own name, so a render and a download do not wait for each other; held for the render alone, never through the restart. The wait is the number of accounts at a render's turn.
 RENDER_LEASE = f"{CARRIER_NAME}-render"
 RENDER_LEASE_WAIT_S = 600
 # The roster's ports are bound by the daemons, and an outgoing connection takes any port of the ephemeral range as its source: with 28
