@@ -289,6 +289,7 @@ class Collect(unittest.TestCase):
         self.assertEqual([c[0] for c in calls if c[1] == "arrivals"][1:][0], ("a",), "the later pages ask only the account that has more")
         first_delivery_window = [c[2] for c in calls if c[1] == "deliveries"][0]
         self.assertEqual(first_delivery_window, iso(-ev.LOOKBACK_S), "deliveries begin a lookback before the window")
+        self.assertEqual([c[2] for c in calls if c[1] == "arrivals"][0], iso(-ev.LOOKBACK_S), "and so do the arrivals")
 
     def test_a_silent_account_is_incomplete_with_the_section_it_stopped_in_and_the_others_go_on(self):
         self.account("a", [arrival(mid(1, 1), "h/a", "relay", 1)])
@@ -345,6 +346,132 @@ class Collect(unittest.TestCase):
                          "a filed collection prints counts, not rows")
 
 
+class Findings(Collect):
+    """The cases the first review (PR 390) found: each fails when its fix is removed."""
+
+    def straddling(self):
+        """alpha sent to beta a message made 10 s before the window closes; beta's interweave copy came 5 s before, its relay copy 5 s after."""
+        m = mid(990, 1)
+        self.beta_arrivals = [arrival(m, "h/beta", "interweave", 995), arrival(m, "h/beta", "relay", 1005)]
+        self.account("beta", self.beta_arrivals)
+        self.account("alpha", [], [(m, "beta", 990)])
+        with open(os.path.join(self.states["alpha"], "interweave", "deliveries.jsonl"), "a") as fh:
+            fh.write(json.dumps({"e": "receipt", "mid": m, "to": "beta"}) + "\n")
+
+    def parity_of(self, got: dict, window: tuple[float, float]):
+        out = os.path.join(self.root, "dir")
+        for login, acct in got.items():
+            ec.write_dir(out, login, acct, iso(0), iso(1000))
+        ec.write_manifest(out, list(got))
+        return parity.load_collected(out, window)
+
+    def test_a_copy_just_outside_the_window_still_counts_for_its_pair(self):
+        self.straddling()
+        got = ec.collect(["alpha", "beta"], iso(0), iso(1000), self.sender())
+        w = (T0, T0 + 1000)
+        arr, senders, kinds, _ = self.parity_of(got, w)
+        collected = parity.compute(arr, senders, kinds, w, host="h")
+        full = parity.compute(self.beta_arrivals, {"alpha": record.read_deliveries(os.path.join(self.states["alpha"], "interweave"))}, {}, w, host="h")
+        self.assertEqual(full["carriers"]["relay"], {"delivered": 1, "missed": 0, "duplicates": 0, "mismatch": 0}, "positive control: the full files show no miss")
+        self.assertEqual(collected["carriers"], full["carriers"])
+
+    def test_a_collection_without_the_margin_is_refused(self):
+        self.straddling()
+        got = ec.collect(["alpha", "beta"], iso(0), iso(1000), self.sender())
+        out = os.path.join(self.root, "dir")
+        for login, acct in got.items():
+            ec.write_dir(out, login, acct, iso(0), iso(1000))
+            path = os.path.join(out, login, "meta.json")
+            with open(path, encoding="utf-8") as fh:
+                meta = json.load(fh)
+            meta["margin_s"] = 0
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(meta, fh)
+        ec.write_manifest(out, list(got))
+        with self.assertRaisesRegex(parity.CollectedError, "beyond the window's edges"):
+            parity.load_collected(out, (T0, T0 + 1000))
+
+    def test_a_silent_account_leaves_a_directory_that_refuses_the_report_and_a_stale_one_is_refused(self):
+        self.account("alpha", [])
+        self.account("beta", [])
+        got = ec.collect(["alpha", "beta"], iso(0), iso(1000), self.sender(silent=("beta",)))
+        out = os.path.join(self.root, "dir")
+        for login, acct in got.items():
+            ec.write_dir(out, login, acct, iso(0), iso(1000))
+        ec.write_manifest(out, ["alpha", "beta"])
+        self.assertTrue(os.path.isdir(os.path.join(out, "beta")))
+        with self.assertRaisesRegex(parity.CollectedError, "beta: the collection is not complete"):
+            parity.load_collected(out, (T0, T0 + 1000))
+        os.makedirs(os.path.join(out, "gamma"))
+        with self.assertRaisesRegex(parity.CollectedError, "stale or a missing account"):
+            parity.load_collected(out, (T0, T0 + 1000))
+        os.rmdir(os.path.join(out, "gamma"))
+        os.unlink(os.path.join(out, "collection.json"))
+        with self.assertRaisesRegex(parity.CollectedError, "collection.json cannot be read"):
+            parity.load_collected(out, (T0, T0 + 1000))
+
+    def test_a_refused_first_page_is_an_answer_with_its_reason_in_the_table(self):
+        self.account("a", [])
+        got = ec.collect(["a"], iso(0), iso(100), lambda *a: {"a": {"status": "refused", "reason": "more than 65536 bytes of rows share the second X"}})
+        row = ec.row_of("a", "h", got["a"], iso(0), iso(100), full=False)
+        self.assertEqual(row["status"], "ok")
+        line = ctl.table(OP, [row]).split("\n")[1]
+        self.assertRegex(line, r"^a +incomplete ")
+        self.assertIn("share the second X", line)
+        silent = ec.collect(["a"], iso(0), iso(100), lambda *a: {"a": {"status": "no answer"}})
+        self.assertEqual(ec.row_of("a", "h", silent["a"], iso(0), iso(100), full=False)["status"], "no answer", "positive control")
+
+    def test_a_reply_at_the_page_bound_fits_the_relays_message_limit(self):
+        state = os.path.join(self.root, "full")
+        os.makedirs(state)
+        rows = [arrival(mid(s // 4, s), f"h/agent-{s % 7}", "interweave" if s % 2 else "relay", s // 4, verdict="mismatch") for s in range(6000)]
+        with open(os.path.join(state, "gzcoord-arrivals.jsonl"), "w") as fh:
+            fh.writelines(json.dumps(r) + "\n" for r in rows)
+        con = sqlite3.connect(os.path.join(state, "episodic.db"))
+        con.execute("CREATE TABLE episodes (message_id TEXT, direction TEXT, content TEXT, metadata_json TEXT)")
+        con.executemany("INSERT INTO episodes VALUES (?, 'inbound', 'x', ?)", [(r["mid"], json.dumps({"TO-ROLE": "r"})) for r in rows])
+        con.commit()
+        con.close()
+        ctx = {"me": {"address": "h/a"}, "started": "2026-10-26T10:00:00.000Z", "carrier_evidence_opts": {"state": state}}
+        reply = agentd.answer(request("arrivals", 0, 100000), ctx)
+        self.assertIsNotNone(reply["data"][OP]["next"], "positive control: the page is full")
+        posted = json.dumps({"channel": "c", "sender": "h/a", "content": json.dumps(reply)})
+        self.assertLess(len(posted.encode()), 128 * 1024)
+
+    def test_a_section_run_sends_one_request_and_collects_nothing(self):
+        reg_dir = tempfile.mkdtemp(prefix="evreg-")
+        self.addCleanup(shutil.rmtree, reg_dir, ignore_errors=True)
+        reg = os.path.join(reg_dir, "registry.json")
+        with open(reg, "w") as fh:
+            json.dump({"hosts": {"h": {"operator": "user"}}, "placement": {"a": "h"}}, fh)
+        sent: list = []
+
+        def call(path, **kw):
+            if path == "/api/send":
+                sent.append(json.loads(json.loads(kw["body"])["content"]))
+                return {"id": "x1"}
+            return {"messages": []}
+        clock = iter(range(0, 10 ** 6, 2))
+        lines: list = []
+        with unittest.mock.patch.object(ec, "collect", side_effect=AssertionError("a --section run collects nothing")), \
+                unittest.mock.patch.object(ctl, "signing_key", lambda *a, **k: {"key": "k"}), \
+                unittest.mock.patch.object(ctl, "sign_request", lambda r, k: r):
+            rc = ctl.main(["a", OP, "--json", "--timeout", "3", "--section", "arrivals", "--since", iso(0), "--until", iso(100)],
+                          registry=reg, call=call, who={"host": "h", "agent": "user"}, token="t", out=lines.append, err=lines.append,
+                          sleep=lambda s: None, now=lambda: next(clock))
+        self.assertEqual(rc, 1, "the account did not answer")
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["args"], {"section": "arrivals", "since": iso(0), "until": iso(100)})
+
+    def test_an_absent_journal_is_said_as_absent(self):
+        rep = parity.compute([], {}, {}, (T0, T0 + 10))
+        rep["accounts"] = {"alpha": "absent", "beta": "unreadable", "gamma": "ok"}
+        text = parity.render_markdown(rep)
+        self.assertIn("The journal is absent on alpha", text)
+        self.assertIn("The journal could not be read on beta", text)
+        self.assertNotIn("gamma:", text.split("Collected from")[1].split("Framing")[0].replace("gamma\n", ""))
+
+
 class Operator(unittest.TestCase):
     ARGS = ["--since", "2026-10-26T05:20:00Z", "--until", "2026-10-27T05:20:00Z"]
 
@@ -380,14 +507,14 @@ class Operator(unittest.TestCase):
     def test_the_verb_pages_through_its_own_single_page_calls_and_files_the_result(self):
         a1, a2 = arrival(mid(1, 1), "h/a", "relay", 1), arrival(mid(2, 2), "h/a", "interweave", 2)
         # The second arrivals page: the fake answers by `since`.
-        pages = {iso(0): self.page([a1], iso(2), kinds={mid(1, 1): "direct"}, journal="ok", skipped=0),
-                 iso(2): self.page([a2], None, kinds={mid(2, 2): "role"}, journal="ok", skipped=0)}
+        pages = {True: self.page([a1], iso(2), kinds={mid(1, 1): "direct"}, journal="ok", skipped=0),
+                 False: self.page([a2], None, kinds={mid(2, 2): "role"}, journal="ok", skipped=0)}
         out = os.path.join(tempfile.mkdtemp(prefix="evout-"), "d")
         self.addCleanup(shutil.rmtree, os.path.dirname(out), ignore_errors=True)
 
         def canned_by_since(argv_):
             since = argv_[argv_.index("--since") + 1]
-            return pages.get(since) if "arrivals" in argv_ else self.page([], undated=0)
+            return pages[since < iso(2)] if "arrivals" in argv_ else self.page([], undated=0)
         rc, lines, seen = self.run_pages(canned_by_since, ["a", "b"], ["all", OP, "--since", iso(0), "--until", iso(100), "--out", out])
         self.assertEqual(rc, 1, "b never answered: the run is not a success")
         table = "\n".join(lines)
@@ -399,7 +526,11 @@ class Operator(unittest.TestCase):
                 return fh.read()
         self.assertEqual([json.loads(x)["mid"] for x in read("arrivals.jsonl").splitlines()], [mid(1, 1), mid(2, 2)])
         self.assertEqual(json.loads(read("kinds.json")), {mid(1, 1): "direct", mid(2, 2): "role"})
-        self.assertFalse(os.path.exists(os.path.join(out, "b")), "an account that never answered has no directory to be mistaken for an empty one")
+        with open(os.path.join(out, "b", "meta.json"), encoding="utf-8") as fh:
+            meta_b = json.load(fh)
+        self.assertEqual(meta_b["complete"], False, "an account that never answered has a directory that says so")
+        with open(os.path.join(out, "collection.json"), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh), {"logins": ["a", "b"]})
 
     def run_pages(self, answer, logins, argv):
         reg_dir = tempfile.mkdtemp(prefix="evreg-")
@@ -456,7 +587,7 @@ class Parity(unittest.TestCase):
 
     def acct(self, login, **over):
         a = {"arrivals": self.arr[login], "deliveries": self.dels[login], "kinds": self.kinds[login], "complete": True, "reason": None, "journal": "ok",
-             "since": iso(-100), "until": iso(2000), "pages": {"arrivals": 1, "deliveries": 1}, "skipped": 0, "undated": 0}
+             "since": iso(-100), "until": iso(2000), "margin_s": parity.MARGIN_S, "pages": {"arrivals": 1, "deliveries": 1}, "skipped": 0, "undated": 0}
         a.update(over)
         a["counts"] = over.get("counts", {"arrivals": len(a["arrivals"]), "deliveries": len(a["deliveries"]), "kinds": len(a["kinds"])})
         return a
@@ -465,6 +596,7 @@ class Parity(unittest.TestCase):
         out = os.path.join(self.root, "dir")
         for login in ("alpha", "beta"):
             ec.write_dir(out, login, self.acct(login, **over.get(login, {})), over.get(login, {}).get("since", iso(-100)), over.get(login, {}).get("until", iso(2000)))
+        ec.write_manifest(out, ["alpha", "beta"])
         return out
 
     def jsonl(self, **over) -> str:

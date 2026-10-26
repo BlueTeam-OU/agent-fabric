@@ -3,9 +3,10 @@ rule 11's parity report is computed from, read by the account that keeps them an
 sent to the operator that runs the report (agent-fabric ADR-029 §5 rules 3, 6).
 
 CONTRACT
-  request   op `<carrier>-evidence` (EVIDENCE_OP), signed (sign.ACTION_OPS: what an account
-            exchanged with whom, and when, is not for a relay-token holder who
-            writes an operator's address on an unsigned read), with
+  request   op `<carrier>-evidence` (EVIDENCE_OP), signed (sign.ACTION_OPS): only an operator
+            can ask, as for an action; the reply is posted on the control channel like
+            every op's, so what it carries is metadata a channel reader could already
+            infer from the traffic, and never a body. With
             args {section, since, until}:
               section  `arrivals` | `deliveries`
               since, until  YYYY-MM-DDTHH:MM:SSZ, since < until
@@ -53,7 +54,7 @@ DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state", "code", "by")
 PAGE_BYTES = 64 * 1024
 # Where the deliveries of a window start: a message queued shortly before the window and delivered inside it
 # is a pair of the window, and the parity report names the sender of a pair a carrier missed from this record.
-LOOKBACK_S = 3600
+LOOKBACK_S = parity.MARGIN_S
 # One page: a read of the two logs and at most a few hundred journal lookups (each bounded by the connection's 5 s).
 EVIDENCE_BUDGET_S = 60
 FIELD_MAX = 200
@@ -199,9 +200,10 @@ def _db_path(state: str) -> str:
 
 
 def window_for(section: str, since: str, until: str) -> tuple[str, str]:
-    """The window a collection asks one section for: deliveries begin LOOKBACK_S earlier."""
-    if section == "arrivals":
-        return since, until
+    """The span a collection asks one section for. Both begin LOOKBACK_S before the report's window: a
+    delivery queued earlier is a pair of the window, an arrival earlier may be its first copy. Arrivals
+    also end LOOKBACK_S after it: a pair's other copy may come after the window closed."""
     import time
-    t = parity.parse_t(since) - LOOKBACK_S
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t)), until
+    fmt = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
+    first = fmt(parity.parse_t(since) - LOOKBACK_S)
+    return (first, fmt(parity.parse_t(until) + LOOKBACK_S)) if section == "arrivals" else (first, until)

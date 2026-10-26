@@ -46,6 +46,10 @@ from collections import defaultdict
 CARRIERS = ("relay", "interweave")
 UUID7 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}")
 OFFLINE_AFTER_S = 60.0
+# A pair belongs to a window by its FIRST copy, so a copy up to this long outside the window still decides
+# whether a pair is inside it and whether the other carrier's copy is there: a collection holds the arrivals
+# this far beyond each edge (control/carrier_evidence.py), and is refused when it does not say it did.
+MARGIN_S = 3600
 
 
 def parse_t(t: str) -> float:
@@ -87,6 +91,7 @@ class CollectedError(Exception):
 ARRIVAL_KEYS = ("mid", "addressee", "carrier", "t", "verdict")
 DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state")
 KINDS = ("direct", "role", "broadcast")
+MANIFEST = "collection.json"
 
 
 def _jsonl(path: str, who: str) -> list[dict]:
@@ -107,6 +112,8 @@ def _account(who: str, meta: dict, arrivals: list, deliveries: list, kinds: dict
         raise CollectedError(f"{who}: the collection does not say its window ({e})") from e
     if not (since <= window[0] and window[1] <= until):
         raise CollectedError(f"{who}: collected for {meta['since']} to {meta['until']}, which does not cover the report's window")
+    if not (isinstance(meta.get("margin_s"), (int, float)) and meta["margin_s"] >= MARGIN_S):
+        raise CollectedError(f"{who}: the arrivals beyond the window's edges were not collected (a copy just outside it would read as a carrier miss)")
     if not isinstance(kinds, dict) or any(k not in KINDS for k in kinds.values()) or any(not isinstance(m, str) for m in kinds):
         raise CollectedError(f"{who}: kinds is not {{message-id: direct|role|broadcast}}")
     for rows, keys, name in ((arrivals, ARRIVAL_KEYS, "arrival"), (deliveries, DELIVERY_KEYS, "delivery")):
@@ -128,6 +135,14 @@ def load_collected(path: str, window: tuple[float, float]) -> tuple[list[dict], 
     says per account whether its kinds could be read, because a kind the report cannot know is `unknown`, not direct."""
     parts: dict[str, tuple[dict, list, list, dict]] = {}
     if os.path.isdir(path):
+        try:
+            with open(os.path.join(path, MANIFEST), encoding="utf-8") as fh:
+                listed = json.load(fh)["logins"]
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            raise CollectedError(f"{MANIFEST} cannot be read ({e}); it names the accounts the run asked, and a directory without it is not one") from e
+        found = sorted(d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d)))
+        if not isinstance(listed, list) or sorted(listed) != found:
+            raise CollectedError(f"the directories {found} are not the accounts the run asked ({listed}): a stale or a missing account")
         for login in sorted(os.listdir(path)):
             d = os.path.join(path, login)
             if not os.path.isdir(d):
@@ -262,10 +277,15 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
         L.append(f"| {k} | {v['relay']} | {v['interweave']} |")
     if "accounts" in rep:
         a = rep["accounts"]
-        blind = sorted(login for login, j in a.items() if j != "ok")
-        L += ["", f"## Collected from {len(a)} account(s)", "",
-              ", ".join(sorted(a)) or "none",
-              *(["", f"The journal could not be read on {', '.join(blind)}: the kind of a message only they received is unknown."] if blind else [])]
+        said = {"unreadable": "could not be read", "absent": "is absent"}
+        L += ["", f"## Collected from {len(a)} account(s)", "", ", ".join(sorted(a)) or "none"]
+        for state, words in said.items():
+            blind = sorted(login for login, j in a.items() if j == state)
+            if blind:
+                L += ["", f"The journal {words} on {', '.join(blind)}: the kind of a message only they received is unknown."]
+        odd = sorted(login for login, j in a.items() if j not in ("ok", *said))
+        if odd:
+            L += ["", f"The journal state of {', '.join(odd)} is not one the report knows: their kinds are unknown."]
     m = rep["messages"]
     L += ["", f"## Framing: {m['compressed']} message(s) compressed, {m['chunked']} chunked, {m['plain']} sent plain", ""]
     if "drill" in rep:

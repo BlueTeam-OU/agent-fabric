@@ -10,10 +10,11 @@ CONTRACT
              incomplete account, because a report computed from half a log would read as
              carrier misses. At most MAX_PAGES pages of one section of one account.
   write_dir  <out>/<login>/arrivals.jsonl, deliveries.jsonl, kinds.json and meta.json
-             ({login, since, until, lookback_s, complete, journal, pages, counts}), the
+             ({login, since, until, margin_s, complete, journal, pages, counts}), the
              directories 0700 and the files 0600 (other accounts' traffic is not for
              everyone), each replaced atomically; a login's directory is written whole or
-             not touched.
+             not touched. Every account asked has one, an account that never answered with
+             `complete: false`; <out>/collection.json names them, written last.
 """
 from __future__ import annotations
 
@@ -32,13 +33,13 @@ Send = Callable[[list[str], str, str, str], dict]
 
 def _fresh() -> dict:
     return {"arrivals": [], "deliveries": [], "kinds": {}, "journal": "ok", "pages": {"arrivals": 0, "deliveries": 0},
-            "skipped": 0, "undated": 0, "complete": True, "reason": None}
+            "skipped": 0, "undated": 0, "complete": True, "reason": None, "answered": False}
 
 
 def collect(logins: list[str], since: str, until: str, send: Send, max_pages: int = MAX_PAGES) -> dict[str, dict]:
     got = {login: _fresh() for login in logins}
     for section in ev.SECTIONS:
-        start, _ = ev.window_for(section, since, until)
+        start, end = ev.window_for(section, since, until)
         at: dict[str, str] = {login: start for login in logins if got[login]["complete"]}
         for _ in range(max_pages):
             if not at:
@@ -46,7 +47,7 @@ def collect(logins: list[str], since: str, until: str, send: Send, max_pages: in
             groups: dict[str, list[str]] = {}
             for login, c in at.items():
                 groups.setdefault(c, []).append(login)
-            at = _round(got, groups, section, until, send)
+            at = _round(got, groups, section, end, send)
         for login in at:
             _stop(got[login], f"{section}: more than {max_pages} pages")
     return got
@@ -59,6 +60,7 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
         for login in group:
             r = replies.get(login)
             acct = got[login]
+            acct["answered"] = acct["answered"] or (isinstance(r, dict) and r.get("status") in ("ok", "refused"))
             if not isinstance(r, dict) or r.get("status") != "ok":
                 why = r.get("reason") or r.get("status") if isinstance(r, dict) else None
                 _stop(acct, f"{section}: {why or 'no answer'}")
@@ -117,7 +119,7 @@ def write_dir(out: str, login: str, acct: dict, since: str, until: str) -> str:
     d = os.path.join(out, login)
     os.makedirs(d, mode=0o700, exist_ok=True)
     os.chmod(d, 0o700)
-    meta = {"login": login, "since": since, "until": until, "lookback_s": ev.LOOKBACK_S, "complete": acct["complete"],
+    meta = {"login": login, "since": since, "until": until, "margin_s": ev.LOOKBACK_S, "complete": acct["complete"],
             "reason": acct["reason"], "journal": acct["journal"], "pages": acct["pages"], "counts": counts(acct),
             "skipped": acct["skipped"], "undated": acct["undated"]}
     # meta.json last: a reader that finds it finds the files it describes (a crash between leaves no meta, and parity refuses that).
@@ -133,11 +135,24 @@ def write_dir(out: str, login: str, acct: dict, since: str, until: str) -> str:
     return d
 
 
+def write_manifest(out: str, logins: list[str]) -> None:
+    """Last: the accounts the run asked, which parity checks the directories against (a silent account's
+    directory says so in its meta; a directory left by an earlier run is not in the list)."""
+    _atomic(os.path.join(out, "collection.json"), (json.dumps({"logins": sorted(logins)}, indent=1) + "\n").encode("utf-8"))
+
+
+def clear_manifest(out: str) -> None:
+    try:
+        os.unlink(os.path.join(out, "collection.json"))
+    except FileNotFoundError:
+        pass
+
+
 def row_of(login: str, host: Any, acct: dict, since: str, until: str, *, full: bool) -> dict:
     """The row `--json` prints: the whole collection when it is not filed, its counts when it is."""
-    body = {"since": since, "until": until, "lookback_s": ev.LOOKBACK_S, "complete": acct["complete"], "reason": acct["reason"],
+    body = {"since": since, "until": until, "margin_s": ev.LOOKBACK_S, "complete": acct["complete"], "reason": acct["reason"],
             "journal": acct["journal"], "pages": acct["pages"], "counts": counts(acct), "skipped": acct["skipped"], "undated": acct["undated"]}
     if full:
         body.update(arrivals=acct["arrivals"], deliveries=acct["deliveries"], kinds=acct["kinds"])
-    return {"account": login, "host": host, "status": "ok" if sum(acct["pages"].values()) else "no answer",
+    return {"account": login, "host": host, "status": "ok" if acct["answered"] else "no answer",
             f"{ev.CARRIER_NAME}Evidence": body}

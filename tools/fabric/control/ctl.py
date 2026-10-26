@@ -2217,11 +2217,16 @@ def _collect_evidence(args: dict, expected: list[dict], *, out: Callable, err: C
     got = evidence_collect.collect([e["login"] for e in expected], args["since"], args["until"], send)
     filed = args["out"] is not None
     rows_ = []
+    if filed:
+        os.makedirs(args["out"], mode=0o700, exist_ok=True)
+        evidence_collect.clear_manifest(args["out"])
     for e in expected:
         login, acct = e["login"], got[e["login"]]
-        if filed and sum(acct["pages"].values()):
+        if filed:
             evidence_collect.write_dir(args["out"], login, acct, args["since"], args["until"])
         rows_.append(evidence_collect.row_of(login, hosts[login], acct, args["since"], args["until"], full=not filed))
+    if filed:
+        evidence_collect.write_manifest(args["out"], [e["login"] for e in expected])
     if args["json"]:
         for r in rows_:
             out(js.stringify(r))
