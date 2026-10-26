@@ -88,7 +88,13 @@ run's switch) writes the profile's config.yaml and brings the roster's profile u
   1. the account's lock, the install's (a start, a stop and an install never run at once on one account);
   2. refused, nothing touched, unless the account lingers (its units would die with its last session), the programs
      in ~/.local/bin print what the pin says and both unit templates are in the user's systemd directory;
-  3. `gzcoord-carrier render-config --write` of the installed release writes
+     and, before any render, unless the host reserves the roster's port_range from outgoing connections
+     (net.ipv4.ip_local_reserved_ports; a daemon cannot bind a port a connection took as its source), and
+     unless a local socket of any state already uses this agent's own roster port (a connection older than the
+     reservation keeps it; nothing is started, and the refusal names the socket's state, uid and peer); a daemon
+     unit that is active holds that port itself, so with it the sockets are not looked at;
+  3. in its turn on the host's `<carrier>-render` lease (released before the units start),
+     `gzcoord-carrier render-config --write` of the installed release writes
      $XDG_CONFIG_HOME/<carrier>/profiles/<profile>/config.yaml (atomic, 0600); the carrier refuses it when this
      agent has no valid roster row, and that refusal is the action's (a row is a fact of the roster, not of this
      account). With both units already running the file is left alone: a running daemon read the old one, and
@@ -102,7 +108,7 @@ THE STOP (`<carrier>-stop`, no arguments) disables --now the client then the dae
 manager says neither runs. It leaves config.yaml and the programs where they are.
 
 THE REPLIES, data["<carrier>-start"]: status "started" | "refused" | "failed"; units (unit -> state), check (what the
-channel check said) and `already_running` when nothing was changed; on a failure `stopped` (whether both units are
+channel check said; a unit that never became active is named by its SubState, exit status and journal tail) and `already_running` when nothing was changed; on a failure `stopped` (whether both units are
 inactive now) and `checks`; reason on a refusal or a failure. data["<carrier>-stop"]: "stopped" | "failed", units.
 
 fetch_and_unpack is the part of steps 3-5 another tool needs without an
@@ -163,10 +169,15 @@ SYSTEMCTL_TIMEOUT_S = 10
 CHECK_POLLS = 5                # the channel check looks this many times, POLL_S apart, before it says the unit did not come back
 POLL_S = 2
 STATUS_TIMEOUT_S = 10
+JOURNAL_TIMEOUT_S = 10
+JOURNAL_LINES = 6
+JOURNAL_LINE_CHARS = 160
+# What a unit that never became active is asked for, once, to name its cause: its properties and the journal's tail.
+DIAGNOSIS_BUDGET_S = SYSTEMCTL_TIMEOUT_S + JOURNAL_TIMEOUT_S
 # What one channel check may take at most, for the two units: CHECK_POLLS state queries each with a POLL_S pause between,
 # the daemon's MainPID, its --version, and CHECK_POLLS asks of the carrier's status with the same pauses.
 CHECK_BUDGET_S = (2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + SYSTEMCTL_TIMEOUT_S + VERSION_TIMEOUT_S
-                  + CHECK_POLLS * STATUS_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S)
+                  + CHECK_POLLS * STATUS_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S + DIAGNOSIS_BUDGET_S)
 # An install asks the units' states before, then twice (the install, the restore) restarts both and checks.
 CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
                             + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S))
@@ -174,10 +185,19 @@ CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + 
 # `enable --now`, one channel check, and on a failure two `disable --now` and the states.
 LOGINCTL_TIMEOUT_S = 10
 RENDER_TIMEOUT_S = 30
+# `fabric-ctl all <carrier>-start` made 30 accounts render at once on 2026-10-26: each render verifies the roster's rows with gpg, and four
+# of them overran RENDER_TIMEOUT_S where each alone finished well inside it. One render at a time per HOST, on the host lease
+# (bin/fabric-lease) under its own name, so a render and a download do not wait for each other; held for the render alone, never through the restart. The wait is the number of accounts at a render's turn.
+RENDER_LEASE = f"{CARRIER_NAME}-render"
+RENDER_LEASE_WAIT_S = 600
+# The roster's ports are bound by the daemons, and an outgoing connection takes any port of the ephemeral range as its source: with 28
+# daemons dialling each other one took 47124 and its owner could not bind (EADDRINUSE). The host reserves the roster's range.
+RESERVED_PORTS_REL = os.path.join("sys", "net", "ipv4", "ip_local_reserved_ports")
+RESERVED_PORTS_HINT = "net.ipv4.ip_local_reserved_ports (agent-fabric ADR-064)"
 # A carrier that has just started verifies every roster row before it opens its socket (29 s measured with 26 rows, 2026-10-25), so the
 # start waits for `status` much longer than a restart's check, which finds a carrier that was already up.
 STARTUP_STATUS_POLLS = 45
-CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_TIMEOUT_S + SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
+CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_LEASE_WAIT_S + LEASE_GRACE_S + RENDER_TIMEOUT_S + SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
                           + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20)
 CARRIER_STOP_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20
 # The read: the installed programs' versions, the units' states, and one look of the check (which asks the states and the
@@ -419,6 +439,85 @@ def roster_profile(root: str) -> str:
     return profile
 
 
+def roster_port_range(root: str) -> tuple[int, int]:
+    """The roster's [low, high] port range; InstallError if it cannot be read or is not two ports."""
+    try:
+        with open(os.path.join(root, ROSTER_REL), encoding="utf-8") as fh:
+            rng = json.load(fh).get("port_range")
+    except (OSError, ValueError, AttributeError) as e:
+        raise InstallError(f"the {CARRIER_LABEL} roster {ROSTER_REL} cannot be read ({_oneline(e)})") from None
+    if not (isinstance(rng, list) and len(rng) == 2 and all(type(n) is int and 0 < n < 65536 for n in rng) and rng[0] <= rng[1]):
+        raise InstallError(f"the {CARRIER_LABEL} roster {ROSTER_REL} has no port_range of two ports")
+    return rng[0], rng[1]
+
+
+def reserved_ports_problem(low: int, high: int) -> str | None:
+    """None when the host reserves every port of low..high away from outgoing connections, else what to do. A host whose
+    setting cannot be read is not shown to reserve them: the same refusal, with the reason."""
+    path = os.path.join(PROC_ROOT, RESERVED_PORTS_REL)
+    fix = f"; set {RESERVED_PORTS_HINT} to cover {low}-{high}"
+    try:
+        with open(path, encoding="ascii") as fh:
+            text = fh.read()
+    except (OSError, ValueError) as e:
+        return f"the host's reserved ports cannot be read ({_oneline(e)}){fix}"
+    spans = []
+    for item in text.replace("\n", ",").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        lo, sep, hi = item.partition("-")
+        try:
+            spans.append((int(lo), int(hi if sep else lo)))
+        except ValueError:
+            return f"the host's reserved ports are not readable ({item[:40]!r}){fix}"
+    covered = low
+    for lo, hi in sorted(spans):
+        if lo > covered:
+            break
+        covered = max(covered, hi + 1)
+        if covered > high:
+            return None
+    return f"the host does not reserve ports {low}-{high} from outgoing connections{fix}"
+
+
+TCP_STATES = {"01": "ESTABLISHED", "02": "SYN_SENT", "03": "SYN_RECV", "04": "FIN_WAIT1", "05": "FIN_WAIT2", "06": "TIME_WAIT", "07": "CLOSE",
+              "08": "CLOSE_WAIT", "09": "LAST_ACK", "0A": "LISTEN", "0B": "CLOSING"}
+
+
+def roster_port(root: str, login: str) -> int | None:
+    """The port the roster gives `login`, or None when it has no valid row (the carrier's render declines that, with its own reason)."""
+    try:
+        with open(os.path.join(root, ROSTER_REL), encoding="utf-8") as fh:
+            rows = json.load(fh).get("rows")
+    except (OSError, ValueError, AttributeError):
+        return None
+    for row in rows if isinstance(rows, list) else ():
+        if isinstance(row, dict) and row.get("login") == login and type(row.get("port")) is int and 0 < row["port"] < 65536:
+            return row["port"]
+    return None
+
+
+def port_holder_problem(port: int) -> str | None:
+    """None when no local socket uses `port`, else who does. The reserved-ports setting keeps NEW outgoing connections off the roster's
+    ports, not one opened before it was set: an ssh connection from 2026-10-20 still had 47130 as its source port on 2026-10-26, the
+    daemon's bind got EADDRINUSE, exited 1 and was restarted every 5 s, which a state look reads as "activating". A table that cannot
+    be read proves nothing either way, so it is not a refusal."""
+    want = f"{port:04X}"
+    for name in ("tcp", "tcp6"):
+        try:
+            with open(os.path.join(PROC_ROOT, "net", name), encoding="ascii", errors="replace") as fh:
+                lines = fh.read().splitlines()[1:]
+        except OSError:
+            continue
+        for ln in lines:
+            f = ln.split()
+            if len(f) > 7 and f[1].rpartition(":")[2].upper() == want:
+                return (f"local port {port} is in use by a {TCP_STATES.get(f[3].upper(), 'socket in state ' + f[3])} connection of uid {f[7]} "
+                        f"(peer {f[2]}); the daemon could not bind it")
+    return None
+
+
 def unit_names(profile: str) -> tuple[str, str]:
     """(daemon, client)."""
     return (f"{CARRIER_NAME}-daemon@{profile}.service", f"{CARRIER_NAME}-client@{profile}.service")
@@ -439,6 +538,29 @@ def show_property(unit: str, prop: str, run: Callable[..., Any], home: str) -> s
     except OSError:
         return None
     return (r.stdout or "").strip() or None if r.returncode == 0 else None
+
+
+def unit_diagnosis(unit: str, run: Callable[..., Any], home: str) -> str:
+    """Why a unit that never became active is not: its SubState (a daemon with Restart=on-failure that exits reads
+    "activating" with SubState auto-restart, which ActiveState alone hides), how its last run ended, and the tail of its
+    journal. Never raises and never empty: an unanswered question is said, not left out of the reason."""
+    parts: list[str] = []
+    try:
+        r = run(["systemctl", "--user", "show", "--property=SubState,Result,ExecMainStatus,NRestarts", unit], capture_output=True, encoding="utf-8",
+                errors="replace", timeout=SYSTEMCTL_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
+        props = dict(ln.split("=", 1) for ln in (r.stdout or "").splitlines() if "=" in ln) if r.returncode == 0 else {}
+    except (subprocess.TimeoutExpired, OSError):
+        props = {}
+    shown = [f"{k} {props[k]}" for k in ("SubState", "Result", "ExecMainStatus", "NRestarts") if props.get(k)]
+    parts.append(", ".join(shown) if shown else "its properties could not be read")
+    try:
+        r = run(["journalctl", "--user", "-u", unit, "-n", str(JOURNAL_LINES), "--no-pager", "-o", "cat"], capture_output=True, encoding="utf-8",
+                errors="replace", timeout=JOURNAL_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
+        lines = [ln.strip()[:JOURNAL_LINE_CHARS] for ln in (r.stdout or "").splitlines() if ln.strip()] if r.returncode == 0 else []
+    except (subprocess.TimeoutExpired, OSError):
+        lines = []
+    parts.append("journal: " + " | ".join(lines) if lines else "journal: no lines readable")
+    return "; ".join(parts)
 
 
 def running_units(profile: str, run: Callable[..., Any], home: str) -> tuple[dict[str, str | None], list[str]]:
@@ -510,7 +632,7 @@ def channel_check(profile: str, running: list[str], build: dict, root: str, run:
             if streak >= (2 if polls > 1 else 1):
                 break
         else:
-            return failed(f"{u} is {seen[u] or 'not answering'} after {polls} look(s)")
+            return failed(f"{u} is {seen[u] or 'not answering'} after {polls} look(s) ({unit_diagnosis(u, run, home)})")
     if daemon in running:
         try:
             bad = daemon_process_problem(daemon, bin_dir(home), run, home)
@@ -989,7 +1111,8 @@ def _login() -> str:
 
 def carrier_start(request: Any, root: str | None = None, home: str | None = None, state: str | None = None,
                   run: Callable[..., Any] = subprocess.run, machine: str | None = None,
-                  sleep: Callable[[float], None] = time.sleep, login: str | None = None) -> dict:
+                  sleep: Callable[[float], None] = time.sleep, login: str | None = None,
+                  lease: Callable[..., Any] = hold_lease) -> dict:
     a = request.get("args") if isinstance(request, dict) else None
     if not (a is None or a == {}):
         return _refused(f"{START_OP} takes no argument: it starts the units of the roster's profile")
@@ -1011,12 +1134,13 @@ def carrier_start(request: Any, root: str | None = None, home: str | None = None
     if fd is None:
         return reply or _refused(LOCK_BUSY)
     try:
-        return _start(build, profile, root, home, run, sleep, login)
+        return _start(build, profile, root, home, run, sleep, login, lease)
     finally:
         os.close(fd)
 
 
-def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., Any], sleep: Callable[[float], None], login: str) -> dict:
+def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., Any], sleep: Callable[[float], None], login: str,
+           lease: Callable[..., Any]) -> dict:
     daemon, client = unit_names(profile)
     both = [daemon, client]
     bad = linger_problem(login, run, home)
@@ -1035,12 +1159,32 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
         return _refused(f"the client unit's program {client_program} is not installed (run {INSTALL_OP}, which runs "
                         f"tools/fabric/gzcoord/carrier/install_client.py); nothing was started")
     try:
-        _, running = running_units(profile, run, home)
+        states, running = running_units(profile, run, home)
     except ChannelUnknown as e:
         return _failed(None, f"whether the {CARRIER_LABEL} units run is not known ({e}); nothing was started")
     already = len(running) == len(both)
     if not already:
         path = config_path(home, profile)
+        try:
+            low, high = roster_port_range(root)
+        except InstallError as e:
+            return _failed(None, f"{e}; nothing was started")
+        bad = reserved_ports_problem(low, high)
+        if bad:
+            return _refused(f"{bad}; nothing was started")
+        # An ACTIVE daemon holds its own port, with its peers' connections on it. One that is "activating" is the loop this check exists
+        # for (EADDRINUSE, exit 1, restarted every 5 s), so only a start that is to bind the port, or finds it not bound, looks.
+        own = roster_port(root, login) if states.get(daemon) != "active" else None
+        bad = own and port_holder_problem(own)
+        if bad:
+            return _refused(f"{bad}; nothing was started — close that connection and run it again")
+        # Refused, not bypassed, as the download is: rendering unqueued is what timed out four of thirty accounts.
+        try:
+            turn = lease(root, wait_s=RENDER_LEASE_WAIT_S, name=RENDER_LEASE)
+        except LeaseRefused as e:
+            return _failed(None, f"the host's render lease stayed held for {RENDER_LEASE_WAIT_S} s; nothing was started — run it again"
+                           if e.code == LEASE_HELD else
+                           f"the host's render queue is unavailable ({e.line[:160]}); nothing was started")
         try:
             r = run([os.path.join(root, "bin", "gzcoord-carrier"), "render-config", "--write", path], capture_output=True, encoding="utf-8",
                     errors="replace", timeout=RENDER_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
@@ -1048,6 +1192,8 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
             return _failed(None, f"gzcoord-carrier render-config did not finish within {RENDER_TIMEOUT_S} s; nothing was started")
         except OSError as e:
             return _failed(None, f"gzcoord-carrier render-config could not be run ({_oneline(e)}); nothing was started")
+        finally:
+            turn.release()
         if r.returncode != 0:
             lines = [ln for ln in (r.stderr or "").splitlines() if ln.strip()]
             why = (lines[-1][:200] if lines else f"exit {r.returncode}")

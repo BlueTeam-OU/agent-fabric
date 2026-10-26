@@ -139,13 +139,20 @@ class Systemd:
         self.bindir: str | None = None
         self.exe: str | None = None                    # what the daemon's /proc/<pid>/exe says (default: the installed file)
         self.main_pid = 4242
+        self.props = "SubState=auto-restart\nResult=exit-code\nExecMainStatus=1\nNRestarts=7\n"   # the diagnosis's `show`
+        self.journal = "transport-daemon: cannot bind 127.0.0.1:47130: address in use\n"
+        self.journal_rc = 0
 
     def __call__(self, argv, **kw):
         name = os.path.basename(argv[0])
-        if name not in ("systemctl", "gzcoord-carrier"):
+        if name not in ("systemctl", "gzcoord-carrier", "journalctl"):
             return subprocess.run(argv, **kw)
         self.calls.append(list(argv))
         done = lambda rc=0, out="": subprocess.CompletedProcess(argv, rc, out, "")   # noqa: E731
+        if name == "journalctl":
+            if self.hang == "journal":
+                raise subprocess.TimeoutExpired(argv, kw["timeout"])
+            return done(self.journal_rc, self.journal)
         if name == "gzcoord-carrier":
             if self.hang == "status":
                 raise subprocess.TimeoutExpired(argv, kw["timeout"])
@@ -158,6 +165,8 @@ class Systemd:
         if verb == "show":
             if self.hang == "show":
                 raise subprocess.TimeoutExpired(argv, kw["timeout"])
+            if argv[3].startswith("--property=SubState"):
+                return done(0, self.props)
             if argv[3] == "--property=MainPID":
                 d = os.path.join(self.proc, str(self.main_pid))
                 os.makedirs(d, exist_ok=True)
@@ -962,7 +971,7 @@ class Channel(Case):
         real = self.systemd.__call__
 
         def flap(argv, **kw):
-            if os.path.basename(argv[0]) == "systemctl" and argv[2] == "show" and self.systemd.restarts:
+            if os.path.basename(argv[0]) == "systemctl" and argv[2] == "show" and argv[3] == "--property=ActiveState" and self.systemd.restarts:
                 return subprocess.CompletedProcess(argv, 0, next(seq) + "\n", "")
             return real(argv, **kw)
         r = self.install(run=flap)
@@ -1406,9 +1415,18 @@ class StartStop(Case):
         with open(self.client_program, "rb") as fh:
             self.assertEqual(fh.read(), CLIENT_BYTES, "the install put the clone's client program in place")
         self.systemd.calls.clear()
+        self.events.clear()
+        self.reserve("47100-47199")
+
+    def reserve(self, text):
+        path = os.path.join(iw.PROC_ROOT, iw.RESERVED_PORTS_REL)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(text + "\n")
 
     def start(self, request=None, **kw):
-        opts = dict(root=self.root, home=self.home, state=self.state, machine="x86_64", run=self.systemd, sleep=lambda s: None, login="agent")
+        opts = dict(root=self.root, home=self.home, state=self.state, machine="x86_64", run=self.systemd, sleep=lambda s: None, login="agent",
+                    lease=self.lease)
         opts.update(kw)
         return iw.carrier_start({} if request is None else request, **opts)
 
@@ -1425,6 +1443,84 @@ class StartStop(Case):
         self.assertEqual(self.systemd.enabled, [], why)
         self.assertEqual(self.systemd.disabled, [], why)
         self.assertFalse(os.path.exists(self.config()), why)
+
+    def test_a_daemon_that_stays_activating_is_named_by_its_substate_exit_and_journal(self):
+        self.systemd.after_enable[DAEMON_UNIT] = "activating"
+        r = self.start()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("after 5 look(s) (SubState auto-restart, Result exit-code, ExecMainStatus 1, NRestarts 7; "
+                      "journal: transport-daemon: cannot bind 127.0.0.1:47130: address in use)", r["reason"])
+        self.assertTrue(r["stopped"], "the diagnosis does not keep the units from being taken down")
+
+    def tcp_table(self, *rows, v6=()):
+        d = os.path.join(iw.PROC_ROOT, "net")
+        os.makedirs(d, exist_ok=True)
+        head = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+        for name in ("tcp", "tcp6"):
+            with open(os.path.join(d, name), "w") as fh:
+                fh.write(head + "".join(rows if name == "tcp" else v6))
+
+    def roster_row(self, login, port):
+        path = os.path.join(self.root, iw.ROSTER_REL)
+        with open(path) as fh:
+            d = json.load(fh)
+        d["rows"].append({"login": login, "port": port})
+        with open(path, "w") as fh:
+            json.dump(d, fh)
+
+    def test_a_start_whose_port_is_held_by_an_older_connection_is_refused_before_anything_is_touched(self):
+        self.roster_row("agent", 47130)
+        self.tcp_table("   0: 0100007F:B81A 0100007F:0016 01 00000000:00000000 02:000957A2 00000000  1000        0 440987 2\n")
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("local port 47130 is in use by a ESTABLISHED connection of uid 1000", r["reason"])
+        self.nothing_touched()
+        # the positive control: the same table without that socket, and one on a port that is not the account's, start
+        self.tcp_table("   0: 0100007F:B81B 0100007F:0016 01 00000000:00000000 02:000957A2 00000000  1000        0 440987 2\n")
+        self.assertEqual(self.start()["status"], "started")
+
+    def test_a_daemon_that_runs_holds_its_own_port_and_the_start_goes_on(self):
+        self.roster_row("agent", 47130)
+        listen = "   0: 0100007F:B81A 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 440987 2\n"
+        peer = "   1: 0100007F:B81A 0100007F:9999 01 00000000:00000000 00:00000000 00000000  1000        0 440988 2\n"
+        self.tcp_table(listen, peer)
+        self.systemd.states[DAEMON_UNIT] = "active"
+        r = self.start()
+        self.assertEqual(r["status"], "started", r)
+        self.assertEqual(self.systemd.restarted, [DAEMON_UNIT], "the half-running pair is still restarted after the render")
+        # the positive control: the same table with only the client running is a start that must bind, and is refused
+        self.systemd.states = {CLIENT_UNIT: "active"}
+        self.assertEqual(self.start()["status"], "refused")
+
+    def test_a_daemon_that_is_only_activating_does_not_excuse_a_held_port(self):
+        self.roster_row("agent", 47130)
+        self.tcp_table("   0: 0100007F:B81A 0100007F:0016 01 00000000:00000000 02:000957A2 00000000  1000        0 440987 2\n")
+        self.systemd.states[DAEMON_UNIT] = "activating"
+        r = self.start()
+        self.assertEqual(r["status"], "refused", r)
+        self.assertIn("local port 47130 is in use", r["reason"])
+        self.assertEqual(self.systemd.restarted, [], "nothing was restarted")
+        self.assertEqual(self.systemd.rendered, [], "nothing was rendered")
+
+    def test_a_port_held_on_the_ipv6_table_is_refused_too(self):
+        self.roster_row("agent", 47130)
+        self.tcp_table(v6=("   0: 00000000000000000000000001000000:B81A 00000000000000000000000001000000:0016 01 00000000:00000000 02:0009 00000000  1000        0 1 2\n",))
+        self.assertEqual(self.start()["status"], "refused")
+
+    def test_an_unreadable_connection_table_is_not_a_refusal(self):
+        self.roster_row("agent", 47130)
+        self.assertFalse(os.path.exists(os.path.join(iw.PROC_ROOT, "net", "tcp")))
+        self.assertEqual(self.start()["status"], "started")
+
+    def test_a_diagnosis_that_cannot_be_read_says_so_and_the_failure_stands(self):
+        self.systemd.after_enable[DAEMON_UNIT] = "activating"
+        self.systemd.props = ""
+        self.systemd.journal_rc = 1
+        r = self.start()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("(its properties could not be read; journal: no lines readable)", r["reason"])
+        self.systemd.hang = "journal"
+        self.assertIn("journal: no lines readable", self.start()["reason"], "a journal that hangs is a bounded wait, not a hang")
 
     def test_a_start_renders_then_enables_the_daemon_then_the_client_and_checks_the_channel(self):
         r = self.start()
@@ -1474,6 +1570,83 @@ class StartStop(Case):
         self.assertEqual((self.systemd.enabled, self.systemd.disabled), ([], []))
         self.systemd.render_rc = 0
         self.assertEqual(self.start()["status"], "started", "positive control")
+
+    def test_the_render_is_taken_in_turn_on_the_host_lease_and_released_before_the_units_start(self):
+        def logged(argv, **kw):
+            if os.path.basename(argv[0]) == "gzcoord-carrier":
+                self.events.append("render")
+            elif "enable" in argv:
+                self.events.append("enable")
+            return self.systemd(argv, **kw)
+        self.assertEqual(self.start(run=logged)["status"], "started")
+        self.assertEqual(self.events[:4], [f"lease {iw.RENDER_LEASE} wait_s={iw.RENDER_LEASE_WAIT_S}", "render", "release", "enable"],
+                         "held for the render alone, not through the units' start")
+
+    def test_a_render_that_times_out_still_gives_the_turn_back(self):
+        def slow(argv, **kw):
+            if os.path.basename(argv[0]) == "gzcoord-carrier" and argv[1] == "render-config":
+                raise subprocess.TimeoutExpired(argv, kw["timeout"])
+            return self.systemd(argv, **kw)
+        r = self.start(run=slow)
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("did not finish", r["reason"])
+        self.assertEqual(self.events, [f"lease {iw.RENDER_LEASE} wait_s={iw.RENDER_LEASE_WAIT_S}", "release"])
+
+    def test_a_lease_held_or_unavailable_renders_nothing(self):
+        self.lease_refused = iw.LeaseRefused(75, "fabric-lease: held", iw.LEASE_HELD)
+        r = self.start()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("render lease stayed held", r["reason"])
+        self.lease_refused = iw.LeaseRefused(2, "no lease directory", "unavailable")
+        r = self.start()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("render queue is unavailable", r["reason"])
+        self.nothing_touched()
+        self.lease_refused = None
+        self.assertEqual(self.start()["status"], "started", "positive control")
+
+    def test_a_host_that_does_not_reserve_the_rosters_ports_is_refused_naming_the_setting(self):
+        for text in ("", "47100-47150", "47101-47199", "32768", "47100-47150,47152-47199", "junk", "47100-"):
+            self.reserve(text)
+            r = self.start()
+            self.assertEqual(r["status"], "refused", text)
+            self.assertIn("ip_local_reserved_ports", r["reason"], text)
+            self.assertIn("47100-47199", r["reason"], text)
+            self.nothing_touched(text)
+            self.assertEqual(self.events, [], "no turn is taken for a host that will be refused")
+        os.unlink(os.path.join(iw.PROC_ROOT, iw.RESERVED_PORTS_REL))
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("cannot be read", r["reason"])
+        for text in ("47100-47199", "47000-47300", "47100-47150,47151-47199", "47100-47199,50000", "47100-47120\n47121-47199"):
+            self.reserve(text)
+            self.assertEqual(self.start()["status"], "started", text)
+            self.stop()
+
+    def test_a_roster_without_a_usable_port_range_fails_the_start_touching_nothing(self):
+        roster = os.path.join(self.root, iw.ROSTER_REL)
+        for rng in (None, [47100], [47199, 47100], [47100, "47199"], [0, 47199], "47100-47199"):
+            with open(roster, "w") as fh:
+                json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", **({} if rng is None else {"port_range": rng}), "rows": []}, fh)
+            r = self.start()
+            self.assertEqual(r["status"], "failed", rng)
+            self.assertIn("port_range", r["reason"], rng)
+            self.nothing_touched(str(rng))
+            self.assertEqual(self.events, [])
+        with open(roster, "w") as fh:
+            fh.write("{")
+        self.assertEqual(self.start()["status"], "failed")
+        with open(roster, "w") as fh:
+            json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", "port_range": [47100, 47199], "rows": []}, fh)
+        self.assertEqual(self.start()["status"], "started", "positive control")
+
+    def test_a_running_pair_needs_neither_the_lease_nor_the_reservation(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.events.clear()
+        self.reserve("")
+        r = self.start()
+        self.assertEqual((r["status"], r.get("already_running")), ("started", True))
+        self.assertEqual(self.events, [])
 
     def test_programs_that_are_not_the_pins_or_templates_that_are_missing_are_refused(self):
         with open(os.path.join(self.bindir, "transportctl"), "wb") as fh:
@@ -1693,6 +1866,7 @@ class StartStopWiring(Case):
         # term by term, so a wait taken out of the budget (a restart, the cold carrier's longer status wait) is seen
         self.assertEqual(iw.CARRIER_START_BUDGET_S,
                          iw.LOGINCTL_TIMEOUT_S + 2 * iw.VERSION_TIMEOUT_S + iw.RENDER_TIMEOUT_S
+                         + iw.RENDER_LEASE_WAIT_S + iw.LEASE_GRACE_S    # the queue for the render, the lease's own grace
                          + 2 * sysctl                                   # the two units' states before
                          + sysctl                                       # the restart of the one unit that ran
                          + 2 * sysctl                                   # enable --now, daemon then client

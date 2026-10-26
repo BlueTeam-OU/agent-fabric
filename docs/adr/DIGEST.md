@@ -654,14 +654,14 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
 - Each account's agentd answers on `fabric:control`; a request while
-  it is down is lost (§2, §5 rules 1–2).
+  it is down is lost (§2, rules 1–2).
 - A closed op set; no request field reaches a shell; actions carry a
-  fresh Ed25519 operator signature, newer than the last (§5 rules 3–5).
+  fresh Ed25519 operator signature, newer than the last (rules 3–5).
 - Replies carry no secret; a gap is named; silence or failure exits 1
-  (§5 rules 6–9).
+  (rules 6–9).
 - A 2026-09-27 — actions beside reads (rule 12).
 - A 2026-09-27 — answer budgets (rule 12).
-- A 2026-09-28 — `jobs`, `jobs-add` (rule 13).
+- A 2026-09-28 — jobs (rule 13).
 - A 2026-09-29 — secrets-migrate (rule 14).
 - A 2026-09-30 — rule 14 withdrawn.
 - A 2026-10-06 — local, local-prune (rule 15).
@@ -672,16 +672,17 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-09 — forged claims (rule 4).
 - A 2026-10-09 — Scope.
 - A 2026-10-09 — `tools-install` (rules 3, 12).
-- A 2026-10-09 — closed-job read (§2).
+- A 2026-10-09 — closed jobs (§2).
 - A 2026-10-10 — gateway ops (§2).
-- A 2026-10-12 — switch controller (§2).
+- A 2026-10-12 — switch controller.
 - A 2026-10-18 — installer, cargo pins (§2).
 - A 2026-10-19 — rustup-target pins (§2).
 - A 2026-10-25 — install/read.
 - A 2026-10-25 — start/stop.
 - A 2026-10-26 — client program.
+- A 2026-10-26 — render, ports.
 - A 2026-10-26 — evidence.
-- Keywords: agentd, fabric-ctl, ops, keys, operator_key, usage,
+- Keywords: agentd, fabric-ctl, keys, operator_key, usage,
   tokens, herdr, resume, gateway, switch, evidence, interweave-evidence.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
