@@ -672,7 +672,7 @@ def parse_args(argv: list[str]) -> dict:
 
 def evidence_args_problem(a: dict) -> str | None:
     """What is wrong with the window and paging options of this command line, or None."""
-    # since, until and section exist only when given: the options of every other verb keep the shape tests/fixtures/control-frozen.json froze.
+    # since, until and section exist only when given: the options of every other verb keep the shape tests/fixtures/node-oracle-ctl-upgrade-sessions-queue.json froze (tests/test_control_frozen.py).
     if a["op"] != EVIDENCE_OP:
         if any(a.get(k) is not None for k in ("since", "until", "section")):
             return f"--since, --until and --section go with {EVIDENCE_OP} only"
