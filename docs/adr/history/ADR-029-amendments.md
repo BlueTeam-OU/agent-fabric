@@ -218,3 +218,17 @@ that only an operator may ask (it is in `sign.py` `ACTION_OPS`): the
 logs are the account's own, and a reply is posted on the channel a
 relay-token holder can read. The §2 row, rule 3 (arguments), rule 5,
 rule 6 and rule 12 (60 s a page, `EVIDENCE_BUDGET_S`) say so.
+
+### Amendment 2026-10-26 — A running InterWeave pair is re-rendered when the roster changed
+
+The first live parity collection (#390, 2026-10-26) showed
+p2p-network-dev-02's daemon refusing language-culture-ru as
+`UnauthorizedPeer`: ru's roster row (#391) came after the other 29
+profiles were rendered, and `interweave-start` left a running pair's
+`config.yaml` alone, so no roster change reached a running daemon.
+python-dev-01's #394 (j176) has the start, with both units running,
+read the render under the render lease and compare it with the file:
+identical, nothing is touched (`already_running`); different, the file
+is replaced and both units restarted and checked (`rerendered`). One
+`fabric-ctl all interweave-start` brings the fleet onto the current
+roster, as it will for every new row. The §2 row says so.
