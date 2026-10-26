@@ -179,3 +179,16 @@ one lock per account. The start's budget allows 45 looks for the
 carrier's `status`: in the PR's live run a cold carrier took 29 s to
 open its socket with 26 roster rows. Asked for by #385's blind review
 (F3); the record had none of it.
+
+### Amendment 2026-10-26 — The InterWeave install puts the client unit's program in place
+
+After #385, start refused every account: `install_client.py` ran only
+as new-agent's step 7b (tools/fabric/provisioning/worker.py), so the
+accounts made before that step had no client unit's program, and no
+later change to the program reached any account (2026-10-26, the fleet
+on c87c72d0). python-dev-01's #386 (j173) makes `interweave-install` put
+it in place as its last step, also on an account already at the pinned
+release, and the `interweave` read report it. The §2 rows say so; the
+`interweave-start` row also gains what #385's review (F6) left to the
+coordinator: the refusal without that program, the start that changes
+nothing when both units run, and the restart of a lone running unit.
