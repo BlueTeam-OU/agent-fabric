@@ -592,6 +592,14 @@ class SessionsOnOldSignIn(unittest.TestCase):
         self.assertEqual(rp({1: env_with(None, provider="anthropic", transport="gateway")}), "gateway")
         self.assertEqual(rp({1: env_with(OLD, provider=None)}), "anthropic", "an unstamped session is plain claude")
         self.assertIsNone(rp({}), "no session is no provider")
+        self.assertEqual(rp({1: env_with(None, provider="openrouter"), 2: env_with(OLD, provider="anthropic"),
+                             3: env_with(None, provider="openrouter")}), "anthropic,openrouter",
+                         "every running session, each provider once, sorted: the first would hide the rest")
+        self.assertEqual(rp({1: env_with(None, provider="anthropic", transport="gateway"),
+                             2: env_with(OLD, provider="anthropic")}), "anthropic,gateway")
+        self.assertEqual(S.running_provider(pids=[1], env_of=lambda _p: env_with(None, provider="openrouter")(_p),
+                                            alive=lambda _p: True), "openrouter",
+                         "the option set old_sign_in_pids takes is accepted")
 
         def gone(_pid):
             raise ProcessLookupError(3, "gone")

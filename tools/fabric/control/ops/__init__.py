@@ -159,6 +159,10 @@ def _session(ctx: Mapping[str, Any]) -> Any:
     try:
         opts = dict(opts or {})
         proc = opts.pop("proc", "/proc")
+        # One listing for both readers; a caller's own pids stay.
+        if "pids" not in opts:
+            opts["pids"] = secrets.upgrade().session_pids(
+                uid=ctx.get("uid"), **({"run": opts["pgrep"]} if opts.get("pgrep") else {}))
         old = secrets.old_sign_in_pids(ctx.get("home"), **{"uid": ctx.get("uid"), **opts})
         started = sorted(t for t in (secrets.process_started(p, proc) for p in old or []) if t)
         provider = secrets.running_provider(**{"uid": ctx.get("uid"), **opts})
