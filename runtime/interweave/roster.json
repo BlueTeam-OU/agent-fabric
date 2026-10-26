@@ -266,6 +266,36 @@
       "peer_id": "12D3KooWSZJZ4LDA97rXiC9nXZXGCxJgJJYRGvp28VbCmfxY3MwT",
       "port": 47126,
       "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat5lEQAKCRDXDobMImJA\n6jC0AQDupMZyDe+mk0FFGjdc6vcUYzSlNUMVfs8aiJ38aAudAgD+JO3h9CUPNUiu\ntuXPZtDR01887HIlImETrGBshOyz2AE=\n=EMHA\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a00bc1-47ca-7fea-a066-68decae2c621",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWA9EMQ9sQcEis75XT7P5cQidPF63d2nGX8kwqgWRM6qrd\n",
+      "login": "flutter-dev-02",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQRrzueaH6xrcIgnx9unyXSYfR7qCgUCat69cwAKCRCnyXSYfR7q\nCogkAPwLoJe8EHxsxqF8AWlOrpA/eyiaHLvlutB0mvyGmBul9gEA22lb0raFaCcW\nNn22GQhXI9UwLmnUcrD06iHUuTAwTgo=\n=MU/V\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWA9EMQ9sQcEis75XT7P5cQidPF63d2nGX8kwqgWRM6qrd",
+      "port": 47127,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat69qwAKCRDXDobMImJA\n6jHeAP0blci7Plb+nlS3ZSmBXgPfOUCR7eNXbqHP+QSmkHHhqQEA4y3FYYTweZT8\nqgZdbzuOt6X4+SFOERGsSn+WJh9S+gs=\n=FtkZ\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a0f7ea-15b0-7ed9-a176-6eb006592db1",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWRW8dfQtmEPhzBsp54uhTwVbatVrKW5bxtJd3WUfEQzbe\n",
+      "login": "rust-ui-dev-01",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQQgoy/0vXaFpurNASQESKxwzXQkIgUCat5l+gAKCRAESKxwzXQk\nIjMIAQCwtTCGOFrGhbdrYqvLj4a5UT+RPGo2d1WpgK5nb9bcaAD/bCRKwZNwyAxD\nU4O50nwFwa7VhgLwGsPluE5pKq7OBAg=\n=XMuH\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWRW8dfQtmEPhzBsp54uhTwVbatVrKW5bxtJd3WUfEQzbe",
+      "port": 47128,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat69twAKCRDXDobMImJA\n6mmZAQDZcGXBDsz8Ti/4vAnzCMpXm0hjkvKVP9lYz73BaxggawEA0S7hMoZb1iBL\nUoLZfW53oY3/gOJnGJdzbuzKkDe6EAk=\n=xNTb\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a1438f-bed1-7500-a13d-b11b6e558f55",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWD91qaCNLwRrgfohoHtNvYoBE3wMh6qWmummhqV8UaSBe\n",
+      "login": "ux-designer-01",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTafHdkpWC66IIqzgTgKxI+tvEOQQUCat68VQAKCRDgKxI+tvEO\nQZ3UAP9KiOOCx+1pLQq26m3vrz77eP6Z/CiYkDx6BRb00jTGOQEA0JFeM/Id3S9E\n5XQ+HmV+XT2uhKMWdgOS6NWYPac4RgU=\n=Kl+C\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWD91qaCNLwRrgfohoHtNvYoBE3wMh6qWmummhqV8UaSBe",
+      "port": 47129,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat69xgAKCRDXDobMImJA\n6sS2AP9uP+ZEF5dtAudzXzoYcoH2VMPNQnRCDsyJR6ggb2jkJwEAjpIiNCLV2C6p\n3LKpInS65yjCy6M5bIu/St6U5fjkcQ0=\n=TCi1\n-----END PGP SIGNATURE-----\n"
     }
   ]
 }
