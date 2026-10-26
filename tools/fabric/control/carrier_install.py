@@ -166,10 +166,15 @@ SYSTEMCTL_TIMEOUT_S = 10
 CHECK_POLLS = 5                # the channel check looks this many times, POLL_S apart, before it says the unit did not come back
 POLL_S = 2
 STATUS_TIMEOUT_S = 10
+JOURNAL_TIMEOUT_S = 10
+JOURNAL_LINES = 6
+JOURNAL_LINE_CHARS = 160
+# What a unit that never became active is asked for, once, to name its cause: its properties and the journal's tail.
+DIAGNOSIS_BUDGET_S = SYSTEMCTL_TIMEOUT_S + JOURNAL_TIMEOUT_S
 # What one channel check may take at most, for the two units: CHECK_POLLS state queries each with a POLL_S pause between,
 # the daemon's MainPID, its --version, and CHECK_POLLS asks of the carrier's status with the same pauses.
 CHECK_BUDGET_S = (2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + SYSTEMCTL_TIMEOUT_S + VERSION_TIMEOUT_S
-                  + CHECK_POLLS * STATUS_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S)
+                  + CHECK_POLLS * STATUS_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S + DIAGNOSIS_BUDGET_S)
 # An install asks the units' states before, then twice (the install, the restore) restarts both and checks.
 CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
                             + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S))
@@ -495,6 +500,29 @@ def show_property(unit: str, prop: str, run: Callable[..., Any], home: str) -> s
     return (r.stdout or "").strip() or None if r.returncode == 0 else None
 
 
+def unit_diagnosis(unit: str, run: Callable[..., Any], home: str) -> str:
+    """Why a unit that never became active is not: its SubState (a daemon with Restart=on-failure that exits reads
+    "activating" with SubState auto-restart, which ActiveState alone hides), how its last run ended, and the tail of its
+    journal. Never raises and never empty: an unanswered question is said, not left out of the reason."""
+    parts: list[str] = []
+    try:
+        r = run(["systemctl", "--user", "show", "--property=SubState,Result,ExecMainStatus,NRestarts", unit], capture_output=True, encoding="utf-8",
+                errors="replace", timeout=SYSTEMCTL_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
+        props = dict(ln.split("=", 1) for ln in (r.stdout or "").splitlines() if "=" in ln) if r.returncode == 0 else {}
+    except (subprocess.TimeoutExpired, OSError):
+        props = {}
+    shown = [f"{k} {props[k]}" for k in ("SubState", "Result", "ExecMainStatus", "NRestarts") if props.get(k)]
+    parts.append(", ".join(shown) if shown else "its properties could not be read")
+    try:
+        r = run(["journalctl", "--user", "-u", unit, "-n", str(JOURNAL_LINES), "--no-pager", "-o", "cat"], capture_output=True, encoding="utf-8",
+                errors="replace", timeout=JOURNAL_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
+        lines = [ln.strip()[:JOURNAL_LINE_CHARS] for ln in (r.stdout or "").splitlines() if ln.strip()] if r.returncode == 0 else []
+    except (subprocess.TimeoutExpired, OSError):
+        lines = []
+    parts.append("journal: " + " | ".join(lines) if lines else "journal: no lines readable")
+    return "; ".join(parts)
+
+
 def running_units(profile: str, run: Callable[..., Any], home: str) -> tuple[dict[str, str | None], list[str]]:
     """(state of each unit, the units that run, daemon first)."""
     states = {u: unit_state(u, run, home) for u in unit_names(profile)}
@@ -564,7 +592,7 @@ def channel_check(profile: str, running: list[str], build: dict, root: str, run:
             if streak >= (2 if polls > 1 else 1):
                 break
         else:
-            return failed(f"{u} is {seen[u] or 'not answering'} after {polls} look(s)")
+            return failed(f"{u} is {seen[u] or 'not answering'} after {polls} look(s) ({unit_diagnosis(u, run, home)})")
     if daemon in running:
         try:
             bad = daemon_process_problem(daemon, bin_dir(home), run, home)
