@@ -31,7 +31,7 @@ from gzcoord.carrier import main as carrier_main, parity, record  # noqa: E402
 
 T0 = 1_792_000_000
 OP = "interweave-evidence"
-SECRET = "SECRET-BODY-9f3a"      # the marker no reply, row or file may ever hold
+BODY_TEXT = "message-body-9f3a"      # the marker no reply, row or file may ever hold
 
 
 def iso(s: int) -> str:
@@ -64,10 +64,10 @@ class Account(unittest.TestCase):
             fh.write("".join(json.dumps(r) + "\n" for r in rows) + torn)
 
     def deliveries(self, queued: list[tuple], done: list[dict] = ()) -> None:
-        """`queued`: (mid, to, seconds, events after it); the text of each is SECRET."""
+        """`queued`: (mid, to, seconds, events after it); the text of each is BODY_TEXT."""
         with open(os.path.join(self.state, "interweave", "deliveries.jsonl"), "w", encoding="utf-8") as fh:
             for m, to, sec, later in queued:
-                fh.write(json.dumps({"e": "queued", "mid": m, "to": to, "tmids": ["t1"], "text": SECRET, "t": iso(sec), "enc": "plain"}) + "\n")
+                fh.write(json.dumps({"e": "queued", "mid": m, "to": to, "tmids": ["t1"], "text": BODY_TEXT, "t": iso(sec), "enc": "plain"}) + "\n")
                 for e in later:
                     fh.write(json.dumps({"e": e, "mid": m, "to": to, **({"code": "UnauthorizedPeer"} if e == "blocked" else {})}) + "\n")
         with open(os.path.join(self.state, "interweave", "delivered.jsonl"), "w", encoding="utf-8") as fh:
@@ -88,26 +88,26 @@ class Account(unittest.TestCase):
     # ── a body never leaves ─────────────────────────────────────────
     def test_a_body_never_leaves(self):
         m = mid(5, 1)
-        self.arrivals([arrival(m, "h/b", "interweave", 6, content=SECRET, text=SECRET, path="/home/x/.secret", body=SECRET)])
-        self.deliveries([(m, "b", 5, ["posted"])], done=[{"mid": mid(1, 9), "to": "c", "enc": "plain", "queued": iso(1), "text": SECRET}])
-        self.journal([(m, "inbound", SECRET, json.dumps({"TO-ROLE": "r", "NOTE": SECRET}))])
+        self.arrivals([arrival(m, "h/b", "interweave", 6, content=BODY_TEXT, text=BODY_TEXT, path="/home/x/.secret", body=BODY_TEXT)])
+        self.deliveries([(m, "b", 5, ["posted"])], done=[{"mid": mid(1, 9), "to": "c", "enc": "plain", "queued": iso(1), "text": BODY_TEXT}])
+        self.journal([(m, "inbound", BODY_TEXT, json.dumps({"TO-ROLE": "r", "NOTE": BODY_TEXT}))])
         for f in ("gzcoord-arrivals.jsonl", os.path.join("interweave", "deliveries.jsonl"), "episodic.db"):
             with open(os.path.join(self.state, f), "rb") as fh:
-                self.assertIn(SECRET.encode(), fh.read(), f"positive control: {f} holds the marker")
+                self.assertIn(BODY_TEXT.encode(), fh.read(), f"positive control: {f} holds the marker")
         a, d = self.ask("arrivals", 0, 100), self.ask("deliveries", 0, 100)
         self.assertEqual((a["status"], len(a["rows"]), d["status"], len(d["rows"])), ("ok", 1, "ok", 2))
         for reply in (a, d):
-            self.assertNotIn(SECRET, json.dumps(reply))
+            self.assertNotIn(BODY_TEXT, json.dumps(reply))
         self.assertEqual(set(a["rows"][0]), set(ev.ARRIVAL_KEYS), "an arrival row has the closed list of keys and no other")
         self.assertTrue(all(set(r) <= set(ev.DELIVERY_KEYS) for r in d["rows"]))
         self.assertEqual(a["kinds"], {m: "role"})
 
     def test_a_value_that_is_not_a_short_string_is_not_sent_as_one(self):
         m = mid(5, 1)
-        self.arrivals([arrival(m, "h/b", "interweave", 6, verdict="ok"), {**arrival(mid(6, 2), "h/b", "interweave", 7), "verdict": {"nested": SECRET}},
+        self.arrivals([arrival(m, "h/b", "interweave", 6, verdict="ok"), {**arrival(mid(6, 2), "h/b", "interweave", 7), "verdict": {"nested": BODY_TEXT}},
                        arrival(mid(7, 3), "h/b", "interweave", 8, verdict="v" * 5000)])
         a = self.ask("arrivals", 0, 100)
-        self.assertNotIn(SECRET, json.dumps(a))
+        self.assertNotIn(BODY_TEXT, json.dumps(a))
         self.assertEqual(a["skipped"], 1, "a row whose verdict is no string is not a row, and is counted")
         self.assertEqual(max(len(r["verdict"]) for r in a["rows"]), ev.FIELD_MAX)
 
@@ -260,7 +260,7 @@ class Collect(unittest.TestCase):
             fh.writelines(json.dumps(a) + "\n" for a in arrivals)
         with open(os.path.join(state, "interweave", "deliveries.jsonl"), "w") as fh:
             for m, to, sec in queued:
-                fh.write(json.dumps({"e": "queued", "mid": m, "to": to, "tmids": ["t"], "text": SECRET, "t": iso(sec), "enc": "plain"}) + "\n")
+                fh.write(json.dumps({"e": "queued", "mid": m, "to": to, "tmids": ["t"], "text": BODY_TEXT, "t": iso(sec), "enc": "plain"}) + "\n")
 
     def sender(self, silent=(), calls=None):
         def send(logins, section, since, until):
@@ -333,7 +333,7 @@ class Collect(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(os.stat(os.path.join(d, f)).st_mode), 0o600, f)
         for f in os.listdir(d):
             with open(os.path.join(d, f), encoding="utf-8") as fh:
-                self.assertNotIn(SECRET, fh.read(), f)
+                self.assertNotIn(BODY_TEXT, fh.read(), f)
         with open(os.path.join(d, "meta.json"), encoding="utf-8") as fh:
             meta = json.load(fh)
         self.assertEqual((meta["complete"], meta["counts"], meta["login"]), (True, {"arrivals": 1, "deliveries": 1, "kinds": 0}, "a"))
