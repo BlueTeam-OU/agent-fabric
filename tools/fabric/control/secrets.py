@@ -160,6 +160,29 @@ def old_sign_in_pids(home: str | None, *, uid: int | None = None, pids: list[int
     return old
 
 
+def running_provider(*, uid: int | None = None, pids: list[int] | None = None,
+                     env_of: Callable[[int], bytes | str] | None = None, pgrep: Callable[..., Any] | None = None,
+                     alive: Callable[[int], bool] = _alive) -> str | None:
+    """What the account's running sessions are launched on, from their own environment (session_env): per
+    session "gateway" when the launcher stamped that transport, else the stamped provider (a session with no
+    stamp is plain claude); the distinct ones sorted and joined with "," ("anthropic,openrouter"), since a
+    login may run more than one and the first would hide the rest. None where no session runs or the table
+    cannot be read, so a status row says "-" and never guesses. `alive` is accepted so one option set can be
+    handed to this and to old_sign_in_pids; a session that cannot be read is skipped either way."""
+    try:
+        running = pids if pids is not None else upgrade().session_pids(uid=uid, **({"run": pgrep} if pgrep else {}))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found: set[str] = set()
+    for pid in running:
+        try:
+            env = session_env(pid, env_of)
+        except OSError:
+            continue   # gone, or not readable
+        found.add("gateway" if env["transport"] == "gateway" else (env["provider"] or "anthropic"))
+    return ",".join(sorted(found)) or None
+
+
 def process_started(pid: int, proc: str = "/proc") -> str | None:
     """When the process began, UTC to the second (stat field 22 in clock ticks since boot, plus /proc/stat's
     btime); None where either cannot be read. A pid reused after the listing would name another process's

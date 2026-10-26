@@ -584,6 +584,36 @@ class SessionsOnOldSignIn(unittest.TestCase):
             raise ProcessLookupError(3, "gone")
         self.assertEqual(S.old_sign_in_pids(f.home, pids=[1], env_of=gone, alive=lambda _p: True), [1])
 
+    def test_running_provider_is_what_the_session_was_stamped_with_gateway_by_its_transport(self):
+        def rp(envs: dict):
+            return S.running_provider(pids=list(envs), env_of=lambda pid: envs[pid](pid))
+        self.assertEqual(rp({1: env_with(None, provider="openrouter")}), "openrouter")
+        self.assertEqual(rp({1: env_with(OLD, provider="anthropic")}), "anthropic")
+        self.assertEqual(rp({1: env_with(None, provider="anthropic", transport="gateway")}), "gateway")
+        self.assertEqual(rp({1: env_with(OLD, provider=None)}), "anthropic", "an unstamped session is plain claude")
+        self.assertIsNone(rp({}), "no session is no provider")
+        self.assertEqual(rp({1: env_with(None, provider="openrouter"), 2: env_with(OLD, provider="anthropic"),
+                             3: env_with(None, provider="openrouter")}), "anthropic,openrouter",
+                         "every running session, each provider once, sorted: the first would hide the rest")
+        self.assertEqual(rp({1: env_with(None, provider="anthropic", transport="gateway"),
+                             2: env_with(OLD, provider="anthropic")}), "anthropic,gateway")
+        self.assertEqual(S.running_provider(pids=[1], env_of=lambda _p: env_with(None, provider="openrouter")(_p),
+                                            alive=lambda _p: True), "openrouter",
+                         "the option set old_sign_in_pids takes is accepted")
+
+        def gone(_pid):
+            raise ProcessLookupError(3, "gone")
+        self.assertIsNone(S.running_provider(pids=[1], env_of=gone), "unreadable is none, never a guess")
+
+    def test_status_session_section_carries_the_provider_of_the_running_session(self):
+        from control import ops
+        f = Fixture(self, before=TPL)
+        run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "")  # noqa: E731
+        for envs, want in (({1: env_with(None, provider="openrouter")}, "openrouter"), ({}, None)):
+            ctx = {"home": f.home, "uid": 1, "run": run,
+                   "session_opts": {"pids": list(envs), "env_of": lambda pid, e=envs: e[pid](pid), "proc": "/nonexistent"}}
+            self.assertEqual(ops.collect("session", ctx)["session"].get("provider"), want)
+
     def test_unknown_where_there_is_no_synced_token_or_the_process_table_cannot_be_read(self):
         self.assertIsNone(self.count(Fixture(self, before=None), {1: env_with(OLD)}), "no token to compare with")
         f = Fixture(self, before=TPL)
