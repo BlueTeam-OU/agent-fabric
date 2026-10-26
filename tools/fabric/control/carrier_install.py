@@ -91,7 +91,8 @@ run's switch) writes the profile's config.yaml and brings the roster's profile u
      and, before any render, unless the host reserves the roster's port_range from outgoing connections
      (net.ipv4.ip_local_reserved_ports; a daemon cannot bind a port a connection took as its source), and
      unless a local socket of any state already uses this agent's own roster port (a connection older than the
-     reservation keeps it; nothing is started, and the refusal names the socket's state, uid and peer);
+     reservation keeps it; nothing is started, and the refusal names the socket's state, uid and peer); a daemon
+     unit that is active holds that port itself, so with it the sockets are not looked at;
   3. in its turn on the host's `<carrier>-render` lease (released before the units start),
      `gzcoord-carrier render-config --write` of the installed release writes
      $XDG_CONFIG_HOME/<carrier>/profiles/<profile>/config.yaml (atomic, 0600); the carrier refuses it when this
@@ -1158,7 +1159,7 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
         return _refused(f"the client unit's program {client_program} is not installed (run {INSTALL_OP}, which runs "
                         f"tools/fabric/gzcoord/carrier/install_client.py); nothing was started")
     try:
-        _, running = running_units(profile, run, home)
+        states, running = running_units(profile, run, home)
     except ChannelUnknown as e:
         return _failed(None, f"whether the {CARRIER_LABEL} units run is not known ({e}); nothing was started")
     already = len(running) == len(both)
@@ -1171,8 +1172,9 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
         bad = reserved_ports_problem(low, high)
         if bad:
             return _refused(f"{bad}; nothing was started")
-        # A running daemon holds its own port, with its peers' connections on it: only a start that is to bind it can find it taken.
-        own = roster_port(root, login) if daemon not in running else None
+        # An ACTIVE daemon holds its own port, with its peers' connections on it. One that is "activating" is the loop this check exists
+        # for (EADDRINUSE, exit 1, restarted every 5 s), so only a start that is to bind the port, or finds it not bound, looks.
+        own = roster_port(root, login) if states.get(daemon) != "active" else None
         bad = own and port_holder_problem(own)
         if bad:
             return _refused(f"{bad}; nothing was started — close that connection and run it again")

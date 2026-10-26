@@ -1492,6 +1492,16 @@ class StartStop(Case):
         self.systemd.states = {CLIENT_UNIT: "active"}
         self.assertEqual(self.start()["status"], "refused")
 
+    def test_a_daemon_that_is_only_activating_does_not_excuse_a_held_port(self):
+        self.roster_row("agent", 47130)
+        self.tcp_table("   0: 0100007F:B81A 0100007F:0016 01 00000000:00000000 02:000957A2 00000000  1000        0 440987 2\n")
+        self.systemd.states[DAEMON_UNIT] = "activating"
+        r = self.start()
+        self.assertEqual(r["status"], "refused", r)
+        self.assertIn("local port 47130 is in use", r["reason"])
+        self.assertEqual(self.systemd.restarted, [], "nothing was restarted")
+        self.assertEqual(self.systemd.rendered, [], "nothing was rendered")
+
     def test_a_port_held_on_the_ipv6_table_is_refused_too(self):
         self.roster_row("agent", 47130)
         self.tcp_table(v6=("   0: 00000000000000000000000001000000:B81A 00000000000000000000000001000000:0016 01 00000000:00000000 02:0009 00000000  1000        0 1 2\n",))
