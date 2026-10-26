@@ -192,3 +192,14 @@ release, and the `interweave` read report it. The §2 rows say so; the
 `interweave-start` row also gains what #385's review (F6) left to the
 coordinator: the refusal without that program, the start that changes
 nothing when both units run, and the restart of a lone running unit.
+
+### Amendment 2026-10-26 — The InterWeave start renders one account at a time and needs the port reservation
+
+The first fleet start (2026-10-26) failed four accounts whose render of
+`config.yaml` did not finish in 30 s while thirty ran at once, and one
+whose daemon found its roster port taken as an outgoing connection's
+source port. python-dev-01's #389 (j174) makes the start render under
+the host lease `interweave-render`, one account at a time, and refuse a
+host whose `net.ipv4.ip_local_reserved_ports` does not cover the
+roster's range (ADR-064 rule 1, the owner's reservation of that day).
+The start's budget grows to 1600 s for the render turn.
