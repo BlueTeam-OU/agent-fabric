@@ -1393,7 +1393,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   MESSAGE-ID; a switch is an ADR-033 amendment on the owner's word over a
   parity report (§5 rule 11).
 - The carrier: the fabric's own client per account under InterWeave's
-  client unit, not `interweave-human` nor `claude-channel` (§2, §3, §5 rule 5).
+  client unit (§2, §3, §5 rule 5).
 - A committed roster keyed by agent id, each row signed by its login and
   countersigned by the coordinator, renders every profile's
   deny-by-default allowlist; keys minted in their own account; programs
@@ -1402,10 +1402,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   retried under one message_id, never given up without its operator;
   compress, then chunk, past 48 KiB; FROM checked against the PeerId;
   no transport value as metadata (§5 rules 6-10).
-- A 2026-10-24 — zlib, not brotli; receipts for messages not addressed
-  here; CARRIER-CONTRACT.md (§5 rules 7, 8).
+- A 2026-10-24 — zlib; receipts for filtered messages;
+  CARRIER-CONTRACT.md (rules 7, 8).
 - A 2026-10-25 — an install is a control-plane action, checked after
-  the restart (§5 rule 14).
+  the restart (rule 14).
+- A 2026-10-26 — roster ports reserved on the host (rule 1).
 - The parity report, from each inbox's arrival log: missed, duplicate,
   offline counts and a rollback drill (§5 rule 11).
 - Accepted; built on v0.1.0 (release.json, §8).
