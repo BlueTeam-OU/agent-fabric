@@ -230,7 +230,8 @@ claimant (rule 4).
     rule-14 check polls the carrier's `status` up to 45 times, a cold
     carrier having taken 29 s to open its socket with 26 roster rows),
     156 s for `interweave-stop`, 60 s a page for `interweave-evidence`
-    (`fabric-ctl` sends one request per page and per account), 480 s for
+    (`fabric-ctl` sends one request per page, to every account whose
+    next page starts at the same time), 480 s for
     `secrets-selftest`, and an upgrade's
     computed budget; `--timeout` overrides it (A 2026-09-27).
 13. `jobs` is an operator's read of an account's open jobs, and
