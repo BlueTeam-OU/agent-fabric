@@ -1779,12 +1779,45 @@ class StartStop(Case):
         self.systemd.render_rc, self.systemd.render_err = 2, "gzcoord-carrier: no valid row\n"
         r = self.start()
         self.assertEqual(r["status"], "refused")
+        self.assertIn("still run on the previous config.yaml", r["reason"])
+        self.assertEqual(sorted(r["units"]), [CLIENT_UNIT, DAEMON_UNIT])
         self.assertEqual(self.systemd.restarted, [])
         with open(self.config()) as fh:
             self.assertEqual(fh.read(), "config\n")
         self.systemd.render_rc = 1
         self.assertEqual(self.start()["status"], "failed")
         self.assertEqual(self.systemd.restarted, [])
+
+    def test_with_both_units_running_a_lease_that_stays_held_says_the_units_still_run(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.lease_refused = iw.LeaseRefused(75, "fabric-lease: held", iw.LEASE_HELD)
+        r = self.start()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("still run on the previous config.yaml", r["reason"])
+        self.assertEqual(sorted(r["units"]), [CLIENT_UNIT, DAEMON_UNIT])
+        self.assertNotIn("nothing was started", r["reason"])
+
+    def test_with_both_units_running_a_config_that_cannot_be_written_restarts_nothing(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.systemd.restarted.clear()
+        self.systemd.roster_text = "changed\n"
+        with unittest.mock.patch.object(iw.roster, "write_config", side_effect=PermissionError("no")):
+            r = self.start()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("still run on the previous config.yaml", r["reason"])
+        self.assertEqual(sorted(r["units"]), [CLIENT_UNIT, DAEMON_UNIT], "the units' states are in the reply")
+        self.assertEqual(self.systemd.restarted, [])
+
+    def test_with_both_units_running_a_changed_config_needs_the_reservation_before_the_restart(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.systemd.restarted.clear()
+        self.systemd.roster_text = "changed\n"
+        self.reserve("")
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertEqual(self.systemd.restarted, [])
+        with open(self.config()) as fh:
+            self.assertEqual(fh.read(), "config\n")
 
     def test_with_both_units_running_a_restart_the_manager_refuses_stops_both(self):
         self.assertEqual(self.start()["status"], "started")
@@ -1948,13 +1981,16 @@ class StartStopWiring(Case):
         rows = [{"account": "a", "status": "ok", "interweaveStart": {"status": "started", "units": {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}, "check": "passed"}},
                 {"account": "b", "status": "no answer"},
                 {"account": "c", "status": "ok", "interweaveStart": {"status": "refused", "reason": "c has no linger\u0007"}},
-                {"account": "d", "status": "ok", "interweaveStart": {"status": "started", "already_running": True, "units": {DAEMON_UNIT: "active"}}}]
+                {"account": "d", "status": "ok", "interweaveStart": {"status": "started", "already_running": True, "units": {DAEMON_UNIT: "active"}}},
+                {"account": "e", "status": "ok", "interweaveStart": {"status": "started", "rerendered": True, "units": {DAEMON_UNIT: "active"}}}]
         t = ctl.table("interweave-start", rows).split("\n")
         self.assertRegex(t[1], r"^a +started +daemon active, client active")
         self.assertEqual(t[2].split()[:2], ["b", "no"])
         self.assertIn("has no linger", t[3])
         self.assertNotIn("\u0007", t[3])
         self.assertIn("already running", t[4])
+        self.assertIn("re-rendered", t[5])
+        self.assertNotIn("already running", t[5])
         s = ctl.table("interweave-stop", [{"account": "a", "status": "ok", "interweaveStop": {"status": "stopped", "units": {DAEMON_UNIT: "inactive"}}}]).split("\n")
         self.assertRegex(s[1], r"^a +stopped +daemon inactive")
 

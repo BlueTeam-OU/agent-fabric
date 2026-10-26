@@ -109,7 +109,7 @@ THE STOP (`<carrier>-stop`, no arguments) disables --now the client then the dae
 manager says neither runs. It leaves config.yaml and the programs where they are.
 
 THE REPLIES, data["<carrier>-start"]: status "started" | "refused" | "failed"; units (unit -> state), check (what the
-channel check said; a unit that never became active is named by its SubState, exit status and journal tail) and `already_running` when nothing was changed; on a failure `stopped` (whether both units are
+channel check said; a unit that never became active is named by its SubState, exit status and journal tail) and `already_running` when nothing was changed, `rerendered` when a running pair was restarted onto a changed config.yaml (a refusal or failure before that says the units still run on the previous one, with `units`); on a failure `stopped` (whether both units are
 inactive now) and `checks`; reason on a refusal or a failure. data["<carrier>-stop"]: "stopped" | "failed", units.
 
 fetch_and_unpack is the part of steps 3-5 another tool needs without an
@@ -182,7 +182,7 @@ CHECK_BUDGET_S = (2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * P
 # An install asks the units' states before, then twice (the install, the restore) restarts both and checks.
 CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
                             + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S))
-# A start: the linger question, the programs' versions, the config render, at most one restart (the one unit that ran), two
+# A start: the linger question, the programs' versions, the config render, at most two restarts (a running pair onto a changed file, or the one unit that ran), two
 # `enable --now`, one channel check, and on a failure two `disable --now` and the states.
 LOGINCTL_TIMEOUT_S = 10
 RENDER_TIMEOUT_S = 30
@@ -1110,32 +1110,33 @@ def _login() -> str:
     return pwd.getpwuid(os.getuid()).pw_name
 
 
-def _render(root: str, home: str, run: Callable[..., Any], lease: Callable[..., Any], tail: list[str]) -> tuple[Any, dict | None]:
+def _render(root: str, home: str, run: Callable[..., Any], lease: Callable[..., Any], tail: list[str],
+            left: str = "nothing was started") -> tuple[Any, dict | None]:
     """(the finished `gzcoord-carrier render-config <tail>`, None), or (None, the reply that says why it could not run). The caller
     reads the exit code."""
     # Refused, not bypassed, as the download is: rendering unqueued is what timed out four of thirty accounts.
     try:
         turn = lease(root, wait_s=RENDER_LEASE_WAIT_S, name=RENDER_LEASE)
     except LeaseRefused as e:
-        return None, _failed(None, f"the host's render lease stayed held for {RENDER_LEASE_WAIT_S} s; nothing was started — run it again"
+        return None, _failed(None, f"the host's render lease stayed held for {RENDER_LEASE_WAIT_S} s; {left} — run it again"
                              if e.code == LEASE_HELD else
-                             f"the host's render queue is unavailable ({e.line[:160]}); nothing was started")
+                             f"the host's render queue is unavailable ({e.line[:160]}); {left}")
     try:
         return run([os.path.join(root, "bin", "gzcoord-carrier"), "render-config", *tail], capture_output=True, encoding="utf-8",
                    errors="strict", timeout=RENDER_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home)), None
     except subprocess.TimeoutExpired:
-        return None, _failed(None, f"gzcoord-carrier render-config did not finish within {RENDER_TIMEOUT_S} s; nothing was started")
+        return None, _failed(None, f"gzcoord-carrier render-config did not finish within {RENDER_TIMEOUT_S} s; {left}")
     except (OSError, UnicodeDecodeError) as e:
-        return None, _failed(None, f"gzcoord-carrier render-config could not be run ({_oneline(e)}); nothing was started")
+        return None, _failed(None, f"gzcoord-carrier render-config could not be run ({_oneline(e)}); {left}")
     finally:
         turn.release()
 
 
-def _render_refusal(r: Any) -> dict:
+def _render_refusal(r: Any, left: str = "nothing was started") -> dict:
     lines = [ln for ln in (r.stderr or "").splitlines() if ln.strip()]
     why = (lines[-1][:200] if lines else f"exit {r.returncode}")
     # Exit 2 is the carrier declining (no valid roster row for this agent, ...): a refusal. Any other is a render that broke.
-    return (_refused if r.returncode == 2 else (lambda reason: _failed(None, reason)))(f"gzcoord-carrier render-config: {why}; nothing was started")
+    return (_refused if r.returncode == 2 else (lambda reason: _failed(None, reason)))(f"gzcoord-carrier render-config: {why}; {left}")
 
 
 def _config_differs(path: str, text: str) -> bool:
@@ -1237,18 +1238,26 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
         # A roster change (a new agent's row) must reach a running pair: its daemon allowlisted the peers of the roster it was rendered
         # from and refuses the rest as UnauthorizedPeer (language-culture-ru, 2026-10-26). The render is read first and the pair
         # restarted only when the file differs, so a start that changes nothing still changes nothing.
-        r, bad_reply = _render(root, home, run, lease, [])
+        left = "both units still run on the previous config.yaml"
+        r, bad_reply = _render(root, home, run, lease, [], left)
         if bad_reply:
-            return bad_reply
+            return {**bad_reply, "units": states}
         if r.returncode != 0:
-            return _render_refusal(r)
+            return {**_render_refusal(r, left), "units": states}
         path = config_path(home, profile)
         problem = None
         if _config_differs(path, r.stdout):
+            # The restart frees the daemon's port for a moment: without the host's reservation an outgoing connection can take it (EADDRINUSE).
+            try:
+                bad = reserved_ports_problem(*roster_port_range(root))
+            except InstallError as e:
+                bad = str(e)
+            if bad:
+                return _refused(f"{bad}; {left}") | {"units": states}
             try:
                 roster.write_config(path, r.stdout)
             except OSError as e:
-                return _failed(None, f"{path} could not be written ({_oneline(e)}); the running units were left as they were")
+                return _failed(None, f"{path} could not be written ({_oneline(e)}); {left}") | {"units": states}
             rerendered = True
             for u in both:
                 problem = _systemctl(["restart", u], run, home)

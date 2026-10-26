@@ -1352,7 +1352,7 @@ def _table_carrier_units(rs: list, op: str) -> list[str]:
             continue
         units = dig(u, "units")
         states = ", ".join(f"{k.split('@')[0].split('-')[-1]} {S(v)}" for k, v in units.items()) if isinstance(units, dict) else ""
-        note = nullish(dig(u, "reason"), "") or ("already running; " if dig(u, "already_running") is True else "") + states
+        note = nullish(dig(u, "reason"), "") or ("already running; " if dig(u, "already_running") is True else "re-rendered; " if dig(u, "rerendered") is True else "") + states
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} {S(note)}")))
     return lines
 
