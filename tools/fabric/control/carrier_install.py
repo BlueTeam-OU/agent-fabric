@@ -1249,9 +1249,10 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
         if _config_differs(path, r.stdout):
             # The restart frees the daemon's port for a moment: without the host's reservation an outgoing connection can take it (EADDRINUSE).
             try:
-                bad = reserved_ports_problem(*roster_port_range(root))
+                low, high = roster_port_range(root)
             except InstallError as e:
-                bad = str(e)
+                return _failed(None, f"{e}; {left}") | {"units": states}
+            bad = reserved_ports_problem(low, high)
             if bad:
                 return _refused(f"{bad}; {left}") | {"units": states}
             try:

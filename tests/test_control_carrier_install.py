@@ -1819,6 +1819,17 @@ class StartStop(Case):
         with open(self.config()) as fh:
             self.assertEqual(fh.read(), "config\n")
 
+    def test_with_both_units_running_an_unreadable_port_range_is_a_failure_that_restarts_nothing(self):
+        self.assertEqual(self.start()["status"], "started")
+        self.systemd.restarted.clear()
+        self.systemd.roster_text = "changed\n"
+        with open(os.path.join(self.root, iw.ROSTER_REL), "w") as fh:
+            json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", "rows": []}, fh)
+        r = self.start()
+        self.assertEqual(r["status"], "failed", "an unreadable roster fails, as on the path that starts the pair")
+        self.assertIn("still run on the previous config.yaml", r["reason"])
+        self.assertEqual(self.systemd.restarted, [])
+
     def test_with_both_units_running_a_restart_the_manager_refuses_stops_both(self):
         self.assertEqual(self.start()["status"], "started")
         self.systemd.roster_text = "changed\n"
