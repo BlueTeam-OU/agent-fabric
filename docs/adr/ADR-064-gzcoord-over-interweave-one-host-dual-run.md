@@ -214,6 +214,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     computed from an arrival log each inbox keeps beside its journal:
     one line per copy received, (`MESSAGE-ID`, addressee, carrier, time,
     rule 9's verdict), written before the journal collapses the copy.
+    The operator gathers those logs and the carrier's delivery records
+    from every account with `fabric-ctl all interweave-evidence`
+    (ADR-029 §2), metadata only, and `gzcoord-carrier parity --collected`
+    computes the report from what it filed.
     The report covers every (`MESSAGE-ID`, addressee) pair over a stated
     window, each pair one carrier missed listed with
     its cause; missed and duplicate counts per carrier; messages
@@ -311,3 +315,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-10-24 | the carrier's codec is zlib, a receipt also answers a message not addressed here, and the carrier contract is written | §2 (delivery), §5 rules 7 and 8 |
 | 2026-10-25 | an InterWeave install or update is a control-plane action, checked after the restart | §5 rule 14; §6, §8 and Scope name v0.1.0 |
 | 2026-10-26 | The roster's ports are reserved from the host's ephemeral range | §5 rule 1 |
+| 2026-10-26 | The parity evidence is gathered through the control plane | §5 rule 11 |

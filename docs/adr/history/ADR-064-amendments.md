@@ -84,3 +84,12 @@ bindable explicitly. A second host needs the same before its first
 start. Raised by the coordinator from that start. Accepted by the owner,
 2026-10-26 ("yes", in the coordinator's session, asked whether the
 rule 1 amendment is accepted).
+
+### Amendment 2026-10-26 — The parity evidence is gathered through the control plane
+
+What changed: §5 rule 11 names how the report's inputs reach the
+operator. The arrival logs and delivery records are per account, so
+`fabric-ctl all interweave-evidence` (ADR-029 §2, python-dev-02's #390,
+j94) reads them, metadata only, and `gzcoord-carrier parity --collected`
+computes the report from the files it wrote. The rule's content (the
+window, the pairs, the counts, the rollback drill) is unchanged.

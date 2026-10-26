@@ -660,28 +660,29 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Replies carry no secret; a gap is named; silence or failure exits 1
   (§5 rules 6–9).
 - A 2026-09-27 — actions beside reads (rule 12).
-- A 2026-09-27 — each op's answer budget (rule 12).
+- A 2026-09-27 — answer budgets (rule 12).
 - A 2026-09-28 — `jobs`, `jobs-add` (rule 13).
 - A 2026-09-29 — secrets-migrate (rule 14).
-- A 2026-09-30 — rule 14 withdrawn (rule 5).
+- A 2026-09-30 — rule 14 withdrawn.
 - A 2026-10-06 — local, local-prune (rule 15).
 - A 2026-10-07 — session state (rule 16).
 - A 2026-10-07 — secrets-selftest (rule 17).
 - A 2026-10-08 — resumable state (rule 16).
 - A 2026-10-08 — public ops (rule 4).
 - A 2026-10-09 — forged claims (rule 4).
-- A 2026-10-09 — Scope: runtime/control/.
+- A 2026-10-09 — Scope.
 - A 2026-10-09 — `tools-install` (rules 3, 12).
 - A 2026-10-09 — closed-job read (§2).
 - A 2026-10-10 — gateway ops (§2).
 - A 2026-10-12 — switch controller (§2).
 - A 2026-10-18 — installer, cargo pins (§2).
 - A 2026-10-19 — rustup-target pins (§2).
-- A 2026-10-25 — InterWeave install/read.
+- A 2026-10-25 — install/read.
 - A 2026-10-25 — start/stop.
 - A 2026-10-26 — client program.
+- A 2026-10-26 — evidence.
 - Keywords: agentd, fabric-ctl, ops, keys, operator_key, usage,
-  tokens, herdr, resume, gateway, switch.
+  tokens, herdr, resume, gateway, switch, evidence, interweave-evidence.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -1402,11 +1403,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   retried under one message_id, never given up without its operator;
   compress, then chunk, past 48 KiB; FROM checked against the PeerId;
   no transport value as metadata (rules 6-10).
-- A 2026-10-24 — zlib, not brotli; receipts for filtered messages;
-  CARRIER-CONTRACT.md (rules 7, 8).
+- A 2026-10-24 — zlib; receipts; CARRIER-CONTRACT.md (rules 7, 8).
 - A 2026-10-25 — an install is a control-plane action, checked after
   the restart (rule 14).
-- A 2026-10-26 — roster ports reserved on the host (rule 1).
+- A 2026-10-26 — roster ports reserved (rule 1).
+- A 2026-10-26 — evidence (rule 11).
 - The parity report, from each inbox's arrival log: missed, duplicate,
   offline counts and a rollback drill (rule 11).
 - Accepted; built on v0.1.0 (release.json, §8).
