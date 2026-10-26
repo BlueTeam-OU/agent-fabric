@@ -484,7 +484,7 @@ def build_request(args: dict, *, id: str, from_: str, to: Any, cfg: dict, ts: st
     if op == "gateway-install":
         req["args"] = {"version": args["version"]}
     if op == EVIDENCE_OP:
-        req["args"] = {"section": args["section"], "since": args["since"], "until": args["until"]}
+        req["args"] = {"section": args.get("section"), "since": args["since"], "until": args["until"]}
     if op == "pool-add":
         req["args"] = {**({"role": args["role"]} if args["role"] is not None else {}), **job_args(args)}
     if op == "secrets-sync" and (js.truthy(args["expect"]) or args["restart"]):
@@ -511,8 +511,7 @@ def placements(registry: str | None = None) -> list[dict]:
 def parse_args(argv: list[str]) -> dict:
     out: dict = {"targets": [], "op": "status", "json": False, "timeout": None, "out": None, "days": None, "piece": None, "version": None,
                  "force": False, "expect": None, "restart": False, "title": None, "topic": None, "project": None, "priority": None,
-                 "role": None, "follow": False, "tool": None, "sweep": False,
-                 "since": None, "until": None, "section": None}
+                 "role": None, "follow": False, "tool": None, "sweep": False}
     i = 0
     n = len(argv)
 
@@ -673,11 +672,12 @@ def parse_args(argv: list[str]) -> dict:
 
 def evidence_args_problem(a: dict) -> str | None:
     """What is wrong with the window and paging options of this command line, or None."""
+    # since, until and section exist only when given: the options of every other verb keep the shape tests/fixtures/control-frozen.json froze.
     if a["op"] != EVIDENCE_OP:
-        if any(a[k] is not None for k in ("since", "until", "section")):
+        if any(a.get(k) is not None for k in ("since", "until", "section")):
             return f"--since, --until and --section go with {EVIDENCE_OP} only"
         return None
-    times = {k: a[k] for k in ("since", "until") if a[k] is not None}
+    times = {k: a[k] for k in ("since", "until") if a.get(k) is not None}
     if len(times) < 2:
         return f"{EVIDENCE_OP} takes --since T and --until T, YYYY-MM-DDTHH:MM:SSZ"
     for k, v in times.items():
@@ -685,9 +685,9 @@ def evidence_args_problem(a: dict) -> str | None:
             return f"--{k} takes YYYY-MM-DDTHH:MM:SSZ"
     if not _evidence_time(a["since"]) < _evidence_time(a["until"]):
         return "--since is before --until"
-    if a["section"] is not None and a["section"] not in EVIDENCE_SECTIONS:
+    if a.get("section") is not None and a["section"] not in EVIDENCE_SECTIONS:
         return f"--section is one of {', '.join(EVIDENCE_SECTIONS)}"
-    if a["section"] is not None and a["out"] is not None:
+    if a.get("section") is not None and a["out"] is not None:
         return "--out files a whole collection: it does not go with --section"
     return None
 
@@ -867,11 +867,11 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "keys": g("keys"), "fabric": g("fabric"), "session": g("session"), "script": g("script"), "recall": g("recall"),
                     "tokens": g("tokens"), "memory": g("memory"), "machine": g("host"), "disk": g("disk"), "accounts": g("accounts"),
                     "upgrade": g("upgrade"), "secretsSync": g("secrets-sync"), "restart": g("restart"), "presence": g("presence"), "jobs": g("jobs"), "tools": g("tools"),
-                    "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), CARRIER_NAME: g(CARRIER_NAME), f"{CARRIER_NAME}Install": g(INSTALL_OP), f"{CARRIER_NAME}Start": g(START_OP), f"{CARRIER_NAME}Stop": g(STOP_OP), f"{CARRIER_NAME}Evidence": g(EVIDENCE_OP), "poolAdd": g("pool-add"), "local": g("local"),
+                    "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), CARRIER_NAME: g(CARRIER_NAME), f"{CARRIER_NAME}Install": g(INSTALL_OP), f"{CARRIER_NAME}Start": g(START_OP), f"{CARRIER_NAME}Stop": g(STOP_OP), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
                     **{k: g(k) for k in ("harness", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
-                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep")) if dig(d, op) is not UNDEFINED}})
+                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
     return out
 
 
@@ -2057,7 +2057,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         rcs = [main(["--json"] * bool(args["json"]) + ["--timeout", str(args["timeout"]), e["login"], "restart"], registry=registry, call=call,
                     out=out, err=err, sleep=sleep, now=now, who=who, token=token) for e in expected]
         return max(rcs)
-    if args["op"] == EVIDENCE_OP and args["section"] is None:
+    if args["op"] == EVIDENCE_OP and args.get("section") is None:
         return _collect_evidence(args, expected, registry=registry, call=call, out=out, err=err, sleep=sleep, now=now, who=who, token=token)
     if args["op"] == "pool-add":
         holder = pool_holder(agentd.control_config(), registry)

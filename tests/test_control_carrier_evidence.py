@@ -482,7 +482,7 @@ class Operator(unittest.TestCase):
 
     def test_the_verb_needs_a_window_and_refuses_the_options_of_other_verbs(self):
         a = ctl.parse_args(["all", OP, *self.ARGS])
-        self.assertEqual((a["op"], a["since"], a["until"], a["section"], a["timeout"]), (OP, "2026-10-26T05:20:00Z", "2026-10-27T05:20:00Z", None, ev.EVIDENCE_BUDGET_S))
+        self.assertEqual((a["op"], a["since"], a["until"], a.get("section"), a["timeout"]), (OP, "2026-10-26T05:20:00Z", "2026-10-27T05:20:00Z", None, ev.EVIDENCE_BUDGET_S))
         for argv, said in ((["all", OP], "takes --since T and --until T"), (["all", OP, "--since", "2026-10-26T05:20:00Z"], "takes --since T and --until T"),
                            (["all", OP, "--since", "yesterday", "--until", "2026-10-27T05:20:00Z"], "--since takes YYYY"),
                            (["all", OP, "--since", "2026-10-27T05:20:00Z", "--until", "2026-10-26T05:20:00Z"], "--since is before --until"),
