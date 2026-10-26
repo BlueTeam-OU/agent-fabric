@@ -1452,13 +1452,13 @@ class StartStop(Case):
                       "journal: transport-daemon: cannot bind 127.0.0.1:47130: address in use)", r["reason"])
         self.assertTrue(r["stopped"], "the diagnosis does not keep the units from being taken down")
 
-    def tcp_table(self, *rows):
+    def tcp_table(self, *rows, v6=()):
         d = os.path.join(iw.PROC_ROOT, "net")
         os.makedirs(d, exist_ok=True)
         head = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
         for name in ("tcp", "tcp6"):
             with open(os.path.join(d, name), "w") as fh:
-                fh.write(head + "".join(rows if name == "tcp" else ()))
+                fh.write(head + "".join(rows if name == "tcp" else v6))
 
     def roster_row(self, login, port):
         path = os.path.join(self.root, iw.ROSTER_REL)
@@ -1478,6 +1478,11 @@ class StartStop(Case):
         # the positive control: the same table without that socket, and one on a port that is not the account's, start
         self.tcp_table("   0: 0100007F:B81B 0100007F:0016 01 00000000:00000000 02:000957A2 00000000  1000        0 440987 2\n")
         self.assertEqual(self.start()["status"], "started")
+
+    def test_a_port_held_on_the_ipv6_table_is_refused_too(self):
+        self.roster_row("agent", 47130)
+        self.tcp_table(v6=("   0: 00000000000000000000000001000000:B81A 00000000000000000000000001000000:0016 01 00000000:00000000 02:0009 00000000  1000        0 1 2\n",))
+        self.assertEqual(self.start()["status"], "refused")
 
     def test_an_unreadable_connection_table_is_not_a_refusal(self):
         self.roster_row("agent", 47130)
