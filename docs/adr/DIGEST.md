@@ -677,9 +677,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-12 — switch controller (§2).
 - A 2026-10-18 — installer, cargo pins (§2).
 - A 2026-10-19 — rustup-target pins (§2).
-- A 2026-10-25 — InterWeave install/read (§2).
-- A 2026-10-25 — InterWeave start/stop (§2).
-- Keywords: agentd, fabric-ctl, ops, keys, keygen, operator_key, usage,
+- A 2026-10-25 — InterWeave install/read.
+- A 2026-10-25 — start/stop.
+- A 2026-10-26 — client program.
+- Keywords: agentd, fabric-ctl, ops, keys, operator_key, usage,
   tokens, herdr, resume, gateway, switch.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
