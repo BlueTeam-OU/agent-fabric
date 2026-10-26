@@ -89,7 +89,9 @@ run's switch) writes the profile's config.yaml and brings the roster's profile u
   2. refused, nothing touched, unless the account lingers (its units would die with its last session), the programs
      in ~/.local/bin print what the pin says and both unit templates are in the user's systemd directory;
      and, before any render, unless the host reserves the roster's port_range from outgoing connections
-     (net.ipv4.ip_local_reserved_ports; a daemon cannot bind a port a connection took as its source);
+     (net.ipv4.ip_local_reserved_ports; a daemon cannot bind a port a connection took as its source), and
+     unless a local socket of any state already uses this agent's own roster port (a connection older than the
+     reservation keeps it; nothing is started, and the refusal names the socket's state, uid and peer);
   3. in its turn on the host's `<carrier>-render` lease (released before the units start),
      `gzcoord-carrier render-config --write` of the installed release writes
      $XDG_CONFIG_HOME/<carrier>/profiles/<profile>/config.yaml (atomic, 0600); the carrier refuses it when this
@@ -105,7 +107,7 @@ THE STOP (`<carrier>-stop`, no arguments) disables --now the client then the dae
 manager says neither runs. It leaves config.yaml and the programs where they are.
 
 THE REPLIES, data["<carrier>-start"]: status "started" | "refused" | "failed"; units (unit -> state), check (what the
-channel check said) and `already_running` when nothing was changed; on a failure `stopped` (whether both units are
+channel check said; a unit that never became active is named by its SubState, exit status and journal tail) and `already_running` when nothing was changed; on a failure `stopped` (whether both units are
 inactive now) and `checks`; reason on a refusal or a failure. data["<carrier>-stop"]: "stopped" | "failed", units.
 
 fetch_and_unpack is the part of steps 3-5 another tool needs without an
@@ -476,6 +478,43 @@ def reserved_ports_problem(low: int, high: int) -> str | None:
         if covered > high:
             return None
     return f"the host does not reserve ports {low}-{high} from outgoing connections{fix}"
+
+
+TCP_STATES = {"01": "ESTABLISHED", "02": "SYN_SENT", "03": "SYN_RECV", "04": "FIN_WAIT1", "05": "FIN_WAIT2", "06": "TIME_WAIT", "07": "CLOSE",
+              "08": "CLOSE_WAIT", "09": "LAST_ACK", "0A": "LISTEN", "0B": "CLOSING"}
+
+
+def roster_port(root: str, login: str) -> int | None:
+    """The port the roster gives `login`, or None when it has no valid row (the carrier's render declines that, with its own reason)."""
+    try:
+        with open(os.path.join(root, ROSTER_REL), encoding="utf-8") as fh:
+            rows = json.load(fh).get("rows")
+    except (OSError, ValueError, AttributeError):
+        return None
+    for row in rows if isinstance(rows, list) else ():
+        if isinstance(row, dict) and row.get("login") == login and type(row.get("port")) is int and 0 < row["port"] < 65536:
+            return row["port"]
+    return None
+
+
+def port_holder_problem(port: int) -> str | None:
+    """None when no local socket uses `port`, else who does. The reserved-ports setting keeps NEW outgoing connections off the roster's
+    ports, not one opened before it was set: an ssh connection from 2026-10-20 still had 47130 as its source port on 2026-10-26, the
+    daemon's bind got EADDRINUSE, exited 1 and was restarted every 5 s, which a state look reads as "activating". A table that cannot
+    be read proves nothing either way, so it is not a refusal."""
+    want = f"{port:04X}"
+    for name in ("tcp", "tcp6"):
+        try:
+            with open(os.path.join(PROC_ROOT, "net", name), encoding="ascii", errors="replace") as fh:
+                lines = fh.read().splitlines()[1:]
+        except OSError:
+            continue
+        for ln in lines:
+            f = ln.split()
+            if len(f) > 7 and f[1].rpartition(":")[2].upper() == want:
+                return (f"local port {port} is in use by a {TCP_STATES.get(f[3].upper(), 'socket in state ' + f[3])} connection of uid {f[7]} "
+                        f"(peer {f[2]}); the daemon could not bind it")
+    return None
 
 
 def unit_names(profile: str) -> tuple[str, str]:
@@ -1132,6 +1171,10 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
         bad = reserved_ports_problem(low, high)
         if bad:
             return _refused(f"{bad}; nothing was started")
+        own = roster_port(root, login)
+        bad = own and port_holder_problem(own)
+        if bad:
+            return _refused(f"{bad}; nothing was started — close that connection and run it again")
         # Refused, not bypassed, as the download is: rendering unqueued is what timed out four of thirty accounts.
         try:
             turn = lease(root, wait_s=RENDER_LEASE_WAIT_S, name=RENDER_LEASE)

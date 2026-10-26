@@ -1452,6 +1452,38 @@ class StartStop(Case):
                       "journal: transport-daemon: cannot bind 127.0.0.1:47130: address in use)", r["reason"])
         self.assertTrue(r["stopped"], "the diagnosis does not keep the units from being taken down")
 
+    def tcp_table(self, *rows):
+        d = os.path.join(iw.PROC_ROOT, "net")
+        os.makedirs(d, exist_ok=True)
+        head = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+        for name in ("tcp", "tcp6"):
+            with open(os.path.join(d, name), "w") as fh:
+                fh.write(head + "".join(rows if name == "tcp" else ()))
+
+    def roster_row(self, login, port):
+        path = os.path.join(self.root, iw.ROSTER_REL)
+        with open(path) as fh:
+            d = json.load(fh)
+        d["rows"].append({"login": login, "port": port})
+        with open(path, "w") as fh:
+            json.dump(d, fh)
+
+    def test_a_start_whose_port_is_held_by_an_older_connection_is_refused_before_anything_is_touched(self):
+        self.roster_row("agent", 47130)
+        self.tcp_table("   0: 0100007F:B81A 0100007F:0016 01 00000000:00000000 02:000957A2 00000000  1000        0 440987 2\n")
+        r = self.start()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("local port 47130 is in use by a ESTABLISHED connection of uid 1000", r["reason"])
+        self.nothing_touched()
+        # the positive control: the same table without that socket, and one on a port that is not the account's, start
+        self.tcp_table("   0: 0100007F:B81B 0100007F:0016 01 00000000:00000000 02:000957A2 00000000  1000        0 440987 2\n")
+        self.assertEqual(self.start()["status"], "started")
+
+    def test_an_unreadable_connection_table_is_not_a_refusal(self):
+        self.roster_row("agent", 47130)
+        self.assertFalse(os.path.exists(os.path.join(iw.PROC_ROOT, "net", "tcp")))
+        self.assertEqual(self.start()["status"], "started")
+
     def test_a_diagnosis_that_cannot_be_read_says_so_and_the_failure_stands(self):
         self.systemd.after_enable[DAEMON_UNIT] = "activating"
         self.systemd.props = ""
