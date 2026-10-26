@@ -659,7 +659,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   fresh Ed25519 operator signature, newer than the last (rules 3–5).
 - Replies carry no secret; a gap is named; silence or failure exits 1
   (rules 6–9).
-- A 2026-09-27 — actions beside reads (rule 12).
+- A 2026-09-27 — actions (rule 12).
 - A 2026-09-27 — answer budgets (rule 12).
 - A 2026-09-28 — jobs (rule 13).
 - A 2026-09-29 — secrets-migrate (rule 14).
@@ -679,11 +679,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-19 — rustup-target pins (§2).
 - A 2026-10-25 — install/read.
 - A 2026-10-25 — start/stop.
-- A 2026-10-26 — client program.
-- A 2026-10-26 — render, ports.
+- A 2026-10-26 — client.
+- A 2026-10-26 — ports.
 - A 2026-10-26 — evidence.
+- A 2026-10-26 — re-render.
 - Keywords: agentd, fabric-ctl, keys, operator_key, usage,
-  tokens, herdr, resume, gateway, switch, evidence, interweave-evidence.
+  tokens, herdr, resume, gateway, switch, evidence.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
