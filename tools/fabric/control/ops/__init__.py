@@ -61,7 +61,7 @@ from gzcoord.carrier import CARRIER_NAME
 
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
        "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "tools-install", "local", "local-prune",
-       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", CARRIER_NAME, f"{CARRIER_NAME}-install", f"{CARRIER_NAME}-start", f"{CARRIER_NAME}-stop", "branches", "branches-sweep", "restart",
+       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", CARRIER_NAME, f"{CARRIER_NAME}-install", f"{CARRIER_NAME}-start", f"{CARRIER_NAME}-stop", f"{CARRIER_NAME}-evidence", "branches", "branches-sweep", "restart",
        "switch", "drift"]
 
 # Answered for any placed account, not only an operator: whether a session

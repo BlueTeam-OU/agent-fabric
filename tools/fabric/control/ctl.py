@@ -115,7 +115,9 @@ from control.branches_op import BRANCHES_SWEEP_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
 from control.carrier_install import (CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDGET_S, CARRIER_START_BUDGET_S, CARRIER_STOP_BUDGET_S,
                                      INSTALL_OP, START_OP, STOP_OP)
-from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME
+from control.carrier_evidence import EVIDENCE_BUDGET_S, EVIDENCE_OP, ISO_RE as EVIDENCE_TIME, SECTIONS as EVIDENCE_SECTIONS
+from control import evidence_collect
+from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, parity as _parity
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, VERSION_RE, pinned_version
 import roots
@@ -218,6 +220,14 @@ VERBS: tuple[Verb, ...] = (
          f"fabric-ctl db-admin {STOP_OP}",
          usage=((f"<login|all> {STOP_OP}", f"an action: disable --now the {CARRIER_LABEL} client and daemon units and confirm both are inactive (the rollback of {START_OP})"),),
          signed="always", options=COMMON),
+    Verb(EVIDENCE_OP, f"Each account's {CARRIER_LABEL} parity evidence for a window: the arrival lines, the delivery records and the kind of each message, metadata only, never a body. Paged by itself.",
+         f"fabric-ctl all {EVIDENCE_OP} --since 2026-10-26T05:20:00Z --until 2026-10-27T05:20:00Z --out ./evidence",
+         usage=((f"<login|all> {EVIDENCE_OP} --since T --until T [--out <dir>]",
+                 f"a signed read: each account's gzcoord-arrivals.jsonl lines, {CARRIER_LABEL} delivery records and message kinds for [T, T) as YYYY-MM-DDTHH:MM:SSZ, paged until complete; with --out filed as <dir>/<login>/ for gzcoord-carrier parity --collected; a body never leaves an account"),),
+         args="--since T --until T [--out <dir>] [--section S]", signed="always",
+         options=(("--since T", "the window's start, YYYY-MM-DDTHH:MM:SSZ (required)"), ("--until T", "the window's end, exclusive (required)"),
+                  ("--out DIR", "file the collection as DIR/<login>/{arrivals.jsonl,deliveries.jsonl,kinds.json,meta.json}"),
+                  ("--section S", "arrivals or deliveries: one page of that section only, from --since; its `next` is the --since of the following page")) + COMMON),
     Verb("jobs-add", "Add a job to one agent's list. A job is one agent's, never the fleet's.", 'fabric-ctl db-admin jobs-add --project agent-fabric "port the thing"',
          usage=(('<login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<login>",
          args='[--topic T] [--project P] [--priority P] [--] "<title>"', signed="always",
@@ -294,7 +304,7 @@ def verbs_listing(verb: str | None = None) -> list[str]:
 
 USAGE = render_usage()
 
-VALUE_OPTIONS = ("--timeout", "--out", "--days", "--version", "--expect", "--topic", "--project", "--priority", "--role")
+VALUE_OPTIONS = ("--timeout", "--out", "--since", "--until", "--section", "--days", "--version", "--expect", "--topic", "--project", "--priority", "--role")
 
 
 def help_request(argv: list[str]) -> tuple[str, str | None] | None:
@@ -473,6 +483,8 @@ def build_request(args: dict, *, id: str, from_: str, to: Any, cfg: dict, ts: st
         req["args"] = {"tool": args["tool"]}
     if op == "gateway-install":
         req["args"] = {"version": args["version"]}
+    if op == EVIDENCE_OP:
+        req["args"] = {"section": args.get("section"), "since": args["since"], "until": args["until"]}
     if op == "pool-add":
         req["args"] = {**({"role": args["role"]} if args["role"] is not None else {}), **job_args(args)}
     if op == "secrets-sync" and (js.truthy(args["expect"]) or args["restart"]):
@@ -527,6 +539,10 @@ def parse_args(argv: list[str]) -> dict:
             out["out"] = nxt()
         elif a.startswith("--out="):
             out["out"] = a[6:]
+        elif a in ("--since", "--until", "--section"):
+            out[a[2:]] = nxt()
+        elif a.startswith(("--since=", "--until=", "--section=")):
+            out[a[2:a.index("=")]] = a[a.index("=") + 1:]
         elif a == "--days":
             out["days"] = _number(nxt())
         elif a.startswith("--days="):
@@ -596,6 +612,7 @@ def parse_args(argv: list[str]) -> dict:
                           else CARRIER_START_BUDGET_S if op == START_OP
                           else CARRIER_STOP_BUDGET_S if op == STOP_OP
                           else CARRIER_READ_BUDGET_S if op == CARRIER_NAME
+                          else EVIDENCE_BUDGET_S if op == EVIDENCE_OP
                           else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
                           else 90 if op == "drift"
                           else SELFTEST_BUDGET_S if op == "secrets-selftest" else 20)
@@ -642,12 +659,44 @@ def parse_args(argv: list[str]) -> dict:
             raise CtlError(f"jobs-add: {bad}")
         if len(out["targets"]) != 1 or out["targets"][0] == "all":
             raise CtlError("jobs-add names one login: a job is one agent's, never the fleet's")
+    bad = evidence_args_problem(out)
+    if bad:
+        raise CtlError(bad)
     if op == "memory" and not js.truthy(out["out"]):
         raise CtlError("memory takes --out <dir>: where the drain bundles are written")
     t = out["timeout"]
     if not (isinstance(t, (int, float)) and math.isfinite(t) and t > 0):
         raise CtlError("--timeout takes seconds, a positive number")
     return out
+
+
+def evidence_args_problem(a: dict) -> str | None:
+    """What is wrong with the window and paging options of this command line, or None."""
+    # since, until and section exist only when given: the options of every other verb keep the shape tests/fixtures/node-oracle-ctl-upgrade-sessions-queue.json froze (tests/test_control_frozen.py).
+    if a["op"] != EVIDENCE_OP:
+        if any(a.get(k) is not None for k in ("since", "until", "section")):
+            return f"--since, --until and --section go with {EVIDENCE_OP} only"
+        return None
+    times = {k: a[k] for k in ("since", "until") if a.get(k) is not None}
+    if len(times) < 2:
+        return f"{EVIDENCE_OP} takes --since T and --until T, YYYY-MM-DDTHH:MM:SSZ"
+    for k, v in times.items():
+        if not (isinstance(v, str) and EVIDENCE_TIME.fullmatch(v) and _evidence_time(v) is not None):
+            return f"--{k} takes YYYY-MM-DDTHH:MM:SSZ"
+    if not _evidence_time(a["since"]) < _evidence_time(a["until"]):
+        return "--since is before --until"
+    if a.get("section") is not None and a["section"] not in EVIDENCE_SECTIONS:
+        return f"--section is one of {', '.join(EVIDENCE_SECTIONS)}"
+    if a.get("section") is not None and a["out"] is not None:
+        return "--out files a whole collection: it does not go with --section"
+    return None
+
+
+def _evidence_time(v: str) -> float | None:
+    try:
+        return _parity.parse_t(v)
+    except (ValueError, OverflowError):
+        return None
 
 
 def _number(v: Any) -> float:
@@ -822,14 +871,14 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
                     **{k: g(k) for k in ("harness", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
-                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep")) if dig(d, op) is not UNDEFINED}})
+                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
     return out
 
 
 # What counts as success for each action; anything else fails the run.
 ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added", "listed"], "local-prune": ["pruned", "clean"],
              "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"],
-             "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], START_OP: ["started"], STOP_OP: ["stopped"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
+             "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], START_OP: ["started"], STOP_OP: ["stopped"], EVIDENCE_OP: ["ok"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
 
 
 def targets_of(targets: list[str], placed: list[dict]) -> dict:
@@ -1305,6 +1354,27 @@ def _table_carrier_units(rs: list, op: str) -> list[str]:
         states = ", ".join(f"{k.split('@')[0].split('-')[-1]} {S(v)}" for k, v in units.items()) if isinstance(units, dict) else ""
         note = nullish(dig(u, "reason"), "") or ("already running; " if dig(u, "already_running") is True else "") + states
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} {S(note)}")))
+    return lines
+
+
+def _table_carrier_evidence(rs: list) -> list[str]:
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} {pad_end('arrivals', 9)} {pad_end('deliveries', 11)} {pad_end('kinds', 6)} {pad_end('journal', 10)} reason / next"]
+    for r in rs:
+        u = r.get(f"{CARRIER_NAME}Evidence")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        c = dig(u, "counts")
+        if isinstance(c, dict):       # a whole collection
+            cells = [S(c.get(k)) for k in ("arrivals", "deliveries", "kinds")]
+            note = nullish(dig(u, "reason"), "")
+        else:                         # one page of one section
+            n = len(dig(u, "rows")) if isinstance(dig(u, "rows"), list) else "-"
+            cells = [S(n) if dig(u, "section") == "arrivals" else "-", S(n) if dig(u, "section") == "deliveries" else "-", S(len(dig(u, "kinds"))) if isinstance(dig(u, "kinds"), dict) else "-"]
+            note = nullish(dig(u, "reason"), "") or (f"next {S(dig(u, 'next'))}" if T(dig(u, "next")) else "")
+        status = S(nullish(dig(u, "status"), "ok" if isinstance(c, dict) and dig(u, "complete") is True else "incomplete"))
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(status, 11)} {pad_end(cells[0], 9)} {pad_end(cells[1], 11)} {pad_end(cells[2], 6)} "
+                                  f"{pad_end(S(nullish(dig(u, 'journal'), '-')), 10)} {S(note)}")))
     return lines
 
 
@@ -1876,6 +1946,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_carrier_install(rs)
     elif op in (START_OP, STOP_OP):
         lines = _table_carrier_units(rs, op)
+    elif op == EVIDENCE_OP:
+        lines = _table_carrier_evidence(rs)
     elif op == "restart":
         lines = _table_restart(rs)
     elif op == "jobs-add":
@@ -1985,6 +2057,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         rcs = [main(["--json"] * bool(args["json"]) + ["--timeout", str(args["timeout"]), e["login"], "restart"], registry=registry, call=call,
                     out=out, err=err, sleep=sleep, now=now, who=who, token=token) for e in expected]
         return max(rcs)
+    if args["op"] == EVIDENCE_OP and args.get("section") is None:
+        return _collect_evidence(args, expected, registry=registry, call=call, out=out, err=err, sleep=sleep, now=now, who=who, token=token)
     if args["op"] == "pool-add":
         holder = pool_holder(agentd.control_config(), registry)
         if not expected or expected[0]["address"] != holder:
@@ -2118,6 +2192,47 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     # answered: the first fleet upgrade printed nine failed rows and exited 0.
     action_failed = args["op"] in ACTION_OPS and any(dig(r, "data", args["op"], "status") not in ACTION_OK.get(args["op"], []) for r in replies)
     return 1 if want or short() or refused or action_failed else 0
+
+
+def _collect_evidence(args: dict, expected: list[dict], *, out: Callable, err: Callable, **inject: Any) -> int:
+    """The whole window of every addressed account: each page is one signed request of its own, sent through
+    this same command (so every page is checked, signed and answered as a single one is), and the pages are
+    put together here (control/evidence_collect.py). Exit 1 when any account's collection is not complete."""
+    hosts = {e["login"]: e["host"] for e in expected}
+
+    def send(logins: list[str], section: str, since: str, until: str) -> dict:
+        lines: list[str] = []
+        argv = ["--json", "--timeout", str(args["timeout"]), *logins, EVIDENCE_OP, "--section", section, "--since", since, "--until", until]
+        main(argv, out=lines.append, err=err, **inject)
+        got: dict = {}
+        for line in lines:
+            try:
+                r = js.json_parse(line)
+            except ValueError:
+                continue
+            if isinstance(r, dict) and isinstance(r.get("account"), str):
+                got[r["account"]] = dig(r, f"{CARRIER_NAME}Evidence") if r.get("status") == "ok" else {"status": nullish(r.get("status"), "no answer")}
+        return got
+
+    got = evidence_collect.collect([e["login"] for e in expected], args["since"], args["until"], send)
+    filed = args["out"] is not None
+    rows_ = []
+    if filed:
+        os.makedirs(args["out"], mode=0o700, exist_ok=True)
+        evidence_collect.clear_manifest(args["out"])
+    for e in expected:
+        login, acct = e["login"], got[e["login"]]
+        if filed:
+            evidence_collect.write_dir(args["out"], login, acct, args["since"], args["until"])
+        rows_.append(evidence_collect.row_of(login, hosts[login], acct, args["since"], args["until"], full=not filed))
+    if filed:
+        evidence_collect.write_manifest(args["out"], [e["login"] for e in expected])
+    if args["json"]:
+        for r in rows_:
+            out(js.stringify(r))
+    else:
+        out(table(EVIDENCE_OP, rows_))
+    return 0 if all(r[f"{CARRIER_NAME}Evidence"]["complete"] for r in rows_) else 1
 
 
 def _int(v: Any) -> float:

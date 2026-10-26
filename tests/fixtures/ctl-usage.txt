@@ -15,6 +15,7 @@ usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|
        fabric-ctl <login|all> interweave-install   (an action: install the InterWeave release the reviewed pin names with the archive's own install.sh, size and SHA-256 checked first; the units that ran are restarted and checked, or the old programs come back; enables nothing)
        fabric-ctl <login|all> interweave-start   (an action: render the profile's config.yaml, enable --now the daemon then the client unit, and check the channel; refused without a valid roster row, the pin's programs or linger; a unit that does not come up stops both)
        fabric-ctl <login|all> interweave-stop   (an action: disable --now the InterWeave client and daemon units and confirm both are inactive (the rollback of interweave-start))
+       fabric-ctl <login|all> interweave-evidence --since T --until T [--out <dir>]   (a signed read: each account's gzcoord-arrivals.jsonl lines, InterWeave delivery records and message kinds for [T, T) as YYYY-MM-DDTHH:MM:SSZ, paged until complete; with --out filed as <dir>/<login>/ for gzcoord-carrier parity --collected; a body never leaves an account)
        fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
        fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"
        fabric-ctl <login|all> secrets-selftest

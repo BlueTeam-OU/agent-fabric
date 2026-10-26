@@ -203,3 +203,18 @@ the host lease `interweave-render`, one account at a time, and refuse a
 host whose `net.ipv4.ip_local_reserved_ports` does not cover the
 roster's range (ADR-064 rule 1, the owner's reservation of that day).
 The start's budget grows to 1600 s for the render turn.
+
+### Amendment 2026-10-26 — The InterWeave parity evidence is collected through the control plane
+
+ADR-064 rule 11's parity report is computed from each inbox's arrival
+log and the carrier's delivery records, which sit in each account's
+state directory; the operator had no way to gather them from the
+fleet. python-dev-02's #390 (j94) adds `interweave-evidence`: one page
+of one section per request, rows from a closed list of keys, never a
+body, 64 KiB at most, cut on a whole second so that `next` is a time;
+`fabric-ctl` pages every account to completion and files
+`<login>/` for `gzcoord-carrier parity --collected`. The op is a read
+that only an operator may ask (it is in `sign.py` `ACTION_OPS`): the
+logs are the account's own, and a reply is posted on the channel a
+relay-token holder can read. The §2 row, rule 3 (arguments), rule 5,
+rule 6 and rule 12 (60 s a page, `EVIDENCE_BUDGET_S`) say so.

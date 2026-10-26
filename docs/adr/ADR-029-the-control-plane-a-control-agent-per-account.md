@@ -84,6 +84,7 @@ sudo are in the loop.
 | `interweave-install` | *action*, no arguments: the release the pin names as `current`, its size and SHA-256 checked before anything is extracted, an archive with any member outside its root refused, the archive's own `install.sh` run, the pinned programs' `--version` and digests checked; the units that were running restarted and checked through the control plane, and the previous programs put back on a failed check (ADR-064 rules 4, 14); last, on an installed or a `current` account alike, the client unit's program from this clone put in `~/.local/libexec/interweave/client` (ADR-064 rule 5), the reply's `client` saying installed, already or failed. One download at a time per host, under the host lease `interweave-download` (`tools/fabric/control/carrier_install.py`) |
 | `interweave-start` | *action*, no arguments: the dual run's switch for one account (ADR-064 rule 11). Refused, nothing touched, unless the account lingers, its programs are the pin's, both unit templates are installed, the client unit's program is in place (`interweave-install` puts it there) and the host reserves the roster's port range (`net.ipv4.ip_local_reserved_ports`, ADR-064 rule 1); an unreadable setting refuses it and an unreadable roster fails it; the profile's `config.yaml` rendered from the roster under the host lease `interweave-render`, one account's render at a time (refused for an account with no valid row), the daemon unit then the client unit enabled and started (with both already running nothing is changed and the reply says so; a lone running unit is restarted after the render, so it reads the file written), and ADR-064 rule 14's check polled; a unit that does not come up or a failed check stops both and says so, and the relay carries alone (`tools/fabric/control/carrier_install.py`) |
 | `interweave-stop` | *action*, no arguments: the client unit then the daemon unit disabled and stopped, answered `stopped` only once neither runs; `config.yaml` and the programs stay. The rollback drill of ADR-064 rule 11 (`tools/fabric/control/carrier_install.py`) |
+| `interweave-evidence` | *signed read*, arguments `section` (`arrivals` or `deliveries`), `since` and `until` (`YYYY-MM-DDTHH:MM:SSZ`, `since` before `until`), nothing else; the files ADR-064 rule 11's parity report is computed from: the account's `gzcoord-arrivals.jsonl` lines with `t` in the window, or its InterWeave delivery records with `queued` in it, oldest first, and for arrivals the kind (direct, role, broadcast) of each message from the account's journal, opened read-only. Rows are built key by key from a closed list, each value a short string, and a body never leaves the account. A page is at most 64 KiB of rows, cut on a whole second; `next` is the `since` of the following page, and `fabric-ctl` pages every account to completion. Refused: an argument other than the three, a section other than the two, a time not in that form, a window that is empty, a second holding more than a page (`tools/fabric/control/carrier_evidence.py`, `evidence_collect.py`) |
 | `pool-add` | *action*, on the pool's holder only: a job on a role's pool (ADR-037 rule 9) |
 | `status` | identity, usage, keys, fabric and session together |
 
@@ -157,7 +158,8 @@ claimant (rule 4).
    `tools.py` `tools_install`'s one `tool`, matched by `TOOL_NAME`, and
    `gateway-install`'s one `version`, a key of `runtime/gateway.json`;
    `interweave-install` takes none, the release being the pin's
-   `current`, nor do `interweave-start` and `interweave-stop`).
+   `current`, nor do `interweave-start` and `interweave-stop`;
+   `interweave-evidence` takes `section`, `since` and `until` and no other).
 4. A daemon answers a request only when its `from` is a host operator's
    address as `runtime/hosts/registry.json` places it — re-read for every
    record — or, for a public op (`PUBLIC_OPS`: `presence`, `pool-list` and
@@ -176,13 +178,17 @@ claimant (rule 4).
    host commits as `operator_key`; it lives at most 600 s, is refused
    when dated more than a minute ahead of the account's clock, and must
    be strictly newer than the last action accepted from its sender
-   (ADR-009 §5 rule 2). The private key is only in the operator's
+   (ADR-009 §5 rule 2). `interweave-evidence` is signed though it
+   writes nothing: its rows are the account's own logs, and only an
+   operator may ask for them. The private key is only in the operator's
    own store (`FABRIC_CONTROL_SIGNING_KEY`, ADR-038), made by `fabric-ctl
    keygen` (A 2026-09-30).
 6. Every request gets a reply; a section that cannot be read says so
    inline (`{"status": …}`). Replies carry no secret: keys by presence and
    a twelve-hex-digit fingerprint only, text measures as counts only, a
-   memory bundle only after the harvester's credential check.
+   memory bundle only after the harvester's credential check;
+   `interweave-evidence` rows are metadata from a closed list of keys,
+   never a message body.
 7. Every refusal but the routine ones (a reply, a request for another
    account, a duplicate) is one line in the daemon's journal.
 8. `fabric-ctl` refuses, before posting, a run by a login that is not a
@@ -224,7 +230,9 @@ claimant (rule 4).
     600 s wait for the host's render turn; its rule-14 check polls the
     carrier's `status` up to 45 times, a cold carrier having taken 29 s
     to open its socket with 26 roster rows),
-    156 s for `interweave-stop`, 480 s for
+    156 s for `interweave-stop`, 60 s a page for `interweave-evidence`
+    (`fabric-ctl` sends one request per page, to every account whose
+    next page starts at the same time), 480 s for
     `secrets-selftest`, and an upgrade's
     computed budget; `--timeout` overrides it (A 2026-09-27).
 13. `jobs` is an operator's read of an account's open jobs, and
@@ -352,3 +360,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-25 | The InterWeave units are started and stopped through the control plane | §2 table: `interweave-start` and `interweave-stop`; §5 rule 3: no arguments; rule 12: one lock for the three ops, their budgets |
 | 2026-10-26 | The InterWeave install puts the client unit's program in place | §2 table: `interweave`, `interweave-install` and `interweave-start` |
 | 2026-10-26 | The InterWeave start renders one account at a time and needs the port reservation | §2 table: `interweave-start`; §5 rule 12: its budget |
+| 2026-10-26 | The InterWeave parity evidence is collected through the control plane | §2 table: `interweave-evidence`; §5 rule 3: its arguments; rule 5: signed; rule 6: no body; rule 12: 60 s a page |
