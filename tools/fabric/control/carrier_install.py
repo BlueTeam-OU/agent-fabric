@@ -177,7 +177,7 @@ CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + 
 # `enable --now`, one channel check, and on a failure two `disable --now` and the states.
 LOGINCTL_TIMEOUT_S = 10
 RENDER_TIMEOUT_S = 30
-# `fabric-ctl all interweave-start` made 30 accounts render at once on 2026-10-26: each render verifies the roster's rows with gpg, and four
+# `fabric-ctl all <carrier>-start` made 30 accounts render at once on 2026-10-26: each render verifies the roster's rows with gpg, and four
 # of them overran RENDER_TIMEOUT_S where each alone finished well inside it. One render at a time per HOST, on the host lease
 # (bin/fabric-lease) under its own name, so a render and a download do not wait for each other; held for the render alone, never through the restart. The wait is the number of accounts at a render's turn.
 RENDER_LEASE = f"{CARRIER_NAME}-render"
