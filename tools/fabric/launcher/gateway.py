@@ -53,6 +53,7 @@ from dataclasses import dataclass
 
 from fabric_launcher import gateway_usage
 from fabric_launcher.base import BROKER_ENV, _load, die, say
+from fabric_launcher.routing import CLAUDE_ALIAS
 
 # The runtime_contract values and plan schema versions this launcher speaks
 # (the gateway repository's architecture/contracts/plan-v0/README.md). A contract
@@ -441,7 +442,7 @@ def ready_timeout(env: dict) -> float:
 
 # The harness's own spellings of a tier (and the 1M-context variants): resolved by the
 # harness to the pins in its environment, never sent as such.
-HARNESS_ALIAS = re.compile(r"(haiku|sonnet|opus|fable|opusplan|best|default)(\[1m\])?")
+HARNESS_ALIAS = CLAUDE_ALIAS
 
 
 def launch_gateway(env: dict, fabric_root: str, agent: str, role: str, state_dir: str, session_model: str,

@@ -115,8 +115,9 @@ def is_broker_url(url: str) -> bool:
 # What plain claude's --model takes besides a native id: its own aliases, with
 # the 1M-context suffix (the gateway suite's `opus[1m]`). The fabric's own
 # vocabulary is routing.HARNESS_REF; `default` and `opusplan` are claude's too,
-# and a caller may name them.
-CLAUDE_ALIAS = re.compile(r"(default|haiku|sonnet|opus|fable|opusplan)(\[1m\])?")
+# and a caller may name them. gateway.py imports this one pattern: two copies
+# drifted once (`best` was admitted on the gateway only).
+CLAUDE_ALIAS = re.compile(r"(default|haiku|sonnet|opus|fable|opusplan|best)(\[1m\])?")
 
 
 def session_source(caller: bool, layer: str, role: str, agent: str, local_path: str) -> str:

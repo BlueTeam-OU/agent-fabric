@@ -1130,6 +1130,10 @@ print("a" * 40, "b" * 40)
 
             print("launch: plain claude never starts on a model that is not Anthropic's, nor the broker on a native id (j417)")
             for provider in ("anthropic", "gateway"):
+                for alias in ("best", "best[1m]"):
+                    rc, out = run("--provider", provider, "--model", alias, "--version")
+                    check(f"{provider}: the harness alias {alias} is not refused",
+                          "is not an Anthropic model" not in out, f"rc={rc}\n{out}")
                 rc, out = run("--provider", provider, "--model", glm, "--version")
                 check(f"{provider}: a broker model on the command line is refused in one line naming it and its source, "
                       "nothing started",
@@ -1137,7 +1141,7 @@ print("a" * 40, "b" * 40)
                       "model" in out and "CLAUDE-EXECCED" not in out, f"rc={rc}\n{out}")
             rc, out = run("--provider", "anthropic", "--print", "--model", glm)
             check("…--print says the same refusal", rc == 1 and "is not an Anthropic model" in out, f"rc={rc}\n{out}")
-            for ok in ("claude-sonnet-5", "opus", "sonnet[1m]"):
+            for ok in ("claude-sonnet-5", "opus", "sonnet[1m]", "best", "best[1m]"):
                 rc, out = run("--provider", "anthropic", "--model", ok, "--version")
                 check(f"…a native id or a harness alias ({ok}) runs", rc == 0 and has(rf"^CLAUDE-EXECCED:.*--model {re.escape(ok)}", out),
                       f"rc={rc}\n{out}")
