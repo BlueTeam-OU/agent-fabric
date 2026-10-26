@@ -174,10 +174,19 @@ CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + 
 # `enable --now`, one channel check, and on a failure two `disable --now` and the states.
 LOGINCTL_TIMEOUT_S = 10
 RENDER_TIMEOUT_S = 30
+# `fabric-ctl all interweave-start` made 30 accounts render at once on 2026-10-26: each render verifies the roster's rows with gpg, and four
+# of them overran RENDER_TIMEOUT_S where each alone finished well inside it. One render at a time per HOST, on the same lease
+# queue as the download; held for the render alone, never through the restart. The wait is the number of accounts at a render's turn.
+RENDER_LEASE = f"{CARRIER_NAME}-render"
+RENDER_LEASE_WAIT_S = 600
+# The roster's ports are bound by the daemons, and an outgoing connection takes any port of the ephemeral range as its source: with 28
+# daemons dialling each other one took 47124 and its owner could not bind (EADDRINUSE). The host reserves the roster's range.
+RESERVED_PORTS_REL = os.path.join("sys", "net", "ipv4", "ip_local_reserved_ports")
+RESERVED_PORTS_HINT = "net.ipv4.ip_local_reserved_ports (agent-fabric ADR-064)"
 # A carrier that has just started verifies every roster row before it opens its socket (29 s measured with 26 rows, 2026-10-25), so the
 # start waits for `status` much longer than a restart's check, which finds a carrier that was already up.
 STARTUP_STATUS_POLLS = 45
-CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_TIMEOUT_S + SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
+CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_LEASE_WAIT_S + LEASE_GRACE_S + RENDER_TIMEOUT_S + SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
                           + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20)
 CARRIER_STOP_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20
 # The read: the installed programs' versions, the units' states, and one look of the check (which asks the states and the
@@ -417,6 +426,48 @@ def roster_profile(root: str) -> str:
     if not (isinstance(profile, str) and NAME_RE.fullmatch(profile)):
         raise InstallError(f"the {CARRIER_LABEL} roster {ROSTER_REL} has no profile name")
     return profile
+
+
+def roster_port_range(root: str) -> tuple[int, int]:
+    """The roster's [low, high] port range; InstallError if it cannot be read or is not two ports."""
+    try:
+        with open(os.path.join(root, ROSTER_REL), encoding="utf-8") as fh:
+            rng = json.load(fh).get("port_range")
+    except (OSError, ValueError, AttributeError) as e:
+        raise InstallError(f"the {CARRIER_LABEL} roster {ROSTER_REL} cannot be read ({_oneline(e)})") from None
+    if not (isinstance(rng, list) and len(rng) == 2 and all(type(n) is int and 0 < n < 65536 for n in rng) and rng[0] <= rng[1]):
+        raise InstallError(f"the {CARRIER_LABEL} roster {ROSTER_REL} has no port_range of two ports")
+    return rng[0], rng[1]
+
+
+def reserved_ports_problem(low: int, high: int) -> str | None:
+    """None when the host reserves every port of low..high away from outgoing connections, else what to do. A host whose
+    setting cannot be read is not shown to reserve them: the same refusal, with the reason."""
+    path = os.path.join(PROC_ROOT, RESERVED_PORTS_REL)
+    fix = f"; set {RESERVED_PORTS_HINT} to cover {low}-{high}"
+    try:
+        with open(path, encoding="ascii") as fh:
+            text = fh.read()
+    except (OSError, ValueError) as e:
+        return f"the host's reserved ports cannot be read ({_oneline(e)}){fix}"
+    spans = []
+    for item in text.replace("\n", ",").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        lo, sep, hi = item.partition("-")
+        try:
+            spans.append((int(lo), int(hi if sep else lo)))
+        except ValueError:
+            return f"the host's reserved ports are not readable ({item[:40]!r}){fix}"
+    covered = low
+    for lo, hi in sorted(spans):
+        if lo > covered:
+            break
+        covered = max(covered, hi + 1)
+        if covered > high:
+            return None
+    return f"the host does not reserve ports {low}-{high} from outgoing connections{fix}"
 
 
 def unit_names(profile: str) -> tuple[str, str]:
@@ -989,7 +1040,8 @@ def _login() -> str:
 
 def carrier_start(request: Any, root: str | None = None, home: str | None = None, state: str | None = None,
                   run: Callable[..., Any] = subprocess.run, machine: str | None = None,
-                  sleep: Callable[[float], None] = time.sleep, login: str | None = None) -> dict:
+                  sleep: Callable[[float], None] = time.sleep, login: str | None = None,
+                  lease: Callable[..., Any] = hold_lease) -> dict:
     a = request.get("args") if isinstance(request, dict) else None
     if not (a is None or a == {}):
         return _refused(f"{START_OP} takes no argument: it starts the units of the roster's profile")
@@ -1011,12 +1063,13 @@ def carrier_start(request: Any, root: str | None = None, home: str | None = None
     if fd is None:
         return reply or _refused(LOCK_BUSY)
     try:
-        return _start(build, profile, root, home, run, sleep, login)
+        return _start(build, profile, root, home, run, sleep, login, lease)
     finally:
         os.close(fd)
 
 
-def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., Any], sleep: Callable[[float], None], login: str) -> dict:
+def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., Any], sleep: Callable[[float], None], login: str,
+           lease: Callable[..., Any]) -> dict:
     daemon, client = unit_names(profile)
     both = [daemon, client]
     bad = linger_problem(login, run, home)
@@ -1042,12 +1095,28 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
     if not already:
         path = config_path(home, profile)
         try:
+            low, high = roster_port_range(root)
+        except InstallError as e:
+            return _failed(None, f"{e}; nothing was started")
+        bad = reserved_ports_problem(low, high)
+        if bad:
+            return _refused(f"{bad}; nothing was started")
+        # Refused, not bypassed, as the download is: rendering unqueued is what timed out four of thirty accounts.
+        try:
+            turn = lease(root, wait_s=RENDER_LEASE_WAIT_S, name=RENDER_LEASE)
+        except LeaseRefused as e:
+            return _failed(None, f"the host's render lease stayed held for {RENDER_LEASE_WAIT_S} s; nothing was started — run it again"
+                           if e.code == LEASE_HELD else
+                           f"the host's render queue is unavailable ({e.line[:160]}); nothing was started")
+        try:
             r = run([os.path.join(root, "bin", "gzcoord-carrier"), "render-config", "--write", path], capture_output=True, encoding="utf-8",
                     errors="replace", timeout=RENDER_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
         except subprocess.TimeoutExpired:
             return _failed(None, f"gzcoord-carrier render-config did not finish within {RENDER_TIMEOUT_S} s; nothing was started")
         except OSError as e:
             return _failed(None, f"gzcoord-carrier render-config could not be run ({_oneline(e)}); nothing was started")
+        finally:
+            turn.release()
         if r.returncode != 0:
             lines = [ln for ln in (r.stderr or "").splitlines() if ln.strip()]
             why = (lines[-1][:200] if lines else f"exit {r.returncode}")
