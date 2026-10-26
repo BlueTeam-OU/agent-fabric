@@ -64,3 +64,23 @@ previous programs, so its check is the version and its reply says so;
 and a program's `--version` on disk reports the new version even when
 the running process was never restarted, so the check is that the
 daemon unit's process runs the program now installed.
+
+### Amendment 2026-10-26 — The roster's ports are reserved from the host's ephemeral range
+
+What changed: §5 rule 1 says the roster's port range is reserved on the
+host, so the kernel never hands one of its ports out as the source port
+of an outgoing connection.
+
+Why: the first fleet start (2026-10-26) found the host's ephemeral range
+at 32768-60999, which holds the roster's 47100-47199. With the fleet's daemons
+dialling each other, an outgoing connection had taken 47124, the
+coordinator's roster port, as its source port, and the coordinator's
+daemon exited "Address already in use" five times while nothing
+listened there; a later try started it. Rule 13 measured the kernel's
+refusal of a held port; this is the same refusal from a port no daemon
+meant to hold. The owner reserved 47100-47199 the same day
+(`/etc/sysctl.d/90-interweave-roster-ports.conf`); reserved ports stay
+bindable explicitly. A second host needs the same before its first
+start. Raised by the coordinator from that start. Accepted by the owner,
+2026-10-26 ("yes", in the coordinator's session, asked whether the
+rule 1 amendment is accepted).

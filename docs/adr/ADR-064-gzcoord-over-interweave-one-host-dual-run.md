@@ -142,7 +142,9 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
 1. The carrier runs only on the host the relay runs on, between accounts
    on that host; a profile listens on `127.0.0.1` only, on the port the
    roster fixes for it, one profile per account (InterWeave ADR-0055
-   decision 5).
+   decision 5). The roster's port range is reserved on the host
+   (`net.ipv4.ip_local_reserved_ports`), so no outgoing connection takes
+   one of its ports as a source port (A 2026-10-26).
 2. The roster (`runtime/interweave/roster.json`) is the only source of a
    login's PeerId, endpoint and port. A row is keyed by agent id
    (ADR-039) and carries its login, PeerId, endpoint and port; it counts
@@ -308,3 +310,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 |---|---|---|
 | 2026-10-24 | the carrier's codec is zlib, a receipt also answers a message not addressed here, and the carrier contract is written | §2 (delivery), §5 rules 7 and 8 |
 | 2026-10-25 | an InterWeave install or update is a control-plane action, checked after the restart | §5 rule 14; §6, §8 and Scope name v0.1.0 |
+| 2026-10-26 | The roster's ports are reserved from the host's ephemeral range | §5 rule 1 |
