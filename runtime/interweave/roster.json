@@ -296,6 +296,16 @@
       "peer_id": "12D3KooWD91qaCNLwRrgfohoHtNvYoBE3wMh6qWmummhqV8UaSBe",
       "port": 47129,
       "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat69xgAKCRDXDobMImJA\n6sS2AP9uP+ZEF5dtAudzXzoYcoH2VMPNQnRCDsyJR6ggb2jkJwEAjpIiNCLV2C6p\n3LKpInS65yjCy6M5bIu/St6U5fjkcQ0=\n=TCi1\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a0b312-4031-7730-b5fd-321848a63a84",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWAUuLoxzQCvGPyve6JTXXwUpsGErHZsPqvXunuRR6fUdN\n",
+      "login": "language-culture-ru",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTl5am+bOnZRRO7NqWoNHcRvk526wUCat7hIQAKCRCoNHcRvk52\n66zGAQCIKmFEszn+q5CAiTW3Xi5NhjWf9n1aYZuWAYSOQ+d09wD/Z+ELlDmmm8LO\nnFmIGVxEkF9+MmZFGPfwglHF3yye5gA=\n=bCEc\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWAUuLoxzQCvGPyve6JTXXwUpsGErHZsPqvXunuRR6fUdN",
+      "port": 47130,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat+GYwAKCRDXDobMImJA\n6mIPAQClY0d8yKw5WQ68809ZldlR9yhTdATCvxnwSrwUs69ahQD/VX+VU9buyREt\njiDF3BUWJSa3vAUkwSoar2Eo58fO5Ak=\n=pnza\n-----END PGP SIGNATURE-----\n"
     }
   ]
 }
