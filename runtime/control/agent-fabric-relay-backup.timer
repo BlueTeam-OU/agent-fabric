@@ -1,12 +1,15 @@
-# runtime/control/agent-fabric-relay-backup.timer — every 6 hours, for
+# runtime/control/agent-fabric-relay-backup.timer — every 6 hours (03, 09, 15, 21),
+# for
 # agent-fabric-relay-backup.service. Persistent: a host that was off at the
 # hour runs it at the next start. The delay keeps the copy off the :00 mark,
-# when the fleet's other timers fire.
+# when the fleet's other timers fire. The hours start at 03 because the daily
+# state backup (OnCalendar=daily, up to 1 h of delay) fires in 00:00-01:00 and
+# both upload to Proton Drive: 03:00 keeps the two apart.
 [Unit]
 Description=agent-fabric: 6-hourly relay database backup
 
 [Timer]
-OnCalendar=*-*-* 00/6:00:00
+OnCalendar=*-*-* 03/6:00:00
 RandomizedDelaySec=15min
 Persistent=true
 

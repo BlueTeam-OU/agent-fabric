@@ -1075,8 +1075,11 @@ def relay() -> None:
     check("step 6c: the service is a oneshot running `relay backup` as the state backup runs its command, bounded at 30 min",
           "Type=oneshot" in svc and "TimeoutStartSec=30min" in svc
           and "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/fabric_secrets.py relay backup\n" in svc, svc)
-    check("step 6c: the timer's cadence: every 6 h from 00:00, 15 min of delay, persistent, wanted by timers.target",
-          "OnCalendar=*-*-* 00/6:00:00\n" in tmr and "RandomizedDelaySec=15min\n" in tmr and "Persistent=true\n" in tmr
+    check("step 6c: the service's scratch is ~/agent-fabric-tmp, made before the copy (/tmp is a small tmpfs)",
+          "Environment=TMPDIR=%h/agent-fabric-tmp\n" in svc
+          and "ExecStartPre=/usr/bin/install -d -m 700 %h/agent-fabric-tmp\n" in svc, svc)
+    check("step 6c: the timer's cadence: every 6 h from 03:00 (off the state backup's midnight hour), 15 min of delay, persistent, wanted by timers.target",
+          "OnCalendar=*-*-* 03/6:00:00\n" in tmr and "RandomizedDelaySec=15min\n" in tmr and "Persistent=true\n" in tmr
           and "WantedBy=timers.target" in tmr, tmr)
 
     b = Account("relay-up", relay=True, wcs=False)
