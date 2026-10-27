@@ -1,0 +1,14 @@
+# runtime/control/agent-fabric-relay-backup.timer — every 6 hours, for
+# agent-fabric-relay-backup.service. Persistent: a host that was off at the
+# hour runs it at the next start. The delay keeps the copy off the :00 mark,
+# when the fleet's other timers fire.
+[Unit]
+Description=agent-fabric: 6-hourly relay database backup
+
+[Timer]
+OnCalendar=*-*-* 00/6:00:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
