@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import os
 import sys
-from fabric_jobs.base import identity
+from fabric_jobs.base import OPEN, STATES, identity
 from fabric_jobs import leave_targets as lt
 
-HOLDING = ("active", "queued", "paused", "blocked")
+HOLDING = tuple(s for s in OPEN if s != "delivered")
 
 
 class Unreadable(Exception):
@@ -37,6 +37,8 @@ def held_paths() -> dict[str, str]:
     for job in doc["jobs"]:
         if not isinstance(job, dict) or not isinstance(job.get("id"), str):
             raise Unreadable("the job list holds an entry that is not a job")
+        if job.get("state") not in STATES:
+            raise Unreadable(f"{job['id']} has a state this tool does not know")      # unknown is not "closed"
         if job.get("state") not in HOLDING:
             continue
         for field in ("worktree", "working_copy"):

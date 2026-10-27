@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import types
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 scrub_process_env()
@@ -30,7 +31,8 @@ def main() -> int:
         print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good else f": {str(detail)[:700]}"))
         fails += not good
 
-    with tempfile.TemporaryDirectory(prefix="jobs-tidy-") as raw:
+    # Outside any home: cargo reads a configuration in every parent of a target, and the fleet's TMPDIR is under the login's home.
+    with tempfile.TemporaryDirectory(prefix="jobs-tidy-", dir="/tmp" if os.access("/tmp", os.W_OK) else None) as raw:
         tmp = os.path.realpath(raw)
         home = os.path.join(tmp, "home")
         projects = os.path.join(home, "projects")
@@ -241,6 +243,25 @@ def main() -> int:
         check("…the repository whole again, it goes", rc == 0 and not os.path.exists(os.path.join(t, "target")), out + err)
 
         t = tree("target/debug/a.o")
+        real_lstat = os.lstat
+
+        def foreign(name: str):
+            """lstat that shows another uid owning the path called `name` and nothing else."""
+            def lstat(path, *a, **kw):
+                st = real_lstat(path, *a, **kw)
+                if os.path.basename(str(path)) != name:
+                    return st
+                return types.SimpleNamespace(**{**{k: getattr(st, k) for k in dir(st) if k.startswith("st_")}, "st_uid": st.st_uid + 1})
+            return lstat
+        for owned, what in (("a.o", "a file"), ("debug", "a directory")):
+            os.lstat = foreign(owned)
+            try:
+                said = lt.judge(os.path.join(t, "target"), t, real_lstat(t).st_dev, [], "")
+            finally:
+                os.lstat = real_lstat
+            check(f"{what} in a target that another uid owns keeps the whole target (the directories around it are ours)",
+                  said == (f"kept {t}/target: another account owns files in it", 0) and os.path.isfile(os.path.join(t, "target", "debug", "a.o")), said)
+        check("…positive control: the same target judged as its owner would go", lt.judge(os.path.join(t, "target"), t, os.lstat(t).st_dev, [], "", True)[0].startswith("would remove "))
         real_uid = os.getuid
         os.getuid = lambda: real_uid() + 1
         try:
@@ -273,6 +294,9 @@ def main() -> int:
         listing("not a job")
         rc, out, err = tidy()
         check("a list entry that is no job is the same", rc == 1 and os.path.isdir(os.path.join(t, "target")) and "not a job" in err and "nothing was removed" in err, out + err)
+        listing(job(1, "somethingelse", worktree=os.path.join(projects, "nowhere")))
+        rc, out, err = tidy()
+        check("a job with a state the tool does not know is the same: unknown is not closed", rc == 1 and os.path.isdir(os.path.join(t, "target")) and "state" in err and "nothing was removed" in err, out + err)
         listing(job(1, "active", worktree=7))
         rc, out, err = tidy()
         check("a job whose worktree is not a path is the same", rc == 1 and os.path.isdir(os.path.join(t, "target")) and "nothing was removed" in err, out + err)

@@ -1,13 +1,14 @@
 """tools/fabric/jobsparts/leave_targets.py — the cargo targets `switch` clears from the worktree of the job it leaves (j75, the owner
-2026-10-21: /home filled twice in a day, one project's target is 60 to 75 GB and every job worktree builds its own).
-A part of tools/fabric/jobs.py, whose docstring is the contract.
+2026-10-21: /home filled twice in a day, one project's target is 60 to 75 GB and every job worktree builds its own), and the judge
+`tidy` (tidy.py, j90) applies to those and to `node_modules`. A part of tools/fabric/jobs.py, whose docstring is the contract.
 
 Contract. Only the old job's `worktree` field is read: never its `working copy` or another job's (a main checkout other jobs share:
 a field at, above or below one is refused), only a linked worktree, nothing outside the login's home, nothing when the field is unset or the directory is
 gone. In it, each directory named `target` beside a Cargo.toml, at most 4 levels below the worktree, is removed — links are
 never followed (a `target` that is one is kept), and a filesystem boundary is never crossed (a `target` holding another mount
 is kept whole). One is kept, with the reason, when a process of this uid stands in it, when its `.cargo-lock` is held (a build
-is running), or when a cargo configuration at or above it points the target directory outside the worktree. Whatever cannot
+is running), when a cargo configuration at or above it points the target directory outside the worktree, when git tracks a file
+under it or cannot be asked, or when a file in it belongs to another uid. Whatever cannot
 be told is kept: unknown is never "free to remove". One line per directory; a failure is a warning line, never a refusal:
 the job's settlement already happened. One shared CARGO_TARGET_DIR per login is not an alternative (binaries bake in
 CARGO_MANIFEST_DIR, so a build shared between worktrees runs stale paths)."""
@@ -93,6 +94,7 @@ def scan(target: str, dev: int) -> tuple[int, list[str]]:
     locks: list[str] = []
     errors: list[OSError] = []
     base = target.rstrip(os.sep).count(os.sep)
+    uid = os.getuid()
     for dirpath, dirnames, filenames in os.walk(target, followlinks=False, onerror=errors.append):
         for name in filenames:
             path = os.path.join(dirpath, name)
@@ -100,6 +102,10 @@ def scan(target: str, dev: int) -> tuple[int, list[str]]:
                 st = os.lstat(path)
             except OSError:
                 continue
+            # Unix lets whoever may write a directory unlink what is in it: a root-owned file left by a container build is
+            # not this account's to remove, whatever owns the directory around it.
+            if st.st_uid != uid:
+                raise Unknown("another account owns files in it")
             if (st.st_dev, st.st_ino) not in seen:
                 seen.add((st.st_dev, st.st_ino))
                 total += st.st_blocks * 512
@@ -109,8 +115,11 @@ def scan(target: str, dev: int) -> tuple[int, list[str]]:
             path = os.path.join(dirpath, d)
             if os.path.islink(path):
                 continue
-            if os.lstat(path).st_dev != dev:
+            st = os.lstat(path)
+            if st.st_dev != dev:
                 raise Unknown("another filesystem is mounted in it")
+            if st.st_uid != uid:
+                raise Unknown("another account owns files in it")
     if errors:
         raise Unknown(f"{errors[0].filename} cannot be read ({errors[0].strerror})")
     return total, locks

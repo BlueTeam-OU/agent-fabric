@@ -180,7 +180,17 @@ check that failed and changing nothing:
   the line says why, when a process of this uid stands in it, its `.cargo-lock` is held, or a cargo configuration (the directory
   and every parent up to the root, `$CARGO_HOME`) sends the target directory outside the worktree; what cannot be told is kept. One
   line per directory; a failure is a warning, never a refusal. `--keep-targets` skips it, for a job to be resumed within the hour (a
-  paused or blocked job pays a rebuild).
+  paused or blocked job pays a rebuild). A target is also kept when git tracks a file under it (or cannot be asked) or when a file
+  in it belongs to another uid.
+`tidy` (j90, the owner 2026-10-27: /home at 97%) is the same clearing for every checkout, not one job's: the directories directly
+under ~/projects that have a `.git` are the trees; one that is, holds or lies in the worktree or working copy of an active, queued,
+paused or blocked job (a delivered job is not open here), or is a link, another uid's, or on another filesystem, is kept whole,
+said. In the others each `target` beside a Cargo.toml and `node_modules` beside a package.json (4 levels, the keep rules above)
+goes; one line per directory, then `freed: <size>` (`would free:` under --dry-run, which removes nothing). Exit 1, nothing removed,
+and the reason on stderr when the job list (an entry that is no job or has an unknown state included) or ~/projects cannot be
+read; a missing ~/projects is exit 0, "nothing to tidy". A process standing beside a `node_modules` (a dev server at the package
+root) does not protect it: only one standing in it does. The job list is read once, before the walk. Run daily by a user timer as
+the account, which must resolve the same state directory the sessions use (an absent list reads as empty).
 Each switch appends one line to the old and one to the new job's log: the outcome and its evidence, and the branch.
 `switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
 cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued offers the pool's.
