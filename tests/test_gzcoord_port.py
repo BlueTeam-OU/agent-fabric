@@ -1332,7 +1332,7 @@ def _dead_session() -> tuple[int, str]:
     return p.pid, start
 
 
-def _take(lock_dir: str, session: Any = None, wait_s: float = 5.0) -> tuple[Any, str, str]:
+def _take(lock_dir: str, session: Any = None, wait_s: float = 5.0, replace: bool = False) -> tuple[Any, str, str]:
     """take_or_report in this process on a lock directory of its own: (lock or None, stdout, stderr)."""
     from gzcoord.inbox_parts import watchlock
     saved = os.environ.get("XDG_RUNTIME_DIR")
@@ -1340,7 +1340,7 @@ def _take(lock_dir: str, session: Any = None, wait_s: float = 5.0) -> tuple[Any,
     out, err = io.StringIO(), io.StringIO()
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            lock = watchlock.take_or_report("fixture-login", session, wait_s)
+            lock = watchlock.take_or_report("fixture-login", session, wait_s, replace=replace)
     finally:
         if saved is None:
             os.environ.pop("XDG_RUNTIME_DIR", None)
@@ -1494,6 +1494,31 @@ def _():
         ok(deaf.poll() is None, "the holder that would not end is still the holder")
     finally:
         _reap(deaf)
+
+
+@case("--replace on a holder of this session: ended and replaced; one that ignores SIGTERM is refused by the --replace line, not 'nothing to kill'")
+def _():
+    import signal
+    from gzcoord.inbox_parts import session as S, watchlock
+    me = S.read_proc(os.getpid())
+    mine = S.Session(os.getpid(), me.start, os.getppid(), "parent")
+    for mode, replaced in (("new", True), ("new-deaf", False)):
+        run_dir = P.scratch("run-")
+        holder = _spawn_holder("gzcoord-inbox", mode, watchlock.lock_path("fixture-login", run_dir), mine.pid, mine.start, "parent")
+        try:
+            lock, out, err = _take(run_dir, mine, wait_s=1.0, replace=True)
+            try:
+                if replaced:
+                    ok(lock is not None and holder.wait(timeout=10) == -signal.SIGTERM, f"{out!r} {err!r}")
+                else:
+                    ok(lock is None and holder.poll() is None, f"{out!r} {err!r}")
+                    ok(f"--replace refused: the watch of pid {holder.pid} " in out and "signalled and did not release" in out
+                       and "nothing to kill" not in out, out)
+            finally:
+                if lock is not None:
+                    lock.release()
+        finally:
+            _reap(holder)
 
 
 def _wait_lock_lines(env: dict, n: int, deadline: float = 20) -> list[str]:
@@ -1686,6 +1711,10 @@ def _():
     eq((sent, res[0]), ([], None))
     # and when neither has one the two are equal only by being empty: still not provably the same session
     sent, res, _ = _replace_world(["100", "T", "90", "", "claude"], base, S.Session(90, "", 95, "claude"))
+    eq((sent, res[0]), ([], None))
+    # two detached watches under one systemd compute the same session: equal only because neither has one
+    detached = S.Session(500, "50", 500, "detached")
+    sent, res, _ = _replace_world(["100", "T", "500", "50", "detached"], base, detached)
     eq((sent, res[0]), ([], None))
     # a holder that is no watch, or no process /proc shows, is never signalled though the record says it is ours
     for args in (["sleep", "60"], [PYTHON, "-I", "/x/bin/gzcoord-inbox"], [PYTHON, "-I", "/x/bin/gzcoord-inbox", "--replay", "5", "--follow"]):

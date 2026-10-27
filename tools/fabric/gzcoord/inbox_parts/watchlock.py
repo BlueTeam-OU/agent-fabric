@@ -228,6 +228,10 @@ def replaceable_of(path: str, record: list[str], mine: sess.Session, proc: str =
     recorded = sess.Session.of(record[2:])
     if recorded is None:
         return None, "the lock file records no session for it"
+    if mine.kind == "detached" or recorded.kind == "detached":
+        # Two watches hanging from the same systemd compute the same (parent, start, "detached"): equal only because neither
+        # has a session above it, which is no proof they serve the same one.
+        return None, "a detached watch serves no session of its own"
     if not recorded.start or not mine.start:
         return None, "a session without a start time cannot be told from a reused pid"
     if (recorded.pid, recorded.start, recorded.kind) != (mine.pid, mine.start, mine.kind):
@@ -267,7 +271,8 @@ def take_or_report(login: str, session: sess.Session | None = None, wait_s: floa
             return lock
         ended = end_orphan(lock.path, lock.record)
         not_replaced = None
-        if ended is None and replace:
+        via_replace = ended is None and replace
+        if via_replace:
             ended, not_replaced = (end_replaced(lock.path, lock.record, session) if session is not None
                                    else (None, "this session is not known"))
         if ended is not None:
@@ -278,9 +283,13 @@ def take_or_report(login: str, session: sess.Session | None = None, wait_s: floa
                 # Another new watch found the same orphan and was quicker: its pid holds the lock now, and is refused as any other.
                 now = lock_holder(lock.path)
                 if now is not None and now != ended:
+                    if via_replace:
+                        not_replaced = f"it was signalled, and pid {now} took the lock first"
                     break
                 if time.monotonic() >= until:
                     print(f"gzcoord-inbox: pid {ended} did not release the lock in time", file=sys.stderr)
+                    if via_replace:
+                        not_replaced = "it was signalled and did not release the lock in time"
                     break
                 time.sleep(TAKEOVER_POLL_S)
     except OSError as e:
