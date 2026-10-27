@@ -56,6 +56,10 @@ Writes, idempotently, and only machine-local files:
                                      user manager when one is running
   <units>/gzcoord-relay.service      ONLY on the account whose workspace hosts the relay
                                      ($PROJECTS/.gzcoord/venv exists): the relay as a unit
+  <units>/agent-fabric-relay-backup.{service,timer}
+                                     ONLY on that same account: the relay database's copy to
+                                     Proton Drive every 6 h (fabric-secrets relay backup;
+                                     agent-fabric ADR-034 §7), the timer enabled likewise
   ~/.cache/agent-fabric/langid/venv/ the language detector (pycld2) for the control agent's
                                      script op (runtime/langid/), best effort
   (removes ~/.config/agent-fabric/secrets-source, the fabric's own leftover; the Doppler CLI and its config stay, a project may use them:
@@ -254,6 +258,7 @@ HOOKS_REL = "policies/githooks"
 UNIT = "agent-fabric-agentd"
 RELAY_UNIT = "gzcoord-relay"
 BACKUP_UNIT = "agent-fabric-state-backup"
+RELAY_BACKUP_UNIT = "agent-fabric-relay-backup"
 RELAY_STATUS = "http://127.0.0.1:8765/status"
 JOURNAL_IMPORT_TIMEOUT = 20
 # The marker of ADR-042's migration on this account, under its state.
@@ -537,6 +542,7 @@ class Bootstrap:
         self.control_agent()
         self.state_backup()
         self.relay()
+        self.relay_backup()
         self.langid()
         self.retire_doppler()
         self.journal_import()
@@ -1147,6 +1153,32 @@ class Bootstrap:
         if self.changed > before:
             run_quiet(["systemctl", "--user", "restart", RELAY_UNIT])
         say(f"  *  {RELAY_UNIT} (this workspace hosts the relay): {answer(['systemctl', '--user', 'is-active', RELAY_UNIT])}")
+
+    def relay_backup(self) -> None:
+        # 6c. The relay database's 6-hourly backup (ADR-034 §7): installed on the
+        #     account that hosts the relay and nowhere else, decided exactly as
+        #     step 6b decides it (the relay's venv, the workspace at $HOME/projects),
+        #     so the two units can never live on different accounts. Mechanics are
+        #     the state backup's (6a).
+        if not os.access(os.path.join(self.projects, ".gzcoord", "venv", "bin", "claude-bridge"), os.X_OK):
+            return
+        if self.projects != os.path.realpath(os.path.join(self.home, "projects")):
+            return  # step 6b has said why
+        before = self.changed
+        for suffix in ("service", "timer"):
+            self.put_file(os.path.join(self.units, f"{RELAY_BACKUP_UNIT}.{suffix}"),
+                          f"runtime/control/{RELAY_BACKUP_UNIT}.{suffix}")
+        if self.dry_run:
+            return
+        if not self.user_manager():
+            say(f"  !  {RELAY_BACKUP_UNIT}.timer: installed, not enabled — no user manager at "
+                f"{os.environ['XDG_RUNTIME_DIR']}/bus (systemd absent, or no login session; the next bootstrap with one enables it)")
+            return
+        run_quiet(["systemctl", "--user", "enable", "--now", f"{RELAY_BACKUP_UNIT}.timer"])
+        if self.changed > before:
+            run_quiet(["systemctl", "--user", "restart", f"{RELAY_BACKUP_UNIT}.timer"])
+        say(f"  *  {RELAY_BACKUP_UNIT}.timer: {answer(['systemctl', '--user', 'is-active', f'{RELAY_BACKUP_UNIT}.timer'])} "
+            f"(systemctl --user list-timers {RELAY_BACKUP_UNIT}.timer)")
 
     def langid(self) -> None:
         # 7. The language detector for the control agent's `script` op

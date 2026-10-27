@@ -1,0 +1,25 @@
+# runtime/control/agent-fabric-relay-backup.service — the GZCoord relay's
+# database into Proton Drive, encrypted and signed (fabric-secrets relay
+# backup; agent-fabric ADR-034 §7), run by agent-fabric-relay-backup.timer.
+# A systemd USER unit, installed by bootstrap.py (step 6c) ONLY on the account
+# that hosts the relay, the one gzcoord-relay.service runs under. Oneshot: a
+# refusal is the journal's and the next run, 6 h later, tries again. The
+# 30 min bound is for a copy of about 750 MB (measured: 1m39s).
+# TMPDIR: the copy needs about 1.1 GB of scratch (snapshot, compressed,
+# encrypted), and /tmp on develop-qzapp is a 2.0 GB tmpfs. The fleet's scratch
+# is ~/agent-fabric-tmp (#292), on the volume that holds the homes; ExecStartPre
+# makes it, mode 700, if the launcher has not.
+[Unit]
+Description=agent-fabric: back up the GZCoord relay database to Proton Drive
+ConditionPathExists=%h/projects/.gzcoord/claude-bridge.db
+
+[Service]
+Type=oneshot
+Environment=AGENT_FABRIC_ROOT=%h/projects/agent-fabric
+Environment=TMPDIR=%h/agent-fabric-tmp
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h/projects/agent-fabric
+ExecStartPre=/usr/bin/install -d -m 700 %h/agent-fabric-tmp
+ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/fabric_secrets.py relay backup
+TimeoutStartSec=30min
+NoNewPrivileges=yes

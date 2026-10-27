@@ -49,6 +49,7 @@ REAL_HOME = pwd.getpwuid(os.geteuid()).pw_dir
 UNIT = "agent-fabric-agentd"
 BACKUP = "agent-fabric-state-backup"
 RELAY = "gzcoord-relay"
+RBK = "agent-fabric-relay-backup"
 HOOK_REL = "policies/githooks"
 # The plain tools the script and what it runs call. Anything not here, and
 # not a fake, is "command not found": a port that starts calling something
@@ -1064,6 +1065,23 @@ def relay() -> None:
     check("…after the control agent's lines", r.lines.index(f"  +  {unit}") > r.lines.index(
         f"  +  {a.units}/{UNIT}.service"), r.out)
 
+    ru = f"{a.units}/{RBK}"
+    check("step 6c: the relay backup's service and timer installed on the relay's account, the fabric's files, mode 644, said",
+          all(read(f"{ru}.{x}") == read(f"{a.fr}/runtime/control/{RBK}.{x}") and mode(f"{ru}.{x}") == 0o644 for x in ("service", "timer"))
+          and f"  !  {RBK}.timer: installed, not enabled — no user manager at {a.run}/bus "
+              f"(systemd absent, or no login session; the next bootstrap with one enables it)" in r.lines, r)
+    svc = read(f"{ru}.service")
+    tmr = read(f"{ru}.timer")
+    check("step 6c: the service is a oneshot running `relay backup` as the state backup runs its command, bounded at 30 min",
+          "Type=oneshot" in svc and "TimeoutStartSec=30min" in svc
+          and "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/fabric_secrets.py relay backup\n" in svc, svc)
+    check("step 6c: the service's scratch is ~/agent-fabric-tmp, made before the copy (/tmp is a small tmpfs)",
+          "Environment=TMPDIR=%h/agent-fabric-tmp\n" in svc
+          and "ExecStartPre=/usr/bin/install -d -m 700 %h/agent-fabric-tmp\n" in svc, svc)
+    check("step 6c: the timer's cadence: every 6 h from 03:00 (off midnight), 15 min of delay, persistent, wanted by timers.target",
+          "OnCalendar=*-*-* 03/6:00:00\n" in tmr and "RandomizedDelaySec=15min\n" in tmr and "Persistent=true\n" in tmr
+          and "WantedBy=timers.target" in tmr, tmr)
+
     b = Account("relay-up", relay=True, wcs=False)
     b.bus()
     r = bootstrap(b, env=b.env(FAKE_ACTIVE_gzcoord_relay="active"))
@@ -1072,6 +1090,10 @@ def relay() -> None:
           rc == [["systemctl", "--user", "is-active", RELAY], ["systemctl", "--user", "enable", "--now", RELAY],
                  ["systemctl", "--user", "restart", RELAY], ["systemctl", "--user", "is-active", RELAY]], rc)
     check("…said", f"  *  {RELAY} (this workspace hosts the relay): active" in r.lines, r.out)
+    rb = [c for c in b.calls("systemctl") if c[-1] == f"{RBK}.timer"]
+    check("step 6c: with a manager the backup timer is enabled --now and restarted (new unit), then asked its state",
+          rb == [["systemctl", "--user", "enable", "--now", f"{RBK}.timer"], ["systemctl", "--user", "restart", f"{RBK}.timer"],
+                 ["systemctl", "--user", "is-active", f"{RBK}.timer"]], rb)
     check("…an active unit's port is not probed", b.calls("curl") == [], b.calls("curl"))
     b.clear_log()
     r = bootstrap(b, env=b.env(FAKE_ACTIVE_gzcoord_relay="inactive", FAKE_CURL_RC="0",
@@ -1111,6 +1133,9 @@ def relay() -> None:
           [c for c in b.calls("systemctl") if c[-1] == RELAY] == [["systemctl", "--user", "is-active", RELAY],
                                                                   ["systemctl", "--user", "enable", "--now", RELAY],
                                                                   ["systemctl", "--user", "is-active", RELAY]], b.calls("systemctl"))
+    check("the relay backup timer, units unchanged: enable --now then is-active, no restart",
+          [c for c in b.calls("systemctl") if c[-1] == f"{RBK}.timer"] == [["systemctl", "--user", "enable", "--now", f"{RBK}.timer"],
+                                                                         ["systemctl", "--user", "is-active", f"{RBK}.timer"]], b.calls("systemctl"))
 
     c = Account("relay-away", ws="work", relay=True, wcs=False)
     r = bootstrap(c)
@@ -1122,6 +1147,13 @@ def relay() -> None:
     r = bootstrap(d)
     check("a relay venv whose claude-bridge is not executable: no relay unit",
           not os.path.exists(f"{d.units}/{RELAY}.service") and not any(RELAY in x for x in r.lines), r)
+    check("…and no relay backup units; a workspace away from $HOME/projects gets none either",
+          not any(os.path.exists(f"{x.units}/{RBK}.{y}") for x in (c, d) for y in ("service", "timer"))
+          and not any(RBK in x for x in r.lines), r)
+    n = Account("client", wcs=False)
+    r = bootstrap(n)
+    check("an account that does not host the relay: no relay backup units, no line",
+          not any(os.path.exists(f"{n.units}/{RBK}.{y}") for y in ("service", "timer")) and not any(RBK in x for x in r.lines), r)
 
 
 def failures() -> None:
