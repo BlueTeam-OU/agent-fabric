@@ -1684,6 +1684,9 @@ def _():
     # a session of ours without a start time cannot be matched to a record that has one
     sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, S.Session(90, "", 95, "claude"))
     eq((sent, res[0]), ([], None))
+    # and when neither has one the two are equal only by being empty: still not provably the same session
+    sent, res, _ = _replace_world(["100", "T", "90", "", "claude"], base, S.Session(90, "", 95, "claude"))
+    eq((sent, res[0]), ([], None))
     # a holder that is no watch, or no process /proc shows, is never signalled though the record says it is ours
     for args in (["sleep", "60"], [PYTHON, "-I", "/x/bin/gzcoord-inbox"], [PYTHON, "-I", "/x/bin/gzcoord-inbox", "--replay", "5", "--follow"]):
         sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, args)}, mine)
@@ -1696,7 +1699,9 @@ def _():
         sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, mine)
     eq((sent, res[0]), ([], None))
     # this process is never its own holder
-    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, mine, holder=os.getpid())
+    me = os.getpid()
+    sent, res, _ = _replace_world([str(me), "T", "90", "900", "claude"], {**base, me: ("fabric-python", 91, "S", 1000, watch)}, mine,
+                                  holder=me)
     eq((sent, res[0]), ([], None))
     # a signal that is not allowed is a refusal with its reason; a holder gone before the signal is still the one replaced
     sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, mine, kill_exc=PermissionError(1, "Operation not permitted"))
