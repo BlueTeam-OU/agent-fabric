@@ -35,6 +35,19 @@ def has_control(text: str) -> bool:
     return any((ord(c) < 32 and c not in "\t\n\r") or 127 <= ord(c) < 160 for c in text)
 
 
+def strings(value: object):
+    """Every string in a JSON value, at any depth, keys included: what a renderer may print is not a list of field names."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from strings(k)
+            yield from strings(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from strings(v)
+
+
 def export_document(doc: dict, agent: str) -> dict:
     cache = bl.load_cache()
     return {"blocker_cache": {s: cache[s] for s in bl.all_specs(doc, only_blocked=False) if s in cache}, "format": FORMAT, "version": VERSION, "agent": agent, "host": doc.get("host") or identity.current_host(),
@@ -95,6 +108,13 @@ def check_job(job: object, position: int) -> str:
             raise Refused(f"{where} has a {key} that is not text")
     if not isinstance(job.get("blockers", []), list) or not all(isinstance(b, str) for b in job.get("blockers", [])):
         raise Refused(f"{where} has blockers that are not a list of strings")
+    for spec in job.get("blockers", []):
+        try:
+            stored = bl.normalise(spec)
+        except Refused:
+            stored = None
+        if stored != spec:
+            raise Refused(f"{where} has a blocker {spec!r} that is not a checkable form in its stored shape")
     if job.get("state") not in STATES:
         raise Refused(f"{where} has state {job.get('state')!r}, not one of {', '.join(STATES)}")
     if job.get("priority", DEFAULT_PRIORITY) not in PRIORITIES:
@@ -108,8 +128,8 @@ def check_job(job: object, position: int) -> str:
         raise Refused(f"{where} has artifacts that are not a list of strings")
     if not isinstance(job.get("log"), list) or not all(isinstance(e, dict) for e in job["log"]):
         raise Refused(f"{where} has a log that is not a list of entries")
-    texts = [job["title"], *job["artifacts"], *(job[k] for k in TEXT_KEYS if job.get(k)), *(v for e in job["log"] for v in e.values() if isinstance(v, str))]
-    if any(has_control(t) for t in texts):
+    # The whole job, not the fields known today: show prints source.from, a blocker, a log note, and a field the control agent adds.
+    if any(has_control(t) for t in strings(job)):
         raise Refused(f"{where} carries a control character in its text")
     return job_id
 
@@ -131,6 +151,11 @@ def check_document(doc: dict, agent: str) -> None:
     cache = doc.get("blocker_cache", {})
     if not isinstance(cache, dict) or not all(isinstance(k, str) and isinstance(v, dict) for k, v in cache.items()):
         raise Refused("the document's blocker_cache is not an object of entries")
+    for spec, entry in cache.items():
+        if any(has_control(t) for t in strings(entry)) or has_control(spec):
+            raise Refused("the document's blocker_cache carries a control character")
+        if not isinstance(entry.get("detail", ""), str) or type(entry.get("seen_open", True)) is not bool or entry.get("state", "unknown") not in ("cleared", "waiting", "unknown"):
+            raise Refused(f"the document's blocker_cache entry for {spec!r} has a field of the wrong type")
     if doc.get("last") is not None and doc["last"] not in ids:
         raise Refused(f"the document's last job {doc['last']!r} is not in its list")
 
