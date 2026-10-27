@@ -14,6 +14,8 @@ THE CONTRACT (frozen from the bash, ADR-040 §5 rule 3)
                                set, used, removed)
   fabric-secrets state …       tools/fabric/secret_state.py (this login's working state backed
                                up to its own store; its parent's backup carries it to Proton)
+  fabric-secrets relay …       tools/fabric/secret_relay.py (the operator's relay database copied to
+                               Proton Drive, restored and verified; ADR-034 §7 step 1)
   fabric-secrets child …       tools/fabric/secret_child.py (a parent installs its
                                children's role addenda, ADR-060)
   fabric-secrets <anything>    tools/fabric/secrets_sync.py with ALL the
@@ -34,7 +36,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODULES = {"store": "secret_store.py", "provision": "store_provision.py", "selftest": "secret_selftest.py",
-           "state": "secret_state.py", "child": "secret_child.py"}
+           "state": "secret_state.py", "relay": "secret_relay.py", "child": "secret_child.py"}
 DEFAULT = "secrets_sync.py"
 
 
