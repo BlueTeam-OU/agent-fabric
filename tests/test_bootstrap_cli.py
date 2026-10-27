@@ -1133,6 +1133,9 @@ def relay() -> None:
           [c for c in b.calls("systemctl") if c[-1] == RELAY] == [["systemctl", "--user", "is-active", RELAY],
                                                                   ["systemctl", "--user", "enable", "--now", RELAY],
                                                                   ["systemctl", "--user", "is-active", RELAY]], b.calls("systemctl"))
+    check("the relay backup timer, units unchanged: enable --now then is-active, no restart",
+          [c for c in b.calls("systemctl") if c[-1] == f"{RBK}.timer"] == [["systemctl", "--user", "enable", "--now", f"{RBK}.timer"],
+                                                                         ["systemctl", "--user", "is-active", f"{RBK}.timer"]], b.calls("systemctl"))
 
     c = Account("relay-away", ws="work", relay=True, wcs=False)
     r = bootstrap(c)
