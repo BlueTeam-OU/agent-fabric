@@ -15,6 +15,7 @@ behind bin/fabric-jobs.
     fabric-jobs retract <id> <artifact>                          remove one artifact, exactly as recorded, in any state; noted in the log
     fabric-jobs done <id> [--no-artifact "<what was done>"]      the reason is the evidence of work that leaves no artifact
     fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
+    fabric-jobs tidy [--dry-run]                                 build output (target, node_modules) of every checkout under ~/projects no open job holds
     fabric-jobs drop <id> "<why>"
     fabric-jobs project <id> <project> [--working-copy W]        re-point a job that has no branch or worktree yet; logged on the job
     fabric-jobs show <id> [--json]
@@ -219,6 +220,7 @@ from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, cla
 from fabric_jobs.render import line, show, summary  # noqa: E402, F401
 from fabric_jobs.branching import TYPES  # noqa: E402, F401
 from fabric_jobs.sweep import sweep  # noqa: E402, F401
+from fabric_jobs.tidy import tidy  # noqa: E402, F401
 from fabric_jobs.transfer import export_jobs, import_jobs  # noqa: E402, F401
 from fabric_jobs.verbs import decide, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
 
@@ -261,6 +263,8 @@ def main(argv: list[str] | None = None) -> int:
     rt.add_argument("artifact")
     sw = sub.add_parser("sweep", help="move delivered jobs whose evidence has landed to done")
     sw.add_argument("--dry-run", action="store_true", help="say what would close and why the rest stay; change nothing")
+    ti = sub.add_parser("tidy", help="remove build output (target beside Cargo.toml, node_modules beside package.json) from the checkouts under ~/projects that no open job holds")
+    ti.add_argument("--dry-run", action="store_true", help="say what would go and why the rest stays; remove nothing")
     dr = sub.add_parser("drop")
     dr.add_argument("id")
     dr.add_argument("why")
@@ -295,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--working-copy")
     args = ap.parse_args(argv)
 
-    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep, "project": repoint, "export": export_jobs, "import": import_jobs}.get(args.cmd, change)
+    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep, "tidy": tidy, "project": repoint, "export": export_jobs, "import": import_jobs}.get(args.cmd, change)
     try:
         return verb(args)
     except Refused as exc:

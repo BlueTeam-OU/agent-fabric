@@ -17,8 +17,13 @@ import fcntl
 import os
 import shutil
 import tomllib
+from fabric_jobs import vcs
 
 MAX_DEPTH = 4
+CARGO = (("target", "Cargo.toml"),)
+# What `tidy` clears besides: a directory is build output only beside the file that makes it one.
+BUILD_OUTPUT = CARGO + (("node_modules", "package.json"),)
+TRACKED_TIMEOUT_S = 30
 CONFIGS = (os.path.join(".cargo", "config.toml"), os.path.join(".cargo", "config"))
 LOCK_DEPTH = 3      # target/<triple>/<profile>/.cargo-lock is the deepest place cargo puts it
 
@@ -40,20 +45,23 @@ def inside(path: str, root: str) -> bool:
     return path != root and path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def find_targets(worktree: str) -> tuple[list[str], list[str]]:
-    """(the `target` directories beside a Cargo.toml, the `target` links beside one), below the worktree and not below another."""
+def find_targets(worktree: str, kinds: tuple[tuple[str, str], ...] = CARGO) -> tuple[list[str], list[str]]:
+    """(the build-output directories beside their marker file, the links of that name beside one), below the worktree and not
+    below another. A kind's directory is not entered: what a `node_modules` holds is its own packages' business."""
     found: list[str] = []
     links: list[str] = []
+    skip = {".git"} | {name for name, _ in kinds}
     base = worktree.rstrip(os.sep).count(os.sep)
     for dirpath, dirnames, filenames in os.walk(worktree, followlinks=False):
         depth = dirpath.count(os.sep) - base
-        dirnames[:] = [d for d in dirnames if d not in (".git", "target") and not os.path.islink(os.path.join(dirpath, d))] if depth < MAX_DEPTH - 1 else []
-        if "Cargo.toml" in filenames and depth + 1 <= MAX_DEPTH:
-            t = os.path.join(dirpath, "target")
-            if os.path.islink(t):
-                links.append(t)
-            elif os.path.isdir(t):
-                found.append(t)
+        dirnames[:] = [d for d in dirnames if d not in skip and not os.path.islink(os.path.join(dirpath, d))] if depth < MAX_DEPTH - 1 else []
+        for name, marker in kinds:
+            if marker in filenames:
+                t = os.path.join(dirpath, name)
+                if os.path.islink(t):
+                    links.append(t)
+                elif os.path.isdir(t):
+                    found.append(t)
     return found, links
 
 
@@ -191,6 +199,19 @@ def lock_held(locks: list[str]) -> tuple[bool, list[int]]:
     return False, fds
 
 
+def tracked(path: str) -> None:
+    """Unknown when git tracks a file under `path`, or cannot say: build output is ignored output, so a tracked file is source
+    that happens to live under that name."""
+    try:
+        r = vcs.run(os.path.dirname(path), "ls-files", "-z", "--", os.path.basename(path), check=False, timeout=TRACKED_TIMEOUT_S)
+    except vcs.VcsError as e:
+        raise Unknown(f"git cannot be asked what it tracks ({e})") from None
+    if r.returncode != 0:
+        raise Unknown(f"git cannot be asked what it tracks (exit {r.returncode})")
+    if r.stdout:
+        raise Unknown("git tracks files under it")
+
+
 def overlaps(path: str, root: str) -> bool:
     """Whether `path` is the root, inside it or above it: a checkout that is any of these is not the job's to clear."""
     return path == root or inside(path, root) or inside(root, path)
@@ -236,7 +257,17 @@ def clean_targets(worktree: str | None, working_copy: str | None, others: tuple[
 
 
 def one(target: str, root: str, dev: int, cwds: list[str], why_blind: str) -> str:
+    return judge(target, root, dev, cwds, why_blind)[0]
+
+
+def judge(target: str, root: str, dev: int, cwds: list[str], why_blind: str, dry_run: bool = False) -> tuple[str, int]:
+    """(the line for one build-output directory, the bytes freed). A dry run says "would remove" after every check a removal
+    makes, the lock included."""
     fds: list[int] = []
+    cargo = os.path.basename(target) == "target"
+
+    def kept(why: str) -> tuple[str, int]:
+        return f"kept {target}: {why}", 0
     try:
         if why_blind:
             raise Unknown(why_blind)
@@ -244,20 +275,25 @@ def one(target: str, root: str, dev: int, cwds: list[str], why_blind: str) -> st
             raise Unknown("another filesystem")
         real = os.path.realpath(target)
         if any(c == real or inside(c, real) for c in cwds):
-            return f"kept {target}: a process of this uid stands in it"
-        outside = outside_config(target, root)
-        if outside:
-            return f"kept {target}: a cargo configuration sends the target directory to {outside}"
+            return kept("a process of this uid stands in it")
+        tracked(target)
+        if cargo:
+            outside = outside_config(target, root)
+            if outside:
+                return kept(f"a cargo configuration sends the target directory to {outside}")
         size, locks = scan(target, dev)
-        held, fds = lock_held(locks)
-        if held:
-            return f"kept {target}: its .cargo-lock is held, a build is running"
+        if cargo:
+            held, fds = lock_held(locks)
+            if held:
+                return kept("its .cargo-lock is held, a build is running")
+        if dry_run:
+            return f"would remove {target} ({human(size)})", size
         shutil.rmtree(target)
-        return f"removed {target} ({human(size)})"
+        return f"removed {target} ({human(size)})", size
     except Unknown as e:
-        return f"kept {target}: {e}"
+        return kept(str(e))
     except OSError as e:
-        return f"warning: {target} not removed: {e.strerror or e} ({e.filename})"
+        return f"warning: {target} not removed: {e.strerror or e} ({e.filename})", 0
     finally:
         for fd in fds:
             os.close(fd)
