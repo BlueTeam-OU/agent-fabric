@@ -33,8 +33,12 @@ class Unreadable(Exception):
 
 def held_paths() -> dict[str, str] | None:
     """{real path: job id} of every worktree and working copy an open job names; None when there is no job list at all."""
-    if not os.path.exists(identity.jobs_path()):      # not read_jobs' empty list: absent is unknown, an empty file is a fact
+    try:
+        os.stat(identity.jobs_path())      # follows a link: a dangling one is absent
+    except FileNotFoundError:      # not read_jobs' empty list: absent is unknown, an empty list that is there is a fact
         return None
+    except OSError as e:
+        raise Unreadable(f"the job list cannot be read ({e.strerror or e})") from None
     try:
         doc = identity.read_jobs()
     except (SystemExit, OSError) as e:      # read_jobs refuses a corrupt list or another host's with SystemExit

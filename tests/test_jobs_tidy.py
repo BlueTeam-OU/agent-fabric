@@ -341,6 +341,15 @@ def main() -> int:
         check("…positive control: an empty list that is there (a new account) tidies the closed tree, path on the first line",
               rc == 0 and not os.path.exists(os.path.join(t, "target")) and out.splitlines()[0] == f"job list: {jobs_file}", out + err)
         os.unlink(jobs_file + ".away")
+        t = tree("target/debug/a.o")
+        listing()
+        sdir = os.path.dirname(jobs_file)
+        os.chmod(sdir, 0)
+        try:
+            rc, out, err = tidy()
+        finally:
+            os.chmod(sdir, 0o755)
+        check("…a list that cannot be statted is unreadable, not absent: exit 1, said so", rc == 1 and os.path.isdir(os.path.join(t, "target")) and "cannot be read" in err and "does not exist" not in err, out + err)
 
     print(f"{'FAILED' if fails else 'all ok'}: {fails} failed")
     return 1 if fails else 0
