@@ -98,9 +98,9 @@ window, the pairs, the counts, the rollback drill) is unchanged.
 
 The owner, 2026-10-27, on reading that InterWeave is one host only by
 ADR-064 rule 1: "that is not a rule, is a first milestone". The fleet
-is to move agents to remote hosts (the first likely edge-hosting), and
-the control plane is to ride InterWeave through its command-line
-client for that (agent-fabric j422). §2's one-host bullet and rule 1
+is to move agents to remote hosts (the first likely edge-hosting). Whether
+the control plane rides InterWeave is agent-fabric j422's question;
+rule 12 stands until its own amendment. §2's lead and one-host bullet, rule 1 and §7
 now call one host the first milestone and a second host the next,
 opened by an amendment naming the host, routable roster addresses and
 how InterWeave ADR-0034 §7 and SPIKE-004's limits are consumed or
