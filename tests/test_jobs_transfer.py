@@ -70,15 +70,22 @@ def main() -> int:
         check("the document names format, version, agent, seq and every job",
               doc["format"] == "fabric-jobs-export" and doc["version"] == 1 and doc["seq"] == 6 and len(doc["jobs"]) == 6 and doc["agent"], list(doc))
         check("every state is in it", {j["state"] for j in doc["jobs"]} == {"queued", "blocked", "paused", "dropped", "done"}, [j["state"] for j in doc["jobs"]])
-        # The blocker cache (<state dir>/jobs-blockers.json) is what `block` and `list` learned from gh and the journal: a cache of the
-        # host's, not job state, and not exported. Without it both lists read the blockers as not yet checked.
+        # What `block` learned from gh and the journal is in the blocker cache; seen_open is the memory a destination cannot re-derive.
         (cache,) = [os.path.join(d, "jobs-blockers.json") for d, _, fs in os.walk(os.path.join(tmp, "src")) if "jobs-blockers.json" in fs]
-        os.remove(cache)
+        with open(cache, encoding="utf-8") as fh:
+            entries = json.load(fh)
+        entries["job:someone/j2"]["seen_open"] = True
+        with open(cache, "w", encoding="utf-8") as fh:
+            json.dump(entries, fh)
+        exported = run("src", "export")
         before = run("src", *listing).stdout
         got = run("dst", "import", stdin=exported.stdout)
         check("import into a fresh state dir exits 0 and says how many", got.returncode == 0 and b"imported 6 jobs" in got.stdout, got)
         after = run("dst", *listing)
         check("list --all --json is byte for byte the same", after.stdout == before and before != b"", (after.stderr, len(before), len(after.stdout)))
+        (dcache,) = [os.path.join(d, "jobs-blockers.json") for d, _, fs in os.walk(os.path.join(tmp, "dst")) if "jobs-blockers.json" in fs]
+        with open(dcache, encoding="utf-8") as fh:
+            check("the blocker cache's entries came with the jobs, seen_open included", json.load(fh) == entries)
         check("export of the copy is the document it was made from", run("dst", "export").stdout == exported.stdout)
         added = ok("dst", "add", "after the move")
         check("the next id continues the counter", b"j7" in added, added)
@@ -91,6 +98,10 @@ def main() -> int:
             r = run(side, "import", stdin=payload)
             lines = r.stderr.decode().strip().splitlines()
             check(label, r.returncode == 1 and len(lines) == 1 and needle in lines[0] and r.stdout == b"", (r.returncode, r.stderr))
+            # A refusal that came after a write would still exit 1 with one line: the list file itself must be empty or absent.
+            written = [os.path.join(d, "jobs.json") for d, _, fs in os.walk(os.path.join(tmp, side)) if "jobs.json" in fs]
+            if side not in ("dst", "used", "counted"):
+                check("  and the list was not written", not any(json.load(open(w, encoding="utf-8"))["jobs"] for w in written), written)
 
         def mutated(**changes) -> bytes:
             return json.dumps({**doc, **changes}).encode()
@@ -126,6 +137,13 @@ def main() -> int:
         refused("two active jobs", "e16", mutated(jobs=[{**doc["jobs"][0], "state": "active"}, {**doc["jobs"][1], "state": "active"}]), "more than one active")
         refused("a last that is not listed", "e17", mutated(last="j99"), "last job")
         refused("a job id that is not jN", "e18", mutated(jobs=[{**doc["jobs"][0], "id": "x1"}]), "no id")
+        refused("a control character in a title", "e23", mutated(jobs=[{**doc["jobs"][0], "title": "a \x1b[2J b"}]), "control character")
+        refused("a control character in a topic", "e24", mutated(jobs=[{**doc["jobs"][0], "topic": "a\x07"}]), "control character")
+        refused("a title of white space", "e25", mutated(jobs=[{**doc["jobs"][0], "title": "  "}]), "no title")
+        refused("a working_copy that is not text", "e26", mutated(jobs=[{**doc["jobs"][0], "working_copy": 5}]), "working_copy")
+        refused("blockers that are not strings", "e27", mutated(jobs=[{**doc["jobs"][0], "blockers": [1]}]), "blockers")
+        refused("a time that is not a time", "e28", mutated(jobs=[{**doc["jobs"][0], "created": "x"}]), "created time")
+        refused("a blocker_cache that is not entries", "e29", mutated(blocker_cache={"a": 1}), "blocker_cache")
         refused("artifacts that are not strings", "e19", mutated(jobs=[{**doc["jobs"][0], "artifacts": [1]}]), "artifacts")
         check("a refused import wrote nothing", not os.path.exists(os.path.join(tmp, "e9", "agents")) or json.loads(run("e9", "export").stdout)["jobs"] == [])
         check("positive control: the unmodified document imports", run("e20", "import", stdin=exported.stdout).returncode == 0)

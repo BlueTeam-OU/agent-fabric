@@ -82,10 +82,11 @@ unless the job already has another branch of its own (it keeps that) or a pull r
 below): the job-copy guard then sees a job copy.
 
 `export` and `import` move the list to another host (the j422 design, gap F2): export prints this login's whole list, every state,
-as one JSON document (format fabric-jobs-export, version 1: agent, seq, last, jobs) and no secret, in UTF-8, nothing needing a tty; import
+as one JSON document (format fabric-jobs-export, version 1: agent, host, seq, last, jobs, blocker_cache — the blocker cache's entries for the specs the jobs name, whose
+seen_open memory the destination cannot re-derive; the source host is recorded, not applied) and no secret, in UTF-8, nothing needing a tty; import
 reads it on stdin into an EMPTY list of the same login and keeps every id, so job:<login>/jN, blockers and a REQUEST's intake stay valid.
 Each refusal is one line and changes nothing: a list that has a job or a used id counter, another login's document, a version or format
-this tool does not know, a document that is not valid JSON or fails the checks on its jobs. Job state stays runtime state, never in git.
+this tool does not know, a document that is not valid JSON or fails the checks on its jobs (types, times, and the control characters `add` refuses in a title). Job state stays runtime state, never in git.
 
 A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
 normal when none was set, and in a list written before priorities
